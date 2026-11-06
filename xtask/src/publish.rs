@@ -44,8 +44,8 @@
 //!    root's, and the notice every third-party file in it needs: for each
 //!    sidecar entry with a file in the list, a notice in LICENSES/ must be
 //!    in the crate's own LICENSES/, byte for byte the root's, with each text
-//!    its [text] entry `needs`, and a notice that is another file must be in
-//!    the list;
+//!    its [text] entry `needs`, a notice that is another file must be in the
+//!    list, and so must each file a notice in prose names beside them;
 //! 6. no published crate ships a file of a sidecar entry whose status is one
 //!    of [`UNSETTLED`]: without `--release` each is printed and the check
 //!    still passes, since what is missing is a decision, not a change to
@@ -1601,10 +1601,24 @@ pub fn check(
                     e.status
                 ));
             }
-            if hit.is_empty() || !is_path(&e.notice) {
+            if hit.is_empty() {
                 continue;
             }
             let first = &src[hit[0]];
+            // A notice in prose names the texts beside its files.
+            for name in third_party::named_beside(&e.notice) {
+                let beside = hit[0]
+                    .rsplit_once('/')
+                    .map_or(name.to_string(), |(dir, _)| format!("{dir}/{name}"));
+                if !src.contains_key(&beside) {
+                    errs.push(format!(
+                        "{n}: ships {first} ({what}) without its notice {beside}"
+                    ));
+                }
+            }
+            if !is_path(&e.notice) {
+                continue;
+            }
             if let Some(name) = e.notice.strip_prefix("LICENSES/") {
                 // A text another names as part of its notice goes with it.
                 let needs = strings(

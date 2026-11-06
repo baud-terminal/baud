@@ -128,9 +128,8 @@ text sits beside the files it covers or in [LICENSES/](LICENSES/).
 
 baud is free to use for anything that is not commercial, under Creative
 Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA
-4.0); see [LICENSE](LICENSE). The fonts and the
-third-party files the research and tests hold are under their own licences:
-LICENSE names the files it does not cover, and
-[THIRD_PARTY.md](THIRD_PARTY.md) lists each with its licence and source.
+4.0); see [LICENSE](LICENSE). Fonts and other projects' files keep their own
+licences, which sit next to them or in [LICENSES/](LICENSES/), and
+[THIRD_PARTY.md](THIRD_PARTY.md) lists each one with its licence and source.
 [Licensing](docs/guide/licensing.md) covers sponsorship and how to arrange a
 commercial licence.

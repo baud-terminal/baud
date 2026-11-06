@@ -191,7 +191,10 @@ mod checks {
             licence.contains("Copyright (c) 2026 i-am-logger"),
             "the holder"
         );
-        assert!(licence.contains("CC BY-NC-SA 4.0"), "the licence");
+        assert!(
+            licence.contains("Creative Commons Attribution-NonCommercial-ShareAlike 4.0"),
+            "the licence"
+        );
 
         // **What each frame lasts is the file's, as baud's own decoder reads
         // it**: AppKit's durations are what a tick steps by, and a clamped

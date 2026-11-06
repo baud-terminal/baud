@@ -8,8 +8,12 @@
 #     group names a file the manifest does not hold as `retrieved`;
 #   - a file in LICENSES/ has no [text] entry, or no longer hashes to it, or an
 #     entry names a file that is not there, or a text nothing here cites;
-#   - a `notice` or a [[tree]] path names a file that does not exist, or so
-#     does a path LICENSE writes from the repository root;
+#   - a `notice` or a [[tree]] path names a file that does not exist;
+#   - LICENSE is more than the Creative Commons text, or a README stops saying
+#     that fonts and other projects' files keep their own licences;
+#   - a font in the tree has no row (baud's own go under `own`), a file of a
+#     font package has none and is not its notice, or a third-party font's
+#     notice is not in its directory;
 #   - THIRD_PARTY.md is not what this file and the manifest generate.
 #
 # So a source added to the manifest needs its row here in the same commit.
@@ -1486,7 +1490,7 @@ files   = [
 
 [[tree]]
 what     = "JetBrains Mono 2.304, embedded in the app, unmodified"
-paths    = ["baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf", "baud-app/fonts/jetbrains-mono/AUTHORS.txt"]
+paths    = ["baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf", "baud-app/fonts/jetbrains-mono/AUTHORS.txt", "baud-app/fonts/jetbrains-mono/SOURCE"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/jetbrains-mono/OFL.txt"
 upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
@@ -1512,7 +1516,7 @@ status   = "kept"
 
 [[tree]]
 what     = "STIX Two Math 2.13 b171, embedded in the app, unmodified"
-paths    = ["baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf"]
+paths    = ["baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf", "baud-app/fonts/stix-two-math/SOURCE"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/stix-two-math/OFL.txt"
 upstream = "https://github.com/stipub/stixfonts/tree/v2.13b171"
@@ -1522,7 +1526,27 @@ holder   = "The STIX Fonts Project Authors"
 
 [[tree]]
 what     = "Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
-paths    = ["baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf", "baud-app/fonts/symbols-nerd-font/README.md", "baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE"]
+paths    = [
+  "baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf",
+  "baud-app/fonts/symbols-nerd-font/README.md",
+  "baud-app/fonts/symbols-nerd-font/SOURCE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/Apache-2.0.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/devicons/LICENSE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/devicons/vorillaz/README.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/extraglyphs/LICENSE.md",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome-extension/LICENCE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome/LICENSE.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/octicons/LICENSE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/pomicons/LICENSE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/power-symbols-iec/LICENSE.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/powerline-extra/LICENSE",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/powerline-symbols/LICENSE.txt",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/seti-ui/LICENSE.md",
+  "baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt",
+]
 licence  = "MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense"
 notice   = "baud-app/fonts/symbols-nerd-font/LICENSE"
 upstream = "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1"
@@ -1532,7 +1556,7 @@ holder   = "Ryan L McIntyre (Nerd Fonts), and each icon set's authors"
 
 [[tree]]
 what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL"
-paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
+paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt", "baud-app/fonts/built/MANIFEST"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/built/OFL.txt"
 upstream = "https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari"
@@ -1543,7 +1567,7 @@ from     = ["https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304", "h
 
 [[tree]]
 what     = "Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them)"
-paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json"]
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json", "baud-app/fonts/glyphs/languages/hebrew/SOURCE"]
 licence  = "OFL-1.1"
 notice   = "baud-app/fonts/glyphs/languages/hebrew/OFL.txt"
 upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
@@ -1638,6 +1662,50 @@ licence  = "OFL-1.1"
 notice   = "baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt"
 upstream = "https://github.com/googlefonts/noto-emoji; the notice is the repository's root LICENSE at 8998f5dd683424a73e2314a8c1f1e359c19e8742, with its copyright line"
 status   = "kept"
+
+[[tree]]
+what     = "The test fonts baud wrote from nothing, by baud-font's tests and tools/baud-oracle (baud-font/tests/licences.rs names what writes each), and the note saying so beside sbix-strikes.ttf: no third-party data, under the repository's licence"
+paths    = [
+  "baud-font/tests/bitmap/cblc-cases.ttf",
+  "baud-font/tests/fonts/sbix-strikes.ttf",
+  "baud-font/tests/var/bake/cases-250.ttf",
+  "baud-font/tests/var/bake/cases-550.ttf",
+  "baud-font/tests/var/bake/cases-700.ttf",
+  "baud-font/tests/var/bake/cases-875.ttf",
+  "baud-font/tests/var/bake/cases.ttf",
+  "baud-font/tests/var/bearing-cases-bit1.ttf",
+  "baud-font/tests/var/bearing-cases.ttf",
+  "baud-font/tests/var/budget-cases.ttf",
+  "baud-font/tests/var/cff2-cases.otf",
+  "baud-font/tests/var/colour-refused-cases.ttf",
+  "baud-font/tests/var/component-cases.ttf",
+  "baud-font/tests/var/gvar-cases.ttf",
+  "baud-font/tests/var/hvar/bad-data.ttf",
+  "baud-font/tests/var/hvar/bad-lsb-map.ttf",
+  "baud-font/tests/var/hvar/bad-map.ttf",
+  "baud-font/tests/var/hvar/bad-regions.ttf",
+  "baud-font/tests/var/hvar/bad-store.ttf",
+  "baud-font/tests/var/hvar/bad-version.ttf",
+  "baud-font/tests/var/hvar/bad-words.ttf",
+  "baud-font/tests/var/hvar/cases.ttf",
+  "baud-font/tests/var/hvar/map-f1-w3-i12.ttf",
+  "baud-font/tests/var/hvar/map-f7.ttf",
+  "baud-font/tests/var/hvar/map-none.ttf",
+  "baud-font/tests/var/hvar/map-w1-i1.ttf",
+  "baud-font/tests/var/hvar/map-w4-i16.ttf",
+  "baud-font/tests/var/hvar/null-data.ttf",
+  "baud-font/tests/var/hvar/null-regions.ttf",
+  "baud-font/tests/var/hvar/null-store.ttf",
+  "baud-font/tests/var/hvar/phantom.ttf",
+  "baud-font/tests/var/ink-cases.ttf",
+  "baud-font/tests/var/joining-cases.ttf",
+  "baud-font/tests/var/vertical-cases.ttf",
+  "baud-font/tests/fonts/sbix-LICENSE.txt",
+]
+licence  = "CC-BY-NC-SA-4.0"
+notice   = "LICENSE"
+upstream = "baud's own tests and tools/baud-oracle"
+status   = "own"
 
 [[tree]]
 what     = "The test helper sfte in trail.rs's test module, ported line for line from sfte's _sfte_render_trail and marked as a port"

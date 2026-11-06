@@ -1,18 +1,17 @@
-//! **Every font in the tree is either baud's own or carved out of the
-//! repository's licence, with its own licence beside it.**
+//! **Every font in the tree is either baud's own or has its row and its own
+//! licence beside it.**
 //!
 //! The SIL Open Font License 1.1, condition 5: "The Font Software, modified or
 //! unmodified, in part or in whole, must be distributed entirely under this
-//! license, and must not be distributed under any other license." The
-//! repository's `LICENSE` is CC BY-NC-SA 4.0, so a third-party font it does
-//! not name as an exception is one it claims to license otherwise -- which
-//! `baud-app/fonts/built/FONTLOG.txt` recorded as a push blocker. And OFL
-//! condition 2 wants the licence with each copy: `var/bake/` held four
-//! instances of JetBrains Mono and no licence until this test said so.
+//! license, and must not be distributed under any other license." So a
+//! third-party font keeps that licence, its text in the font's directory, and
+//! a `[[tree]]` row of `docs/research/third-party.toml` says so. OFL condition
+//! 2 wants the licence with each copy: `var/bake/` held four instances of
+//! JetBrains Mono and no licence until this test said so.
 //!
 //! The fonts baud wrote from scratch are listed by path with the script or
-//! test that writes each, so a new font is a decision someone has to make
-//! here rather than a file that slips under the blanket licence.
+//! test that writes each, and have a row under `own`, so a new font is a
+//! decision someone has to make here rather than a file nobody has classified.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -133,6 +132,72 @@ fn is_own(path: &str) -> bool {
     OWN.iter().any(|(p, _)| *p == path) || path.starts_with(OWN_DIR.0)
 }
 
+/// One `[[tree]]` row of `docs/research/third-party.toml`: what it says about
+/// the paths it lists.
+struct Row {
+    status: String,
+    paths: Vec<String>,
+}
+
+/// The sidecar's `[[tree]]` rows, read line by line: `paths` is an array of
+/// quoted strings on one line or across several.
+fn rows() -> Vec<Row> {
+    let text = fs::read_to_string(root().join("docs/research/third-party.toml"))
+        .expect("third-party.toml");
+    let quoted = |s: &str| -> Vec<String> {
+        s.split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    };
+    let mut out: Vec<Row> = Vec::new();
+    let mut in_paths = false;
+    let mut in_tree = false;
+    for line in text.lines() {
+        if line.starts_with('[') && !in_paths {
+            in_tree = line == "[[tree]]";
+            if in_tree {
+                out.push(Row {
+                    status: String::new(),
+                    paths: Vec::new(),
+                });
+            }
+            continue;
+        }
+        let Some(row) = out.last_mut().filter(|_| in_tree) else {
+            continue;
+        };
+        if in_paths {
+            row.paths.extend(quoted(line));
+            in_paths = !line.trim_end().ends_with(']');
+        } else if line.starts_with("paths") {
+            let value = line.split_once('=').map_or("", |(_, v)| v);
+            row.paths.extend(quoted(value));
+            in_paths = !line.trim_end().ends_with(']');
+        } else if line.starts_with("status") {
+            row.status = quoted(line).into_iter().next().unwrap_or_default();
+        }
+    }
+    // The control: a reader that stopped matching would find no row, and
+    // every font would be wrong or, under a loosened test, none.
+    assert!(out.len() >= 70, "only {} rows read", out.len());
+    assert!(
+        out.iter()
+            .all(|r| !r.status.is_empty() && !r.paths.is_empty()),
+        "a row read with no status or no paths"
+    );
+    out
+}
+
+/// The status of each row that lists `path`.
+fn statuses<'a>(rows: &'a [Row], path: &str) -> Vec<&'a str> {
+    rows.iter()
+        .filter(|r| r.paths.iter().any(|p| p == path))
+        .map(|r| r.status.as_str())
+        .collect()
+}
+
 /// The licence a third-party font carries beside it: in `baud-font/tests`,
 /// `<Family>-LICENSE.txt`, the family being the file name up to its first
 /// `-` (the convention `oracle.rs` already holds the top directory to); in
@@ -153,13 +218,9 @@ fn licence_beside(p: &Path) -> Option<PathBuf> {
 }
 
 #[test]
-fn every_third_party_font_is_carved_out_with_its_licence_beside_it() {
+fn every_third_party_font_has_its_row_and_its_licence_beside_it() {
     let root = root().canonicalize().unwrap();
-    let licence = fs::read_to_string(root.join("LICENSE")).expect("LICENSE");
-    // A path or a directory LICENSE names on a line of its own. A substring
-    // would not do: `baud-font/tests/fonts/` is the prefix of every test
-    // font's path, baud's own among them.
-    let lines: Vec<&str> = licence.lines().map(str::trim).collect();
+    let rows = rows();
     let mut all = Vec::new();
     for d in ["baud-font/tests", "baud-app/fonts"] {
         let dir = root.join(d);
@@ -176,19 +237,22 @@ fn every_third_party_font_is_carved_out_with_its_licence_beside_it() {
     let mut wrong = Vec::new();
     for p in &all {
         let path = rel(p);
-        let dir = format!("{}/", rel(p.parent().unwrap()));
-        let named = lines.iter().any(|l| *l == path || *l == dir);
+        let statuses = statuses(&rows, &path);
         if is_own(&path) {
-            if named {
+            if statuses.as_slice() != ["own"] {
                 wrong.push(format!(
-                    "{path} is baud's own and LICENSE carves it out of baud's licence"
+                    "{path} is baud's own: it needs one row, under `own`, and has {statuses:?}"
                 ));
             }
             continue;
         }
-        if !named {
+        if statuses.is_empty() {
             wrong.push(format!(
-                "{path} is a third-party font and LICENSE does not name it or {dir}"
+                "{path} is a third-party font and no row of third-party.toml names it"
+            ));
+        } else if statuses.contains(&"own") {
+            wrong.push(format!(
+                "{path} is not listed as baud's own, and a row calls it `own`"
             ));
         }
         match licence_beside(p) {
@@ -336,9 +400,11 @@ fn the_icon_sets_licences_travel_with_the_nerd_font() {
     if !bundle.contains("symbols-nerd-font/icon-licences") {
         wrong.push("scripts/bundle-macos.sh does not copy icon-licences/ into the bundle".into());
     }
-    let licence = fs::read_to_string(root.join("LICENSE")).expect("LICENSE");
-    if !licence.contains("icon-licences/") {
-        wrong.push("LICENSE does not name icon-licences/".into());
+    let rows = rows();
+    for f in &present {
+        if statuses(&rows, &format!("{ICON_LICENCES}/{f}")).is_empty() {
+            wrong.push(format!("icon-licences/{f} has no row in third-party.toml"));
+        }
     }
     assert!(
         wrong.is_empty(),
@@ -352,16 +418,14 @@ fn the_icon_sets_licences_travel_with_the_nerd_font() {
 /// (`tools/baud-oracle`) write what HarfBuzz reads out of the test fonts
 /// into `var/*.txt`, one font per line in the first column. A readout of a
 /// third-party font is named by a `[[tree]]` row of
-/// `docs/research/third-party.toml`, or by LICENSE; one that is neither is
-/// third-party data nobody has classified. Only the top-level `var/*.txt`
+/// `docs/research/third-party.toml`; one that is not is third-party data
+/// nobody has classified. Only the top-level `var/*.txt`
 /// readouts are scanned; `var/bake/`, `var/hvar/` and `tests/shape/*.txt`
 /// are not.
 #[test]
 fn every_readout_of_a_third_party_font_has_a_licence_row() {
     let root = root().canonicalize().unwrap();
-    let licence = fs::read_to_string(root.join("LICENSE")).expect("LICENSE");
-    let rows =
-        fs::read_to_string(root.join("docs/research/third-party.toml")).expect("third-party.toml");
+    let rows = rows();
     let mut all = Vec::new();
     fonts(&root.join("baud-font/tests"), &mut all);
     let third: Vec<String> = all
@@ -400,16 +464,11 @@ fn every_readout_of_a_third_party_font_has_a_licence_row() {
         readouts.len()
     );
 
-    let quoted = |path: &str| format!("\"{path}\"");
     let mut wrong = Vec::new();
     for (path, font) in &readouts {
-        let row = rows
-            .lines()
-            .filter(|l| l.starts_with("paths"))
-            .any(|l| l.contains(&quoted(path)));
-        if !row && !licence.contains(path.as_str()) {
+        if statuses(&rows, path).is_empty() {
             wrong.push(format!(
-                "{path} reads {font} and neither a third-party.toml row nor LICENSE names it"
+                "{path} reads {font} and no row of third-party.toml names it"
             ));
         }
     }

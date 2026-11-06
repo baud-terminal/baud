@@ -3250,7 +3250,7 @@ The bake against fontTools' instances (MANIFEST's oracle lines, sha256
 `92cde87d...` and `f3e9be2b...`): `compare` says equal at 400 and 700,
 every table expanded, none left as bytes. They are not committed, and that
 stays open: a third-party font under `baud-font/tests/` needs a
-`third-party.toml` row or LICENSE to name it, and none does. `tests/bake.rs`
+`third-party.toml` row and its licence beside it, and they have neither. `tests/bake.rs`
 reads them from `BAUD_FONTTOOLS_NOTO` and says so when it is unset, so a
 default run does not make this comparison; the build gates on the instances'
 hashes.
@@ -4332,3 +4332,24 @@ red, area 381.5, strict 1,420.5; light 7 and 0, 518.2, 2,189. Those are the film
 own worst, in the same second, 1.54 s in, so the cut adds nothing, and both
 verdicts pass. 11,237 pixels of 614,880 move over 32 levels at the cut in
 dark, 11,021 in light.
+
+## LICENSE is the Creative Commons text, and the rows name the rest
+
+Not timed: no byte path changed. LICENSE holds the Creative Commons text and nothing after the
+legalcode URL. A file that is someone else's is stated by its row in
+`docs/research/third-party.toml`, THIRD_PARTY.md generated from it, its licence beside it or in
+`LICENSES/`, and in a published crate by its NOTICE; the README says so.
+
+**What holds that**, in `cargo xtask third-party --check` and so in `sources`: LICENSE hashes to
+`LICENCE_SHA256`; the two READMEs keep their sentences, the IJG's among them, which every crate used
+to carry through LICENSE and `baud-app/README.md` now does for the binary; every font `git ls-files`
+lists has a row, baud's 34 own under `own`; every file of a font package has a row or is its notice;
+a third-party font's notice is in its directory. `baud-font/tests/licences.rs` holds the same from
+the other side, its `OWN` list against the `own` row. `publish` now also requires a text a notice in
+prose names beside the files, where before it skipped such a notice.
+
+**Red first.** The checks on the rows as they stood: 20 package files and 34 fonts unrowed. Of
+the 20, 18 are the files a read of the old LICENSE against the rows found, the rest
+`hebrew/SOURCE` and `built/MANIFEST`. Every third-party file the old LICENSE named has a row here;
+the same run on the old rows reports the 18. Eight perturbations of the real tree and 18 fixture
+cases each red.

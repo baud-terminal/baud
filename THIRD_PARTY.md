@@ -9,9 +9,9 @@ tree that are someone else's work or carry some of it, as a licence audit of the
 and a sweep of what scripts/gen-* and scripts/extract-* read and write found them: each file's
 licence, where the notice that licence asks for is, and where it came from. Every file in
 docs/research/sources/ is listed, and the check fails on one that is not. The licence texts the
-files need are in
-[LICENSES/](LICENSES/). LICENSE names the fonts and code copies that its own licence does not
-cover. Each crate published to crates.io carries LICENSE, in its own LICENSES/ the texts its
+files need are beside them or in
+[LICENSES/](LICENSES/), and this file lists them; LICENSE is the Creative Commons text alone.
+Each crate published to crates.io carries LICENSE, in its own LICENSES/ the texts its
 files need, as links to these, and a NOTICE generated from the same rows that names its
 third-party files by their paths in the crate, which `cargo xtask publish` checks. Nothing here is legal
 advice; where a file's status is a choice still open, this file says so and decides nothing.
@@ -23,8 +23,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 331 | 67 | redistributable, and its notice is satisfied |
-| own | 10 | 7 | the work of baud's author |
-| total | 342 | 75 | |
+| own | 10 | 8 | the work of baud's author |
+| total | 342 | 76 | |
 
 ## Licence texts in LICENSES/
 
@@ -110,7 +110,7 @@ they were built from.
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/jetbrains-mono/OFL.txt](baud-app/fonts/jetbrains-mono/OFL.txt)
 - **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
-- **Files:** [baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf), [baud-app/fonts/jetbrains-mono/AUTHORS.txt](baud-app/fonts/jetbrains-mono/AUTHORS.txt)
+- **Files:** [baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf), [baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf](baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf), [baud-app/fonts/jetbrains-mono/AUTHORS.txt](baud-app/fonts/jetbrains-mono/AUTHORS.txt), [baud-app/fonts/jetbrains-mono/SOURCE](baud-app/fonts/jetbrains-mono/SOURCE)
 
 ### The glyphs of baud's logo files: every lockup's, symbol's and icon's prompt glyph, the Dock icon's, the titlebar mark's and the title bar lockups' among them, JetBrains Mono 2.304 Bold's own outline, and the word of the lockups and of the organisation picture, its Medium's, traced by tools/baud-pictures, with the PNGs drawn from them. The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; what is around them, and the organisation picture's plasma, are baud's own
 
@@ -134,7 +134,7 @@ they were built from.
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/stix-two-math/OFL.txt](baud-app/fonts/stix-two-math/OFL.txt)
 - **From:** https://github.com/stipub/stixfonts/tree/v2.13b171
-- **Files:** [baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf](baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf)
+- **Files:** [baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf](baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf), [baud-app/fonts/stix-two-math/SOURCE](baud-app/fonts/stix-two-math/SOURCE)
 
 ### Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)
 
@@ -142,7 +142,7 @@ they were built from.
 - **Licence:** MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense
 - **Notice:** [baud-app/fonts/symbols-nerd-font/LICENSE](baud-app/fonts/symbols-nerd-font/LICENSE)
 - **From:** https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
-- **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE)
+- **Files:** [baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf](baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf), [baud-app/fonts/symbols-nerd-font/README.md](baud-app/fonts/symbols-nerd-font/README.md), [baud-app/fonts/symbols-nerd-font/SOURCE](baud-app/fonts/symbols-nerd-font/SOURCE), [baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE](baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE), [baud-app/fonts/symbols-nerd-font/icon-licences/Apache-2.0.txt](baud-app/fonts/symbols-nerd-font/icon-licences/Apache-2.0.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt](baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/devicons/LICENSE](baud-app/fonts/symbols-nerd-font/icon-licences/devicons/LICENSE), [baud-app/fonts/symbols-nerd-font/icon-licences/devicons/vorillaz/README.txt](baud-app/fonts/symbols-nerd-font/icon-licences/devicons/vorillaz/README.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/extraglyphs/LICENSE.md](baud-app/fonts/symbols-nerd-font/icon-licences/extraglyphs/LICENSE.md), [baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome-extension/LICENCE](baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome-extension/LICENCE), [baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome/LICENSE.txt](baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome/LICENSE.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE](baud-app/fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE), [baud-app/fonts/symbols-nerd-font/icon-licences/octicons/LICENSE](baud-app/fonts/symbols-nerd-font/icon-licences/octicons/LICENSE), [baud-app/fonts/symbols-nerd-font/icon-licences/pomicons/LICENSE](baud-app/fonts/symbols-nerd-font/icon-licences/pomicons/LICENSE), [baud-app/fonts/symbols-nerd-font/icon-licences/power-symbols-iec/LICENSE.txt](baud-app/fonts/symbols-nerd-font/icon-licences/power-symbols-iec/LICENSE.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/powerline-extra/LICENSE](baud-app/fonts/symbols-nerd-font/icon-licences/powerline-extra/LICENSE), [baud-app/fonts/symbols-nerd-font/icon-licences/powerline-symbols/LICENSE.txt](baud-app/fonts/symbols-nerd-font/icon-licences/powerline-symbols/LICENSE.txt), [baud-app/fonts/symbols-nerd-font/icon-licences/seti-ui/LICENSE.md](baud-app/fonts/symbols-nerd-font/icon-licences/seti-ui/LICENSE.md), [baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt](baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt)
 
 ### baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL
 
@@ -150,7 +150,7 @@ they were built from.
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/built/OFL.txt](baud-app/fonts/built/OFL.txt)
 - **From:** https://github.com/JetBrains/JetBrainsMono, https://github.com/microsoft/cascadia-code and https://github.com/notofonts/devanagari
-- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt)
+- **Files:** [baud-app/fonts/built/Regular.ttf](baud-app/fonts/built/Regular.ttf), [baud-app/fonts/built/Bold.ttf](baud-app/fonts/built/Bold.ttf), [baud-app/fonts/built/Italic.ttf](baud-app/fonts/built/Italic.ttf), [baud-app/fonts/built/BoldItalic.ttf](baud-app/fonts/built/BoldItalic.ttf), [baud-app/fonts/built/FONTLOG.txt](baud-app/fonts/built/FONTLOG.txt), [baud-app/fonts/built/AUTHORS.txt](baud-app/fonts/built/AUTHORS.txt), [baud-app/fonts/built/MANIFEST](baud-app/fonts/built/MANIFEST)
 
 ### Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them)
 
@@ -158,7 +158,7 @@ they were built from.
 - **Licence:** OFL-1.1
 - **Notice:** [baud-app/fonts/glyphs/languages/hebrew/OFL.txt](baud-app/fonts/glyphs/languages/hebrew/OFL.txt)
 - **From:** https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
-- **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json)
+- **Files:** [baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf](baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf), [baud-app/fonts/glyphs/languages/hebrew/anchors-400.json](baud-app/fonts/glyphs/languages/hebrew/anchors-400.json), [baud-app/fonts/glyphs/languages/hebrew/anchors-700.json](baud-app/fonts/glyphs/languages/hebrew/anchors-700.json), [baud-app/fonts/glyphs/languages/hebrew/SOURCE](baud-app/fonts/glyphs/languages/hebrew/SOURCE)
 
 ### The Hebrew stage's sources, one per style: the glyphs, anchors, lookups, GDEF classes and the name and OS/2 edits the Hebrew stage adds to stock JetBrains Mono, read out of the stage fonts the earlier parametric build wrote, and merged into stock JetBrains Mono by tools/baud-fontbuild's stage. The glyphs are drawn from Cascadia Mono, and the name records carry JetBrains Mono's and Cascadia Mono's notices: data read out of both fonts, so part of each font's Font Software, under each font's OFL 1.1 (the two OFL texts beside them, copies of hebrew/OFL.txt and jetbrains-mono/OFL.txt). The Rust that reads and merges them is baud's own, under the repository's licence
 
@@ -647,6 +647,14 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build
 - **Files:** [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
+
+### The test fonts baud wrote from nothing, by baud-font's tests and tools/baud-oracle (baud-font/tests/licences.rs names what writes each), and the note saying so beside sbix-strikes.ttf: no third-party data, under the repository's licence
+
+- **Status:** own -- the work of baud's author
+- **Licence:** CC-BY-NC-SA-4.0
+- **Notice:** [LICENSE](LICENSE)
+- **From:** baud's own tests and tools/baud-oracle
+- **Files:** [baud-font/tests/bitmap/cblc-cases.ttf](baud-font/tests/bitmap/cblc-cases.ttf), [baud-font/tests/fonts/sbix-strikes.ttf](baud-font/tests/fonts/sbix-strikes.ttf), [baud-font/tests/var/bake/cases-250.ttf](baud-font/tests/var/bake/cases-250.ttf), [baud-font/tests/var/bake/cases-550.ttf](baud-font/tests/var/bake/cases-550.ttf), [baud-font/tests/var/bake/cases-700.ttf](baud-font/tests/var/bake/cases-700.ttf), [baud-font/tests/var/bake/cases-875.ttf](baud-font/tests/var/bake/cases-875.ttf), [baud-font/tests/var/bake/cases.ttf](baud-font/tests/var/bake/cases.ttf), [baud-font/tests/var/bearing-cases-bit1.ttf](baud-font/tests/var/bearing-cases-bit1.ttf), [baud-font/tests/var/bearing-cases.ttf](baud-font/tests/var/bearing-cases.ttf), [baud-font/tests/var/budget-cases.ttf](baud-font/tests/var/budget-cases.ttf), [baud-font/tests/var/cff2-cases.otf](baud-font/tests/var/cff2-cases.otf), [baud-font/tests/var/colour-refused-cases.ttf](baud-font/tests/var/colour-refused-cases.ttf), [baud-font/tests/var/component-cases.ttf](baud-font/tests/var/component-cases.ttf), [baud-font/tests/var/gvar-cases.ttf](baud-font/tests/var/gvar-cases.ttf), [baud-font/tests/var/hvar/bad-data.ttf](baud-font/tests/var/hvar/bad-data.ttf), [baud-font/tests/var/hvar/bad-lsb-map.ttf](baud-font/tests/var/hvar/bad-lsb-map.ttf), [baud-font/tests/var/hvar/bad-map.ttf](baud-font/tests/var/hvar/bad-map.ttf), [baud-font/tests/var/hvar/bad-regions.ttf](baud-font/tests/var/hvar/bad-regions.ttf), [baud-font/tests/var/hvar/bad-store.ttf](baud-font/tests/var/hvar/bad-store.ttf), [baud-font/tests/var/hvar/bad-version.ttf](baud-font/tests/var/hvar/bad-version.ttf), [baud-font/tests/var/hvar/bad-words.ttf](baud-font/tests/var/hvar/bad-words.ttf), [baud-font/tests/var/hvar/cases.ttf](baud-font/tests/var/hvar/cases.ttf), [baud-font/tests/var/hvar/map-f1-w3-i12.ttf](baud-font/tests/var/hvar/map-f1-w3-i12.ttf), [baud-font/tests/var/hvar/map-f7.ttf](baud-font/tests/var/hvar/map-f7.ttf), [baud-font/tests/var/hvar/map-none.ttf](baud-font/tests/var/hvar/map-none.ttf), [baud-font/tests/var/hvar/map-w1-i1.ttf](baud-font/tests/var/hvar/map-w1-i1.ttf), [baud-font/tests/var/hvar/map-w4-i16.ttf](baud-font/tests/var/hvar/map-w4-i16.ttf), [baud-font/tests/var/hvar/null-data.ttf](baud-font/tests/var/hvar/null-data.ttf), [baud-font/tests/var/hvar/null-regions.ttf](baud-font/tests/var/hvar/null-regions.ttf), [baud-font/tests/var/hvar/null-store.ttf](baud-font/tests/var/hvar/null-store.ttf), [baud-font/tests/var/hvar/phantom.ttf](baud-font/tests/var/hvar/phantom.ttf), [baud-font/tests/var/ink-cases.ttf](baud-font/tests/var/ink-cases.ttf), [baud-font/tests/var/joining-cases.ttf](baud-font/tests/var/joining-cases.ttf), [baud-font/tests/var/vertical-cases.ttf](baud-font/tests/var/vertical-cases.ttf), [baud-font/tests/fonts/sbix-LICENSE.txt](baud-font/tests/fonts/sbix-LICENSE.txt)
 
 ### A recording of pipes.sh 1.3.0's output, captured by the script now baud-bench's capture-tui example on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
 

@@ -20,7 +20,8 @@ own outlines, under the SIL Open Font License 1.1
   From:    https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
 
 STIX Two Math 2.13 b171, a math font embedded in the app, unmodified
-  Files:   fonts/stix-two-math/STIXTwoMath-Regular.otf
+  Files:   fonts/stix-two-math/SOURCE,
+           fonts/stix-two-math/STIXTwoMath-Regular.otf
   Holder:  The STIX Fonts Project Authors
   Licence: OFL-1.1
   Notice:  fonts/stix-two-math/OFL.txt
@@ -33,8 +34,24 @@ icon-licences directory holds: OFL-1.1 (Pomicons, Weather Icons, Font
 Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0
 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)
   Files:   fonts/symbols-nerd-font/README.md,
+           fonts/symbols-nerd-font/SOURCE,
            fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf,
-           fonts/symbols-nerd-font/icon-licences/SOURCE
+           fonts/symbols-nerd-font/icon-licences/Apache-2.0.txt,
+           fonts/symbols-nerd-font/icon-licences/SOURCE,
+           fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt,
+           fonts/symbols-nerd-font/icon-licences/devicons/LICENSE,
+           fonts/symbols-nerd-font/icon-licences/devicons/vorillaz/README.txt,
+           fonts/symbols-nerd-font/icon-licences/extraglyphs/LICENSE.md,
+           fonts/symbols-nerd-font/icon-licences/font-awesome-extension/LICENCE,
+           fonts/symbols-nerd-font/icon-licences/font-awesome/LICENSE.txt,
+           fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE,
+           fonts/symbols-nerd-font/icon-licences/octicons/LICENSE,
+           fonts/symbols-nerd-font/icon-licences/pomicons/LICENSE,
+           fonts/symbols-nerd-font/icon-licences/power-symbols-iec/LICENSE.txt,
+           fonts/symbols-nerd-font/icon-licences/powerline-extra/LICENSE,
+           fonts/symbols-nerd-font/icon-licences/powerline-symbols/LICENSE.txt,
+           fonts/symbols-nerd-font/icon-licences/seti-ui/LICENSE.md,
+           fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt
   Holder:  Ryan L McIntyre (Nerd Fonts), and each icon set's authors
   Licence: MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense
   Notice:  fonts/symbols-nerd-font/LICENSE
@@ -48,7 +65,8 @@ the SIL Open Font License 1.1. FONTLOG.txt says what changed against each,
 and AUTHORS.txt names their authors
   Files:   fonts/built/AUTHORS.txt, fonts/built/Bold.ttf,
            fonts/built/BoldItalic.ttf, fonts/built/FONTLOG.txt,
-           fonts/built/Italic.ttf, fonts/built/Regular.ttf
+           fonts/built/Italic.ttf, fonts/built/MANIFEST,
+           fonts/built/Regular.ttf
   Holder:  The JetBrains Mono Project Authors; Microsoft Corporation, with
            Reserved Font Name Cascadia Code; The Noto Project Authors
   Licence: OFL-1.1

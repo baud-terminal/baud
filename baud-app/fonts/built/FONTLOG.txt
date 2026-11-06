@@ -399,7 +399,7 @@ INTERIM PICKS
 
 
 OPEN QUESTIONS
-(nothing here settles them)
+(nothing here settles them; the Licence paragraphs record the answers)
 
 1a  Which vav, yod, zayin and final nun: narrow-letter variant A, B, C, D or E. The
     interim is A, with zayin's head at 300 units since 2026-10-28 (note AC 4e).
@@ -439,12 +439,12 @@ answer of 2026-11-03 confirms.
 The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0").
 OFL condition 5: "The Font Software, modified or unmodified, in part or in whole, must
 be distributed entirely under this license, and must not be distributed under any
-other license." So LICENSE carves the fonts out, in its section "Files this licence
-does not cover": the four built styles with this file, OFL.txt and AUTHORS.txt
-beside them; CascadiaMono.ttf and the two anchors files; the stage sources; and the stock fonts.
-It states both answers above and names tools/baud-fontbuild as under the
-repository's licence. baud-font/tests/licences.rs fails if a font in the tree is neither baud's
-own nor named there with its licence beside it.
+other license." So the fonts keep their own licences, which sit next to them: the four
+built styles with this file, OFL.txt and AUTHORS.txt beside them; CascadiaMono.ttf and
+the two anchors files; the stage sources; and the stock fonts. THIRD_PARTY.md lists
+each with its licence and source. baud-font/tests/licences.rs fails if a font in the
+tree is neither baud's own nor in a row of docs/research/third-party.toml with its
+licence beside it.
 
 Name. Decision 11 in note AC is the family's name. It may not use the Reserved Font
 Name Cascadia Code, nor either of its words (SIL's OFL-FAQ 1.1-update7, Q5.4: "You may

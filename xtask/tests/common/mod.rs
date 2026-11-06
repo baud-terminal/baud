@@ -10,6 +10,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use xtask::sha256;
@@ -35,6 +36,18 @@ pub const CITED: usize = 50;
 pub const DOC: &str = "the cited document\n";
 pub const MIT: &str = "MIT License\n\nPermission is hereby granted.\n";
 pub const CC_BY: &str = "https://creativecommons.org/licenses/by/4.0/";
+/// The repository's LICENSE: the one text the gate accepts.
+pub const LICENCE: &str = include_str!("../../../LICENSE");
+/// The fixture's fonts and font packages: the floors of the row checks.
+pub const FONTS: usize = 50;
+pub const PACKAGES: usize = 5;
+/// What the READMEs must say, as a reader sees it, line breaks included.
+pub const README: &str = "# baud\n\nFonts and other projects' files keep their own licences,\n\
+    which sit next to them or in LICENSES/, and [THIRD_PARTY.md](THIRD_PARTY.md) lists each\n\
+    one with its licence and source.\n\n\
+    - This software is based in part on the work of the\n  Independent JPEG Group.\n";
+pub const APP_README: &str =
+    "# baud\n\nThis software is based in part on the work of the Independent JPEG Group.\n";
 
 pub fn cite(key: &str) -> String {
     format!("[[source: {key}]]")
@@ -82,19 +95,31 @@ pub fn sidecar() -> String {
          [[tree]]\nwhat     = \"A picture under CC BY\"\nlicence  = \"CC-BY-4.0\"\nnotice   = \"in file\"\n\
          upstream = \"https://example.org/pic\"\nstatus   = \"kept\"\npaths    = [\"assets/pic.txt\"]\n\n\
          [[tree]]\nwhat     = \"A transcribed font file\"\nlicence  = \"MIT\"\nnotice   = \"LICENSES/MIT.txt\"\n\
-         upstream = \"https://example.org/font\"\nstatus   = \"kept\"\npaths    = [\"baud-font/src/f00.rs\"]\n",
-        sha256::hex(MIT.as_bytes())
+         upstream = \"https://example.org/font\"\nstatus   = \"kept\"\npaths    = [\"baud-font/src/f00.rs\"]\n{}",
+        sha256::hex(MIT.as_bytes()),
+        font_rows()
     )
 }
 
-fn licence() -> String {
-    let mut l = String::from("baud's licence.\n\n");
-    for n in 0..30 {
-        l.push_str(&format!(
-            "The file assets/p{n:02}.txt is the project's own.\n"
+/// The rows of the fixture's fonts: baud's own under one, and each font
+/// package's under its own.
+fn font_rows() -> String {
+    let own: Vec<String> = (0..FONTS)
+        .map(|n| format!("\"fonts/own/o{n:02}.ttf\""))
+        .collect();
+    let mut s = format!(
+        "\n[[tree]]\nwhat     = \"Fonts baud wrote\"\nlicence  = \"CC-BY-NC-SA-4.0\"\nnotice   = \"LICENSE\"\n\
+         upstream = \"baud\"\nstatus   = \"own\"\npaths    = [{}]\n",
+        own.join(", ")
+    );
+    for n in 0..PACKAGES {
+        s.push_str(&format!(
+            "\n[[tree]]\nwhat     = \"Package {n}\"\nlicence  = \"OFL-1.1\"\nnotice   = \"fonts/pkg{n}/OFL.txt\"\n\
+             upstream = \"https://example.org/{n}\"\nstatus   = \"kept\"\n\
+             paths    = [\"fonts/pkg{n}/Font.ttf\", \"fonts/pkg{n}/SOURCE\"]\n"
         ));
     }
-    l
+    s
 }
 
 fn provenance() -> String {
@@ -150,20 +175,36 @@ impl Tree {
         }
     }
 
+    /// Puts the tree in the index: the row checks read `git ls-files`.
+    fn stage(&self) {
+        for args in [&["init", "-q"][..], &["add", "-A"][..]] {
+            let mut git = Command::new("git");
+            git.current_dir(&self.0).args(args);
+            for v in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"] {
+                git.env_remove(v);
+            }
+            let out = git.output().expect("git");
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        }
+    }
+
     /// THIRD_PARTY.md as the generator writes it for this tree.
     pub fn regenerate(&self) {
+        self.stage();
         let mut out = Vec::new();
         let o = third_party::run(&self.0, Mode::Write, &mut out).expect("a run");
         assert_eq!(o, Outcome::Passed, "{}", String::from_utf8_lossy(&out));
     }
 
     pub fn sources(&self) -> (Outcome, String) {
+        self.stage();
         let mut out = Vec::new();
         let o = xtask::sources::run(&self.0, &mut out).expect("a run");
         (o, String::from_utf8(out).expect("UTF-8"))
     }
 
     pub fn third_party(&self) -> (Outcome, String) {
+        self.stage();
         let mut out = Vec::new();
         let o = third_party::run(&self.0, Mode::Check, &mut out).expect("a run");
         (o, String::from_utf8(out).expect("UTF-8"))
@@ -182,9 +223,16 @@ pub fn base() -> Tree {
     t.put("docs/research/third-party.toml", &sidecar());
     t.put("docs/notes.md", &notes());
     t.put("LICENSES/MIT.txt", MIT);
-    t.put("LICENSE", &licence());
-    for n in 0..30 {
-        t.put(&format!("assets/p{n:02}.txt"), "own\n");
+    t.put("LICENSE", LICENCE);
+    t.put("README.md", README);
+    t.put("baud-app/README.md", APP_README);
+    for n in 0..FONTS {
+        t.put(&format!("fonts/own/o{n:02}.ttf"), "own\n");
+    }
+    for n in 0..PACKAGES {
+        t.put(&format!("fonts/pkg{n}/Font.ttf"), "a font\n");
+        t.put(&format!("fonts/pkg{n}/OFL.txt"), "SIL OPEN FONT LICENSE\n");
+        t.put(&format!("fonts/pkg{n}/SOURCE"), "where it came from\n");
     }
     t.put(
         "assets/pic.txt",
@@ -643,16 +691,142 @@ pub fn third_party_cases() -> Vec<Case> {
             expect: "  FAIL [[tree]] 0: status 'fine' is not one of ['copyleft', 'kept', 'nc', 'no-grant', 'open', 'own', 'unverified']",
         },
         Case {
-            name: "a path in LICENSE that is not there",
+            name: "LICENSE gaining a line after the URL",
             gate: Gate::ThirdParty,
-            apply: |t| t.append("LICENSE", "See assets/gone.txt.\n"),
-            expect: "  FAIL LICENSE:33 names assets/gone.txt, which does not exist",
+            apply: |t| t.append("LICENSE", "\nFiles this licence does not cover\n"),
+            expect: "  FAIL LICENSE is not the Creative Commons text alone: it hashes ",
         },
         Case {
-            name: "LICENSE naming too few paths",
+            name: "LICENSE one byte different",
             gate: Gate::ThirdParty,
-            apply: |t| t.put("LICENSE", "The file assets/p00.txt.\n"),
-            expect: "  FAIL LICENSE names 1 repository paths, fewer than 30: the match in licence_paths has stopped working, or the floor is stale",
+            apply: |t| t.edit("LICENSE", "(c) 2026", "(c) 2025"),
+            expect: "  FAIL LICENSE is not the Creative Commons text alone: it hashes ",
+        },
+        Case {
+            name: "LICENSE gone",
+            gate: Gate::ThirdParty,
+            apply: |t| t.remove("LICENSE"),
+            expect: "  FAIL LICENSE is missing",
+        },
+        Case {
+            name: "the README losing its sentence on other licences",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    "README.md",
+                    "keep their own licences,\nwhich sit next to them",
+                    "are fine",
+                )
+            },
+            expect: "  FAIL README.md does not say \"Fonts and other projects' files keep their own licences, which sit next to them\"",
+        },
+        Case {
+            name: "the README losing THIRD_PARTY.md",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    "README.md",
+                    "[THIRD_PARTY.md](THIRD_PARTY.md) lists each\none",
+                    "one",
+                )
+            },
+            expect: "  FAIL README.md does not say '[THIRD_PARTY.md](THIRD_PARTY.md) lists each one with its licence and source'",
+        },
+        Case {
+            name: "the README losing the IJG's sentence",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit("README.md", "- This software is based in part on the work of the\n  Independent JPEG Group.\n", "")
+            },
+            expect: "  FAIL README.md does not say 'This software is based in part on the work of the Independent JPEG Group'",
+        },
+        Case {
+            name: "the crate's README losing the IJG's sentence",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("baud-app/README.md", "# baud\n"),
+            expect: "  FAIL baud-app/README.md does not say 'This software is based in part on the work of the Independent JPEG Group'",
+        },
+        Case {
+            name: "a font with no row",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("assets/new.otf", "a font\n"),
+            expect: "  FAIL assets/new.otf is a font and no row of docs/research/third-party.toml names it",
+        },
+        Case {
+            name: "a font whose extension is upper case, with no row",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("assets/NEW.TTF", "a font\n"),
+            expect: "  FAIL assets/NEW.TTF is a font and no row",
+        },
+        Case {
+            name: "a third-party font whose row has no licence",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    S,
+                    "notice   = \"fonts/pkg0/OFL.txt\"",
+                    "notice   = \"none\"",
+                )
+            },
+            expect: "  FAIL [[tree]] 3: fonts/pkg0/Font.ttf is a third-party font and its notice, none, is not beside it",
+        },
+        Case {
+            name: "a third-party font whose licence is elsewhere",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    S,
+                    "notice   = \"fonts/pkg0/OFL.txt\"",
+                    "notice   = \"fonts/pkg1/OFL.txt\"",
+                )
+            },
+            expect: "  FAIL [[tree]] 3: fonts/pkg0/Font.ttf is a third-party font and its notice, fonts/pkg1/OFL.txt, is not beside it",
+        },
+        Case {
+            name: "a font package's licence gone",
+            gate: Gate::ThirdParty,
+            apply: |t| t.remove("fonts/pkg0/OFL.txt"),
+            expect: "  FAIL [[tree]] 3: notice fonts/pkg0/OFL.txt does not exist",
+        },
+        Case {
+            name: "a file in a font package with no row",
+            gate: Gate::ThirdParty,
+            apply: |t| t.put("fonts/pkg0/sets/seti/LICENSE.md", "MIT\n"),
+            expect: "  FAIL fonts/pkg0/sets/seti/LICENSE.md is in a font package and no row of docs/research/third-party.toml names it",
+        },
+        Case {
+            name: "a notice in prose naming a file not beside its row's files",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    S,
+                    "notice   = \"fonts/pkg0/OFL.txt\"",
+                    "notice   = \"the text beside it (Gone-LICENSE.txt)\"",
+                )
+            },
+            expect: "  FAIL [[tree]] 3: its notice names Gone-LICENSE.txt, which is not beside its files in fonts/pkg0",
+        },
+        Case {
+            name: "fewer fonts than the floor",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                for n in 0..10 {
+                    t.remove(&format!("fonts/own/o{n:02}.ttf"));
+                }
+            },
+            expect: "  FAIL the tree lists 45 fonts, fewer than 50: the listing or the match has stopped working, or the floor is stale",
+        },
+        Case {
+            name: "fewer font packages than the floor",
+            gate: Gate::ThirdParty,
+            apply: |t| {
+                t.edit(
+                    S,
+                    "notice   = \"fonts/pkg0/OFL.txt\"",
+                    "notice   = \"LICENSES/MIT.txt\"",
+                )
+            },
+            expect: "  FAIL the rows name 4 font packages, fewer than 5: the match has stopped working, or the floor is stale",
         },
         Case {
             name: "an in-file notice without its URI",

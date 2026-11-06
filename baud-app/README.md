@@ -35,4 +35,5 @@ to use yet ([Status](https://github.com/baud-terminal/baud/blob/master/docs/guid
 
 baud is licensed under CC BY-NC-SA 4.0 (`LICENSE`); the third-party files
 it carries, such as its fonts, keep their own licences beside them, and
-`NOTICE` names each with its licence and where its notice is.
+`NOTICE` names each with its licence and where its notice is. This software is
+based in part on the work of the Independent JPEG Group.

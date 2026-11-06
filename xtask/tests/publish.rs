@@ -250,6 +250,36 @@ fn a_licence_that_is_not_the_roots_and_a_notice_left_out() {
     );
 }
 
+/// A third-party file in a crate with its licence file left out of the crate.
+#[test]
+fn a_row_whose_notice_file_is_not_in_the_crate() {
+    let t = Tree::base();
+    t.edit(
+        "docs/research/third-party.toml",
+        "notice = \"LICENSES/MIT.txt\"\nupstream",
+        "notice = \"c1/gone-LICENSE\"\nupstream",
+    );
+    fires(
+        &t,
+        "FAIL c1: ships vendored.txt (A vendored table) without its notice c1/gone-LICENSE",
+    );
+}
+
+/// The same with a notice in prose, which names the text beside the file.
+#[test]
+fn a_row_whose_notice_in_prose_names_a_file_not_in_the_crate() {
+    let t = Tree::base();
+    t.edit(
+        "docs/research/third-party.toml",
+        "notice = \"LICENSES/MIT.txt\"\nupstream",
+        "notice = \"the text beside it (Gone-LICENSE.txt)\"\nupstream",
+    );
+    fires(
+        &t,
+        "FAIL c1: ships vendored.txt (A vendored table) without its notice c1/Gone-LICENSE.txt",
+    );
+}
+
 #[test]
 fn an_unsettled_row_prints_passes_and_is_refused_at_release() {
     let t = Tree::base();

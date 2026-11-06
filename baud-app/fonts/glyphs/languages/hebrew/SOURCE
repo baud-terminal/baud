@@ -55,7 +55,7 @@ OFL.txt):
       parametric build wrote, by tools/baud-fontbuild's extract, and the stage built from
       them compares equal to those files in every table. That build's modules are
       retired; its rounds, cover glyphs, meteg lookups and italic correction are
-      what the stage sources hold. They are data read out of
+      what the stage sources hold. The stage sources are data read out of
       Cascadia Mono and JetBrains Mono, under each font's OFL beside them
       (CascadiaMono-OFL.txt, a copy of OFL.txt here, and JetBrainsMono-OFL.txt).
   anchors-400.json, anchors-700.json

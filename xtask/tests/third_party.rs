@@ -12,7 +12,7 @@ fn the_base_tree_passes() {
     assert_eq!(o, Outcome::Passed, "{out}");
     assert_eq!(
         out,
-        "  ok   1 sources and 2 other entries indexed, 1 licence texts, 30 LICENSE paths\n"
+        "  ok   1 sources and 8 other entries indexed, 1 licence texts, 55 fonts\n"
     );
 }
 
