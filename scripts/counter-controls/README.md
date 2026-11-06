@@ -35,11 +35,11 @@ xcrun xctrace record --template 'CPU Counters' --output br.trace   --launch -- .
 for t in l1 dram bp br; do
   xcrun xctrace export --input $t.trace \
     --xpath '/trace-toc/run[@number="1"]/data/table[@schema="kdebug-counters-with-time-sample"]' > $t.xml
-  python3 pmc.py $t.xml
+  cargo xtask pmc $t.xml
 done
 ```
 
-`pmc.py` aggregates **consecutive same-core** deltas only. The counters are
+`cargo xtask pmc` aggregates **consecutive same-core** deltas only. The counters are
 per-core and cumulative, so a thread migrating produces a delta that is not
 work: taking max-minus-min across all samples implies an 8.34 GHz clock, and
 this rule gives the machine's actual 4.5.

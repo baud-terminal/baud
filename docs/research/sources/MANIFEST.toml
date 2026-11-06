@@ -159,7 +159,7 @@ group  = "C"
 # with per-glyph positioning, so extraction does yield letter-spaced fragments
 # ("Operat i ng sy st em") -- but that defeats only *exact* phrase search. Strip
 # every non-alphanumeric character from both the text and the needle and every
-# term is found. `scripts/extract-ecma48.py` does this and carries a positive
+# term is found. `cargo xtask pdf-search ecma48` does this and carries a positive
 # control, because the earlier note reasoned from six MISSes without ever
 # checking that a probe could HIT. `--section sgr` prints § 8.3.117 entire.
 # `SGR 20/26/50-65` are implemented from this text, not transcribed by eye.
@@ -2220,8 +2220,9 @@ group  = "B"
 # both 404 or return HTML" -- the live SFU host does, and a bare archive.org
 # lookup does; the `id_` raw-capture form of the snapshot serves the PDF.
 #
-# Positive control on the extracted text, with `scripts/extract-ecma48.py`'s
-# inflater: the title, all seven authors, "Simon Fraser University",
+# Positive control on the extracted text, with `cargo xtask pdf-search parabix
+# --file PATH`, whose Flate reader this was first read with: the title, all
+# seven authors, "Simon Fraser University",
 # "parabix", "bitstream" and "grep" all match; "PACT" and "2014" do **not**,
 # which is what identifies it as the pre-proceedings draft rather than the
 # published version. Cite it as the draft. It is the third leg of the argument
@@ -4081,7 +4082,8 @@ bytes  = 1062494
 status = "retrieved"
 group  = "J"
 # RC4-encrypted with an empty user password: a plain inflater sees zero streams.
-# `scripts/extract-adobe-cff.py` decrypts it and carries the positive control.
+# `cargo xtask pdf-search adobe-5176-cff` decrypts it and carries the positive
+# control.
 
 [sources.adobe-5176-cff-standard-encoding]
 key          = "adobe-5176-cff-standard-encoding"
@@ -7844,6 +7846,42 @@ status = "retrieved"
 group  = "J"
 # The two-byte header (CMF/FLG, 2.2) and the Adler-32 trailer (8.2) around an
 # IDAT stream.
+
+[sources.rfc1321-md5]
+key    = "rfc1321-md5"
+title  = "RFC 1321: The MD5 Message-Digest Algorithm"
+author = "R. Rivest"
+year   = 1992
+venue  = "IETF RFC 1321"
+url    = "https://www.rfc-editor.org/rfc/rfc1321.txt"
+file   = ""
+sha256 = "284a79d148400d9cd2a423211d1103b5cef0fb9256a4cbe6d7ebe5197c3149dd"
+bytes  = 35222
+status = "external"
+group  = "J"
+# Not in the repository: its Appendix A is RSA's reference code under RSA's own
+# licence, which no row here carries. xtask/src/md5.rs is written from 3.1-3.5's
+# description, and A.5's test suite is its first test.
+
+[sources.pdf-reference-1-4]
+key    = "pdf-reference-1-4"
+title  = "PDF Reference, third edition: Adobe Portable Document Format Version 1.4"
+author = "Adobe Systems Incorporated"
+year   = 2001
+venue  = "Adobe Systems"
+url    = "https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.4.pdf"
+file   = ""
+sha256 = "82274239cad9924434a2a4eaccc3b3c8ca2690472422cd96bf38ed14a69c0207"
+bytes  = 9379963
+status = "external"
+group  = "J"
+# Not in the repository: no grant to redistribute it was found. Read through
+# `cargo xtask pdf-search pdf-reference-1-4 --file PATH`, its controls hitting:
+# Algorithm 3.2 (the key from the padding string, O, P low-order byte first and
+# the first ID element; "Rev ision 3 onl y" the 50 rounds), Algorithm 3.1 (the
+# object's key: the low-order 3 bytes of its number and 2 of its generation,
+# n + 5 bytes), Algorithm 3.4 (revision 2's U is the padding string under the
+# key), and the LZWDecode parameter EarlyChange, "Default val ue: 1".
 
 [sources.noto-color-emoji-cbdt]
 key    = "noto-color-emoji-cbdt"

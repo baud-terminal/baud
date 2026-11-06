@@ -535,7 +535,7 @@ fn main() {
 /// with no change to the core. Out of line, the loop is allocated on its own
 /// and the base moved too (`btop` +5.95% a rep, `cat` -0.04%), so per-rep
 /// figures from before this function are not comparable with those after.
-/// `scripts/loop-head.py` compares this function between two binaries.
+/// `cargo xtask loop-head` compares this function between two binaries.
 ///
 /// **The chunk is written into the arena and then parsed, which is what a
 /// `read(2)` does.** Parsing the recording in place instead -- placed once,

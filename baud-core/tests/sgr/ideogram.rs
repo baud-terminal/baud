@@ -8,7 +8,7 @@
 //! that reason alone. Stripping the spacing from both sides finds every one of
 //! them, and § 8.3.117 then defines all six parameters unambiguously.
 //!
-//! `scripts/extract-ecma48.py` is that search, kept so the claim is
+//! `cargo xtask pdf-search ecma48` is that search, kept so the claim is
 //! reproducible rather than remembered. The lesson is the one this repo already
 //! records about instrumentation: a probe that cannot fire looks exactly like a
 //! fact, and a MISS is only evidence once a positive control HITs.

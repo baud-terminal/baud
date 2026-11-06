@@ -15,7 +15,7 @@ use xtask::publish::{self, Flags};
 use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
-use xtask::{changelog, features, features_since, fnv, text};
+use xtask::{changelog, features, features_since, fnv, loop_head, pdf_search, pmc, text, vt_table};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -143,6 +143,26 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             let worst = page_text::run(root, &o, &mut stdout)?;
             Ok(ExitCode::from(worst))
         }
+        ["pdf-search", rest @ ..] => {
+            let exit = pdf_search::run(root, rest, &mut stdout, &mut io::stderr().lock())
+                .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
+        ["loop-head", rest @ ..] => {
+            let exit = loop_head::run(rest, "objdump", &mut stdout, &mut io::stderr().lock())
+                .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
+        ["vt-table", rest @ ..] => {
+            let exit = vt_table::run(rest, &mut stdout, &mut io::stderr().lock())
+                .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
+        ["pmc", rest @ ..] => {
+            let exit =
+                pmc::run(rest, &mut stdout, &mut io::stderr().lock()).map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
@@ -151,7 +171,9 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  | sources \
                  | third-party [--check] | publish [--size|--verify|--release\
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
-                 [--print] [--self-test]"
+                 [--print] [--self-test] | pdf-search <key> [<term>...] \
+                 | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \
+                 | pmc <export.xml>"
             );
             Ok(ExitCode::from(2))
         }

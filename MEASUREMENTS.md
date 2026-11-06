@@ -269,7 +269,7 @@ again, which was not done.
 `cat`, twenty times over, into the pty, then homes the cursor to 13;37 and
 ends the run when `ESC [ 13 ; 37 R` comes back -- the reply proves the bytes
 were consumed, not only accepted. Three interleaved rounds, the first
-discarded; `scripts/vt-table.py` reduces them and flags a row whose reply is
+discarded; `cargo xtask vt-table` reduces them and flags a row whose reply is
 not the child's. baud ran the cell path (`BAUD_GPU=cells`). Median of the
 settled rounds [range].
 
@@ -3494,3 +3494,48 @@ have proven it wrong is a range parting below base's; none did.
 baud's GIF decoder, within a millisecond and under five seconds, so a tick steps
 by AppKit's reading. The two GIFs, 5.3 MB, go in the bundle's Resources: in the
 crate they would take `baud` from 4.39 MiB to about 9.7 of crates.io's 10.
+
+## PDF search, loop-head, vt-table and pmc in `cargo xtask`
+
+Not timed: no byte path changed. `cargo xtask pdf-search <key> [<term>...]`
+replaces the three PDF extractors, each still its own reader. A document has a
+row in `DOCUMENTS` or is refused, so no search runs without a control: nine
+committed PDFs, two `external`. `loop-head`, `vt-table` and `pmc` replace their
+scripts. The two "rendered N" renderers left with the research note they serve,
+since nothing here cites them.
+
+Python 3.13.12 against the debug build, stdout and exit code, logs kept:
+
+| input | cases | equal |
+|---|---|---|
+| documented searches, argparse edges | 164 | 161, 3 below |
+| Adobe's two PDFs, 1,000 folded probes each | 2 | 2: 1,045 hit, 955 miss |
+| one built PDF a branch, 360 seeded, 2-5 forms each | 1,511 | 1,497, 14 below |
+| `vt-table`, seeded and built results | 449 | all, exits 0, 1 |
+| `pmc`, seeded and built exports; real `xctrace` | 151; 4 | all, exits 0, 1 |
+| `loop-head`, a stand-in objdump; `ingest2` at opt 3, 2 | 277; 168 | all, exits 0-2 |
+
+Text is byte-equal on the nine rows that can dump it, and a term's hit or miss
+is a function of that text; `parabix` reads as MANIFEST.toml says, `PACT` and
+`2014` missing. The same harness against a mutated binary reports 492
+differences. The tests' expected values are the scripts' answers.
+
+**Exit codes that differ, each on purpose.** `ecma48 --find` and `--section`
+never ran the control: with it missing and the needle present the script said
+HIT and 0, and this says the extraction is broken and 1 (8 of the 14 are these
+control cases; 7 of the 8 keep their exit). A lone word on `ecma48` was "unrecognized arguments", 2; on 8
+command lines tried (`-`, of the 3) it is now a term, the form this command
+exists to add, and on an LZW key it was ignored with the text dumped. A key
+replaced a path, so no row, a missing file and a `--file` that is not the pinned
+bytes are 2, where a bad path raised. At an equal exit, `--help` is shorter (14
+command lines, 2 of the 3) and a stopped run says one line for a traceback.
+
+**Inputs no pinned document holds.** `baud_domain::zlib`'s `Code::build` allows
+any incomplete code set and zlib only a single distance code, so 6 of the 14 read
+a stream the script skipped; `an_incomplete_code_set_inflates_where_zlib_refused_it`
+holds it. Non-ASCII digits are refused in `pmc` and `vt-table`, a counter past
+`i128` leaves its row out of `pmc`, and with a `nan` in a cell of 64 or more runs
+`sorted` keeps inserting where CPython merges.
+
+**Red first.** 40 mutations of the Rust each turn a committed test red, one run
+on this tree. `rfc1321-md5` and `pdf-reference-1-4` are pinned `external`.

@@ -68,7 +68,7 @@ pub fn splitlines(text: &str) -> Vec<&str> {
 /// Whether `str.isspace()` holds: Unicode `White_Space`, and also the four
 /// information separators `\x1c`-`\x1f`, whose bidirectional class is a
 /// separator.
-fn space(c: char) -> bool {
+pub fn space(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
 }
 
