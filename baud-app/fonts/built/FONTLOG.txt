@@ -100,7 +100,7 @@ fontTools 4.63.0; THE DEVANAGARI says what the merge adds to it and changes in i
   context (type 8) keeps meteg in its cell: in a cluster that carries a meteg it
   places the vowel and meteg again, left of the vowel when meteg follows it and
   right of it when meteg comes before it through CGJ, through 24 mark-to-base
-  lookups that no feature names (build/meteg.py). GDEF classes the 135 new glyphs (83 base, 52 mark;
+  lookups that no feature names. GDEF classes the 135 new glyphs (83 base, 52 mark;
   every stock glyph keeps its class) and gains four mark filtering sets, one for each
   new mark-to-mark lookup.
 - GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
@@ -221,8 +221,8 @@ shear so each stays on its letter, then fitted back into the cell where the shea
 took a point out of it, meteg included (note AC 4b). The vowel points stay sheared,
 as JetBrains Mono's own combining dots are.
 
-The letters' rounds then take JetBrains Mono Italic's own correction
-(build/optical.py), read from its sources (sources/JetBrainsMono.glyphs and
+The letters' rounds then take JetBrains Mono Italic's own correction,
+read from its sources (sources/JetBrainsMono.glyphs and
 JetBrainsMono-Italic.glyphs at cd5227b). Its italic is its upright sheared, with two
 departures at the rounds. First, where a bowl's outer curve met its straight side
 farther from the corner than the inner curve across the stroke, the italic levels the
@@ -248,7 +248,7 @@ style's own build tag (WHAT CHANGED).
 BAUD'S OWN GLYPHS
 
 What the Hebrew repertoire needs beyond Cascadia's letters and the redrawn points is
-made by baud (build/cover.py) -- drawn, or built from this font's own letters -- and
+made by baud -- drawn, or built from this font's own letters -- and
 taken from no other font, the rule since 2026-10-07: baud's own glyphs, aligned
 with JetBrains Mono. Each is appended after every other glyph, so no
 glyph ID moves, and is drawn upright; the italics take it through the letters' shear
@@ -324,8 +324,7 @@ Bold's stems. The steps (note AC 4a and 4b):
   search against the letter. The Regular dot is 116; the Bold dot is 120 x 98 and the
   Bold dagesh 104.
 - Meteg attaches to the vowel before it, and stays in the cell: where the vowel's own
-  place leaves no room, the vowel and meteg move in that cluster alone
-  (build/meteg.py).
+  place leaves no room, the vowel and meteg move in that cluster alone.
 - Two-row points (sheva, the hatafs) drop under ג ט ל ס ש so their top dot does not
   touch the letter.
 - Dalet's leg stands at its roof's right end, the roof passing it by 45 units where
@@ -430,9 +429,10 @@ https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCo
 LICENSE at the release's tag, v2407.24 (commit 56bcca3f), is OFL.txt byte for byte:
 the font is Microsoft's OFL release, and hebrew/SOURCE records the check.
 
-The build modules under glyphs/languages/hebrew/build/ and casanchors.py beside
-them are baud code under the repository's licence, not Font Software, since
-2026-10-28. anchors-400.json and anchors-700.json are data read out of
+The code that builds the Hebrew glyphs, tools/baud-fontbuild, is baud's own, under
+the repository's licence, not Font Software. The stage sources under
+glyphs/languages/hebrew/stage/ are data read out of the fonts, under each font's OFL
+beside them. anchors-400.json and anchors-700.json are data read out of
 Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, which the
 answer of 2026-11-03 confirms.
 
@@ -441,9 +441,9 @@ OFL condition 5: "The Font Software, modified or unmodified, in part or in whole
 be distributed entirely under this license, and must not be distributed under any
 other license." So LICENSE carves the fonts out, in its section "Files this licence
 does not cover": the four built styles with this file, OFL.txt and AUTHORS.txt
-beside them; CascadiaMono.ttf and the two anchors files; and the stock fonts. It
-names the two questions above as open and assigns the build modules to neither
-licence. baud-font/tests/licences.rs fails if a font in the tree is neither baud's
+beside them; CascadiaMono.ttf and the two anchors files; the stage sources; and the stock fonts.
+It states both answers above and names tools/baud-fontbuild as under the
+repository's licence. baud-font/tests/licences.rs fails if a font in the tree is neither baud's
 own nor named there with its licence beside it.
 
 Name. Decision 11 in note AC is the family's name. It may not use the Reserved Font
@@ -467,7 +467,7 @@ the first item gives before and after 2026-10-26. Two earlier gaps, the missing 
 script record and Cascadia's dropped trademark notice, were fixed; see the
 CHANGELOG.)
 
-- Meteg leaves the cell where the rule (build/meteg.py) finds no place inside it on
+- Meteg leaves the cell where the rule finds no place inside it on
   the side its text order gives. Measured on these files with the round 3 critic's
   check (meteg 20 units clear of the vowel and the letter, its box inside x 0..600):
   <vowel, meteg> passes 274 of 297 clusters in Regular, 265 in Bold, 262 in Italic
@@ -584,7 +584,7 @@ CHANGELOG
   sizes. The two were a bar over one leg each, with the legs 64 units apart (Bold 60)
   under roofs of the same centre; at 14 px they stood 0.80-0.92 px apart and "זו" read
   "דו". Dalet's leg now stands at its roof's right end, the roof passing it by a
-  45-unit heel (build/distinct.py, round 5), and they stand 1.41-1.51 px apart in all
+  45-unit heel (round 5), and they stand 1.41-1.51 px apart in all
   four files. Only that glyph's outline, its point anchors and head's checksum change:
   the dagesh moves 24 units right (Bold 32), and in the italics the cell fit puts
   hataf segol 58 units right (Bold Italic 74). The gates were run again:
@@ -593,7 +593,7 @@ CHANGELOG
   italics still differ from the plain shear in 12 and 14 glyphs.
 2026-10-25 (i-am-logger, baud): Bold's and Bold Italic's ז (U+05D6) end their head
   square, as Regular's does. Round 1 widened zayin's head by moving every point above
-  y 540 outward 22 units (design.py EDITS); Bold's thicker head starts at 517, so only
+  y 540 outward 22 units; Bold's thicker head starts at 517, so only
   its top corners moved and each end slanted 22 units. The band now starts at y 500,
   under both weights' head; the leg lies between the edit's two x cuts, so it stays
   where it was. The head's underside, where it curves into the neck, now starts its
@@ -651,7 +651,7 @@ CHANGELOG
   the vowel. Where the vowel's own place leaves meteg out of the cell or on the
   letter (hataf segol and qubuts on every letter, qof's leg), a chained context in
   mkmk places the vowel and meteg again, only in a cluster that carries a meteg, as
-  Courier New's does (build/meteg.py): meteg in the cell first, then the vowel's
+  Courier New's does: meteg in the cell first, then the vowel's
   ink in it, then the least movement; the vowel slides and never passes through
   the letter. Pointed text without meteg draws as before: the hebrew-faces fixtures
   change only on their 22 italic clusters that carry one. GPOS gains the chained
@@ -670,12 +670,12 @@ CHANGELOG
 2026-10-28 (i-am-logger, baud): ז (U+05D6) no longer reads as ד (U+05D3) at large
   sizes. Zayin's head was 380 units wide (Bold 394) under dalet's 418-unit roof (Bold
   438), so at 26 px the head was 9.9 px against a 10.7 px roof. The head's left end
-  now moves 80 units right (build/distinct.py, round 6): 300 wide (Bold 314), the roof
+  now moves 80 units right (round 6): 300 wide (Bold 314), the roof
   1.39 times it in font units, and at 12-32 px in all four files at least 1.37 times
   it and at least 1.51 px wider as rasterised (the rasterised ratio runs from 1.37 to
   1.49). The leg, the neck and the head's right end stay, so the glyph re-centres 40
   units left. Most of its below anchors move with it; the anchor search keeps some
-  where they were (meteg.py's in-cell places, and several in the italics). Not every
+  where they were (the meteg lookups' in-cell places, and several in the italics). Not every
   anchor moves: in Regular lookup 11 index 1 stays at 326, and lookups 14 and 25 stay
   at 47 and 553. In Bold Italic, lookups 14-16, 18-23, 25-27 and others keep their x.
   In each file only zayin's outline and side bearing, those of its composite זּ

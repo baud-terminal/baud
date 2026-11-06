@@ -6,9 +6,6 @@
 //! commands its draw functions emit, in font units (the font's scale is
 //! its units per em). The default rows are the control: they say
 //! HarfBuzz's emission rule is baud's before a varied row is compared.
-//!
-//! The port of `scripts/gvar-oracle.py`, which stays beside it while
-//! LICENSE names it.
 
 use std::path::Path;
 

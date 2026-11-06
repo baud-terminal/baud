@@ -968,7 +968,7 @@ SEQS
       shaped=$(hb-shape --no-glyph-names --features="$SC_FEATURES" -u "$cps" "$face")
       printf '%s\t0\t%s\t%s\t%s\n' "$face" "$fnv" "$cps" "$shaped"
     done <baud-font/tests/shape/hebrew-clusters.txt
-    # And the characters baud draws itself (build/cover.py), alone and
+    # And the characters baud draws itself (hebrew/stage/), alone and
     # carrying a point: placed by the build's own anchor search, so held to
     # HarfBuzz like the letters; the presentation forms U+FB1D-FB4F, each
     # alone, and the decomposition of each canonical one, whose drawing its
@@ -1437,7 +1437,7 @@ wc -l "$MO_OUT"
 # and shin with its dot, with a dagesh after the vowel and before it, which
 # the lookup's mark filtering set steps over. Where the vowel's own place
 # leaves meteg out of the cell, the faces' chained context places the
-# vowel again and meteg beside it (build/meteg.py), so these lines hold
+# vowel again and meteg beside it (hebrew/stage/), so these lines hold
 # that lookup, and its order among the mark lookups, to HarfBuzz. Columns
 # and features as `script.txt`.
 MT_OUT=baud-font/tests/shape/meteg.txt

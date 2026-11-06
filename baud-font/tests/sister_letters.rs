@@ -5,7 +5,8 @@
 //! head, which passes over on both sides, and at the right end of dalet's
 //! roof, which passes it by only a heel. As round 1 left them the two legs
 //! sat 60-64 units apart under roofs of the same centre, and "זו" read "דו"
-//! (`baud-app/fonts/glyphs/languages/hebrew/build/distinct.py`).
+//! (rounds 5 and 6 of the parametric build; the outlines are in
+//! `baud-app/fonts/glyphs/languages/hebrew/stage/`).
 //!
 //! The bars' widths tell the two apart too. Zayin is a narrow letter,
 //! written as wide as vav, and dalet's roof three times that; in baud's

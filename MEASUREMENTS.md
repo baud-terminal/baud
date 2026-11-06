@@ -2408,7 +2408,7 @@ The six ported scripts are deleted and their files regenerated: only the
 headers changed, once, `uharfbuzz 0.53.2` to `tools/baud-oracle` and the
 generator line to the bin, because a Rust regenerator cannot print the
 Python binding's name; `bearings.txt`'s pp1 reader is `read-fonts 0.46.0`,
-not fontTools. `scripts/gvar-oracle.py` and `scripts/cff2-oracle.py` stay
+not fontTools. The gvar and cff2 Python scripts stay
 beside their ports with their headers unchanged: LICENSE names both as
 the writers of `outlines.txt` and `cff2-outlines.txt`, and LICENSE is not
 edited here, so their deletion waits on that edit. FreeType errors print
@@ -3028,14 +3028,17 @@ bytes inside it. The build trims the pad and builds cmap from mappings.
 Through the unchanged merge, each style's font compares equal to the
 committed one, none left as bytes, and differs in bytes in GSUB (772
 bytes shorter: the stranded list tables the merge left among the old
-lookups are not there) and head's checksum alone. REACH: GSUB is the
-one encoding that reaches the shipped tables, read by baud-font's
-layout. With the four rebuilt fonts in place of the committed ones and
+lookups are not there) and head's checksum alone. REACH: the shipped
+files are unchanged, so no reader sees a new encoding. GSUB is the one
+encoding a re-pin would ship, and baud-font's layout reads it. With the four rebuilt fonts in place of the committed ones and
 the fixtures' fnv column moved to theirs, baud-font's and baud-render's
 suites pass, 1236 tests; with Regular put back, shape.rs fails 7 of 15
 on its fnv pin, the control that the rebuilt files were the ones read.
 The committed fonts stay: MANIFEST pins the stage's and the merge's
 new hashes and the committed outputs, which the build holds equal.
+MANIFEST now also pins tools/Cargo.toml, tools/Cargo.lock and every
+baud-fontbuild source as inputs, so a change any tools lane makes to the
+shared lock turns build-fonts.sh --check red until MANIFEST is rewritten.
 
 Perturbations: the pad trim off passes the comparator and fails
 `every_glyph_is_stored_without_padding_as_the_stage_stores_it`; the
@@ -3230,10 +3233,8 @@ failed, `cff2: not byte for byte`. Three mutations each turned tests in
 form of the `{}` mutation did not compile and is not counted.
 baud-font's `var` and `cff2` tests pass unchanged: they skip `#` lines.
 
-`scripts/gvar-oracle.py` and `scripts/cff2-oracle.py` go in the next
-commit. LICENSE names both as the writers of the two files, so
-`cargo xtask third-party --check` fails on that commit until LICENSE
-names `tools/baud-oracle` instead.
+`gvar-oracle.py` and `cff2-oracle.py` are deleted with the edit to
+LICENSE that names `tools/baud-oracle` in their place.
 
 ## The Noto instances and the Devanagari merge in Rust
 

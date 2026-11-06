@@ -23,8 +23,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 333 | 67 | redistributable, and its notice is satisfied |
-| own | 265 | 8 | the work of baud's author |
-| total | 599 | 76 | |
+| own | 265 | 7 | the work of baud's author |
+| total | 599 | 75 | |
 
 ## Licence texts in LICENSES/
 
@@ -647,14 +647,6 @@ they were built from.
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build
 - **Files:** [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
-
-### The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)
-
-- **Status:** own -- the work of baud's author
-- **Licence:** CC-BY-NC-SA-4.0
-- **Notice:** [LICENSE](LICENSE)
-- **From:** baud's own build, ported from the research tree
-- **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
 
 ### A recording of pipes.sh 1.3.0's output, captured by the script now baud-bench's capture-tui example on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
 

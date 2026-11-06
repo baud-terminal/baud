@@ -12872,7 +12872,7 @@ bytes  = 2342558
 status = "external"
 group  = "J"
 # Read for what JetBrains Mono's italic does to its upright: node for node against
-# jbm-glyphs-italic (note AC 4c, the Hebrew build's optical.py).
+# jbm-glyphs-italic (note AC 4c, the Hebrew build's correction of rounds).
 
 [sources.jbm-glyphs-italic]
 key    = "jbm-glyphs-italic"
@@ -39496,7 +39496,7 @@ group  = "J"
 # not prescriptive. Considerable variation is to be expected in actual fonts."; the
 # reference glyphs at 05D3, 05D5, 05D6 and 05E8 (page 2 rendered at 150 dpi).
 # b207 (2026-10-25): the reference glyph of U+20AA, which baud's embedded font now
-# draws (baud-app/fonts/glyphs/languages/hebrew/build/cover.py). Not committed: the
+# draws (baud-app/fonts/glyphs/languages/hebrew/stage/). Not committed: the
 # charts' Terms of Use forbid copies for public distribution.
 [sources.unicode18-chart-20a0]
 key    = "unicode18-chart-20a0"

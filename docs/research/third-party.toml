@@ -1833,14 +1833,6 @@ upstream = "baud's own build"
 status   = "own"
 
 [[tree]]
-what     = "The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)"
-paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
-licence  = "CC-BY-NC-SA-4.0"
-notice   = "LICENSE"
-upstream = "baud's own build, ported from the research tree"
-status   = "own"
-
-[[tree]]
 what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by tools/baud-oracle's gvar, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors"
 paths    = ["baud-font/tests/var/outlines.txt", "baud-font/tests/var/JetBrainsMono-LICENSE.txt", "baud-font/tests/var/FiraCode-LICENSE.txt"]
 licence  = "OFL-1.1"

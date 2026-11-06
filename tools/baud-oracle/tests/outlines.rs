@@ -2,11 +2,11 @@
 //! drew**: each test changes one thing in the table a committed outline
 //! file is written from, another location or another glyph step, and the
 //! rows are the ones the Python scripts the two bins were ported from
-//! (`scripts/gvar-oracle.py` and `scripts/cff2-oracle.py`, uharfbuzz
-//! 0.53.2 on HarfBuzz 12.3.0) wrote with the same edit, pinned as their
-//! count and the FNV-1a digest of the data lines joined by newlines. The
-//! rows also differ from the committed file's, so the edit reached the
-//! drawing and `--check` would fail on it.
+//! (uharfbuzz 0.53.2 on HarfBuzz 12.3.0; MEASUREMENTS.md, "The gvar and
+//! cff2 oracles write their own files") wrote with the same edit, pinned
+//! as their count and the FNV-1a digest of the data lines joined by
+//! newlines. The rows also differ from the committed file's, so the edit
+//! reached the drawing and `--check` would fail on it.
 //!
 //! The locations reach what the committed rows do not: a weight between
 //! masters not sampled there, and one past an end of the axis, which

@@ -3,7 +3,7 @@
 //!
 //! The Hebrew is drawn once upright, Regular and Bold, and the italics are
 //! those shapes leaning 9 degrees right with the Latin
-//! (`baud-app/fonts/glyphs/languages/hebrew/build/`). A widening or narrowing
+//! (`baud-app/fonts/glyphs/languages/hebrew/stage/`). A widening or narrowing
 //! cut through a stroke must move the whole stroke, or what was a square end
 //! comes out slanted.
 
@@ -65,8 +65,9 @@ fn points(face: &Face<'_>, c: char) -> Vec<(f32, f32)> {
 
 /// **Zayin's head ends square in every style.** Round 1 widened the head
 /// by moving every point above y 540 outward, 22 units each side
-/// (`design.py`, `EDITS`). Regular's head underside is at 548, so the whole
-/// end moved; Bold's thicker head starts at 517, so only its top corners
+/// (the retired parametric build's round 1). Regular's head underside is at
+/// 548, so the whole end moved; Bold's thicker head starts at 517, so only
+/// its top corners
 /// moved and each end slanted 22 units, in Bold and Bold Italic; the band
 /// has started at y 500 since 2026-10-25. Each end's outermost point at the
 /// top must stand over its outermost point at the underside, within a unit,

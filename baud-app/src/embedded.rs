@@ -534,7 +534,8 @@ mod tests {
     /// curve/straight joint to its inner joint's height where the upright's
     /// outer straight stopped short (o 12.6-12.7 units, O 10.1); baud's
     /// italics move each Hebrew bowl's outer joint toward its inner one by
-    /// the gap, at most 13 units (optical.py, `level_rec`). Samekh's
+    /// the gap, at most 13 units (the parametric build's correction of
+    /// rounds, now in the stage sources' outlines). Samekh's
     /// upright gaps are 31.2 (Regular) and 45.5 (Bold) on both sides, so
     /// in the Italic and Bold Italic each side's gap is the upright's less
     /// 13, within a unit of rounding. A plain shear keeps the upright gap,

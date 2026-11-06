@@ -348,8 +348,8 @@ fn the_icon_sets_licences_travel_with_the_nerd_font() {
     );
 }
 
-/// **A readout of a third-party font has a licence row.** The oracle scripts
-/// (`scripts/*-oracle.py`) write what HarfBuzz reads out of the test fonts
+/// **A readout of a third-party font has a licence row.** The oracle bins
+/// (`tools/baud-oracle`) write what HarfBuzz reads out of the test fonts
 /// into `var/*.txt`, one font per line in the first column. A readout of a
 /// third-party font is named by a `[[tree]]` row of
 /// `docs/research/third-party.toml`, or by LICENSE; one that is neither is

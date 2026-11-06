@@ -9,9 +9,6 @@
 //! a cubic carries all six of its coordinates. The default rows are the
 //! control: they say HarfBuzz's emission rule is baud's before a varied row
 //! is compared.
-//!
-//! The port of `scripts/cff2-oracle.py`, which stays beside it while
-//! LICENSE names it.
 
 use std::path::Path;
 

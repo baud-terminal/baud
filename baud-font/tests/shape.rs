@@ -783,7 +783,7 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
 /// points placed as HarfBuzz places them. 99 of them carry a cantillation
 /// mark, which the built faces draw: above or below its letter, and beside
 /// a point below it by the mark-to-mark lookups. And on each, the characters baud draws itself
-/// (`baud-app/fonts/glyphs/languages/hebrew/build/cover.py`), alone and
+/// (in `baud-app/fonts/glyphs/languages/hebrew/stage/`), alone and
 /// carrying a point.
 #[test]
 fn every_hebrew_face_fixture_shapes_as_harfbuzz_does() {
@@ -917,8 +917,8 @@ impl Sink for InkBox {
 /// face, every letter with every vowel meteg may follow, in both spellings,
 /// shaped by baud: meteg's centre must lie on its side of the vowel's, and
 /// its ink inside x 0..600 -- except where the faces' rule
-/// (`baud-app/fonts/glyphs/languages/hebrew/build/meteg.py`) finds no place
-/// in the cell on that side: left of the vowel on a final letter, whose
+/// (GPOS's chained context in `baud-app/fonts/glyphs/languages/hebrew/stage/`)
+/// finds no place in the cell on that side: left of the vowel on a final letter, whose
 /// vowel stands beside its descender, and right of it on qof, whose vowel
 /// stands right of its leg. Before the faces' chained context, hataf segol
 /// and qubuts put meteg past the left edge on every letter, and <meteg,
