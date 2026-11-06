@@ -513,9 +513,9 @@ mod tests {
     }
 
     /// **`under_threshold` per pair, pinned**: note AL's caps (section 4.2,
-    /// [[source: al-obs-o2-astar-tool]]), the red bound halved on the red
-    /// and dark-red grounds -- which is why those rows sit under the table's
-    /// red column.
+    /// computed in `baud-render/tests/al_observed.rs`), the red bound halved
+    /// on the red and dark-red grounds -- which is why those rows sit under
+    /// the table's red column.
     #[test]
     fn under_threshold_is_pinned_for_every_pair() {
         let want: [(&str, &str, u8); 16] = [

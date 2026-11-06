@@ -24957,27 +24957,6 @@ status = "retrieved"
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
 
-[sources.al-obs-o2-astar-tool]
-key    = "al-obs-o2-astar-tool"
-title  = "Prototype O2's caps: the largest byte alpha under which each ink over each ground makes no general or red transition, less one step"
-author = "baud research (note AL)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = "written by the O2 prototype"
-file   = "al-observed/o2-astar.py"
-sha256 = "57ce45d9fef0f1a695ceb63e9348d0fcc3209628bb4f78efbf422c600d737aba"
-bytes  = 2740
-status = "retrieved"
-# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-group  = "AL"
-# Replaced 2026-10-28: the copy first read imported thresholds.py from an
-# absolute path on the machine it ran on; this one imports the committed
-# thresholds.py beside it, which equals the file it imported. Nothing else
-# changed, and the two print the same 16 lines. The copy first read had sha256
-# 246655bd7c6bf752541350d630c13c0131bbf76a9f85f0178100702a32e5f1a6.
-
 [sources.al-obs-o2-summary]
 key    = "al-obs-o2-summary"
 title  = "Prototype O2's summary per effect, size, rate and ground, with the pixel check (largest |dL| over repeat frames, transitions, records over the cap)"
@@ -25153,29 +25132,13 @@ group  = "AL"
 # only on line 1, the input's path. The copy first read had sha256
 # 3e539d15a4d569aa598832cb828f1cdb07bc021fa8aca55b0e5b5819b1f9e48b.
 
-[sources.al-obs-thresholds-tool]
-key    = "al-obs-thresholds-tool"
-title  = "thresholds.py: the least opacity at which each cursor colour over each ground makes a 2.3.1 transition, on the census's encoded byte-rounded blend"
-author = "baud research (note AL)"
-year   = 2026
-venue  = "local capture or measurement"
-url    = "written for the flash-fix analysis"
-file   = "al-observed/thresholds.py"
-sha256 = "d48e657bbed50f7122b9ed403efe5d84e8f8d9c3d4eab1780797bd1c768e651e"
-bytes  = 6073
-status = "retrieved"
-# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
-# the url says how it was made. Committed because the scratch directory it came from
-# does not survive a reboot, and a claim in the note rests on it.
-group  = "AL"
-
 [sources.al-obs-thresholds]
 key    = "al-obs-thresholds"
-title  = "thresholds.py's output"
+title  = "The least opacity at which each cursor colour over each ground makes a 2.3.1 transition, on the census's encoded byte-rounded blend, and how far out each effect term stays above it"
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "python3 thresholds.py"
+url    = "computed by baud-render/tests/al_observed.rs, which asserts it equal to this file"
 file   = "al-observed/thresholds-out.txt"
 sha256 = "e2b5681c95650182cae7b15679c4e6a57ebacb2d6a7ad0f38869561dff4145a9"
 bytes  = 3816
@@ -25184,6 +25147,9 @@ status = "retrieved"
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
+# First printed by a Python script (git blob a11dc088), of which that test is
+# the port; the test's output was byte-equal to the script's before the script
+# went.
 
 [sources.al-obs-replica-cargo]
 key    = "al-obs-replica-cargo"
@@ -31610,32 +31576,20 @@ group  = "C"
 # L* = 8 with 24/116 and 108/841. libX11's Lab.c and Luv.c read a*, b*,
 # u*, v* at one hundredth of this.
 
-[sources.xparsecolor-obs-xcms-specs]
-key    = "xparsecolor-obs-xcms-specs"
-title  = "The rgbi: and device-independent specs fed to the probe: the manual's examples, prefix case, grids in each space, axis and wrap cases, malformed forms"
-author = "baud research"
-year   = 2026
-venue  = "local capture or measurement"
-url    = "python3 xcms-specs.py | probe"
-file   = "xparsecolor-observed/xcms-specs.py"
-sha256 = "3de7ea4927c175acd27852b7ea4fe3e9d894556ff826a5f5a153aec1446ab6bf"
-bytes  = 2166
-status = "retrieved"
-group  = "C"
-
 [sources.xparsecolor-obs-xcms-out]
 key    = "xparsecolor-obs-xcms-out"
-title  = "The probe's output for those specs: libX11 1.8.13's value and pixel through its default Tektronix CRT characterisation"
+title  = "The probe's output for the rgbi: and device-independent specs (the manual's examples, prefix case, grids in each space, axis and wrap cases, malformed forms): libX11 1.8.13's value and pixel through its default Tektronix CRT characterisation"
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "output of xcms-specs.py | probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property"
+url    = "the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property"
 file   = "xparsecolor-observed/xcms.out"
 sha256 = "1d3b42eec18d496f170523047099bb419302f87e131e0c732a633dca2e9ac259"
 bytes  = 52082
 status = "retrieved"
 group  = "C"
-# 979 lines, 22 refused. Among them: CIELab:7/0/0 e6e2e2 and CIELab:8/0/0
+# The specs first came from a Python script (git blob cc086db0), of which that
+# test is the port. 979 lines, 22 refused. Among them: CIELab:7/0/0 e6e2e2 and CIELab:8/0/0
 # 262927 (Lab.c's dark branch); rgbi:1.1/0/0 0b0000 (no range check);
 # rgbi:1/0/0/9 and rgbi:0x1/0/0 drawn (sscanf).
 
@@ -31652,32 +31606,20 @@ bytes  = 844
 status = "retrieved"
 group  = "C"
 
-[sources.xparsecolor-obs-rgb-specs]
-key    = "xparsecolor-obs-rgb-specs"
-title  = "The rgb: and # specs fed to the probe: the manual's examples, prefix case, every 1- and 2-digit value, a stride of 3- and 4-digit values, and malformed forms"
-author = "baud research"
-year   = 2026
-venue  = "local capture or measurement"
-url    = "python3 rgb-specs.py | probe"
-file   = "xparsecolor-observed/rgb-specs.py"
-sha256 = "3b8ce785a2392d0f0729b8c54abc57fdfeef5f3af75e7954ccb3275395952216"
-bytes  = 930
-status = "retrieved"
-group  = "C"
-
 [sources.xparsecolor-obs-rgb-out]
 key    = "xparsecolor-obs-rgb-out"
-title  = "The probe's output for those specs: spec, XParseColor's 16-bit value, the 24-bit TrueColor pixel, XAllocColor's value"
+title  = "The probe's output for the rgb: and # specs (the manual's examples, prefix case, every 1- and 2-digit value, a stride of 3- and 4-digit values, malformed forms): spec, XParseColor's 16-bit value, the 24-bit TrueColor pixel, XAllocColor's value"
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
+url    = "the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
 file   = "xparsecolor-observed/rgb.out"
 sha256 = "163172f16939b0368c878e95a8ac0048a628597d3175ba98ddcc804d3fa3a879"
 bytes  = 29964
 status = "retrieved"
 group  = "C"
-# 607 lines, 16 refused. The pixel is the value's high byte on every line
+# The specs first came from a Python script (git blob 23c5314e), of which that
+# test is the port. 607 lines, 16 refused. The pixel is the value's high byte on every line
 # (#fff 1000/f000 -> f0; rgb:7f80 -> 7f). libX11 also takes rgb:1/2/3/ and
 # rgb:1/2/3/4, its reader stopping after the third field; the manual's
 # grammar is rgb:<red>/<green>/<blue> and baud refuses both.

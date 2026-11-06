@@ -23,8 +23,8 @@ advice; where a file's status is a choice still open, this file says so and deci
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 333 | 66 | redistributable, and its notice is satisfied |
-| own | 269 | 8 | the work of baud's author |
-| total | 603 | 75 | |
+| own | 265 | 8 | the work of baud's author |
+| total | 599 | 75 | |
 
 ## Licence texts in LICENSES/
 
@@ -1897,7 +1897,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 263
+- **Files:** 259
 
 | file | copied from |
 |---|---|
@@ -2089,7 +2089,6 @@ notice is, and the URL each file was copied from.
 | [al-observed/o1-fire72-f31.png](docs/research/sources/al-observed/o1-fire72-f31.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o1-fire72-footprint.png](docs/research/sources/al-observed/o1-fire72-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
 | [al-observed/o2-analyze.py](docs/research/sources/al-observed/o2-analyze.py) | written by the O2 prototype |
-| [al-observed/o2-astar.py](docs/research/sources/al-observed/o2-astar.py) | written by the O2 prototype |
 | [al-observed/o2-census.tsv](docs/research/sources/al-observed/o2-census.tsv) | flash bench on 4ccd622 with and without feature flash-o2, joined by o2-analyze.py |
 | [al-observed/o2-drop-particles-72x1-dark.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-dark.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
 | [al-observed/o2-drop-particles-72x1-light.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-light.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
@@ -2126,8 +2125,7 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-refs.rs](docs/research/sources/al-observed/replica-refs.rs) | written for the flash-fix analysis |
 | [al-observed/replica-tab.py](docs/research/sources/al-observed/replica-tab.py) | written for the flash-fix analysis |
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
-| [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
-| [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
+| [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | computed by baud-render/tests/al_observed.rs, which asserts it equal to this file |
 | [be-observed/damage.txt](docs/research/sources/be-observed/damage.txt) | scripts/linux-damage.sh, nine rounds; the two perturbations with BAUD_DAMAGE_ROUNDS=2 BAUD_DAMAGE_FRAMES=30 and the patch the file holds |
 | [be-observed/frames-sway.txt](docs/research/sources/be-observed/frames-sway.txt) | scripts/linux-frames.sh, the sway arm: sway 1.10.1 headless, Debian trixie |
 | [be-observed/frames-weston-base.txt](docs/research/sources/be-observed/frames-weston-base.txt) | scripts/linux-frames.sh, the weston arm, on d75734a3 |
@@ -2157,11 +2155,9 @@ notice is, and the URL each file was copied from.
 | [be-observed/pointer-trixie.txt](docs/research/sources/be-observed/pointer-trixie.txt) | scripts/linux-pointer.sh, the trixie arm: sway 1.10.1 headless, cursor-shape-v1 |
 | [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-10-28 |
 | [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
-| [xparsecolor-observed/rgb-specs.py](docs/research/sources/xparsecolor-observed/rgb-specs.py) | python3 rgb-specs.py | probe |
-| [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |
+| [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |
 | [xparsecolor-observed/xcms-names-nodb.out](docs/research/sources/xparsecolor-observed/xcms-names-nodb.out) | XCMSDB=/dev/null probe < xcms-names-specs.txt, same build and server, 2026-10-18 |
 | [xparsecolor-observed/xcms-names-specs.txt](docs/research/sources/xparsecolor-observed/xcms-names-specs.txt) | probe < xcms-names-specs.txt |
 | [xparsecolor-observed/xcms-names.out](docs/research/sources/xparsecolor-observed/xcms-names.out) | xparsecolor-observed/probe.c built against nixpkgs libX11 1.8.13, on Xvfb 21.1.24 -screen 0 1024x768x24, 2026-10-18 |
-| [xparsecolor-observed/xcms-specs.py](docs/research/sources/xparsecolor-observed/xcms-specs.py) | python3 xcms-specs.py | probe |
-| [xparsecolor-observed/xcms.out](docs/research/sources/xparsecolor-observed/xcms.out) | output of xcms-specs.py | probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property |
+| [xparsecolor-observed/xcms.out](docs/research/sources/xparsecolor-observed/xcms.out) | the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property |
 

@@ -1686,7 +1686,6 @@ files   = [
   "al-observed/o1-fire72-f31.png",
   "al-observed/o1-fire72-footprint.png",
   "al-observed/o2-analyze.py",
-  "al-observed/o2-astar.py",
   "al-observed/o2-census.tsv",
   "al-observed/o2-drop-particles-72x1-dark.tsv",
   "al-observed/o2-drop-particles-72x1-light.tsv",
@@ -1724,15 +1723,12 @@ files   = [
   "al-observed/replica-tab.py",
   "al-observed/replica-trailx.rs",
   "al-observed/thresholds-out.txt",
-  "al-observed/thresholds.py",
   "xcode-27-metal-toolchain-component.txt",
   "xparsecolor-observed/probe.c",
-  "xparsecolor-observed/rgb-specs.py",
   "xparsecolor-observed/rgb.out",
   "xparsecolor-observed/xcms-names-nodb.out",
   "xparsecolor-observed/xcms-names-specs.txt",
   "xparsecolor-observed/xcms-names.out",
-  "xparsecolor-observed/xcms-specs.py",
   "xparsecolor-observed/xcms.out",
 ]
 

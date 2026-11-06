@@ -3539,3 +3539,47 @@ holds it. Non-ASCII digits are refused in `pmc` and `vt-table`, a counter past
 
 **Red first.** 40 mutations of the Rust each turn a committed test red, one run
 on this tree. `rfc1321-md5` and `pdf-reference-1-4` are pinned `external`.
+
+## Four research scripts become tests
+
+The two analyses behind the trails' flash bound and the two corpora fed to
+libX11 were Python that nothing ran once it had printed. A test now computes
+each and holds it to what it printed: `baud-render/tests/al_observed.rs` and
+`baud-domain/tests/x_parse_color_specs.rs`. No observation moved. What each arm
+wrote, the Python on the base tree and the Rust before the Python was deleted:
+
+| output | bytes | SHA-256, both arms |
+|---|---|---|
+| `al-observed/thresholds-out.txt` | 3,816 | e2b5681c95650182 |
+| the O2 caps, 16 lines | 1,168 | e0f4d5c402d8cfba |
+| column 1 of `xparsecolor-observed/rgb.out` | 8,017 | 70e61bac85eac208 |
+| column 1 of `xparsecolor-observed/xcms.out` | 16,563 | c6883b65f729f89c |
+
+**The caps had no file.** Their script's output was never committed, and an
+observation made now would not be the one the note read, so the 16 lines are a
+literal in the test, and a further test holds their a* to what `under_threshold`
+computes for all sixteen pairs.
+
+**Red, each run by hand and restored**, by the line the output parts at:
+`thresholds-out.txt` 0.3160 to 0.3161, line 4; rounding half away instead of half
+to even, line 7; green's weight 0.7153, line 3; the caps' sample at an interval's
+start, line 5; their margin ceil - 1, line 1, and `under_threshold` disagrees;
+`rgb.out` `#3a7` to `#3a8`, line 1; no `rgb:1/2/3/4`, line 597; padding with a 1,
+line 18; `xcms.out` `TekHVC:0/100/50` to `51`, line 952; numbers keeping their
+zeros, line 11; the product reversed, line 11; no `CIELab:50/0`, line 979.
+Committed tests hold seven more inputs at named lines: a ground a byte off in
+each analysis, a 1/1000 scan, the bound unhalved, another stride, a missing width
+and a moved grid value.
+
+**One did not fire:** taking the caps' `f32` steps out changes no line, since
+they sample inside an interval, so that blend is ported as it ran and the test
+does not prove its width. No decision rests on a libm's last bit: over the 2,856
+composites either blend reaches, the nearest |dL| to 0.10 is 8.6e-5 away, u'v'
+to a bound 1.4e-4, redness to 0.8 8.2e-4, the darker state to 0.80 9.0e-4; the
+nearest printed value to a rounding boundary is a luminance, 7.2e-6.
+
+The one non-test source edit is a doc comment in `baud-render/src/flash.rs`, so
+nothing was timed. Open: the manifest's note on `xcms.out` names `rgbi:1.1/0/0`,
+`rgbi:1/0/0/9` and `rgbi:0x1/0/0`, and `x_parse_color.rs` says the first draws
+0b0000, but none of the three is a line of that file, so those readings have no
+committed observation.
