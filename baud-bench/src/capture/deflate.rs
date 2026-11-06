@@ -6,11 +6,11 @@
 //! **Why here and in Rust.** Which bytes a deflate writes is the deflater's
 //! choice (`[[source: rfc1951-deflate]]` fixes only what they decode to), and
 //! `gen-yazi-files` and `linux-pixels` write their PNGs in the bytes the
-//! scripts' zlib chose, at 6 and 9. The
-//! crates that link C engines live outside the workspace (`tools/`), so this
-//! crate does not take `-lz`, and a Rust port gives the same bytes on a host
-//! whatever zlib it has. It is a port of two of zlib's files, not a general
-//! deflater: two levels, no resumption, nothing but what that path reaches.
+//! scripts' zlib chose, at 6 and 9. The crates that link C engines live
+//! outside the workspace (`tools/`), so this crate does not take `-lz`, and a
+//! Rust port gives the same bytes on a host whatever zlib it has. It is a port
+//! of two of zlib's files, not a general deflater: two levels, no resumption,
+//! nothing but what that path reaches.
 //!
 //! ```text
 //! zlib 1.3.1 (deflate.c, trees.c), this file altered into Rust from them.

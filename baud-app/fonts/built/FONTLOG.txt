@@ -188,7 +188,8 @@ with fontTools 4.63.0, against that stage):
 What stays the Hebrew stage's, measured on the files before the merge writes (it
 refuses otherwise): every existing glyph's bytes as stored, its advance and side
 bearing, every cmap entry, GSUB's lookups as bytes and GPOS's as the comparison
-expands them, the features every existing language system names, every glyph's GDEF class, the seven mark filtering sets, and
+expands them, the features every existing language system names, every glyph's GDEF
+class, the seven mark filtering sets, and
 every name record but 0 and 7. GSUB is written around the Hebrew stage's own bytes:
 the block of its lookups and every subtable they name is copied whole, so stock
 JetBrains Mono's lookups are its bytes, under a ScriptList, FeatureList and

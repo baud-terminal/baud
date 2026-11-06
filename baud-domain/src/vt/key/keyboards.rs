@@ -153,7 +153,7 @@ fn escaped_key(o: &mut KeyBytes, final_byte: u8, mods: Modifiers, s: KeyState, l
 /// **The termcap keyboard, `?1050`**: each key of xterm's xtermcap.c
 /// table that the pinned xterm-256color entry gives a string
 /// (`[[source: terminfo-xterm-256color]]`, the `TERM` baud gives the
-/// child) sends it, through the table `termcap_data.rs` compiles from the
+/// child) sends it, through the table `build/termcap_keys.rs` compiles from the
 /// two, **whatever DECCKM, DECKPAM and DECBKM say**: the arrows
 /// `\EOA`-`\EOD`, Home `\EOH`, End `\EOF`, keypad Enter `\EOM`, Backspace
 /// `^H`, F13 `\E[1;2P`. xterm's `xtermcapString` sends the string the

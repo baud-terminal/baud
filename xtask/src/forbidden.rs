@@ -22,7 +22,7 @@
 //! 0x7f has to be written `\xHH`, because a raw one would repeat and sit in
 //! a class as a whole character, not as a byte.
 //!
-//! **The engine has no look-around, and two forms stand in for it**, both
+//! **The engine has no look-around, and three forms stand in for it**, all
 //! through a capture group named `hit`. When a pattern has that group, the
 //! group is the match it reports; a match the group took no part in is no
 //! hit, and the search goes on from the next byte. With `name` invented:
@@ -44,7 +44,11 @@
 //! final newline, so write `\z` or `\r?\n`; `\<` and `\>` are word boundaries
 //! here and literals there; `[[:alpha:]]`, `[a&&b]`, `[a--b]` and `[a~~b]` are
 //! class operations here and sets of those bytes there. `(?i)` here holds to
-//! its own pattern, which `re` refuses once the patterns are joined.
+//! its own pattern, which `re` refuses once the patterns are joined. A
+//! possessive `a*+` or `a++` is a repeat of a repeat here; `[a[b]]` is a nested
+//! class here and `[a[b]` then `]` there; `\B` here matches empty text, where
+//! Python 3.13's does not. `a{,3}` and `(?>a)`, which `re` accepts, do not
+//! compile here.
 //!
 //! One position cannot be looked at twice: the `^` of `(?:^|[...])` holds at
 //! offset 0 alone, so when the candidate there is refused, or is a single

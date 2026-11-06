@@ -350,8 +350,7 @@ fn first(ink: Rgb, ground: Rgb, rule: Rule) -> Option<f64> {
     })
 }
 
-/// a* = ceil(255 a_f) - 2: the largest byte strictly below the first flashing
-/// alpha, less one step. 255 when nothing flashes.
+/// One row of the analysis, an ink over a ground.
 struct Cap {
     ground: &'static str,
     ground_rgb: Rgb,
@@ -361,6 +360,8 @@ struct Cap {
     red: Option<f64>,
     halved: f64,
     red_halved: Option<f64>,
+    /// a* = ceil(255 a_f) - 2: the largest byte strictly below the first
+    /// flashing alpha, less one step. 255 when nothing flashes.
     a_star: Chan,
 }
 

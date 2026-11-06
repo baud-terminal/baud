@@ -19,8 +19,9 @@
 //!
 //! **It is one entry short.** DEC replaces "ASCII codes 137 through 176"
 //! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; xterm leaves it `UNDEF`, and
-//! foot's table and baud's start at `0x60`. Which codepoint Blank stores is an open question, so nothing here
-//! asserts what `0x5F` becomes, and nothing asserts that it stays `_` either.
+//! foot's table and baud's start at `0x60`. Which codepoint Blank stores is an
+//! open question, so nothing here asserts what `0x5F` becomes, and nothing
+//! asserts that it stays `_` either.
 
 use crate::support;
 use baud_core::*;

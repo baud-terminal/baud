@@ -23,8 +23,8 @@
 #   trixie    sway 1.10, wlroots 0.18: cursor-shape-v1, so the app names
 #             a shape; wl_seat 9, the wheel in axis_value120
 #
-# The pointer and the keyboard are baud-bench's linux-pointer example, one client
-# holding one zwlr_virtual_pointer_v1 and one zwp_virtual_keyboard_v1, so
+# The pointer and the keyboard are baud-bench's linux-pointer example, one
+# client holding one zwlr_virtual_pointer_v1 and one zwp_virtual_keyboard_v1, so
 # a drag is one device's press, moves and release, and every event carries
 # a time from the script's own clock. sway runs with WAYLAND_DEBUG=server,
 # which logs each request the app sends it; the pointer requests are

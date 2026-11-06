@@ -25172,7 +25172,7 @@ title  = "The least opacity at which each cursor colour over each ground makes a
 author = "baud research (note AL)"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "computed by baud-render/tests/al_observed.rs, which asserts it equal to this file"
+url    = "printed by thresholds.py (git blob a11dc088); recomputed by baud-render/tests/al_observed.rs, which asserts it equal to this file"
 file   = "al-observed/thresholds-out.txt"
 sha256 = "e2b5681c95650182cae7b15679c4e6a57ebacb2d6a7ad0f38869561dff4145a9"
 bytes  = 3816
@@ -31616,7 +31616,7 @@ title  = "The probe's output for the rgbi: and device-independent specs (the man
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property"
+url    = "the specs xcms-specs.py printed (git blob cc086db0), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property"
 file   = "xparsecolor-observed/xcms.out"
 sha256 = "1d3b42eec18d496f170523047099bb419302f87e131e0c732a633dca2e9ac259"
 bytes  = 52082
@@ -31626,6 +31626,8 @@ group  = "C"
 # test is the port. 979 lines, 22 refused. Among them: CIELab:7/0/0 e6e2e2 and CIELab:8/0/0
 # 262927 (Lab.c's dark branch); rgbi:1.1/0/0 0b0000 (no range check);
 # rgbi:1/0/0/9 and rgbi:0x1/0/0 drawn (sscanf).
+# rgbi:1.1/0/0, rgbi:1/0/0/9 and rgbi:0x1/0/0 are not lines of this
+# file, so their libX11 readings have no committed observation here.
 
 [sources.xparsecolor-obs-probe-c]
 key    = "xparsecolor-obs-probe-c"
@@ -31646,7 +31648,7 @@ title  = "The probe's output for the rgb: and # specs (the manual's examples, pr
 author = "baud research"
 year   = 2026
 venue  = "local capture or measurement"
-url    = "the specs baud-domain/tests/x_parse_color_specs.rs computes and holds to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
+url    = "the specs rgb-specs.py printed (git blob 23c5314e), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
 file   = "xparsecolor-observed/rgb.out"
 sha256 = "163172f16939b0368c878e95a8ac0048a628597d3175ba98ddcc804d3fa3a879"
 bytes  = 29964
@@ -36773,22 +36775,23 @@ bytes        = 1998
 derived_from = ["iterm2-escape-codes", "iterm2-images", "iterm2-badges", "iterm2-feature-reporting"]
 status       = "retrieved"
 group        = "AX"
-# How it was read: each of the four pages fetched from its URL and refused
-# unless it hashed to its entry's sha256; in each, in that order, every
-# match of `(?:OSC|ESC \]|\\e\]|\\033\]|<Esc>\])\s*1337\s*;?\s*([A-Za-z0-9]+)`
+# How it was read: each of the four pages fetched from its URL and
+# refused unless it hashed to its entry's sha256; in each, in that
+# order, every match of
+# `(?:OSC|ESC \]|\\e\]|\\033\]|<Esc>\])\s*1337\s*;?\s*([A-Za-z0-9]+)`
 # (OSC 1337, ESC ] 1337 and a shell example's \e]1337;, \033]1337; and
 # <Esc>]1337;), its word kept with the first page to give it, but `key`,
 # which the images page's grammar line uses for a placeholder. One
-# `key; page` a line, sorted by byte, and nothing
-# else of the pages. The controls held: 39 keys, SetProfile (written with
-# no `;`) in iterm2-escape-codes, FileEnd in iterm2-images,
-# SetBadgeFormat in iterm2-badges, Capabilities in
-# iterm2-feature-reporting. Produced once by the Python generator the
-# build replaced (git blob 102f0fad), its own readers run under python3 -I
-# (Python 3.13.12) on the fetched files; its check passed against the
-# table it had committed (git blob 21cb8fb0), the table the build compiles
-# from this file. Line 1 names each parent's
-# sha256, and baud-domain's build (build/iterm_keys.rs) refuses another.
+# `key; page` a line, sorted by byte, and nothing else of the pages. The
+# controls held: 39 keys, SetProfile (written with no `;`) in
+# iterm2-escape-codes, FileEnd in iterm2-images, SetBadgeFormat in
+# iterm2-badges, Capabilities in iterm2-feature-reporting. Produced once
+# by the Python generator the build replaced (git blob 102f0fad), its
+# own readers run under python3 -I (Python 3.13.12) on the fetched
+# files; its check passed against the table it had committed (git blob
+# 21cb8fb0), the table the build compiles from this file. Line 1 names
+# each parent's sha256, and baud-domain's build (build/iterm_keys.rs)
+# refuses another.
 
 [sources.iterm2-osc1337-source-keys]
 key          = "iterm2-osc1337-source-keys"
@@ -36804,13 +36807,14 @@ derived_from = "iterm2-964a75d-vt100terminal"
 status       = "retrieved"
 group        = "AX"
 # How it was read: the source fetched from its URL and refused unless it
-# hashed to its entry's sha256; within the method executeXtermSetKvp, the
-# string each isEqualToString: compare of `key` names, each once, one a
-# line, sorted by byte, and nothing else of the source. The controls held:
-# 54 keys, CursorShape and ExecFailed among them. Produced once by the
-# Python generator the build replaced (git blob 102f0fad), its own reader
-# run under python3 -I (Python 3.13.12) on the fetched file. Line 1 names the parent's sha256, and
-# baud-domain's build (build/iterm_keys.rs) refuses another.
+# hashed to its entry's sha256; within the method executeXtermSetKvp,
+# the string each isEqualToString: compare of `key` names, each once,
+# one a line, sorted by byte, and nothing else of the source. The
+# controls held: 54 keys, CursorShape and ExecFailed among them.
+# Produced once by the Python generator the build replaced (git blob
+# 102f0fad), its own reader run under python3 -I (Python 3.13.12) on the
+# fetched file. Line 1 names the parent's sha256, and baud-domain's
+# build (build/iterm_keys.rs) refuses another.
 
 [sources.iterm2-964a75d-screen-terminal-delegate]
 key    = "iterm2-964a75d-screen-terminal-delegate"

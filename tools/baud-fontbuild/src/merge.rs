@@ -45,7 +45,8 @@
 //! **GSUB is written by hand around BUILT's own bytes** ([`spliced`]):
 //! BUILT's lookups and every subtable they name are copied as one block,
 //! byte for byte, so stock JetBrains Mono's lookups, which the stage keeps
-//! the same way, stay its own bytes, with the appended lookups after them, under a ScriptList, FeatureList
+//! the same way, stay its own bytes, with the appended lookups after them,
+//! under a ScriptList, FeatureList
 //! and LookupList written again: the features sorted by tag, as OpenType's
 //! common table formats ask, which moves BUILT's feature indices, so its
 //! language systems are written again too. GPOS is written whole by

@@ -1,8 +1,11 @@
 # Release configuration. https://release-plz.dev/docs/config
 #
 # **Publishing runs locally, by hand; no hosted service runs it.** From a
-# checkout of master's tip, inside the dev shell (the workspace manifest's
-# `cargo-features` needs its nightly), and only once the repository is
+# checkout of master's tip on which `devenv test` and, on an x86_64 host with
+# AVX2, `devenv tasks run test:x86-avx2` have passed (the deleted Release job
+# ran only after both), inside the dev shell (the workspace manifest's
+# `cargo-features` needs its nightly; the dev shell does not carry release-plz
+# itself, so install 0.3.172 beside it), and only once the repository is
 # public, in this order:
 #
 #   1. `cargo xtask publish --release`, which refuses while a shipped file's

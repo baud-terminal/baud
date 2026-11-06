@@ -264,8 +264,8 @@ baud-core = { path = ".", features = ["alloc"] }
 # `nrcs_table` so its expectations come from the generated tables rather than
 # from a list transcribed into the test -- a transcribed table drifts from its
 # source the day the source changes, which is the failure compiling the
-# tables at build time removes. `baud-core` re-exports the types it uses and deliberately
-# not the data.
+# tables at build time removes. `baud-core` re-exports the types it uses and
+# deliberately not the data.
 baud-domain = { path = "../baud-domain" }
 # Only to key a `HashSet` on a whole `PackedCell`: it is `Eq` but not `Hash`,
 # and hashing its eight bytes is exact where a key built from the public

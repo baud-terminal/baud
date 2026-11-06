@@ -85,8 +85,8 @@ fn bake_partial_any(data: &[u8]) {
 }
 
 /// Noto Sans Devanagari's variable font from the cache the font build
-/// fetches it into, the one committed-free face of two axes the partial
-/// bake takes; `None` when the cache does not hold it.
+/// fetches it into: the one face of two axes the partial bake takes, and not
+/// in the repository; `None` when the cache does not hold it.
 fn noto_vf() -> Option<&'static [u8]> {
     static VF: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
     VF.get_or_init(|| {

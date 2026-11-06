@@ -2321,7 +2321,6 @@ upstream = "https://github.com/python/cpython/tree/v3.14.7"
 status   = "kept"
 holder   = "Python Software Foundation"
 
-
 [[tree]]
 what     = "CFF Standard Encoding: the code and SID columns of the 256-code table in Appendix B of Adobe's technical note 5176, which Adobe licenses under CC BY-ND 4.0 (manifest adobe-font-tech-notes-license), pinned as text (manifest adobe-5176-cff-standard-encoding) that baud-font's build compiles to a 256-byte table. The columns are reproduced in part and unmodified, the name column left out, written as decimal lines, a format change the licence's 2(a)(4) says never produces Adapted Material; the file's header carries the creator, TN 5176's copyright line, the licence and its URI, the disclaimer and the source's URL, as 3(a)(1) asks"
 paths    = ["baud-font/data/adobe-5176-cff-standard-encoding.txt"]

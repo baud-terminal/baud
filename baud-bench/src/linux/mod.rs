@@ -9,7 +9,7 @@
 //!   drives the app with.
 //!
 //! The examples of the same names hand these their arguments. Each is built
-//! where it runs: the first and the Mac half of `linux-pixels.sh` by the
+//! where it runs: [`damage`] and the Mac half of `linux-pixels.sh` by the
 //! host's cargo, the rest in the container, as the app is. Their outputs are
 //! the bytes the drivers and `docs/research/sources/be-observed/` hold, so
 //! `\d`, `str.strip` and the rest read as they do in `key_latency::py`.
