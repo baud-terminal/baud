@@ -4,35 +4,39 @@
 //! lists them (`baud_render::lights`) -- and each lit only for something
 //! baud measured.
 //!
-//! **Where**: one image view a light, on a plate, in a trailing titlebar
-//! accessory -- the title bar's own place for content at its right end,
-//! in the traffic lights' view, which AppKit detaches from the window in
-//! full screen (`strip.rs`) -- re-placed on every resize. The accessory
-//! is sized at every layout to the lights and to the room right of the
-//! lockup ([`crate::strip::lights_width`]), since AppKit lets the two
-//! ends of a narrow title bar overlap. Each light's view has its own
-//! tracking area (`baud_present_macos::hover`): the pointer crossing a
-//! light is heard at once, and baud draws the light's hover text in the
-//! frame on the next frame (`line_tip.rs`), as it does on Linux, with no
-//! `toolTip`, whose system delay is the wait this replaces. What decides
-//! which light the pointer is over is each light's frame on the screen
-//! ([`Strip::screen_frames`]), through whichever window holds its view --
-//! in full screen the title bar's own, not the terminal's
-//! (`baud_present_macos::hover`). A light that would
-//! reach baud's lockup in a narrow window is not drawn, the leftmost
-//! first, so nothing covers the traffic lights or the lockup.
+//! **Where**: a module at the title bar's right end, a modem's panel: baud's
+//! whole lockup and the nine lights on one plate ([`panel`]), each lamp in
+//! its socket over its letters. One image view a light and one the plate, in
+//! a trailing titlebar accessory -- the title bar's own place for content at
+//! its right end, in the traffic lights' view, which AppKit detaches from
+//! the window in full screen (`strip.rs`) -- re-placed on every resize. The
+//! accessory is sized at every layout to the plate and to the room right of
+//! the traffic lights ([`crate::strip::lights_width`]), since AppKit lets the
+//! two ends of a narrow title bar overlap. The glass stays in the strip
+//! round the module. Each light's view has its own tracking area
+//! (`baud_present_macos::hover`): the pointer crossing a light is heard at
+//! once, and baud draws the light's hover text in the frame on the next frame
+//! (`line_tip.rs`), as it does on Linux, with no `toolTip`, whose system delay
+//! is the wait this replaces. What decides which light the pointer is over is
+//! each light's frame on the screen ([`Strip::screen_frames`]), through
+//! whichever window holds its view -- in full screen the title bar's own, not
+//! the terminal's (`baud_present_macos::hover`). A light whose place would
+//! push the plate into the traffic lights in a narrow window is not drawn, the
+//! leftmost first; the lockup stays whole and the plate shrinks with them.
 //!
 //! **The colours are the theme's** (`Renderer::lights_look`): every lamp
 //! one of the theme's sixteen palette entries in the set `[window]
 //! activity_lights_colours` names, on a plate of the theme's background, a
 //! tenth view under the lights, the letters its foreground -- the colours
-//! the lights' own line draws on Linux. The plate is opaque, so a lamp
-//! reads against the theme's background whatever the window's material
-//! shows through the strip, glass or standard, light or dark; no AppKit
-//! colour is read for them, and a change of theme, set or glow draws the
-//! pictures again because the look they were drawn for moved.
+//! the lights' own line draws on Linux -- and the socket and the bevel made
+//! from the plate. The plate is opaque, so a lamp reads against the theme's
+//! background whatever the window's material shows through the strip, glass
+//! or standard, light or dark; no AppKit colour is read for them, and a change
+//! of theme, set or glow draws the pictures again because the look they were
+//! drawn for moved. The lockup's form on the plate is the plate's too
+//! (`mark.rs`).
 //!
-//! **The pixels are baud's renderer's** (`Renderer::activity_light`): each
+//! **The pixels are baud's renderer's** (`Renderer::panel_light`): each
 //! light's three pictures, dark, lit and unread, and the plate's, drawn
 //! when the scale or the look -- the theme, the set, the glow or Dim
 //! Flashing Lights -- changes; a light that changes swaps
@@ -43,18 +47,22 @@
 //! to a byte's path, and nothing is timed off the link.
 //!
 //! **Or on a line of their own in the frame** (`[window] activity_lights
-//! = "bottom_line"` or `"top_line"`): the renderer draws the same pictures
-//! there on the same plate (`baud_render::lights`,
-//! `Renderer::set_lights_line`), and `line_tip.rs` shows each light's
-//! hover text from its place on that line. The Linux window has no
-//! title bar -- no compositor decorations are asked for and none are drawn
-//! -- so the line is its default, and its lights are drawn there by the
-//! Linux driver.
+//! = "bottom_line"` or `"top_line"`): the renderer draws them there, each
+//! lamp beside its letters, on a small plate (`baud_render::lights`,
+//! `Renderer::set_lights_line`), with no plate in the title bar and the
+//! lockup beside the traffic lights (`mark.rs`), and `line_tip.rs` shows each
+//! light's hover text from its place on that line. The Linux window has no
+//! title bar -- no compositor decorations are asked for and none are drawn --
+//! so the line is its default, and its lights are drawn there by the Linux
+//! driver.
 
 use baud_present_macos::hover::Crossings;
-use baud_render::lights::{PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, draw_plate};
+use baud_render::lights::{
+    PANEL_HEIGHT, PANEL_LOGO_GAP, PANEL_PAD, PANEL_RIGHT, draw_panel_plate, panel_margin,
+};
 use baud_render::{
-    ActivityLights, ByLed, ByLight, Glow, Led, Light, LightsImage, LightsLook, Renderer, Shown,
+    ActivityLights, Argb, ByLed, ByLight, Glow, Led, Light, LightsImage, LightsLook, Renderer,
+    Shown,
 };
 use macos_liquid_glass::drawable::Waker;
 use macos_liquid_glass::objc2::rc::Retained;
@@ -145,8 +153,7 @@ pub(crate) struct Spans {
 /// bottom-left origin: the strip flush with the container's top, `right`
 /// in from its right edge, the strip's `inset` tall, its left end on a
 /// whole device pixel at `scale`; a light that would start left of `left`
-/// -- baud's lockup -- is not placed, so in a narrow window the leftmost go
-/// first.
+/// is not placed, so in a narrow window the leftmost go first.
 pub(crate) fn placed(
     container: NSSize,
     inset: CGFloat,
@@ -170,33 +177,123 @@ pub(crate) fn placed(
     })
 }
 
-/// **The plate's frame under the lights `frames` placed**, in the same
-/// points: from [`PLATE_PAD`] before the first placed light to as far past
-/// the last, [`PLATE_TITLE`] tall -- or the strip's `inset` if that is
-/// less -- centred on the strip, its top on a whole device pixel at
-/// `scale`; none with no light placed. The light the plate starts at
-/// with it, whose plate picture it shows.
-pub(crate) fn plate_frame(
-    frames: &ByLed<Option<(NSRect, &'static str)>>,
-    inset: CGFloat,
-    scale: CGFloat,
-) -> Option<(Led, NSRect)> {
-    let scale = scale.max(1.0);
-    let shown = || {
-        Led::ALL
-            .into_iter()
-            .filter_map(|l| frames.get(l).map(|f| (l, f.0)))
+/// **The lamps on the panel, as the renderer lays them out at a scale**:
+/// each column's place, and each lamp's letters as they are before any
+/// rounding, their left and their width, in points from the first column's
+/// left.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Columns {
+    pub(crate) spans: Spans,
+    pub(crate) letters: ByLed<(CGFloat, CGFloat)>,
+}
+
+impl Columns {
+    /// How far the last lamp's letters end from the first column's left.
+    fn end(&self) -> CGFloat {
+        let (x, w) = *self.letters.get(Led::Syn);
+        x + w
+    }
+}
+
+/// **The module at the title bar's right end, laid out**: the plate, the
+/// lockup, the first light on it and each light's frame with its hover text.
+/// One source for the app and the film's composed strip
+/// (`film/chrome.rs`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Panel {
+    /// The plate, not counting the bevel's edge just outside it.
+    pub(crate) plate: NSRect,
+    pub(crate) logo: NSRect,
+    pub(crate) first: Led,
+    pub(crate) lamps: ByLed<Option<(NSRect, &'static str)>>,
+}
+
+/// **The plate's left for the first light `led`**, its right edge at
+/// `right`, before rounding: the pad, the lockup, the gap and the lights from
+/// `led` on, and the pad. With no lockup, no gap for it.
+fn exact_left(columns: &Columns, led: Led, right: CGFloat, logo: NSSize) -> CGFloat {
+    let (x, _) = *columns.letters.get(led);
+    let gap = match logo.width > 0.0 {
+        true => CGFloat::from(PANEL_LOGO_GAP),
+        false => 0.0,
     };
-    let (led, first) = shown().next()?;
-    let (_, last) = shown().next_back()?;
-    let pad = CGFloat::from(PLATE_PAD);
-    let h = CGFloat::from(PLATE_TITLE).min(inset);
-    let y = first.origin.y + ((inset - h) / 2.0 * scale).round() / scale;
-    let w = last.origin.x + last.size.width - first.origin.x + 2.0 * pad;
-    Some((
-        led,
-        NSRect::new(NSPoint::new(first.origin.x - pad, y), NSSize::new(w, h)),
-    ))
+    let pad = CGFloat::from(PANEL_PAD);
+    right - pad - (columns.end() - x) - gap - logo.width - pad
+}
+
+/// **The module in a `container` with the strip at its top**, `inset` tall,
+/// bottom-left origin, every x from the container's left. The plate's right
+/// edge [`PANEL_RIGHT`] in from the container's, on a whole device pixel at
+/// `scale`; the last lamp's letters [`PANEL_PAD`] short of it; the lockup
+/// [`PANEL_LOGO_GAP`] before the first light's letters, whole, and the
+/// plate's left [`PANEL_PAD`] before it, both on whole device pixels. The
+/// plate is [`PANEL_HEIGHT`] tall, or `inset` if that is less, and it and
+/// the lockup are centred on the strip. A light whose place would start the
+/// plate left of `left`, the traffic lights' end, is not placed, the leftmost
+/// first, measured before rounding so that the width a window gives up a
+/// light at is the panel's own and not the screen's. None with no light
+/// placed: there is no plate then, and the lockup goes back beside the
+/// traffic lights.
+pub(crate) fn panel(
+    container: NSSize,
+    inset: CGFloat,
+    left: CGFloat,
+    scale: CGFloat,
+    columns: &Columns,
+    logo: NSSize,
+) -> Option<Panel> {
+    let scale = scale.max(1.0);
+    let whole = |v: CGFloat| (v * scale).round() / scale;
+    let pad = CGFloat::from(PANEL_PAD);
+    let right = whole(container.width - CGFloat::from(PANEL_RIGHT));
+    let x0 = whole(right - pad - columns.end());
+    let exact_right = container.width - CGFloat::from(PANEL_RIGHT);
+    let first = Led::ALL
+        .into_iter()
+        .find(|&l| exact_left(columns, l, exact_right, logo) >= left)?;
+    // Every light's frame, and only the ones from the first on kept.
+    let all = placed(
+        container,
+        inset,
+        container.width - x0 - columns.spans.width,
+        CGFloat::NEG_INFINITY,
+        scale,
+        &columns.spans,
+    );
+    let from = Led::ALL.iter().position(|&l| l == first)?;
+    let lamps = ByLed::of(|led| {
+        let at = Led::ALL.iter().position(|&l| l == led)?;
+        (at >= from).then(|| *all.get(led)).flatten()
+    });
+    let (x, _) = *columns.letters.get(first);
+    let gap = match logo.width > 0.0 {
+        true => CGFloat::from(PANEL_LOGO_GAP),
+        false => 0.0,
+    };
+    let logo_x = whole(x0 + x - gap - logo.width);
+    let plate_left = logo_x - pad;
+    let strip = container.height - inset;
+    let h = CGFloat::from(PANEL_HEIGHT).min(inset);
+    Some(Panel {
+        plate: NSRect::new(
+            NSPoint::new(
+                plate_left,
+                strip + ((inset - h) / 2.0 * scale).round() / scale,
+            ),
+            NSSize::new(right - plate_left, h),
+        ),
+        logo: NSRect::new(
+            NSPoint::new(logo_x, strip + (inset - logo.height) / 2.0),
+            logo,
+        ),
+        first,
+        lamps,
+    })
+}
+
+/// **How far the plate's picture reaches past the plate**, in points.
+pub(crate) fn plate_margin(scale: CGFloat) -> CGFloat {
+    panel_margin(scale as f32).map_or(0.0, |m| CGFloat::from(m.value()) / scale)
 }
 
 /// The views, their pictures, and what each shows.
@@ -212,9 +309,15 @@ pub(crate) struct Strip {
     plates: Option<ByLed<Retained<NSImage>>>,
     on_view: ByLed<Option<Light>>,
     /// Each light's place, from the renderer's layout.
-    spans: Spans,
+    columns: Columns,
+    /// The lockup's size, which the plate is laid out around.
+    logo: NSSize,
     /// The scale the spans are whole device pixels at.
     scale: CGFloat,
+    /// The colour of the plate's picture, which the lockup's form is chosen
+    /// on: what was last drawn, as `columns` and `scale` are, and read only
+    /// while there is a plate.
+    colour: Argb,
     /// The lights' tracking areas' owner, made with the views, and whom it
     /// wakes at a crossing.
     crossings: Option<Crossings>,
@@ -222,7 +325,13 @@ pub(crate) struct Strip {
 }
 
 impl Strip {
-    pub(crate) fn new(holder: Option<crate::strip::Accessory>, waker: Option<Waker>) -> Strip {
+    /// The lights in `holder`, none until the window is shown, on a plate
+    /// with a lockup `logo` in size.
+    pub(crate) fn new(
+        holder: Option<crate::strip::Accessory>,
+        waker: Option<Waker>,
+        logo: NSSize,
+    ) -> Strip {
         Strip {
             holder,
             views: ByLed::default(),
@@ -230,11 +339,16 @@ impl Strip {
             pictures: None,
             plates: None,
             on_view: ByLed::default(),
-            spans: Spans {
-                at: ByLed::default(),
-                width: 0.0,
+            columns: Columns {
+                spans: Spans {
+                    at: ByLed::default(),
+                    width: 0.0,
+                },
+                letters: ByLed::default(),
             },
+            logo,
             scale: 1.0,
+            colour: Argb(0),
             crossings: None,
             waker,
         }
@@ -259,6 +373,25 @@ impl Strip {
                 .filter(|v| !v.isHidden())
                 .and_then(|v| baud_present_macos::hover::on_screen(v))
         })
+    }
+
+    /// The plate's view, which `baud-app/tests/titlebar_mark.rs` looks at.
+    #[allow(dead_code)]
+    pub(crate) fn plate_view(&self) -> Option<&NSImageView> {
+        self.plate.as_deref()
+    }
+
+    /// A light's view, which `baud-app/tests/titlebar_mark.rs` looks at.
+    #[allow(dead_code)]
+    pub(crate) fn lamp_view(&self, led: Led) -> Option<&NSImageView> {
+        self.views.get(led).as_deref()
+    }
+
+    /// The lights' columns, which `baud-app/tests/titlebar_mark.rs` lays out
+    /// against.
+    #[allow(dead_code)]
+    pub(crate) fn columns(&self) -> Columns {
+        self.columns
     }
 
     /// The view of the accessory they are in, none until the window is
@@ -311,17 +444,19 @@ impl Strip {
         match step(setting, wanted, have, shown, self.on_view) {
             Step::Nothing => return,
             Step::Redraw => {
-                let Some(spans) = spans(renderer, wanted.scale) else {
+                let Some(columns) = columns(renderer, wanted.scale) else {
                     return;
                 };
                 let Some(drawn) = pictures(renderer, &wanted.look, wanted, inset) else {
                     return;
                 };
-                let Some(plates) = plates(&wanted.look, &spans, wanted.scale, inset) else {
+                let Some(plates) = plates(&wanted.look, &columns, self.logo, wanted.scale, inset)
+                else {
                     return;
                 };
-                self.spans = spans;
+                self.columns = columns;
                 self.scale = wanted.scale;
+                self.colour = wanted.look.plate;
                 self.pictures = Some((wanted, drawn));
                 self.plates = Some(plates);
                 self.on_view = ByLed::default();
@@ -376,34 +511,60 @@ impl Strip {
         }
     }
 
-    /// **How wide the lights are, in points**: what the build's name leaves
-    /// room for (`Mark::fit`); none with no lights.
+    /// **How wide the lights are, in points**: none with no lights.
     pub(crate) fn across(&self) -> CGFloat {
         match self.plate {
-            Some(_) => self.spans.width,
+            Some(_) => self.columns.spans.width,
             None => 0.0,
         }
     }
 
-    /// Re-place every view at the strip's right, and hide the ones a
+    /// **What the lockup on the plate is placed for**: how wide the lights
+    /// are and the scale they are drawn at, a change of either moving the
+    /// plate, and the plate's colour, a change of which can change the
+    /// lockup's form (`Mark::lights_moved`).
+    pub(crate) fn fitted(&self) -> crate::mark::Fitted {
+        crate::mark::Fitted {
+            across: self.across(),
+            scale: self.scale,
+            plate: self.plate.as_ref().map(|_| self.colour),
+        }
+    }
+
+    /// **Re-place every view at the strip's right**, and hide the ones a
     /// narrow window has no room for: on every resize. The accessory first,
-    /// to the lights' width and the room `edges` leave, none with no
-    /// lights shown; then each light in it, in its own points, at the
-    /// height AppKit gave it.
-    pub(crate) fn place(&self, edges: crate::strip::Edges) {
-        let Some(holder) = &self.holder else {
-            return;
+    /// to the plate's width and the room `edges` leave, none with no
+    /// lights shown; then the plate and each light in it, in its own points,
+    /// at the height AppKit gave it. Where the lockup stands on the plate,
+    /// for `Mark::fit`; none with no plate, or none placed.
+    pub(crate) fn place(&self, edges: crate::strip::Edges) -> Option<crate::mark::OnPlate> {
+        let holder = self.holder.as_ref()?;
+        let inset = holder.view.frame().size.height;
+        let at = match self.plate {
+            Some(_) => panel(
+                NSSize::new(edges.width, inset),
+                inset,
+                edges.left,
+                self.scale,
+                &self.columns,
+                self.logo,
+            ),
+            None => None,
         };
-        let (room, left) =
-            holder.fit_lights(edges, self.across(), CGFloat::from(PLATE_PAD), self.scale);
-        let inset = room.height;
-        let frames = placed(room, inset, edges.right, left, self.scale, &self.spans);
+        let margin = plate_margin(self.scale);
+        let width = at.map_or(0.0, |p| p.plate.size.width);
+        let (room, _) = holder.fit_lights(edges, width, margin, self.scale);
+        let shift = edges.width - room.width;
+        let moved = |r: NSRect| NSRect::new(NSPoint::new(r.origin.x - shift, r.origin.y), r.size);
         if let Some(v) = &self.plate {
-            let at = plate_frame(&frames, inset, self.scale);
             match (at, &self.plates) {
-                (Some((led, rect)), Some(p)) => {
-                    v.setImage(Some(p.get(led)));
-                    v.setFrame(rect);
+                (Some(p), Some(pictures)) => {
+                    let r = moved(p.plate);
+                    v.setImage(Some(pictures.get(p.first)));
+                    v.setFrame(NSRect::new(
+                        NSPoint::new(r.origin.x - margin, r.origin.y - margin),
+                        NSSize::new(r.size.width + 2.0 * margin, r.size.height + 2.0 * margin),
+                    ));
                     v.setHidden(false);
                 }
                 _ => v.setHidden(true),
@@ -413,58 +574,74 @@ impl Strip {
             let Some(v) = self.views.get(led) else {
                 continue;
             };
-            match frames.get(led) {
+            match at.and_then(|p| *p.lamps.get(led)) {
                 Some((rect, _)) => {
-                    v.setFrame(*rect);
+                    v.setFrame(moved(rect));
                     v.setHidden(false);
                 }
                 None => v.setHidden(true),
             }
         }
+        at.map(|p| crate::mark::OnPlate {
+            holder: holder.view.clone(),
+            logo: moved(p.logo),
+            plate_left: p.plate.origin.x,
+            placed: match p.first == Led::ALL[0] {
+                true => crate::mark::Placed::Every,
+                false => crate::mark::Placed::Fewer,
+            },
+            colour: self.colour,
+        })
     }
 }
 
-/// Every light's place in points at `scale`, from the renderer's layout in
-/// device pixels.
-pub(crate) fn spans(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Spans> {
-    let (slots, width) = renderer.activity_lights_layout(scale as f32)?;
+/// **Every light's column and letters in points at `scale`**, from the
+/// renderer's layout in device pixels.
+pub(crate) fn columns(renderer: &Renderer<'_, '_>, scale: CGFloat) -> Option<Columns> {
+    let (slots, width) = renderer.panel_layout(scale as f32)?;
     let pt = |px: baud_font::Px| CGFloat::from(px.value()) / scale;
-    Some(Spans {
-        at: ByLed::of(|l| {
-            let s = slots.get(l);
-            (pt(s.start), pt(s.width))
+    let letters = renderer.panel_letters();
+    Some(Columns {
+        spans: Spans {
+            at: ByLed::of(|l| {
+                let s = slots.get(l);
+                (pt(s.start), pt(s.width))
+            }),
+            width: pt(width),
+        },
+        letters: ByLed::of(|l| {
+            let (x, w) = *letters.get(l);
+            (CGFloat::from(x), CGFloat::from(w))
         }),
-        width: pt(width),
     })
 }
 
-/// **The plate's picture for each light it can start at**, `look`'s plate
-/// colour at `scale`: from [`PLATE_PAD`] before that light to as far past
-/// the last, as [`plate_frame`] places it, so a narrow window that drops
-/// the leftmost lights shows the plate under the rest.
+/// **The plate's picture for each light it can start at**, `look`'s at
+/// `scale`: as [`panel`] places it, so a narrow window that drops the
+/// leftmost lights shows the plate under the rest. Any width does: the
+/// plate's own width at a scale is the same at all of them.
 fn plates(
     look: &LightsLook,
-    spans: &Spans,
+    columns: &Columns,
+    logo: NSSize,
     scale: CGFloat,
     inset: CGFloat,
 ) -> Option<ByLed<Retained<NSImage>>> {
-    let (end, w) = *spans.at.get(Led::Syn);
-    let pad = CGFloat::from(PLATE_PAD);
-    let h = CGFloat::from(PLATE_TITLE).min(inset);
     let px = |pt: CGFloat| {
         u32::try_from((pt * scale).round() as i64)
             .ok()
             .map(baud_font::Px::of)
     };
     let one = |led: Led| {
-        let (start, _) = *spans.at.get(led);
+        let room = NSSize::new(10_000.0, inset);
+        let left = exact_left(columns, led, room.width - CGFloat::from(PANEL_RIGHT), logo) - 1.0;
+        let plate = panel(room, inset, left, scale, columns, logo)?;
         let mut img = LightsImage::new();
-        let width = end + w - start + 2.0 * pad;
-        draw_plate(
+        draw_panel_plate(
             look,
-            px(width)?,
-            px(h)?,
-            PLATE_RADIUS_TITLE * scale as f32,
+            px(plate.plate.size.width)?,
+            px(plate.plate.size.height)?,
+            scale as f32,
             &mut img,
         )?;
         baud_present_macos::lights::picture(&img, scale)
@@ -492,7 +669,7 @@ fn pictures(
 ) -> Option<ByLed<ByLight<Retained<NSImage>>>> {
     let mut img = LightsImage::new();
     let mut one = |led: Led, light: Light| {
-        renderer.activity_light(
+        renderer.panel_light(
             look,
             led,
             light,
@@ -674,111 +851,264 @@ mod tests {
         assert_eq!(x, x.round());
     }
 
-    /// **In the titlebar accessory the lights are where the window's own
-    /// strip had them**: fitted between the strip's edges
-    /// (`strip::lights_width`, `strip::lights_room`) and placed in the
-    /// accessory's own points, each light and the plate, moved by where
-    /// AppKit puts a trailing accessory -- flush with the window's right
-    /// edge -- land on the frames `placed` gives across the whole window,
-    /// at 960, 786, 800.25 and 200 points and scales 1 and 2, the narrow
-    /// window dropping the same leftmost lights. Perturbation: put the
-    /// accessory's width, rather than its left edge, on a whole device
-    /// pixel and the 800.25-point window's lights move by half of one.
-    #[test]
-    fn the_lights_accessory_keeps_the_lights_where_the_strip_had_them() {
-        use crate::strip::{Edges, lights_room, lights_width};
-        let spans = spans_for_test();
-        let pad = CGFloat::from(PLATE_PAD);
-        for scale in [1.0, 2.0] {
-            for width in [960.0, 786.0, 800.25, 200.0] {
-                let edges = Edges {
-                    width,
-                    left: 129.366,
-                    right: 9.0,
-                };
-                let window = NSSize::new(width, 600.0);
-                let strip = placed(window, 28.0, edges.right, edges.left, scale, &spans);
-                let h = lights_width(edges, spans.width, pad, scale);
-                let (room, left) = lights_room(edges, NSSize::new(h, 28.0));
-                let inside = placed(room, 28.0, edges.right, left, scale, &spans);
-                let shift = width - h;
-                let moved = |r: NSRect| {
-                    NSRect::new(NSPoint::new(r.origin.x + shift, r.origin.y + 572.0), r.size)
-                };
-                for led in Led::ALL {
-                    assert_eq!(
-                        inside.get(led).map(|(r, t)| (moved(r), t)),
-                        *strip.get(led),
-                        "{led:?} at {width} points, scale {scale}"
-                    );
-                }
-                assert_eq!(
-                    plate_frame(&inside, 28.0, scale).map(|(l, r)| (l, moved(r))),
-                    plate_frame(&strip, 28.0, scale),
-                    "the plate at {width} points, scale {scale}"
-                );
-                if let Some((_, r)) = plate_frame(&inside, 28.0, scale) {
-                    assert!(r.origin.x >= 0.0, "the plate is whole at {width}: {r:?}");
-                }
-            }
-        }
-        let narrow = Edges {
-            width: 200.0,
-            left: 129.366,
-            right: 9.0,
-        };
-        let h = lights_width(narrow, spans.width, pad, 2.0);
-        let (room, left) = lights_room(narrow, NSSize::new(h, 28.0));
-        let inside = placed(room, 28.0, 9.0, left, 2.0, &spans);
-        assert!(
-            inside.hs.is_none() && inside.syn.is_some(),
-            "the leftmost go"
-        );
+    /// The columns the renderer lays out at `scale`, in baud's embedded
+    /// JetBrains Mono Bold, and the lockup's size beside AppKit's buttons.
+    fn real(scale: CGFloat) -> (Columns, NSSize) {
+        use baud_domain::{Cols, Rows};
+        use baud_render::{Blend, PxSize, Stack};
+        let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
+        let r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(28.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::of_index(6),
+            Rows::of_index(2),
+        )
+        .unwrap();
+        let k = 22.4 / 300.0;
+        let art = crate::mark::Lockup::OnDark
+            .art()
+            .expect("the lockup's size");
+        (
+            columns(&r, scale).unwrap(),
+            NSSize::new(art.width * k, art.height * k),
+        )
     }
 
-    /// **In a narrow window the lights yield and the lockup stays whole**:
-    /// the lockup beside AppKit's traffic lights (14x16 at x 9, 29 and
-    /// 49, `mark.rs`), the lights a light's gap past its end, and as the
-    /// window narrows to its smallest, 200 points, the leftmost lights go
-    /// while the lockup keeps its frame inside the window. At 800 every
-    /// light is placed; at 310 the strip starts at 126, past the lockup's
-    /// end, about 120.4, and short of it plus the gap, about 129.4, so the
-    /// first light goes; at 200 the three rightmost stay. Perturbation: give
-    /// `placed` the lockup's end rather than `lights_left` and the
-    /// 310-point window keeps a light in the gap.
+    /// The panel in a strip as tall as the window's, past the traffic
+    /// lights' 69 points.
+    fn panel_at(width: CGFloat, scale: CGFloat) -> Option<Panel> {
+        let (c, logo) = real(scale);
+        panel(NSSize::new(width, 28.0), 28.0, 69.0, scale, &c, logo)
+    }
+
+    /// **The module's numbers**: the plate 221 points across, 220.97 before
+    /// rounding, and 24 tall, y 2 to 26, its right edge 5 in from the
+    /// window's; the lockup 7 from its left, 51.37 by 12.54, centred on the
+    /// strip; 10 from the lockup to HS's letters and 7 from SYN's to the
+    /// plate's right, each to within a device pixel; the nine in today's
+    /// order, each column the strip's height. Perturbation: a pad of 4, a
+    /// right inset of 9, or a gap of 9, and this goes red.
     #[test]
-    fn a_narrow_window_drops_lights_and_keeps_the_lockup_whole() {
-        use crate::mark::{Lockup, Place};
-        let r = |x| NSRect::new(NSPoint::new(x, 6.0), NSSize::new(14.0, 16.0));
-        let art = Lockup::OnDark.art().expect("the lockup's size");
-        let place = Place::beside(r(9.0), r(29.0), r(49.0), 28.0, art).expect("laid out");
-        let left = place.lights_left();
-        assert!((left - place.end() - 9.0).abs() < 1e-9, "{left}");
-        let spans = spans_for_test();
-        let mut kept = Vec::new();
-        for width in [800.0, 310.0, 200.0] {
-            let lights = placed(NSSize::new(width, 500.0), 28.0, 9.0, left, 2.0, &spans);
-            for led in Led::ALL {
-                if let Some((f, _)) = lights.get(led) {
-                    assert!(
-                        f.origin.x >= left,
-                        "{width}: {led:?} at {f:?} reaches the lockup"
-                    );
+    fn the_module_has_its_numbers_on_the_plate() {
+        for scale in [1.0, 2.0] {
+            for width in [960.0, 786.0, 800.25, 1200.0] {
+                let p = panel_at(width, scale).expect("a panel");
+                let at = format!("{width} at {scale}x");
+                let (c, logo) = real(scale);
+                assert_eq!(p.first, Led::Hs, "{at}");
+                let px = 1.0 / scale;
+                let right = p.plate.origin.x + p.plate.size.width;
+                assert!((right - (width - 5.0)).abs() <= px / 2.0, "{at}: {right}");
+                assert_eq!(right * scale, (right * scale).round(), "{at}: whole");
+                assert_eq!(p.plate.origin.y, 2.0, "{at}");
+                assert_eq!(p.plate.size.height, 24.0, "{at}");
+                assert_eq!(p.plate.size.width, 221.0, "{at}");
+                assert_eq!(p.logo.origin.x - p.plate.origin.x, 7.0, "{at}");
+                assert_eq!(p.logo.size, logo, "{at}");
+                assert!((logo.width - 51.366).abs() < 0.01, "{at}: {logo:?}");
+                assert!((logo.height - 12.544).abs() < 1e-9, "{at}: {logo:?}");
+                assert!(
+                    (p.logo.origin.y + logo.height / 2.0 - 14.0).abs() < 1e-9,
+                    "{at}: centred"
+                );
+                let (hs, _) = p.lamps.hs.unwrap();
+                let hs_letters = hs.origin.x + c.letters.hs.0 - c.spans.at.hs.0;
+                let gap = hs_letters - (p.logo.origin.x + logo.width);
+                assert!((gap - 10.0).abs() <= 2.0 * px / 2.0, "{at}: gap {gap}");
+                let (syn, _) = p.lamps.syn.unwrap();
+                let syn_end = syn.origin.x + c.letters.syn.0 - c.spans.at.syn.0 + c.letters.syn.1;
+                assert!(
+                    (right - syn_end - 7.0).abs() <= 2.0 * px / 2.0,
+                    "{at}: pad {}",
+                    right - syn_end
+                );
+                let mut end = None;
+                for led in Led::ALL {
+                    let (r, tip) = p.lamps.get(led).expect("all nine");
+                    assert_eq!(tip, led.tip(), "{at}");
+                    assert_eq!((r.origin.y, r.size.height), (0.0, 28.0), "{at} {led:?}");
+                    if let Some(e) = end {
+                        assert_eq!(r.origin.x, e, "{at} {led:?}: side by side");
+                    }
+                    end = Some(r.origin.x + r.size.width);
                 }
             }
-            kept.push(
-                Led::ALL
-                    .iter()
-                    .filter(|&&l| lights.get(l).is_some())
-                    .count(),
-            );
-            let frame = place.frame(500.0, 28.0);
-            assert!(
-                frame.origin.x >= 0.0 && place.end() <= width,
-                "{width}: {frame:?}"
-            );
         }
-        assert_eq!(kept, [9, 8, 3], "the leftmost go first");
+    }
+
+    /// **The lamps' letters, laid out**: 4.8 points a letter in JetBrains
+    /// Mono Bold at 8, with 6.2 between one's letters and the next's, so
+    /// 145.6 across the nine, in today's order. Perturbation: a letter gap
+    /// of 9, and this goes red.
+    #[test]
+    fn the_lamps_letters_are_6_2_apart_and_145_6_across() {
+        let (c, _) = real(2.0);
+        let mut x = c.letters.hs.0;
+        for led in Led::ALL {
+            let (at, w) = *c.letters.get(led);
+            assert!((at - x).abs() < 1e-4, "{led:?}");
+            let letters = led.letters().len() as CGFloat;
+            assert!((w - 4.8 * letters).abs() < 1e-4, "{led:?}: {w}");
+            x = at + w + 6.2;
+        }
+        let across = c.end() - c.letters.hs.0;
+        assert!((across - 145.6).abs() < 1e-4, "{across}");
+        assert!((c.letters.hs.0 - 3.1).abs() < 1e-4);
+    }
+
+    /// **A narrow window drops the leftmost lamps, the lockup stays whole and
+    /// the plate shrinks with them**: all nine from 295 points, 294 drops HS;
+    /// 340 keeps all nine; 240 keeps RD on, 200 FAX and SYN; the plate's
+    /// left never past the traffic lights' end, 69; the plate's right where
+    /// it was; the lockup whole at the plate's pad; the first lamp kept the
+    /// plate's picture. At every half point from 200 to 400 fewer or the
+    /// same lamps as the next width up, and always the rightmost. Under 144
+    /// no lamp fits and there is no plate. Perturbation: start the plate at
+    /// the first lamp whatever is kept, or test the rounded plate rather
+    /// than the exact one (200 keeps CS, 68.83 rounding up to 69), and this
+    /// goes red.
+    #[test]
+    fn a_narrow_window_drops_the_leftmost_and_the_plate_shrinks() {
+        let kept = |width: CGFloat, scale: CGFloat| -> Vec<Led> {
+            panel_at(width, scale).map_or_else(Vec::new, |p| {
+                Led::ALL
+                    .into_iter()
+                    .filter(|&l| p.lamps.get(l).is_some())
+                    .collect()
+            })
+        };
+        for scale in [1.0, 2.0] {
+            assert_eq!(kept(340.0, scale), Led::ALL, "340 at {scale}x");
+            assert_eq!(kept(295.0, scale), Led::ALL, "295 at {scale}x");
+            assert_eq!(kept(294.0, scale), &Led::ALL[1..], "294 at {scale}x");
+            assert_eq!(kept(240.0, scale), &Led::ALL[4..], "240 at {scale}x");
+            assert_eq!(kept(200.0, scale), &Led::ALL[7..], "200 at {scale}x");
+            assert_eq!(kept(143.0, scale), [], "143 at {scale}x");
+            let mut width = 200.0;
+            let mut last = 0;
+            while width <= 400.0 {
+                let k = kept(width, scale);
+                assert!(k.len() >= last, "{width} at {scale}x");
+                assert_eq!(k.last(), Some(&Led::Syn), "{width} at {scale}x");
+                last = k.len();
+                let p = panel_at(width, scale).unwrap();
+                let at = format!("{width} at {scale}x");
+                assert!(p.plate.origin.x >= 69.0, "{at}: {:?}", p.plate);
+                assert_eq!(p.first, k[0], "{at}");
+                assert_eq!(p.logo.origin.x - p.plate.origin.x, 7.0, "{at}");
+                assert!(
+                    (p.plate.origin.x + p.plate.size.width - (width - 5.0)).abs() <= 0.5 / scale,
+                    "{at}"
+                );
+                let (c, logo) = real(scale);
+                let (x, _) = *c.letters.get(p.first);
+                let want = 7.0 + logo.width + 10.0 + (c.end() - x) + 7.0;
+                assert!(
+                    (p.plate.size.width - want).abs() <= 1.5 / scale,
+                    "{at}: {} against {want}",
+                    p.plate.size.width
+                );
+                width += 0.5;
+            }
+        }
+    }
+
+    /// **No lockup, no gap**: a window whose lockup did not decode still
+    /// has the lamps on their plate, pad to pad.
+    #[test]
+    fn no_lockup_keeps_the_lamps_on_their_plate() {
+        let (c, _) = real(2.0);
+        let p = panel(
+            NSSize::new(960.0, 28.0),
+            28.0,
+            69.0,
+            2.0,
+            &c,
+            NSSize::new(0.0, 0.0),
+        )
+        .unwrap();
+        let want = 7.0 + (c.end() - c.letters.hs.0) + 7.0;
+        assert!((p.plate.size.width - want).abs() <= 0.75, "{:?}", p.plate);
+    }
+
+    /// **The accessory holds the whole plate, its bevel's edge included, and
+    /// is no wider**: the plate and the lamps moved into its own points keep
+    /// their whole device pixels, at 960, 786, 800.25 and 200 points at
+    /// scales 1 and 2, and the plate's picture fits in it. Perturbation: put
+    /// the accessory's width, rather than its left edge, on a whole device
+    /// pixel and the 800.25-point window's lamps move by half of one.
+    #[test]
+    fn the_accessory_holds_the_plate_and_keeps_its_pixels_whole() {
+        use crate::strip::{Edges, lights_width};
+        for scale in [1.0, 2.0] {
+            for width in [960.0, 786.0, 800.25, 200.0] {
+                let p = panel_at(width, scale).unwrap();
+                let edges = Edges {
+                    width,
+                    left: 69.0,
+                    right: 5.0,
+                };
+                let m = plate_margin(scale);
+                let h = lights_width(edges, p.plate.size.width, m, scale);
+                let shift = width - h;
+                let at = format!("{width} at {scale}x");
+                let left = p.plate.origin.x - shift - m;
+                assert!(left.abs() <= 1.0 / scale + 1e-9, "{at}: {left}");
+                assert!(left >= -1e-9, "{at}: the plate is whole: {left}");
+                let frame = (p.plate.origin.x - shift) * scale;
+                assert!((frame - frame.round()).abs() < 1e-9, "{at}: {frame}");
+                for led in Led::ALL {
+                    if let Some((r, _)) = p.lamps.get(led) {
+                        let x = (r.origin.x - shift) * scale;
+                        assert!((x - x.round()).abs() < 1e-9, "{at} {led:?}: {x}");
+                        assert!(r.origin.x + r.size.width <= width, "{at} {led:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The tip and the tracking area follow the columns**: every column of
+    /// the panel holds its lamp's centre and its letters, and a point at the
+    /// edge between two columns is over one, so the pointer is over at most
+    /// one lamp anywhere in the strip. Perturbation: give each column its
+    /// picture's old width, 13 points past its start, and two columns
+    /// overlap.
+    #[test]
+    fn the_columns_partition_the_strip_for_the_tips() {
+        for scale in [1.0, 2.0] {
+            let p = panel_at(960.0, scale).unwrap();
+            let (c, _) = real(scale);
+            let inside = |r: &NSRect, x: CGFloat| x >= r.origin.x && x < r.origin.x + r.size.width;
+            for led in Led::ALL {
+                let (r, _) = p.lamps.get(led).unwrap();
+                let (lx, lw) = *c.letters.get(led);
+                let x0 = r.origin.x - c.spans.at.get(led).0;
+                for x in [x0 + lx, x0 + lx + lw / 2.0, x0 + lx + lw - 0.01] {
+                    let hits: Vec<Led> = Led::ALL
+                        .into_iter()
+                        .filter(|&o| inside(&p.lamps.get(o).unwrap().0, x))
+                        .collect();
+                    assert_eq!(hits, [led], "{x} at {scale}x");
+                }
+            }
+            let from = p.lamps.hs.unwrap().0.origin.x;
+            let to = {
+                let r = p.lamps.syn.unwrap().0;
+                r.origin.x + r.size.width
+            };
+            let mut x = from;
+            while x < to {
+                let n = Led::ALL
+                    .into_iter()
+                    .filter(|&o| inside(&p.lamps.get(o).unwrap().0, x))
+                    .count();
+                assert_eq!(n, 1, "{x} at {scale}x");
+                x += 0.25;
+            }
+        }
     }
 
     /// **Each light's rectangle shows its own text, and only its own**:
@@ -842,12 +1172,13 @@ mod tests {
 
     /// **Each light's three pictures and the plate's, headless, in either
     /// theme and glow**: drawn by the renderer in baud's embedded
-    /// JetBrains Mono Bold in the theme's look, each light's its width and
-    /// the strip's height in points at the scale asked, its lit and dark
-    /// pictures different, and for OH and CD, which can be unread, the
+    /// JetBrains Mono Bold in the theme's look, each light's its column's
+    /// width and the strip's height in points at the scale asked, its lit and
+    /// dark pictures different, and for OH and CD, which can be unread, the
     /// unread one a third; the plate's for each light it can start at
-    /// [`PLATE_TITLE`] tall and wide from that light to past SYN, by the
-    /// pad at each end.
+    /// [`PANEL_HEIGHT`] tall and its bevel's margin past it, as wide as
+    /// [`panel`] makes it. Changed with the plate's geometry: it held the
+    /// picture beside the letters, and the 20-point plate, before.
     #[test]
     fn each_lights_pictures_are_drawn_at_its_size() {
         use baud_domain::{Cols, Rows};
@@ -863,16 +1194,15 @@ mod tests {
                 Rows::of_index(2),
             )
             .unwrap();
+            let (_, logo) = real(2.0);
             for glow in [Glow::Full, Glow::Dimmed] {
                 let look = r.lights_look(glow);
                 let wanted = Drawn { scale: 2.0, look };
                 let p = pictures(&r, &look, wanted, 28.0).expect("every picture");
-                let s = spans(&r, 2.0).expect("the layout");
-                let plate = plates(&look, &s, 2.0, 28.0).expect("every plate");
-                assert!((s.width - CGFloat::from(r.activity_lights_width())).abs() <= 0.5);
-                let (syn, syn_w) = *s.at.get(Led::Syn);
+                let c = columns(&r, 2.0).expect("the layout");
+                let plate = plates(&look, &c, logo, 2.0, 28.0).expect("every plate");
                 for led in Led::ALL {
-                    let (start, width) = *s.at.get(led);
+                    let (_, width) = *c.spans.at.get(led);
                     let pics = p.get(led);
                     for light in Light::ALL {
                         let size = pics.get(light).size();
@@ -886,41 +1216,18 @@ mod tests {
                         assert_ne!(tiff[1], tiff[2], "{name} {led:?}: unread is not lit");
                     }
                     let size = plate.get(led).size();
-                    let want = syn + syn_w - start + 2.0 * CGFloat::from(PLATE_PAD);
-                    assert_eq!(size.height, CGFloat::from(PLATE_TITLE), "{name} {led:?}");
-                    assert!((size.width - want).abs() <= 0.5, "{name} {led:?}: {size:?}");
+                    let m = plate_margin(2.0);
+                    assert_eq!(
+                        size.height,
+                        CGFloat::from(PANEL_HEIGHT) + 2.0 * m,
+                        "{name} {led:?}"
+                    );
+                    let (x, _) = *c.letters.get(led);
+                    let want = 7.0 + logo.width + 10.0 + (c.end() - x) + 7.0 + 2.0 * m;
+                    assert!((size.width - want).abs() <= 1.0, "{name} {led:?}: {size:?}");
                 }
             }
         }
-    }
-
-    /// **The plate sits under the lights placed, by its pad past each end,
-    /// centred on the strip**: in a wide window from HS's left less the pad
-    /// to SYN's right and the pad, [`PLATE_TITLE`] tall and centred in the
-    /// 28-point strip, starting at HS; in a narrow one from the first light
-    /// kept; and none with none kept. Perturbation: start the plate at HS
-    /// whatever is kept, and the narrow window's plate reaches the lockup.
-    #[test]
-    fn the_plate_sits_under_the_lights_placed() {
-        let spans = spans_for_test();
-        let wide = placed(NSSize::new(800.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
-        let (led, rect) = plate_frame(&wide, 28.0, 2.0).expect("a plate");
-        let pad = CGFloat::from(PLATE_PAD);
-        let (hs, syn) = (wide.hs.unwrap().0, wide.syn.unwrap().0);
-        assert_eq!(led, Led::Hs);
-        assert_eq!(rect.origin.x, hs.origin.x - pad);
-        assert_eq!(
-            rect.origin.x + rect.size.width,
-            syn.origin.x + syn.size.width + pad
-        );
-        assert_eq!((rect.origin.y, rect.size.height), (476.0, 20.0));
-        let narrow = placed(NSSize::new(250.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
-        let (led, rect) = plate_frame(&narrow, 28.0, 2.0).expect("a plate");
-        assert_eq!(led, Led::Cd, "from the first light kept");
-        assert_eq!(rect.origin.x, narrow.cd.unwrap().0.origin.x - pad);
-        assert!(rect.origin.x >= 100.0 - pad, "clear of the lockup");
-        let none = placed(NSSize::new(50.0, 500.0), 28.0, 9.0, 100.0, 2.0, &spans);
-        assert_eq!(plate_frame(&none, 28.0, 2.0), None);
     }
 
     /// **Dim Flashing Lights draws the lights without their glow**: macOS's
@@ -1008,6 +1315,30 @@ mod tests {
         assert!(
             focus.contains("self.app.flush_reply(Asked::Unasked);"),
             "{focus}"
+        );
+        // What takes the lockup to the plate and the plate's colour to the
+        // lockup: every tick's compare, every placing's fit, and the launch.
+        let compare = show
+            .find(".is_some_and(|m| m.lights_moved(self.lights.fitted()))")
+            .expect("the tick compares what the lockup is placed for");
+        assert!(
+            show[compare..].contains("self.place_lights();"),
+            "and places it\n{show}"
+        );
+        let place = body(concat!("    fn place_lights(&self) ", "{"));
+        for want in [
+            "let plate = self.lights.place(self.strip_edges());",
+            "mark.fit(self.window.ns_window(), plate, self.lights.fitted());",
+        ] {
+            assert!(place.contains(want), "{want}\n{place}");
+        }
+        assert!(
+            SRC.contains(concat!(
+                "        driver.draw_lights();\n",
+                "        driver.place_icon();\n",
+                "        driver.place_lights();\n",
+            )),
+            "the launch draws them and places them at once"
         );
         let tell = body(concat!("    fn tell_pty(&mut self) ", "{"));
         assert!(tell.contains("self.flush_reply(Asked::Unasked);"), "{tell}");

@@ -1,16 +1,18 @@
 //! **The title strip and the grid's top, as AppKit lays them out windowed
 //! and in full screen.**
 //!
-//! **What is in the strip lives in the title bar.** baud's lockup
-//! (`mark.rs`) is a leading titlebar accessory and the activity lights
-//! (`lights.rs`) a trailing one, each an `NSTitlebarAccessoryViewController`
+//! **What is in the strip lives in the title bar.** The activity lights
+//! (`lights.rs`), on one plate with baud's lockup, are a trailing titlebar
+//! accessory and the build's name (`mark.rs`) a leading one, with the lockup
+//! too while no lights are in the title bar, each an
+//! `NSTitlebarAccessoryViewController`
 //! through the window crate's `GlassWindow::add_titlebar_accessory`. A
 //! leading accessory goes "adjacent and to the right of the
 //! close/minimize/maximize buttons", a trailing one at the other end, and
 //! AppKit flips the two for a right-to-left language
 //! ([[source: macos-sdk-nstitlebaraccessoryviewcontroller-h]] 23, 27).
 //! [`edges`] reads the strip left to right -- the buttons at the left, the
-//! lights' end at the right -- which holds because the bundle has no
+//! plate at the right -- which holds because the bundle has no
 //! localization AppKit could lay out right to left:
 //! `packaging/macos/Info.plist` lists no `CFBundleLocalizations` and the
 //! bundle holds no `.lproj` directory. They sit in the same titlebar view
@@ -32,12 +34,13 @@
 //! window's edge; the width is the view's and AppKit sets the height to
 //! the title bar's. Nothing in AppKit stops the two from running into
 //! each other in a narrow window, so the lights' accessory is sized at
-//! every layout to what the lights need and no wider than the room right
-//! of the lockup ([`lights_width`]), and the lights that do not fit are
-//! not shown, the leftmost first (`lights::placed`). Every position is
-//! read from the window as it is laid out, never a constant: the title
-//! bar's height, the buttons' places and the lockup's end differ with the
-//! SDK an app links against.
+//! every layout to the plate and no wider than the room right of the
+//! buttons ([`lights_width`]), and the lights that do not fit are not
+//! shown, the leftmost first (`lights::panel`). The title bar's height and
+//! the buttons' places are read from the window as it is laid out, since
+//! they differ with the SDK an app links against; the plate's own numbers,
+//! its right edge's inset among them, are constants of the panel's design
+//! (`baud_render::lights::PANEL_RIGHT`).
 //!
 //! **The grid's top follows full screen.** Windowed, the terminal's view
 //! stops the title bar's height short of the window's top, which the
@@ -79,6 +82,10 @@ use macos_liquid_glass::objc2_app_kit::{
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
+
+/// **The strip the panel's numbers are in**, in points
+/// (`baud_render::lights::PANEL_STRIP`).
+pub(crate) const STRIP: CGFloat = baud_render::lights::PANEL_STRIP as CGFloat;
 
 /// **The terminal view's top margin**, in points, in a window whose
 /// content is `content_h` tall with a content layout rect `layout_h` tall:
@@ -165,10 +172,10 @@ impl Accessory {
         self.view.convertRect_toView(self.view.bounds(), None)
     }
 
-    /// **The lights' accessory fitted to lights `spans_width` across**
-    /// between `edges` ([`lights_width`]), and the room they are placed in
+    /// **The lights' accessory fitted to a plate `spans_width` across**
+    /// between `edges` ([`lights_width`]), and the room it is placed in
     /// ([`lights_room`]): at every layout, so a narrow window drops the
-    /// leftmost lights rather than overlap the lockup and the buttons.
+    /// leftmost lights rather than overlap the buttons.
     pub(crate) fn fit_lights(
         &self,
         edges: Edges,
@@ -182,9 +189,9 @@ impl Accessory {
 }
 
 /// **Where the strip's two ends are in a window**, in its points from the
-/// left: its width, the least x a light may start at -- a light's gap
-/// past the lockup -- and the gap kept at the right, the close button's
-/// at the left.
+/// left: its width, the least x the plate may start at -- a button's gap
+/// past the zoom button, where AppKit puts a leading accessory -- and the
+/// gap kept at the right, the plate's.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct Edges {
     pub(crate) width: CGFloat,
@@ -200,32 +207,45 @@ const PAST_THE_BUTTONS: CGFloat = 74.0;
 /// out.
 const RIGHT_UNLAID: CGFloat = 12.0;
 
-/// **The strip's edges in `window` now**: the lights start a light's gap
-/// past `lockup_end`, the lockup's right edge in the window, or past the
-/// zoom button with no lockup; they end the close button's distance from
-/// the left short of the right.
-pub(crate) fn edges(window: &NSWindow, lockup_end: Option<CGFloat>) -> Edges {
-    let laid = |b: NSWindowButton| {
-        window
-            .standardWindowButton(b)
-            .map(|v| v.frame())
-            .filter(|f| f.size.height >= 1.0)
+/// A traffic light's frame in `window`, once laid out.
+fn laid(window: &NSWindow, button: NSWindowButton) -> Option<NSRect> {
+    window
+        .standardWindowButton(button)
+        .map(|v| v.frame())
+        .filter(|f| f.size.height >= 1.0)
+}
+
+/// **The gap the close button keeps at the strip's left**, which the
+/// build's name keeps at its right while no lights are in the title bar.
+pub(crate) fn close_gap(window: &NSWindow) -> CGFloat {
+    laid(window, NSWindowButton::CloseButton).map_or(RIGHT_UNLAID, |f| f.origin.x)
+}
+
+/// **The strip's edges in `window` now**: the plate starts past the
+/// traffic lights, by the gap between two of them, and ends
+/// `baud_render::lights::PANEL_RIGHT` short of the right.
+pub(crate) fn edges(window: &NSWindow) -> Edges {
+    let left = match (
+        laid(window, NSWindowButton::CloseButton),
+        laid(window, NSWindowButton::MiniaturizeButton),
+        laid(window, NSWindowButton::ZoomButton),
+    ) {
+        (Some(c), Some(m), Some(z)) => {
+            z.origin.x + z.size.width + (m.origin.x - (c.origin.x + c.size.width)).max(0.0)
+        }
+        _ => PAST_THE_BUTTONS,
     };
-    let right = laid(NSWindowButton::CloseButton).map_or(RIGHT_UNLAID, |f| f.origin.x);
-    let end = lockup_end
-        .or_else(|| laid(NSWindowButton::ZoomButton).map(|f| f.origin.x + f.size.width))
-        .unwrap_or(PAST_THE_BUTTONS);
     Edges {
         width: window.frame().size.width,
-        left: end + CGFloat::from(baud_render::lights::PAIR),
-        right,
+        left,
+        right: CGFloat::from(baud_render::lights::PANEL_RIGHT),
     }
 }
 
-/// **The lights' accessory's width**, in points: from the plate's `pad`
-/// before the lights' span `spans_width` to the window's edge, the span
+/// **The lights' accessory's width**, in points: from `pad` before a plate
+/// `spans_width` wide to the window's edge, the plate
 /// ending `edges.right` short of it -- but starting no further left than
-/// the pad short of `edges.left`, so it never covers the lockup or the
+/// the pad short of `edges.left`, so it never covers the
 /// buttons. Its left edge is on a whole device pixel at `scale` in the
 /// window, so the lights placed in it land where the window's own strip
 /// put them, and at or before the pad, so the plate is whole. None with

@@ -1,26 +1,27 @@
 //! **The window's title strip, composed over a frame drawn without a
 //! window**: what the macOS app shows above the terminal's view -- AppKit's
-//! traffic lights, baud's lockup beside them and the nine activity lights
-//! at the strip's right -- laid over the README session's headless frames
-//! so a still or a film of them reads as the window does. It is composed,
-//! not filmed: nothing here is AppKit's drawing.
+//! traffic lights, the build's name after them and the module at the strip's
+//! right, baud's lockup and the nine activity lights on one plate -- laid
+//! over the README session's headless frames so a still or a film of them
+//! reads as the window does. It is composed, not filmed: nothing here is
+//! AppKit's drawing. A dark theme and a window of that half, the film's.
 //!
-//! * **Where**: the app's own placing -- the lockup by `mark::Place`
-//!   beside the traffic lights' frames, the lights by `lights::placed` a
-//!   light's gap past it, in a strip [`INSET`] points tall -- from the
-//!   frames note AH §5.1's probe measured AppKit lay out in a titled
-//!   window ([`BUTTONS`]), which the app reads off its window instead.
+//! * **Where**: the app's own placing, the one function `lights::panel` --
+//!   in a strip [`INSET`] points tall, from the frames note AH §5.1's probe
+//!   measured AppKit lay out in a titled window ([`BUTTONS`]), which the app
+//!   reads off its window instead.
 //! * **The lights**: each light's picture as the app draws it
-//!   (`Renderer::activity_light` in baud's embedded JetBrains Mono Bold,
-//!   the badge's face), in the look the app makes from the dark theme
-//!   (`Renderer::lights_look`), on its plate where `lights::plate_frame`
-//!   puts it, at the state the take's clocks showed at the frame
-//!   (`session::shown_at`).
-//! * **The lockup**: `assets/logo/baud-lockup-dark-tight.svg`, the form a
-//!   dark window shows (`mark::Lockup`), its paths filled by baud-font's
-//!   rasterizer.
-//! * **The build's name**: after the lockup, where `mark::version_shows`
-//!   allows it, in baud's embedded JetBrains Mono rather than the app's
+//!   (`Renderer::panel_light` in baud's embedded JetBrains Mono Bold, the
+//!   badge's face), in the look the app makes from the dark theme
+//!   (`Renderer::lights_look`), on the plate as the app draws it
+//!   (`lights::draw_panel_plate`), at the state the take's clocks showed at
+//!   the frame (`session::shown_at`).
+//! * **The lockup**: in the form the app's strip takes on that plate, or on
+//!   the window with no plate (`mark::Lockup::standing`), so
+//!   `assets/logo/baud-lockup-dark-tight.svg` on the dark theme, its paths
+//!   filled by baud-font's rasterizer.
+//! * **The build's name**: where `mark::name_shows` allows it, at the bar's
+//!   left, in baud's embedded JetBrains Mono rather than the app's
 //!   system font, at the same point size and in AppKit's secondary label
 //!   colour ([`VERSION_INK`]): a stand-in too, for a label AppKit draws.
 //! * **The rest is a stand-in**: the strip is one grey, the middle of the
@@ -29,17 +30,18 @@
 //!   through it; the traffic lights are circles [`DOT`] points across in
 //!   [`COLOURS`], measured off the filmed take.
 
-use crate::lights::Spans;
-use crate::mark::{Lockup, Place, VERSION_GAP, VERSION_POINTS, version_shows};
+use crate::lights::Columns;
+use crate::mark::{Lockup, Place, Placed, VERSION_POINTS, name_shows};
 use baud_domain::Chan;
 use baud_font::Px;
-use baud_render::lights::{PLATE_RADIUS_TITLE, draw_plate};
-use baud_render::{Argb, ByLed, ByLight, Glow, Led, Light, LightsImage, Renderer, Shown};
+use baud_render::lights::{draw_panel_plate, panel_margin};
+use baud_render::{Argb, ByLed, ByLight, Glow, Led, Light, LightsImage, Renderer, Shown, Theme};
 
 /// **The strip's grey**, the middle of the standard material's measured
 /// range under the dark appearance, grey 33 to 92 (`Backdrop::
 /// under_window_dark`): where the window shows the desktop through it.
 pub(crate) const GROUND_DARK: Argb = Argb(0xFF_3A_3A_3A);
+use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{NSPoint, NSRect, NSSize};
 
@@ -93,8 +95,8 @@ pub(crate) struct Layout {
     /// Each activity light's left and width; the strip's height tall, from
     /// its top. None for a light a narrow window has no room for.
     pub(crate) lights: ByLed<Option<(Px, Px)>>,
-    /// The lights' plate: its left, top, width and height, and the light
-    /// it starts at; none with no light placed.
+    /// The lights' plate: its left, top, width and height, not counting
+    /// the bevel's edge just outside it; none with no light placed.
     pub(crate) plate: Option<(Px, Px, Px, Px)>,
 }
 
@@ -116,40 +118,42 @@ macro_rules! slots {
 }
 
 /// **The strip of a window `width` pixels wide at `scale`**, its lights
-/// at `spans`: the lockup where `mark::Place::beside` puts it, the lights
-/// where `lights::placed` does with the close button's gap at the right,
-/// as the app keeps it, and the lockup's end -- or the end of the build's
-/// name, `version_width` points across, while it fits -- as their left
-/// bound.
-pub(crate) fn layout(width: Px, scale: CGFloat, spans: &Spans, version_width: CGFloat) -> Layout {
+/// at `columns`: the module where `lights::panel` puts it, the one function
+/// the app places by, past the traffic lights' frames, and the build's name,
+/// `version_width` points across, where the bar's left starts while
+/// `mark::name_shows` allows it. A window too narrow for any light has no
+/// plate here, as it has none there, but keeps the module's right end.
+pub(crate) fn layout(
+    width: Px,
+    scale: CGFloat,
+    columns: &Columns,
+    version_width: CGFloat,
+) -> Layout {
     let [close, mini, zoom] = buttons();
     let art = Lockup::OnDark.art().expect("the lockup's size");
     let place = Place::beside(close, mini, zoom, INSET, art).expect("laid out");
-    // Bottom-left origin, in a container the strip's height tall.
-    let f = place.frame(INSET, INSET);
-    let top = INSET - (f.origin.y + f.size.height);
     let pt_wide = CGFloat::from(width.value()) / scale;
-    let shows = version_shows(
-        pt_wide,
-        close.origin.x,
-        spans.width,
-        place.end(),
-        version_width,
-    );
-    let version_at = place.end() + VERSION_GAP;
-    let left = match shows {
-        true => version_at + version_width + VERSION_GAP,
-        false => place.lights_left(),
-    };
-    let placed = crate::lights::placed(
+    let module = crate::lights::panel(
         NSSize::new(pt_wide, INSET),
         INSET,
-        close.origin.x,
-        left,
+        place.x,
         scale,
-        spans,
+        columns,
+        place.size(),
     );
-    let plate = crate::lights::plate_frame(&placed, INSET, scale).map(|(_, r)| {
+    let shows = module.is_some_and(|p| {
+        name_shows(
+            match p.first == Led::ALL[0] {
+                true => Placed::Every,
+                false => Placed::Fewer,
+            },
+            p.plate.origin.x,
+            place.x,
+            version_width,
+        )
+    });
+    let plate = module.map(|p| {
+        let r = p.plate;
         (
             whole(r.origin.x * scale),
             whole((INSET - r.origin.y - r.size.height) * scale),
@@ -157,9 +161,19 @@ pub(crate) fn layout(width: Px, scale: CGFloat, spans: &Spans, version_width: CG
             whole(r.size.height * scale),
         )
     });
+    // With no plate the lockup is beside the traffic lights, as the app has
+    // it, and the strip the film draws never is so narrow.
+    let f = module.map_or(
+        NSRect::new(
+            NSPoint::new(place.x, (INSET - place.height) / 2.0),
+            place.size(),
+        ),
+        |p| p.logo,
+    );
+    let top = INSET - (f.origin.y + f.size.height);
     Layout {
         size: (width, whole(INSET * scale)),
-        version: shows.then(|| whole(version_at * scale)),
+        version: shows.then(|| whole(place.x * scale)),
         plate,
         buttons: [close, mini, zoom].map(|b| {
             (
@@ -175,8 +189,8 @@ pub(crate) fn layout(width: Px, scale: CGFloat, spans: &Spans, version_width: CG
             f.size.height * scale,
         ),
         lights: ByLed::of(|led| {
-            placed
-                .get(led)
+            module
+                .and_then(|p| *p.lamps.get(led))
                 .map(|(r, _)| (whole(r.origin.x * scale), whole(r.size.width * scale)))
         }),
     }
@@ -195,40 +209,62 @@ pub(crate) struct Strip {
 
 impl Strip {
     /// **The strip of a window `width` pixels wide at `scale`**, `version`
-    /// the build's name it says.
+    /// the build's name it says, on the dark theme over its grey, as the
+    /// film draws it.
     pub(crate) fn new(width: Px, scale: CGFloat, version: &str) -> Strip {
+        Strip::of(
+            width,
+            scale,
+            version,
+            Theme::dark(),
+            GROUND_DARK,
+            Appearance::Dark,
+        )
+    }
+
+    /// **The strip in `theme` over a `ground` grey, in a window of
+    /// `appearance`**, the lockup in the form the app's strip takes there
+    /// ([`Lockup::standing`]): what [`Strip::new`] draws and, of any page,
+    /// what its tests look at.
+    pub(crate) fn of(
+        width: Px,
+        scale: CGFloat,
+        version: &str,
+        theme: Theme,
+        ground: Argb,
+        appearance: Appearance,
+    ) -> Strip {
         use baud_domain::{Cols, Rows};
-        use baud_render::{Blend, PxSize, Stack, Theme};
+        use baud_render::{Blend, PxSize, Stack};
         let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).expect("the Bold")];
         let r = Renderer::new(
             Stack::new(&faces).expect("a stack"),
             PxSize::of(28.0).expect("a size"),
-            Theme::dark(),
+            theme,
             Blend::Native,
             Cols::of_index(6),
             Rows::of_index(2),
         )
         .expect("cell metrics");
-        let spans = crate::lights::spans(&r, scale).expect("the lights' layout");
+        let columns = crate::lights::columns(&r, scale).expect("the lights' layout");
         let regular = baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face");
         let size = VERSION_POINTS as f32;
         let version_width = CGFloat::from(baud_render::lights::text_width(&regular, version, size));
-        let layout = layout(width, scale, &spans, version_width);
+        let layout = layout(width, scale, &columns, version_width);
         let look = r.lights_look(Glow::Full);
         let pictures = ByLed::of(|led| {
             ByLight::of(|light| {
                 let mut img = LightsImage::new();
-                r.activity_light(&look, led, light, scale as f32, INSET as f32, &mut img)
+                r.panel_light(&look, led, light, scale as f32, INSET as f32, &mut img)
                     .expect("a light's picture");
                 img
             })
         });
         let (w, h) = layout.size;
-        let mut base = vec![GROUND_DARK.0; slots!(w) * slots!(h)];
+        let mut base = vec![ground.0; slots!(w) * slots!(h)];
         for ((cx, cy, radius), colour) in layout.buttons.iter().zip(COLOURS) {
             disc(&mut base, w, (*cx, *cy, *radius), colour);
         }
-        lockup(&mut base, w, layout.lockup, Lockup::OnDark.svg());
         if let Some(x) = layout.version {
             let mut text = LightsImage::new();
             baud_render::lights::draw_text(
@@ -255,19 +291,22 @@ impl Strip {
         }
         if let Some((x, y, pw, ph)) = layout.plate {
             let mut plate = LightsImage::new();
-            let radius = PLATE_RADIUS_TITLE * scale as f32;
-            draw_plate(&look, pw, ph, radius, &mut plate).expect("the plate");
-            for row in 0..slots!(ph) {
-                for col in 0..slots!(pw) {
-                    let at = (slots!(y) + row) * slots!(w) + slots!(x) + col;
-                    if let (Some(d), Some(s)) =
-                        (base.get_mut(at), plate.pixels.get(row * slots!(pw) + col))
+            draw_panel_plate(&look, pw, ph, scale as f32, &mut plate).expect("the plate");
+            let m = slots!(panel_margin(scale as f32).expect("the margin"));
+            let (iw, ih) = (slots!(plate.width), slots!(plate.height));
+            for row in 0..ih {
+                for col in 0..iw {
+                    let at = (slots!(y) + row - m) * slots!(w) + slots!(x) + col - m;
+                    if let (Some(d), Some(s)) = (base.get_mut(at), plate.pixels.get(row * iw + col))
                     {
                         *d = over(Argb(*d), *s).0;
                     }
                 }
             }
         }
+        let plate = layout.plate.map(|_| look.plate);
+        let form = Lockup::standing(plate, appearance);
+        lockup(&mut base, w, layout.lockup, form.svg());
         let mut strip = Strip {
             layout,
             ground: base.clone(),
@@ -555,24 +594,44 @@ mod tests {
     /// the layout pinned below is not a commit's.
     const VERSION: &str = "1.0.0-beta+0123abc.dirty";
 
-    /// **The build's name follows the lockup in the strip, and gives way
-    /// first**: in the film's window it starts a light's gap past the
-    /// lockup's end, is inked there and every light stays; in a window too
-    /// narrow for it and all nine it is gone and every light stays, as the
-    /// app does it; narrower still the leftmost lights drop as they always
-    /// did. Perturbation: place the lights against the lockup with the name
-    /// shown and they overlap it, and the first half fails; show the name
-    /// whatever the width and the second does.
+    /// The lights' columns at `scale`, as the strip has them.
+    fn columns_at(scale: CGFloat) -> Columns {
+        let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
+        let r = Renderer::new(
+            baud_render::Stack::new(&faces).unwrap(),
+            baud_render::PxSize::of(28.0).unwrap(),
+            Theme::dark(),
+            baud_render::Blend::Native,
+            baud_domain::Cols::of_index(6),
+            baud_domain::Rows::of_index(2),
+        )
+        .unwrap();
+        crate::lights::columns(&r, scale).unwrap()
+    }
+
+    /// The build's name's width in points, in the composed strip's face.
+    fn name_across() -> CGFloat {
+        let regular = baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap();
+        CGFloat::from(baud_render::lights::text_width(
+            &regular,
+            VERSION,
+            VERSION_POINTS as f32,
+        ))
+    }
+
+    /// **The build's name is at the bar's left and gives way first**: in
+    /// the film's window it starts where the lockup used to, 69 points in,
+    /// and is inked there with every light placed; in a window too narrow for
+    /// it and all nine it is gone and every light stays, as the app does
+    /// it; narrower still the leftmost lights drop as they always did.
+    /// Perturbation: place the name after the lockup and the first half
+    /// fails; show it whatever the width and the second does.
     #[test]
-    fn the_name_of_the_build_yields_before_the_lights() {
+    fn the_name_of_the_build_is_at_the_left_and_yields_before_the_lights() {
         let wide = Strip::new(WIDE, 2.0, VERSION);
         let l = &wide.layout;
-        let (lx, _, lw, _) = l.lockup;
         let at = l.version.expect("the film's window has room");
-        assert!(
-            (f64::from(at.value()) - (lx + lw + VERSION_GAP * 2.0)).abs() <= 0.5,
-            "a light's gap past the lockup, to the pixel: {at:?}"
-        );
+        assert_eq!(at, Px::of(138), "69 points in, at 2x");
         let row = slots!(l.size.1) / 2;
         let ink = (slots!(at)..slots!(at) + 80).any(|x| {
             wide.base[(row - 2) * slots!(l.size.0) + x] != GROUND_DARK.0
@@ -581,40 +640,20 @@ mod tests {
         assert!(ink, "the name is drawn where the layout puts it");
         assert!(Led::ALL.into_iter().all(|led| l.lights.get(led).is_some()));
 
-        let regular = baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap();
-        let across = CGFloat::from(baud_render::lights::text_width(
-            &regular,
-            VERSION,
-            VERSION_POINTS as f32,
-        ));
-        let spans_of = |scale: CGFloat| {
-            let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
-            let r = Renderer::new(
-                baud_render::Stack::new(&faces).unwrap(),
-                baud_render::PxSize::of(28.0).unwrap(),
-                baud_render::Theme::dark(),
-                baud_render::Blend::Native,
-                baud_domain::Cols::of_index(6),
-                baud_domain::Rows::of_index(2),
-            )
-            .unwrap();
-            crate::lights::spans(&r, scale).unwrap()
-        };
-        let spans = spans_of(2.0);
-        let art = Lockup::OnDark.art().unwrap();
-        let [c, m, z] = buttons();
-        let end = Place::beside(c, m, z, INSET, art).unwrap().end();
-        // All nine with the name, just; then one point short of that.
-        let room = end + VERSION_GAP + across + VERSION_GAP + spans.width + c.origin.x;
+        let across = name_across();
+        let columns = columns_at(2.0);
+        // All nine with the name, just; then one point short of that. The
+        // plate is 221 across and 5 in from the right; the name starts at 69.
+        let room = 69.0 + across + crate::mark::VERSION_GAP + 221.0 + 5.0;
         let px = |pt: f64| Px::of(u32::try_from((pt * 2.0).ceil() as i64).unwrap());
-        let fits = layout(px(room), 2.0, &spans, across);
+        let fits = layout(px(room), 2.0, &columns, across);
         assert!(fits.version.is_some(), "at {room} points");
         assert!(
             Led::ALL
                 .into_iter()
                 .all(|led| fits.lights.get(led).is_some())
         );
-        let short = layout(px(room - 1.0), 2.0, &spans, across);
+        let short = layout(px(room - 1.0), 2.0, &columns, across);
         assert_eq!(short.version, None, "a point short");
         assert!(
             Led::ALL
@@ -622,7 +661,7 @@ mod tests {
                 .all(|led| short.lights.get(led).is_some()),
             "and no light gave way for it"
         );
-        let narrow = layout(px(120.0), 2.0, &spans, across);
+        let narrow = layout(px(240.0), 2.0, &columns, across);
         assert_eq!(narrow.version, None);
         assert!(
             Led::ALL
@@ -632,16 +671,13 @@ mod tests {
         );
     }
 
-    /// **The strip is the app's, at the app's places**: 28 points tall,
-    /// 56 pixels at 2x; the traffic lights centred in AppKit's frames, 16,
-    /// 36 and 56 points along and 14 down; the lockup where
-    /// `mark::Place::beside` puts it beside them, 69 points along, centred
-    /// on the strip; all nine lights at the places `lights::placed` gives
-    /// them in a window this wide, left to right in the panel's order, the
-    /// last the close button's 9 points in from the right, the first a
-    /// light's gap clear of the lockup. Perturbation: centre the lockup on
-    /// the container's top edge rather than the strip's middle, or give
-    /// `placed` no right gap, and this goes red.
+    /// **The strip is the app's, at the app's places, the one function**:
+    /// 28 points tall, 56 pixels at 2x; the traffic lights centred in
+    /// AppKit's frames, 16, 36 and 56 points along and 14 down; the plate,
+    /// the lockup and all nine lights where `lights::panel` puts them in a
+    /// window this wide, at every width the module has a shape at, so the
+    /// film and the window cannot draw two strips. Perturbation: compose the
+    /// lockup at 69 points, where it used to be, and this goes red.
     #[test]
     fn the_strip_has_the_apps_height_and_places() {
         let s = Strip::new(WIDE, 2.0, VERSION);
@@ -655,60 +691,66 @@ mod tests {
         let art = Lockup::OnDark.art().unwrap();
         let place = Place::beside(c, m, z, INSET, art).unwrap();
         assert_eq!(place.x, 69.0);
-        let (lx, ly, lw, lh) = l.lockup;
-        assert_eq!(lx, 138.0);
-        assert!((lw - place.width * 2.0).abs() < 1e-9 && (lh - place.height * 2.0).abs() < 1e-9);
-        assert!(
-            (ly + lh / 2.0 - 28.0).abs() < 1e-9,
-            "centred on the strip: {ly} {lh}"
-        );
-        let name = crate::mark::VERSION_GAP * 2.0
-            + CGFloat::from(baud_render::lights::text_width(
-                &baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap(),
-                VERSION,
-                crate::mark::VERSION_POINTS as f32,
-            ));
-        let left = (place.lights_left() + name) * 2.0;
-        let mut last = left;
-        for led in Led::ALL {
-            let (x, w) = l.lights.get(led).expect("all nine in this window");
-            let x = f64::from(x.value());
-            assert!(x >= last, "{led:?} at {x}, left of {last}");
-            last = x + f64::from(w.value());
+        let across = name_across();
+        for (scale, widths) in [(1.0, [1392, 295, 240, 200]), (2.0, [2784, 590, 480, 400])] {
+            let columns = columns_at(scale);
+            for width in widths {
+                let lay = layout(Px::of(width), scale, &columns, across);
+                let module = crate::lights::panel(
+                    NSSize::new(f64::from(width) / scale, INSET),
+                    INSET,
+                    place.x,
+                    scale,
+                    &columns,
+                    place.size(),
+                )
+                .expect("a light fits");
+                let at = format!("{width} pixels at {scale}x");
+                let (x, y, w, h) = lay.plate.expect("a plate");
+                assert_eq!(f64::from(x.value()), module.plate.origin.x * scale, "{at}");
+                assert_eq!(f64::from(y.value()), 2.0 * scale, "{at}");
+                assert_eq!(
+                    f64::from(w.value()),
+                    module.plate.size.width * scale,
+                    "{at}"
+                );
+                assert_eq!(f64::from(h.value()), 24.0 * scale, "{at}");
+                let (lx, ly, lw, lh) = lay.lockup;
+                assert_eq!(lx, module.logo.origin.x * scale, "{at}");
+                assert!(
+                    (ly + lh / 2.0 - 14.0 * scale).abs() < 1e-9,
+                    "{at}: centred on the strip: {ly} {lh}"
+                );
+                assert_eq!(
+                    (lw, lh),
+                    (place.width * scale, place.height * scale),
+                    "{at}"
+                );
+                for led in Led::ALL {
+                    assert_eq!(
+                        *lay.lights.get(led),
+                        module
+                            .lamps
+                            .get(led)
+                            .map(|(r, _)| (whole(r.origin.x * scale), whole(r.size.width * scale))),
+                        "{at} {led:?}"
+                    );
+                }
+            }
         }
-        assert_eq!(
-            last,
-            f64::from(WIDE.value() - 18),
-            "the last light 9 points in"
-        );
-        let faces = [baud_font::Face::parse(crate::embedded::BOLD.bytes).unwrap()];
-        let r = Renderer::new(
-            baud_render::Stack::new(&faces).unwrap(),
-            baud_render::PxSize::of(28.0).unwrap(),
-            baud_render::Theme::dark(),
-            baud_render::Blend::Native,
-            baud_domain::Cols::of_index(6),
-            baud_domain::Rows::of_index(2),
-        )
-        .unwrap();
-        let spans = crate::lights::spans(&r, 2.0).unwrap();
-        let placed = crate::lights::placed(
-            NSSize::new(f64::from(WIDE.value()) / 2.0, INSET),
-            INSET,
-            9.0,
-            place.lights_left(),
-            2.0,
-            &spans,
-        );
-        for led in Led::ALL {
-            let (rect, _) = placed.get(led).unwrap();
-            assert_eq!(
-                *l.lights.get(led),
-                Some((whole(rect.origin.x * 2.0), whole(rect.size.width * 2.0))),
-                "{led:?}"
-            );
-            assert_eq!(rect.origin.y, 0.0, "{led:?} the strip's whole height");
-        }
+    }
+
+    /// **With no plate the composed strip has the lockup where the app has
+    /// it**: past the buttons, centred. No lamp fits under 144 points, which
+    /// no window is, so this is the fallback's own check.
+    #[test]
+    fn no_light_placed_is_no_plate_and_the_lockup_past_the_buttons() {
+        let columns = columns_at(2.0);
+        let lay = layout(Px::of(200), 2.0, &columns, name_across());
+        assert_eq!(lay.plate, None);
+        assert_eq!(lay.version, None);
+        assert_eq!(lay.lockup.0, 138.0);
+        assert!(Led::ALL.into_iter().all(|l| lay.lights.get(l).is_none()));
     }
 
     /// **The lights drawn in the strip follow the states given**: RD lit
@@ -747,18 +789,167 @@ mod tests {
             }
         }
         assert!(changed > 20, "RD lit drew {changed} pixels");
-        // RD's lit picture over the plate, along its middle row; the plate
+        // RD's lit picture over the plate, along the lamp's row; the plate
         // is the dark theme's background, opaque.
         let img = s.pictures.rd.get(Light::Lit);
         let iw = slots!(img.width);
-        let row = 28 * slots!(WIDE) + slots!(x);
-        let bg = baud_render::Theme::dark()
-            .bg
-            .with_alpha(Chan::from_u8(0xFF));
-        assert_eq!(s.ground[row - 2], bg.0, "the plate left of RD");
+        let row = 17 * slots!(WIDE) + slots!(x);
+        let bg = Theme::dark().bg.with_alpha(Chan::from_u8(0xFF));
+        assert_eq!(s.ground[row], bg.0, "the plate at RD's column's edge");
         for i in 0..iw {
-            let want = over(Argb(s.ground[row + i]), img.pixels[28 * iw + i]).0;
+            let want = over(Argb(s.ground[row + i]), img.pixels[17 * iw + i]).0;
             assert_eq!(rd[row + i], want, "column {i}");
+        }
+    }
+
+    /// **The composed strip makes the app's choice, from the app's one
+    /// function, in its pixels**: the word's own fill is what fills it, in
+    /// every window, on the plate; and in a window with no plate, the window
+    /// decides. Theme, window and form: the two mismatched pairs are the
+    /// defect, the two matched ones what the film has always drawn.
+    /// Perturbation: `Lockup::for_appearance(appearance)` in `Strip::of`
+    /// fails the mismatched rows, and `look.plate` taken without
+    /// `layout.plate` fails the narrow ones.
+    #[test]
+    fn the_composed_strip_makes_the_apps_choice_of_form() {
+        let v = "1.0.0-beta+0123abc";
+        let wide = whole(1920.0);
+        // How many of the strip's pixels are the colour, exactly.
+        let inked = |s: &Strip, colour: Argb| s.ground.iter().filter(|p| **p == colour.0).count();
+        for (theme, appearance) in [
+            (Theme::dark(), Appearance::Dark),
+            (Theme::dark(), Appearance::Light),
+            (Theme::light(), Appearance::Light),
+            (Theme::light(), Appearance::Dark),
+        ] {
+            let plate = Some(theme.bg.with_alpha(Chan::from_u8(0xFF)));
+            let form = Lockup::standing(plate, appearance);
+            let other = match form {
+                Lockup::OnDark => Lockup::OnLight,
+                Lockup::OnLight => Lockup::OnDark,
+            };
+            let s = Strip::of(wide, 2.0, v, theme, GROUND_DARK, appearance);
+            assert!(s.layout.plate.is_some());
+            let (word, wrong) = (form.word().unwrap(), other.word().unwrap());
+            assert!(inked(&s, word) > 50, "{form:?}: {}", inked(&s, word));
+            assert_eq!(inked(&s, wrong), 0, "{form:?} under {appearance:?}");
+        }
+        // Too narrow for a plate: the lockup is on the window, in its form.
+        for (appearance, form) in [
+            (Appearance::Dark, Lockup::OnDark),
+            (Appearance::Light, Lockup::OnLight),
+        ] {
+            let s = Strip::of(whole(280.0), 2.0, v, Theme::dark(), GROUND_DARK, appearance);
+            assert!(s.layout.plate.is_none());
+            let word = form.word().unwrap();
+            assert!(inked(&s, word) > 50, "{form:?}: {}", inked(&s, word));
+        }
+    }
+
+    /// **A theme of the window's half draws what it drew**: the form the
+    /// plate picks is the form the window would have, on each built-in
+    /// theme, so its pixels are the ones it had; and the same theme under the
+    /// other window is the same bytes, the window not reaching the plate.
+    /// Perturbation: swap `on_plate`'s arms for the first, and
+    /// `Lockup::for_appearance(appearance)` in `Strip::of` for the second.
+    #[test]
+    fn a_theme_of_the_windows_half_keeps_its_form() {
+        let v = "1.0.0-beta+0123abc";
+        for (theme, window, other) in [
+            (Theme::dark(), Appearance::Dark, Appearance::Light),
+            (Theme::light(), Appearance::Light, Appearance::Dark),
+        ] {
+            let plate = Some(theme.bg.with_alpha(Chan::from_u8(0xFF)));
+            assert_eq!(
+                Lockup::standing(plate, window),
+                Lockup::for_appearance(window)
+            );
+            let a = Strip::of(whole(800.0), 2.0, v, theme.clone(), GROUND_DARK, window);
+            let b = Strip::of(whole(800.0), 2.0, v, theme, GROUND_DARK, other);
+            assert_eq!(a.ground, b.ground, "the window does not reach the plate");
+        }
+    }
+
+    /// **The composed strip as pictures, to look at**, with
+    /// `BAUD_PANEL_RENDERS` set to a folder: on the dark and the light theme
+    /// at 1x and 2x, wide and at the widths where lamps drop, at rest and
+    /// with every lamp lit, as binary PPM. Without it, nothing. The grey
+    /// behind is the middle of the standard material's range under each
+    /// appearance.
+    #[test]
+    fn renders_for_a_look() {
+        let Some(dir) = std::env::var_os("BAUD_PANEL_RENDERS") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mid_grey = {
+            let mut t = Theme::dark();
+            t.bg = Argb(0xFF_80_80_80);
+            t.fg = Argb(0xFF_10_10_10);
+            t
+        };
+        let tinted = {
+            let mut t = Theme::dark();
+            t.bg = Argb(0xFF_1A_1B_26);
+            t.fg = Argb(0xFF_C0_CA_F5);
+            t
+        };
+        let cream = {
+            let mut t = Theme::light();
+            t.bg = Argb(0xFF_FD_F6_E3);
+            t
+        };
+        for (name, theme, ground, appearance) in [
+            ("dark", Theme::dark(), GROUND_DARK, Appearance::Dark),
+            (
+                "light",
+                Theme::light(),
+                Argb(0xFF_E4_E4_E6),
+                Appearance::Light,
+            ),
+            ("file-dark", tinted, GROUND_DARK, Appearance::Dark),
+            ("file-light", cream, Argb(0xFF_E4_E4_E6), Appearance::Light),
+            ("file-grey", mid_grey, GROUND_DARK, Appearance::Dark),
+            (
+                "mismatch",
+                Theme::dark(),
+                Argb(0xFF_E4_E4_E6),
+                Appearance::Light,
+            ),
+            (
+                "mismatch-light",
+                Theme::light(),
+                GROUND_DARK,
+                Appearance::Dark,
+            ),
+        ] {
+            for scale in [1.0, 2.0] {
+                for pt in [960.0, 400.0, 340.0, 295.0, 294.0, 240.0, 200.0] {
+                    let width = whole(pt * scale);
+                    let s = Strip::of(
+                        width,
+                        scale,
+                        "1.0.0-beta+0123abc",
+                        theme.clone(),
+                        ground,
+                        appearance,
+                    );
+                    for (state, shown) in [("rest", Shown::DARK), ("lit", Shown::all(Light::Lit))] {
+                        let mut out = Vec::new();
+                        s.compose(shown, &[], &mut out);
+                        let (w, h) = s.layout.size;
+                        let mut ppm =
+                            format!("P6\n{} {}\n255\n", w.value(), h.value()).into_bytes();
+                        for p in &out {
+                            let [_, r, g, b] = p.to_be_bytes();
+                            ppm.extend([r, g, b]);
+                        }
+                        let path = dir.join(format!("composed-{name}-{pt}-{state}-{scale}x.ppm"));
+                        std::fs::write(path, ppm).unwrap();
+                    }
+                }
+            }
         }
     }
 
@@ -805,6 +996,10 @@ mod tests {
     fn the_lockup_is_inked_inside_its_box() {
         let s = Strip::new(WIDE, 2.0, VERSION);
         let (lx, ly, lw, lh) = s.layout.lockup;
+        assert!(
+            lx > f64::from(s.layout.plate.unwrap().0.value()),
+            "on the plate"
+        );
         let mut amber = 0;
         let mut word = 0;
         for (i, &p) in s.base.iter().enumerate() {

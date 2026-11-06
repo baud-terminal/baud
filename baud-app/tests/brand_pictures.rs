@@ -1108,7 +1108,7 @@ fn tight_faults(tight: &str, source: &str, cell: f64) -> Vec<String> {
 /// size it had beside the traffic lights -- in their colours and on no
 /// ground, the box snug to the ink across and centred on the cursor's rows
 /// up and down, so a view the image's shape centres the mark in the strip.
-/// Both forms are one box, so a swap of appearance moves nothing. The
+/// Both forms are one box, so a swap of form moves nothing. The
 /// app embeds the same files through `baud-app/assets/logo/`, links to
 /// them. The controls: the source lockup itself, and the tight lockup with
 /// its box a cursor's width wider, are refused.

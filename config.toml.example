@@ -563,9 +563,12 @@ operations = "on"
 # FAX while a picture is shown, and SYN while the program holds the screen
 # to draw it at once. Hold the pointer over one to see what it means. They
 # follow Reduce Motion (steady) and, on macOS, Dim Flashing Lights (no
-# glow). They sit on a small plate of your theme's background, and every
+# glow). They sit on a plate of your theme's background, and every
 # lamp is one of your theme's sixteen colours exactly.
-#   "title_bar"    at the right of the title bar (macOS)
+#   "title_bar"    a modem's panel at the right of the title bar (macOS):
+#                  baud's logo and the nine on one plate, each lamp over its
+#                  letters. With the lights anywhere else there is no plate
+#                  in the title bar, and the logo is beside its buttons
 #   "bottom_line"  on a thin line of their own under the program's last
 #                  line, only as tall as the lights; the program is never
 #                  told about it (Linux, which has no title bar)

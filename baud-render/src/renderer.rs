@@ -5201,6 +5201,36 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::lights::draw_led(face, look, led, light, scale, height, out)
     }
 
+    /// **One activity light at `light` on the title bar's panel**, in the
+    /// badge's face ([`crate::lights::draw_panel_led`]).
+    pub fn panel_light(
+        &self,
+        look: &crate::LightsLook,
+        led: crate::Led,
+        light: crate::Light,
+        scale: f32,
+        height: f32,
+        out: &mut crate::LightsImage,
+    ) -> Option<()> {
+        let face = self.stack.face(self.stack.badge());
+        crate::lights::draw_panel_led(face, look, led, light, scale, height, out)
+    }
+
+    /// Each lamp's column on the panel at `scale`, in device pixels, and
+    /// their width ([`crate::lights::panel_layout`]).
+    pub fn panel_layout(
+        &self,
+        scale: f32,
+    ) -> Option<(crate::ByLed<crate::lights::Slot>, baud_font::Px)> {
+        crate::lights::panel_layout(self.stack.face(self.stack.badge()), scale)
+    }
+
+    /// Each lamp's letters on the panel, their left and width in points
+    /// ([`crate::lights::panel_letters`]).
+    pub fn panel_letters(&self) -> crate::ByLed<(f32, f32)> {
+        crate::lights::panel_letters(self.stack.face(self.stack.badge()))
+    }
+
     /// Where each activity light sits at `scale`, in device pixels, and
     /// the strip's width ([`crate::lights::layout`]).
     pub fn activity_lights_layout(

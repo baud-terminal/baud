@@ -1,7 +1,10 @@
 //! **baud's logo in the titlebar strip**: the lockup, the word baud and
-//! the mark ❯█, in a leading titlebar accessory, which AppKit puts a
-//! button's gap right of the traffic lights (`strip.rs`), centred in the
-//! title bar's height.
+//! the mark ❯█, on the plate with the activity lights, at the title bar's
+//! right end (`lights::panel`), centred in the title bar's height. **With no
+//! lights in the title bar** (`activity_lights` off, or on a line of their
+//! own) there is no plate, and it stands in a leading titlebar accessory,
+//! which AppKit puts a button's gap right of the traffic lights
+//! (`strip.rs`).
 //!
 //! **The mark keeps the size it had alone.** The lockups are
 //! `assets/logo/baud-lockup-{dark,light}-tight.svg`, drawn by
@@ -14,27 +17,39 @@
 //! cursor's, and centred on the cell's rows, so the mark's cell sits on
 //! the strip's centre line, where the mark alone sat.
 //!
-//! **The word follows the window's light or dark.** The dark lockup's
-//! word is the brand sheet's light type, the light lockup's its dark type,
-//! each with its own amber (`assets/logo/README.md`). Which one shows is
-//! the window's `effectiveAppearance`, not a global preference key:
-//! AppKit's header names "a view's, window's, or the app's
-//! effectiveAppearance" as the way to determine the appearance
-//! ([[source: sdk27-nsappearance-h]] line 27), and it is the appearance
-//! AppKit draws the traffic lights in beside it. A picture in an image
-//! view does not follow a flip by itself, so [`Mark::follow`] swaps it,
-//! called from the driver's appearance path on every flip. Under
-//! `[glass] style = "glass"` the strip's material follows Icon & widget
-//! style (`material_appearance` in `app.rs`) while the lockup follows the
-//! window, so when the two settings disagree, the word can sit on glass of
-//! its own lightness. That case is open.
+//! **The word follows what it stands on.** The dark lockup's word is the
+//! brand sheet's light type, the light lockup's its dark type, the amber the
+//! same in both (`assets/logo/README.md`).
 //!
-//! **In a narrow window the lockup stays whole.** The activity lights
-//! start a light's gap past its end ([`Place::lights_left`]) and drop
-//! their leftmost lights first when the strip has no room for them all
-//! (`lights.rs`). The window's title text is hidden by the window crate's
-//! titled shape, so nothing else in the strip competes, and the window's
-//! smallest width, 200 points, still holds the lockup.
+//! **On the plate, the plate decides**, whatever the window is
+//! ([`Lockup::on_plate`]): the form whose word has the higher WCAG ratio
+//! against the plate's own colour, the ratio the plate's letters are held to
+//! (`LightsLook::of`). So the word reads at 17.29:1 on the dark plate and
+//! 14.01:1 on the light, a theme of the other half than the window's
+//! included. Neither form reaches 4.5:1 on the greys #707070 to #878787, the
+//! least being 3.85:1 at #7B7B7B. The plate's colour is part of [`Fitted`], so
+//! the tick that draws a new plate fits the word to it, however the theme
+//! came to change. The amber is not picked: 9.17:1 on #101010 and 1.80:1 on
+//! #EFEFEF.
+//!
+//! **With no plate, the window decides**: its `effectiveAppearance`, not a
+//! global preference key. AppKit's header names "a view's, window's, or the
+//! app's effectiveAppearance" as the way to determine the appearance
+//! ([[source: sdk27-nsappearance-h]] line 27), and it is the appearance
+//! AppKit draws the traffic lights in beside it. A picture in an image view
+//! does not follow a flip by itself, so [`Mark::follow`] swaps it, called
+//! from the driver's appearance path on every flip. Under `[glass] style =
+//! "glass"` the strip's material follows Icon & widget style
+//! (`material_appearance` in `app.rs`) while the lockup follows the window,
+//! so when the two settings disagree, the word can sit on glass of its own
+//! lightness. That case is open for those settings.
+//!
+//! **In a narrow window the lockup stays whole.** The activity lights drop
+//! their leftmost lights first when the strip has no room for them all, and
+//! the plate shrinks with them (`lights.rs`). The window's title text is
+//! hidden by the window crate's titled shape, so nothing else in the strip
+//! competes, and the window's smallest width, 200 points, still holds the
+//! lockup.
 //!
 //! **Where Apple's guidance differs, recorded as open.** The Branding
 //! guidelines say "Resist the temptation to display your logo throughout
@@ -44,23 +59,23 @@
 //! picture in the strip's otherwise unused left end, outside the content,
 //! and the window's title text stays hidden.
 //!
-//! **The build's name follows it**, `<version>+<hash>`, in the same
-//! accessory, so it goes with the title bar in full screen: AppKit's own
-//! label, its small system font and its secondary label colour, which
+//! **The build's name**, `<version>+<hash>`, is at the bar's left, in the
+//! leading accessory, so it goes with the title bar in full screen: AppKit's
+//! own label, its small system font and its secondary label colour, which
 //! follows the window's appearance by itself. It is the first thing a
 //! narrow window gives up: shown only while every activity light still fits
-//! past it ([`version_shows`]), so no light drops for it, and hidden the
-//! accessory is the lockup's width as it was.
+//! past it ([`name_shows`]), so no light drops for it, and hidden the
+//! accessory has nothing in it. With no plate it follows the lockup, while
+//! it fits ([`version_shows`]).
 //!
 //! **The title bar places it, in the traffic lights' own view.** In full
 //! screen AppKit detaches that view from the window, so the lockup goes
 //! with the buttons rather than staying behind in the content
-//! (`strip.rs`). Its x is AppKit's, read from its frame in the window
-//! once laid out ([`Mark::end`]); its size is the mark alone's
+//! (`strip.rs`), in whichever accessory it is in. On the glass its x is
+//! AppKit's, read from its frame in the window once laid out; on the plate
+//! the plate says where ([`OnPlate`]). Its size is the mark alone's
 //! ([`Place::beside`]); its centre is the title bar's, re-placed against
-//! the accessory's height as AppKit sets it. [`Place::frame`], centred in
-//! a container's top strip, is the README film's composed strip
-//! (`film/chrome.rs`), where there is no window.
+//! the accessory's height as AppKit sets it.
 #![forbid(unsafe_code)]
 
 use std::cell::Cell;
@@ -75,6 +90,8 @@ use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
 
+use baud_render::{Argb, Backdrop, contrast_over};
+
 use crate::strip::Accessory;
 
 /// Where the lockup starts, in points from the left, when the traffic
@@ -86,8 +103,8 @@ const FALLBACK_X: CGFloat = 74.0;
 /// sets the points per unit the lockup is drawn at.
 const MARK_BOX: CGFloat = 300.0;
 
-/// **Which lockup the strip shows**: the light word over a dark
-/// appearance, the dark word over a light one.
+/// **Which lockup the strip shows**: the light word on what is dark, the
+/// dark word on what is light.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Lockup {
     OnDark,
@@ -101,6 +118,44 @@ impl Lockup {
             Appearance::Dark => Lockup::OnDark,
             Appearance::Light => Lockup::OnLight,
         }
+    }
+
+    /// **The lockup for a `plate` of this colour**: the form whose word has
+    /// the higher contrast against it, opaque as the plate is.
+    pub(crate) fn on_plate(plate: Argb) -> Lockup {
+        let reads = |form: Lockup| {
+            form.word().map_or(0.0, |word| {
+                contrast_over(
+                    word,
+                    plate,
+                    baud_domain::Chan::from_u8(0xFF),
+                    Backdrop::any(),
+                )
+            })
+        };
+        match reads(Lockup::OnDark) >= reads(Lockup::OnLight) {
+            true => Lockup::OnDark,
+            false => Lockup::OnLight,
+        }
+    }
+
+    /// **The lockup for what it stands on**: `plate`'s colour if there is a
+    /// plate, else the window's `appearance`. The one choice, for the app's
+    /// strip and the film's (`film/chrome.rs`).
+    pub(crate) fn standing(plate: Option<Argb>, appearance: Appearance) -> Lockup {
+        match plate {
+            Some(colour) => Lockup::on_plate(colour),
+            None => Lockup::for_appearance(appearance),
+        }
+    }
+
+    /// **Its word's colour**, as its SVG fills the word, the file's first
+    /// path.
+    pub(crate) fn word(self) -> Option<Argb> {
+        let text = std::str::from_utf8(self.svg()).ok()?;
+        let path = text.split("<path").nth(1)?;
+        let fill = path.split(" fill=\"#").nth(1)?.get(..6)?;
+        Some(Argb(0xFF00_0000 | u32::from_str_radix(fill, 16).ok()?))
     }
 
     /// Its SVG, the generator's file through `baud-app/assets/logo/`.
@@ -191,29 +246,14 @@ impl Place {
         }
     }
 
-    /// **The lockup's frame in a container `height` points tall**,
-    /// bottom-left origin: centred in the container's top `inset` points,
-    /// the strip: the README film's composed strip (`film/chrome.rs`).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn frame(self, height: CGFloat, inset: CGFloat) -> NSRect {
-        let centre = height - inset / 2.0;
-        NSRect::new(
-            NSPoint::new(self.x, centre - self.height / 2.0),
-            NSSize::new(self.width, self.height),
-        )
-    }
-
     /// The lockup's right edge, the cursor's.
     pub(crate) fn end(self) -> CGFloat {
         self.x + self.width
     }
 
-    /// **Where the activity lights may start**: a light's gap past the
-    /// lockup's end, the gap between two of them. The README film's
-    /// composed strip (`film/chrome.rs`).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn lights_left(self) -> CGFloat {
-        self.end() + CGFloat::from(baud_render::lights::PAIR)
+    /// The lockup's size, which the plate is laid out around.
+    pub(crate) fn size(self) -> NSSize {
+        NSSize::new(self.width, self.height)
     }
 }
 
@@ -226,24 +266,68 @@ pub(crate) const VERSION_GAP: CGFloat = baud_render::lights::PAIR as CGFloat;
 /// strip, which asks AppKit nothing, says it at the same size.
 pub(crate) const VERSION_POINTS: CGFloat = 11.0;
 
-/// **Whether the build's name is shown** in a window `width` points wide:
-/// only if the lights, `lights_across` wide and ending `right` short of the
-/// window's edge, still start a light's gap past its end when it follows the
-/// lockup, whose right edge is at `lockup_end`. In the window's points, the
-/// test the lights' own `placed` makes of each light.
+/// **The build's name's baseline on the plate's strip**, in points down
+/// from the strip's top: 18 of the 28 it was drawn for.
+pub(crate) const VERSION_BASELINE: CGFloat = 18.0;
+
+/// How many of the lights a window has room for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Placed {
+    Every,
+    Fewer,
+}
+
+/// **Whether the build's name is shown beside the plate**: only if every
+/// light is placed, and the plate starts a light's gap past the end of the
+/// name, which starts at `left`. In the window's points. So no light drops
+/// for it.
+pub(crate) fn name_shows(
+    placed: Placed,
+    plate_left: CGFloat,
+    left: CGFloat,
+    version_width: CGFloat,
+) -> bool {
+    placed == Placed::Every && plate_left >= left + version_width + VERSION_GAP
+}
+
+/// **Whether the build's name is shown after the lockup, with no plate**, in
+/// a window `width` points wide: only if it ends a light's gap short of
+/// `right` from the window's edge, its left a light's gap past `lockup_end`.
 pub(crate) fn version_shows(
     width: CGFloat,
     right: CGFloat,
-    lights_across: CGFloat,
     lockup_end: CGFloat,
     version_width: CGFloat,
 ) -> bool {
     let end = lockup_end + VERSION_GAP + version_width;
-    width - right - lights_across >= end + VERSION_GAP
+    width - right >= end + VERSION_GAP
 }
 
-/// **The lockup on screen**: its view, in its titlebar accessory, its
-/// size, both forms, and the one shown; and the build's name after it.
+/// **The plate the lockup stands on**, as `lights::Strip::place` has laid it
+/// out: the accessory it is in, the lockup's frame there, where the plate
+/// starts in the window, how many of the lights are placed, and the colour
+/// the plate is drawn in.
+pub(crate) struct OnPlate {
+    pub(crate) holder: Retained<NSView>,
+    pub(crate) logo: NSRect,
+    pub(crate) plate_left: CGFloat,
+    pub(crate) placed: Placed,
+    pub(crate) colour: Argb,
+}
+
+/// **What the lockup is placed for**: how wide the lights are, the scale
+/// they are drawn at, and the colour of the plate they are on, if any. A
+/// change of any of them moves the lockup or changes its form
+/// (`lights::Strip::fitted`, [`Mark::lights_moved`]).
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) struct Fitted {
+    pub(crate) across: CGFloat,
+    pub(crate) scale: CGFloat,
+    pub(crate) plate: Option<Argb>,
+}
+
+/// **The lockup on screen**: its view, on the plate or in its titlebar
+/// accessory, its size, both forms, and the one shown; and the build's name.
 pub(crate) struct Mark {
     view: Retained<NSImageView>,
     accessory: Accessory,
@@ -254,12 +338,14 @@ pub(crate) struct Mark {
     version: Retained<NSTextField>,
     version_size: NSSize,
     version_shown: Cell<bool>,
-    fitted_across: Cell<CGFloat>,
+    /// The colour of the plate it stands on, none on the glass.
+    plate: Cell<Option<Argb>>,
+    fitted: Cell<Fitted>,
 }
 
 impl Mark {
-    /// The view of the accessory the lockup is in
-    /// (`full_screen_check.rs` reads it).
+    /// The view of the leading accessory, the build's name's, and the
+    /// lockup's with no plate (`full_screen_check.rs` reads it).
     pub(crate) fn accessory_view(&self) -> Retained<NSView> {
         self.accessory.view.clone()
     }
@@ -319,7 +405,8 @@ impl Mark {
             version: label,
             version_size,
             version_shown: Cell::new(false),
-            fitted_across: Cell::new(0.0),
+            plate: Cell::new(None),
+            fitted: Cell::new(Fitted::default()),
             view,
             accessory,
             place,
@@ -331,10 +418,14 @@ impl Mark {
         Some(mark)
     }
 
-    /// **Centred in its accessory's height now**: at the launch, once the
-    /// body has the container, and on every resize, since AppKit sets the
-    /// height when it lays the title bar out.
+    /// **Centred in its accessory's height now**, with no plate: at the
+    /// launch, once the body has the container, and on every resize, since
+    /// AppKit sets the height when it lays the title bar out. On the plate
+    /// [`Mark::fit`] places it.
     pub(crate) fn place(&self) {
+        if self.on_plate() {
+            return;
+        }
         let h = self.accessory.view.frame().size.height;
         self.view.setFrame(NSRect::new(
             NSPoint::new(0.0, (h - self.place.height) / 2.0),
@@ -349,34 +440,72 @@ impl Mark {
         ));
     }
 
-    /// **The build's name shown or hidden for `window` as it is now**, the
-    /// lights being `lights_across` wide (`version_shows`), and the accessory
-    /// the width of what it shows. On every resize, before the lights are
-    /// placed against [`Mark::end`].
-    pub(crate) fn fit(&self, window: &NSWindow, lights_across: CGFloat) {
-        self.fitted_across.set(lights_across);
-        let lockup_end = self.lockup_end();
-        let edges = crate::strip::edges(window, Some(lockup_end));
-        let shows = version_shows(
-            edges.width,
-            edges.right,
-            lights_across,
-            lockup_end,
-            self.version_size.width,
-        );
+    /// **The lockup and the build's name for `window` as it is now**, on
+    /// every resize, after the lights are placed: on `plate`, the lockup in
+    /// the plate's accessory at the frame it gives, the name alone in the
+    /// leading accessory at its baseline, shown as [`name_shows`] says; with
+    /// no plate, the lockup in the leading accessory and the name after it,
+    /// shown as [`version_shows`] says. Either way in the form what it now
+    /// stands on takes ([`Lockup::standing`]). `lights` is what
+    /// [`Mark::lights_moved`] next compares with.
+    pub(crate) fn fit(&self, window: &NSWindow, plate: Option<OnPlate>, lights: Fitted) {
+        self.fitted.set(lights);
+        let was_on_plate = self.on_plate();
+        self.plate.set(plate.as_ref().map(|on| on.colour));
+        self.show(Lockup::standing(self.plate.get(), appearance_of(window)));
+        let h = self.accessory.view.frame().size.height;
+        let (shows, width) = match &plate {
+            Some(on) => {
+                if !was_on_plate {
+                    self.view.removeFromSuperview();
+                    on.holder.addSubview(&self.view);
+                }
+                self.view.setFrame(on.logo);
+                let left = crate::strip::edges(window).left;
+                let shows = name_shows(on.placed, on.plate_left, left, self.version_size.width);
+                let below = h / 2.0 - (VERSION_BASELINE - crate::strip::STRIP / 2.0);
+                self.version.setFrame(NSRect::new(
+                    NSPoint::new(0.0, below - self.version.baselineOffsetFromBottom()),
+                    self.version_size,
+                ));
+                (shows, if shows { self.version_size.width } else { 0.0 })
+            }
+            None => {
+                if was_on_plate {
+                    self.view.removeFromSuperview();
+                    self.accessory.view.addSubview(&self.view);
+                }
+                self.place();
+                let shows = version_shows(
+                    window.frame().size.width,
+                    crate::strip::close_gap(window),
+                    self.lockup_end(),
+                    self.version_size.width,
+                );
+                let width = match shows {
+                    true => self.place.width + VERSION_GAP + self.version_size.width,
+                    false => self.place.width,
+                };
+                (shows, width)
+            }
+        };
         self.version.setHidden(!shows);
         self.version_shown.set(shows);
-        self.accessory.set_width(match shows {
-            true => self.place.width + VERSION_GAP + self.version_size.width,
-            false => self.place.width,
-        });
+        self.accessory.set_width(width);
     }
 
-    /// Whether the lights have become another width since the last
-    /// [`Mark::fit`], as they do when they are first drawn or turned off:
-    /// one compare, for the path that runs on every tick.
-    pub(crate) fn lights_moved(&self, lights_across: CGFloat) -> bool {
-        self.fitted_across.get() != lights_across
+    /// The lockup's size, which the plate is laid out around.
+    pub(crate) fn size(&self) -> NSSize {
+        self.place.size()
+    }
+
+    /// Whether the lights have become another width, are drawn at another
+    /// scale or on a plate of another colour, since the last [`Mark::fit`], as
+    /// they are when they are first drawn or turned off, the window moves to
+    /// another screen, or the theme changes: one compare, for the path that
+    /// runs on every tick.
+    pub(crate) fn lights_moved(&self, lights: Fitted) -> bool {
+        self.fitted.get() != lights
     }
 
     /// The label the build's name is in, which
@@ -386,11 +515,15 @@ impl Mark {
         &self.version
     }
 
-    /// **The form for `appearance`**, the window's: its picture swapped
-    /// when the form changes, and nothing else. Both forms are one box,
-    /// so the frame stays.
+    /// **The window is now `appearance`**: the form follows it with no plate,
+    /// and on a plate stays the plate's.
     pub(crate) fn follow(&self, appearance: Appearance) {
-        let want = Lockup::for_appearance(appearance);
+        self.show(Lockup::standing(self.plate.get(), appearance));
+    }
+
+    /// **The form `want`**: its picture swapped when the form changes, and
+    /// nothing else. Both forms are one box, so the frame stays.
+    fn show(&self, want: Lockup) {
         if want == self.shown.get() {
             return;
         }
@@ -401,8 +534,8 @@ impl Mark {
         self.shown.set(want);
     }
 
-    /// **The form for `window`'s appearance now**, read as [`Mark::put`]
-    /// reads it.
+    /// **[`Mark::follow`] with `window`'s appearance now**, read as
+    /// [`Mark::put`] reads it.
     pub(crate) fn follow_window(&self, window: &NSWindow) {
         self.follow(appearance_of(window));
     }
@@ -413,9 +546,9 @@ impl Mark {
         self.shown.get()
     }
 
-    /// **The lockup's right edge in the window**, where AppKit put its
-    /// accessory; [`Place::end`] while the title bar is not laid out yet,
-    /// which an accessory at the window's left edge says.
+    /// **The lockup's right edge in the window with no plate**, where AppKit
+    /// put its accessory; [`Place::end`] while the title bar is not laid out
+    /// yet, which an accessory at the window's left edge says.
     pub(crate) fn lockup_end(&self) -> CGFloat {
         let at = self.accessory.in_window();
         if at.origin.x < 1.0 {
@@ -424,24 +557,15 @@ impl Mark {
         at.origin.x + self.place.width
     }
 
-    /// **Where the strip's left part ends in the window**: the build's name
-    /// while it is shown, else the lockup.
-    pub(crate) fn end(&self) -> CGFloat {
-        match self.version_shown.get() {
-            true => self.lockup_end() + VERSION_GAP + self.version_size.width,
-            false => self.lockup_end(),
-        }
-    }
-
-    /// Where the activity lights may start: a light's gap past
-    /// [`Mark::end`].
+    /// Whether the lockup is on the plate, which
+    /// `baud-app/tests/titlebar_mark.rs` looks at.
     #[allow(dead_code)]
-    pub(crate) fn lights_left(&self) -> CGFloat {
-        self.end() + CGFloat::from(baud_render::lights::PAIR)
+    pub(crate) fn on_plate(&self) -> bool {
+        self.plate.get().is_some()
     }
 
-    /// The lockup's accessory view, which `baud-app/tests/titlebar_mark.rs`
-    /// looks at.
+    /// The leading accessory, which `baud-app/tests/titlebar_mark.rs` looks
+    /// at.
     #[allow(dead_code)]
     pub(crate) fn accessory(&self) -> &Accessory {
         &self.accessory
@@ -495,19 +619,120 @@ mod tests {
         assert_eq!(Lockup::OnDark.art(), Lockup::OnLight.art());
     }
 
-    /// **The lockup is in the strip of the container it is in, whatever
-    /// size the container was built at**, and its mark keeps its size: in
-    /// the README film's window, 786x572 points with a 28-point titlebar,
-    /// it starts at 69, past the zoom button's right edge at 63, at 22.4
-    /// points per 300 units, so the mark's 168-unit cell is 12.544 points
-    /// tall, as the mark alone was; it is centred on the strip's 558 and
-    /// ends where its art does. The control is the size the container was
-    /// built at, 960x600: the same place there is wholly above the
-    /// 572-point container, which is where the film's mark was.
-    /// Perturbation: centre on 600 rather than the height given and the
-    /// first check fails.
+    /// The word's contrast on `plate`.
+    fn reads(form: Lockup, plate: Argb) -> f64 {
+        contrast_over(
+            form.word().expect("the word's fill"),
+            plate,
+            baud_domain::Chan::from_u8(0xFF),
+            Backdrop::any(),
+        )
+    }
+
+    /// **The word's fill is the file's, and its contrast is WCAG's against
+    /// the plate alone**: the figures the note gives, worked by hand from
+    /// the two fills. The positive control for what follows: a `word` that
+    /// read another path, or a call that took the backdrop in, misses them.
     #[test]
-    fn the_lockup_is_in_the_strip_of_the_container_it_is_in() {
+    fn the_words_contrast_is_the_figures_the_note_gives() {
+        assert_eq!(Lockup::OnDark.word(), Some(Argb(0xFF_F3_F4_F6)));
+        assert_eq!(Lockup::OnLight.word(), Some(Argb(0xFF_1E_21_28)));
+        for (form, plate, want) in [
+            (Lockup::OnDark, 0xFF_10_10_10, 17.29),
+            (Lockup::OnLight, 0xFF_EF_EF_EF, 14.01),
+            (Lockup::OnLight, 0xFF_10_10_10, 1.18),
+            (Lockup::OnDark, 0xFF_EF_EF_EF, 1.04),
+            (Lockup::OnLight, 0xFF_80_80_80, 4.08),
+            (Lockup::OnDark, 0xFF_80_80_80, 3.59),
+        ] {
+            let got = reads(form, Argb(plate));
+            assert!((got - want).abs() < 0.005, "{form:?} {plate:08X}: {got}");
+        }
+    }
+
+    /// **On a plate the plate's lightness decides, under either window**: a
+    /// dark plate the light word under a light window, a light plate the dark
+    /// word under a dark window. Perturbation: `standing` that reads the
+    /// window alone, as the lockup did, fails both mismatched rows.
+    #[test]
+    fn a_plate_decides_the_form_whatever_the_window() {
+        let (dark, light) = (Argb(0xFF_10_10_10), Argb(0xFF_EF_EF_EF));
+        for window in [Appearance::Dark, Appearance::Light] {
+            assert_eq!(Lockup::standing(Some(dark), window), Lockup::OnDark);
+            assert_eq!(Lockup::standing(Some(light), window), Lockup::OnLight);
+        }
+    }
+
+    /// **With no plate the window decides**, the two windows the two forms.
+    /// Perturbation: `standing` that takes a default colour with no plate
+    /// fails one window.
+    #[test]
+    fn no_plate_follows_the_window() {
+        assert_eq!(Lockup::standing(None, Appearance::Dark), Lockup::OnDark);
+        assert_eq!(Lockup::standing(None, Appearance::Light), Lockup::OnLight);
+    }
+
+    /// **A grey takes the better of the two, which is not the half its luma
+    /// is in**: #7F7F7F's luma, 127, is under the middle and the dark word
+    /// reads the better on it, 4.02:1 to 3.64:1; #767676 the light word, 4.13:1
+    /// to 3.55:1. And every grey there is takes the higher of its two ratios.
+    /// Perturbation: a form by luma against 128, or by `page_lightness`
+    /// against a half, reads #7F7F7F wrong; `<` for `>=` in `on_plate` fails
+    /// every row.
+    #[test]
+    fn a_grey_plate_takes_the_better_contrast() {
+        assert_eq!(Lockup::on_plate(Argb(0xFF_7F_7F_7F)), Lockup::OnLight);
+        assert_eq!(Lockup::on_plate(Argb(0xFF_80_80_80)), Lockup::OnLight);
+        assert_eq!(Lockup::on_plate(Argb(0xFF_76_76_76)), Lockup::OnDark);
+        for v in 0..=255u32 {
+            let plate = Argb(0xFF00_0000 | (v * 0x01_01_01));
+            let form = Lockup::on_plate(plate);
+            let other = match form {
+                Lockup::OnDark => Lockup::OnLight,
+                Lockup::OnLight => Lockup::OnDark,
+            };
+            assert!(reads(form, plate) >= reads(other, plate), "{v:02X}");
+        }
+    }
+
+    /// **The word reads at 4.5:1 on the plates of the themes tested**: the
+    /// two built-in themes, a tinted dark file, a cream light file, black and
+    /// white. Two fixed forms cannot on every plate: the greys #707070 to
+    /// #878787 are under it, the least of the better ratio being 3.85:1 at
+    /// #7B7B7B. Perturbation: swap the arms of
+    /// `on_plate`'s match and every plate here falls to under 1.31:1.
+    #[test]
+    fn the_word_reads_on_the_plates_of_the_themes() {
+        for plate in [
+            0xFF_10_10_10u32,
+            0xFF_EF_EF_EF,
+            0xFF_1A_1B_26,
+            0xFF_FD_F6_E3,
+            0xFF_00_00_00,
+            0xFF_FF_FF_FF,
+        ] {
+            let got = reads(Lockup::on_plate(Argb(plate)), Argb(plate));
+            assert!(got >= 4.5, "{plate:08X}: {got}");
+        }
+        let at = |v: u32| {
+            let plate = Argb(0xFF00_0000 | (v * 0x01_01_01));
+            reads(Lockup::on_plate(plate), plate)
+        };
+        let under: Vec<u32> = (0..=255).filter(|&v| at(v) < 4.5).collect();
+        assert_eq!(under, (0x70..=0x87).collect::<Vec<u32>>());
+        let least = (0..=255).map(at).fold(f64::INFINITY, f64::min);
+        assert!((least - at(0x7B)).abs() < 1e-12, "{least}");
+        assert!((3.84..3.85).contains(&least), "{least}");
+    }
+
+    /// **The lockup keeps its size, and a button's gap past the buttons is
+    /// where the bar's left starts**: 69, past the zoom button's right edge
+    /// at 63, at 22.4 points per 300 units, so the mark's 168-unit cell is
+    /// 12.544 points tall, as the mark alone was, and the whole 687.94-unit
+    /// box 51.37 across and as tall as the cell. Perturbation: the points
+    /// per unit of a 26-point square and the sizes fail.
+    #[test]
+    fn the_lockup_keeps_the_marks_size_past_the_buttons() {
         let (c, m, z) = lights();
         let a = art();
         let p = Place::beside(c, m, z, 28.0, a).expect("laid out");
@@ -516,18 +741,31 @@ mod tests {
         assert!((168.0 * k - 12.544).abs() < 1e-9);
         assert!((p.width - a.width * k).abs() < 1e-9, "{p:?}");
         assert!((p.height - a.height * k).abs() < 1e-9, "{p:?}");
-        let f = p.frame(572.0, 28.0);
-        assert!(f.origin.y >= 572.0 - 28.0, "{f:?}");
-        assert!(f.origin.y + f.size.height <= 572.0, "{f:?}");
+        assert!((p.width - 51.366).abs() < 0.01, "{p:?}");
+        assert!((p.height - 12.544).abs() < 1e-9, "{p:?}");
+        assert!((p.end() - (p.x + p.width)).abs() < 1e-9);
+    }
+
+    /// **The build's name gives way before a light and never takes one's
+    /// room**: beside the plate only with every light placed and a light's
+    /// gap past its end; with no plate only if it fits past the lockup.
+    /// Perturbation: drop `placed` and a window that has dropped a light keeps
+    /// its name. Only this holds it: a dropped light leaves the plate's left
+    /// under a light's width past the traffic lights, too near for any name.
+    #[test]
+    fn the_name_of_the_build_shows_only_with_every_light() {
+        assert!(name_shows(Placed::Every, 300.0, 69.0, 200.0));
+        assert!(name_shows(Placed::Every, 278.0, 69.0, 200.0));
         assert!(
-            (f.origin.y + f.size.height / 2.0 - 558.0).abs() < 1e-9,
-            "{f:?}"
+            !name_shows(Placed::Every, 277.5, 69.0, 200.0),
+            "a gap short"
         );
-        assert!(f.origin.x >= z.origin.x + z.size.width, "{f:?}");
-        let built = p.frame(600.0, 28.0);
-        assert!(built.origin.y > 572.0, "the control: {built:?}");
-        assert!((p.end() - (f.origin.x + f.size.width)).abs() < 1e-9);
-        assert!((p.lights_left() - p.end() - 9.0).abs() < 1e-9);
+        assert!(
+            !name_shows(Placed::Fewer, 300.0, 69.0, 200.0),
+            "a light has gone"
+        );
+        assert!(version_shows(400.0, 9.0, 120.0, 100.0));
+        assert!(!version_shows(240.0, 9.0, 120.0, 100.0));
     }
 
     /// **Lights not laid out fall back to the strip's own size**, and a

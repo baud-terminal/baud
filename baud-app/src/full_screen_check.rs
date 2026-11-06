@@ -24,7 +24,8 @@
 //! bar's defaults. Each step is scheduled on the main queue, none waited
 //! for.
 //!
-//! **A reading** is the lockup's and the lights' accessory views -- hidden
+//! **A reading** is the build's name's and the lights' accessory views, the
+//! lockup being in the second, or with no lights in the first -- hidden
 //! or not, and whether they are in the window or in another, the detached
 //! full-screen bar, and that window's visibility and alpha; the terminal's
 //! view's frame in its container, and whether its top is the container's;

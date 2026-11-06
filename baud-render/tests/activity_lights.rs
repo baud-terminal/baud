@@ -1,7 +1,10 @@
-//! The activity lights: the pixels the title strip shows (`lights::draw`,
-//! `lights::draw_led` and `lights::draw_plate`, the pixel oracle for a
-//! strip no GPU path draws -- each light is an image in a view of its own
-//! over the plate's view, not part of the grid's frame), every lamp one of
+//! The activity lights: the pixels the title bar's panel shows
+//! (`lights::draw_panel_led` and `lights::draw_panel_plate`, the pixel
+//! oracle for a strip no GPU path draws -- each light is an image in a view
+//! of its own over the plate's view, not part of the grid's frame) and the
+//! lights' own line draws (`lights::draw_led`, `lights::draw` and
+//! `lights::draw_plate`, here at a 28-point strip's height as well as the
+//! line's), every lamp one of
 //! the theme's sixteen palette entries exactly, and the clock that lights
 //! them (`Activity`), held to WCAG 2.2's three flashes a second, to showing
 //! everything it is told, and under Reduce Motion to one steady light
@@ -14,7 +17,8 @@ use baud_domain::{Cols, Rows};
 use baud_font::{Face, Px};
 use baud_render::lights::{
     DOT, GAP, HALO, HALO_GAP, LIT_CONTRAST, PAIR, PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, TEXT,
-    TEXT_CONTRAST, draw, draw_led, draw_plate, full, layout, ring_entry, width,
+    TEXT_CONTRAST, draw, draw_led, draw_panel_led, draw_panel_plate, draw_plate, full, layout,
+    panel_layout, panel_letters, panel_margin, ring_entry, width,
 };
 use baud_render::{
     AREA_LIMIT, Activity, Ansi, Argb, Backdrop, Blend, ByLed, ByLight, DEFAULT_GLOW, Glow, Half,
@@ -1294,4 +1298,619 @@ fn cs_is_lit_while_the_line_is_clear() {
     assert_eq!(a.step(ms(0), Pace::Steady).cs, Light::Dark);
     assert_eq!(a.step(ms(1_999), Pace::Steady).cs, Light::Dark);
     assert_eq!(a.step(ms(2_000), Pace::Steady).cs, Light::Lit);
+}
+
+/// **The nine lamps of the panel in a picture of their own**, side by side
+/// over `look`'s plate, opaque, at `scale`, the strip's height: as the
+/// window composes the views.
+fn panel_row(face: &Face<'_>, look: &LightsLook, shown: Shown, scale: f32) -> LightsImage {
+    let (at, w) = panel_layout(face, scale).unwrap();
+    let h = u32::try_from((STRIP * scale).round() as i64).unwrap();
+    let mut out = LightsImage {
+        width: w,
+        height: Px::of(h),
+        pixels: vec![look.plate; usize::try_from(w.value() * h).unwrap()],
+    };
+    for (led, &light) in shown.iter() {
+        let mut one = LightsImage::new();
+        draw_panel_led(face, look, led, light, scale, STRIP, &mut one).unwrap();
+        let x0 = at.get(led).start.value();
+        for y in 0..h {
+            for x in 0..one.width.value() {
+                let d = usize::try_from(y * w.value() + x0 + x).unwrap();
+                out.pixels[d] = over(out.pixels[d], at_xy(&one, x, y));
+            }
+        }
+    }
+    out
+}
+
+/// A lamp's centre on the panel, in the picture's pixels: as far as the
+/// picture says, read from its lit dot with nothing else drawn.
+fn panel_centre(face: &Face<'_>, look: &LightsLook, led: Led, scale: f32) -> (f32, f32) {
+    let bare = LightsLook {
+        label: Argb(0),
+        socket: Argb(0),
+        glow: Glow::Dimmed,
+        ..*look
+    };
+    let mut img = LightsImage::new();
+    draw_panel_led(face, &bare, led, Light::Lit, scale, STRIP, &mut img).unwrap();
+    let w = img.width.value();
+    let (mut sx, mut sy, mut n) = (0.0, 0.0, 0.0);
+    for y in 0..img.height.value() {
+        for x in 0..w {
+            let a = f32::from(at_xy(&img, x, y).a().get()) / 255.0;
+            sx += (x as f32 + 0.5) * a;
+            sy += (y as f32 + 0.5) * a;
+            n += a;
+        }
+    }
+    (sx / n, sy / n)
+}
+
+/// **The renderer draws the panel the oracle holds**: the same pixels as
+/// `draw_panel_led` over the badge's face, and the same layout and letters.
+#[test]
+fn the_renderer_draws_the_panel_the_oracle_holds() {
+    let bold = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Bold.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let faces = [Face::parse(&bold).unwrap()];
+    let r = renderer(&faces, Theme::dark());
+    let look = r.lights_look(Glow::Full);
+    let (mut a, mut b) = (LightsImage::new(), LightsImage::new());
+    for led in Led::ALL {
+        r.panel_light(&look, led, Light::Lit, 2.0, STRIP, &mut a)
+            .unwrap();
+        draw_panel_led(&faces[0], &look, led, Light::Lit, 2.0, STRIP, &mut b).unwrap();
+        assert_eq!(a, b, "{led:?}");
+    }
+    assert_eq!(r.panel_layout(2.0), panel_layout(&faces[0], 2.0));
+    assert_eq!(r.panel_letters(), panel_letters(&faces[0]));
+}
+
+/// **The built-in themes' socket and bevel are the panel's numbers**: the
+/// socket #050505 on the dark plate and #DADADA on the light; on the dark
+/// the edge black at 55%, the highlight white at 13% and the bottom line
+/// black at 80%, on the light 28%, 95% and 22%. Perturbation: the step of
+/// 21 everywhere, or the alphas read the other way round, and this goes
+/// red.
+#[test]
+fn the_built_in_plates_keep_their_socket_and_bevel() {
+    let look = |t: &Theme| look_of(t, LightsColours::Meaning, Glow::Full, Halo::default());
+    let (d, l) = (look(&Theme::dark()), look(&Theme::light()));
+    assert_eq!(d.plate, Argb(0xFF_10_10_10));
+    assert_eq!(l.plate, Argb(0xFF_EF_EF_EF));
+    assert_eq!(d.socket, Argb(0xFF_05_05_05));
+    assert_eq!(l.socket, Argb(0xFF_DA_DA_DA));
+    let black = |a: f32| Argb(0xFF_00_00_00).with_alpha(Chan::from_unit(a));
+    let white = |a: f32| Argb(0xFF_FF_FF_FF).with_alpha(Chan::from_unit(a));
+    assert_eq!(d.bevel.edge, black(0.55));
+    assert_eq!(d.bevel.top, white(0.13));
+    assert_eq!(d.bevel.bottom, black(0.80));
+    assert_eq!(l.bevel.edge, black(0.28));
+    assert_eq!(l.bevel.top, white(0.95));
+    assert_eq!(l.bevel.bottom, black(0.22));
+}
+
+/// **On any page the socket reads as a recess and the bevel as a bevel**,
+/// made from the plate: on a dark page, a light one, a mid-grey, tinted ones
+/// and the two extremes, the socket is at least 11 levels off the plate in
+/// each channel it has room in and keeps the channels' order, so the hue;
+/// the highlight over the plate is lighter than it and the edge and the
+/// bottom line darker, where the page has room for them at all. The mid-grey's
+/// socket is #707070, 16 under #808080; its bevel is between the two
+/// built-in ones'. Perturbation: the socket a fixed #050505 and the
+/// light page's goes black; or the alphas fixed at the dark page's and the
+/// mid-grey's is not between.
+#[test]
+fn the_socket_and_the_bevel_hold_on_any_page() {
+    let look_on = |bg: u32| {
+        let mut t = Theme::dark();
+        t.bg = Argb(bg);
+        look_of(&t, LightsColours::Meaning, Glow::Full, Halo::default())
+    };
+    let rgb = |c: Argb| [c.r().get(), c.g().get(), c.b().get()];
+    let luma = |c: Argb| {
+        let [r, g, b] = rgb(c).map(f64::from);
+        0.299 * r + 0.587 * g + 0.114 * b
+    };
+    for bg in [
+        0xFF_00_00_00u32,
+        0xFF_05_05_05,
+        0xFF_1A_1B_26,
+        0xFF_00_2B_36,
+        0xFF_80_80_80,
+        0xFF_A0_60_40,
+        0xFF_FD_F6_E3,
+        0xFF_FF_FF_FF,
+    ] {
+        let l = look_on(bg);
+        let name = format!("{bg:08X}");
+        assert_ne!(l.socket, l.plate, "{name}: the socket shows");
+        assert_eq!(l.socket.a().get(), 0xFF, "{name}");
+        let (p, s) = (rgb(l.plate), rgb(l.socket));
+        let moved = p
+            .iter()
+            .zip(&s)
+            .map(|(a, b)| i32::from(*a) - i32::from(*b))
+            .collect::<Vec<_>>();
+        let most = moved.iter().map(|d| d.abs()).max().unwrap();
+        assert!(most >= 11, "{name}: {moved:?}");
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!(
+                    p[i] < p[j] && s[i] <= s[j]
+                        || p[i] > p[j] && s[i] >= s[j]
+                        || p[i] == p[j] && s[i] == s[j],
+                    "{name}: its hue: {p:?} to {s:?}"
+                );
+            }
+        }
+        let top = over(l.plate, l.bevel.top);
+        let edge = over(l.plate, l.bevel.edge);
+        let bottom = over(l.plate, l.bevel.bottom);
+        if luma(l.plate) < 250.0 {
+            assert!(luma(top) > luma(l.plate) + 8.0, "{name}: top {top:08X?}");
+        }
+        if luma(l.plate) > 5.0 {
+            assert!(luma(edge) < luma(l.plate) - 8.0, "{name}: edge {edge:08X?}");
+            assert!(luma(bottom) < luma(l.plate) - 8.0, "{name}: bottom");
+        }
+    }
+    let grey = look_on(0xFF_80_80_80);
+    assert_eq!(grey.socket, Argb(0xFF_70_70_70));
+    let alpha = |c: Argb| c.a().get();
+    let (d, li) = (look_on(0xFF_10_10_10).bevel, look_on(0xFF_EF_EF_EF).bevel);
+    for (m, a, b) in [
+        (grey.bevel.edge, d.edge, li.edge),
+        (grey.bevel.top, d.top, li.top),
+        (grey.bevel.bottom, d.bottom, li.bottom),
+    ] {
+        let (lo, hi) = (alpha(a).min(alpha(b)), alpha(a).max(alpha(b)));
+        assert!(
+            alpha(m) > lo && alpha(m) < hi,
+            "{m:08X?} between {a:08X?} and {b:08X?}"
+        );
+    }
+    // Past either end of the pages it is held there, and a black page has
+    // no room below it, so its socket is the step above.
+    assert_eq!(look_on(0xFF_00_00_00).bevel, d);
+    assert_eq!(look_on(0xFF_00_00_00).socket, Argb(0xFF_0B_0B_0B));
+    assert_eq!(look_on(0xFF_FF_FF_FF).bevel, li);
+    assert_eq!(look_on(0xFF_FF_FF_FF).socket, Argb(0xFF_EA_EA_EA));
+}
+
+/// **Every full-coverage lamp pixel on the panel is its palette entry
+/// exactly**: for every set, the built-in themes and xterm's on black and on
+/// white, every state, at 1x and 2x, with its socket and letters, the mask
+/// made with neither. The control: the same mask a column along finds pixels
+/// that are not the lamp's colour. Perturbation: draw the socket over the
+/// lamp, or mix the lamp into the socket, and this goes red.
+#[test]
+fn every_lamp_pixel_on_the_panel_is_its_palette_entry() {
+    let bold = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&bold).unwrap();
+    let mut read = 0;
+    let mut control = 0;
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            let look = look_of(&theme, set, Glow::Full, Halo::default());
+            let bare = LightsLook {
+                label: Argb(0),
+                socket: Argb(0),
+                glow: Glow::Dimmed,
+                ..look
+            };
+            for scale in [1.0, 2.0] {
+                for led in Led::ALL {
+                    for light in Light::ALL {
+                        let want = match light {
+                            Light::Lit => *look.lit.get(led),
+                            Light::Dark => look.unlit,
+                            Light::Unread => look.ring,
+                        };
+                        let (mut full, mut mask) = (LightsImage::new(), LightsImage::new());
+                        draw_panel_led(&face, &look, led, light, scale, STRIP, &mut full).unwrap();
+                        draw_panel_led(&face, &bare, led, light, scale, STRIP, &mut mask).unwrap();
+                        let mut n = 0;
+                        for (i, m) in mask.pixels.iter().enumerate() {
+                            if m.a().get() == 0xFF {
+                                assert_eq!(
+                                    full.pixels[i], want,
+                                    "{name} {set:?} {led:?} {light:?} at {scale}x: pixel {i}"
+                                );
+                                n += 1;
+                                let moved = full.pixels.get(i + 3).copied().unwrap_or(want);
+                                control += usize::from(moved != want);
+                            }
+                        }
+                        // The ring is 1.25 points across: no pixel of it is
+                        // whole at 1x.
+                        let whole = light != Light::Unread || scale > 1.5;
+                        assert!(
+                            n > 0 || !whole,
+                            "{name} {led:?} {light:?} at {scale}x: no lamp"
+                        );
+                        read += n;
+                    }
+                }
+            }
+        }
+    }
+    assert!(read > 10_000, "{read}");
+    assert!(control > 1000, "the mask moved finds others: {control}");
+}
+
+/// **The socket is behind every lamp, in every state, a socket's radius
+/// about its centre, and the lamp is over it**: 3.9 points from the centre,
+/// the socket's colour inside it and nothing past it; the lit dot leaves a
+/// ring of socket, the small dark dot and the unread ring's hole a wider one.
+/// Perturbation: draw no socket, one of radius 3.5, or one only behind a lit
+/// lamp, and this goes red.
+#[test]
+fn the_socket_is_behind_lit_unlit_and_unread() {
+    let bold = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&bold).unwrap();
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        let look = look_of(
+            &theme,
+            LightsColours::Meaning,
+            Glow::Dimmed,
+            Halo::default(),
+        );
+        for scale in [1.0, 2.0] {
+            for led in Led::ALL {
+                let (cx, cy) = panel_centre(&face, &look, led, scale);
+                for light in Light::ALL {
+                    let mut img = LightsImage::new();
+                    draw_panel_led(&face, &look, led, light, scale, STRIP, &mut img).unwrap();
+                    let at = format!("{name} {led:?} {light:?} at {scale}x");
+                    // A pixel wholly between the lamp's edge and the socket's,
+                    // to the left of the centre; only the small dot leaves
+                    // one a whole pixel wide at 1x.
+                    let lamp_edge = match light {
+                        Light::Lit | Light::Unread => 3.5,
+                        Light::Dark => 1.75,
+                    };
+                    for y in 0..img.height.value() {
+                        for x in 0..img.width.value() {
+                            let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                            let d = (dx * dx + dy * dy).sqrt() / scale;
+                            let half = 0.75 / scale;
+                            let p = at_xy(&img, x, y);
+                            if d > lamp_edge + half && d < 3.9 - half {
+                                assert_eq!(p, look.socket, "{at}: {x},{y} at {d}");
+                            }
+                            if d > 3.9 + half && dy.abs() < 6.0 * scale {
+                                assert_eq!(p.a().get(), 0, "{at}: past it, {x},{y} at {d}");
+                            }
+                        }
+                    }
+                }
+                // The ring of socket past the lit dot shows at 2x as its
+                // colour where the dot's edge has gone.
+                if scale > 1.5 {
+                    let mut lit = LightsImage::new();
+                    let none = LightsLook {
+                        socket: Argb(0),
+                        ..look
+                    };
+                    draw_panel_led(&face, &look, led, Light::Lit, 2.0, STRIP, &mut lit).unwrap();
+                    let mut bare = LightsImage::new();
+                    draw_panel_led(&face, &none, led, Light::Lit, 2.0, STRIP, &mut bare).unwrap();
+                    assert_ne!(lit, bare, "{name} {led:?}: a socket behind a lit lamp");
+                }
+            }
+        }
+    }
+}
+
+/// **Each lamp stands over its letters at the panel's numbers**: its centre
+/// 8.5 points down the strip, within half a device pixel of the middle of
+/// its letters across; its dot 7 across and an unlit one half that; the
+/// letters' caps ending on the baseline at 22 and their top under the lamp's
+/// halo's reach; at 1x and 2x, in a strip of 28 and centred in one of 32.
+/// And the columns' layout: the nine in order, side by side. Perturbation: a
+/// lamp centre at 14, a baseline at 20, or letters beside the lamp, and this
+/// goes red.
+#[test]
+fn each_lamp_stands_over_its_letters_at_the_panels_numbers() {
+    let bold = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Bold.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let face = Face::parse(&bold).unwrap();
+    let look = look_of(
+        &Theme::dark(),
+        LightsColours::Meaning,
+        Glow::Full,
+        Halo::default(),
+    );
+    let letters = panel_letters(&face);
+    for scale in [1.0_f32, 2.0] {
+        let (slots, end) = panel_layout(&face, scale).unwrap();
+        let mut next = 0;
+        for led in Led::ALL {
+            let s = slots.get(led);
+            assert_eq!(s.start.value(), next, "{led:?} at {scale}x");
+            next = s.start.value() + s.width.value();
+        }
+        assert_eq!(next, end.value());
+        for led in Led::ALL {
+            let (cx, cy) = panel_centre(&face, &look, led, scale);
+            let (x, w) = *letters.get(led);
+            let start = slots.get(led).start.value() as f32;
+            let wanted = (x + w / 2.0) * scale - start;
+            let at = format!("{led:?} at {scale}x");
+            assert!((cx - wanted).abs() <= 0.5 + 1e-3, "{at}: {cx} and {wanted}");
+            assert!((cy - 8.5 * scale).abs() < 0.01, "{at}: {cy}");
+            // Whole pixels at the dot's left, so the nine are alike.
+            let left = cx - DOT * scale / 2.0;
+            assert!((left - left.round()).abs() < 0.01, "{at}: {left}");
+            // The letters' ink, alone.
+            let only = LightsLook {
+                lit: ByLed::of(|_| Argb(0)),
+                unlit: Argb(0),
+                ring: Argb(0),
+                socket: Argb(0),
+                glow: Glow::Dimmed,
+                ..look
+            };
+            let mut img = LightsImage::new();
+            draw_panel_led(&face, &only, led, Light::Dark, scale, STRIP, &mut img).unwrap();
+            let (w_px, h_px) = (img.width.value(), img.height.value());
+            let inked: Vec<(u32, u32)> = (0..h_px)
+                .flat_map(|y| (0..w_px).map(move |x| (x, y)))
+                .filter(|&(x, y)| at_xy(&img, x, y).a().get() > 64)
+                .collect();
+            let bottom = inked.iter().map(|p| p.1).max().unwrap() + 1;
+            let top = inked.iter().map(|p| p.1).min().unwrap();
+            let (lo, hi) = (
+                inked.iter().map(|p| p.0).min().unwrap() as f32,
+                inked.iter().map(|p| p.0).max().unwrap() as f32 + 1.0,
+            );
+            assert!(
+                (bottom as f32 - 22.0 * scale).abs() <= 1.0,
+                "{at}: the baseline, {bottom}"
+            );
+            assert!(top as f32 >= 15.0 * scale, "{at}: under the halo, {top}");
+            assert!(
+                ((lo + hi) / 2.0 - cx).abs() <= 1.5,
+                "{at}: letters {lo}..{hi} about {cx}"
+            );
+        }
+    }
+    // In a taller strip everything keeps its place about the middle.
+    let mut img = LightsImage::new();
+    draw_panel_led(
+        &face,
+        &LightsLook {
+            label: Argb(0),
+            socket: Argb(0),
+            glow: Glow::Dimmed,
+            ..look
+        },
+        Led::Rd,
+        Light::Lit,
+        2.0,
+        32.0,
+        &mut img,
+    )
+    .unwrap();
+    let rows: Vec<u32> = (0..img.height.value())
+        .filter(|&y| (0..img.width.value()).any(|x| at_xy(&img, x, y).a().get() == 0xFF))
+        .collect();
+    let mid = (rows[0] + rows[rows.len() - 1] + 1) as f32 / 2.0;
+    assert!((mid - 2.0 * (8.5 + 2.0)).abs() < 0.01, "{mid}");
+}
+
+/// **The unlit lamp on the panel is half the lit one's diameter**: so the
+/// state reads by size as well as colour, WCAG 2.2's SC 1.4.1, as on the
+/// line. Perturbation: an unlit dot of the lit size, and this goes red.
+#[test]
+fn the_panels_unlit_lamp_is_half_the_lit_ones_diameter() {
+    let bold = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&bold).unwrap();
+    let look = LightsLook {
+        label: Argb(0),
+        socket: Argb(0),
+        glow: Glow::Dimmed,
+        ..look()
+    };
+    for scale in [2.0, 4.0] {
+        let across = |light| {
+            let mut img = LightsImage::new();
+            draw_panel_led(&face, &look, Led::Cs, light, scale, STRIP, &mut img).unwrap();
+            (0..img.width.value())
+                .filter(|&x| (0..img.height.value()).any(|y| at_xy(&img, x, y).a().get() > 127))
+                .count() as f32
+                / scale
+        };
+        assert!((across(Light::Lit) - 7.0).abs() <= 0.5, "{scale}");
+        assert!((across(Light::Dark) - 3.5).abs() <= 0.5, "{scale}");
+    }
+}
+
+/// **The panel's glow starts a point off the dot and stays in the lamp's
+/// column and above its letters, and Dim Flashing Lights takes it away**:
+/// a lit lamp at the strongest glow against one under Glow::Dimmed differs
+/// only from 4.5 points off the centre, a point off the dot's 3.5 past the
+/// socket's 3.9, to 6.5; never in the letters' rows; and not at all at a
+/// strength of 0. Perturbation: a halo from the dot's edge, or one reaching
+/// the picture's height as the line's does, and this goes red.
+#[test]
+fn the_panels_glow_is_off_the_dot_and_over_the_letters() {
+    let bold = font("JetBrainsMono-Regular.ttf");
+    let face = Face::parse(&bold).unwrap();
+    let theme = Theme::dark();
+    let lit = |glow, halo, scale| {
+        let l = look_of(&theme, LightsColours::Meaning, glow, halo);
+        let mut img = LightsImage::new();
+        draw_panel_led(&face, &l, Led::Sd, Light::Lit, scale, STRIP, &mut img).unwrap();
+        img
+    };
+    for scale in [1.0, 2.0] {
+        let dim = lit(Glow::Dimmed, Halo::of(1.0), scale);
+        assert_eq!(dim, lit(Glow::Full, Halo::of(0.0), scale), "{scale}");
+        let full = lit(Glow::Full, Halo::of(1.0), scale);
+        let look = look_of(
+            &theme,
+            LightsColours::Meaning,
+            Glow::Dimmed,
+            Halo::default(),
+        );
+        let (cx, cy) = panel_centre(&face, &look, Led::Sd, scale);
+        let mut touched = 0;
+        for y in 0..full.height.value() {
+            for x in 0..full.width.value() {
+                if at_xy(&full, x, y) == at_xy(&dim, x, y) {
+                    continue;
+                }
+                let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                let d = (dx * dx + dy * dy).sqrt() / scale;
+                assert!(d >= 4.5 - 1.0 / scale, "{x},{y}: {d} at {scale}x");
+                assert!(d <= 6.5 + 1.0 / scale, "{x},{y}: {d} at {scale}x");
+                assert!((y as f32) < 16.0 * scale, "{x},{y} in the letters");
+                touched += 1;
+            }
+        }
+        assert!(touched > 20, "the glow draws: {touched} at {scale}x");
+    }
+}
+
+/// **The lamps read against the socket they stand in, as they do on the
+/// plate**: every set's lit lamps at 3:1 or better on the built-in themes
+/// (SC 1.4.11), the unlit lamp too. Perturbation: a socket of the lamp's
+/// lightness, #808080 on the dark theme, and this goes red.
+#[test]
+fn the_lamps_read_against_their_socket() {
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        for set in LightsColours::ALL {
+            let look = look_of(&theme, set, Glow::Full, Halo::default());
+            for led in Led::ALL {
+                let c = ratio(*look.lit.get(led), look.socket);
+                assert!(c >= LIT_CONTRAST, "{name} {set:?} {led:?}: {c:.2}");
+            }
+            let c = ratio(look.unlit, look.socket);
+            assert!(c >= LIT_CONTRAST, "{name} unlit: {c:.2}");
+        }
+    }
+}
+
+/// **The panel's plate, drawn**: its picture a margin past the plate, the
+/// plate's own colour exactly inside, the highlight along the top inside and
+/// the line along the bottom inside over the plate, the edge outside, and
+/// its corners rounded: at 2x each a pixel across. At 1x each half a pixel's
+/// coverage. On the dark and the light theme. The control: a plate with no
+/// bevel's colours is one colour inside. Perturbation: the highlight on the
+/// bottom, the edge inside the plate, or square corners, and this goes red.
+#[test]
+fn the_panels_plate_has_its_bevel_and_its_corners() {
+    for theme in [Theme::dark(), Theme::light()] {
+        let look = look_of(&theme, LightsColours::Meaning, Glow::Full, Halo::default());
+        for scale in [1.0_f32, 2.0] {
+            let (w, h) = (
+                u32::try_from((221.0 * scale) as i64).unwrap(),
+                u32::try_from((24.0 * scale) as i64).unwrap(),
+            );
+            let mut img = LightsImage::new();
+            draw_panel_plate(&look, Px::of(w), Px::of(h), scale, &mut img).unwrap();
+            let m = panel_margin(scale).unwrap().value();
+            assert_eq!(m, 1, "a pixel past it, at either scale");
+            assert_eq!(img.width.value(), w + 2 * m);
+            assert_eq!(img.height.value(), h + 2 * m);
+            let mid = w / 2 + m;
+            let coverage = if scale > 1.5 { 1.0 } else { 0.5 };
+            let part =
+                |c: Argb| c.with_alpha(Chan::from_unit(f32::from(c.a().get()) / 255.0 * coverage));
+            // Inside, on the middle row.
+            assert_eq!(at_xy(&img, mid, m + h / 2), look.plate);
+            // The highlight, the plate's top row.
+            assert_eq!(at_xy(&img, mid, m), over(look.plate, part(look.bevel.top)));
+            // The bottom line, its bottom row.
+            assert_eq!(
+                at_xy(&img, mid, m + h - 1),
+                over(look.plate, part(look.bevel.bottom))
+            );
+            // The edge, the rows and columns just outside it.
+            for (x, y) in [
+                (mid, 0),
+                (mid, h + 2 * m - 1),
+                (0, h / 2),
+                (w + 2 * m - 1, h / 2),
+            ] {
+                assert_eq!(
+                    at_xy(&img, x, y),
+                    part(look.bevel.edge),
+                    "{x},{y} at {scale}x"
+                );
+            }
+            // The first row inside the plate past the highlight is the plate.
+            assert_eq!(at_xy(&img, mid, m + 1), look.plate, "at {scale}x");
+            // The corners: nothing at the picture's corner, the plate a
+            // radius in.
+            assert_eq!(at_xy(&img, 0, 0).a().get(), 0, "at {scale}x");
+            let r = 5 * u32::try_from(scale as i64).unwrap();
+            assert_eq!(at_xy(&img, m + r, m + r), look.plate, "at {scale}x");
+            assert_ne!(at_xy(&img, m, m), look.plate, "square at {scale}x");
+            // The highlight stops where the corner starts.
+            assert_eq!(at_xy(&img, m + r - 1, m), {
+                let mut bare = LightsImage::new();
+                let none = LightsLook {
+                    bevel: baud_render::Bevel {
+                        top: Argb(0),
+                        ..look.bevel
+                    },
+                    ..look
+                };
+                draw_panel_plate(&none, Px::of(w), Px::of(h), scale, &mut bare).unwrap();
+                at_xy(&bare, m + r - 1, m)
+            });
+        }
+    }
+}
+
+/// **The panel meets WCAG 2.3.1 by the area clause, as the line does**:
+/// every lamp changing at once, lit against dark, on the panel's columns, at
+/// the strongest glow and the default and under Dim Flashing Lights, in every
+/// set on the built-in themes and xterm's, under a quarter of the field and a
+/// tenth of that. The clock's three flashes a second are the lights' own and
+/// are held by `the_lights_flash_at_most_three_times_a_second_and_show_everything`.
+/// The control: the flash area is more than nothing. Perturbation: draw the
+/// plate in the lit colour and this goes red.
+#[test]
+fn every_panel_lamp_changing_at_once_flashes_under_the_area_clause() {
+    let bold = std::fs::read(format!(
+        "{}/../baud-app/fonts/built/Bold.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let face = Face::parse(&bold).unwrap();
+    let mut most: f32 = 0.0;
+    for (name, theme) in themes() {
+        for set in LightsColours::ALL {
+            for (glow, halo) in [
+                (Glow::Full, Halo::of(1.0)),
+                (Glow::Full, Halo::default()),
+                (Glow::Dimmed, Halo::of(1.0)),
+            ] {
+                let look = look_of(&theme, set, glow, halo);
+                let lit = panel_row(&face, &look, Shown::all(Light::Lit), 2.0);
+                let dark = panel_row(&face, &look, Shown::all(Light::Dark), 2.0);
+                let area = flash_area(&lit, &dark, 2.0);
+                assert!(area > 0.0, "{name} {set:?}: the control");
+                assert!(
+                    area <= AREA_LIMIT,
+                    "{name} {set:?} {glow:?}: {area} of {AREA_LIMIT}"
+                );
+                most = most.max(area);
+            }
+        }
+    }
+    assert!(most < AREA_LIMIT / 10.0, "the most, {most} WCAG pixels");
 }

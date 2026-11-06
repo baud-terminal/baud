@@ -140,7 +140,8 @@ mod front;
 // The activity lights in the title strip: the Linux window has none.
 #[cfg(target_os = "macos")]
 mod lights;
-// baud's mark in the title strip, beside the traffic lights.
+// baud's mark in the title strip, on the lights' plate or with no plate
+// beside the traffic lights.
 #[cfg(target_os = "macos")]
 mod mark;
 // The title strip's accessories and the grid's top, windowed and in full

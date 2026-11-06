@@ -2027,9 +2027,9 @@ and the terminal's view takes the window's whole height once `NSWindowDidEnterFu
 title bar's height off it again at `NSWindowDidExitFullScreenNotification`
 (`baud-present-macos/src/full_screen.rs`).
 
-**Where things are, windowed**, in `baud-app/tests/titlebar_mark.rs`'s
-never-shown windows, base (master) against the change, at 786x572,
-960x600, 1200x900 and 200x100 points, both bodies:
+**Where things were, windowed**, until "The title bar is a modem's panel" moved
+them, in `baud-app/tests/titlebar_mark.rs`'s never-shown windows, base (master)
+against the change, at 786x572, 960x600, 1200x900 and 200x100 points, both bodies:
 
 | | base | change |
 |---|---|---|
@@ -2041,7 +2041,8 @@ never-shown windows, base (master) against the change, at 786x572,
 | lights' accessory at 960 / 200 pt | (none) | x 766.5, 193.5 wide / x 125, 75 wide |
 
 The lights' positions equal the hand-placed ones at 960, 786, 800.25 and
-200 points and scales 1 and 2 (`the_lights_accessory_keeps_the_lights_where_the_strip_had_them`).
+200 points and scales 1 and 2, by a test the panel's layout has since replaced
+("The title bar is a modem's panel").
 Full screen itself is not measured: AppKit refuses the full-screen state
 outside a real transition, which takes the display. The harness posts the
 two notifications by hand to baud's observer instead.
@@ -4395,3 +4396,59 @@ the 20, 18 are the files a read of the old LICENSE against the rows found, the r
 `hebrew/SOURCE` and `built/MANIFEST`. Every third-party file the old LICENSE named has a row here;
 the same run on the old rows reports the 18. Eight perturbations of the real tree and 18 fixture
 cases each red.
+
+## The title bar is a modem's panel
+
+The whole lockup and the nine lamps on one plate at the bar's right end, each lamp
+in a socket over its letters. Figures are points of the 28-point strip, this Mac,
+read headlessly. No byte's path changes: `ingest2` built at base and here, at one
+path, is the same file, 2,716,752 bytes, so no timing was taken. `LightsLook` gains
+two fields, made where the look is made already, once a tick in the title bar and
+once a frame while the lights are on a line, which no bench drives, so that cost is
+unmeasured. The line's pictures hold to `baud-render/tests/lights_line.rs`,
+unchanged.
+
+**The plate comes to 221.** The lockup's box has been 687.94 by 168 units since the
+block's top moved, so at the mark's 22.4/300 it is 51.366 by 12.544, not the 13.78
+tall the design drew. 7 + 51.366 + 10 + 145.6 + 7 is 220.97; the lockup's left and
+the plate's right land on whole device pixels, so 221 at 1x and at 2x. All nine fit
+from 295 wide, 294 drops HS, 240 keeps RD on, 200 keeps FAX and SYN. Fit is read
+before rounding, or 200 would keep CS, its plate's 68.83 rounding up to 69.
+
+**One function places both.** `lights::panel` lays out the app's views and
+`film/chrome.rs`'s composed strip. `assets/readme/hero.gif` is not regenerated and
+shows the old strip.
+
+**The socket and bevel come from the plate.** The socket lowers every channel by a
+step: 11 levels on #101010, 21 on #EFEFEF, between them by luma, which gives #050505
+and #DADADA and keeps a page's hue. A page too dark to lower is raised: #000000 gets
+#0B0B0B. The bevel's alphas run between the two themes' by the same parameter and
+hold past the ends. On #808080 the socket is #707070, the edge black at 41%, the
+highlight white at 54%, the bottom line black at 51%.
+
+| against | SD #CDCD00, dark | AA #FFFF00, dark | SD #005F5F, light |
+|---|---|---|---|
+| amber #F4A32C, OKLab dE x100 | 12.21 | 23.25 | 39.62 |
+| amber, contrast | 1.22 | 1.93 | 3.61 |
+| plate, contrast | 11.17 | 17.72 | 6.52 |
+| socket, contrast | 11.97 | 18.98 | 5.36 |
+
+The built-in themes' lamps, every set, read at 3:1 or better on the socket. Unlit is
+5.09 on the dark socket (4.75 on the plate), 5.01 on the light (6.09). All nine
+changing at once stays under a tenth of WCAG 2.3.1's area limit; the clock is unchanged.
+
+**The lockup's form on the plate is the plate's**: the word with the higher WCAG
+ratio against its colour, whichever half the window is, where the wrong form would
+read 1.18:1 on #101010 and 1.04:1 on #EFEFEF. The word reads 17.29:1 and 14.01:1
+on those, and 15.53:1 on #1A1B26 and 14.94:1 on #FDF6E3; the amber, one colour in
+both forms, reads 9.17:1, 1.80:1, 8.24:1 and 1.92:1. Under a window of their own
+half those four plates compose byte for byte as they did before the choice.
+
+**Open.** On the greys #707070 to #878787 neither form reaches 4.5:1: #808080 takes
+the dark word at 4.08:1, and the least is 3.85:1 at #7B7B7B. On #808080 the amber
+is 1.90:1, and slot 8, #7F7F7F, is 1.01:1 on the plate and 1.24:1 on the socket.
+With no plate the word follows the window, and can sit on glass of its own
+lightness under `[glass] style = "glass"` (`baud-app/src/mark.rs`). A capture of a
+window never shown draws its title bar's views grey, the lockup alone in the leading
+accessory too, so it reads the layout and the colours are read on the composed
+strip. Whether a window on screen and not key draws the plate so is unmeasured.

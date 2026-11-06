@@ -103,8 +103,9 @@ const GRAZE_C: f64 = 8.0;
 /// The block as the walls have it, where the path was chosen.
 ///
 /// The lockup's now stands 2.26 units higher, which
-/// [`crate::logo::MARK_MOVED`] holds. The chain stays out from behind it by the margins here, over 4.5 units;
-/// a strand's own ends are not kept out, and a few fall on the block.
+/// [`crate::logo::MARK_MOVED`] holds. The chain stays out from behind it by
+/// the margins here, over 4.5 units; a strand's own ends are not kept out,
+/// and a few fall on the block.
 const BLOCK: (f64, f64, f64, f64) = (223.5, 45.0, 244.0, 91.0);
 const ENVELOPE: (f64, f64, f64, f64) = (8.0, 18.0, 290.0, 116.0);
 const W_: usize = geometry::W;

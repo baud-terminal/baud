@@ -13037,7 +13037,7 @@ impl Opening {
             // lights it is placed against.
             icon: None,
             icon_inset: inset,
-            lights: crate::lights::Strip::new(None, None),
+            lights: crate::lights::Strip::new(None, None, NSSize::new(0.0, 0.0)),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             synced: crate::bell::Synced::new(),
@@ -13176,12 +13176,13 @@ impl Opening {
         // output waits on it; the logo starts on the first tick after it
         // is built (`App::plasma_ready`).
         driver.app.build_plasma();
-        // **baud's lockup beside the traffic lights** (`mark.rs`), a leading
+        // **baud's lockup and the build's name** (`mark.rs`), a leading
         // titlebar accessory, sized after `show()` so the buttons are laid
         // out, in the form for the window's appearance now. The snug crop,
         // not the padded Dock mark, so the box is the size the lockup is
         // drawn at. **The activity lights** in a trailing one, which the
-        // lights size to themselves at every layout (`strip.rs`). Both are
+        // lights size to their plate at every layout, and the lockup moves
+        // onto that plate (`strip.rs`, `lights::panel`). Both are
         // in the traffic lights' own view, which AppKit detaches from the
         // window in full screen, so neither stays behind in the content.
         driver.icon = crate::mark::Mark::put(mtm, &window, inset, crate::version::BUILD);
@@ -13191,7 +13192,11 @@ impl Opening {
             TitlebarSide::Trailing,
             NSSize::new(0.0, inset),
         );
-        driver.lights = crate::lights::Strip::new(Some(holder), Some(driver.view.waker()));
+        let logo = driver
+            .icon
+            .as_ref()
+            .map_or(NSSize::new(0.0, 0.0), crate::mark::Mark::size);
+        driver.lights = crate::lights::Strip::new(Some(holder), Some(driver.view.waker()), logo);
         startup_mark("titlebar");
         // The glass under the terminal now that the first frame is on the
         // layer: ordering a window whose content is a glass effect view costs
@@ -13202,8 +13207,11 @@ impl Opening {
         // holding the view's borrow cannot survive.
         window.set_content_view(glass.view());
         glass.set_content_view(&container);
-        // The body sized the container to itself: the mark against that,
-        // and the build's name beside it, with the lights not drawn yet.
+        // The body sized the container to itself: the lockup against that.
+        // The lights are drawn now rather than at the first tick, so a
+        // window with them in its title bar has the lockup on the plate from
+        // the start and never shows it beside the traffic lights.
+        driver.draw_lights();
         driver.place_icon();
         driver.place_lights();
         startup_mark("glass installed");
@@ -15005,11 +15013,12 @@ impl Driver {
             self.icon_inset,
         );
         // The lights know their width only once they are drawn, and the
-        // build's name gives way to it.
+        // lockup stands on their plate, or beside the traffic lights with
+        // no plate, and the build's name gives way to them.
         if self
             .icon
             .as_ref()
-            .is_some_and(|m| m.lights_moved(self.lights.across()))
+            .is_some_and(|m| m.lights_moved(self.lights.fitted()))
         {
             self.place_lights();
         }
@@ -15105,27 +15114,46 @@ impl Driver {
     }
 
     /// **The title strip's ends now** (`strip.rs`): the window's width,
-    /// a light's gap past the lockup, and the close button's gap at the
-    /// right, read from the window as AppKit has laid it out.
+    /// the traffic lights' end and the plate's gap at the right, read from
+    /// the window as AppKit has laid it out.
     fn strip_edges(&self) -> crate::strip::Edges {
-        crate::strip::edges(
-            self.window.ns_window(),
-            self.icon.as_ref().map(crate::mark::Mark::end),
-        )
+        crate::strip::edges(self.window.ns_window())
     }
 
-    /// The activity lights follow the window's top-right on every resize;
-    /// the build's name gives way to them first (`Mark::fit`).
+    /// **The activity lights' pictures, and the plate, before the window's
+    /// first tick**, at the state they are in.
+    fn draw_lights(&mut self) {
+        let glow = crate::lights::glow(self.app.flashing);
+        let wanted = crate::lights::Drawn {
+            scale: self.app.scale,
+            look: self.app.renderer.lights_look(glow),
+        };
+        let pace = crate::access::lights_pace(self.app.motion);
+        let shown = self.app.activity.step(host_now(), pace);
+        self.lights.show(
+            self.app.activity_lights,
+            wanted,
+            shown,
+            &self.app.renderer,
+            self.strip_edges(),
+            self.icon_inset,
+        );
+    }
+
+    /// The activity lights follow the window's top-right on every resize,
+    /// and the lockup stands on their plate, or beside the traffic lights
+    /// with no plate; the build's name gives way to them first
+    /// (`Mark::fit`).
     fn place_lights(&self) {
+        let plate = self.lights.place(self.strip_edges());
         if let Some(mark) = &self.icon {
-            mark.fit(self.window.ns_window(), self.lights.across());
+            mark.fit(self.window.ns_window(), plate, self.lights.fitted());
         }
-        self.lights.place(self.strip_edges());
     }
 
     /// Re-centre the titlebar lockup in its accessory, whose height AppKit
-    /// sets. Cheap -- one `setFrame` -- and it runs on every resize so the
-    /// lockup cannot drift or vanish.
+    /// sets, with no plate. Cheap -- one `setFrame` -- and it runs on every
+    /// resize so the lockup cannot drift or vanish.
     fn place_icon(&self) {
         if let Some(mark) = &self.icon {
             mark.place();
@@ -15667,10 +15695,11 @@ impl Driver {
         // The activity lights are drawn again in the theme the appearance
         // brings (`lights.rs`).
         self.lights.stale();
-        // **The lockup's word follows the window's appearance**, the one
-        // AppKit draws the traffic lights in (`mark.rs`), before the early
-        // return: a pinned palette is the terminal's, the title strip the
-        // window's.
+        // **With no plate the lockup's word follows the window's
+        // appearance**, the one AppKit draws the traffic lights in, before
+        // the early return: a pinned palette is the terminal's, the glass in
+        // the title strip the window's. On a plate this leaves it, and the
+        // next tick fits it to the plate the theme brings (`mark.rs`).
         if let Some(mark) = &self.icon {
             mark.follow_window(self.window.ns_window());
         }
@@ -16700,13 +16729,14 @@ mod tests {
         assert!(!body.contains("theme_for("), "the flip builds no theme");
     }
 
-    /// **A flip of light and dark swaps the title bar's lockup**, from the
-    /// driver's appearance path: `apply_style`, which a change of the
-    /// view's effective appearance reaches through `pump`, has the lockup
-    /// follow the window before the early return a pinned palette takes,
-    /// so `theme = "dark"` under a light system still shows the dark word
-    /// on the light strip. The form is the window's, through
-    /// `Mark::follow_window`, the reading `Mark::put` makes at the launch
+    /// **A flip of light and dark swaps the title bar's lockup with no
+    /// plate**, from the driver's appearance path: `apply_style`, which a
+    /// change of the view's effective appearance reaches through `pump`, has
+    /// the lockup follow the window before the early return a pinned palette
+    /// takes, so `theme = "dark"` under a light system with the lights off
+    /// still shows the dark word on the light strip. The form is the
+    /// window's, through `Mark::follow_window`, the reading `Mark::put` makes
+    /// at the launch; on a plate it is the plate's
     /// (`baud-app/tests/titlebar_mark.rs` holds both in real windows).
     /// Perturbation: move the call below `palette_switch(`, or drop it,
     /// and this goes red.

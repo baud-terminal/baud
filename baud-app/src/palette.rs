@@ -721,6 +721,69 @@ mod tests {
         h
     }
 
+    /// **A theme file's plate is its background, and the socket and the
+    /// bevel come from that page**, through the loader itself: a dark file,
+    /// a light one and a mid-grey one. The socket keeps the page's hue, 11 to
+    /// 21 levels off it; the highlight is over and the lines under it; none
+    /// is the built-in themes' fixed values on the file's page.
+    /// Perturbation: read the socket from the half's built-in plate, and
+    /// this goes red.
+    #[test]
+    fn a_theme_files_socket_and_bevel_come_from_its_page() {
+        let h = std::env::temp_dir().join(format!("baud-palette-{}-page", std::process::id()));
+        let themes = h.join(".config/baud/themes");
+        std::fs::create_dir_all(&themes).unwrap();
+        for (file, page, half, socket) in [
+            ("page-dark", "1a1b26", Half::Dark, 0xFF_0E_0F_1Au32),
+            ("page-light", "fdf6e3", Half::Light, 0xFF_E8_E1_CE),
+            ("page-grey", "808080", Half::Dark, 0xFF_70_70_70),
+        ] {
+            std::fs::write(
+                themes.join(file),
+                format!("background = #{page}\nforeground = #c0c0c0\n"),
+            )
+            .unwrap();
+            let (dark, light) = match half {
+                Half::Dark => (Some(file), None),
+                Half::Light => (None, Some(file)),
+            };
+            let (halves, said) = load_halves(light, dark, &dirs(&h));
+            assert!(halves.get(half).is_some(), "{file}: {said:?}");
+            let theme = half_theme(
+                half,
+                &crate::config::Glass::defaults(),
+                baud_render::Floor::Off,
+                &halves,
+            );
+            let look = baud_render::LightsLook::of(
+                &theme.palette,
+                theme.fg,
+                theme.bg,
+                baud_render::LightsColours::Meaning,
+                baud_render::Glow::Full,
+                baud_render::Halo::default(),
+            );
+            let want = u32::from_str_radix(page, 16).unwrap() | 0xFF00_0000;
+            assert_eq!(
+                look.plate,
+                baud_render::Argb(want),
+                "{file}: the plate is its page"
+            );
+            assert_eq!(
+                look.socket,
+                baud_render::Argb(socket),
+                "{file}: {:08X?}",
+                look.socket
+            );
+            assert_eq!(
+                look.bevel,
+                baud_render::lights::Bevel::of(look.plate),
+                "{file}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(h);
+    }
+
     #[test]
     fn a_path_expands_its_tilde_and_a_bare_name_tries_three_files() {
         let d = Dirs {

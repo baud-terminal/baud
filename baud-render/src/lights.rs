@@ -15,10 +15,13 @@
 //! process's connection that a retransmit is read from could not be shown
 //! visible (note AH, 8.1 and 11).
 //!
-//! **The look**: each light's letters to its left, modem letters rather
-//! than icons, and a dot with a soft glow while it is lit, on a small
-//! rounded plate filled with the theme's own background, in the title strip
-//! and on the lights' own line alike ([`LightsLook`], [`draw_plate`]).
+//! **The look**: modem letters rather than icons, and a dot with a soft
+//! glow while it is lit, on a rounded plate filled with the theme's own
+//! background ([`LightsLook`]). **In the title bar they are a modem's panel**
+//! ([`draw_panel_led`], [`draw_panel_plate`]): each lamp stands over its
+//! letters in a socket, on one bevelled plate with baud's logo, the plate's
+//! numbers the `PANEL_*` constants. **On their own line** each light's
+//! letters are to its left, on a small plate ([`draw_led`], [`draw_plate`]).
 //! **Every lamp is one of the theme's sixteen colours, exactly** -- the lit
 //! dot, the unlit one and an unread light's ring each an entry of
 //! `Theme::palette[0..16]` as baud holds it, never lifted or mixed -- so
@@ -77,12 +80,13 @@
 //! The clock and the caps below are the title strip's.
 //!
 //! **The glow** is a halo of the lamp's own colour round a lit dot,
-//! starting a point off its edge so the pixel touching the dot is the plate
-//! and the dot keeps its contrast against it, its strength `[window]
-//! activity_lights_glow` ([`Halo`]). **Dim Flashing Lights** draws no glow
-//! and the dot as it is ([`Glow::Dimmed`]): a lamp stays its palette entry,
-//! and the strip meets WCAG 2.3.1 by the area clause, its changed pixels
-//! far under a quarter of the field (note AH, the exact-palette section).
+//! starting a point off its edge so the pixel touching the dot is the plate,
+//! or on the panel the socket, and the dot keeps its contrast against it,
+//! its strength `[window] activity_lights_glow` ([`Halo`]). **Dim Flashing
+//! Lights** draws no glow and the dot as it is ([`Glow::Dimmed`]): a lamp
+//! stays its palette entry, and the strip meets WCAG 2.3.1 by the area
+//! clause, its changed pixels far under a quarter of the field (note AH, the
+//! exact-palette section).
 
 use crate::atlas::outline;
 use crate::color::Argb;
@@ -728,6 +732,10 @@ pub struct LightsLook {
     pub label: Argb,
     /// The plate under the lights: the theme's background, opaque.
     pub plate: Argb,
+    /// The socket behind each lamp on the title bar's panel, from the plate.
+    pub socket: Argb,
+    /// The panel plate's bevel, from the plate.
+    pub bevel: Bevel,
     /// Whether a lit light glows, and how strongly.
     pub glow: Glow,
     pub halo: Halo,
@@ -759,6 +767,8 @@ impl LightsLook {
             ring,
             label,
             plate,
+            socket: socket_of(plate),
+            bevel: Bevel::of(plate),
             glow,
             halo,
         }
@@ -772,6 +782,79 @@ pub fn ring_entry(palette: &[Argb; 256], fg: Argb) -> Ansi {
         .into_iter()
         .find(|a| a.of(palette) == fg.with_alpha(Chan::from_u8(0xFF)))
         .unwrap_or(Ansi::White)
+}
+
+/// **The panel plate's bevel**, three colours with alpha over the plate
+/// and what it stands on ([`draw_panel_plate`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Bevel {
+    /// The edge round the plate, just outside it.
+    pub edge: Argb,
+    /// The highlight along the plate's top.
+    pub top: Argb,
+    /// The line along the plate's bottom.
+    pub bottom: Argb,
+}
+
+/// The built-in dark theme's page and the built-in light one's, in luma:
+/// the two ends of what a bevel and a socket were drawn for
+/// ([`page_lightness`]).
+const DARK_PAGE: f32 = 16.0;
+const LIGHT_PAGE: f32 = 239.0;
+
+/// **Where `plate` stands between the dark page and the light one**, 0 to
+/// 1, by its luma rounded to a whole level, so a grey page's luma is its
+/// grey: a page past either end is held to it, so #000000 draws as #101010
+/// does and #FFFFFF as #EFEFEF.
+fn page_lightness(plate: Argb) -> f32 {
+    let of = |c: Chan| f32::from(c.get());
+    let luma = (0.299 * of(plate.r()) + 0.587 * of(plate.g()) + 0.114 * of(plate.b())).round();
+    (luma.clamp(DARK_PAGE, LIGHT_PAGE) - DARK_PAGE) / (LIGHT_PAGE - DARK_PAGE)
+}
+
+/// A percentage at each end of the pages, as an alpha at `t` between them.
+fn page_alpha(t: f32, dark: f32, light: f32) -> Chan {
+    Chan::from_unit((dark + (light - dark) * t) / 100.0)
+}
+
+impl Bevel {
+    /// **The bevel on `plate`**: black at 55% for the edge, white at 13%
+    /// for the highlight and black at 80% for the bottom line on the dark
+    /// page; 28%, 95% and 22% on the light one; between them by
+    /// [`page_lightness`], so on any page the highlight is lighter than
+    /// the plate and the two lines darker, as far as the page has room.
+    /// White on #FFFFFF and black on #000000 cannot show, and the other
+    /// two lines there still do.
+    pub fn of(plate: Argb) -> Bevel {
+        let t = page_lightness(plate);
+        let black = Argb(0xFF_00_00_00);
+        let white = Argb(0xFF_FF_FF_FF);
+        Bevel {
+            edge: black.with_alpha(page_alpha(t, 55.0, 28.0)),
+            top: white.with_alpha(page_alpha(t, 13.0, 95.0)),
+            bottom: black.with_alpha(page_alpha(t, 80.0, 22.0)),
+        }
+    }
+}
+
+/// **The socket on `plate`**: the plate, every channel lowered by a step,
+/// so it reads as a recess in the page and keeps the page's hue. The step
+/// is 11 levels on the dark page and 21 on the light, which are #050505
+/// and #DADADA, and between them by [`page_lightness`]. A plate too dark
+/// to lower by a step, #000000 and its near neighbours, is raised by it
+/// instead, or the socket would not show at all.
+fn socket_of(plate: Argb) -> Argb {
+    let step = (11.0 + 10.0 * page_lightness(plate)).round();
+    let of = |c: Chan| f32::from(c.get());
+    let most = of(plate.r()).max(of(plate.g())).max(of(plate.b()));
+    let shift = |c: Chan| {
+        let level = match most < step {
+            true => of(c) + step,
+            false => of(c) - step,
+        };
+        Chan::from_unit(level.clamp(0.0, 255.0) / 255.0)
+    };
+    Argb::rgb(shift(plate.r()), shift(plate.g()), shift(plate.b())).with_alpha(plate.a())
 }
 
 /// A drawn picture of lights, straight-alpha pixels row by row.
@@ -1000,43 +1083,233 @@ pub fn draw_plate(
     radius: f32,
     out: &mut LightsImage,
 ) -> Option<()> {
-    const KAPPA: f32 = 0.552_284_8;
     let extent = Extent::new(width, height);
     let (x1, y1) = (slots(width) as f32, slots(height) as f32);
-    let rr = radius.min(x1 / 2.0).min(y1 / 2.0);
-    let k = KAPPA * rr;
-    let cover = coverage(extent, |mut c| {
-        let p = Point::new;
-        c.line(p(rr, 0.0), p(x1 - rr, 0.0));
-        c.cubic(
-            p(x1 - rr, 0.0),
-            p(x1 - rr + k, 0.0),
-            p(x1, rr - k),
-            p(x1, rr),
-        );
-        c.line(p(x1, rr), p(x1, y1 - rr));
-        c.cubic(
-            p(x1, y1 - rr),
-            p(x1, y1 - rr + k),
-            p(x1 - rr + k, y1),
-            p(x1 - rr, y1),
-        );
-        c.line(p(x1 - rr, y1), p(rr, y1));
-        c.cubic(
-            p(rr, y1),
-            p(rr - k, y1),
-            p(0.0, y1 - rr + k),
-            p(0.0, y1 - rr),
-        );
-        c.line(p(0.0, y1 - rr), p(0.0, rr));
-        c.cubic(p(0.0, rr), p(0.0, rr - k), p(rr - k, 0.0), p(rr, 0.0));
-        c
-    })?;
+    let cover = coverage(extent, |c| rounded(c, (0.0, 0.0, x1, y1), radius))?;
     out.width = width;
     out.height = height;
     out.pixels.clear();
     out.pixels
         .extend(cover.iter().map(|&c| over(Argb(0), look.plate, c)));
+    Some(())
+}
+
+/// A rectangle from `(x0, y0)` to `(x1, y1)` with corners of `radius`,
+/// held to half its smaller side.
+fn rounded<'c>(
+    mut c: Canvas<'c>,
+    (x0, y0, x1, y1): (f32, f32, f32, f32),
+    radius: f32,
+) -> Canvas<'c> {
+    const KAPPA: f32 = 0.552_284_8;
+    let rr = radius.min((x1 - x0) / 2.0).min((y1 - y0) / 2.0);
+    let k = KAPPA * rr;
+    let p = Point::new;
+    c.line(p(x0 + rr, y0), p(x1 - rr, y0));
+    c.cubic(
+        p(x1 - rr, y0),
+        p(x1 - rr + k, y0),
+        p(x1, y0 + rr - k),
+        p(x1, y0 + rr),
+    );
+    c.line(p(x1, y0 + rr), p(x1, y1 - rr));
+    c.cubic(
+        p(x1, y1 - rr),
+        p(x1, y1 - rr + k),
+        p(x1 - rr + k, y1),
+        p(x1 - rr, y1),
+    );
+    c.line(p(x1 - rr, y1), p(x0 + rr, y1));
+    c.cubic(
+        p(x0 + rr, y1),
+        p(x0 + rr - k, y1),
+        p(x0, y1 - rr + k),
+        p(x0, y1 - rr),
+    );
+    c.line(p(x0, y1 - rr), p(x0, y0 + rr));
+    c.cubic(
+        p(x0, y0 + rr),
+        p(x0, y0 + rr - k),
+        p(x0 + rr - k, y0),
+        p(x0 + rr, y0),
+    );
+    c
+}
+
+/// **The title bar's panel**, in points, of the 28-point strip it was
+/// drawn for ([`PANEL_STRIP`]): the plate 24 tall and a whole device pixel
+/// at each end, [`PANEL_RIGHT`] in from the window's right edge, its
+/// corners [`PANEL_RADIUS`], [`PANEL_PAD`] from either end to the first
+/// thing on it; [`PANEL_LOGO_GAP`] from the logo to the first lamp's
+/// letters; [`PANEL_LETTER_GAP`] from one lamp's letters to the next's;
+/// each lamp's centre [`PANEL_LAMP_Y`] down the strip and its letters'
+/// baseline [`PANEL_BASELINE`]; [`PANEL_SOCKET`] the socket's radius, and
+/// [`PANEL_BEVEL`] the bevel's three lines across.
+pub const PANEL_STRIP: f32 = 28.0;
+pub const PANEL_HEIGHT: f32 = 24.0;
+pub const PANEL_RIGHT: f32 = 5.0;
+pub const PANEL_RADIUS: f32 = 5.0;
+pub const PANEL_PAD: f32 = 7.0;
+pub const PANEL_LOGO_GAP: f32 = 10.0;
+pub const PANEL_LETTER_GAP: f32 = 6.2;
+pub const PANEL_LAMP_Y: f32 = 8.5;
+pub const PANEL_BASELINE: f32 = 22.0;
+pub const PANEL_SOCKET: f32 = 3.9;
+pub const PANEL_BEVEL: f32 = 0.5;
+
+/// **A lamp's letters on the panel**, in points from the left of the first
+/// lamp's column, as they are before any rounding: their left and their
+/// width. A column is the letters and half the letter gap at each side, so
+/// the columns lie side by side with nothing between them.
+pub fn panel_letters(face: &Face<'_>) -> ByLed<(f32, f32)> {
+    let mut x = PANEL_LETTER_GAP / 2.0;
+    let mut out = ByLed::of(|_| (0.0, 0.0));
+    for led in Led::ALL {
+        let w = advance(face, led.letters(), TEXT);
+        *out.get_mut(led) = (x, w);
+        x += w + PANEL_LETTER_GAP;
+    }
+    out
+}
+
+/// **Each lamp's column on the panel at `scale`, in device pixels**, and
+/// their whole width: each starts on the whole pixel nearest its place and
+/// ends where the next starts, so a point in the strip is over one lamp and
+/// no more, and its picture holds its halo, which reaches 6.5 points from
+/// the lamp's centre against the 7.9 a two-letter column gives it. `None`
+/// for a size no pixel count holds.
+pub fn panel_layout(face: &Face<'_>, scale: f32) -> Option<(ByLed<Slot>, Px)> {
+    let letters = panel_letters(face);
+    let px = |pt: f32| u32::try_from((pt * scale).round() as i64).ok();
+    let mut out = ByLed::of(|_| Slot {
+        start: Px::of(0),
+        width: Px::of(0),
+    });
+    let mut end = 0;
+    for led in Led::ALL {
+        let (x, w) = *letters.get(led);
+        let start = px(x - PANEL_LETTER_GAP / 2.0)?;
+        end = px(x + w + PANEL_LETTER_GAP / 2.0)?;
+        *out.get_mut(led) = Slot {
+            start: Px::of(start),
+            width: Px::of(end.checked_sub(start)?),
+        };
+    }
+    Some((out, Px::of(end)))
+}
+
+/// **One light on the panel, drawn** in `face` at `scale` device pixels a
+/// point, `height` points tall, into `out`, a picture its column of
+/// [`panel_layout`] across: the socket, then, while lit and not under Dim
+/// Flashing Lights, the halo, then the lamp, its left edge on a whole
+/// device pixel and centred over its letters to within half of one, and
+/// its letters under it. The lamps are the same as [`draw_led`]'s: a lit
+/// light the full dot in its lit colour, a dark one a dot half that
+/// diameter in the unlit entry, an unread one a ring in the ring's entry,
+/// each of its palette entry exactly where it covers a pixel fully. The
+/// numbers are the 28-point strip's, centred on a strip of any other
+/// height. `None` for a size no canvas holds.
+pub fn draw_panel_led(
+    face: &Face<'_>,
+    look: &LightsLook,
+    led: Led,
+    light: Light,
+    scale: f32,
+    height: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    let (slots_at, _) = panel_layout(face, scale)?;
+    let slot = *slots_at.get(led);
+    let (x, across) = *panel_letters(face).get(led);
+    let w = slot.width;
+    let h = Px::of(u32::try_from((height * scale).round() as i64).ok()?);
+    let extent = Extent::new(w, h);
+    let off = (height - PANEL_STRIP) / 2.0;
+    let r = DOT * scale / 2.0;
+    let mid = (x + across / 2.0) * scale - slots(slot.start) as f32;
+    let cx = (mid - r).round() + r;
+    let cy = (PANEL_LAMP_Y + off) * scale;
+    let centre = Point::new(cx, cy);
+    let px = TEXT * scale;
+    let run = advance(face, led.letters(), TEXT) * scale;
+    let pen = Point::new(cx - run / 2.0, (PANEL_BASELINE + off) * scale);
+    let text = coverage(extent, |c| letters(face, c, led.letters(), px, pen))?;
+    out.width = w;
+    out.height = h;
+    out.pixels.clear();
+    out.pixels.resize(slots(w) * slots(h), Argb(0));
+    for (p, &c) in out.pixels.iter_mut().zip(&text) {
+        *p = over(*p, look.label, c);
+    }
+    let socket = disc_coverage(extent, centre, PANEL_SOCKET * scale, None)?;
+    for (p, &c) in out.pixels.iter_mut().zip(&socket) {
+        *p = over(*p, look.socket, c);
+    }
+    lamp(
+        out,
+        extent,
+        look,
+        led,
+        light,
+        centre,
+        HALO.min(PANEL_LAMP_Y + off - DOT / 2.0),
+        scale,
+    )
+}
+
+/// **How far the panel's picture reaches past its plate at `scale`**, in
+/// device pixels at each side: the bevel's edge is outside the plate.
+pub fn panel_margin(scale: f32) -> Option<Px> {
+    u32::try_from((PANEL_BEVEL * scale).ceil() as i64)
+        .ok()
+        .map(Px::of)
+}
+
+/// **The panel's plate, drawn** for a plate `width` by `height` device
+/// pixels, into `out`, a picture [`panel_margin`] larger at every side:
+/// the edge just outside the plate following its corners, the plate in the
+/// look's colour with [`PANEL_RADIUS`]'s corners, the highlight inside its
+/// top and the line inside its bottom, each [`PANEL_BEVEL`] across and
+/// stopping where the corners start. `None` for a size no canvas holds.
+pub fn draw_panel_plate(
+    look: &LightsLook,
+    width: Px,
+    height: Px,
+    scale: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    let m = panel_margin(scale)?;
+    let two = m.value().checked_mul(2)?;
+    let w = Px::of(width.value().checked_add(two)?);
+    let h = Px::of(height.value().checked_add(two)?);
+    let extent = Extent::new(w, h);
+    let inset = slots(m) as f32;
+    let (x0, y0) = (inset, inset);
+    let (x1, y1) = (x0 + slots(width) as f32, y0 + slots(height) as f32);
+    let (radius, bevel) = (PANEL_RADIUS * scale, PANEL_BEVEL * scale);
+    let edge = coverage(extent, |c| {
+        rounded(
+            c,
+            (x0 - bevel, y0 - bevel, x1 + bevel, y1 + bevel),
+            radius + bevel,
+        )
+    })?;
+    let plate = coverage(extent, |c| rounded(c, (x0, y0, x1, y1), radius))?;
+    let top = coverage(extent, |c| {
+        rounded(c, (x0 + radius, y0, x1 - radius, y0 + bevel), 0.0)
+    })?;
+    let bottom = coverage(extent, |c| {
+        rounded(c, (x0 + radius, y1 - bevel, x1 - radius, y1), 0.0)
+    })?;
+    out.width = w;
+    out.height = h;
+    out.pixels.clear();
+    out.pixels.extend((0..slots(w) * slots(h)).map(|i| {
+        let p = over(Argb(0), look.bevel.edge, edge[i]);
+        let p = over(p, look.plate, plate[i]);
+        let p = over(p, look.bevel.top, top[i]);
+        over(p, look.bevel.bottom, bottom[i])
+    }));
     Some(())
 }
 
@@ -1152,9 +1425,36 @@ pub fn draw_led(
     for (p, &c) in out.pixels.iter_mut().zip(&text) {
         *p = over(*p, look.label, c);
     }
+    lamp(
+        out,
+        extent,
+        look,
+        led,
+        light,
+        centre,
+        HALO.min(height / 2.0 - DOT / 2.0),
+        scale,
+    )
+}
+
+/// **A lamp over what `out` already holds**, about `centre`: while lit and
+/// not under Dim Flashing Lights the halo, reaching `reach` points past
+/// the dot, then the dot, the smaller dot or the ring its state is.
+#[allow(clippy::too_many_arguments)]
+fn lamp(
+    out: &mut LightsImage,
+    extent: Extent,
+    look: &LightsLook,
+    led: Led,
+    light: Light,
+    centre: Point,
+    reach: f32,
+    scale: f32,
+) -> Option<()> {
+    let r = DOT * scale / 2.0;
     let lit = *look.lit.get(led);
     if light == Light::Lit && look.glow == Glow::Full && look.halo.alpha().get() > 0 {
-        halo(out, lit, look.halo, centre, r, height, scale);
+        halo(out, lit, look.halo, centre, r, reach, scale);
     }
     let (ink, cover) = match light {
         Light::Lit => (lit, disc_coverage(extent, centre, r, None)?),
@@ -1218,7 +1518,7 @@ fn disc_coverage(extent: Extent, c: Point, r: f32, hole: Option<f32>) -> Option<
 
 /// **The halo round a lit dot**, into `out`: `colour` at the halo's alpha
 /// from [`HALO_GAP`] off the dot's edge, fading as `(1 - t)^1.6` to
-/// nothing [`HALO`] past it, or at the picture's edge if that is nearer.
+/// nothing `reach` points past it.
 /// Never at full coverage, so no halo pixel is a lamp pixel; computed with
 /// [`crate::det`]'s power, so the pixels are the same on every system.
 fn halo(
@@ -1227,11 +1527,11 @@ fn halo(
     halo: Halo,
     centre: Point,
     r: f32,
-    height: f32,
+    reach: f32,
     scale: f32,
 ) {
     use crate::det::Det;
-    let reach = HALO.min(height / 2.0 - DOT / 2.0) * scale;
+    let reach = reach * scale;
     let gap = HALO_GAP * scale;
     if reach <= gap {
         return;
