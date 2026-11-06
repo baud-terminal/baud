@@ -2,7 +2,7 @@
 name = "baud-fontbuild"
 version = "0.1.0"
 edition = "2024"
-description = "baud's font-build tools: `compare`, the glyph-level equivalence check a rebuilt font is held to, and `stage`, the Hebrew stage built from its sources"
+description = "baud's font-build tools: `compare`, the glyph-level equivalence check a rebuilt font is held to; `stage`, the Hebrew stage built from its sources; `instance`, Noto Sans Devanagari pinned at a weight; and `merge`, the Devanagari merged into each stage"
 license = "CC-BY-NC-SA-4.0"
 # A build tool: nothing here is published.
 publish = false
@@ -14,3 +14,6 @@ read-fonts = "=0.46.0"
 # The stage's writer (`baud-fontbuild stage`): the tables are built as
 # values and serialised here.
 write-fonts = "=0.55.0"
+# The partial instancer (`baud-fontbuild instance`): baud's own bake,
+# which the comparator above holds to fontTools' instances.
+baud-font = { path = "../../baud-font" }

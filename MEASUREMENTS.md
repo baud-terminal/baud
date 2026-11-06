@@ -3231,3 +3231,62 @@ baud-font's `var` and `cff2` tests pass unchanged: they skip `#` lines.
 commit. LICENSE names both as the writers of the two files, so
 `cargo xtask third-party --check` fails on that commit until LICENSE
 names `tools/baud-oracle` instead.
+
+## The Noto instances and the Devanagari merge in Rust
+
+Not timed: no byte path changed. The font build runs no Python now.
+`baud_font::bake_partial` pins `wght` and keeps `wdth`, with fontTools
+4.63.0's rules read at source; `baud-fontbuild merge` is the Devanagari
+merge; `scripts/build-fonts.sh` runs both, and its pinned Python env, the
+Python instancer, its repacker pin and the Python merge are gone. The full
+bake is byte-identical to base's on all 8 instances `tests/bake.rs` reads.
+
+The bake against fontTools' instances (MANIFEST's oracle lines, sha256
+`92cde87d...` and `f3e9be2b...`): `compare` says equal at 400 and 700,
+every table expanded, none left as bytes. They are not committed: a
+third-party font under `baud-font/tests/` must be named in LICENSE, so
+`tests/bake.rs` reads them from `BAUD_FONTTOOLS_NOTO` and says so when it
+is unset; the build gates on the instances' hashes.
+
+The IUP thinning is fontTools' `iup_contour_optimize`, held to its own
+output on 1,000,000 random contours (seeds 7 and 8). That found what the
+fonts did not: a search range one short (1 wrong in the first 200,000) and
+a tolerance test written as correct rounding (1 wrong in the next
+800,000). fontTools' test is `abs(complex(a, b)) <= 0.5`, through the C
+library's `hypot`, and this Mac's is not correctly rounded: 3,000,000
+pairs near the circle differ from correct rounding on 185,112 and from
+`sqrt(a*a + b*b)` on 22,316. No threshold on `a*a + b*b` reproduces it, so
+fontTools' own output depends on the platform within an ulp of 0.5. The
+bake takes the `sqrt` form: 0 wrong of the million, and the instances'
+hashes did not move.
+
+The four faces (Regular `69b15411...`, Bold `ce3630a8...`, Italic
+`2c528a8d...`, Bold Italic `8a5b9de6...`) compare equal to the files before
+in every table, none left as bytes, STAT included: it is written by hand
+at version 1.1, as before. As bytes, cmap, GDEF, GPOS, GSUB, gvar, HVAR and
+head's checksum differ; glyf, loca, hmtx, post, name and the rest do not.
+The files grow by 19,412 to 19,784 bytes: the item stores keep every data set
+of the input where fontTools optimised them (GDEF 1,540 to 3,402 in
+Regular), and gvar has no shared tuples.
+
+REACH. `the_built_font_keeps_jetbrains_mono` failed on the first rebuild:
+L30's stage writes GSUB through write-fonts, so stock's lookups were no
+longer its bytes, and only baud-app's suite reads that. Patched back: the
+stage splices stock's lookup block, 772 bytes of old lists inside it, and
+`every_stage_keeps_the_stock_gsub_lookups_byte_for_byte` holds it without
+the cache. The encodings the shipped fonts did not carry: data sets with no
+regions, every delta 16-bit, gvar with long offsets, private points and
+embedded peaks. Read back on all four, old against new: hb-shape 14.5.1 on
+all 6,574 built-face fixture lines at the default and at wdth 62.5 and
+81.25, 0 differ; baud's shaper on the 39,252 lines those make at three
+widths, as run and cells, 0 differ (4,302 of 13,084 move with the width);
+FreeType at 12, 16 and 24 px on every glyph, identical; baud's rasteriser
+at those sizes and widths, identical, advances included. OTS 9.3.0 passes.
+The fixtures moved in the fnv column alone, and the 2,394 Devanagari lines
+still equal their recorded output.
+
+Perturbations: thinning off names gvar at both weights; a value record's
+default delta off names GPOS in Bold alone; the dotted-circle swap off
+names GSUB's nukt; the stage's splice off fails the new test. A face
+swapped in fires the shaping probes (399 of 798, 7,830 of 39,252). A fifth,
+a floor on the axis name's ID, did not fire: no such name exists to reuse.

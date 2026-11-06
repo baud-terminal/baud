@@ -124,7 +124,7 @@ mod stroke;
 mod syllabic;
 pub mod var;
 
-pub use bake::{BakePoint, Refused, bake};
+pub use bake::{BakePoint, IupStep, Modified, Refused, bake, bake_partial};
 pub use baud_domain::png::{Color, Png, PngError, Size};
 pub use bitmap::{
     Bitmap, Mirror, Placement, Ppem, ReadStrike, Records, Strike, StrikeRefusal, StrikeState,

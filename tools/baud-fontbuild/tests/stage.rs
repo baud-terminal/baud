@@ -41,6 +41,39 @@ fn every_source_builds_and_reads_back_as_itself() {
     }
 }
 
+/// The stage adds no GSUB lookup and keeps stock JetBrains Mono's: the
+/// block from the stock table's first lookup to its end is in the stage's
+/// table whole, each lookup at its place in it. `baud-app`'s
+/// `keeps_lookups` asks the same of the built faces.
+#[test]
+fn every_stage_keeps_the_stock_gsub_lookups_byte_for_byte() {
+    let be16 = |t: &[u8], at: usize| usize::from(u16::from_be_bytes([t[at], t[at + 1]]));
+    let lookups = |t: &[u8]| -> Vec<usize> {
+        let list = be16(t, 8);
+        (0..be16(t, list))
+            .map(|i| list + be16(t, list + 2 + 2 * i))
+            .collect()
+    };
+    let gsub = |font: &[u8]| -> Vec<u8> {
+        let f = read_fonts::FontRef::new(font).unwrap();
+        let tag = read_fonts::types::Tag::new(b"GSUB");
+        f.table_data(tag).unwrap().as_bytes().to_vec()
+    };
+    for style in STYLES {
+        let b = base(style);
+        let font = build(&b, &source(style)).unwrap();
+        let (stock, stage) = (gsub(&b), gsub(&font));
+        let (s, t) = (lookups(&stock), lookups(&stage));
+        assert_eq!(s.len(), t.len(), "{style}");
+        let start = *s.iter().min().unwrap();
+        let at = *t.iter().min().unwrap();
+        assert!(stage[at..] == stock[start..], "{style}: the block moved");
+        for (x, y) in s.iter().zip(&t) {
+            assert_eq!(x - start, y - at, "{style}: a lookup moved");
+        }
+    }
+}
+
 #[test]
 fn the_built_stages_are_expanded_with_nothing_left_as_bytes() {
     for style in STYLES {

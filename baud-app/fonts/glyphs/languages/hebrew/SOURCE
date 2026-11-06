@@ -66,9 +66,7 @@ OFL.txt):
       That reader. No longer run by the build.
   build/
       The parametric build modules that wrote the Hebrew stage the sources were read
-      from. scripts/build-fonts.sh no longer runs them, but for instance.py and pin.py,
-      which instance and save Noto Sans Devanagari for the Devanagari stage. build.py
-      was the build; style.py the STYLE parameter; design.py,
+      from. scripts/build-fonts.sh no longer runs them. build.py was the build; style.py the STYLE parameter; design.py,
       design2.py and design3.py are rounds 1-3; distinct.py is round 5 (2026-10-24),
       which moves dalet's leg so that it does not read as zayin, and round 6
       (2026-10-28), which narrows zayin's head from the left so that it does not
@@ -80,9 +78,11 @@ OFL.txt):
       marks, drawn), from no other font; meteg.py places meteg beside its vowel
       inside the cell (2026-10-26); optical.py is the
       italics' correction of rounds; narrow.py, field.py and geom.py are
-      helpers; pin.py is the fontTools setting the bytes depend on; instance.py makes
-      the instances. design*.py, narrow.py and field.py are byte-identical to the
-      research tree's copies, and so is casanchors.py. In build.py and style.py the
+      helpers. The two helpers that pinned fontTools' save and made the instances were
+      replaced by tools/baud-fontbuild's instance and merge and are gone, so build.py,
+      which imported one, no longer runs as it is. design*.py,
+      narrow.py and field.py are byte-identical to the research tree's copies, and so
+      is casanchors.py. In build.py and style.py the
       port changed only the paths, the imports and the save's repacker pin. Since the
       port, build.py also writes Cascadia's trademark notice into nameID 7 and adds a
       hebr script record to GSUB and GPOS (2026-10-08, conformance fixes; no outline,
@@ -92,7 +92,7 @@ OFL.txt):
       build.py's docstring lists the changes.
       geom.py gains flatten, segs and pt_seg_min, moved verbatim from the research
       tree's v4_clear.py, which imported uharfbuzz, so that the build imports no
-      HarfBuzz. pin.py and instance.py are new.
+      HarfBuzz.
 
-baud-app/fonts/built/MANIFEST records every file here by sha256, together with the
-interpreter, the packages, the environment and the outputs.
+baud-app/fonts/built/MANIFEST records by sha256 every file the build reads (the stage
+sources here among them), and the intermediates and the outputs.

@@ -551,6 +551,11 @@ files   = [
   "fonttools-4.63.0-varLib-iup.py",
   "fonttools-4.63.0-varLib-merger.py",
   "fonttools-4.63.0-varLib-models.py",
+  "fonttools-4.63.0-varLib-varStore.py.txt",
+  "fonttools-4.63.0-varLib-instancer-names.py.txt",
+  "fonttools-4.63.0-otlLib-builder.py.txt",
+  "fonttools-4.63.0-otlLib-maxContextCalc.py.txt",
+  "fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt",
 ]
 
 [upstream.foot]
@@ -1809,8 +1814,8 @@ upstream = "read out of the Hebrew stage fonts by tools/baud-fontbuild's extract
 status   = "kept"
 
 [[tree]]
-what     = "The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt"
-paths    = ["baud-app/fonts/glyphs/languages/devanagari/build/merge.py", "baud-app/fonts/glyphs/languages/devanagari/SOURCE"]
+what     = "The record of the Noto Sans Devanagari file the font build merges from: baud's own text under the repository's licence; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt"
+paths    = ["baud-app/fonts/glyphs/languages/devanagari/SOURCE"]
 licence  = "CC-BY-NC-SA-4.0"
 notice   = "LICENSE"
 upstream = "baud's own build"
@@ -1818,7 +1823,7 @@ status   = "own"
 
 [[tree]]
 what     = "The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)"
-paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/optical.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
 licence  = "CC-BY-NC-SA-4.0"
 notice   = "LICENSE"
 upstream = "baud's own build, ported from the research tree"

@@ -52,6 +52,18 @@ impl Dump {
         self.lines.len()
     }
 
+    /// Each line as its locus (after its glyph id, when it is about one)
+    /// and its value.
+    pub fn entries(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.lines.iter().map(|l| {
+            let locus = match l.glyph {
+                Some(g) => format!("{} glyph {g}", l.locus),
+                None => l.locus.clone(),
+            };
+            (locus, l.value.clone())
+        })
+    }
+
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }

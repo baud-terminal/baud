@@ -125,10 +125,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 584_584, 0xd9cd_cd83_5d56_3cea_u64, 0),
-            (BOLD, 591_656, 0x6ff4_1637_a737_97b5, 1),
-            (ITALIC, 588_292, 0x5765_2368_3172_7ff0, 2),
-            (BOLD_ITALIC, 594_540, 0x32f3_fa46_0cbd_d94a, 3),
+            (REGULAR, 604_368, 0x165b_1e3c_403a_ba3e_u64, 0),
+            (BOLD, 611_108, 0xd326_a321_3ed7_0355, 1),
+            (ITALIC, 608_032, 0xf1c0_dff1_6c51_c85e, 2),
+            (BOLD_ITALIC, 613_952, 0x8743_ef7f_78ef_3b78, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -162,10 +162,10 @@ mod tests {
         // Name, which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d baud-app/fonts/built/Regular.ttf",
-            "output 87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d baud-app/fonts/built/Bold.ttf",
-            "output 0ae4e4c355152b4302aa006e52ae7cf3a23619317e8e1608eec9aac03e203a6e baud-app/fonts/built/Italic.ttf",
-            "output 20a50bbf6c4147e3eed6cee22ff9ba2df39993238654e06ef3afb840994a441c baud-app/fonts/built/BoldItalic.ttf",
+            "output 69b154115da5ee894ac6aab6a531875cbe17d31a474563fc8be4e830e78a7a6f baud-app/fonts/built/Regular.ttf",
+            "output ce3630a8c2f25c2879e4dd102e9aa9527f6583333266531a27de5b83c757db4c baud-app/fonts/built/Bold.ttf",
+            "output 2c528a8d216e2b14eecc231fea857e7cca623d413de0bb384ae6040af702f2db baud-app/fonts/built/Italic.ttf",
+            "output 8a5b9de6ebd2a772f02527c107d66ae0691233ceef1a74e93e97608d1957d77e baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -190,7 +190,7 @@ mod tests {
         let authors = std::fs::read_to_string(format!("{dir}/built/AUTHORS.txt")).unwrap();
         assert!(authors.contains("Liron Lavi Turkenich"));
         assert!(authors.contains("The Noto Project Authors"));
-        // The Devanagari's source: the variable font the build fetches,
+        // The Devanagari's source: the variable font the build reads,
         // by its sha256 and length, and its licence's.
         let deva =
             std::fs::read_to_string(format!("{dir}/glyphs/languages/devanagari/SOURCE")).unwrap();

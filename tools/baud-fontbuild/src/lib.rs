@@ -1,6 +1,8 @@
-//! **baud's font-build tools.** Two: `compare`, the check a rebuilt font
-//! is held to when its bytes cannot be, and [`stage`], which builds the
-//! Hebrew stage of baud's embedded font from its committed sources.
+//! **baud's font-build tools.** Four: `compare`, the check a rebuilt font
+//! is held to when its bytes cannot be; [`stage`], which builds the Hebrew
+//! stage of baud's embedded font from its committed sources; [`instance`],
+//! which instances Noto Sans Devanagari through baud-font's partial bake;
+//! and [`merge`], which merges that instance into each stage.
 //!
 //! ```text
 //! cargo run --release --manifest-path tools/Cargo.toml \
@@ -51,7 +53,9 @@ mod cmap;
 mod dump;
 mod fixed;
 mod glyphs;
+pub mod instance;
 mod layout;
+pub mod merge;
 pub mod stage;
 mod var;
 

@@ -67,10 +67,49 @@ fn the_cff2_corpus_reaches_the_reader() {
     }
 }
 
+/// Bakes `data` partially at two weights, as `bake_any` bakes it whole.
+fn bake_partial_any(data: &[u8]) {
+    let mut scratch = vec![baud_font::BakePoint::ZERO; 1 << 12];
+    let mut steps = vec![baud_font::IupStep::ZERO; 1 << 13];
+    for w in [400, 700] {
+        let mut out = vec![0u8; 4096];
+        let wght = baud_font::var::Fixed(w << 16);
+        let stamp = baud_font::Modified(0);
+        if let Err(baud_font::Refused::Out(need)) =
+            baud_font::bake_partial(data, wght, stamp, &mut scratch, &mut steps, &mut out)
+        {
+            let mut out = vec![0u8; usize::try_from(need.value()).unwrap()];
+            let _ = baud_font::bake_partial(data, wght, stamp, &mut scratch, &mut steps, &mut out);
+        }
+    }
+}
+
+/// Noto Sans Devanagari's variable font from the cache the font build
+/// fetches it into, the one committed-free face of two axes the partial
+/// bake takes; `None` when the cache does not hold it.
+fn noto_vf() -> Option<&'static [u8]> {
+    static VF: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
+    VF.get_or_init(|| {
+        let dir = std::env::var_os("NOTO_CACHE")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("XDG_CACHE_HOME")
+                    .map(|d| std::path::PathBuf::from(d).join("baud-readme"))
+            })
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|h| std::path::PathBuf::from(h).join(".cache/baud-readme"))
+            })?;
+        std::fs::read(dir.join("NotoSansDevanagari[wdth,wght].ttf")).ok()
+    })
+    .as_deref()
+}
+
 /// Bakes `data` at two weights into a buffer that may be too small, and
 /// then into one of the length it asked for; the answers are not the
 /// property, not panicking is.
 fn bake_any(data: &[u8]) {
+    bake_partial_any(data);
     let mut scratch = vec![baud_font::BakePoint::ZERO; 1 << 12];
     for w in [250, 700] {
         let mut out = vec![0u8; 4096];
@@ -341,6 +380,31 @@ fn a_real_png() -> Vec<u8> {
         .png
         .as_slice()
         .to_vec()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(12))]
+    /// The partial bake over Noto Sans Devanagari's two axes, its tables
+    /// mutated: it writes a font or refuses, and never panics. Without the
+    /// cache's file the case is the unmutated JetBrains Mono's, which the
+    /// partial bake refuses for its one axis.
+    #[test]
+    fn a_mutated_two_axis_font_bakes_partially_or_refuses(
+        table in 0usize..8,
+        flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8)
+    ) {
+        let Some(vf) = noto_vf() else {
+            bake_partial_any(JETBRAINS_VAR);
+            return Ok(());
+        };
+        let mut data = vf.to_vec();
+        let tag = [*b"glyf", *b"gvar", *b"GPOS", *b"GDEF", *b"HVAR", *b"fvar", *b"STAT", *b"name"][table];
+        let (start, len) = table_range(vf, tag);
+        for (at, byte) in flips {
+            data[start + at % len] = byte;
+        }
+        bake_partial_any(&data);
+    }
 }
 
 proptest! {

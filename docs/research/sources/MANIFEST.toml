@@ -13286,6 +13286,76 @@ status = "retrieved"
 group  = "J"
 # Read for note Z's step 5, the bake: deltas scaled before they are inferred, and summed tuple by tuple.
 
+[sources.fonttools-4-63-0-varstore]
+key    = "fonttools-4-63-0-varstore"
+title  = "fontTools 4.63.0, varLib/varStore.py -- VarRegion.get_support, which keeps a region's axis only where its peak is not 0"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/varStore.py"
+file   = "fonttools-4.63.0-varLib-varStore.py.txt"
+sha256 = "d9003d48323a8d0c90ff3abcd8e3b06b714191f97e92c692a352869951696bd4"
+bytes  = 24069
+status = "retrieved"
+group  = "J"
+# Read for the partial bake: which axes of an item variation store's region take part once one axis is pinned.
+
+[sources.fonttools-4-63-0-instancer-names]
+key    = "fonttools-4-63-0-instancer-names"
+title  = "fontTools 4.63.0, varLib/instancer/names.py -- getVariationNameIDs and pruningUnusedNames: the name IDs past 255 fvar and STAT stop naming are dropped"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/names.py"
+file   = "fonttools-4.63.0-varLib-instancer-names.py.txt"
+sha256 = "20f46a7a5fccf33554d23977d16b1f82e7f1526f4f0414034026375476a97877"
+bytes  = 14950
+status = "retrieved"
+group  = "J"
+# Read for the partial bake: which name records a pinned axis takes with it.
+
+[sources.fonttools-4-63-0-otllib-builder]
+key    = "fonttools-4-63-0-otllib-builder"
+title  = "fontTools 4.63.0, otlLib/builder.py -- buildStatTable, _buildAxisRecords and _addName: STAT 1.1, each axis's name at or past 256, then its values' names, format 1"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/builder.py"
+file   = "fonttools-4.63.0-otlLib-builder.py.txt"
+sha256 = "485c125411f176f4abd21124073cdd32b0570eba693754c92304779dd62b76d4"
+bytes  = 129529
+status = "retrieved"
+group  = "J"
+# Read for the Devanagari merge: the STAT table and the name IDs it allocates, in its order.
+
+[sources.fonttools-4-63-0-maxcontextcalc]
+key    = "fonttools-4-63-0-maxcontextcalc"
+title  = "fontTools 4.63.0, otlLib/maxContextCalc.py -- maxCtxFont, OS/2's usMaxContext from GSUB's and GPOS's lookups"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/maxContextCalc.py"
+file   = "fonttools-4.63.0-otlLib-maxContextCalc.py.txt"
+sha256 = "ddeb382adf384da678f6c0367afd73ae5c0f262909080102c7929abf087207e2"
+bytes  = 3175
+status = "retrieved"
+group  = "J"
+# Read for the Devanagari merge: usMaxContext recomputed over the merged lookups.
+
+[sources.fonttools-4-63-0-name]
+key    = "fonttools-4-63-0-name"
+title  = "fontTools 4.63.0, ttLib/tables/_n_a_m_e.py -- addMultilingualName, findMultilingualName and _findUnusedNameID: a name reuses an ID whose Windows and Macintosh English records match, else takes one past the highest"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_n_a_m_e.py"
+file   = "fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt"
+sha256 = "f3aff47d4780e7f73e198e599e4a942348f25b0321d669fac9539fe8a2aa2255"
+bytes  = 41266
+status = "retrieved"
+group  = "J"
+# Read for the Devanagari merge: the name IDs the merge gives the axis, the stylistic set and STAT's values.
+
 [sources.fonttools-4-63-0-fixedtools]
 key    = "fonttools-4-63-0-fixedtools"
 title  = "fontTools 4.63.0, misc/fixedTools.py -- floatToFixed and floatToFixedToFloat round with otRound"

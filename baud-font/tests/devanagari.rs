@@ -466,8 +466,8 @@ fn fixture_glyphs(face: &str) -> std::collections::BTreeMap<String, Vec<HbGlyph>
 
 /// The built Regular: its bytes, and the first glyph the Devanagari merge
 /// appended -- every glyph before it is JetBrains Mono's or the Hebrew's
-/// (the merge appends after every glyph it is given, and its report names
-/// this id: 1878 in Regular and Bold, 1865 in the italics).
+/// (the merge appends after every glyph it is given: 1878 in Regular and
+/// Bold, 1865 in the italics).
 fn built_regular() -> (Vec<u8>, u16) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
     (

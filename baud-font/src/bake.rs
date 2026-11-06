@@ -30,6 +30,10 @@
 //! * `head`'s bounds, `hhea`'s extents, `OS/2`'s weight class and average
 //!   advance are recomputed, the overlap flags set.
 //!
+//! `wght` alone can be pinned too, with every other axis kept: [`partial`],
+//! [`bake_partial`], which `tools/baud-fontbuild` instances Noto Sans
+//! Devanagari through for the embedded faces.
+//!
 //! **Where it writes something else, it says so and the tests say so**:
 //! the coordinates are packed by this encoder rather than fontTools', `STAT`
 //! is dropped where fontTools instances it, and `name` is copied whole where
@@ -54,6 +58,10 @@ use crate::gvar::{Points, Store as Tuples, TupleData};
 use crate::ivs::{Store as ItemStore, VarIndex};
 use crate::var::{Avar, Axis, F2Dot14, Fixed};
 use baud_domain::GlyphId;
+
+mod partial;
+
+pub use partial::{IupStep, Modified};
 
 /// Why a font was not baked.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -100,6 +108,12 @@ pub struct BakePoint {
     given: Given,
     last: LastPoint,
     flag: PointFlag,
+    /// The partial bake's: a kept group's summed delta, rounded, and what
+    /// its optimiser decides of the point.
+    ax: f64,
+    ay: f64,
+    forced: partial::Forced,
+    choice: partial::Choice,
 }
 
 /// A simple glyph's stored flag byte for the point, which the writer
@@ -118,6 +132,10 @@ impl BakePoint {
         given: Given::No,
         last: LastPoint::No,
         flag: PointFlag(0),
+        ax: 0.0,
+        ay: 0.0,
+        forced: partial::Forced::No,
+        choice: partial::Choice::Explicit,
     };
 
     fn at(x: f64, y: f64, last: LastPoint) -> BakePoint {
@@ -510,6 +528,8 @@ struct Ctx<'f> {
     glyf: Glyf<'f>,
     gvar: Option<crate::gvar::Gvar<'f>>,
     v: F2Dot14,
+    /// The partial bake's pin; the full bake varies by every tuple.
+    pin: Option<partial::Pin>,
 }
 
 impl<'f> Ctx<'f> {
@@ -558,6 +578,20 @@ impl<'f> Ctx<'f> {
     /// component offsets -- then its four phantoms, varied, in `pts`.
     /// Answers how many.
     fn points(&self, g: GlyphId, p: Parsed<'f>, pts: &mut [BakePoint]) -> Result<usize, Refused> {
+        let bad = Refused::Glyph(g);
+        let n = self.gather(g, p, pts)?;
+        let store = self.gvar.and_then(|v| v.glyph(g));
+        let own = pts.get_mut(..n).ok_or(Refused::Scratch)?;
+        match self.pin {
+            None => vary(store, self.v, own).ok_or(bad)?,
+            Some(pin) => partial::vary_default(store, pin, own).ok_or(bad)?,
+        }
+        Ok(n)
+    }
+
+    /// The glyph's own points then its four phantoms, at the default, in
+    /// `pts`. Answers how many.
+    fn gather(&self, g: GlyphId, p: Parsed<'f>, pts: &mut [BakePoint]) -> Result<usize, Refused> {
         let bad = Refused::Glyph(g);
         let mut n = 0usize;
         let mut put = |pt: BakePoint, pts: &mut [BakePoint]| -> Result<(), Refused> {
@@ -613,8 +647,6 @@ impl<'f> Ctx<'f> {
         for x in [left, right, 0.0, 0.0] {
             put(BakePoint::at(x, 0.0, LastPoint::Yes), pts)?;
         }
-        let store = self.gvar.and_then(|v| v.glyph(g));
-        vary(store, self.v, pts.get_mut(..n).ok_or(Refused::Scratch)?).ok_or(bad)?;
         Ok(n)
     }
 
@@ -804,6 +836,7 @@ to_be!(u8, 1);
 to_be!(u16, 2);
 to_be!(i16, 2);
 to_be!(u32, 4);
+to_be!(i32, 4);
 
 /// A 32-bit word of the output: a checksum, or a tag as the directory
 /// sorts it.
@@ -937,12 +970,22 @@ fn step(Move { dx, dy }: Move) -> Option<Step> {
     })
 }
 
+/// Whether the writer sets the overlap flags fontTools sets on a full
+/// instance (`setMacOverlapFlags`), or keeps the input's, as a partial
+/// instance does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Overlap {
+    Set,
+    Keep,
+}
+
 /// A simple glyph's points once rounded, and the flags carried from the
 /// input; the header's bounds are the caller's.
 fn write_simple(
     g: GlyphId,
     s: Simple<'_>,
     pts: &[BakePoint],
+    overlap: Overlap,
     w: &mut Cursor<'_, '_>,
 ) -> Result<(), Refused> {
     let bad = Refused::Glyph(g);
@@ -994,7 +1037,11 @@ fn write_simple(
     };
     for k in 0..pts.len() {
         let kept = pts.get(k).ok_or(bad)?.flag.0 & (ON_CURVE | OVERLAP_SIMPLE);
-        let kept = if k == 0 { kept | OVERLAP_SIMPLE } else { kept };
+        let kept = if k == 0 && overlap == Overlap::Set {
+            kept | OVERLAP_SIMPLE
+        } else {
+            kept
+        };
         let f = steps(k)?.flag.0 | kept;
         run = match run {
             Some((r, n)) if r == f => Some((r, n + 1)),
@@ -1033,6 +1080,7 @@ fn write_composite(
     g: GlyphId,
     body: Bytes<'_>,
     offsets: &[BakePoint],
+    overlap: Overlap,
     w: &mut Cursor<'_, '_>,
 ) -> Result<(), Refused> {
     let bad = Refused::Glyph(g);
@@ -1053,7 +1101,7 @@ fn write_composite(
         if !bytes {
             f |= ARG_WORDS;
         }
-        if k == 0 {
+        if k == 0 && overlap == Overlap::Set {
             f |= OVERLAP_COMPOUND;
         }
         if k + 1 < n {
@@ -1167,6 +1215,50 @@ pub fn bake(
     scratch: &mut [BakePoint],
     out: &mut [u8],
 ) -> Result<Len, Refused> {
+    run(font, Mode::Full(wght), scratch, &mut [], out)
+}
+
+/// The partial bake ([`partial`]): `font` with `wght` pinned at `wght` and
+/// every other axis kept, `head.modified` set to `modified`, into `out`,
+/// answering the font's length. `scratch` is [`bake`]'s; `steps` holds the
+/// IUP optimiser's dynamic programme, twice the longest contour plus one.
+pub fn bake_partial(
+    font: &[u8],
+    wght: Fixed,
+    modified: Modified,
+    scratch: &mut [BakePoint],
+    steps: &mut [IupStep],
+    out: &mut [u8],
+) -> Result<Len, Refused> {
+    run(font, Mode::Pin(wght, modified), scratch, steps, out)
+}
+
+/// Which bake: every axis pinned, or `wght` alone.
+#[derive(Clone, Copy)]
+enum Mode {
+    Full(Fixed),
+    Pin(Fixed, Modified),
+}
+
+/// The tables the partial bake writes again; every other is copied, `GPOS`
+/// patched in place.
+const REWRITTEN: [Tag; 7] = [
+    Tag::GVAR,
+    Tag::HVAR,
+    Tag::GDEF,
+    Tag::FVAR,
+    Tag::AVAR,
+    STAT,
+    Tag::NAME,
+];
+
+fn run(
+    font: &[u8],
+    mode: Mode,
+    scratch: &mut [BakePoint],
+    steps: &mut [IupStep],
+    out: &mut [u8],
+) -> Result<Len, Refused> {
     let face = Face::parse(font).map_err(|_| Refused::NotAFont)?;
     let version: u32 = Bytes::new(font)
         .read(Offset::ZERO)
@@ -1175,21 +1267,69 @@ pub fn bake(
         return Err(Refused::NotTrueType);
     }
     let glyf = face.glyf().ok_or(Refused::NotTrueType)?;
-    // One axis, and it is `wght`.
-    let axis = face.axis(Index::ZERO).ok_or(Refused::Axes)?;
-    if axis.tag != WGHT || face.axis(Index::of(1u32)).is_some() {
-        return Err(Refused::Axes);
-    }
+    let wght = match mode {
+        Mode::Full(w) | Mode::Pin(w, _) => w,
+    };
+    // The full bake: one axis, and it is `wght`. The partial: `wght` among
+    // two to MAX_AXES.
+    let (axis, axis_at, axes) = match mode {
+        Mode::Full(_) => {
+            let axis = face.axis(Index::ZERO).ok_or(Refused::Axes)?;
+            if axis.tag != WGHT || face.axis(Index::of(1u32)).is_some() {
+                return Err(Refused::Axes);
+            }
+            (axis, Index::ZERO, Count::of(1u32))
+        }
+        Mode::Pin(..) => {
+            let mut found = None;
+            let mut i = Index::ZERO;
+            while let Some(a) = face.axis(i) {
+                if a.tag == WGHT && found.is_none() {
+                    found = Some((a, i));
+                }
+                i = i.next();
+            }
+            let n = Count::of(i.value());
+            let (a, at) = found.ok_or(Refused::Axes)?;
+            if n.value() < 2 || n.slot() > partial::MAX_AXES {
+                return Err(Refused::Axes);
+            }
+            (a, at, n)
+        }
+    };
     let avar = match face.table(Tag::AVAR) {
         Some(t) => Some(Avar::parse(t).ok_or(Refused::Malformed(Tag::AVAR))?),
         None => None,
     };
-    let v = normalize(axis, avar.and_then(|a| a.map(Index::ZERO)), wght)
+    let v = normalize(axis, avar.and_then(|a| a.map(axis_at)), wght)
         .ok_or(Refused::Malformed(Tag::FVAR))?;
     let gvar = face.gvar();
-    if gvar.is_some_and(|g| g.axes() != Count::of(1u32)) {
+    if gvar.is_some_and(|g| g.axes() != axes) {
         return Err(Refused::Malformed(Tag::GVAR));
     }
+    // The user value fontTools pins at: clamped to the axis.
+    let user = Fixed(wght.0.clamp(axis.min.0, axis.max.0));
+    let pin = match mode {
+        Mode::Full(_) => None,
+        Mode::Pin(_, modified) => Some(partial::Pin {
+            axis: axis_at,
+            axes,
+            v,
+            user,
+            modified,
+        }),
+    };
+    let overlap = match mode {
+        Mode::Full(_) => Overlap::Set,
+        Mode::Pin(..) => Overlap::Keep,
+    };
+    let ctx = Ctx {
+        face: &face,
+        glyf,
+        gvar,
+        v,
+        pin,
+    };
 
     // The directory: every table the input lists, less the ones instancing
     // drops, in tag order; `glyf` placed last, since only it grows.
@@ -1206,15 +1346,29 @@ pub fn bake(
         if REFUSED.iter().any(|r| **r == tag.as_bytes()) {
             return Err(Refused::Table(tag));
         }
-        if [Tag::FVAR, Tag::GVAR, Tag::AVAR, Tag::HVAR, STAT, DSIG].contains(&tag) {
+        let dropped = match mode {
+            Mode::Full(_) => {
+                [Tag::FVAR, Tag::GVAR, Tag::AVAR, Tag::HVAR, STAT, DSIG].contains(&tag)
+            }
+            Mode::Pin(..) => tag == DSIG,
+        };
+        if dropped {
             continue;
         }
         let bytes = bytes.ok_or(Refused::Malformed(tag))?;
+        let len = match pin {
+            Some(pin) if REWRITTEN.contains(&tag) => {
+                let mut none: [u8; 0] = [];
+                let mut nowhere = Out { buf: &mut none };
+                rewrite(&ctx, pin, tag, scratch, steps, &mut nowhere, Offset::ZERO)?
+            }
+            _ => bytes.len(),
+        };
         let slot = placed.get_mut(kept).ok_or(Refused::NotAFont)?;
         *slot = Placed {
             tag,
             at: Offset::ZERO,
-            len: bytes.len(),
+            len,
         };
         kept += 1;
     }
@@ -1271,7 +1425,15 @@ pub fn bake(
         if [Tag::GLYF, Tag::LOCA, Tag::HMTX].contains(&p.tag) {
             continue;
         }
-        out.copy(p.at, table(p.tag)?.as_slice());
+        match pin {
+            Some(pin) if REWRITTEN.contains(&p.tag) => {
+                let len = rewrite(&ctx, pin, p.tag, scratch, steps, &mut out, p.at)?;
+                if len != p.len {
+                    return Err(Refused::Malformed(p.tag));
+                }
+            }
+            _ => out.copy(p.at, table(p.tag)?.as_slice()),
+        }
     }
     for t in [
         Tag::HEAD,
@@ -1288,35 +1450,27 @@ pub fn bake(
             no_feature_variations(t, b)?;
         }
     }
-    let item_store = match face.table(Tag::GDEF) {
-        Some(gdef) => {
-            let store = gdef_downgrade(
-                gdef,
-                &mut out,
-                at_of(placed, Tag::GDEF).ok_or(Refused::Metrics)?,
-            )?;
-            Some(store)
-        }
-        None => None,
-    }
-    .flatten();
+    let item_store = match (face.table(Tag::GDEF), pin) {
+        (Some(gdef), None) => gdef_downgrade(
+            gdef,
+            &mut out,
+            at_of(placed, Tag::GDEF).ok_or(Refused::Metrics)?,
+        )?,
+        (Some(gdef), Some(_)) => partial::gdef_store(gdef)?,
+        (None, _) => None,
+    };
     if let (Some(gpos), Some(dst)) = (face.table(Tag::GPOS), at_of(placed, Tag::GPOS)) {
         Anchors {
             src: gpos,
             dst,
             store: item_store,
             v,
+            pin,
         }
         .walk(&mut out)?;
     }
 
     // The glyphs.
-    let ctx = Ctx {
-        face: &face,
-        glyf,
-        gvar,
-        v,
-    };
     // Where the trailing run of equal advances begins, which is where
     // fontTools' `hmtx` stops writing records.
     let mut run_start = 0u32;
@@ -1373,8 +1527,10 @@ pub fn bake(
                 w.put(i16::try_from(c).map_err(|_| bad)?)?;
             }
             match p.shape {
-                Shape::Simple(s) => write_simple(g, s, &own[..count - 4], &mut w)?,
-                Shape::Composite(body) => write_composite(g, body, &own[..count - 4], &mut w)?,
+                Shape::Simple(s) => write_simple(g, s, &own[..count - 4], overlap, &mut w)?,
+                Shape::Composite(body) => {
+                    write_composite(g, body, &own[..count - 4], overlap, &mut w)?
+                }
                 Shape::Empty => {}
             }
             tally.head = Some(join(tally.head, bbox, Bbox::union));
@@ -1480,6 +1636,10 @@ pub fn bake(
     );
     out.put(at(head_at, 50)?, if short_loca { 0i16 } else { 1i16 });
     out.put(at(head_at, 8)?, 0u32);
+    if let Some(pin) = pin {
+        let stamp = pin.modified.0.to_be_bytes();
+        out.copy(at(head_at, 28)?, &stamp);
+    }
     out.put(
         at(hhea_at, 10)?,
         u16::try_from(tally.advance_max).map_err(|_| Refused::Metrics)?,
@@ -1535,6 +1695,58 @@ pub fn bake(
     let whole_sum = checksum(&out, Offset::ZERO, total);
     out.put(at(head_at, 8)?, 0xB1B0_AFBAu32.wrapping_sub(whole_sum.0));
     Ok(total)
+}
+
+/// One table the partial bake writes again, at `at`, answering its length;
+/// with an `out` that holds nothing it measures.
+fn rewrite(
+    ctx: &Ctx<'_>,
+    pin: partial::Pin,
+    tag: Tag,
+    scratch: &mut [BakePoint],
+    steps: &mut [IupStep],
+    out: &mut Out<'_>,
+    at: Offset,
+) -> Result<Len, Refused> {
+    let face = ctx.face;
+    let table = |t: Tag| face.table(t).ok_or(Refused::Malformed(t));
+    match tag {
+        Tag::GVAR => partial::gvar(ctx, pin, scratch, steps, out, at),
+        Tag::HVAR => {
+            let hvar = table(Tag::HVAR)?;
+            partial::with_store(
+                hvar,
+                partial::hvar_store(hvar)?,
+                Offset::of(4u32),
+                pin,
+                out,
+                at,
+            )
+        }
+        Tag::GDEF => {
+            let gdef = table(Tag::GDEF)?;
+            partial::with_store(
+                gdef,
+                partial::gdef_store(gdef)?,
+                Offset::of(14u32),
+                pin,
+                out,
+                at,
+            )
+        }
+        Tag::FVAR => partial::fvar(table(Tag::FVAR)?, pin, out, at),
+        Tag::AVAR => partial::avar(table(Tag::AVAR)?, pin, out, at),
+        STAT => partial::stat(table(STAT)?, pin, out, at),
+        Tag::NAME => partial::name(
+            table(Tag::NAME)?,
+            table(Tag::FVAR)?,
+            face.table(STAT),
+            pin,
+            out,
+            at,
+        ),
+        _ => Err(Refused::Table(tag)),
+    }
 }
 
 fn no_feature_variations(t: Tag, b: Bytes<'_>) -> Result<(), Refused> {
@@ -1600,6 +1812,9 @@ struct Anchors<'g> {
     dst: Offset,
     store: Option<ItemStore<'g>>,
     v: F2Dot14,
+    /// The partial bake's pin: an anchor or a value adds its default delta
+    /// and keeps its device.
+    pin: Option<partial::Pin>,
 }
 
 /// A position in `GPOS`, wide enough that no sum of offsets and counts a
@@ -1616,6 +1831,41 @@ impl At {
 /// A lookup's type, as the lookup list stores it.
 #[derive(Clone, Copy)]
 struct LookupKind(u64);
+
+/// A value record's format: which of its eight fields it carries.
+#[derive(Clone, Copy)]
+struct ValueFormat(u64);
+
+/// One of a value record's eight fields, as its format's bit: placements
+/// and advances, then the four devices in the same order.
+#[derive(Clone, Copy)]
+struct ValueField(u32);
+
+impl ValueField {
+    /// The four device fields, each with the value it moves.
+    const DEVICES: [(ValueField, ValueField); 4] = [
+        (ValueField(4), ValueField(0)),
+        (ValueField(5), ValueField(1)),
+        (ValueField(6), ValueField(2)),
+        (ValueField(7), ValueField(3)),
+    ];
+}
+
+impl ValueFormat {
+    /// The record's size: two bytes a field.
+    fn size(self) -> At {
+        At(2 * u64::from((self.0 & 0xFF).count_ones()))
+    }
+
+    /// Where `field` lies in the record: after the fields below it.
+    fn at(self, field: ValueField) -> At {
+        At(2 * u64::from((self.0 & ((1 << field.0) - 1)).count_ones()))
+    }
+
+    fn has(self, field: ValueField) -> bool {
+        self.0 & (1 << field.0) != 0
+    }
+}
 
 impl Anchors<'_> {
     fn bad() -> Refused {
@@ -1667,6 +1917,7 @@ impl Anchors<'_> {
     fn subtable(&self, kind: LookupKind, sub: At, out: &mut Out<'_>) -> Result<(), Refused> {
         const DEVICES: u64 = 0x00F0;
         match kind.0 {
+            1 | 2 if self.pin.is_some() => self.values(kind, sub, out)?,
             1 => {
                 if self.u16_at(sub.plus(At(4)))? & DEVICES != 0 {
                     return Err(Refused::Device);
@@ -1713,6 +1964,87 @@ impl Anchors<'_> {
         Ok(())
     }
 
+    /// The partial bake's single and pair adjustments: every value record a
+    /// subtable holds, each value whose device names a variation index
+    /// moved by its default delta, rounded (`MutatorMerger`'s
+    /// `ValueRecord`). A device on a value the record does not carry is
+    /// refused unless its delta is 0.
+    fn values(&self, kind: LookupKind, sub: At, out: &mut Out<'_>) -> Result<(), Refused> {
+        let format = self.u16_at(sub)?;
+        match (kind.0, format) {
+            (1, 1) => {
+                let f = ValueFormat(self.u16_at(sub.plus(At(4)))?);
+                self.record(sub, f, sub.plus(At(6)), out)?;
+            }
+            (1, 2) => {
+                let f = ValueFormat(self.u16_at(sub.plus(At(4)))?);
+                let n = self.u16_at(sub.plus(At(6)))?;
+                for k in 0..n {
+                    self.record(sub, f, sub.plus(At(8 + k * f.size().0)), out)?;
+                }
+            }
+            (2, 1) => {
+                let f1 = ValueFormat(self.u16_at(sub.plus(At(4)))?);
+                let f2 = ValueFormat(self.u16_at(sub.plus(At(6)))?);
+                let sets = self.u16_at(sub.plus(At(8)))?;
+                for k in 0..sets {
+                    let set = self.follow(sub, sub.plus(At(10 + 2 * k)))?;
+                    let n = self.u16_at(set)?;
+                    let each = 2 + f1.size().0 + f2.size().0;
+                    for r in 0..n {
+                        let rec = set.plus(At(2 + r * each + 2));
+                        self.record(set, f1, rec, out)?;
+                        self.record(set, f2, rec.plus(f1.size()), out)?;
+                    }
+                }
+            }
+            (2, 2) => {
+                let f1 = ValueFormat(self.u16_at(sub.plus(At(4)))?);
+                let f2 = ValueFormat(self.u16_at(sub.plus(At(6)))?);
+                let (c1, c2) = (
+                    self.u16_at(sub.plus(At(12)))?,
+                    self.u16_at(sub.plus(At(14)))?,
+                );
+                let each = f1.size().0 + f2.size().0;
+                for r in 0..c1 * c2 {
+                    let rec = sub.plus(At(16 + r * each));
+                    self.record(sub, f1, rec, out)?;
+                    self.record(sub, f2, rec.plus(f1.size()), out)?;
+                }
+            }
+            _ => return Err(Self::bad()),
+        }
+        Ok(())
+    }
+
+    /// One value record of format `f` at `rec`, its devices' offsets from
+    /// `base`.
+    fn record(&self, base: At, f: ValueFormat, rec: At, out: &mut Out<'_>) -> Result<(), Refused> {
+        // The value each device moves: XPlacement for XPlaDevice and so on.
+        for (device, value) in ValueField::DEVICES {
+            if !f.has(device) {
+                continue;
+            }
+            let off = self.u16_at(rec.plus(f.at(device)))?;
+            let d = self.delta(base, At(off))?;
+            if !f.has(value) {
+                if d != 0.0 {
+                    return Err(Refused::Device);
+                }
+                continue;
+            }
+            let at = rec.plus(f.at(value));
+            let v: i16 = self.src.read(Self::offset(at)?).ok_or(Self::bad())?;
+            let v = short(f64::from(v) + d).ok_or(Refused::Metrics)?;
+            let dst = self
+                .dst
+                .plus(Self::offset(at)?.since_start())
+                .ok_or(Refused::Metrics)?;
+            out.put(dst, v);
+        }
+        Ok(())
+    }
+
     /// A MarkArray at `arr`: each record's class, then its anchor.
     fn marks(&self, arr: At, out: &mut Out<'_>) -> Result<(), Refused> {
         let n = self.u16_at(arr)?;
@@ -1749,7 +2081,9 @@ impl Anchors<'_> {
                     let o = Self::offset(a.plus(At(k)))?;
                     self.dst.plus(o.since_start()).ok_or(Refused::Metrics)
                 };
-                out.put(at(0)?, 1u16);
+                if self.pin.is_none() {
+                    out.put(at(0)?, 1u16);
+                }
                 out.put(at(2)?, x);
                 out.put(at(4)?, y);
                 Ok(())
@@ -1777,6 +2111,11 @@ impl Anchors<'_> {
             return Ok(0.0);
         }
         let store = self.store.ok_or(Refused::Malformed(Tag::GDEF))?;
+        if let Some(pin) = self.pin {
+            let d =
+                partial::default_delta(&store, index, pin).ok_or(Refused::Malformed(Tag::GDEF))?;
+            return Ok(ot_round(d));
+        }
         let mut sum: Option<f64> = None;
         store
             .columns(index, |region, d| {

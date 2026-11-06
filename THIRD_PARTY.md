@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 66 | redistributable, and its notice is satisfied |
+| kept | 331 | 66 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 75 | |
+| total | 601 | 75 | |
 
 ## Licence texts in LICENSES/
 
@@ -632,13 +632,13 @@ they were built from.
 - **From:** https://github.com/rcaloras/bash-preexec/tree/0.6.0 and https://github.com/rcaloras/bash-preexec/tree/0.7.0
 - **Files:** [baud-app/fixtures/bash-preexec/bash-preexec-0.6.0](baud-app/fixtures/bash-preexec/bash-preexec-0.6.0), [baud-app/fixtures/bash-preexec/bash-preexec-0.7.0](baud-app/fixtures/bash-preexec/bash-preexec-0.7.0)
 
-### The Devanagari merge module and the record of the Noto Sans Devanagari file it merges from: baud's own code and text under the repository's licence, as the Hebrew build modules are; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt
+### The record of the Noto Sans Devanagari file the font build merges from: baud's own text under the repository's licence; the font itself is fetched by its pinned URL and sha256 at font-build time and is not in the tree, and its copyright line is in the built font's OFL.txt
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build
-- **Files:** [baud-app/fonts/glyphs/languages/devanagari/build/merge.py](baud-app/fonts/glyphs/languages/devanagari/build/merge.py), [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
+- **Files:** [baud-app/fonts/glyphs/languages/devanagari/SOURCE](baud-app/fonts/glyphs/languages/devanagari/SOURCE)
 
 ### The Hebrew build modules: baud's own code under the repository's licence; they are tools that write the font, not Font Software (FONTLOG.txt)
 
@@ -646,7 +646,7 @@ they were built from.
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
 - **From:** baud's own build, ported from the research tree
-- **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/instance.py](baud-app/fonts/glyphs/languages/hebrew/build/instance.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/pin.py](baud-app/fonts/glyphs/languages/hebrew/build/pin.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
+- **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
 
 ### A recording of pipes.sh 1.3.0's output, captured by scripts/capture-tui.py on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
 
@@ -917,21 +917,26 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** [LICENSES/fonttools-MIT.txt](LICENSES/fonttools-MIT.txt)
-- **Files:** 11
+- **Files:** 16
 
 | file | copied from |
 |---|---|
 | [fonttools-4.63.0-misc-fixedTools.py](docs/research/sources/fonttools-4.63.0-misc-fixedTools.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/misc/fixedTools.py |
+| [fonttools-4.63.0-otlLib-builder.py.txt](docs/research/sources/fonttools-4.63.0-otlLib-builder.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/builder.py |
+| [fonttools-4.63.0-otlLib-maxContextCalc.py.txt](docs/research/sources/fonttools-4.63.0-otlLib-maxContextCalc.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/maxContextCalc.py |
 | [fonttools-4.63.0-ttLib-tables-O_S_2f_2.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-O_S_2f_2.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/O_S_2f_2.py |
 | [fonttools-4.63.0-ttLib-tables-TupleVariation.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-TupleVariation.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/TupleVariation.py |
 | [fonttools-4.63.0-ttLib-tables-_g_l_y_f.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_g_l_y_f.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_g_l_y_f.py |
 | [fonttools-4.63.0-ttLib-tables-_h_h_e_a.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_h_h_e_a.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_h_h_e_a.py |
 | [fonttools-4.63.0-ttLib-tables-_m_a_x_p.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_m_a_x_p.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_m_a_x_p.py |
+| [fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_n_a_m_e.py |
 | [fonttools-4.63.0-varLib-instancer-__init__.py](docs/research/sources/fonttools-4.63.0-varLib-instancer-__init__.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/__init__.py |
+| [fonttools-4.63.0-varLib-instancer-names.py.txt](docs/research/sources/fonttools-4.63.0-varLib-instancer-names.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/names.py |
 | [fonttools-4.63.0-varLib-instancer-solver.py](docs/research/sources/fonttools-4.63.0-varLib-instancer-solver.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/solver.py |
 | [fonttools-4.63.0-varLib-iup.py](docs/research/sources/fonttools-4.63.0-varLib-iup.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/iup.py |
 | [fonttools-4.63.0-varLib-merger.py](docs/research/sources/fonttools-4.63.0-varLib-merger.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/merger.py |
 | [fonttools-4.63.0-varLib-models.py](docs/research/sources/fonttools-4.63.0-varLib-models.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/models.py |
+| [fonttools-4.63.0-varLib-varStore.py.txt](docs/research/sources/fonttools-4.63.0-varLib-varStore.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/varStore.py |
 
 ### foot
 

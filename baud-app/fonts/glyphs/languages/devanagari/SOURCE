@@ -21,11 +21,13 @@ Licence:   https://raw.githubusercontent.com/notofonts/devanagari/e123d230c160eb
 Fetched:   2026-11-02.
 
 What the build takes: the font instanced at wght 400 (for Regular and Italic) and 700
-(for Bold and Bold Italic) with its width axis kept (hebrew/build/instance.py), and from
+(for Bold and Bold Italic) with its width axis kept (`baud-fontbuild instance`, through
+baud-font's partial bake, which compares equal to fontTools' instances), and from
 each instance every glyph a code point the built face does not map reaches, every glyph
 Noto's lookups name, and their components; Noto's dev2 and deva scripts in GSUB and GPOS
 with their features and lookups; its mark filtering sets and glyph classes; its outline,
-advance and anchor variations along the width axis. build/merge.py says how, and
+advance and anchor variations along the width axis. tools/baud-fontbuild's merge
+(`baud-fontbuild merge`, src/merge.rs) says how, and
 baud-app/fonts/built/FONTLOG.txt what the built faces are.
 
 The built faces' OFL.txt carries the copyright line above, nameID 0 carries it after

@@ -8,6 +8,14 @@
 //!
 //! `baud-fontbuild extract BASE.ttf STAGE.ttf STYLE OUT.txt`: the source
 //! of a stage font, written only when it builds that font again.
+//!
+//! `baud-fontbuild merge BUILT.ttf NOTO.ttf STYLE EPOCH OUT.ttf`: Noto
+//! Sans Devanagari merged into one built face (exit 1 when the merge
+//! refuses, BUILT's objects having changed among the reasons).
+//!
+//! `baud-fontbuild instance VF.ttf WGHT EPOCH OUT.ttf`: the variable font
+//! with `wght` pinned and its other axes kept (exit 1 when the bake
+//! refuses it).
 
 use std::process::ExitCode;
 
@@ -15,7 +23,9 @@ fn usage() -> ExitCode {
     eprintln!(
         "usage: baud-fontbuild compare A.ttf B.ttf\n       \
          baud-fontbuild stage BASE.ttf SOURCE.txt OUT.ttf\n       \
-         baud-fontbuild extract BASE.ttf STAGE.ttf STYLE OUT.txt"
+         baud-fontbuild extract BASE.ttf STAGE.ttf STYLE OUT.txt\n       \
+         baud-fontbuild instance VF.ttf WGHT EPOCH OUT.ttf\n       \
+         baud-fontbuild merge BUILT.ttf NOTO.ttf STYLE EPOCH OUT.ttf"
     );
     ExitCode::from(2)
 }
@@ -43,6 +53,44 @@ fn main() -> ExitCode {
                 Ok(font) => write(out, &font),
                 Err(e) => {
                     eprintln!("stage: {e}");
+                    ExitCode::from(1)
+                }
+            };
+        }
+        [cmd, built, noto, style, epoch, out] if cmd == "merge" => {
+            let (Ok(built), Ok(noto)) = (read(built), read(noto)) else {
+                return ExitCode::from(2);
+            };
+            let Ok(epoch) = epoch.parse::<i64>() else {
+                eprintln!("merge: EPOCH is an integer");
+                return ExitCode::from(2);
+            };
+            return match baud_fontbuild::merge::merge(&built, &noto, style, epoch) {
+                Ok(m) => {
+                    println!(
+                        "merged {style} {} glyphs, {} code points",
+                        m.kept, m.code_points
+                    );
+                    write(out, &m.font)
+                }
+                Err(e) => {
+                    eprintln!("merge: {e}");
+                    ExitCode::from(1)
+                }
+            };
+        }
+        [cmd, vf, wght, epoch, out] if cmd == "instance" => {
+            let Ok(vf) = read(vf) else {
+                return ExitCode::from(2);
+            };
+            let (Ok(wght), Ok(epoch)) = (wght.parse::<i32>(), epoch.parse::<i64>()) else {
+                eprintln!("instance: WGHT and EPOCH are integers");
+                return ExitCode::from(2);
+            };
+            return match baud_fontbuild::instance::instance(&vf, wght, epoch) {
+                Ok(font) => write(out, &font),
+                Err(e) => {
+                    eprintln!("instance: refused: {e}");
                     ExitCode::from(1)
                 }
             };

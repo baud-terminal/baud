@@ -45,11 +45,11 @@ impl VarIndex {
         self.0 == 0xFFFF_FFFF
     }
 
-    fn outer(self) -> Index {
+    pub(crate) fn outer(self) -> Index {
         Index::of(self.0 >> 16)
     }
 
-    fn inner(self) -> Index {
+    pub(crate) fn inner(self) -> Index {
         Index::of(self.0 & 0xFFFF)
     }
 }
@@ -188,6 +188,95 @@ impl Store<'_> {
             i = i.next();
         }
         Some(())
+    }
+
+    /// The region list's axis count, 0 for a store with no list.
+    pub(crate) fn region_axes(&self) -> Count {
+        self.regions.map_or(Count::ZERO, |r| r.axes)
+    }
+
+    /// How many regions the list holds.
+    pub(crate) fn region_count(&self) -> Count {
+        self.regions.map_or(Count::ZERO, |r| r.count)
+    }
+
+    /// Region `r` on `axis`: its start, peak and end; `None` past the list.
+    pub(crate) fn region(&self, r: Index, axis: Index) -> Option<[F2Dot14; 3]> {
+        let list = self.regions?;
+        if !list.count.holds(r) || !list.axes.holds(axis) {
+            return None;
+        }
+        let each = Len::of(6).times(list.axes)?;
+        let at = Offset::ZERO
+            .at(r, each)?
+            .plus(Offset::ZERO.at(axis, Len::of(6))?.since_start())?;
+        let c = |k: u32| list.records.read::<F2Dot14>(at.plus(Len::of(k))?);
+        Some([c(0)?, c(2)?, c(4)?])
+    }
+
+    /// Data set `outer`, for the partial bake, which writes every set
+    /// again. **Strict**: a set past the store, a null set and a malformed
+    /// one all answer `None`, so a guess is never written.
+    pub(crate) fn set(&self, outer: Index) -> Option<Set<'_>> {
+        let offset = self.sets.get(outer)?;
+        let Subtable::At(b) = Subtable::at(self.data, Offset::of(offset))? else {
+            return None;
+        };
+        Some(Set {
+            data: Data::parse(b)?,
+        })
+    }
+}
+
+/// One data set, column by column, as the partial bake reads it.
+#[derive(Clone, Copy)]
+pub(crate) struct Set<'a> {
+    data: Data<'a>,
+}
+
+impl Set<'_> {
+    /// How many items (rows) the set holds.
+    pub(crate) fn items(&self) -> Count {
+        self.data.items
+    }
+
+    /// How many columns each row holds: one a region the set names.
+    pub(crate) fn columns(&self) -> Count {
+        self.data.regions.count()
+    }
+
+    /// Column `col`'s region in the store's list.
+    pub(crate) fn region_of(&self, col: Index) -> Option<Index> {
+        self.data.regions.get(col).map(Index::of)
+    }
+
+    /// Item `item`'s delta in column `col`: the first `wordCount` columns
+    /// wide, the rest narrow.
+    pub(crate) fn value(&self, item: Index, col: Index) -> Option<i32> {
+        if !self.data.items.holds(item) || !self.columns().holds(col) {
+            return None;
+        }
+        let row = self
+            .data
+            .rows
+            .slice(Offset::ZERO.at(item, self.data.row)?, self.data.row)?;
+        let (wide, narrow) = match self.data.long {
+            RowWidth::Long => (Len::of(4), Len::of(2)),
+            RowWidth::Short => (Len::of(2), Len::of(1)),
+        };
+        let words = self.data.words;
+        let is_wide = words.holds(col);
+        let wides = if is_wide { col } else { words.as_index() };
+        let at = Offset::ZERO
+            .at(wides, wide)?
+            .plus(narrow.times(col.since(wides)?)?)?;
+        match (self.data.long, is_wide) {
+            (RowWidth::Long, true) => row.read::<i32>(at),
+            (RowWidth::Long, false) | (RowWidth::Short, true) => row.read::<i16>(at).map(i32::from),
+            (RowWidth::Short, false) => row
+                .read::<u8>(at)
+                .map(|b| i32::from(i8::from_ne_bytes([b]))),
+        }
     }
 }
 

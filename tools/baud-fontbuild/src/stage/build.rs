@@ -623,7 +623,26 @@ pub fn build(base: &[u8], src: &Source) -> Res<Vec<u8>> {
     fb.add_table(&name).map_err(e("name"))?;
     fb.add_table(&out_post).map_err(e("post"))?;
     fb.add_table(&gdef).map_err(e("GDEF"))?;
-    fb.add_table(&gsub).map_err(e("GSUB"))?;
+    // GSUB: stock JetBrains Mono's lookups, the block of them and every
+    // subtable they name, byte for byte under the lists written again (the
+    // stage adds no GSUB lookup), as `baud-app`'s `keeps_lookups` holds it.
+    let stock_gsub = f.table_data(Tag::new(b"GSUB")).ok_or("no GSUB")?;
+    let (gsub_bytes, _) = crate::merge::spliced(
+        stock_gsub.as_bytes(),
+        &gsub
+            .script_list
+            .as_ref()
+            .ok_or("GSUB: no scripts")?
+            .script_records,
+        &gsub
+            .feature_list
+            .as_ref()
+            .ok_or("GSUB: no features")?
+            .feature_records,
+        vec![],
+        gsub.lookup_list.as_ref().map_or(0, |l| l.lookups.len()),
+    )?;
+    fb.add_raw(Tag::new(b"GSUB"), gsub_bytes);
     fb.add_table(&gpos).map_err(e("GPOS"))?;
     for t in [b"gasp", b"cvt ", b"fpgm", b"prep"] {
         if let Some(d) = f.table_data(Tag::new(t)) {

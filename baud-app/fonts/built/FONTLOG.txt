@@ -25,10 +25,10 @@ BoldItalic.ttf  JetBrains Mono 2.304 Bold Italic plus Hebrew, leaning right, and
 
 All four are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/,
 baud-app/fonts/glyphs/languages/hebrew/stage/ (see SOURCE in hebrew/) and Noto Sans
-Devanagari 2.007's variable font, fetched by the URL and sha256 in
-baud-app/fonts/glyphs/languages/devanagari/SOURCE. It builds them in two stages, the
-Hebrew and then the Devanagari (THE DEVANAGARI). These are the files' sha256s, written
-by the parametric Hebrew build the stage sources were read from:
+Devanagari 2.007's variable font, which baud-app/fonts/glyphs/languages/devanagari/SOURCE
+pins by sha256. It builds them in two stages, the Hebrew and then the Devanagari (THE
+DEVANAGARI), every step in tools/baud-fontbuild. These are the sha256s of the files the
+parametric Hebrew build and fontTools wrote, before the build was Rust:
 
   Regular.ttf     d8e9226d5e68c02e55b3d45232e8adffa22c10123f491de4c6be3f50433d901d
   Bold.ttf        87b66b6067bc8bb4d03b4d0cd32538cf59bccaa927d181b2cc831004093dcc0d
@@ -57,12 +57,16 @@ outline (and Bold's loca, for its length), Bold Italic's left side bearing for i
 and head's checksum alone. The gates were run again on these bytes on 2026-10-08,
 2026-10-24 and 2026-10-25 (CHANGELOG).
 
-The Hebrew stage is now merged from the stage sources by tools/baud-fontbuild, whose
-writer lays GSUB and GPOS out in another order than fontTools, so a rebuilt file differs
-from the one above in GSUB's bytes and head's checksum. The build pins each rebuilt
-stage's and file's sha256, and refuses a rebuilt file that `baud-fontbuild compare` does
-not hold equal to the one above in every glyph, mapping, metric, field and lookup.
-Running scripts/build-fonts.sh --check rebuilds all four and compares them with MANIFEST.
+The Hebrew stage is now merged from the stage sources by tools/baud-fontbuild, the
+Noto instances are baud-font's own partial bake, and the Devanagari merge is
+tools/baud-fontbuild's, whose writers lay the tables out in another order than
+fontTools. The four files are those bytes: each is held equal to the one above, by
+`baud-fontbuild compare`, in every glyph, mapping, metric, field and lookup, and
+differs from it in the bytes of cmap, GDEF, GPOS, GSUB, gvar, HVAR and head's checksum.
+The build pins each stage's, each instance's and each file's sha256, and each Noto
+instance compared equal to fontTools' instance of the same file when its hash was
+pinned; MANIFEST names both by sha256. Running scripts/build-fonts.sh --check rebuilds
+all four and compares them with MANIFEST.
 
 
 WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
@@ -127,10 +131,11 @@ The Devanagari is Noto Sans Devanagari 2.007 (Copyright 2022 The Noto Project
 Authors; OFL 1.1 with no Reserved Font Name), taken from its variable font, wght
 100-900 and wdth 62.5-100, which glyphs/languages/devanagari/SOURCE pins. Regular and
 Italic take it instanced at wght 400, Bold and Bold Italic at wght 700, its width
-axis kept (fontTools' instancer, hebrew/build/instance.py). These are third-party
-glyphs for the interim; baud's own Devanagari, designed for the grid, is to replace
-them. glyphs/languages/devanagari/build/merge.py merges each instance into its
-style's Hebrew stage (measured with fontTools 4.63.0, against that stage):
+axis kept (baud-font's partial bake, `baud-fontbuild instance`, which compares equal
+to fontTools' instancer). These are third-party glyphs for the interim; baud's own
+Devanagari, designed for the grid, is to replace them. tools/baud-fontbuild's merge
+(`baud-fontbuild merge`) merges each instance into its style's Hebrew stage (measured
+with fontTools 4.63.0, against that stage):
 
 - 783 glyphs appended after every existing glyph, so no glyph ID moves: every Noto
   glyph a code point the face did not map reaches, every glyph a Noto lookup names,
@@ -182,15 +187,16 @@ style's Hebrew stage (measured with fontTools 4.63.0, against that stage):
 
 What stays the Hebrew stage's, measured on the files before the merge writes (it
 refuses otherwise): every existing glyph's bytes as stored, its advance and side
-bearing, every cmap entry, every lookup compiled alone, the features every existing
-language system names, every glyph's GDEF class, the seven mark filtering sets, and
+bearing, every cmap entry, GSUB's lookups as bytes and GPOS's as the comparison
+expands them, the features every existing language system names, every glyph's GDEF class, the seven mark filtering sets, and
 every name record but 0 and 7. GSUB is written around the Hebrew stage's own bytes:
 the block of its lookups and every subtable they name is copied whole, so stock
 JetBrains Mono's lookups are its bytes, under a ScriptList, FeatureList and
 LookupList written again with the features sorted by tag, as OpenType's common table
-formats ask. Ten LangSys tables and four FeatureParams of the old lists lie inside
+formats ask; the appended lookups follow it, every Lookup table first and then their
+subtables. Ten LangSys tables and four FeatureParams of the stock lists lie inside
 that block, and stay there, named by nothing: 772 bytes in each style. GPOS is laid
-out again by fontTools, as the Hebrew build lays it out.
+out again by write-fonts, as the Hebrew stage lays it out.
 
 What it shapes as, with hb-shape 14.5.1 on the 399 lines of
 baud-font/tests/shape/devanagari.txt: Regular as the pinned static Noto Sans
@@ -685,3 +691,10 @@ CHANGELOG
   the 399 lines devanagari.txt shaped on the built Regular as a control with no
   Devanagari are shaped on stock JetBrains Mono now, beside 399 each on the built
   Regular and Bold. OTS passes.
+2026-11-05 (i-am-logger, baud): the whole build is Rust (tools/baud-fontbuild, and
+  baud-font's partial bake for the Noto instances); no Python runs. The four files'
+  bytes change and nothing they hold does: each compares equal to the file before in
+  every table, none left as bytes, and each table but cmap, GDEF, GPOS, GSUB, gvar,
+  HVAR and head's checksum is that file's byte for byte. Stock JetBrains Mono's GSUB
+  lookups stay its bytes. The built-face lines of the shape fixtures change only in
+  their file digest (6,574 lines in eleven files). OTS 9.3.0 passes all four.
