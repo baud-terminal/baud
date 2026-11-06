@@ -540,17 +540,17 @@ licence = "MIT"
 notice  = "LICENSES/fonttools-MIT.txt"
 status  = "kept"
 files   = [
-  "fonttools-4.63.0-misc-fixedTools.py",
-  "fonttools-4.63.0-ttLib-tables-O_S_2f_2.py",
-  "fonttools-4.63.0-ttLib-tables-TupleVariation.py",
-  "fonttools-4.63.0-ttLib-tables-_g_l_y_f.py",
-  "fonttools-4.63.0-ttLib-tables-_h_h_e_a.py",
-  "fonttools-4.63.0-ttLib-tables-_m_a_x_p.py",
-  "fonttools-4.63.0-varLib-instancer-__init__.py",
-  "fonttools-4.63.0-varLib-instancer-solver.py",
-  "fonttools-4.63.0-varLib-iup.py",
-  "fonttools-4.63.0-varLib-merger.py",
-  "fonttools-4.63.0-varLib-models.py",
+  "fonttools-4.63.0-misc-fixedTools.py.txt",
+  "fonttools-4.63.0-ttLib-tables-O_S_2f_2.py.txt",
+  "fonttools-4.63.0-ttLib-tables-TupleVariation.py.txt",
+  "fonttools-4.63.0-ttLib-tables-_g_l_y_f.py.txt",
+  "fonttools-4.63.0-ttLib-tables-_h_h_e_a.py.txt",
+  "fonttools-4.63.0-ttLib-tables-_m_a_x_p.py.txt",
+  "fonttools-4.63.0-varLib-instancer-__init__.py.txt",
+  "fonttools-4.63.0-varLib-instancer-solver.py.txt",
+  "fonttools-4.63.0-varLib-iup.py.txt",
+  "fonttools-4.63.0-varLib-merger.py.txt",
+  "fonttools-4.63.0-varLib-models.py.txt",
   "fonttools-4.63.0-varLib-varStore.py.txt",
   "fonttools-4.63.0-varLib-instancer-names.py.txt",
   "fonttools-4.63.0-otlLib-builder.py.txt",
@@ -675,7 +675,7 @@ licence = "MIT"
 notice  = "LICENSES/iterm2-color-schemes-MIT.txt"
 status  = "kept"
 files   = [
-  "iterm2-color-schemes-gen.py",
+  "iterm2-color-schemes-gen.py.txt",
 ]
 
 [upstream.lscolors]

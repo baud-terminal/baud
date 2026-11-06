@@ -929,21 +929,21 @@ notice is, and the URL each file was copied from.
 
 | file | copied from |
 |---|---|
-| [fonttools-4.63.0-misc-fixedTools.py](docs/research/sources/fonttools-4.63.0-misc-fixedTools.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/misc/fixedTools.py |
+| [fonttools-4.63.0-misc-fixedTools.py.txt](docs/research/sources/fonttools-4.63.0-misc-fixedTools.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/misc/fixedTools.py |
 | [fonttools-4.63.0-otlLib-builder.py.txt](docs/research/sources/fonttools-4.63.0-otlLib-builder.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/builder.py |
 | [fonttools-4.63.0-otlLib-maxContextCalc.py.txt](docs/research/sources/fonttools-4.63.0-otlLib-maxContextCalc.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/otlLib/maxContextCalc.py |
-| [fonttools-4.63.0-ttLib-tables-O_S_2f_2.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-O_S_2f_2.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/O_S_2f_2.py |
-| [fonttools-4.63.0-ttLib-tables-TupleVariation.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-TupleVariation.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/TupleVariation.py |
-| [fonttools-4.63.0-ttLib-tables-_g_l_y_f.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_g_l_y_f.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_g_l_y_f.py |
-| [fonttools-4.63.0-ttLib-tables-_h_h_e_a.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_h_h_e_a.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_h_h_e_a.py |
-| [fonttools-4.63.0-ttLib-tables-_m_a_x_p.py](docs/research/sources/fonttools-4.63.0-ttLib-tables-_m_a_x_p.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_m_a_x_p.py |
+| [fonttools-4.63.0-ttLib-tables-O_S_2f_2.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-O_S_2f_2.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/O_S_2f_2.py |
+| [fonttools-4.63.0-ttLib-tables-TupleVariation.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-TupleVariation.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/TupleVariation.py |
+| [fonttools-4.63.0-ttLib-tables-_g_l_y_f.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-_g_l_y_f.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_g_l_y_f.py |
+| [fonttools-4.63.0-ttLib-tables-_h_h_e_a.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-_h_h_e_a.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_h_h_e_a.py |
+| [fonttools-4.63.0-ttLib-tables-_m_a_x_p.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-_m_a_x_p.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_m_a_x_p.py |
 | [fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt](docs/research/sources/fonttools-4.63.0-ttLib-tables-_n_a_m_e.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_n_a_m_e.py |
-| [fonttools-4.63.0-varLib-instancer-__init__.py](docs/research/sources/fonttools-4.63.0-varLib-instancer-__init__.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/__init__.py |
+| [fonttools-4.63.0-varLib-instancer-__init__.py.txt](docs/research/sources/fonttools-4.63.0-varLib-instancer-__init__.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/__init__.py |
 | [fonttools-4.63.0-varLib-instancer-names.py.txt](docs/research/sources/fonttools-4.63.0-varLib-instancer-names.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/names.py |
-| [fonttools-4.63.0-varLib-instancer-solver.py](docs/research/sources/fonttools-4.63.0-varLib-instancer-solver.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/solver.py |
-| [fonttools-4.63.0-varLib-iup.py](docs/research/sources/fonttools-4.63.0-varLib-iup.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/iup.py |
-| [fonttools-4.63.0-varLib-merger.py](docs/research/sources/fonttools-4.63.0-varLib-merger.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/merger.py |
-| [fonttools-4.63.0-varLib-models.py](docs/research/sources/fonttools-4.63.0-varLib-models.py) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/models.py |
+| [fonttools-4.63.0-varLib-instancer-solver.py.txt](docs/research/sources/fonttools-4.63.0-varLib-instancer-solver.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/solver.py |
+| [fonttools-4.63.0-varLib-iup.py.txt](docs/research/sources/fonttools-4.63.0-varLib-iup.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/iup.py |
+| [fonttools-4.63.0-varLib-merger.py.txt](docs/research/sources/fonttools-4.63.0-varLib-merger.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/merger.py |
+| [fonttools-4.63.0-varLib-models.py.txt](docs/research/sources/fonttools-4.63.0-varLib-models.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/models.py |
 | [fonttools-4.63.0-varLib-varStore.py.txt](docs/research/sources/fonttools-4.63.0-varLib-varStore.py.txt) | https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/varStore.py |
 
 ### foot
@@ -1125,7 +1125,7 @@ notice is, and the URL each file was copied from.
 
 | file | copied from |
 |---|---|
-| [iterm2-color-schemes-gen.py](docs/research/sources/iterm2-color-schemes-gen.py) | https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/tools/gen.py |
+| [iterm2-color-schemes-gen.py.txt](docs/research/sources/iterm2-color-schemes-gen.py.txt) | https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/tools/gen.py |
 
 ### Khronos ARB_buffer_storage extension specification
 

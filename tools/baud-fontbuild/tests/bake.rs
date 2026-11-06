@@ -1,8 +1,9 @@
 //! baud-font's partial bake against fontTools 4.63.0: Noto Sans
 //! Devanagari's variable font pinned at wght 400 and 700, its width axis
 //! kept, is the instance `scripts/build-fonts.sh` pins, and compares equal
-//! to fontTools' `instantiateVariableFont(font, {"wght": w})` of the same
-//! file, every table expanded and none left as bytes. The variable font is
+//! to fontTools' `instantiateVariableFont(font, {"wght": w})`
+//! (`[[source: fonttools-4-63-0-instancer]]`) of the same file, every table
+//! expanded and none left as bytes. The variable font is
 //! read from the cache the build fetches it into and fontTools' instances
 //! from `BAUD_FONTTOOLS_NOTO` (`tests/common`); neither is in the
 //! repository, and a test without one says so.

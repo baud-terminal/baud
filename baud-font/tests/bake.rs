@@ -1,4 +1,5 @@
-//! Note Z step 5: the build-time bake against fontTools 4.63.0's instancer.
+//! Note Z step 5: the build-time bake against fontTools 4.63.0's instancer
+//! (`[[source: fonttools-4-63-0-instancer]]`).
 //!
 //! `tests/var/bake/*.ttf` are fontTools' instances of the committed variable
 //! fonts, kept as observations of that engine as `bake/VERSION` names it,

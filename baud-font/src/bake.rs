@@ -6,18 +6,25 @@
 //! static instances are baked from them when baud is built, so the runtime
 //! reads four ordinary fonts and pays nothing for the variation.
 //!
-//! **The oracle is fontTools 4.63.0's `instantiateVariableFont`**, with its
-//! defaults, and `tests/bake.rs` holds every glyph, metric and anchor to
-//! its output. The rules are its, read at source:
+//! **The oracle is fontTools 4.63.0's `instantiateVariableFont`**
+//! (`[[source: fonttools-4-63-0-instancer]]`), with its defaults, and
+//! `tests/bake.rs` holds every glyph, metric and anchor to its output. The
+//! rules are its, read at source:
 //!
-//! * a tuple's scalar is `supportScalar` of its tent at the location, in
-//!   `f64`, and an ill-formed tent is dropped (`changeTupleVariationAxisLimit`
-//!   -- refused here);
-//! * the explicit deltas are scaled, **then** inferred (`iup_delta`, its
-//!   `iup_segment` formula), then summed over the tuples in order;
+//! * a tuple's scalar is `supportScalar` of its tent at the location
+//!   (`[[source: fonttools-4-63-0-models]]`,
+//!   `[[source: fonttools-4-63-0-solver]]`), in `f64`, and an ill-formed tent
+//!   is dropped (`changeTupleVariationAxisLimit`, in the instancer -- refused
+//!   here);
+//! * the explicit deltas are scaled
+//!   (`[[source: fonttools-4-63-0-tuplevariation]]`), **then** inferred
+//!   (`iup_delta`, its `iup_segment` formula,
+//!   `[[source: fonttools-4-63-0-iup]]`), then summed over the tuples in order;
 //! * a simple glyph's points are the default plus the sum, rounded
 //!   `floor(x + 0.5)` (`otRound`) when written;
-//! * a composite keeps its components, each offset moved and rounded;
+//! * a composite keeps its components, each offset moved and rounded
+//!   (`_setCoordinates` and `GlyphComponent.compile`,
+//!   `[[source: fonttools-4-63-0-glyf]]`, as the next two are);
 //! * a glyph's bounds are `recalcBounds`: a composite whose offsets are all
 //!   whole before rounding takes the union of its components' bounds, else
 //!   it is flattened -- leaf points rounded, float offsets added -- and the
@@ -26,9 +33,14 @@
 //!   the side bearing the new `xMin` less the left phantom, rounded -- the
 //!   points are not shifted, so the difference lands in `hmtx`;
 //! * a GPOS anchor's device is a variation index: its delta is rounded and
-//!   added, and the anchor becomes format 1;
-//! * `head`'s bounds, `hhea`'s extents, `OS/2`'s weight class and average
-//!   advance are recomputed, the overlap flags set.
+//!   added, and the anchor becomes format 1
+//!   (`[[source: fonttools-4-63-0-merger]]`);
+//! * `head`'s bounds (`[[source: fonttools-4-63-0-maxp]]`), `hhea`'s extents
+//!   (`[[source: fonttools-4-63-0-hhea]]`), `OS/2`'s weight class
+//!   (`varLib.set_default_weight_width_slant`, called from the instancer,
+//!   `[[source: fonttools-4-63-0-instancer]]`) and its average advance
+//!   (`recalcAvgCharWidth`, `[[source: fonttools-4-63-0-os2]]`) are recomputed,
+//!   the overlap flags set (`setMacOverlapFlags`, in the instancer).
 //!
 //! `wght` alone can be pinned too, with every other axis kept: [`partial`],
 //! [`bake_partial`], which `tools/baud-fontbuild` instances Noto Sans
@@ -37,8 +49,9 @@
 //! **Where it writes something else, it says so and the tests say so**:
 //! the coordinates are packed by this encoder rather than fontTools', `STAT`
 //! is dropped where fontTools instances it, and `name` is copied whole where
-//! fontTools prunes the names only the dropped tables used -- nothing in
-//! baud reads either. None of these changes a glyph, a metric or an anchor.
+//! fontTools prunes the names only the dropped tables used
+//! (`[[source: fonttools-4-63-0-instancer-names]]`) -- nothing in baud reads
+//! either. None of these changes a glyph, a metric or an anchor.
 //!
 //! **What it refuses** rather than guess: CFF outlines, an axis other than
 //! `wght`, `cvar`, `MVAR`, `VVAR`, `vmtx`, `VARC`, a second `avar` version,
@@ -211,14 +224,16 @@ fn tent(lower: F2Dot14, peak: F2Dot14, upper: F2Dot14, v: F2Dot14) -> Option<f64
     })
 }
 
-/// fontTools' `normalize`: the user value clamped to the axis and mapped
-/// to -1..1 (`normalizeValue`), bent through `avar`'s map
-/// (`piecewiseLinearMap`, over the 2.14 values as floats, the map a
-/// dictionary so a repeated key keeps its last value), then quantized to
-/// 2.14 (`floatToFixedToFloat`). **Not HarfBuzz's rule**, which the runtime
-/// follows: HarfBuzz divides in 16.16 integers, and the two land a 2.14
-/// unit apart where the bent value falls near a half -- the case font's
-/// wght 700 does. `None` for an axis whose default is outside its range.
+/// fontTools' `normalize` (`[[source: fonttools-4-63-0-instancer]]`): the user
+/// value clamped to the axis and mapped to -1..1 (`normalizeValue`), bent
+/// through `avar`'s map (`piecewiseLinearMap`,
+/// `[[source: fonttools-4-63-0-models]]`, over the 2.14 values as floats, the
+/// map a dictionary so a repeated key keeps its last value), then quantized to
+/// 2.14 (`floatToFixedToFloat`, `[[source: fonttools-4-63-0-fixedtools]]`).
+/// **Not HarfBuzz's rule**, which the runtime follows: HarfBuzz divides in
+/// 16.16 integers, and the two land a 2.14 unit apart where the bent value
+/// falls near a half -- the case font's wght 700 does. `None` for an axis whose
+/// default is outside its range.
 fn normalize(axis: Axis, map: Option<(Bytes<'_>, Count)>, user: Fixed) -> Option<F2Dot14> {
     let f = |x: Fixed| f64::from(x.0) / 65536.0;
     let (lo, def, hi) = (f(axis.min), f(axis.default), f(axis.max));
@@ -297,8 +312,8 @@ fn tuple_scalar(t: &TupleData<'_>, v: F2Dot14) -> Option<f64> {
     tent(lower, peak, upper, v)
 }
 
-/// fontTools' `iup_segment` on one axis: `x` between the references `a`
-/// and `b`, each a position and a delta.
+/// fontTools' `iup_segment` (`[[source: fonttools-4-63-0-iup]]`) on one axis:
+/// `x` between the references `a` and `b`, each a position and a delta.
 fn iup(x: f64, a: (f64, f64), b: (f64, f64)) -> f64 {
     let ((mut x1, mut d1), (mut x2, mut d2)) = (a, b);
     if x1 == x2 {
@@ -319,9 +334,10 @@ fn iup(x: f64, a: (f64, f64), b: (f64, f64)) -> f64 {
 }
 
 /// Fills the deltas of the points one tuple left out, contour by contour,
-/// from the named points on either side -- fontTools' `iup_contour`, in one
-/// walk: from the first named point round to itself, each gap filled from
-/// the named points that bound it, every point visited once.
+/// from the named points on either side -- fontTools' `iup_contour`
+/// (`[[source: fonttools-4-63-0-iup]]`), in one walk: from the first named
+/// point round to itself, each gap filled from the named points that bound it,
+/// every point visited once.
 fn infer(pts: &mut [BakePoint]) {
     let mut start = 0usize;
     while start < pts.len() {

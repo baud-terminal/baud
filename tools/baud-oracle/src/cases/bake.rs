@@ -3,7 +3,8 @@
 //!
 //! Writes `baud-font/tests/var/bake/cases.ttf`. Its instances beside it,
 //! `cases-<wght>.ttf` at 250, 550, 700 and 875, are fontTools 4.63.0's
-//! (`instantiateVariableFont` with its defaults, recalcTimestamp off), kept
+//! (`instantiateVariableFont` with its defaults, recalcTimestamp off,
+//! `[[source: fonttools-4-63-0-instancer]]`), kept
 //! as observations of that engine as `bake/VERSION` names it, and are not
 //! written here. JetBrains Mono has no glyph program, no degenerate
 //! component, no composite whose offsets stay whole beside one whose do

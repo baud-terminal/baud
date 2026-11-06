@@ -4,7 +4,8 @@
 //! Unix time `EPOCH` as fontTools stamps it from `SOURCE_DATE_EPOCH`: the
 //! partial instance `baud_font::bake_partial` writes, which
 //! `tests/bake.rs` holds equal, under [`crate::compare`], to fontTools
-//! 4.63.0's instances of Noto Sans Devanagari at 400 and 700.
+//! 4.63.0's instances of Noto Sans Devanagari at 400 and 700
+//! (`[[source: fonttools-4-63-0-instancer]]`).
 
 use baud_font::{BakePoint, IupStep, Modified, Refused, bake_partial};
 
