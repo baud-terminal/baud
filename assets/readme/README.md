@@ -239,6 +239,24 @@ size, or the window's size or place. It stays at 80x24 cells and 14 pt.
 The title bar above the text stays the window's material: no setting
 makes it opaque.
 
+The README's two pictures describe themselves in about 27 words each. The
+long forms are these. The logo film: the word baud, an amber prompt and an
+amber block cursor, the block's top level with the word's; unless the reader
+asked for reduced motion, a strand of plasma weaves round and through the
+letters as if they were solid walls, passing in front of them and behind,
+through the holes of b, a and d and the gaps between the letters, and
+flattening along a stroke it meets, while the cursor blinks, repeating with
+no rest. The session's film: the logo carried off by the plasma as baud
+starts; in helix, one word of baud's config changes its cursor trail from
+plasma to liquid, and the cursor's trail changes with it; in the same helix,
+this repository's README opened, `character` found, three half pages down,
+to its end and back to its top; baud defined in Hebrew, Arabic, Chinese,
+Japanese, Korean and Hindi, and a line of emoji; a photo of mountains drawn
+in the terminal by kitten icat in its stream transfer mode; over ssh to a
+server named demo, fastfetch shows baud's logo and btop its CPU, then
+fireworks burst at the cursor; back home, clear sends the cursor to the top
+in the liquid trail.
+
 A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
 `cargo run --release --example demo -- --record assets/readme/hero.gif
