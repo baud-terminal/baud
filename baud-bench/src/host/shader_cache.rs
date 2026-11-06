@@ -4,7 +4,9 @@
 //!
 //! The app, under `BAUD_STARTUP=1`, prints one line from its GPU probe:
 //!
-//!     startup: gpu build: device D ms, library L (S), pipelines P, warm pass W, probe T
+//! ```text
+//! startup: gpu build: device D ms, library L (S), pipelines P, warm pass W, probe T
+//! ```
 //!
 //! `S` is where the library came from: `Library` for the committed
 //! `baud.metallib`, `Compiled` when it would not load and the source was

@@ -7,7 +7,9 @@
 //! cannot do this portably: bash 3.2's `read -t` discards what it had read
 //! when it times out, and a killed `od` never flushes.
 //!
-//!     vt-reply [timeout=10] [row col]
+//! ```text
+//! vt-reply [timeout=10] [row col]
+//! ```
 
 use super::{Host, py};
 use std::io::{self, Write};
