@@ -11,14 +11,17 @@
 //! line is kept word for word; the window is the window crate's and its
 //! contents are AppKit's own image view and labels.
 //!
-//! **The logo is the README's film, played once, when the bundle carries
+//! **The logo is the README's film, for [`PLAYS`], when the bundle carries
 //! it**: a frame at a time on the view's display link, `NSImageCurrentFrame`
 //! of its one bitmap, for the time `NSImageCurrentFrameDuration` says
 //! (`[[source: sdk27-nsbitmapimagerep-h]]`). `NSImageView`'s `animates`
 //! (`[[source: sdk27-nsimageview-h]]`) says nothing of how often it plays,
-//! and that cannot be read off a window never shown. It ends on the last
-//! frame, the logo at rest, and under Reduce Motion it starts there. A binary
-//! with no bundle shows the lockup still, as it draws its own Dock icon.
+//! and that cannot be read off a window never shown. The file repeats and
+//! never rests, and a window with no way to pause it stops by itself inside
+//! WCAG 2.2.2's five seconds (`[[source: wcag22]]`), so it cuts to the
+//! lockup still, placed where the film draws the lockup, and rests there.
+//! Under Reduce Motion the still is all it shows, and a binary with no bundle
+//! shows it too, as it draws its own Dock icon.
 
 #![allow(unsafe_code)]
 
@@ -48,7 +51,7 @@ use macos_liquid_glass::window::GlassWindow;
 
 /// **The logo's box, in points**: the README's film at the pixels it was made
 /// at, 840 by 580, at 2x.
-const LOGO: NSSize = NSSize::new(420.0, 290.0);
+pub const LOGO: NSSize = NSSize::new(420.0, 290.0);
 /// The space under the logo for the three lines, in points.
 const LINES: CGFloat = 76.0;
 /// The bottom margin, and the gap between two lines, in points.
@@ -58,16 +61,24 @@ const LINE_GAP: CGFloat = 3.0;
 /// `NSFont.smallSystemFontSize`.
 const VERSION_SIZE: CGFloat = 13.0;
 
+/// **How long the film plays before it cuts to the still**: nineteen of the
+/// film's blink phases at 250 ms, the most that end inside WCAG 2.2.2's five
+/// seconds with the block shown, as the still shows it, so the cut moves
+/// only the plasma. `baud-app/tests/about_window.rs` holds this to the file.
+pub const PLAYS: Duration = Duration::from_millis(4750);
+
 /// **The frame shown `elapsed` in**, of frames lasting `lasts`, and whether
-/// the film is over: it rests on the last frame, which is what its last
-/// duration holds.
-pub fn frame_at(lasts: &[Duration], elapsed: Duration) -> (FrameNo, Playing) {
+/// the film is over: at `plays`, or when its frames run out if that is sooner.
+pub fn frame_at(lasts: &[Duration], plays: Duration, elapsed: Duration) -> (FrameNo, Playing) {
     let mut end = Duration::ZERO;
     let mut frame = FrameNo::of(0);
-    for d in lasts.iter().take(lasts.len().saturating_sub(1)) {
+    for (i, d) in lasts.iter().enumerate() {
         end += *d;
-        if elapsed < end {
+        if elapsed < end.min(plays) {
             return (frame, Playing::Yes);
+        }
+        if end >= plays || i + 1 == lasts.len() {
+            break;
         }
         frame = FrameNo::of(frame.raw() + 1);
     }
@@ -96,7 +107,7 @@ pub enum Motion {
 }
 
 /// One appearance's logo: its film, if the bundle carries one, and the
-/// picture shown without one.
+/// still shown without one, under Reduce Motion, and once the film has cut.
 pub struct Logo {
     pub film: Option<Retained<NSImage>>,
     pub still: Retained<NSImage>,
@@ -106,6 +117,9 @@ pub struct Logo {
 pub struct Content<'a> {
     pub on_dark: Logo,
     pub on_light: Logo,
+    /// Where the still goes in the logo's box, in points from its lower
+    /// left: where the film draws the lockup, so the cut moves nothing.
+    pub still_at: NSRect,
     /// The page round the film, for the window behind it.
     pub page_dark: Argb,
     pub page_light: Argb,
@@ -117,14 +131,23 @@ pub struct Content<'a> {
     pub copyright: &'a str,
 }
 
-/// A logo made ready: its picture, and its film's frames if it has one.
+/// A logo made ready: its still, and its film's frames if it has one.
 struct Picture {
-    image: Retained<NSImage>,
+    still: Retained<NSImage>,
     film: Option<Film>,
     page: Retained<NSColor>,
 }
 
+/// Which of a logo's two the window shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Shows {
+    Film,
+    #[default]
+    Still,
+}
+
 struct Film {
+    image: Retained<NSImage>,
     rep: Retained<NSBitmapImageRep>,
     lasts: Vec<Duration>,
     current: Cell<FrameNo>,
@@ -133,7 +156,7 @@ struct Film {
 impl Film {
     /// **Its one bitmap and what its frames last**, as AppKit reads them, or
     /// `None` when AppKit reads no frames from it.
-    fn of(image: &NSImage) -> Option<Film> {
+    fn of(image: &Retained<NSImage>) -> Option<Film> {
         let reps = image.representations();
         let rep = reps.firstObject()?.downcast::<NSBitmapImageRep>().ok()?;
         // SAFETY: a key the header declares for a GIF's bitmap, read-only.
@@ -145,6 +168,7 @@ impl Film {
             return None;
         }
         let film = Film {
+            image: image.clone(),
             rep,
             lasts: Vec::new(),
             current: Cell::new(FrameNo::of(0)),
@@ -186,21 +210,16 @@ impl Picture {
             unit(ink.b()),
             1.0,
         );
-        if let Some(image) = &logo.film {
-            if let Some(film) = Film::of(image) {
-                // Never a cached copy of one frame.
-                image.setCacheMode(NSImageCacheMode::Never);
-                film.show(film.last());
-                return Picture {
-                    image: image.clone(),
-                    film: Some(film),
-                    page,
-                };
-            }
-        }
+        let film = logo.film.as_ref().and_then(|image| {
+            let film = Film::of(image)?;
+            // Never a cached copy of one frame.
+            image.setCacheMode(NSImageCacheMode::Never);
+            film.show(FrameNo::of(0));
+            Some(film)
+        });
         Picture {
-            image: logo.still.clone(),
-            film: None,
+            still: logo.still.clone(),
+            film,
             page,
         }
     }
@@ -226,6 +245,9 @@ struct Shown {
     on_dark: Picture,
     on_light: Picture,
     logo: Retained<NSImageView>,
+    /// The logo view's frame round the film, and round the still.
+    film_at: NSRect,
+    still_at: NSRect,
 }
 
 impl Shown {
@@ -242,6 +264,7 @@ struct Ivars {
     shown: RefCell<Option<Shown>>,
     link: RefCell<Option<Retained<CADisplayLink>>>,
     started: Cell<Option<f64>>,
+    shows: Cell<Shows>,
 }
 
 define_class!(
@@ -281,25 +304,43 @@ impl AboutView {
         }
     }
 
-    /// The logo for the appearance now, on the same frame of the film.
+    /// The logo for the appearance now, on the same frame of the film as
+    /// the appearance it left.
     fn follow(&self) {
         if let Some(s) = &*self.ivars().shown.borrow() {
             let look = self.look();
-            let p = s.picture(look);
-            let other = s.picture(look.other());
+            let (p, other) = (s.picture(look), s.picture(look.other()));
             if let (Some(a), Some(b)) = (&p.film, &other.film) {
                 a.show(b.current.get().min(a.last()));
             }
-            s.logo.setImage(Some(&p.image));
+        }
+        self.put();
+    }
+
+    /// The logo view on the film's current frame, or on the still.
+    fn put(&self) {
+        if let Some(s) = &*self.ivars().shown.borrow() {
+            let p = s.picture(self.look());
+            match (self.ivars().shows.get(), &p.film) {
+                (Shows::Film, Some(a)) => {
+                    s.logo.setFrame(s.film_at);
+                    s.logo.setImage(Some(&a.image));
+                }
+                _ => {
+                    s.logo.setFrame(s.still_at);
+                    s.logo.setImage(Some(&p.still));
+                }
+            }
             if let Some(window) = self.window() {
                 window.setBackgroundColor(Some(&p.page));
             }
+            NSView::setNeedsDisplay(&s.logo, true);
             NSView::setNeedsDisplay(self, true);
         }
     }
 
-    /// One tick: the frame for the time since the first, and the clock
-    /// stopped at the last or once the window is gone.
+    /// One tick: the frame for the time since the first, and at the film's
+    /// end or once the window is gone, the still with the clock stopped.
     fn advance(&self, link: &CADisplayLink) {
         let now = link.timestamp();
         let started = self.ivars().started.get().unwrap_or(now);
@@ -310,7 +351,7 @@ impl AboutView {
                 Some(film) if !shut => {
                     let since =
                         Duration::try_from_secs_f64(now - started).unwrap_or(Duration::ZERO);
-                    let (frame, playing) = frame_at(&film.lasts, since);
+                    let (frame, playing) = frame_at(&film.lasts, PLAYS, since);
                     film.show(frame);
                     NSView::setNeedsDisplay(&s.logo, true);
                     playing == Playing::Over
@@ -320,8 +361,15 @@ impl AboutView {
             None => true,
         };
         if over {
-            self.stop();
+            self.rest();
         }
+    }
+
+    /// The still, with the clock stopped.
+    fn rest(&self) {
+        self.stop();
+        self.ivars().shows.set(Shows::Still);
+        self.put();
     }
 
     fn stop(&self) {
@@ -330,22 +378,23 @@ impl AboutView {
         }
     }
 
-    /// The film from its start, or at rest, by `motion`.
+    /// The film from its start, or the still, by `motion`.
     fn start(&self, motion: Motion) {
         self.stop();
         self.ivars().started.set(None);
-        let shown = self.ivars().shown.borrow();
-        let Some(s) = &*shown else {
-            return;
-        };
-        for film in [&s.on_dark.film, &s.on_light.film].into_iter().flatten() {
-            film.show(match motion {
-                Motion::Plays => FrameNo::of(0),
-                Motion::Still => film.last(),
+        let plays = motion == Motion::Plays
+            && self.ivars().shown.borrow().as_ref().is_some_and(|s| {
+                for film in [&s.on_dark.film, &s.on_light.film].into_iter().flatten() {
+                    film.show(FrameNo::of(0));
+                }
+                s.picture(self.look()).film.is_some()
             });
-        }
-        NSView::setNeedsDisplay(&s.logo, true);
-        if motion == Motion::Plays && s.picture(self.look()).film.is_some() {
+        self.ivars().shows.set(match plays {
+            true => Shows::Film,
+            false => Shows::Still,
+        });
+        self.put();
+        if plays {
             // SAFETY: `tick:` is this class's and takes the link; the view
             // holds the link and invalidates it, which releases its target.
             let link = unsafe { self.displayLinkWithTarget_selector(self, sel!(tick:)) };
@@ -435,7 +484,12 @@ impl About {
         let logo = NSImageView::new(mtm);
         logo.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
         logo.setAnimates(false);
-        logo.setFrame(NSRect::new(NSPoint::new(0.0, LINES), LOGO));
+        let film_at = NSRect::new(NSPoint::new(0.0, LINES), LOGO);
+        let still_at = NSRect::new(
+            NSPoint::new(content.still_at.origin.x, content.still_at.origin.y + LINES),
+            content.still_at.size,
+        );
+        logo.setFrame(still_at);
         view.addSubview(&logo);
 
         let small = NSFont::smallSystemFontSize();
@@ -457,6 +511,8 @@ impl About {
             on_dark,
             on_light,
             logo,
+            film_at,
+            still_at,
         });
         window.set_content_view(&view);
         view.follow();
@@ -512,36 +568,44 @@ impl About {
 
     /// The film at `frame`, as a tick puts it there.
     pub fn show_frame(&self, frame: FrameNo) {
-        let shown = self.view.ivars().shown.borrow();
-        if let Some(s) = &*shown {
+        self.view.ivars().shows.set(Shows::Film);
+        if let Some(s) = &*self.view.ivars().shown.borrow() {
             if let Some(film) = &s.picture(self.view.look()).film {
                 film.show(frame);
             }
-            NSView::setNeedsDisplay(&s.logo, true);
         }
+        self.view.put();
     }
 
-    /// The film's last frame, the logo at rest.
-    pub fn rest_frame(&self) -> Option<FrameNo> {
-        let shown = self.view.ivars().shown.borrow();
-        shown
-            .as_ref()
-            .and_then(|s| s.picture(self.view.look()).film.as_ref().map(Film::last))
-    }
-
-    /// The film from its start or at rest, with no window shown: the part of
-    /// [`About::open`] a test can reach.
+    /// The film from its start or the still, with no window shown: the part
+    /// of [`About::open`] a test can reach.
     pub fn play(&self, motion: Motion) {
         self.view.start(motion);
     }
 
-    /// The film's current frame, and whether its clock is running.
+    /// **The cut**, as a tick makes it at the film's end: the still, with the
+    /// clock stopped. A link made for a window never on screen does not tick,
+    /// so this is the part a test can reach.
+    pub fn cut(&self) {
+        self.view.rest();
+    }
+
+    /// Which of the two the window shows.
+    pub fn shows(&self) -> Shows {
+        self.view.ivars().shows.get()
+    }
+
+    /// The film's current frame while it shows, and whether its clock is
+    /// running.
     pub fn film_state(&self) -> (Option<FrameNo>, Clock) {
         let shown = self.view.ivars().shown.borrow();
-        let frame = shown.as_ref().and_then(|s| {
-            let film = s.picture(self.view.look()).film.as_ref()?;
-            Some(film.current.get())
-        });
+        let frame = match self.shows() {
+            Shows::Film => shown.as_ref().and_then(|s| {
+                let film = s.picture(self.view.look()).film.as_ref()?;
+                Some(film.current.get())
+            }),
+            Shows::Still => None,
+        };
         let clock = match self.view.ivars().link.borrow().is_some() {
             true => Clock::Running,
             false => Clock::Stopped,
@@ -618,21 +682,26 @@ pub fn add_menu_item(
 mod tests {
     use super::*;
 
-    /// **The frame at each moment, and the rest**: each frame for its own
-    /// delay, the last held whatever the clock says, and an empty film over
-    /// at once. Perturbation: end the film at the last frame's end instead of
-    /// its start and the third case fails.
+    /// **The frame at each moment, and the cut**: each frame for its own
+    /// delay, over at `plays` however long the file runs, over when its
+    /// frames run out if that is sooner, and an empty film over at once.
+    /// Perturbation: ignore `plays` and the cases at 50 ms fail.
     #[test]
-    fn a_frame_lasts_its_delay_and_the_last_is_the_rest() {
+    fn a_frame_lasts_its_delay_and_the_film_ends_at_the_cut() {
         let ms = Duration::from_millis;
         let d = [ms(20), ms(30), ms(1000)];
         let f = FrameNo::of;
-        assert_eq!(frame_at(&d, ms(0)), (f(0), Playing::Yes));
-        assert_eq!(frame_at(&d, ms(19)), (f(0), Playing::Yes));
-        assert_eq!(frame_at(&d, ms(20)), (f(1), Playing::Yes));
-        assert_eq!(frame_at(&d, ms(49)), (f(1), Playing::Yes));
-        assert_eq!(frame_at(&d, ms(50)), (f(2), Playing::Over));
-        assert_eq!(frame_at(&d, ms(9000)), (f(2), Playing::Over));
-        assert_eq!(frame_at(&[], ms(0)), (f(0), Playing::Over));
+        let at = |plays, elapsed| frame_at(&d, ms(plays), ms(elapsed));
+        assert_eq!(at(50, 0), (f(0), Playing::Yes));
+        assert_eq!(at(50, 19), (f(0), Playing::Yes));
+        assert_eq!(at(50, 20), (f(1), Playing::Yes));
+        assert_eq!(at(50, 49), (f(1), Playing::Yes));
+        assert_eq!(at(50, 50), (f(1), Playing::Over));
+        assert_eq!(at(50, 9000), (f(1), Playing::Over));
+        assert_eq!(at(900, 899), (f(2), Playing::Yes));
+        assert_eq!(at(900, 900), (f(2), Playing::Over));
+        assert_eq!(at(5000, 1049), (f(2), Playing::Yes));
+        assert_eq!(at(5000, 1050), (f(2), Playing::Over));
+        assert_eq!(frame_at(&[], ms(50), ms(0)), (f(0), Playing::Over));
     }
 }

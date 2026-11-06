@@ -1,7 +1,9 @@
 //! **The About window, built and never shown**, and the app menu's item that
 //! opens it: what it says, the logo for each appearance, the film stepped to
-//! a frame and at rest, the item's action, and the renders for each
-//! appearance at 1x and 2x when `BAUD_ABOUT_RENDERS` names a folder.
+//! a frame and cut to the still, the item's action, and the renders for each
+//! appearance at 1x and 2x when `BAUD_ABOUT_RENDERS` names a folder, with the
+//! film up to the cut and the still as raw frames for the flash census when
+//! `BAUD_ABOUT_CUT` does.
 //!
 //! `harness = false` because AppKit views are main-thread-only and libtest
 //! runs every test on a thread of its own; this `main` is the process's main
@@ -43,7 +45,9 @@ fn main() {
 #[cfg(target_os = "macos")]
 mod checks {
     use baud_domain::FrameNo;
-    use baud_present_macos::about::{About, Clock, Motion, add_menu_item};
+    use baud_present_macos::about::{
+        About, Clock, Motion, PLAYS, Playing, Shows, add_menu_item, frame_at,
+    };
     use core::cell::Cell;
     use core::time::Duration;
     use macos_liquid_glass::objc2::rc::Retained;
@@ -64,13 +68,12 @@ mod checks {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
     }
 
+    /// The README's film: the committed one, or under `BAUD_README_FILES`
+    /// the one `baud-pictures logo --out` wrote there.
     fn film(half: &str) -> Vec<u8> {
-        std::fs::read(
-            workspace()
-                .join("assets/readme")
-                .join(format!("logo-{half}.gif")),
-        )
-        .expect("the README's film")
+        let dir = std::env::var_os("BAUD_README_FILES")
+            .map_or_else(|| workspace().join("assets/readme"), PathBuf::from);
+        std::fs::read(dir.join(format!("logo-{half}.gif"))).expect("the README's film")
     }
 
     /// `view`'s picture at `scale`, as AppKit draws it into a bitmap with no
@@ -113,6 +116,48 @@ mod checks {
         data.to_vec()
     }
 
+    /// A bitmap's pixels, red, green and blue, row after row from the top.
+    fn rgb(rep: &NSBitmapImageRep) -> (usize, usize, Vec<u8>) {
+        let (w, h) = (rep.pixelsWide() as usize, rep.pixelsHigh() as usize);
+        let stride = rep.bytesPerRow() as usize;
+        let data = rep.bitmapData();
+        assert!(!data.is_null(), "the bitmap's bytes");
+        // SAFETY: AppKit's own buffer for a bitmap with no planes, `stride`
+        // bytes a row for `h` rows, alive as long as `rep`.
+        let px = unsafe { core::slice::from_raw_parts(data, stride * h) };
+        let mut out = Vec::with_capacity(w * h * 3);
+        for row in px.chunks_exact(stride) {
+            out.extend(
+                row[..w * 4]
+                    .chunks_exact(4)
+                    .flat_map(|p| [p[0], p[1], p[2]]),
+            );
+        }
+        (w, h, out)
+    }
+
+    /// **The box of the pixels within 16 levels of the amber**: left, top,
+    /// right and bottom, or `None`.
+    fn amber_box((w, _, px): &(usize, usize, Vec<u8>)) -> Option<[usize; 4]> {
+        let near = |p: &[u8]| {
+            [0xF4u8, 0xA3, 0x2C]
+                .iter()
+                .zip(p)
+                .all(|(a, b)| a.abs_diff(*b) <= 16)
+        };
+        let mut b: Option<[usize; 4]> = None;
+        for (i, p) in px.chunks_exact(3).enumerate() {
+            if near(p) {
+                let (x, y) = (i % w, i / w);
+                b = Some(match b {
+                    None => [x, y, x, y],
+                    Some([l, t, r, bo]) => [l.min(x), t.min(y), r.max(x), bo.max(y)],
+                });
+            }
+        }
+        b
+    }
+
     fn set_look(about: &About, name: &str) {
         let a = NSAppearance::appearanceNamed(&NSString::from_str(name)).expect("a stock one");
         about.window().set_appearance(Some(&a));
@@ -122,6 +167,7 @@ mod checks {
         let mtm = MainThreadMarker::new().expect("harness = false runs main on the main thread");
         let app = NSApplication::sharedApplication(mtm);
         let (dark, light) = (film("dark"), film("light"));
+        let mut cut = FrameNo::of(0);
 
         let image = |b: &[u8]| macos_liquid_glass::image_from_bytes(b);
         let about =
@@ -149,8 +195,11 @@ mod checks {
 
         // **What each frame lasts is the file's, as baud's own decoder reads
         // it**: AppKit's durations are what a tick steps by, and a clamped
-        // delay would stretch the film past WCAG's five seconds. The last
-        // frame is the rest: its delay does not count.
+        // delay would stretch the film past WCAG's five seconds. **The window
+        // plays under five seconds and cuts on a frame's end**: the file
+        // repeats for longer, and a cut inside a frame would show that frame
+        // short. Perturbation: a `PLAYS` of 5 s fails the first, and of
+        // 4.76 s the second.
         for (name, gif) in [(DARK, &dark), (LIGHT, &light)] {
             set_look(&about, name);
             let lasts = about.film_lasts();
@@ -164,16 +213,31 @@ mod checks {
                 })
                 .expect("every frame");
             assert_eq!(lasts.len(), from_file.len(), "{name}: frames");
-            let moving: f64 = lasts[..lasts.len() - 1]
-                .iter()
-                .map(Duration::as_secs_f64)
-                .sum();
-            let want = from_file[..from_file.len() - 1].iter().sum::<u64>() as f64 / 1000.0;
+            let moving: f64 = lasts.iter().map(Duration::as_secs_f64).sum();
+            let want = from_file.iter().sum::<u64>() as f64 / 1000.0;
             assert!(
                 (moving - want).abs() < 1e-3,
-                "{name}: AppKit's film moves {moving} s, the file's {want} s"
+                "{name}: AppKit's film runs {moving} s, the file's {want} s"
             );
-            assert!(moving < 5.0, "{name}: {moving} s, under WCAG's five");
+            assert!(
+                PLAYS.as_secs_f64() < 5.0,
+                "{name}: {PLAYS:?}, under WCAG's five"
+            );
+            let (mut end, mut frames) = (0.0, 0);
+            while end + 1e-3 < PLAYS.as_secs_f64() {
+                end += lasts[frames].as_secs_f64();
+                frames += 1;
+            }
+            assert!(frames < lasts.len(), "{name}: the film ends at the cut");
+            assert!(
+                (end - PLAYS.as_secs_f64()).abs() < 1e-3,
+                "{name}: the cut at {PLAYS:?} is inside a frame, which ends at {end} s"
+            );
+            cut = FrameNo::of(u32::try_from(frames).expect("a frame"));
+            let last = FrameNo::of(cut.raw() - 1);
+            let just = PLAYS - Duration::from_millis(1);
+            assert_eq!(frame_at(&lasts, PLAYS, just), (last, Playing::Yes));
+            assert_eq!(frame_at(&lasts, PLAYS, PLAYS).1, Playing::Over);
         }
 
         let content = about.window().content_view().expect("its view");
@@ -203,51 +267,129 @@ mod checks {
         assert_ne!(pages[0], pages[1], "the flip swapped nothing");
 
         // **The film steps**: its frames differ, a frame's picture is that
-        // frame's, and it comes back to the rest. Perturbation: `Film::show`
-        // that sets no frame draws the same picture for all of them.
+        // frame's, and it comes back. Perturbation: `Film::show` that sets no
+        // frame draws the same picture for all of them.
         set_look(&about, DARK);
-        let rest = about.rest_frame().expect("a film");
         let logo = about.logo_view();
-        let mid = FrameNo::of(rest.raw() / 2);
+        let mid = FrameNo::of(cut.raw() / 2);
         let shot = |frame: FrameNo| {
             about.show_frame(frame);
             png(&picture(&logo, 1.0))
         };
-        let at_rest = shot(rest);
+        let first = shot(FrameNo::of(0));
         let moving = shot(mid);
-        assert_ne!(at_rest, moving, "the middle of the film is not its rest");
-        assert_eq!(shot(rest), at_rest, "and it comes back");
+        assert_ne!(first, moving, "the middle of the film is not its start");
+        assert_eq!(shot(FrameNo::of(0)), first, "and it comes back");
 
-        // **Reduce Motion rests at once and starts no clock**; plain, the film
-        // goes to its first frame. A link made for a window never on screen
-        // does not tick, so what a tick does is `frame_at`'s tests' and the
-        // frames' above.
-        about.play(Motion::Still);
-        assert_eq!(about.film_state(), (Some(rest), Clock::Stopped), "still");
-        about.play(Motion::Plays);
-        assert_eq!(
-            about.film_state(),
-            (Some(FrameNo::of(0)), Clock::Running),
-            "from the first frame"
-        );
-        about.play(Motion::Still);
-        assert_eq!(
-            about.film_state(),
-            (Some(rest), Clock::Stopped),
-            "and the clock stopped"
-        );
-
-        // **A binary with no bundle shows the lockup still**, with the same
-        // words and nothing to play.
+        // **Reduce Motion shows the still at once and starts no clock**;
+        // plain, the film goes to its first frame; the cut stops the clock on
+        // the still, whichever appearance it ends in and through a flip after.
+        // A link made for a window never on screen does not tick, so what a
+        // tick does is `frame_at`'s and the cut's.
+        // A binary with no bundle shows the same picture, with nothing to
+        // play. Perturbation: rest on `film.last()` and the film's last
+        // frame, plasma and all, is not the bare window's.
         let bare = crate::about::build(mtm, BUILD, None, None).expect("the window");
         assert!(!bare.has_film());
-        assert_eq!(bare.rest_frame(), None);
         bare.play(Motion::Plays);
+        assert_eq!(bare.shows(), Shows::Still);
         assert_eq!(
             bare.film_state(),
             (None, Clock::Stopped),
             "no clock with no film"
         );
+        let bare_view = bare.window().content_view().expect("its view");
+        for (name, other) in [(DARK, LIGHT), (LIGHT, DARK)] {
+            set_look(&about, name);
+            set_look(&bare, name);
+            about.play(Motion::Still);
+            assert_eq!(about.shows(), Shows::Still, "{name}");
+            assert_eq!(about.film_state(), (None, Clock::Stopped), "{name}: still");
+            let still = png(&picture(&content, 2.0));
+            assert_eq!(
+                still,
+                png(&picture(&bare_view, 2.0)),
+                "{name}: the bare window's picture"
+            );
+            about.play(Motion::Plays);
+            assert_eq!(
+                about.film_state(),
+                (Some(FrameNo::of(0)), Clock::Running),
+                "{name}: from the first frame"
+            );
+            assert_ne!(
+                png(&picture(&content, 2.0)),
+                still,
+                "{name}: the film shows"
+            );
+            about.cut();
+            assert_eq!(about.film_state(), (None, Clock::Stopped), "{name}: cut");
+            assert_eq!(png(&picture(&content, 2.0)), still, "{name}: the still");
+            set_look(&about, other);
+            let flipped = png(&picture(&content, 2.0));
+            assert_ne!(flipped, still, "{name}: a flip after the cut");
+            assert_eq!(about.shows(), Shows::Still, "{name}: still the still");
+            set_look(&about, name);
+            assert_eq!(png(&picture(&content, 2.0)), still, "{name}: and back");
+        }
+
+        // **The cut moves only the plasma**: on the film's last frame the
+        // block is shown, and on the next it is hidden, so the cut ends a
+        // phase; and the amber, the ❯'s left to the block's right, is where
+        // the still has it, within a point at 2x. Perturbation: the still
+        // filling the logo's box, as a bare window's used to, is 2.16 times
+        // the film's lockup.
+        for name in [DARK, LIGHT] {
+            set_look(&about, name);
+            about.play(Motion::Still);
+            let still = amber_box(&rgb(&picture(&content, 2.0))).expect("the still's amber");
+            let frame = |f: FrameNo| {
+                about.show_frame(f);
+                rgb(&picture(&content, 2.0))
+            };
+            let last = amber_box(&frame(FrameNo::of(cut.raw() - 1))).expect("the amber");
+            let next = amber_box(&frame(cut)).expect("the ❯");
+            println!("{name}: the amber, the still's {still:?}, the film's {last:?}");
+            for (a, b) in still.iter().zip(&last) {
+                assert!(
+                    a.abs_diff(*b) <= 2,
+                    "{name}: the still's amber {still:?} is not the film's {last:?}"
+                );
+            }
+            assert!(
+                next[2] + 8 < last[2],
+                "{name}: the block is hidden after the cut's frame: {next:?} against {last:?}"
+            );
+        }
+        // **The film up to the cut and the still, as the flash census reads
+        // them**, when asked for: `flash_census` over one pass, the still held.
+        if let Some(dir) = std::env::var_os("BAUD_ABOUT_CUT") {
+            let dir = PathBuf::from(dir);
+            std::fs::create_dir_all(&dir).expect("the folder");
+            for (name, look) in [(DARK, "dark"), (LIGHT, "light")] {
+                set_look(&about, name);
+                let lasts = about.film_lasts();
+                let mut frames = Vec::new();
+                let mut repeats = String::new();
+                let mut size = (0, 0);
+                for f in 0..cut.raw() {
+                    about.show_frame(FrameNo::of(f));
+                    let (w, h, px) = rgb(&picture(&content, 2.0));
+                    size = (w, h);
+                    frames.extend_from_slice(&px);
+                    let cs = (lasts[f as usize].as_secs_f64() * 100.0).round() as u32;
+                    repeats.push_str(&format!("{cs}\n"));
+                }
+                about.play(Motion::Still);
+                frames.extend_from_slice(&rgb(&picture(&content, 2.0)).2);
+                repeats.push_str("1\n");
+                let rgb_at = dir.join(format!("cut-{look}.rgb"));
+                std::fs::write(&rgb_at, &frames).expect("written");
+                let at = dir.join(format!("cut-{look}.repeats"));
+                std::fs::write(&at, repeats).expect("written");
+                println!("{} {} {}", rgb_at.display(), size.0, size.1);
+            }
+        }
 
         // **The item**: first in the app menu, a separator under it, its
         // action the hook's, reached the way a click reaches it. The window

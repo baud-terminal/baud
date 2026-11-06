@@ -1,21 +1,22 @@
 //! **What the About window says, and where its film comes from.**
 //! `baud_present_macos::about` is the window; this is baud's content: the
-//! README's logo film from the app bundle's Resources, the lockup a bare
-//! binary has instead, the version line, the home and the licence.
+//! README's logo film from the app bundle's Resources, the lockup it cuts to
+//! and a bare binary has instead, the version line, the home and the licence.
 //!
-//! The films are not in the binary: the two are 5.3 MB, and the `baud`
+//! The films are not in the binary: the two are 8.9 MB, and the `baud`
 //! crate, 4.4 MiB against crates.io's 10, has no room for what a window
 //! opened now and then plays. `scripts/bundle-macos.sh` copies them
 //! beside the icon, where Apple's bundle layout keeps resources.
 
 #![forbid(unsafe_code)]
 
-use baud_present_macos::about::{About, Content, Logo, Motion};
-use baud_render::Argb;
+use baud_present_macos::about::{About, Content, LOGO, Logo, Motion};
+use baud_render::{Argb, splash};
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker};
 use macos_liquid_glass::objc2_app_kit::NSImage;
-use macos_liquid_glass::objc2_foundation::{NSBundle, NSString};
+use macos_liquid_glass::objc2_core_foundation::CGFloat;
+use macos_liquid_glass::objc2_foundation::{NSBundle, NSPoint, NSRect, NSSize, NSString};
 use std::cell::OnceCell;
 
 /// baud's home.
@@ -36,6 +37,31 @@ pub(crate) const PAGE_LIGHT: Argb = Argb(0xFF_FF_FF_FF);
 const STILL_DARK: &[u8] = include_bytes!("../assets/logo/baud-lockup-dark-tight.svg");
 const STILL_LIGHT: &[u8] = include_bytes!("../assets/logo/baud-lockup-light-tight.svg");
 
+/// **Where the film draws the lockup, in its units**: the film's canvas has
+/// 60 to its left and 75 above it (`logo_film.rs`), shown at a point a unit.
+const FILM_LEFT: CGFloat = 60.0;
+const FILM_ABOVE: CGFloat = 75.0;
+
+/// **The tight lockup's units a unit of the lockup's**: the mark's cell, 168
+/// in the one (`tools/baud-pictures`) and 46 in the other.
+const TIGHT: CGFloat = 168.0 / 46.0;
+
+/// **The still's place in the logo's box, where the film draws the lockup**:
+/// a point a lockup unit, centred across the box as the lockup's ink is, and
+/// on the rows of the film's mark, as the still's own box is.
+fn still_at(still: &NSImage) -> NSRect {
+    let size = still.size();
+    let (w, h) = (size.width / TIGHT, size.height / TIGHT);
+    let across = FILM_LEFT + CGFloat::from(splash::BOX.0) / 2.0;
+    // The film's block starts on a whole pixel of its 2x canvas.
+    let top = ((FILM_ABOVE + CGFloat::from(splash::BLOCK.top)) * 2.0).round() / 2.0;
+    let rows = top + CGFloat::from(splash::BLOCK.bottom - splash::BLOCK.top) / 2.0;
+    NSRect::new(
+        NSPoint::new(across - w / 2.0, LOGO.height - rows - h / 2.0),
+        NSSize::new(w, h),
+    )
+}
+
 /// `name.gif` in the main bundle's Resources; `None` with no bundle.
 fn from_bundle(name: &str) -> Option<Retained<NSImage>> {
     let path = NSBundle::mainBundle().pathForResource_ofType(
@@ -54,12 +80,14 @@ pub(crate) fn build(
     film_light: Option<Retained<NSImage>>,
 ) -> Option<About> {
     let version = crate::version::about_line(build);
+    let still_dark = macos_liquid_glass::image_from_bytes(STILL_DARK)?;
     Some(About::new(
         mtm,
         &Content {
+            still_at: still_at(&still_dark),
             on_dark: Logo {
                 film: film_dark,
-                still: macos_liquid_glass::image_from_bytes(STILL_DARK)?,
+                still: still_dark,
             },
             on_light: Logo {
                 film: film_light,
@@ -81,7 +109,7 @@ thread_local! {
 }
 
 /// **The About item's action**: the window to the front, the logo from its
-/// start, or at rest under Reduce Motion.
+/// start, or the still under Reduce Motion.
 pub(crate) fn open(mtm: MainThreadMarker) {
     WINDOW.with(|w| {
         let about = w.get_or_init(|| {
