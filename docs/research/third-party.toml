@@ -2064,6 +2064,44 @@ upstream = "https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd
 status   = "kept"
 
 [[tree]]
+what     = "xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets from, and checks the JIS sets against"
+paths    = ["baud-domain/data/xterm-charsets.h"]
+licence  = "X11"
+notice   = "LICENSES/xterm-COPYING.txt"
+upstream = "docs/research/sources/xterm-charsets.h"
+status   = "kept"
+public   = "xterm's charsets.h, carried unmodified, which the build compiles into DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets"
+holder   = "Thomas E. Dickey (xterm)"
+
+[[tree]]
+what     = "X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints"
+paths    = ["baud-domain/data/xorg-keysymdef.h"]
+licence  = "X11"
+notice   = "in file"
+upstream = "docs/research/sources/xorg-keysymdef.h"
+status   = "kept"
+public   = "X.Org's keysymdef.h, carried unmodified with its notices, which the build reads for the keysyms xterm's national character sets name"
+holder   = "The Open Group; Digital Equipment Corporation"
+
+[[tree]]
+what     = "Unicode's JIS0201.TXT and its six ISO 8859 mapping files, which baud-domain's build reads, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files: JIS-Katakana's 63 characters and JIS-Roman's Yen sign, and the six 96-character sets ESC - . / designate"
+paths    = [
+  "baud-domain/data/JIS0201.TXT",
+  "baud-domain/data/iso8859-1.txt",
+  "baud-domain/data/iso8859-2.txt",
+  "baud-domain/data/iso8859-5.txt",
+  "baud-domain/data/iso8859-7.txt",
+  "baud-domain/data/iso8859-8.txt",
+  "baud-domain/data/iso8859-9.txt",
+]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/MAPPINGS/"
+status   = "kept"
+public   = "Unicode's JIS0201.TXT and ISO 8859 mapping files, carried unmodified, which the build compiles into JIS-Katakana, JIS-Roman and the six 96-character sets"
+holder   = "Unicode, Inc."
+
+[[tree]]
 what     = "National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h. Open: the NOTICE names The Open Group (keysymdef.h) as a holder, and the only notice this row lists is xterm's COPYING; keysymdef.h's own notices, The Open Group's and Digital's, are in docs/research/sources/xorg-keysymdef.h, which no crate carries"
 paths    = ["baud-domain/src/nrcs_data.rs"]
 licence  = "X11"

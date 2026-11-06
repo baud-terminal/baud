@@ -13,16 +13,24 @@ mod cluster;
 mod colour_names;
 #[path = "build/contrast.rs"]
 mod contrast;
+#[path = "build/dec_graphics.rs"]
+mod dec_graphics;
+#[path = "build/dec_sets.rs"]
+mod dec_sets;
 #[path = "build/grapheme.rs"]
 mod grapheme;
 #[path = "build/ignorable.rs"]
 mod ignorable;
+#[path = "build/iso96.rs"]
+mod iso96;
 #[path = "build/joining.rs"]
 mod joining;
 #[path = "build/linebreak.rs"]
 mod linebreak;
 #[path = "build/merged.rs"]
 mod merged;
+#[path = "build/nrcs.rs"]
+mod nrcs;
 #[path = "build/placeholder.rs"]
 mod placeholder;
 #[path = "build/search.rs"]
@@ -33,6 +41,8 @@ mod sequence;
 mod ucd;
 #[path = "build/width.rs"]
 mod width;
+#[path = "build/xterm.rs"]
+mod xterm;
 
 use baud_tablegen::{Emit, Errors};
 use std::path::PathBuf;
@@ -59,6 +69,9 @@ fn main() {
         &ignorable::INPUTS,
         &colour_names::INPUTS,
         &placeholder::INPUTS,
+        &dec_sets::INPUTS,
+        &nrcs::INPUTS,
+        &iso96::INPUTS,
     ]
     .iter()
     .flat_map(|inputs| inputs.iter().map(|i| i.file))
@@ -70,7 +83,7 @@ fn main() {
     }
     std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
     let read = |file: &str| std::fs::read_to_string(data.join(file));
-    let tables: [(&str, Table); 12] = [
+    let tables: [(&str, Table); 16] = [
         ("bidi", bidi::build),
         ("grapheme", grapheme::build),
         ("width", width::build),
@@ -83,6 +96,10 @@ fn main() {
         ("kitty colour names", colour_names::kitty),
         ("x colour names", colour_names::x),
         ("placeholder", placeholder::build),
+        ("dec graphics", dec_graphics::build),
+        ("dec sets", dec_sets::build),
+        ("nrcs", nrcs::build),
+        ("iso96", iso96::build),
     ];
     let mut built: Vec<(&str, Result<Emit, Errors>)> = tables
         .into_iter()

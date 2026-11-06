@@ -27,8 +27,17 @@
 //! a rule dropped from UAX #29's, the reachable state count, a state id
 //! past seven bits, a ready state missing or twice. `build/merged.rs`: a
 //! trie it reads missing, a class past `GraphemeClass`'s, a palette or a
-//! block id past a byte, and the code points it is checked at. The
-//! modules only compute: they read
+//! block id past a byte, and the code points it is checked at.
+//! `build/dec_graphics.rs`, `build/dec_sets.rs`, `build/nrcs.rs` and
+//! `build/iso96.rs`: every refusal of the xterm macro readers -- a line
+//! that is no entry, an entry they cannot read, a byte twice, a macro with
+//! no body or two, a keysym with no `#define` or past Latin-1, a `/* U+ */`
+//! comment that is not its keysym, a skip or an override the source no
+//! longer bears out, an `UNDEF` line neither emitted nor skipped -- the
+//! headers, the counts, Figure A-2's mask, JIS0201.TXT's lines, and the
+//! rule that the cells where xterm and DEC's text differ are exactly the
+//! cells named, over DEC's Table 2-3 as `vt220_tables.tsv` transcribes it.
+//! The modules only compute: they read
 //! through the function they are given and write nothing, so running them
 //! here touches no `OUT_DIR`.
 
@@ -40,16 +49,24 @@ mod caseless;
 mod cluster;
 #[path = "../build/colour_names.rs"]
 mod colour_names;
+#[path = "../build/dec_graphics.rs"]
+mod dec_graphics;
+#[path = "../build/dec_sets.rs"]
+mod dec_sets;
 #[path = "../build/grapheme.rs"]
 mod grapheme;
 #[path = "../build/ignorable.rs"]
 mod ignorable;
+#[path = "../build/iso96.rs"]
+mod iso96;
 #[path = "../build/joining.rs"]
 mod joining;
 #[path = "../build/linebreak.rs"]
 mod linebreak;
 #[path = "../build/merged.rs"]
 mod merged;
+#[path = "../build/nrcs.rs"]
+mod nrcs;
 #[path = "../build/placeholder.rs"]
 mod placeholder;
 #[path = "../build/search.rs"]
@@ -60,6 +77,8 @@ mod sequence;
 mod ucd;
 #[path = "../build/width.rs"]
 mod width;
+#[path = "../build/xterm.rs"]
+mod xterm;
 
 use baud_tablegen::{Emit, Errors, Kind};
 
@@ -1757,4 +1776,513 @@ fn each_check_the_merged_build_makes_fires() {
         w8.bytes(&format!("{t}_BLOCKS"), &[], &bin(&w, "width8_blocks"));
     }
     fails(&g, &w8, Kind::Control, "U+1F1E6 (a regional indicator)");
+}
+
+const CHARSETS: &str = "xterm-charsets.h";
+const KEYSYMS: &str = "xorg-keysymdef.h";
+const JIS: &str = "JIS0201.TXT";
+
+#[test]
+fn the_pinned_files_build_the_dec_tables() {
+    for (name, build) in [
+        ("dec graphics", dec_graphics::build as Build),
+        ("dec sets", dec_sets::build),
+        ("nrcs", nrcs::build),
+        ("iso96", iso96::build),
+    ] {
+        if let Err(errs) = build(&pinned) {
+            panic!("{name}: {errs}");
+        }
+    }
+    // What each reads, and every one of them under `data/`, where the
+    // published crate carries it.
+    let inputs: Vec<Vec<&str>> = [&dec_sets::INPUTS[..], &nrcs::INPUTS, &iso96::INPUTS]
+        .iter()
+        .map(|i| i.iter().map(|i| i.file).collect())
+        .collect();
+    assert_eq!(
+        inputs,
+        [
+            vec![CHARSETS, JIS],
+            vec![CHARSETS, KEYSYMS],
+            vec![
+                "iso8859-1.txt",
+                "iso8859-2.txt",
+                "iso8859-7.txt",
+                "iso8859-8.txt",
+                "iso8859-5.txt",
+                "iso8859-9.txt"
+            ],
+        ]
+    );
+    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
+    for file in inputs.concat() {
+        assert!(
+            std::path::Path::new(&format!("{data}/{file}")).is_file(),
+            "data/{file}"
+        );
+    }
+}
+
+#[test]
+fn each_check_the_dec_builds_make_fires() {
+    let (g, d, n, i): (Build, Build, Build, Build) = (
+        dec_graphics::build,
+        dec_sets::build,
+        nrcs::build,
+        iso96::build,
+    );
+    let id = "charsets.h,v 1.36";
+    each_fires(&[
+        // The headers: charsets.h's line 1 and its revision on line 2,
+        // keysymdef.h's, JIS0201.TXT's and an ISO 8859 file's.
+        (
+            g,
+            CHARSETS,
+            id,
+            "charsets.h,v 1.37",
+            Kind::Header,
+            "line 2 is not",
+        ),
+        (
+            d,
+            CHARSETS,
+            id,
+            "charsets.h,v 1.37",
+            Kind::Header,
+            "line 2 is not",
+        ),
+        (
+            n,
+            CHARSETS,
+            id,
+            "charsets.h,v 1.37",
+            Kind::Header,
+            "line 2 is not",
+        ),
+        (
+            d,
+            CHARSETS,
+            "/*",
+            "//",
+            Kind::Header,
+            "is this the pinned file [xterm-charsets]?",
+        ),
+        (
+            n,
+            KEYSYMS,
+            "/****",
+            "/*  *",
+            Kind::Header,
+            "is this the pinned file [xorg-keysymdef]?",
+        ),
+        (
+            d,
+            JIS,
+            "# JIS0201.TXT",
+            "# JIS0208.TXT",
+            Kind::Header,
+            "is this the pinned file [unicode-jis0201]?",
+        ),
+        (
+            i,
+            "iso8859-1.txt",
+            "# 8859-1.TXT",
+            "# 8859-2.TXT",
+            Kind::Header,
+            "is this the pinned file [iso8859-1]?",
+        ),
+        // The code-page reader: upper-case digits only in the sets'
+        // macros, a line that is no entry, a byte twice, no body.
+        (
+            d,
+            CHARSETS,
+            "UNI(0x28, 0x00A4)",
+            "UNI(0x28, 0x00a4)",
+            Kind::Malformed,
+            "data/xterm-charsets.h:443:6: map_DEC_Supp_Graphic: an entry the build cannot read",
+        ),
+        (
+            d,
+            CHARSETS,
+            "XXX(0x24, UNDEF) \\",
+            "XXX(0x24, UNDEF) \\\n\t    junk \\",
+            Kind::Malformed,
+            "map_DEC_Supp_Graphic: an entry the build cannot read",
+        ),
+        (
+            d,
+            CHARSETS,
+            "UNI(0x57, 0x0152)",
+            "UNI(0x28, 0x0152)",
+            Kind::Duplicate,
+            "map_DEC_Supp_Graphic: 0x28 twice",
+        ),
+        (
+            d,
+            CHARSETS,
+            "#define map_JIS_Roman(code) \\",
+            "#define map_JIS_Rome(code) \\",
+            Kind::Malformed,
+            "no map_JIS_Roman with a body",
+        ),
+        (
+            g,
+            CHARSETS,
+            "UNI(0x61, 0x2592)",
+            "UNI(0x61,0x2592)",
+            Kind::Malformed,
+            "map_DEC_Spec_Graphic: an entry the build cannot read",
+        ),
+        // DEC Supplemental: Figure A-2's mask, the 81, CONFORM's cell
+        // agreeing with xterm.
+        (
+            d,
+            CHARSETS,
+            "XXX(0x24, UNDEF) \\",
+            "UNI(0x24, 0x0024) \\",
+            Kind::Control,
+            "are not Figure A-2's reserved ones",
+        ),
+        (
+            d,
+            CHARSETS,
+            "XXX(0x24, UNDEF) \\",
+            "UNI(0x24, 0x0024) \\",
+            Kind::Count,
+            "82 DEC Supplemental positions defined, 81 expected",
+        ),
+        (
+            d,
+            CHARSETS,
+            "UNI(0x5F, 0x005F)",
+            "UNI(0x5F, 0x00DF)",
+            Kind::Control,
+            "Supplemental 0x5F: CONFORM gives U+00DF, DEC's text U+00DF, xterm U+00DF",
+        ),
+        // JIS0201.TXT: a line it cannot read, a katakana it does not map,
+        // the 63, the Yen sign.
+        (
+            d,
+            JIS,
+            "0xA1\t0xFF61",
+            "0xA1 0xFF61",
+            Kind::Malformed,
+            "data/JIS0201.TXT:142:1: a line the build cannot read",
+        ),
+        (
+            d,
+            JIS,
+            "0xA1\t0xFF61\t# HALFWIDTH IDEOGRAPHIC FULL STOP\n",
+            "",
+            Kind::Control,
+            "JIS-Katakana 0x21: JIS0201.TXT maps no 0xA1",
+        ),
+        (
+            d,
+            JIS,
+            "0xA1\t0xFF61\t# HALFWIDTH IDEOGRAPHIC FULL STOP\n",
+            "",
+            Kind::Count,
+            "62 JIS-Katakana positions defined, 63 expected",
+        ),
+        (
+            d,
+            JIS,
+            "0x5C\t0x00A5",
+            "0x5C\t0x005C",
+            Kind::Control,
+            "does not map 0x5C to U+00A5",
+        ),
+        // xterm drifting from the JIS tables and DEC Special Graphics, and
+        // a departure recorded that is no longer xterm's.
+        (
+            d,
+            CHARSETS,
+            "UNI(0x31, 0xFF71)",
+            "UNI(0x31, 0xFF72)",
+            Kind::Control,
+            "JisKatakana 0x31: xterm U+FF72, DEC's text U+FF71, and neither",
+        ),
+        (
+            d,
+            CHARSETS,
+            "UNI(0x7E, 0x203E)",
+            "UNI(0x7E, 0x00AF)",
+            Kind::Control,
+            "JisRoman 0x7E: XTERM_DEPARTS records U+203E, xterm U+00AF",
+        ),
+        (
+            g,
+            CHARSETS,
+            "UNI(0x60, 0x25c6)",
+            "XXX(0x60, UNDEF)",
+            Kind::Control,
+            "map_DEC_Spec_Graphic gives 0x60 no codepoint",
+        ),
+        (
+            g,
+            CHARSETS,
+            "UNI(0x60, 0x25c6)",
+            "UNI(0x41, 0x0391) \\\n\t    UNI(0x60, 0x25c6)",
+            Kind::Control,
+            "Graphics 0x41: xterm U+0391, DEC's text U+0041, and neither",
+        ),
+        (
+            g,
+            CHARSETS,
+            "XXX(0x5F, UNDEF) \\\n\t    UNI(0x60, 0x25c6)",
+            "UNI(0x5F, 0x0020) \\\n\t    UNI(0x60, 0x25c6)",
+            Kind::Control,
+            "Graphics 0x5F: XTERM_DEPARTS records U+2426, xterm U+0020",
+        ),
+        // The national macros: a line that is no entry, an entry it cannot
+        // read, a keysym with no `#define`, past Latin-1, a comment that
+        // is not its keysym, a byte twice.
+        (
+            n,
+            CHARSETS,
+            "MAP(0x23, XK_sterling)",
+            "junk \\\n\t    MAP(0x23, XK_sterling)",
+            Kind::Malformed,
+            "data/xterm-charsets.h:260:6: neither an entry nor the switch around them",
+        ),
+        (
+            n,
+            CHARSETS,
+            "MAP(0x40, XK_Eacute)",
+            "MAP(0x40 XK_Eacute)",
+            Kind::Malformed,
+            "an entry the build cannot read",
+        ),
+        (
+            n,
+            CHARSETS,
+            "MAP(0x40, XK_Eacute)",
+            "MAP(0x40, XK_Eacutx)",
+            Kind::UnknownValue,
+            "XK_Eacutx has no #define in xorg-keysymdef.h",
+        ),
+        (
+            n,
+            KEYSYMS,
+            "#define XK_Eacute                        0x00c9",
+            "#define XK_Eacute                        0x01c9",
+            Kind::Invariant,
+            "XK_Eacute is 0x1c9, outside Latin-1",
+        ),
+        (
+            n,
+            KEYSYMS,
+            "#define XK_Eacute                        0x00c9",
+            "#define XK_Eacute                        0x00c8",
+            Kind::Control,
+            "XK_Eacute does not resolve to 0xC9",
+        ),
+        (
+            n,
+            CHARSETS,
+            "MAP(0x23, XK_sterling)\t/* U+00A3",
+            "MAP(0x23, XK_sterling)\t/* U+00A4",
+            Kind::Control,
+            "XK_sterling is U+00A3, its comment says U+00A4",
+        ),
+        (
+            n,
+            CHARSETS,
+            "MAP(0x40, XK_threequarters)",
+            "MAP(0x23, XK_threequarters)",
+            Kind::Duplicate,
+            "Dutch: two entries for 0x23",
+        ),
+        // A skip, an override and a body the source no longer bears out,
+        // an `UNDEF` line neither emitted nor skipped, two bodies.
+        (
+            n,
+            CHARSETS,
+            "XXX(0x79, UNDEF)\t/* unused */",
+            "UNI(0x79, 0x0391)\t/* unused */",
+            Kind::Invariant,
+            "skip Greek 0x79: no `XXX(..., UNDEF)` line there any more",
+        ),
+        (
+            n,
+            CHARSETS,
+            "UNI(0x26, 0x011F)",
+            "UNI(0x21, 0x0131) \\\n\t    UNI(0x26, 0x011F)",
+            Kind::Invariant,
+            "Turkish 0x21: xterm's macro has it now; retire the DEC override",
+        ),
+        (
+            n,
+            CHARSETS,
+            "#define map_NRCS_Turkish(code) \\",
+            "#define map_NRCS_Turkey(code) \\",
+            Kind::Invariant,
+            "DEC override Turkish 0x21: not applied",
+        ),
+        (
+            n,
+            CHARSETS,
+            "#define map_NRCS_Swiss(code) \\",
+            "#define map_NRCS_Swizz(code) \\",
+            Kind::Malformed,
+            "map_NRCS_Swiss: no definition with a body",
+        ),
+        (
+            n,
+            CHARSETS,
+            "MAP(0x23, XK_sterling)\t/* U+00A3 POUND SIGN */",
+            "XXX(0x23, UNDEF)",
+            Kind::Count,
+            "Dutch: 8 emitted for 9 lines in map_NRCS_Dutch, 0 skipped and 0 added; not emitted: charsets.h:260 XXX(0x23, UNDEF)",
+        ),
+        (
+            n,
+            CHARSETS,
+            "#define map_NRCS_Greek(code)\t/* nothing */",
+            "#define map_NRCS_Greek(code) \\\n\tswitch (code) { \\\n\t}",
+            Kind::Duplicate,
+            "map_NRCS_Greek: two definitions with a body",
+        ),
+        // The ISO 8859 files: a line it cannot read, a byte twice, a
+        // later edition's position the file does not map, the counts.
+        (
+            i,
+            "iso8859-1.txt",
+            "0xA1\t0x00A1",
+            "0xA1 0x00A1",
+            Kind::Malformed,
+            "data/iso8859-1.txt:198:1: a line the build cannot read",
+        ),
+        (
+            i,
+            "iso8859-1.txt",
+            "0xA1\t0x00A1",
+            "0xA0\t0x00A1",
+            Kind::Duplicate,
+            "0xA0 twice",
+        ),
+        (
+            i,
+            "iso8859-7.txt",
+            "0xA4\t0x20AC\t#\tEURO SIGN\n",
+            "",
+            Kind::Control,
+            "0xA4 is listed as added later but the file does not map it",
+        ),
+        (
+            i,
+            "iso8859-1.txt",
+            "0xA0\t0x00A0\t#\tNO-BREAK SPACE\n",
+            "",
+            Kind::Count,
+            "95 positions assigned, 96 expected",
+        ),
+    ]);
+}
+
+/// DEC's Table 2-3, its right half, as `vt220_tables.tsv` transcribes it:
+/// the codepoint each GR cell draws, or the error character for a cell
+/// that draws nothing. Read here, with no code of the tests' own readers.
+fn table_2_3(tsv: &str) -> [u32; 94] {
+    let mut out = [0u32; 94];
+    let mut seen = 0;
+    for line in tsv.lines().filter(|l| l.starts_with("cell\tT2-3b\t")) {
+        let f: Vec<&str> = line.split('\t').collect();
+        assert_eq!(f.len(), 5, "{line:?}");
+        let code = usize::from_str_radix(f[2], 16).expect("hex");
+        let mut cs = f[3].chars();
+        out[code - 0x21] = match (cs.next(), cs.next()) {
+            (None, _) => dec_sets::ERROR,
+            (Some(c), None) => u32::from(c),
+            _ => panic!("{line:?}: more than one character"),
+        };
+        seen += 1;
+    }
+    assert_eq!(seen, 94, "Table 2-3's 94 GR cells");
+    out
+}
+
+const VT220_TABLES: &str = include_str!("vt220_tables.tsv");
+
+/// xterm's DEC Supplemental, every cell, as the build reads it.
+fn xterm_supplemental(charsets: &str) -> [u32; 94] {
+    let src = baud_tablegen::Source::new(&xterm::CHARSETS, charsets.to_string()).expect("header");
+    let mut errs = Errors::default();
+    let page = dec_sets::code_page(
+        &src,
+        "map_DEC_Supp_Graphic",
+        xterm::Digits::Upper,
+        &mut errs,
+    );
+    assert!(errs.is_empty(), "{errs}");
+    dec_sets::cells(&page)
+}
+
+/// **The cells where xterm and DEC's text differ are exactly the cells
+/// named.** The build reads xterm's `map_DEC_Supp_Graphic` and never DEC's
+/// pages, so this holds what it takes against `[[source:
+/// dec-special-graphics]]` Table 2-3: a cell where they differ that
+/// `CONFORM` does not name is red, a named cell where they agree is red,
+/// and a transcription changed under the table is red.
+#[test]
+fn the_cells_where_xterm_and_dec_differ_are_named() {
+    use dec_sets::{CONFORM, Conform, Departs, Set, XTERM_DEPARTS, named_exactly};
+    let charsets = pinned(CHARSETS).expect("charsets.h");
+    let xterm = xterm_supplemental(&charsets);
+    let dec = table_2_3(VT220_TABLES);
+    let s = Set::Supplemental;
+    assert_eq!(
+        named_exactly(s, &xterm, &dec, &CONFORM, &XTERM_DEPARTS),
+        Vec::<String>::new()
+    );
+    // 5/15 not named.
+    let unnamed = named_exactly(s, &xterm, &dec, &[], &XTERM_DEPARTS);
+    assert_eq!(
+        unnamed,
+        [
+            "Supplemental 0x5F: xterm U+005F, DEC's text U+00DF, and neither CONFORM nor XTERM_DEPARTS names it"
+        ]
+    );
+    // A cell named where the two agree, either way.
+    let agree = [
+        Conform {
+            set: s,
+            byte: 0x21,
+            dec: 0x00A1,
+            why: &[],
+        },
+        CONFORM[0],
+    ];
+    assert_eq!(
+        named_exactly(s, &xterm, &dec, &agree, &XTERM_DEPARTS),
+        ["Supplemental 0x21: CONFORM gives U+00A1, DEC's text U+00A1, xterm U+00A1"]
+    );
+    let departs = [Departs {
+        set: s,
+        byte: 0x21,
+        xterm: 0x00A1,
+        why: &[],
+    }];
+    assert_eq!(
+        named_exactly(s, &xterm, &dec, &CONFORM, &departs),
+        ["Supplemental 0x21: XTERM_DEPARTS records U+00A1, xterm U+00A1, DEC's text U+00A1"]
+    );
+    // DEC's text changed under the table, and xterm's.
+    let moved = VT220_TABLES.replacen("cell\tT2-3b\t21\t¡", "cell\tT2-3b\t21\t!", 1);
+    assert_eq!(
+        named_exactly(s, &xterm, &table_2_3(&moved), &CONFORM, &XTERM_DEPARTS),
+        [
+            "Supplemental 0x21: xterm U+00A1, DEC's text U+0021, and neither CONFORM nor XTERM_DEPARTS names it"
+        ]
+    );
+    let drifted =
+        xterm_supplemental(&charsets.replacen("UNI(0x57, 0x0152)", "UNI(0x57, 0x0153)", 1));
+    assert_eq!(
+        named_exactly(s, &drifted, &dec, &CONFORM, &XTERM_DEPARTS),
+        [
+            "Supplemental 0x57: xterm U+0153, DEC's text U+0152, and neither CONFORM nor XTERM_DEPARTS names it"
+        ]
+    );
 }

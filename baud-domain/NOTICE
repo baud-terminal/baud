@@ -103,6 +103,37 @@ resolve
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/0d2caecebf0e2a10994c22960921f366dd98d19a/rgb.txt
 
+xterm's charsets.h, carried unmodified, which the build compiles into DEC
+Special Graphics, DEC Supplemental and the National Replacement Character
+Sets
+  Files:   data/xterm-charsets.h
+  Holder:  Thomas E. Dickey (xterm)
+  Licence: X11
+  Notice:  LICENSES/xterm-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h
+
+X.Org's keysymdef.h, carried unmodified with its notices, which the build
+reads for the keysyms xterm's national character sets name
+  Files:   data/xorg-keysymdef.h
+  Holder:  The Open Group; Digital Equipment Corporation
+  Licence: X11
+  Notice:  in each file
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/include/X11/keysymdef.h
+
+Unicode's JIS0201.TXT and ISO 8859 mapping files, carried unmodified, which
+the build compiles into JIS-Katakana, JIS-Roman and the six 96-character
+sets
+  Files:   data/JIS0201.TXT, data/iso8859-1.txt, data/iso8859-2.txt,
+           data/iso8859-5.txt, data/iso8859-7.txt, data/iso8859-8.txt,
+           data/iso8859-9.txt
+  Holder:  Unicode, Inc.
+  Licence: Unicode-3.0
+  Notice:  LICENSES/Unicode-3.0.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://www.unicode.org/Public/MAPPINGS/
+
 The National Replacement Character Sets, generated from xterm's charsets.h
 with their keysyms resolved through X.Org's keysymdef.h
   Files:   src/nrcs_data.rs

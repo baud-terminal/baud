@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 67 | redistributable, and its notice is satisfied |
+| kept | 326 | 70 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 76 | |
+| total | 596 | 79 | |
 
 ## Licence texts in LICENSES/
 
@@ -350,6 +350,30 @@ they were built from.
 - **Notice:** [LICENSES/tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt)
 - **From:** https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd20a80110f82d7485114db2387c368/xresources/base16-0x96f.Xresources
 - **Files:** [tests/themes/base16-0x96f.Xresources](tests/themes/base16-0x96f.Xresources), [tests/themes/base16-0x96f.cpp](tests/themes/base16-0x96f.cpp)
+
+### xterm's charsets.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the macros it compiles DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets from, and checks the JIS sets against
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
+- **From:** docs/research/sources/xterm-charsets.h
+- **Files:** [baud-domain/data/xterm-charsets.h](baud-domain/data/xterm-charsets.h)
+
+### X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** in the file
+- **From:** docs/research/sources/xorg-keysymdef.h
+- **Files:** [baud-domain/data/xorg-keysymdef.h](baud-domain/data/xorg-keysymdef.h)
+
+### Unicode's JIS0201.TXT and its six ISO 8859 mapping files, which baud-domain's build reads, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files: JIS-Katakana's 63 characters and JIS-Roman's Yen sign, and the six 96-character sets ESC - . / designate
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Unicode-3.0
+- **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
+- **From:** https://www.unicode.org/Public/MAPPINGS/
+- **Files:** [baud-domain/data/JIS0201.TXT](baud-domain/data/JIS0201.TXT), [baud-domain/data/iso8859-1.txt](baud-domain/data/iso8859-1.txt), [baud-domain/data/iso8859-2.txt](baud-domain/data/iso8859-2.txt), [baud-domain/data/iso8859-5.txt](baud-domain/data/iso8859-5.txt), [baud-domain/data/iso8859-7.txt](baud-domain/data/iso8859-7.txt), [baud-domain/data/iso8859-8.txt](baud-domain/data/iso8859-8.txt), [baud-domain/data/iso8859-9.txt](baud-domain/data/iso8859-9.txt)
 
 ### National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h. Open: the NOTICE names The Open Group (keysymdef.h) as a holder, and the only notice this row lists is xterm's COPYING; keysymdef.h's own notices, The Open Group's and Digital's, are in docs/research/sources/xorg-keysymdef.h, which no crate carries
 

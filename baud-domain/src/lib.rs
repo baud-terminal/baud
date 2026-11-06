@@ -90,8 +90,28 @@ mod link_table;
 pub fn cluster_next(state: u8, input: u8) -> u8 {
     cluster_data::CLUSTER_NEXT[(state as usize) * 256 + input as usize]
 }
-mod dec_graphics;
-mod dec_sets_data;
+mod dec_graphics {
+    //! DEC Special Graphics, compiled by `build/dec_graphics.rs` from
+    //! `[[source: xterm-charsets]]`' `map_DEC_Spec_Graphic`.
+    //!
+    //! Indexed by `byte - 0x60`, covering `` ` `` through `~`: the macro's 31
+    //! entries. The set is 32. DEC replaces `0x5F` as well, with "Blank"
+    //! (`[[source: vt100-ug-ch3]]` Table 3-9), and xterm leaves it `UNDEF`,
+    //! so neither does this table: an open departure, the codepoint `0x5F`
+    //! stores still to be chosen.
+    include!(concat!(env!("OUT_DIR"), "/dec_graphics.rs"));
+}
+mod dec_sets_data {
+    //! The DEC 94-character sets beyond DEC Special Graphics and the
+    //! national replacement sets, compiled by `build/dec_sets.rs` from
+    //! `[[source: xterm-charsets]]` and `[[source: unicode-jis0201]]`.
+    //!
+    //! Each table is indexed by `byte - 0x21`, 2/1 through 7/14, and holds
+    //! every position: SP and DEL are not graphic characters of a
+    //! 94-character set (`[[source: dec-std-070]]` 070-3 §3.4.1-3.4.2) and
+    //! never index it. A reserved position holds DEC's error character.
+    include!(concat!(env!("OUT_DIR"), "/dec_sets_data.rs"));
+}
 mod decode;
 mod expression;
 mod font;
@@ -124,7 +144,16 @@ mod ignorable_data {
 mod image;
 mod input;
 mod interpolate;
-mod iso96_data;
+mod iso96_data {
+    //! The six 96-character sets `ESC - . /` designate, compiled by
+    //! `build/iso96.rs` from Unicode's ISO 8859 mapping files.
+    //!
+    //! Each table is indexed by `code - 0x20`, the 7-bit code, 2/0 through
+    //! 7/15: a 96-character set has a character at SP's and DEL's positions
+    //! too (`[[source: ecma35]]` 8.3.1). An unassigned position holds DEC's
+    //! error character.
+    include!(concat!(env!("OUT_DIR"), "/iso96_data.rs"));
+}
 mod joining;
 mod joining_data {
     //! Cursive-joining data, compiled by `build/joining.rs` from the
@@ -165,6 +194,9 @@ mod merged_data {
     //! checks every one of the 1,114,112 codepoints against the two tries.
     include!(concat!(env!("OUT_DIR"), "/merged_data.rs"));
 }
+// Named `nrcs_data`, as it was when the tables were committed, so the
+// statics keep their symbols and the binaries their layout.
+#[path = "nrcs.rs"]
 mod nrcs_data;
 mod placeholder;
 mod placeholder_data {
@@ -182,6 +214,8 @@ mod quantity;
 mod regis;
 mod scan;
 mod search;
+#[cfg(test)]
+mod table_identity;
 mod search_data {
     //! What a search compares, compiled by `build/search.rs` from the
     //! sources pinned in `docs/research/sources/MANIFEST.toml`:
