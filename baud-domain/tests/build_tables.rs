@@ -37,6 +37,16 @@
 //! headers, the counts, Figure A-2's mask, JIS0201.TXT's lines, and the
 //! rule that the cells where xterm and DEC's text differ are exactly the
 //! cells named, over DEC's Table 2-3 as `vt220_tables.tsv` transcribes it.
+//! `build/tcap.rs`, `build/termcap_keys.rs` and `build/iterm_keys.rs`:
+//! every refusal of the xtermcap.c table reader -- the table not found, a
+//! row or a group not read, a state neither 0 nor SHIFT, a group with no
+//! BASE, the 110 and 17 counts -- a keysym with no key, a name past seven
+//! bytes, the 319 names, the multiplier search, the entry's line 2, its
+//! kcuu1 and kf13 controls, an escape terminfo(5) does not define, a
+//! capability twice, the 107 keys, and in the iTerm2 names a key that is
+//! not an identifier, the grammar's placeholder, a key twice or out of
+//! order, a page that is none of the four, each page's and the source's
+//! controls, the 39 and 54 counts and both headers.
 //! The modules only compute: they read
 //! through the function they are given and write nothing, so running them
 //! here touches no `OUT_DIR`.
@@ -59,6 +69,8 @@ mod grapheme;
 mod ignorable;
 #[path = "../build/iso96.rs"]
 mod iso96;
+#[path = "../build/iterm_keys.rs"]
+mod iterm_keys;
 #[path = "../build/joining.rs"]
 mod joining;
 #[path = "../build/linebreak.rs"]
@@ -73,16 +85,29 @@ mod placeholder;
 mod search;
 #[path = "../build/sequence.rs"]
 mod sequence;
+#[path = "../build/tcap.rs"]
+mod tcap;
+#[path = "../build/termcap_keys.rs"]
+mod termcap_keys;
 #[path = "../build/ucd.rs"]
 mod ucd;
 #[path = "../build/width.rs"]
 mod width;
 #[path = "../build/xterm.rs"]
 mod xterm;
+#[path = "../build/xtermcap.rs"]
+mod xtermcap;
 
 use baud_tablegen::{Emit, Errors, Kind};
 
 fn pinned(file: &str) -> std::io::Result<String> {
+    // Through the crate's link where it has one, since a link's name need
+    // not be its file's: `terminfo-xterm-256color.ti` is
+    // `terminfo/xterm-256color.ti`.
+    let data = format!("{}/data/{file}", env!("CARGO_MANIFEST_DIR"));
+    if std::path::Path::new(&data).exists() {
+        return std::fs::read_to_string(data);
+    }
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/research/sources");
     std::fs::read_to_string(format!("{dir}/{file}"))
 }
@@ -2285,4 +2310,409 @@ fn the_cells_where_xterm_and_dec_differ_are_named() {
             "Supplemental 0x57: xterm U+0153, DEC's text U+0152, and neither CONFORM nor XTERM_DEPARTS names it"
         ]
     );
+}
+
+const XTERMCAP: &str = "xterm-xtermcap.c";
+const ENTRY: &str = "terminfo-xterm-256color.ti";
+const DOC_KEYS: &str = "iterm2-osc1337-doc-keys.txt";
+const SOURCE_KEYS: &str = "iterm2-osc1337-source-keys.txt";
+
+#[test]
+fn the_pinned_files_build_the_key_tables() {
+    for (name, build) in [
+        ("tcap", tcap::build as Build),
+        ("termcap keys", termcap_keys::build),
+        ("iterm2 keys", iterm_keys::build),
+    ] {
+        if let Err(errs) = build(&pinned) {
+            panic!("{name}: {errs}");
+        }
+    }
+    let inputs: Vec<Vec<&str>> = [
+        &tcap::INPUTS[..],
+        &termcap_keys::INPUTS,
+        &iterm_keys::INPUTS,
+    ]
+    .iter()
+    .map(|i| i.iter().map(|i| i.file).collect())
+    .collect();
+    assert_eq!(
+        inputs,
+        [
+            vec![XTERMCAP],
+            vec![XTERMCAP, ENTRY],
+            vec![DOC_KEYS, SOURCE_KEYS]
+        ]
+    );
+    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
+    for file in inputs.concat() {
+        assert!(
+            std::path::Path::new(&format!("{data}/{file}")).is_file(),
+            "data/{file}"
+        );
+    }
+}
+
+/// **The multiplier is Python's search**: `PyRandom` draws what CPython's
+/// `random.Random(seed).getrandbits(64)` does, and the search over the
+/// table's names takes the 1009th draw, the multiplier the generator found.
+#[test]
+fn the_tcap_multiplier_is_the_seeded_search_and_its_bound_is_held() {
+    for (seed, want) in [
+        (
+            1,
+            [
+                0x91b7_584a_2265_b1f5u64,
+                0xcd61_3e30_d8f1_6adf,
+                0x1027_c4d1_c386_bbc4,
+            ],
+        ),
+        (
+            7,
+            [
+                0xf2a7_4de4_52e6_b438,
+                0x6513_270e_269e_0d37,
+                0x0c5c_7fd0_a6a3_a450,
+            ],
+        ),
+        (
+            0,
+            [
+                0x629f_6fbe_d82c_07cd,
+                0xe3e7_0682_c209_4cac,
+                0x0a5d_2f34_6baa_9455,
+            ],
+        ),
+    ] {
+        let mut r = tcap::PyRandom::new(seed);
+        assert_eq!(want.map(|_| r.bits64()), want, "seed {seed}");
+    }
+    let mut r = tcap::PyRandom::new(tcap::SEED);
+    let draws: Vec<u64> = (0..tcap::TRIES).map(|_| r.bits64() | 1).collect();
+    assert_eq!(draws[1008], 0xf224_2639_261b_5841);
+    // Three names in one bucket under any multiplier: one of them walks
+    // two slots, so no multiplier holds the bound.
+    assert_eq!(tcap::multiplier(&[b"ab", b"ab", b"ab"]), None);
+    assert_eq!(tcap::walk(&[b"ab", b"ab"], 1), 1);
+}
+
+#[test]
+fn each_check_the_key_builds_make_fires() {
+    let (t, k, i): (Build, Build, Build) = (tcap::build, termcap_keys::build, iterm_keys::build);
+    let help = "\"khlp\",\t\tXK_Help,\t0\t)";
+    each_fires(&[
+        // xtermcap.c: its header, the table's bounds, a row, a group and
+        // a BASE not read, a state, a group with no BASE, the counts.
+        (
+            t,
+            XTERMCAP,
+            "xtermcap.c,v 1.70",
+            "xtermcap.c,v 1.71",
+            Kind::Header,
+            "is this the pinned file [xterm-xtermcap-c]?",
+        ),
+        (
+            k,
+            XTERMCAP,
+            "xtermcap.c,v 1.70",
+            "xtermcap.c,v 1.71",
+            Kind::Header,
+            "is this the pinned file [xterm-xtermcap-c]?",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "TCAPINFO table[]",
+            "TCAPINFO tabel[]",
+            Kind::Control,
+            "the table was not found",
+        ),
+        (
+            k,
+            XTERMCAP,
+            "#undef DATA",
+            "#undef DAT A",
+            Kind::Control,
+            "after the table",
+        ),
+        (
+            t,
+            XTERMCAP,
+            help,
+            "\"khlp\",\t\tXK_Help,\tCTRL\t)",
+            Kind::UnknownValue,
+            "state CTRL, neither 0 nor SHIFT",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "DATA(\t\"%1\"",
+            "DATA(\t%1\"",
+            Kind::Malformed,
+            "a DATA row not read",
+        ),
+        (
+            k,
+            XTERMCAP,
+            "DGRP(DN,   XK_Down)",
+            "DGRP(DN XK_Down)",
+            Kind::Malformed,
+            "a DGRP group not read",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "#define BASE \"kp\"",
+            "#define BASE kp",
+            Kind::Malformed,
+            "a BASE not read",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "#define BASE \"k\"",
+            "/* no BASE */",
+            Kind::Malformed,
+            "a DGRP with no BASE",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "\tDATA(\t\"%1\",\t\"khlp\",\t\tXK_Help,\t0\t),\n",
+            "",
+            Kind::Count,
+            "109 DATA rows, 110 expected",
+        ),
+        (
+            k,
+            XTERMCAP,
+            "\tDGRP(DN,   XK_Down),\n",
+            "",
+            Kind::Count,
+            "16 DGRP groups, 17 expected",
+        ),
+        // A keysym neither table has a key for, a name past seven bytes,
+        // one name fewer.
+        (
+            t,
+            XTERMCAP,
+            help,
+            "\"khlp\",\t\tXK_Hlep,\t0\t)",
+            Kind::UnknownValue,
+            "no key for XK_Hlep",
+        ),
+        (
+            k,
+            XTERMCAP,
+            help,
+            "\"khlp\",\t\tXK_Hlep,\t0\t)",
+            Kind::UnknownValue,
+            "no key for XK_Hlep",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "\"khlp\"",
+            "\"khlpkhlp\"",
+            Kind::Invariant,
+            "\"khlpkhlp\" is outside 2..=7 bytes",
+        ),
+        (
+            t,
+            XTERMCAP,
+            "\"kHLP\"",
+            "\"khlp\"",
+            Kind::Count,
+            "318 distinct names, 319 expected",
+        ),
+        // The entry: its two header lines, the two controls, an escape
+        // terminfo(5) does not define, a capability twice, one key fewer.
+        (
+            k,
+            ENTRY,
+            "Reconstructed via infocmp",
+            "Reconstructed by infocmp",
+            Kind::Header,
+            "is this the pinned file [terminfo-xterm-256color]?",
+        ),
+        (
+            k,
+            ENTRY,
+            "with 256 colors,",
+            "with 88 colors,",
+            Kind::Header,
+            "line 2 is not",
+        ),
+        (
+            k,
+            ENTRY,
+            "kcuu1=\\EOA,",
+            "kcuu1=\\E[A,",
+            Kind::Control,
+            "kcuu1 is",
+        ),
+        (
+            k,
+            ENTRY,
+            "kf13=\\E[1;2P,",
+            "kf13=\\E[1;2X,",
+            Kind::Control,
+            "kf13 is",
+        ),
+        (
+            k,
+            ENTRY,
+            "kcud1=\\EOB,",
+            "kcud1=\\qOB,",
+            Kind::Malformed,
+            "an escape terminfo(5) does not define in kcud1",
+        ),
+        (
+            k,
+            ENTRY,
+            "\tkcud1=\\EOB,\n",
+            "\tkcud1=\\EOB,\n\tkcud1=\\EOB,\n",
+            Kind::Duplicate,
+            "kcud1 is given already on line 74",
+        ),
+        (
+            k,
+            ENTRY,
+            "\tkDC=\\E[3;2~,\n",
+            "",
+            Kind::Count,
+            "106 keys and parameters given a string, 107 expected",
+        ),
+        // The iTerm2 names: the headers, a key that is no identifier, the
+        // placeholder, a key twice or out of order, a page, a field
+        // missing, every control and both counts.
+        (
+            i,
+            DOC_KEYS,
+            "at sha256 7ee11f94",
+            "at sha256 7ee11f95",
+            Kind::Header,
+            "is this the pinned file [iterm2-osc1337-doc-keys]?",
+        ),
+        (
+            i,
+            SOURCE_KEYS,
+            "at sha256 37fd1636",
+            "at sha256 37fd1637",
+            Kind::Header,
+            "is this the pinned file [iterm2-osc1337-source-keys]?",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "\nAddAnnotation;",
+            "\nAdd-Annotation;",
+            Kind::Malformed,
+            "\"Add-Annotation\" is not a key",
+        ),
+        (
+            i,
+            SOURCE_KEYS,
+            "\nCopy\n",
+            "\nkey\n",
+            Kind::Control,
+            "the grammar's placeholder is not a key",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "\nAddHiddenAnnotation;",
+            "\nAddAnnotation;",
+            Kind::Duplicate,
+            "AddAnnotation is listed already on line 6",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "\nBlock;",
+            "\nZlock;",
+            Kind::Invariant,
+            "Button is not after Zlock",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "Block; iterm2-escape-codes",
+            "Block; iterm2-website",
+            Kind::UnknownValue,
+            "\"iterm2-website\" is none of the four pages",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "Block; iterm2-escape-codes",
+            "Block",
+            Kind::FieldCount,
+            "1 fields, 2 expected",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "SetProfile; iterm2-escape-codes",
+            "SetProfile; iterm2-images",
+            Kind::Control,
+            "control: SetProfile is not found in iterm2-escape-codes",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "FileEnd; iterm2-images",
+            "FileEnd; iterm2-escape-codes",
+            Kind::Control,
+            "control: FileEnd is not found in iterm2-images",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "SetBadgeFormat; iterm2-badges",
+            "SetBadgeFormat; iterm2-escape-codes",
+            Kind::Control,
+            "control: SetBadgeFormat is not found in iterm2-badges",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "Capabilities; iterm2-feature-reporting",
+            "Capabilities; iterm2-escape-codes",
+            Kind::Control,
+            "control: Capabilities is not found in iterm2-feature-reporting",
+        ),
+        (
+            i,
+            SOURCE_KEYS,
+            "\nCursorShape\n",
+            "\nCursorShapes\n",
+            Kind::Control,
+            "control: CursorShape is missing",
+        ),
+        (
+            i,
+            SOURCE_KEYS,
+            "\nExecFailed\n",
+            "\nExecFail\n",
+            Kind::Control,
+            "control: ExecFailed is missing",
+        ),
+        (
+            i,
+            DOC_KEYS,
+            "Button; iterm2-escape-codes\n",
+            "",
+            Kind::Count,
+            "38 keys, 39 expected",
+        ),
+        (
+            i,
+            SOURCE_KEYS,
+            "\nCurrentDir\n",
+            "\n",
+            Kind::Count,
+            "53 keys, 54 expected",
+        ),
+    ]);
 }

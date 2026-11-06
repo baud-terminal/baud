@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 331 | 66 | redistributable, and its notice is satisfied |
+| kept | 333 | 69 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 601 | 75 | |
+| total | 603 | 78 | |
 
 ## Licence texts in LICENSES/
 
@@ -352,6 +352,22 @@ they were built from.
 - **From:** docs/research/sources/xterm-charsets.h
 - **Files:** [baud-domain/data/xterm-charsets.h](baud-domain/data/xterm-charsets.h)
 
+### xterm's xtermcap.c, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the XTGETTCAP table it compiles the names XTGETTCAP answers and the termcap keyboard's rows from
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
+- **From:** docs/research/sources/xterm-xtermcap.c
+- **Files:** [baud-domain/data/xterm-xtermcap.c](baud-domain/data/xterm-xtermcap.c)
+
+### ncurses' xterm-256color entry, which baud-domain's build reads, through a link in baud-domain/data/ to terminfo/xterm-256color.ti in docs/research/sources/, which the published crate carries as the file: the strings the termcap keyboard sends
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** X11
+- **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
+- **From:** docs/research/sources/terminfo/xterm-256color.ti
+- **Files:** [baud-domain/data/terminfo-xterm-256color.ti](baud-domain/data/terminfo-xterm-256color.ti)
+
 ### X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -551,6 +567,14 @@ they were built from.
 - **Notice:** none
 - **From:** https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacritics.txt
 - **Files:** [baud-domain/data/kitty-placeholder-diacritics.txt](baud-domain/data/kitty-placeholder-diacritics.txt)
+
+### iTerm2's OSC 1337 key names, which baud-domain's build compiles, through links in baud-domain/data/ to iterm2-osc1337-doc-keys.txt and iterm2-osc1337-source-keys.txt in docs/research/sources/: 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, read from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked), the names alone, no prose or code kept: the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** protocol interface data, attributed to iTerm2 at 964a75d (George Nachman)
+- **Notice:** none
+- **From:** https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m
+- **Files:** [baud-domain/data/iterm2-osc1337-doc-keys.txt](baud-domain/data/iterm2-osc1337-doc-keys.txt), [baud-domain/data/iterm2-osc1337-source-keys.txt](baud-domain/data/iterm2-osc1337-source-keys.txt)
 
 ### The OSC 1337 key names in iterm_keys.rs, 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, written by scripts/gen-iterm2-keys.py from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked, no prose or code kept): the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)
 
@@ -1095,6 +1119,18 @@ notice is, and the URL each file was copied from.
 | [rfc4648-base64.txt](docs/research/sources/rfc4648-base64.txt) | https://www.rfc-editor.org/rfc/rfc4648.txt |
 | [rfc8089-file-uri.txt](docs/research/sources/rfc8089-file-uri.txt) | https://www.rfc-editor.org/rfc/rfc8089.txt |
 | [rfc8259-json.txt](docs/research/sources/rfc8259-json.txt) | https://www.rfc-editor.org/rfc/rfc8259.txt |
+
+### iTerm2's OSC 1337 key names, written by baud: the 39 its documentation names and the 54 its VT100Terminal.m compares
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** protocol interface data, attributed to iTerm2 at 964a75d (George Nachman)
+- **Notice:** none
+- **Files:** 2
+
+| file | copied from |
+|---|---|
+| [iterm2-osc1337-doc-keys.txt](docs/research/sources/iterm2-osc1337-doc-keys.txt) | https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-escape-codes.md |
+| [iterm2-osc1337-source-keys.txt](docs/research/sources/iterm2-osc1337-source-keys.txt) | https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m |
 
 ### iTerm2-Color-Schemes
 

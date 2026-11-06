@@ -17,6 +17,12 @@ use crate::*;
 
 mod keyboards;
 mod termcap_data;
+#[cfg(test)]
+mod termcap_built {
+    include!(concat!(env!("OUT_DIR"), "/termcap_data.rs"));
+}
+#[cfg(test)]
+mod termcap_identity;
 
 /// `ESC`. VT52's introducer is the bare escape, which is not a C1 control and
 /// so does not come from `c1` -- `S8C1T` cannot move it, because a VT52 has no

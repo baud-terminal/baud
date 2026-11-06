@@ -36746,6 +36746,58 @@ bytes  = 21765
 status = "external"
 group  = "AX"
 
+[sources.iterm2-osc1337-doc-keys]
+key          = "iterm2-osc1337-doc-keys"
+title        = "iTerm2's OSC 1337 keys, the names alone: the 39 words iTerm2 3.7's escape-codes, images, badges and feature-reporting pages give after OSC 1337, each with the first page to give it"
+author       = "baud (the key names of George Nachman's iTerm2 documentation)"
+year         = 2026
+venue        = "baud, from the pinned iterm2-escape-codes, iterm2-images, iterm2-badges and iterm2-feature-reporting"
+url          = "https://raw.githubusercontent.com/gnachman/iterm2-website/6bccea0bdcc1dbbc70dcd1232c2eb84296561e60/source/_includes/3.7/documentation-escape-codes.md"
+file         = "iterm2-osc1337-doc-keys.txt"
+sha256       = "46306dd287077d19bd41eb5d78254a0d9580fca788ef5aa84ae8d2fd3a464c39"
+bytes        = 1998
+derived_from = ["iterm2-escape-codes", "iterm2-images", "iterm2-badges", "iterm2-feature-reporting"]
+status       = "retrieved"
+group        = "AX"
+# How it was read: each of the four pages fetched from its URL and refused
+# unless it hashed to its entry's sha256; in each, in that order, every
+# match of `(?:OSC|ESC \]|\\e\]|\\033\]|<Esc>\])\s*1337\s*;?\s*([A-Za-z0-9]+)`
+# (OSC 1337, ESC ] 1337 and a shell example's \e]1337;, \033]1337; and
+# <Esc>]1337;), its word kept with the first page to give it, but `key`,
+# which the images page's grammar line uses for a placeholder. One
+# `key; page` a line, sorted by byte, and nothing
+# else of the pages. The controls held: 39 keys, SetProfile (written with
+# no `;`) in iterm2-escape-codes, FileEnd in iterm2-images,
+# SetBadgeFormat in iterm2-badges, Capabilities in
+# iterm2-feature-reporting. Produced once by scripts/gen-iterm2-keys.py
+# (git blob 102f0fad), its manifest(), read() and doc_keys() run under
+# python3 -I (Python 3.13.12) on the fetched files; its own --check passed
+# against the iterm_keys.rs it had written. Line 1 names each parent's
+# sha256, and baud-domain's build (build/iterm_keys.rs) refuses another.
+
+[sources.iterm2-osc1337-source-keys]
+key          = "iterm2-osc1337-source-keys"
+title        = "iTerm2's OSC 1337 keys, the names alone: the 54 keys executeXtermSetKvp compares in iTerm2 964a75d's VT100Terminal.m"
+author       = "baud (the key names of George Nachman and the iTerm2 contributors' VT100Terminal.m)"
+year         = 2026
+venue        = "baud, from the pinned iterm2-964a75d-vt100terminal"
+url          = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m"
+file         = "iterm2-osc1337-source-keys.txt"
+sha256       = "f33b7c9d544cc968feb2f03eece62bcf52cf23285c7fb6c8c52ddb9253af183d"
+bytes        = 1036
+derived_from = "iterm2-964a75d-vt100terminal"
+status       = "retrieved"
+group        = "AX"
+# How it was read: the source fetched from its URL and refused unless it
+# hashed to its entry's sha256; from `- (void)executeXtermSetKvp:` to the
+# next line that starts `- (`, the string of every
+# `[key isEqualToString:@"..."]`, each once, one a line, sorted by byte,
+# and nothing else of the source. The controls held: 54 keys, CursorShape
+# and ExecFailed among them. Produced once by scripts/gen-iterm2-keys.py
+# (git blob 102f0fad), its source_keys() run under python3 -I (Python
+# 3.13.12) on the fetched file. Line 1 names the parent's sha256, and
+# baud-domain's build (build/iterm_keys.rs) refuses another.
+
 [sources.iterm2-964a75d-screen-terminal-delegate]
 key    = "iterm2-964a75d-screen-terminal-delegate"
 title  = "iTerm2 964a75d, VT100ScreenMutableState+TerminalDelegate.m -- ClearScrollback's clearBufferSavingPrompt, SetColors' names and colour spaces, the cell size in points and the backing scale"

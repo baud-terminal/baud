@@ -23,6 +23,8 @@ mod grapheme;
 mod ignorable;
 #[path = "build/iso96.rs"]
 mod iso96;
+#[path = "build/iterm_keys.rs"]
+mod iterm_keys;
 #[path = "build/joining.rs"]
 mod joining;
 #[path = "build/linebreak.rs"]
@@ -37,12 +39,18 @@ mod placeholder;
 mod search;
 #[path = "build/sequence.rs"]
 mod sequence;
+#[path = "build/tcap.rs"]
+mod tcap;
+#[path = "build/termcap_keys.rs"]
+mod termcap_keys;
 #[path = "build/ucd.rs"]
 mod ucd;
 #[path = "build/width.rs"]
 mod width;
 #[path = "build/xterm.rs"]
 mod xterm;
+#[path = "build/xtermcap.rs"]
+mod xtermcap;
 
 use baud_tablegen::{Emit, Errors};
 use std::path::PathBuf;
@@ -72,6 +80,9 @@ fn main() {
         &dec_sets::INPUTS,
         &nrcs::INPUTS,
         &iso96::INPUTS,
+        &tcap::INPUTS,
+        &termcap_keys::INPUTS,
+        &iterm_keys::INPUTS,
     ]
     .iter()
     .flat_map(|inputs| inputs.iter().map(|i| i.file))
@@ -83,7 +94,7 @@ fn main() {
     }
     std::fs::write(out.join("contrast.bin"), contrast::build()).expect("write contrast.bin");
     let read = |file: &str| std::fs::read_to_string(data.join(file));
-    let tables: [(&str, Table); 16] = [
+    let tables: [(&str, Table); 19] = [
         ("bidi", bidi::build),
         ("grapheme", grapheme::build),
         ("width", width::build),
@@ -100,6 +111,9 @@ fn main() {
         ("dec sets", dec_sets::build),
         ("nrcs", nrcs::build),
         ("iso96", iso96::build),
+        ("tcap", tcap::build),
+        ("termcap keys", termcap_keys::build),
+        ("iterm2 keys", iterm_keys::build),
     ];
     let mut built: Vec<(&str, Result<Emit, Errors>)> = tables
         .into_iter()

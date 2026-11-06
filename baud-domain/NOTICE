@@ -104,6 +104,24 @@ Sets
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h
 
+xterm's xtermcap.c, carried unmodified, which the build compiles into the
+XTGETTCAP table and the termcap keyboard's rows
+  Files:   data/xterm-xtermcap.c
+  Holder:  Thomas E. Dickey (xterm)
+  Licence: X11
+  Notice:  LICENSES/xterm-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c
+
+ncurses' xterm-256color terminal description, carried unmodified, which the
+build compiles into the termcap keyboard's strings
+  Files:   data/terminfo-xterm-256color.ti
+  Holder:  Thomas E. Dickey and the Free Software Foundation (ncurses)
+  Licence: X11
+  Notice:  LICENSES/ncurses-COPYING.txt
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://invisible-island.net/ncurses/
+
 X.Org's keysymdef.h, carried unmodified with its notices, which the build
 reads for the keysyms xterm's national character sets name
   Files:   data/xorg-keysymdef.h
@@ -199,6 +217,19 @@ protocol must send, kept as the protocol's interface data
   Notice:  none
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacritics.txt
+
+iTerm2's OSC 1337 key names the build compiles, the words an application
+sends to iTerm2's protocol: 39 that its documentation names and 54 that its
+VT100Terminal.m compares, kept as the protocol's interface data. No prose or
+code of iTerm2's is kept
+  Files:   data/iterm2-osc1337-doc-keys.txt,
+           data/iterm2-osc1337-source-keys.txt
+  Holder:  George Nachman (iTerm2)
+  Licence: protocol interface data, attributed to iTerm2 at 964a75d (George
+           Nachman)
+  Notice:  none
+  Status:  kept: redistributable, and its notice is satisfied
+  From:    https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m
 
 The OSC 1337 key names in iterm_keys.rs, the words an application sends to
 iTerm2's protocol: 39 that its documentation names and 54 that its

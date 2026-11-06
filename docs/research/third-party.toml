@@ -964,6 +964,21 @@ files   = [
   "kitty-placeholder-diacritics.txt",
 ]
 
+# Files baud wrote from iTerm2's: the key names an application sends to
+# iTerm2's OSC 1337 protocol, kept as its interface data, as the [[tree]]
+# row that uses them says. No prose or code of iTerm2's is in them; the
+# pages and the source they were read from are GPL-2.0 and `external`.
+[upstream.iterm2-interface-data]
+name    = "iTerm2's OSC 1337 key names, written by baud: the 39 its documentation names and the 54 its VT100Terminal.m compares"
+licence = "protocol interface data, attributed to iTerm2 at 964a75d (George Nachman)"
+spdx    = ""
+notice  = "none"
+status  = "kept"
+files   = [
+  "iterm2-osc1337-doc-keys.txt",
+  "iterm2-osc1337-source-keys.txt",
+]
+
 [upstream.xterm]
 name    = "xterm (Thomas E. Dickey and the X Consortium)"
 licence = "X11"
@@ -2075,6 +2090,26 @@ public   = "xterm's charsets.h, carried unmodified, which the build compiles int
 holder   = "Thomas E. Dickey (xterm)"
 
 [[tree]]
+what     = "xterm's xtermcap.c, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the XTGETTCAP table it compiles the names XTGETTCAP answers and the termcap keyboard's rows from"
+paths    = ["baud-domain/data/xterm-xtermcap.c"]
+licence  = "X11"
+notice   = "LICENSES/xterm-COPYING.txt"
+upstream = "docs/research/sources/xterm-xtermcap.c"
+status   = "kept"
+public   = "xterm's xtermcap.c, carried unmodified, which the build compiles into the XTGETTCAP table and the termcap keyboard's rows"
+holder   = "Thomas E. Dickey (xterm)"
+
+[[tree]]
+what     = "ncurses' xterm-256color entry, which baud-domain's build reads, through a link in baud-domain/data/ to terminfo/xterm-256color.ti in docs/research/sources/, which the published crate carries as the file: the strings the termcap keyboard sends"
+paths    = ["baud-domain/data/terminfo-xterm-256color.ti"]
+licence  = "X11"
+notice   = "LICENSES/ncurses-COPYING.txt"
+upstream = "docs/research/sources/terminfo/xterm-256color.ti"
+status   = "kept"
+public   = "ncurses' xterm-256color terminal description, carried unmodified, which the build compiles into the termcap keyboard's strings"
+holder   = "Thomas E. Dickey and the Free Software Foundation (ncurses)"
+
+[[tree]]
 what     = "X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints"
 paths    = ["baud-domain/data/xorg-keysymdef.h"]
 licence  = "X11"
@@ -2343,6 +2378,17 @@ upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacr
 status   = "kept"
 public   = "The Unicode placeholder diacritics the build compiles: the 297 codepoints of kitty's rowcolumn-diacritics.txt that every client of the kitty graphics protocol must send, kept as the protocol's interface data"
 holder   = "Kovid Goyal (kitty v0.49.2)"
+
+[[tree]]
+what     = "iTerm2's OSC 1337 key names, which baud-domain's build compiles, through links in baud-domain/data/ to iterm2-osc1337-doc-keys.txt and iterm2-osc1337-source-keys.txt in docs/research/sources/: 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, read from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked), the names alone, no prose or code kept: the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)"
+paths    = ["baud-domain/data/iterm2-osc1337-doc-keys.txt", "baud-domain/data/iterm2-osc1337-source-keys.txt"]
+licence  = "protocol interface data, attributed to iTerm2 at 964a75d (George Nachman)"
+spdx     = ""
+notice   = "none"
+upstream = "https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m"
+status   = "kept"
+public   = "iTerm2's OSC 1337 key names the build compiles, the words an application sends to iTerm2's protocol: 39 that its documentation names and 54 that its VT100Terminal.m compares, kept as the protocol's interface data. No prose or code of iTerm2's is kept"
+holder   = "George Nachman (iTerm2)"
 
 [[tree]]
 what     = "The OSC 1337 key names in iterm_keys.rs, 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, written by scripts/gen-iterm2-keys.py from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked, no prose or code kept): the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)"

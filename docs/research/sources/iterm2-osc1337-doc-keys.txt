@@ -1,0 +1,44 @@
+# iTerm2's OSC 1337 keys its pages name, from [[source: iterm2-escape-codes]] at sha256 7ee11f94b5dcd4e41a8df9a035a9612c92be831ccdd50948d4220fd872e8f0f3, [[source: iterm2-images]] at sha256 3b619ce2ce4d7798950f3c826b01c5676ecdee57bc89c5a5130863c1337d0290, [[source: iterm2-badges]] at sha256 fb56da7ab7a7f02e8e3b11d068cf2091a6b6d60a71f4ad005f33f3a86582129d, [[source: iterm2-feature-reporting]] at sha256 e359dbc6dadb49160a1c7d829e4f7ac9b480f9ebc7f73b3a98b3964a2b98f896:
+# each key, then the first of the four pages, in that order, to name
+# it; one key a line, sorted. The names alone: nothing else of the
+# pages is kept. Pinned in docs/research/sources/MANIFEST.toml as
+# iterm2-osc1337-doc-keys.
+AddAnnotation; iterm2-escape-codes
+AddHiddenAnnotation; iterm2-escape-codes
+Block; iterm2-escape-codes
+Button; iterm2-escape-codes
+Capabilities; iterm2-feature-reporting
+ClearCapturedOutput; iterm2-escape-codes
+ClearScrollback; iterm2-escape-codes
+Copy; iterm2-escape-codes
+CopyToClipboard; iterm2-escape-codes
+CurrentDir; iterm2-escape-codes
+CursorShape; iterm2-escape-codes
+Custom; iterm2-escape-codes
+Disinter; iterm2-escape-codes
+EndCopy; iterm2-escape-codes
+File; iterm2-escape-codes
+FileEnd; iterm2-images
+FilePart; iterm2-images
+HighlightCursorLine; iterm2-escape-codes
+MultipartFile; iterm2-images
+OpenURL; iterm2-escape-codes
+PopKeyLabels; iterm2-escape-codes
+PushKeyLabels; iterm2-escape-codes
+RemoteHost; iterm2-escape-codes
+ReportCellSize; iterm2-escape-codes
+ReportVariable; iterm2-escape-codes
+RequestAttention; iterm2-escape-codes
+RequestUpload; iterm2-escape-codes
+SetBackgroundImageFile; iterm2-escape-codes
+SetBadgeFormat; iterm2-badges
+SetColors; iterm2-escape-codes
+SetKeyLabel; iterm2-escape-codes
+SetMark; iterm2-escape-codes
+SetProfile; iterm2-escape-codes
+SetProfileProperty; iterm2-escape-codes
+SetUserVar; iterm2-escape-codes
+ShellIntegrationVersion; iterm2-escape-codes
+StealFocus; iterm2-escape-codes
+UnicodeVersion; iterm2-escape-codes
+UpdateBlock; iterm2-escape-codes
