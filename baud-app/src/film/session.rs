@@ -91,8 +91,8 @@ enum Then {
 
 /// **The session's steps, typed into the shell** as the demo types them
 /// into baud's window: a key every `KEY_GAP_MS`, a command's Return only
-/// once its echo has come back, Escape encoded by the core as the
-/// program on screen asked (`Term::key`), as the window's key goes, a
+/// once its echo has come back, Escape and Ctrl-d encoded by the core as
+/// the program on screen asked (`Term::key`), as the window's key goes, a
 /// prompt counted by `OSC 133 ; A` marks, baud's shell's and the
 /// container's, and the wheel at the grid's centre.
 pub(crate) struct Player<'a> {
@@ -240,11 +240,8 @@ impl<'a> Player<'a> {
                         Some(Doing::Echo { since })
                     }
                 }
-                (Step::Escape, Doing::Start) => {
-                    let key = baud_core::KeyEvent::press(
-                        baud_domain::KeyCode::Escape,
-                        baud_domain::Modifiers::NONE,
-                    );
+                (Step::Escape | Step::Ctrl(_), Doing::Start) => {
+                    let key = steps::key_event(step).expect("a step that presses a key");
                     let mut out = Vec::new();
                     crate::reads::input(u.term, |t| t.key(key), |b| out.extend_from_slice(b));
                     self.press(u, log, epoch, &out);
@@ -707,8 +704,12 @@ fn without_takes_a_command_out_whole() {
 /// trail the first `ge` draws must be plasma and the ones `gg` and the
 /// second `ge` draw liquid, after the edit saved between them, and `gg` or
 /// its hold must light a liquid: each ignition the film's trail lit is
-/// printed with its step. FAX must first light in the photo's shot,
-/// kitten's picture, before fastfetch's.
+/// printed with its step. Every move of the README's scene, from `:open
+/// README.md` to `:q`, must begin in the liquid trail, and each of its
+/// jumps must light a liquid in its step or the hold after it; Ctrl-d is no
+/// jump, as it moves the page and the cursor together and leaves the cursor
+/// on its row, so its three are only printed. FAX must first light in the
+/// photo's shot, kitten's picture, before fastfetch's.
 ///
 /// `BAUD_SESSION_WITHOUT` takes a command out ([`without`]), for a
 /// perturbation: without `ssh demo` CD stays dark, and without the photo
@@ -918,9 +919,16 @@ fn the_readme_session_lights_every_light() {
         "the session names this machine"
     );
     // The trail as each jump began: plasma down to the trail's line, liquid
-    // back up once the edit was saved, and down again.
+    // back up once the edit was saved, and down again. Each is found by its
+    // place from the one before, as the README's scene jumps by the same
+    // keys.
     let at = |want: Step| steps.iter().position(|s| *s == want);
-    let again = steps.iter().rposition(|s| *s == Step::Keys("ge"));
+    let again = at(Step::Keys("gg")).and_then(|up| {
+        steps[up..]
+            .iter()
+            .position(|s| *s == Step::Keys("ge"))
+            .map(|d| up + d)
+    });
     if let (Some(down), Some(up)) = (at(Step::Keys("ge")), at(Step::Keys("gg"))) {
         assert_eq!(
             trail_as(&take.trails, StepAt(down)),
@@ -948,6 +956,29 @@ fn the_readme_session_lights_every_light() {
                 .any(|(s, t, _)| jump(s) && *t == CursorTrail::Liquid),
             "no liquid ignition at `gg`"
         );
+    }
+    // The README's scene, in one helix: every move in the liquid trail as it
+    // began, and each jump's own liquid, in its step or the hold after it.
+    if let (Some(open), Some(quit)) = (at(Step::Line(":open README.md")), at(Step::Line(":q"))) {
+        for i in (open..=quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
+            assert_eq!(
+                trail_as(&take.trails, StepAt(i)),
+                CursorTrail::Liquid,
+                "at step {i} {:?}",
+                steps[i]
+            );
+        }
+        for i in (open..quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
+            let lit = take.ignitions.iter().any(|(s, t, _)| {
+                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Liquid
+            });
+            println!("scene:   step {i} {:?}: liquid lit: {lit}", steps[i]);
+            assert!(
+                lit || matches!(steps[i], Step::Ctrl(_)),
+                "no liquid ignition at step {i} {:?}",
+                steps[i]
+            );
+        }
     }
     // **The cursor blinks at every prompt the session holds at, baud's
     // shell's and the server's over ssh, and is steady while helix asks for

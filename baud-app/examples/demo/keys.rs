@@ -9,10 +9,13 @@ use crate::session::Step;
 pub enum Held {
     Nothing,
     Shift,
+    Control,
 }
 
 /// One key press: the virtual key code, the modifier held, and the
-/// character the event carries as its text.
+/// character the event carries as its text. Under [`Held::Control`] the text
+/// is what the layout types there, which the system fills in itself
+/// (`mac::Poster::key`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub code: u16,
@@ -154,6 +157,19 @@ pub fn key_for(c: char) -> Option<Key> {
     })
 }
 
+/// **Control and a letter's key**, whose text is the control code the
+/// U.S. layout types there, the letter's bit 6 cleared; or `c` back when it
+/// is no lower-case letter.
+pub fn control_key(c: char) -> Result<Key, char> {
+    let code = code_of(c).filter(|_| c.is_ascii_lowercase()).ok_or(c)?;
+    let text = char::from_u32(u32::from(c) & 0x1f).ok_or(c)?;
+    Ok(Key {
+        code,
+        held: Held::Control,
+        text,
+    })
+}
+
 /// The keys that type `text`, or the first character no key types.
 pub fn keys_for(text: &str) -> Result<Vec<Key>, char> {
     text.chars().map(|c| key_for(c).ok_or(c)).collect()
@@ -170,6 +186,7 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
         }
         Step::Keys(t) => keys_for(t),
         Step::Escape => Ok(vec![ESCAPE]),
+        Step::Ctrl(c) => Ok(vec![control_key(c)?]),
         Step::Prompt | Step::Hold(_) | Step::Wheel { .. } => Ok(Vec::new()),
     }
 }
@@ -271,6 +288,22 @@ mod tests {
         assert_eq!(ESCAPE.code, 0x35);
         assert_eq!(key_for('\u{1b}'), None, "no character key types ESC");
         assert!(!US.iter().any(|(_, _, c)| *c == ESCAPE.code));
+    }
+
+    /// **Ctrl-d is the `d` key with Control held**, its text the control
+    /// code the U.S. layout types there, and no Return after it; no character
+    /// of the table types that code, so `Keys` cannot stand in for it. The
+    /// control: a key that is no lower-case letter has no such press.
+    /// Perturbation: hold Shift instead and the first assertion fails.
+    #[test]
+    fn ctrl_d_is_the_d_key_with_control() {
+        assert_eq!(
+            presses(Step::Ctrl('d')).unwrap(),
+            [k(0x02, Held::Control, '\u{4}')]
+        );
+        assert_eq!(key_for('\u{4}'), None);
+        assert_eq!(control_key('D'), Err('D'));
+        assert_eq!(control_key('\u{e9}'), Err('\u{e9}'));
     }
 
     /// **Every character the README session types has a U.S. key**, and a

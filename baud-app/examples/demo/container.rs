@@ -78,7 +78,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 
 /// **The image's stream, by SHA-256**, from the flake's pinned nixpkgs for
 /// `aarch64-linux`, the system colima's VM runs on an Apple silicon Mac.
-pub const IMAGE_SHA256: &str = "0d1f8760a4a2582c5b1b4ccf54a8b2f64bb6a4176b7b3a4cd128eb3b37496917";
+pub const IMAGE_SHA256: &str = "e247674a9e53a2213769e5f90afff11010f2c9259f2db4ad95ff8a900e92c9de";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.

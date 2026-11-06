@@ -466,6 +466,7 @@ struct Prep {
 }
 
 fn prepare() -> Result<Prep, String> {
+    session::readme_scene(scratch::README)?;
     let mut bins = Vec::new();
     let mut tools = Vec::new();
     // starship, from its own revision, refused unless it is outside both
@@ -763,8 +764,8 @@ fn covered(stack: &[(&str, &[u8])], what: &str, text: &str) -> Result<(), String
 }
 
 /// **No character the session shows from what it controls needs a system
-/// face**: `hello.txt`, the config helix shows, both prompts and the
-/// fireworks' request, through the stack baud builds from the scratch
+/// face**: `hello.txt`, the config and the README helix shows, both prompts
+/// and the fireworks' request, through the stack baud builds from the scratch
 /// config and baud-render's table. Then the control: without the CJK face,
 /// 波 is a gap, so the check can fail. What the programs print is checked
 /// once they have printed it ([`check_printed`]).
@@ -772,8 +773,9 @@ fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
     let bytes = read_faces(faces)?;
     let stack = stack(&bytes);
     let text = format!(
-        "{}{config}{}{}{}{}",
+        "{}{config}{}{}{}{}{}",
         session::HELLO,
+        scratch::README,
         session::PROMPT_SHOWN,
         session::REMOTE_PROMPT,
         session::ICAT,
@@ -781,7 +783,8 @@ fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
     );
     covered(
         &stack,
-        "hello.txt, the config, both prompts, kitten's command and the fireworks' request",
+        "hello.txt, the config, the README, both prompts, kitten's command and the fireworks' \
+         request",
         &text,
     )?;
     let without: Vec<(&str, &[u8])> = stack
@@ -1435,7 +1438,7 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 std::thread::sleep(Duration::from_secs_f64(g.max(0.0) / 1000.0));
                 type_keys(&[RETURN], &mut gaps)?;
             }
-            Step::Keys(_) | Step::Line(_) | Step::Escape => {
+            Step::Keys(_) | Step::Line(_) | Step::Escape | Step::Ctrl(_) => {
                 ev.line(&session::event(step, prompt));
                 let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
                 type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;

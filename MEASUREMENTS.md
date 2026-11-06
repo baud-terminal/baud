@@ -4452,3 +4452,35 @@ lightness under `[glass] style = "glass"` (`baud-app/src/mark.rs`). A capture of
 window never shown draws its title bar's views grey, the lockup alone in the leading
 accessory too, so it reads the layout and the colours are read on the composed
 strip. Whether a window on screen and not key draws the plate so is unmeasured.
+
+## The README's film reads the README
+
+Not timed: no byte path changed. `SESSION` gains a scene after the liquid trail's first two jumps:
+`:open README.md`, `/character`, Ctrl-d three times, `ge`, `gg`, then the `:q` it already had. Its
+plan goes from 18.8 s to 23.4 s before the waits, 1.4 s of keys and 3.2 s of holds, and the
+headless takes on the pinned programs filmed 23.7 to 23.9 s. Ctrl-d is pressed through `Term::key`,
+which sends `0x04`, and `CSI 100 ; 5 u` once a program has pushed kitty's disambiguate flag.
+
+**`:q` still reaches the prompt**, as `quit` and `should_close` in helix 25.07.1's source say:
+`:open` replaces the buffer in helix's one view, and `:q` closes that view with both buffers clean.
+The `Prompt` after it came in every take, and a frame before `cat`'s output read
+`~/baud 7s ❯ cat hello.txt` under the `hx` line.
+
+**Each jump lights a liquid**: `:open`, `/character`, `ge` and `gg` in every take. Ctrl-d moves
+the page and the cursor together: with no soft wrap the cursor kept its row and lit nothing, and
+wrapped, on these rows, the first two presses lit one and the third did not, so Ctrl-d is printed
+and not held. A 100 ms hold before `gg` fails the take with "no liquid ignition at step 27".
+
+**helix wraps here.** Unwrapped, the first take read "e terminal with character": helix searches as
+each key is typed, `/ch` lands on `scheme` at column 71 of the README's fourth line, and the sideways
+scroll stays. `[editor.soft-wrap] enable = true` in the scratch home's helix config ends that.
+
+**The census**, the `trails` shot now holding the scene, on this commit's take: 917 frames, worst 7
+general and 0 red flashes at a pixel, area 58, strict 1,374 of 21,824. The photo, fireworks and
+clear shots also pass, the fireworks at 27 and 8.
+
+**What the GIF is likely to weigh**: the headless film's 712 frames at 30 a second, through the
+pinned gifski 1.34.0 with `GIFSKI`'s settings, make 10.5 MB. The frames are the CPU renderer's and
+the title strip is composed, so a filmed window's bytes are unmeasured. GitHub's documentation
+limits an attached GIF to 10 MB and a file in a repository to 100 MiB, warning at 50, and says
+nothing of a limit on a README's image from the repository.

@@ -21,6 +21,10 @@ pub enum Step {
     /// Press Escape: the key, which baud encodes as the program on screen
     /// asked (`Term::key`), not an ESC typed as text.
     Escape,
+    /// Press Control and this letter's key, encoded the same way: a program
+    /// that pushed kitty's keyboard flags, as helix does, hears the key
+    /// rather than a control code typed as text.
+    Ctrl(char),
     /// Hold the screen, in milliseconds of real time.
     Hold(u32),
     /// Turn the wheel at the centre of baud's window: `turns` events of
@@ -36,13 +40,13 @@ pub enum Step {
 
 #[cfg(test)]
 use Step::Wheel;
-use Step::{Escape, Hold, Keys, Line, Prompt, Run};
+use Step::{Ctrl, Escape, Hold, Keys, Line, Prompt, Run};
 
-/// **The session the README's clip films**, about 19 seconds of it: one
-/// visible edit of baud's own config changes the cursor's trail, then the
-/// scripts, a photo drawn in the grid, a server over ssh, its system card
-/// and its load, fireworks sent over the wire, home, and the empty prompt
-/// the clip loops to.
+/// **The session the README's clip films**, about 23 seconds of it: one
+/// visible edit of baud's own config changes the cursor's trail, the
+/// repository's README read in that trail, then the scripts, a photo drawn
+/// in the grid, a server over ssh, its system card and its load, fireworks
+/// sent over the wire, home, and the empty prompt the clip loops to.
 pub const SESSION: &[Step] = &[
     // The launch: the splash carried off, then the prompt.
     Prompt,
@@ -66,6 +70,26 @@ pub const SESSION: &[Step] = &[
     Hold(600),
     Keys("ge"),
     Hold(500),
+    // The repository's README in the same helix, in the liquid trail: the
+    // word the README's tagline turns on, three half pages down, its end
+    // and its top. Each hold is past `REIGNITE`, so a jump after it lights
+    // a liquid of its own. `:open` replaces the buffer in helix's one view,
+    // so `:q` closes that view with both buffers clean, and helix ends:
+    // `quit` and `should_close` in helix 25.07.1's source.
+    Line(":open README.md"),
+    Hold(450),
+    Line("/character"),
+    Hold(700),
+    Ctrl('d'),
+    Hold(400),
+    Ctrl('d'),
+    Hold(400),
+    Ctrl('d'),
+    Hold(400),
+    Keys("ge"),
+    Hold(450),
+    Keys("gg"),
+    Hold(400),
     Line(":q"),
     Prompt,
     Hold(150),
@@ -213,6 +237,66 @@ pub const REMOTE_PROMPT: &str = "~ \u{276F} ";
 /// scratch home (`scratch::Layout::work`), nothing of the machine in it.
 pub const PROMPT_SHOWN: &str = "~/baud \u{276F} ";
 
+/// **The word the session's `/` looks for in the README**, the tagline's.
+pub const SEARCHED: &str = "character";
+
+/// **How many rows Ctrl-d moves in helix here**: half the view's inner
+/// height, its half-page move in helix 25.07.1's source, and helix's
+/// status line and command line leave 22 of the window's 24 rows. A row is
+/// at most one line of the file, so a press goes this far down it at most.
+pub const HALF_PAGE: usize = 11;
+
+/// **Whether `readme` still holds the scene**: helix finds [`SEARCHED`],
+/// its smart case ignoring a capital, and the session's Ctrl-d presses end
+/// inside the file. A README that loses the word would leave the film's
+/// search with nothing to find.
+pub fn readme_scene(readme: &str) -> Result<(), String> {
+    let at = readme
+        .lines()
+        .position(|l| l.to_lowercase().contains(SEARCHED))
+        .ok_or_else(|| {
+            format!(
+                "README.md no longer holds `{SEARCHED}`, which the film's `/{SEARCHED}` looks \
+                 for in it: put the word back or change the search in SESSION"
+            )
+        })?;
+    let presses = SESSION.iter().filter(|s| matches!(s, Ctrl(_))).count();
+    let lines = readme.lines().count();
+    let end = at + presses * HALF_PAGE;
+    if end >= lines {
+        return Err(format!(
+            "README.md has {lines} lines, and the film's {presses} Ctrl-d from `{SEARCHED}` on \
+             line {} go to line {}, past its end",
+            at + 1,
+            end + 1
+        ));
+    }
+    Ok(())
+}
+
+/// **The key a step presses, as the window's key reaches the core**, for
+/// [`Escape`] and [`Ctrl`]: `Term::key` encodes it as the program on screen
+/// asked. A control chord names its key by the unshifted character and
+/// carries no text, as the app's `chord` builds it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the film's player presses these, not the window's"
+    )
+)]
+pub fn key_event(step: Step) -> Option<baud_core::KeyEvent> {
+    use baud_domain::{Codepoint, KeyCode, Modifiers};
+    match step {
+        Escape => Some(baud_core::KeyEvent::press(KeyCode::Escape, Modifiers::NONE)),
+        Ctrl(c) => Some(baud_core::KeyEvent::press(
+            KeyCode::Char(Codepoint::from_char(c)),
+            Modifiers::CTRL,
+        )),
+        _ => None,
+    }
+}
+
 /// How many prompts the session waits for, the launch's included.
 pub fn prompts(steps: &[Step]) -> usize {
     steps.iter().filter(|s| **s == Prompt).count()
@@ -229,7 +313,7 @@ pub fn duration(steps: &[Step]) -> Duration {
             Run(t) => (t.chars().count() + 1) as f64 * KEY_GAP_MS,
             Keys(t) => t.chars().count() as f64 * KEY_GAP_MS,
             Line(t) => (t.chars().count() + 1) as f64 * KEY_GAP_MS,
-            Escape => KEY_GAP_MS,
+            Escape | Ctrl(_) => KEY_GAP_MS,
             Hold(ms) => f64::from(ms),
             Step::Wheel { turns, .. } => {
                 (WHEEL_SETTLE_MS + u64::from(turns.unsigned_abs()) * WHEEL_GAP_MS) as f64
@@ -248,6 +332,7 @@ pub fn describe(step: Step, prompt: usize) -> String {
         Keys(t) => format!("type `{t}`"),
         Line(t) => format!("type `{t}`, Return"),
         Escape => "press Escape".to_string(),
+        Ctrl(c) => format!("press Ctrl-{c}"),
         Hold(ms) => format!("hold {:.2} s", f64::from(ms) / 1000.0),
         Step::Wheel { turns, lines } => format!(
             "wheel {} turns of {lines} lines {} at the window's centre",
@@ -259,13 +344,14 @@ pub fn describe(step: Step, prompt: usize) -> String {
 
 /// **The events log's line for a step**, one for every step: `prompt N`
 /// once the shell's prompt has come, `keys ...` as typing begins, `key
-/// Escape` as it is pressed, `hold N ms` as a hold begins, `wheel T x L`
-/// once the wheel has turned.
+/// Escape` and `key Ctrl-d` as each is pressed, `hold N ms` as a hold
+/// begins, `wheel T x L` once the wheel has turned.
 pub fn event(step: Step, prompt: usize) -> String {
     match step {
         Prompt => format!("prompt {prompt}"),
         Run(t) | Keys(t) | Line(t) => format!("keys {t}"),
         Escape => "key Escape".to_string(),
+        Ctrl(c) => format!("key Ctrl-{c}"),
         Hold(ms) => format!("hold {ms} ms"),
         Step::Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
     }
@@ -373,6 +459,109 @@ mod tests {
         assert_eq!(FIREWORKS, "printf '\\e]1337;RequestAttention=fireworks\\a'");
     }
 
+    /// **The README's scene follows the save, in the requested order, in
+    /// one helix**: the second `ge` on the config, `:open README.md`,
+    /// `/character`, Ctrl-d three times, `ge`, `gg` and `:q`, then the
+    /// shell's prompt, and every hold past the 334 ms inside which a liquid
+    /// lights nothing new. The control: the save comes before it, and no
+    /// `Run` falls inside it, so it is one program. Perturbation: swap `ge`
+    /// and `gg` and the slice fails; a 300 ms hold fails the holds' check.
+    #[test]
+    fn the_readme_scene_follows_the_save_in_its_order() {
+        let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
+        let open = at(Line(":open README.md"));
+        let quit = at(Line(":q"));
+        let moves: Vec<Step> = SESSION[open..=quit + 1]
+            .iter()
+            .copied()
+            .filter(|s| !matches!(s, Hold(_)))
+            .collect();
+        assert_eq!(
+            moves,
+            [
+                Line(":open README.md"),
+                Line("/character"),
+                Ctrl('d'),
+                Ctrl('d'),
+                Ctrl('d'),
+                Keys("ge"),
+                Keys("gg"),
+                Line(":q"),
+                Prompt,
+            ]
+        );
+        assert!(at(Line(":w")) < open, "after the save");
+        assert_eq!(SESSION[open - 2..open], [Keys("ge"), Hold(500)]);
+        for s in &SESSION[open..quit] {
+            if let Hold(ms) = s {
+                assert!(*ms > 334, "{s:?} is inside REIGNITE");
+            }
+        }
+        assert!(
+            SESSION[open..quit].iter().all(|s| !matches!(s, Run(_))),
+            "one helix"
+        );
+        // Every move of the scene is followed by a hold, so a trail shows.
+        for pair in SESSION[open..quit].chunks(2) {
+            assert!(matches!(pair[1], Hold(_)), "{pair:?}");
+        }
+    }
+
+    /// **The README the film opens holds the scene**: `character` is found
+    /// and three half pages from it stay inside the file. The controls: the
+    /// README without the word fails and says which word; a README it ends
+    /// short of fails and says how far; a capital still counts, as helix's
+    /// smart case matches it. Perturbation: move the word below the last 33
+    /// lines and the second check fails.
+    #[test]
+    fn the_readme_holds_the_scene() {
+        const README: &str = include_str!("../../../README.md");
+        assert_eq!(readme_scene(README), Ok(()));
+        let lost = README.replace("character", "x").replace("Character", "x");
+        let err = readme_scene(&lost).unwrap_err();
+        assert!(err.contains("no longer holds `character`"), "{err}");
+        assert!(err.contains("/character"), "{err}");
+        let short = "a character\nb\n";
+        let err = readme_scene(short).unwrap_err();
+        assert!(err.contains("past its end"), "{err}");
+        let long = format!("A CHARACTER\n{}", "b\n".repeat(HALF_PAGE * 3));
+        assert_eq!(readme_scene(&long), Ok(()));
+    }
+
+    /// **Ctrl-d is what the core encodes for the key, not a byte typed**:
+    /// `0x04` with no keyboard protocol, as ECMA-48's EOT sits under Ctrl-D
+    /// in the VT100's keyboard, and kitty's `CSI 100 ; 5 u` once a program
+    /// has pushed its disambiguate flag (`[[source: kitty-keyboard]]`), as
+    /// helix does: there a byte typed would be a different report. Escape
+    /// goes the same way. The control: Escape's own two forms differ too,
+    /// and a step that presses nothing has no event. Perturbation: spell
+    /// the key's codepoint as `0x04`, what `\u{4}` as text would do, and the
+    /// flagged form fails.
+    #[test]
+    fn ctrl_d_is_encoded_by_the_core() {
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let pressed = |first: &[u8], step: Step| {
+            let mut owned = baud_core::Owned::new(&ws);
+            let mut t = baud_core::Term::new(owned.storage(), &ws);
+            t.write_at(BytePos::ZERO, first);
+            t.feed(BytePos::ZERO, ReadLen::from_index(first.len()));
+            t.clear_reply();
+            assert!(t.key(key_event(step).expect("a key")), "encoded");
+            t.reply().to_vec()
+        };
+        let flags = b"\x1b[>1u";
+        assert_eq!(pressed(b"", Ctrl('d')), b"\x04".to_vec());
+        assert_eq!(pressed(flags, Ctrl('d')), b"\x1b[100;5u".to_vec());
+        assert_eq!(pressed(b"", Escape), b"\x1b".to_vec());
+        assert_eq!(pressed(flags, Escape), b"\x1b[27u".to_vec());
+        assert_eq!(key_event(Hold(1)), None);
+        assert_eq!(key_event(Keys("d")), None);
+    }
+
     /// **The photo is drawn at baud's shell between the scripts and the
     /// server**, its command typed plain -- kitten, its transfer mode and
     /// the file's bare name, no path -- and held past its prompt. The
@@ -393,9 +582,11 @@ mod tests {
     /// **The plan's duration is its holds, its keys and its wheel**: 1.5 s
     /// of holds, `ab` with its Return at 40 ms a key (0.12 s), `q` (0.04 s),
     /// `:q` and Return (0.12 s), and two wheels of 4 turns, each 30 ms
-    /// then 4 x 50 ms (0.46 s): 2.24 s. Perturbation: count a wheel's turns
-    /// signed and the second wheel takes nothing off, which the total
-    /// catches.
+    /// then 4 x 50 ms (0.46 s): 2.24 s. The whole session is about 23 s
+    /// before its waits: the README's scene adds 4.6 s to the 18.8 s the
+    /// take held before it, 1.4 s of keys and 3.2 s of holds that read at a
+    /// person's speed. Perturbation: count a wheel's turns signed and the
+    /// second wheel takes nothing off, which the total catches.
     #[test]
     fn the_plan_adds_its_holds_typing_and_wheel() {
         let steps = [
@@ -415,11 +606,13 @@ mod tests {
         assert!((d - 2.24).abs() < 1e-9, "{d}");
         let whole = duration(SESSION).as_secs_f64();
         assert!(
-            (15.0..20.0).contains(&whole),
-            "the README session is about 18 s before its waits: {whole}"
+            (21.0..25.0).contains(&whole),
+            "the README session is about 23 s before its waits: {whole}"
         );
         let esc = duration(&[Escape]).as_secs_f64();
         assert!((esc - 0.04).abs() < 1e-9, "Escape is one key: {esc}");
+        let ctrl = duration(&[Ctrl('d')]).as_secs_f64();
+        assert!((ctrl - 0.04).abs() < 1e-9, "Ctrl-d is one key: {ctrl}");
     }
 
     /// **A prompt is its mark, counted exactly**, the container's bare
@@ -469,6 +662,8 @@ mod tests {
         );
         assert_eq!(event(Hold(700), 0), "hold 700 ms");
         assert_eq!(event(Escape, 0), "key Escape");
+        assert_eq!(event(Ctrl('d'), 0), "key Ctrl-d");
+        assert_eq!(describe(Ctrl('d'), 0), "press Ctrl-d");
         assert_eq!(lines[0], "prompt 1");
         assert_eq!(lines.last().map(String::as_str), Some("hold 1000 ms"));
     }

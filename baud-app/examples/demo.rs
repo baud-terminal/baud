@@ -1,7 +1,8 @@
 //! **The README's session, played in baud's window**: a real interactive
 //! zsh and real programs at real speed, every command typed into the
 //! window key by key -- baud's own config edited in helix, its plasma
-//! trail changed to liquid by one word saved and baud's live reload; baud
+//! trail changed to liquid by one word saved and baud's live reload, and the
+//! repository's README read in that helix in the liquid trail; baud
 //! defined in six languages and a line of emoji in `cat hello.txt`; a photo drawn by
 //! `kitten icat`; ssh into a container
 //! on this Mac, its system card there with baud's mark drawn as a picture,
@@ -51,8 +52,9 @@
 //! the screen transition on, the window solid (opaque under either
 //! appearance, its font and its size not a program's to change), the
 //! cursor still with the plasma trail -- and the pinned faces beside it,
-//! and the shell's working directory, `~/baud`, holding `hello.txt` and
-//! `canazei.jpg`, the pinned photo scaled to 850 pixels wide; and
+//! and the shell's working directory, `~/baud`, holding `hello.txt`, the
+//! repository's `README.md` unchanged and `canazei.jpg`, the pinned photo
+//! scaled to 850 pixels wide; and
 //! the container's image, streamed by the repository flake's
 //! `demo-container` and pinned by its SHA-256. baud is started with
 //! nothing of this environment but `HOME`, `ZDOTDIR`, `SHELL`, `PATH`,

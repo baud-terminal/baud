@@ -117,7 +117,7 @@ the macOS system font baud falls back to. Encoded with gifski at 1164 px
 wide (16.9 MB), with no frame carrying traces of another, so it loops
 clean. It is to be filmed again, as the take below.
 
-The next take is about 19 seconds, at 80x24 cells and 14 pt
+The next take is about 23 seconds before its waits, at 80x24 cells and 14 pt
 (`baud-app/examples/demo/session.rs`). The README shows the GIF 776 px
 wide whatever the window's size, so its text's size there is set by the
 columns: about 776 / (0.6 x 80), 16 px, GitHub's body size, where 110
@@ -131,7 +131,11 @@ columns gave 11.5. Shot by shot:
    file, and baud reads it again by itself. `gg` jumps back up in the
    liquid trail, a glass gel in the cursor's colour, and `ge` down again.
    No hidden script switches the trail: the edit on screen is all of it,
-   and the liquid trail stays for the rest of the take.
+   and the liquid trail stays for the rest of the take. In the same helix,
+   `:open README.md` opens this repository's README, the file itself,
+   unchanged; `/character` finds the tagline's word, Ctrl-d goes three half
+   pages down, `ge` to its last line and `gg` to its top, and `:q` ends
+   helix, whose one view it closes with neither file changed.
 3. `cat hello.txt`: baud defined in Hebrew and Arabic, drawn right to
    left, and in Chinese, Japanese, Korean and Hindi, each definition
    quoted from a dictionary, a standard, ITU's own translation or a
@@ -208,7 +212,9 @@ through the session.
 without a window, through baud's core and CPU renderer, reading the config
 again when helix saves it, and fails unless each of the nine lights
 lights, FAX first in the photo's shot, the trail is plasma at `ge` and
-liquid at `gg` and the second `ge`, and `gg` lights a liquid. It writes a
+liquid at `gg` and the second `ge`, `gg` lights a liquid, and every move of
+the README's scene begins in the liquid trail, each jump lighting its own.
+It writes a
 still of every hold into DIR, and every frame, 100 a second, into DIR as a
 lossless film,
 `session.mkv`. **The title bar in those frames is composed, not filmed**:

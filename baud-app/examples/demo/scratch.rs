@@ -61,8 +61,14 @@ pub fn path(bins: &[String]) -> String {
     all.join(":")
 }
 
-/// helix's own defaults: a file of its own, so the person's is not read.
-const HELIX: &str = "# helix's defaults, for the README session\n";
+/// **helix's own defaults but soft wrap**: a file of its own, so the
+/// person's is not read. With no wrap, `/character` scrolled the whole README
+/// sideways: helix searches as each key is typed, `/ch` lands on `scheme` at
+/// the right edge of the README's fourth line, and the offset stays when the
+/// search moves on, so the first headless take read "e terminal with
+/// character".
+const HELIX: &str = "# helix's defaults but soft wrap, for the README session\n\
+                     [editor.soft-wrap]\nenable = true\n";
 
 /// **The zsh startup file.** `PATH` is set here and not only in the
 /// environment: baud starts a login shell, and on macOS `/etc/zprofile`
@@ -85,6 +91,11 @@ pub const STARSHIP: &str = ".config/starship.toml";
 
 /// **baud's starship preset**, the file the repository ships.
 pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
+
+/// **The repository's README, unchanged**, the file the session opens in
+/// helix: the shell's working directory holds it, so the command names it
+/// bare.
+pub const README: &str = include_str!("../../../README.md");
 
 /// **baud's config**, as the session shows it in helix: 22 lines, no more
 /// than the rows helix gives a file in a 24-row window, so the session's
@@ -170,6 +181,10 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
         (
             "home/baud/hello.txt".to_string(),
             crate::session::HELLO.as_bytes().to_vec(),
+        ),
+        (
+            "home/baud/README.md".to_string(),
+            README.as_bytes().to_vec(),
         ),
         (format!("home/{CONFIG}"), config(faces).into_bytes()),
     ]
@@ -295,6 +310,23 @@ mod tests {
             .into_iter()
             .find(|(f, _)| f == "home/.config/starship.toml")
             .expect("the preset in the scratch home");
+        let helix = files("/a/bin", &faces)
+            .into_iter()
+            .find(|(f, _)| f == "home/.config/helix/config.toml")
+            .expect("helix's config in the scratch home");
+        assert!(
+            String::from_utf8_lossy(&helix.1).contains("[editor.soft-wrap]\nenable = true\n"),
+            "no sideways scroll of the README"
+        );
+        let readme = files("/a/bin", &faces)
+            .into_iter()
+            .find(|(f, _)| f == "home/baud/README.md")
+            .expect("the README in the working directory");
+        assert_eq!(
+            readme.1,
+            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md")).unwrap(),
+            "the repository's README, byte for byte"
+        );
         assert_eq!(
             preset.1,
             std::fs::read(concat!(

@@ -23,6 +23,30 @@ use crate::guard::{self, OnScreen, Rect, Window};
 use crate::keys::{Held, Key};
 use crate::session::{WHEEL_GAP_MS, WHEEL_SETTLE_MS};
 
+/// **A key's event, not posted.** A key under Control is given no text of
+/// its own: read back through `NSEvent`, an unposted Ctrl-d with none has
+/// `characters` U+0004 and `charactersIgnoringModifiers` `d`, as a real
+/// press has, while one given U+0004 has U+0004 for both, which loses the
+/// key the app's `chord` names it by, and one given `d` sends `d` as text.
+fn key_event(source: &CGEventSource, k: Key, down: bool) -> Result<CFRetained<CGEvent>, String> {
+    let e = CGEvent::new_keyboard_event(Some(source), k.code, down)
+        .ok_or("CoreGraphics made no key event")?;
+    let flags = match k.held {
+        Held::Nothing => CGEventFlags::empty(),
+        Held::Shift => CGEventFlags::MaskShift,
+        Held::Control => CGEventFlags::MaskControl,
+    };
+    CGEvent::set_flags(Some(&e), flags);
+    if k.held != Held::Control {
+        let mut units = [0u16; 2];
+        let text: &[u16] = k.text.encode_utf16(&mut units);
+        // SAFETY: the pointer and the length are the slice's own, alive
+        // for the call, which copies the characters.
+        unsafe { CGEvent::keyboard_set_unicode_string(Some(&e), text.len() as _, text.as_ptr()) };
+    }
+    Ok(e)
+}
+
 /// CoreFoundation's `Boolean`, an `unsigned char`; the probe holds it.
 type Boolean = u8;
 
@@ -212,22 +236,9 @@ impl Poster {
     /// One key, down and up, held `hold` between them; the guard asked
     /// before each.
     pub fn key(&self, k: Key, hold: Duration) -> Result<(), String> {
-        let mut units = [0u16; 2];
-        let text: &[u16] = k.text.encode_utf16(&mut units);
-        let flags = match k.held {
-            Held::Nothing => CGEventFlags::empty(),
-            Held::Shift => CGEventFlags::MaskShift,
-        };
         for down in [true, false] {
             guard::keys(self.pid, &windows(true), front_app()).map_err(|r| self.refused(r))?;
-            let e = CGEvent::new_keyboard_event(Some(&self.source), k.code, down)
-                .ok_or("CoreGraphics made no key event")?;
-            CGEvent::set_flags(Some(&e), flags);
-            // SAFETY: the pointer and the length are the slice's own, alive
-            // for the call, which copies the characters.
-            unsafe {
-                CGEvent::keyboard_set_unicode_string(Some(&e), text.len() as _, text.as_ptr())
-            };
+            let e = key_event(&self.source, k, down)?;
             CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
             if down {
                 std::thread::sleep(hold);
@@ -378,5 +389,35 @@ mod tests {
         }
         assert_eq!(h[RETURN_NAME], i64::from(RETURN.code));
         assert_eq!(h[ESCAPE_NAME], i64::from(ESCAPE.code));
+    }
+
+    /// **Ctrl-d's event, not posted, carries Control and no text of its
+    /// own**, which `NSEvent` fills in as a real press has it (`key_event`);
+    /// `R` keeps the text it was given. Nothing is posted and no window is
+    /// asked for. The
+    /// control: an event left at no flags has none of Control. Perturbation:
+    /// map `Held::Control` to no flag and the first assertion fails.
+    #[test]
+    fn a_control_key_leaves_its_text_to_the_system() {
+        let source = CGEventSource::new(CGEventSourceStateID::Private).expect("an event source");
+        let text = |e: &CGEvent| {
+            let mut units = [0u16; 4];
+            let mut n = 0;
+            // SAFETY: the two pointers are this frame's, the array holds the
+            // four units the call is told of, and it writes no more.
+            unsafe {
+                CGEvent::keyboard_get_unicode_string(Some(e), 4, &mut n, units.as_mut_ptr());
+            }
+            String::from_utf16_lossy(&units[..n as usize])
+        };
+        let control = |e: &CGEvent| CGEvent::flags(Some(e)).contains(CGEventFlags::MaskControl);
+        let d = crate::keys::control_key('d').unwrap();
+        let e = key_event(&source, d, true).unwrap();
+        assert!(control(&e), "{:?}", CGEvent::flags(Some(&e)));
+        assert_eq!(text(&e), "", "the system's to fill in");
+        let r = crate::keys::key_for('R').unwrap();
+        let e = key_event(&source, r, true).unwrap();
+        assert!(!control(&e), "the control");
+        assert_eq!(text(&e), "R");
     }
 }
