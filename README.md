@@ -67,7 +67,8 @@ Its terminal core is a separate library any program can embed:
 [code of conduct](CODE_OF_CONDUCT.md) says how contributors treat each
 other. `cargo test`, `cargo nextest run`, `cargo bench` and `cargo run` start
 their binary under a memory bound, [`scripts/bounded`](scripts/bounded), which
-kills a runaway before the machine has to choose what else to kill; a harness
+kills a runaway before the machine has to choose what else to kill, at the size
+[`budgets.toml`](budgets.toml) holds; a harness
 that starts cargo or a test binary itself, such as a mutation run in a copied
 tree the runner cannot reach, calls `scripts/bounded --timeout SECS -- COMMAND...`,
 because a timeout on cargo alone leaves the test binary under it running.

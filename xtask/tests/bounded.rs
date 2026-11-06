@@ -4,7 +4,8 @@
 //! with a kill of the group on a deadline.
 //!
 //! `BOUNDED_TEST_SCRIPT` names another copy of the script, for running this
-//! binary against a perturbed one.
+//! binary against a perturbed one, which reads its bound from a `budgets.toml`
+//! one directory above it, as the script itself does.
 
 #![cfg(unix)]
 // Most of the driver is the watcher's, which is macOS's.
@@ -22,6 +23,9 @@ const ROLE: &str = "BOUNDED_TEST_ROLE";
 const DIR: &str = "BOUNDED_TEST_DIR";
 const CODE: &str = "BOUNDED_TEST_CODE";
 const SIGNAL: &str = "BOUNDED_TEST_SIGNAL";
+/// The bound `cargo_shaped` gives the script it starts.
+const INNER_BOUND: &str = "BOUNDED_TEST_INNER_MIB";
+const BOUND: &str = "BAUD_TEST_MEMORY_BOUND_MIB";
 
 /// The exit codes, which `the_exit_codes_are_named_alike` holds to the script's
 /// and the watcher's.
@@ -38,6 +42,9 @@ const HOG_STEP: usize = 64 * MIB;
 const HOG_PAUSE: Duration = Duration::from_millis(200);
 /// A hog's exit at the cap, which no guarded test should see.
 const REACHED_CAP: i32 = 42;
+
+/// What `cargo_shaped` exits with when its test fails.
+const PARENT_FAILED: i32 = 101;
 
 /// What `handles_term` exits with.
 const HANDLED: i32 = 57;
@@ -72,6 +79,7 @@ fn as_the_role() {
         "session-hog" => parent_of(&["hog"], true, Linger::UntilItEnds),
         "leaves-a-hog" => parent_of(&["hog"], false, Linger::APollOrTwo),
         "parent-of-sleeper" => parent_of(&["sleeper"], true, Linger::UntilItEnds),
+        "cargo-shaped" => cargo_shaped(),
         "leaves-a-sleeper" => parent_of(&["sleeper"], true, Linger::APollOrTwo),
         "sleeper" => sleeper(),
         "handles-term" => handles_term(),
@@ -164,6 +172,24 @@ fn parent_of(role: &[&str], own_session: bool, linger: Linger) -> i32 {
             0
         }
     }
+}
+
+/// What cargo does with its runner: the script over a test binary, here a hog,
+/// and a status of its own when that fails, for a driver to tell it from the
+/// helper's. (`cargo test` passes the 113 on, and `cargo nextest run` says 100.)
+fn cargo_shaped() -> i32 {
+    publish_pid("parent");
+    let mut inner = Command::new(the_script());
+    inner
+        .arg(std::env::current_exe().expect("this binary"))
+        .args(["--exact", "as_the_role", "--nocapture"])
+        .env(ROLE, "hog")
+        .env(BOUND, std::env::var(INNER_BOUND).expect("the inner bound"))
+        .stdout(Stdio::null());
+    let mut inner = inner.spawn().expect("the inner script");
+    publish("inner.pid", &inner.id().to_string());
+    let status = inner.wait().expect("the inner script ends");
+    if status.success() { 0 } else { PARENT_FAILED }
 }
 
 fn sleeper() -> i32 {
@@ -527,6 +553,66 @@ fn helper(seconds: u32, mib: u32) -> Command {
     command
 }
 
+/// A copy of the script and its source in a tree of its own, under `repo/`, with
+/// `budgets` for its `budgets.toml`, or no file at all.
+fn a_tree_with(scratch: &Scratch, budgets: Option<&str>) -> PathBuf {
+    let dir = scratch.0.join("repo/scripts");
+    fs::create_dir_all(&dir).expect("the copy");
+    let from = the_script();
+    let script = dir.join("bounded");
+    fs::copy(&from, &script).expect("the script");
+    fs::copy(from.with_file_name("bounded.rs"), dir.join("bounded.rs")).expect("the source");
+    if let Some(budgets) = budgets {
+        write_budgets(&script, budgets);
+    }
+    script
+}
+
+fn write_budgets(script: &Path, budgets: &str) {
+    let file = script
+        .parent()
+        .and_then(Path::parent)
+        .expect("the tree")
+        .join("budgets.toml");
+    fs::write(file, budgets).expect("the file");
+}
+
+/// `budgets.toml` holding one value, the only file in the way of it.
+fn budget_of(value: &str) -> String {
+    format!("[tests]\nmemory-max = \"{value}\"\n")
+}
+
+/// The refusal: the code, the file named, and the mark never written. With the
+/// override set too, which replaces the value and not the file.
+fn assert_refused_over_the_budget(script: &Path, scratch: &Scratch, case: &str) {
+    for bound in [None, Some("1024")] {
+        let mut command = Command::new(script);
+        command.env_remove(BOUND);
+        if let Some(bound) = bound {
+            command.env(BOUND, bound);
+        }
+        let command = in_role(command, "mark", scratch);
+        let ended = Running::start(command, scratch).end(LIMIT);
+        let err = ended.err_text();
+        assert_eq!(ended.status.code(), Some(EXIT_REFUSED), "{case}: {err}");
+        assert!(err.contains("budgets.toml"), "{case}: {err}");
+        assert!(err.contains("not run"), "{case}: {err}");
+        assert!(!scratch.0.join("ran").exists(), "{case} ran the program");
+    }
+}
+
+/// The control the refusals stand on: this tree, given a value it can read, runs
+/// the program, so that the mark can appear.
+fn assert_runs_given_a_good_file(script: &Path, scratch: &Scratch) {
+    write_budgets(script, &budget_of("1G"));
+    let mut command = Command::new(script);
+    command.env_remove(BOUND);
+    let command = in_role(command, "mark", scratch);
+    let ended = Running::start(command, scratch).end(LIMIT);
+    assert_eq!(ended.status.code(), Some(0), "{}", ended.err_text());
+    assert!(scratch.0.join("ran").exists(), "the control did not run");
+}
+
 fn is_gone(pid: i32) -> bool {
     // SAFETY: signal 0 only asks whether the process exists.
     unsafe { kill(pid, 0) != 0 }
@@ -656,6 +742,89 @@ fn a_bad_bound_is_refused_and_the_program_is_not_run() {
     let ended = Running::start(command, &scratch).end(LIMIT);
     assert_eq!(ended.status.code(), Some(0), "{}", ended.err_text());
     assert!(scratch.0.join("ran").exists(), "the control did not run");
+}
+
+#[test]
+fn a_missing_budget_file_is_refused_and_the_program_is_not_run() {
+    let scratch = Scratch::new();
+    let script = a_tree_with(&scratch, None);
+    assert_refused_over_the_budget(&script, &scratch, "no file");
+    assert_runs_given_a_good_file(&script, &scratch);
+}
+
+#[test]
+fn a_missing_key_is_refused_and_the_program_is_not_run() {
+    for body in [
+        "",
+        "[tests]\n",
+        "# memory-max = \"16G\"\n[tests]\n# memory-max = \"16G\"\n",
+        // Outside the section, which is as far as a key is read.
+        "memory-max = \"16G\"\n[tests]\n",
+        "[tests]\n[other]\nmemory-max = \"16G\"\n",
+        "[tests.inner]\nmemory-max = \"16G\"\n",
+        " [tests]\nmemory-max = \"16G\"\n",
+        "[tests]\nmax = \"16G\"\n",
+    ] {
+        let scratch = Scratch::new();
+        let script = a_tree_with(&scratch, Some(body));
+        assert_refused_over_the_budget(&script, &scratch, body);
+    }
+    let scratch = Scratch::new();
+    let script = a_tree_with(&scratch, Some(""));
+    assert_runs_given_a_good_file(&script, &scratch);
+}
+
+#[test]
+fn a_malformed_value_is_refused_and_the_program_is_not_run() {
+    let forms = [
+        // Not the line's form.
+        "[tests]\nmemory-max = 16G\n",
+        "[tests]\nmemory-max = \"16G\" # a comment\n",
+        "[tests]\nmemory-max=\"16G\"\n",
+        "[tests]\n memory-max = \"16G\"\n",
+        "[tests]\nmemory-max = \"16G\"\r\n",
+        // Not a size.
+        "[tests]\nmemory-max = \"\"\n",
+        "[tests]\nmemory-max = \"G\"\n",
+        "[tests]\nmemory-max = \"16g\"\n",
+        "[tests]\nmemory-max = \"16GB\"\n",
+        "[tests]\nmemory-max = \"16 G\"\n",
+        "[tests]\nmemory-max = \"1.5G\"\n",
+        "[tests]\nmemory-max = \"-1G\"\n",
+        "[tests]\nmemory-max = \"0x10\"\n",
+        // Named twice, so which is meant is not known.
+        "[tests]\nmemory-max = \"1G\"\nmemory-max = \"2G\"\n",
+    ];
+    // The shared line reads a size in these, and each is no bound: none, less
+    // than a MiB or not a whole one, more than the override may say, and a
+    // count that would wrap the shell's 64 bits to a small one.
+    let unusable = [
+        "0",
+        "0G",
+        "000T",
+        "512K",
+        "1000",
+        "1048577",
+        "1000000000M",
+        "976563G",
+        "954T",
+        "17592186044416T",
+        "9223372036854775808",
+        "18446744073709551616",
+        "18446744090889420800",
+    ];
+    for body in forms
+        .iter()
+        .map(|f| (*f).to_owned())
+        .chain(unusable.iter().map(|v| budget_of(v)))
+    {
+        let scratch = Scratch::new();
+        let script = a_tree_with(&scratch, Some(&body));
+        assert_refused_over_the_budget(&script, &scratch, &body);
+    }
+    let scratch = Scratch::new();
+    let script = a_tree_with(&scratch, Some(forms[0]));
+    assert_runs_given_a_good_file(&script, &scratch);
 }
 
 #[test]
@@ -893,19 +1062,257 @@ mod watcher {
     /// A copy of the script and the source beside it, the source patched, built
     /// on first use in the copy's own `target/`.
     fn copy_of_the_script(scratch: &Scratch, anchor: &str, replacement: &str) -> PathBuf {
-        let dir = scratch.0.join("repo/scripts");
-        fs::create_dir_all(&dir).expect("the copy");
         let from = the_script();
-        let script = dir.join("bounded");
-        fs::copy(&from, &script).expect("the script");
-        let source = fs::read_to_string(from.with_file_name("bounded.rs")).expect("the source");
-        assert!(source.contains(anchor), "the anchor {anchor:?} is gone");
-        fs::write(
-            dir.join("bounded.rs"),
-            source.replacen(anchor, replacement, 1),
+        let budgets = fs::read_to_string(
+            from.parent()
+                .and_then(Path::parent)
+                .expect("the tree")
+                .join("budgets.toml"),
         )
-        .expect("the source");
+        .expect("the file");
+        let script = a_tree_with(scratch, Some(&budgets));
+        let source = script.with_file_name("bounded.rs");
+        let text = fs::read_to_string(&source).expect("the source");
+        assert!(text.contains(anchor), "the anchor {anchor:?} is gone");
+        fs::write(&source, text.replacen(anchor, replacement, 1)).expect("the source");
         script
+    }
+
+    /// What the script hands the watcher for `budgets`, seen by a stand-in for
+    /// the watcher that prints it, where a real one would quietly bring 1T down
+    /// to this machine: the MiB, or `None` for a refusal.
+    fn handed_on(budgets: &str, bound: Option<&str>) -> Option<u64> {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = Scratch::new();
+        let script = a_tree_with(&scratch, Some(budgets));
+        fs::remove_file(script.with_file_name("bounded.rs")).expect("the source");
+        let stand_in = scratch.0.join("repo/target/bounded/bounded");
+        fs::create_dir_all(stand_in.parent().expect("the directory")).expect("target");
+        fs::write(&stand_in, "#!/bin/sh\nprintf %s \"$1\"\n").expect("the stand-in");
+        fs::set_permissions(&stand_in, fs::Permissions::from_mode(0o755)).expect("executable");
+        let mut command = Command::new(&script);
+        command.env_remove(BOUND).arg("/usr/bin/true");
+        if let Some(bound) = bound {
+            command.env(BOUND, bound);
+        }
+        let ended = Running::start(command, &scratch).end(LIMIT);
+        match ended.status.code() {
+            Some(0) => Some(
+                String::from_utf8(ended.out)
+                    .expect("text")
+                    .parse()
+                    .expect("a number"),
+            ),
+            Some(EXIT_REFUSED) => None,
+            other => panic!("{other:?}: {}", String::from_utf8_lossy(&ended.err)),
+        }
+    }
+
+    #[test]
+    fn each_size_means_what_it_says() {
+        for (size, mib) in [
+            ("16G", 16 * 1024),
+            ("512M", 512),
+            ("1T", 1024 * 1024),
+            // No letter is a count of bytes, as MemoryMax= has it.
+            ("17179869184", 16 * 1024),
+            ("1048576", 1),
+            ("2097152K", 2048),
+            // Decimal with a leading zero, and not octal or an error.
+            ("016G", 16 * 1024),
+            ("08M", 8),
+            // The largest the override may say, in each unit that can.
+            ("999999999M", 999_999_999),
+            ("976562G", 999_999_488),
+            ("953T", 999_292_928),
+        ] {
+            assert_eq!(handed_on(&budget_of(size), None), Some(mib), "{size}");
+        }
+    }
+
+    /// The other project's parser, over bodies that differ in which lines count:
+    /// one line of it is the value this reads, and any other count is a refusal.
+    #[test]
+    fn this_reads_what_the_shared_line_reads() {
+        let committed =
+            fs::read_to_string(repo().join("budgets.toml")).expect("the committed file");
+        assert!(handed_on(&committed, None).is_some(), "the committed file");
+        for body in [
+            committed.as_str(),
+            "[tests]\nmemory-max = \"2G\"",
+            "# a comment\n\n[tests]\n# a comment\nother = 1\nmemory-max = \"2G\"\n\n[next]\n",
+            "[before]\nmemory-max = \"1G\"\n[tests]\nmemory-max = \"2G\"\n",
+            "[tests]\nmemory-max = \"2G\"\n[after]\nmemory-max = \"3G\"\n",
+            "[tests]\n[tests]\nmemory-max = \"2G\"\n",
+            "[tests]\n[tests]\n[tests]\nmemory-max = \"2G\"\n",
+            "[tests]\nmemory-max = \"2G\"\n[tests]\nmemory-max = \"3G\"\n",
+            "[tests]\nmemory-max = \"2G\"\nmemory-max = \"3G\"\n",
+            "[tests]\nmemory-max = \"2G\" \n",
+            "[other]\nmemory-max = \"2G\"\n",
+        ] {
+            let scratch = Scratch::new();
+            let file = scratch.0.join("budgets.toml");
+            fs::write(&file, body).expect("the file");
+            let sed = Command::new("sed")
+                .args([
+                    "-n",
+                    r#"/^\[tests\]$/,/^\[/s/^memory-max = "\([0-9][0-9]*[KMGT]\{0,1\}\)"$/\1/p"#,
+                ])
+                .arg(&file)
+                .output()
+                .expect("sed");
+            let sed = String::from_utf8(sed.stdout).expect("text");
+            let lines: Vec<&str> = sed.lines().collect();
+            let expected = match lines[..] {
+                [size] => {
+                    let (digits, mib) = match size.split_at(size.len() - 1) {
+                        (digits, "G") => (digits, 1024),
+                        (digits, "T") => (digits, 1024 * 1024),
+                        _ => panic!("only G and T here: {size}"),
+                    };
+                    Some(digits.parse::<u64>().expect("digits") * mib)
+                }
+                _ => None,
+            };
+            assert_eq!(
+                handed_on(body, None),
+                expected,
+                "{body:?} against {lines:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_override_replaces_the_files_value() {
+        assert_eq!(handed_on(&budget_of("1G"), Some("2048")), Some(2048));
+        assert_eq!(handed_on(&budget_of("1G"), None), Some(1024));
+        assert_eq!(handed_on(&budget_of("1G"), Some("abc")), None);
+    }
+
+    /// The whole way, the real watcher built in the copy: the file's 1G kills a
+    /// hog at 1 GiB, with no variable set. The bound it replaced was 16 GiB, past
+    /// the hog's cap.
+    #[test]
+    fn the_value_is_read_from_the_file() {
+        let _one = one_hog_at_a_time();
+        let scratch = Scratch::new();
+        let script = a_tree_with(&scratch, Some(&budget_of("1G")));
+        let mut command = Command::new(&script);
+        command.env_remove(BOUND);
+        let command = in_role(command, "hog", &scratch);
+        let ended = Running::start(command, &scratch).end(LIMIT);
+        assert_killed_near_the_bound(&ended, &scratch);
+    }
+
+    /// A file's value past the machine comes down to the machine, one file
+    /// serving every machine, where the variable's is refused.
+    #[test]
+    fn a_files_value_past_the_machine_comes_down_to_it() {
+        let scratch = Scratch::new();
+        let script = a_tree_with(&scratch, Some(&budget_of("900T")));
+        let mut command = Command::new(&script);
+        command.env_remove(BOUND);
+        let command = in_role(command, "mark", &scratch);
+        let ended = Running::start(command, &scratch).end(LIMIT);
+        assert_eq!(ended.status.code(), Some(0), "{}", ended.err_text());
+        assert!(scratch.0.join("ran").exists(), "the program did not run");
+    }
+
+    /// `scripts/bounded --timeout` over a cargo-shaped parent that starts the
+    /// script again, each at a bound of its own. The watcher, its sentinel and
+    /// all below them are gone at the end, whichever fired.
+    struct Nested {
+        ended: Ended,
+        scratch: Scratch,
+    }
+
+    fn nested(seconds: u32, outer_mib: u32, inner_mib: u32) -> Nested {
+        let scratch = Scratch::new();
+        let mut command = in_role(helper(seconds, outer_mib), "cargo-shaped", &scratch);
+        command.env(INNER_BOUND, inner_mib.to_string());
+        let running = Running::start(command, &scratch);
+        let parent = scratch.pid("parent", LIMIT);
+        let inner = scratch.pid("inner", LIMIT);
+        let hog = scratch.pid("hog", LIMIT);
+        let sentinels: Vec<i32> = children_of(inner)
+            .into_iter()
+            .filter(|p| *p != hog)
+            .collect();
+        assert_eq!(sentinels.len(), 1, "the inner watcher's other child");
+        let ended = running.end(LIMIT);
+        assert_gone(hog, "the hog");
+        assert_gone(parent, "the cargo-shaped parent");
+        assert_gone(inner, "the inner watcher");
+        assert_gone(sentinels[0], "the inner sentinel");
+        assert!(scratch.touched() < HOG_CAP, "the hog reached its cap");
+        Nested { ended, scratch }
+    }
+
+    /// The outer fires, by a bound under the inner's: its own status, its own
+    /// message, and the inner watcher no obstacle.
+    #[test]
+    fn nested_the_outer_bound_kills_the_inner_watcher_too() {
+        let _one = one_hog_at_a_time();
+        let Nested { ended, scratch } = nested(60, 1024, 4096);
+        assert_killed_near_the_bound(&ended, &scratch);
+        assert_eq!(ended.err_text().matches(" reached ").count(), 1);
+    }
+
+    /// The inner fires: the test fails, the parent says so, and the helper returns
+    /// what the parent returned and not a code of its own.
+    #[test]
+    fn nested_the_inner_bound_is_the_parents_failure_and_not_the_helpers() {
+        let _one = one_hog_at_a_time();
+        let Nested { ended, .. } = nested(60, 4096, 1024);
+        let err = ended.err_text();
+        assert_eq!(ended.status.code(), Some(PARENT_FAILED), "{err}");
+        assert!(err.contains("the bound of 1024 MiB"), "{err}");
+        assert_eq!(err.matches(" reached ").count(), 1, "{err}");
+    }
+
+    /// One bound, as a harness that sets the variable has it on both: where the
+    /// polls fall says which fires, and either is a kill near the bound.
+    #[test]
+    fn nested_at_one_bound_either_may_fire_and_all_ends() {
+        let _one = one_hog_at_a_time();
+        let Nested { ended, .. } = nested(60, 1024, 1024);
+        let err = ended.err_text();
+        assert!(
+            matches!(ended.status.code(), Some(EXIT_OVER | PARENT_FAILED)),
+            "{:?}: {err}",
+            ended.status
+        );
+        assert!(err.contains("the bound of 1024 MiB"), "{err}");
+    }
+
+    /// The outer's clock over the inner's watcher.
+    #[test]
+    fn nested_the_timeout_kills_the_inner_watcher_too() {
+        let _one = one_hog_at_a_time();
+        let Nested { ended, .. } = nested(2, 4096, 4096);
+        let err = ended.err_text();
+        assert_eq!(ended.status.code(), Some(EXIT_TIMED_OUT), "{err}");
+        assert!(err.contains("did not end in 2 s"), "{err}");
+    }
+
+    /// Both ways of the script over itself leave a program's status and bytes as
+    /// one does.
+    #[test]
+    fn nested_a_program_keeps_its_status_and_bytes() {
+        let scratch = Scratch::new();
+        let mut command = helper(60, 1024);
+        command.arg(the_script());
+        let mut command = in_role(command, "printer", &scratch);
+        command.env(CODE, "3");
+        let ended = Running::start(command, &scratch).end(LIMIT);
+        assert_eq!(ended.status.code(), Some(3), "{}", ended.err_text());
+        assert!(
+            ended
+                .out
+                .windows(PRINTED_OUT.len())
+                .any(|w| w == PRINTED_OUT)
+        );
+        assert_eq!(ended.err, PRINTED_ERR);
     }
 
     #[test]
@@ -921,6 +1328,7 @@ mod watcher {
             ended.err_text()
         );
         assert!(!scratch.0.join("ran").exists(), "the program ran");
+        assert!(ended.err_text().contains("could not be built"));
         assert!(ended.err_text().contains("not run"));
     }
 
@@ -1003,6 +1411,11 @@ mod watcher {
             ended.err_text()
         );
         assert!(!scratch.0.join("ran").exists(), "the program ran");
+        assert!(
+            ended.err_text().contains("could not be built"),
+            "{}",
+            ended.err_text()
+        );
     }
 
     #[test]

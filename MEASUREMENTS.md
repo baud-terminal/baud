@@ -3841,42 +3841,48 @@ on an idle machine (`MADV_PAGEOUT`, `VM_BEHAVIOR_PAGEOUT` refused), so clean fil
 bound by resident size and under it by footprint, hold the choice of number; a hog of one repeated
 value, run with resident size read instead, stayed green.
 
-## The kitty row is a Rust crate
+## The bound lives in `budgets.toml`
 
-Apple M5 Max, macOS 27.0, on AC, load average 3.5-7.9 from other work. kitty 0.49.2 and Python
-3.14.7, nix's, on `e42a24bd`. A real PTY, 4096-byte reads, 32 MiB, median of 9. Generated payloads,
-`multibench`'s dump: stream.bin 524,192 B and tui.bin 524,124 B, byte-equal when dumped again from
-this base. Six rounds of `bench.py` and `bench-others/kitty-bench` against one kitty, arms rotated,
-the first dropped. Median of the five rounds' medians [their range], MiB/s:
+`budgets.toml`, `[tests]`, `memory-max = "16G"`: a quoted size in systemd's format, K, M, G and T of
+1024 and no letter a count of bytes. Another project reads the same key with one `sed` line, whose
+grammar this keeps: the section ends at the next line starting `[`, and the value line ends at its
+closing quote, so the comment sits above it. `scripts/bounded` reads it with `read` and parameter
+expansion, no fork (`no_rustc_is_refused` reaches the watcher's build with `PATH=/nonexistent`), and
+the constant is gone. `BAUD_TEST_MEMORY_BOUND_MIB` replaces the value for one run.
 
-| row | payload | `bench.py` | harness |
-|---|---|---|---|
-| ceiling | streaming | 179.5 [177.4-206.3] | 214.8 [184.4-217.8] |
-| ceiling | TUI | 196.2 [137.0-207.7] | 217.3 [213.6-220.4] |
-| kitty | streaming | 104.1 [99.4-112.3] | 118.3 [108.7-120.0] |
-| kitty | TUI | 159.9 [125.5-166.6] | 162.5 [149.2-165.6] |
+**Fail closed.** No file, no key, a line not of that form, the key twice under `[tests]`: 114, not
+run, with the variable set as well. So too a size `sed` would pass and which is no bound in MiB: 0,
+under a MiB or not a whole one, past 999,999,999 MiB, or wrapping 64 bits to a small number. The
+file's value past the machine comes down to the machine, as one file serves every machine, and the
+variable's is refused.
 
-The kitty ranges overlap and so do the streaming ceilings: no result between the arms there. The TUI
-ceiling reads higher with no overlap, a read loop that left Python. The two arms call one kitty, so
-any difference in the kitty rows is the driver, whose share is unmeasured: Python ran the read loop and a `__getattr__` that built a
-closure for each of 442,699 callbacks per 32 MiB of TUI, and Rust runs both now. The last recording,
-c0a8a428's 101.7 [88.7-119.4] and 121.4 [116.1-135.4], was `bench.py` on Host B and an unnamed
-kitty; `bench.py` here reads 159.9 on TUI, so that gap is not the harness.
+**The cost.** `/usr/bin/true`, 500 runs, six rotated rounds, the first dropped: none 1.74 ms
+(1.73-1.80), base 10.66 (10.58-11.66), this 10.97 (10.95-11.14). The ranges overlap: no result, and
+the medians differ by 0.31 ms.
 
-**Python still runs**: kitty's interpreter, inside kitty, is part of what is measured. No tracked
-file is Python for this row, and the crate links nothing of kitty's at build time.
+**The helper over cargo watches a test binary twice.** At one bound, a hog through real cargo under
+`scripts/bounded --timeout 120`: `cargo test`, the outer fired in 6 of 8 and the inner in 2; `cargo
+nextest run`, 5 and 3. One message each time, nothing left. The outer's status is 113. The inner's
+is what cargo says, 113 from `cargo test` and 100 from nextest, and the helper passes that on: a
+cargo-shaped parent's 101, under a helper at 4 GiB and an inner at 1, comes back as 101. A kill by
+the outer or its clock leaves no inner watcher or sentinel. On Linux not run, read only: the inner
+`systemd-run --scope` moves the test binary out of the outer's scope, so the outer's cgroup does not
+sum it, and on the fallback an inner `ulimit -v` above the outer's is refused.
 
-**The bytes are equal.** 32 MiB fed in 4096-byte pieces through both drivers: read and parsed
-33,554,432 on both payloads and arms; callbacks 140,251 and 442,699 on both; the final screen and
-cursor byte-equal. A PTY rep ends at the first read past the total, so its count differs by run on
-either arm, and the harness exits 1 on a rep whose parsed bytes differ from its read bytes.
+**Copies of the tree.** A published crate carries neither `scripts/` nor `.cargo/`, and `cargo xtask
+publish --size --verify` stays green: 13 crates. The flake's `src = ./.` holds the file once it is
+tracked and has `doCheck = false`. The Linux drivers, `scripts/linux-frames.sh` among them, bind-mount the whole
+tree read-only at `/src`, and `scripts/x86-avx2.sh` runs in its own checkout, so both have it. A scratch copy of the
+script needs the file one directory above it; a `git archive` has it.
 
-**Arguments.** No argument, a missing directory, `--help`, extra arguments and `""` each exit 1 on
-both, read the same way. Three departures: an empty payload hung `bench.py`, killed at 30 s, and
-exits 1 here; a commit of no bytes would loop there and is an error here; with no kitty, `bench.py`
-printed the ceiling row first and the harness prints no table.
-
-**Red first.** 25 perturbations of a scratch copy under `scripts/bounded --timeout 120` at 4 GiB, 25
-red. `zero-not-checked`, whose fake pushes to a Vec for ever, ended at the bound (113) in 3.6 s, swap
-2,656 MiB before and after, no process left. A read size through a PTY could not fire on Darwin, whose
-tty returns 1024 at most, so that test reads a pipe. Two tests need a kitty and are `#[ignore]`d.
+**Red first.** 26 perturbations, 24 of a scratch copy under an unperturbed helper, one of the test's
+copy helper, one of the committed line. 25 are red; `adopt_children` taken out of the kill stayed
+green, as the polls had found the tree already, and no digit cap went red only once a case wrapping
+to 16 GiB was added. The constant kept; a default for no file and for no
+key; a loose form; G of 1000; T of G; no letter as MiB; K as MiB; octal; no wrap check; no digit cap;
+0 allowed; the last line skipped; any section; a section that never ends; last of two wins; the
+variable ignored; the variable skipping the file; the file in `scripts/`; the helper's and the
+inner's bound each inert; the helper turning a failure into 113; a kill of one member alone; a copy
+helper without the file, where the two refusal tests now say which refusal; a comment on the value's
+line. All of this ran on macOS: the three refusal tests are shared and were not run on Linux, and the
+sizes, read through a stand-in for the watcher, are macOS's tests of shell code both share.

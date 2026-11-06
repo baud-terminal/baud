@@ -1073,7 +1073,7 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             say(&format!(
                 "{program_name} and its children reached {:.2} GiB of footprint, past the \
                  bound of {mib} MiB, and were killed; if that much is legitimate, raise \
-                 BAUD_TEST_MEMORY_BOUND_MIB",
+                 memory-max in budgets.toml, or BAUD_TEST_MEMORY_BOUND_MIB for one run",
                 footprint as f64 / f64::from(1u32 << 30),
             ));
             EXIT_OVER

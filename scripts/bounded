@@ -15,6 +15,16 @@
 # child that started its own session, included. The bound sums the tree, so
 # under the helper it counts cargo and rustc too, and must leave room for them.
 #
+# **The helper over cargo watches a test binary twice, and neither watcher
+# breaks the other.** The inner tree is part of the outer, so at one bound the
+# outer's sum is the larger and either can fire first, by where the polls fall.
+# The outer: its status is 113 and it kills all it has found, the inner watcher
+# and sentinel included. The inner: the test fails, 113 to cargo, and the helper
+# returns what cargo returns, which is 113 from `cargo test` and 100 from
+# `cargo nextest run`. (macOS. On Linux, not run: the inner `systemd-run --scope`
+# moves the test binary out of the outer's scope, so each scope bounds its own
+# part, and the outer's sum leaves that part out.)
+#
 # **What it does not reach.** A binary run by its own path and not through
 # cargo. A copied subfolder has no `.cargo/` above it, which is what the helper
 # is for. `CARGO_TARGET_*_RUNNER` or `--config` naming another runner. A
@@ -48,14 +58,6 @@ __bounded_exit_over=113     # over the bound, killed
 __bounded_exit_refused=114  # the guard could not guard: nothing left running
 __bounded_exit_timed_out=115 # --timeout expired, killed
 
-# **The bound, in MiB: 16 GiB, the one constant.** It stands until the suite's
-# largest legitimate footprint is known; `BAUD_TEST_MEMORY_LOG` is how that is
-# read (MEASUREMENTS.md, "One binary cannot take the machine down"). A value that
-# does not parse is refused and not defaulted, and no variable turns this off:
-# a value past the machine's memory is refused as well, being no bound at all.
-# On a machine with less than this, the default is the machine's memory.
-__bounded_default_mib=16384
-
 # **Address space on the fallback beside the bound, in MiB.** `RLIMIT_AS` counts
 # reservations and not memory, and does not sum a tree. baud-app reserves
 # nothing it does not write (`baud-app/src/heap.rs` maps what it is asked for,
@@ -71,7 +73,67 @@ __bounded_refuse() {
   exit "$__bounded_exit_refused"
 }
 
-__bounded_mib=${BAUD_TEST_MEMORY_BOUND_MIB-$__bounded_default_mib}
+# Parameter expansion and a builtin test, so that a test costs no fork here.
+case $0 in
+*/*) __bounded_here=${0%/*} ;;
+*) __bounded_here=. ;;
+esac
+
+# **The bound lives in `budgets.toml`, `[tests]`'s `memory-max`, read here into
+# MiB with builtins alone**, so a test costs no fork for it. Which lines count is
+# the grammar of the `sed` line that file quotes. A file, key or value that cannot
+# be read is refused and not defaulted, with `BAUD_TEST_MEMORY_BOUND_MIB` set too,
+# which replaces the value and not the file. `BAUD_TEST_MEMORY_LOG` is how the
+# suite's footprint is read (MEASUREMENTS.md, "One binary cannot take the machine
+# down"). No variable turns this off: a value in that variable past the machine's
+# memory is refused, being no bound at all. The file's comes down to a smaller
+# machine's memory, as one file serves every machine.
+__bounded_read_budget() {
+  local __bounded_file=$__bounded_here/../budgets.toml
+  local __bounded_line __bounded_in=0 __bounded_size=
+  local __bounded_form='^memory-max = "([0-9]+[KMGT]?)"$'
+  if [[ ! -f $__bounded_file || ! -r $__bounded_file ]]; then
+    __bounded_refuse "$__bounded_file cannot be read, and it holds the bound"
+  fi
+  while IFS= read -r __bounded_line || [[ -n $__bounded_line ]]; do
+    if ((__bounded_in == 0)); then
+      if [[ $__bounded_line == '[tests]' ]]; then __bounded_in=1; fi
+    elif [[ $__bounded_line == '['* ]]; then
+      __bounded_in=0
+    elif [[ $__bounded_line =~ $__bounded_form ]]; then
+      if [[ -n $__bounded_size ]]; then
+        __bounded_refuse "$__bounded_file names memory-max twice under [tests]"
+      fi
+      __bounded_size=${BASH_REMATCH[1]}
+    fi
+  done <"$__bounded_file"
+  if [[ -z $__bounded_size ]]; then
+    __bounded_refuse "$__bounded_file has no line memory-max = \"<digits>[KMGT]\" under [tests]"
+  fi
+  local __bounded_digits=${__bounded_size%[KMGT]}
+  local __bounded_times=1 __bounded_per=1 __bounded_count
+  case ${__bounded_size#"$__bounded_digits"} in
+  '') __bounded_per=1048576 ;;
+  K) __bounded_per=1024 ;;
+  G) __bounded_times=1024 ;;
+  T) __bounded_times=1048576 ;;
+  esac
+  # Eighteen digits fit in the shell's 64 bits, and the base-10 prefix is because
+  # a leading zero would read as octal. The largest bound is the variable's, so
+  # that no multiplication can wrap either.
+  if ((${#__bounded_digits} <= 18)); then
+    __bounded_count=$((10#$__bounded_digits))
+    if ((__bounded_count > 0 && __bounded_count % __bounded_per == 0 &&
+      __bounded_count / __bounded_per <= 999999999 / __bounded_times)); then
+      __bounded_budget_mib=$((__bounded_count / __bounded_per * __bounded_times))
+      return
+    fi
+  fi
+  __bounded_refuse "$__bounded_file: memory-max = \"$__bounded_size\" is not a whole number of MiB from 1 to 999999999"
+}
+__bounded_read_budget
+
+__bounded_mib=${BAUD_TEST_MEMORY_BOUND_MIB-$__bounded_budget_mib}
 if ! [[ $__bounded_mib =~ ^[1-9][0-9]{0,8}$ ]]; then
   __bounded_refuse "BAUD_TEST_MEMORY_BOUND_MIB=$__bounded_mib is not a whole number of MiB"
 fi
@@ -87,12 +149,6 @@ fi
 if [[ $# -eq 0 ]]; then
   __bounded_refuse "no program named"
 fi
-
-# Parameter expansion and a builtin test, so that a test costs no fork here.
-case $0 in
-*/*) __bounded_here=${0%/*} ;;
-*) __bounded_here=. ;;
-esac
 
 __bounded_darwin() {
   local __bounded_src=$__bounded_here/bounded.rs
