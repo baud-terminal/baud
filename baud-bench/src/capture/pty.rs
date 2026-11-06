@@ -1,7 +1,9 @@
 //! A child on a fresh pty, as Python's `pty.fork` started one and its `os`
 //! calls drove it, waited on with `select` as the scripts' `select.select`
-//! waited.
+//! waited. One departure: this process keeps a slave fd of its own until the
+//! child is gone, see [`Child`].
 
+use std::cell::Cell;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -284,8 +286,8 @@ fn errno() -> libc::c_int {
 #[cfg(target_os = "macos")]
 const EREDRIVEOPEN: libc::c_int = -6;
 
-/// A `forkpty` that lost the kernel's allocation race has not forked and is
-/// made again, as the app's is (`baud-app/src/pty.rs`).
+/// An `openpty` that lost the kernel's allocation race has opened nothing and
+/// is made again, as the app's `forkpty` is (`baud-app/src/pty.rs`).
 #[cfg(target_os = "macos")]
 fn raced() -> bool {
     errno() == EREDRIVEOPEN
@@ -297,45 +299,142 @@ fn raced() -> bool {
     false
 }
 
+/// How long [`Child::readable`] waits before asking whether the child has
+/// gone. `select` wakes on a byte whatever this is, so no read and no `--steps`
+/// line moves; it bounds only how late a child's exit is noticed where the
+/// kernel's hangup does not report it first, and 5 ms is under the tenth of a
+/// second a tool's clock is shown to, at 200 `select` and `waitid` calls a second.
+const TICK: f64 = 0.005;
+
 /// The parent's side of a child on a pty.
+///
+/// This process keeps its own slave fd while the child runs. On Darwin the
+/// slave's last close waits 60 ticks for its output to be read and then
+/// discards it (`[[source: xnu-tty-dev]]` `ptsclose`, `[[source: xnu-tty]]`
+/// `ttylclose`). `forkpty` closes the slave in the parent, and where the child
+/// has written and exited first, that close is the last: the reader is the one
+/// waiting, and it reads nothing. With this fd open no close is the last
+/// (`[[source: xnu-spec-vnops]]` `spec_close_internal`), and the child's exit
+/// waits as long as its output does (`[[source: xnu-kern-exit]]` `proc_exit`).
 pub struct Child {
     /// The child's process id.
     pub pid: libc::pid_t,
     /// The pty's master.
     pub fd: libc::c_int,
+    /// This process's slave fd, -1 once closed.
+    slave: Cell<libc::c_int>,
+}
+
+/// `openpty`, again where it lost the kernel's allocation race.
+fn open_pty() -> Result<(libc::c_int, libc::c_int), String> {
+    let (mut master, mut slave) = (-1, -1);
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        // SAFETY: live out-pointers, and null for the three it may take as
+        // null.
+        let got = unsafe {
+            libc::openpty(
+                &raw mut master,
+                &raw mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if got == 0 {
+            return Ok((master, slave));
+        }
+        if calls == 16 || !raced() {
+            return Err(format!("forkpty: {}", io::Error::last_os_error()));
+        }
+    }
 }
 
 impl Child {
     /// `pty.fork()`, then the program, on a pty with no size yet: the
-    /// scripts set it after the fork.
+    /// scripts set it after the fork. `forkpty`'s own steps, but for the
+    /// parent's close of the slave.
     pub fn fork(spawn: &Spawn) -> Result<Child, String> {
         let argv = pointers(&spawn.argv);
         let envp = pointers(&spawn.envp);
-        let mut master: libc::c_int = -1;
-        let mut calls = 0;
-        let pid = loop {
-            calls += 1;
-            // SAFETY: a live out-pointer, and null for the three it may take
-            // as null.
-            let got = unsafe {
-                libc::forkpty(
-                    &mut master,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                )
-            };
-            if got >= 0 || calls == 16 || !raced() {
-                break got;
-            }
-        };
+        let (master, slave) = open_pty()?;
+        // SAFETY: the child's side below calls only `close`, `login_tty` and
+        // `Spawn::exec`, none of which allocates.
+        let pid = unsafe { libc::fork() };
         if pid < 0 {
-            return Err(format!("forkpty: {}", io::Error::last_os_error()));
+            let e = io::Error::last_os_error();
+            // SAFETY: the two fds `open_pty` opened, closed once.
+            unsafe {
+                libc::close(master);
+                libc::close(slave);
+            }
+            return Err(format!("forkpty: {e}"));
         }
         if pid == 0 {
+            // SAFETY: fds of this process, and `_exit` ends it. A fresh pty
+            // and a new session leave `login_tty` nothing to refuse:
+            // `TIOCSCTTY` asks for a session leader and an unowned terminal.
+            // Were it to refuse, this exits where Darwin's `forkpty` would
+            // `dup2` and go on, and glibc's would exit.
+            unsafe {
+                libc::close(master);
+                if libc::login_tty(slave) != 0 {
+                    libc::_exit(spawn.code);
+                }
+            }
             spawn.exec(&argv, &envp);
         }
-        Ok(Child { pid, fd: master })
+        // After the fork, not before: where a closed stdout made this fd 1,
+        // `login_tty`'s `dup2` onto itself would keep the flag and the exec
+        // would close the child's stdout. A tool has no other thread to fork.
+        // SAFETY: a fd of this process and a flag.
+        unsafe {
+            libc::fcntl(slave, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+        Ok(Child {
+            pid,
+            fd: master,
+            slave: Cell::new(slave),
+        })
+    }
+
+    /// Whether the child has exited, left to be reaped: `wait`, `reap` and
+    /// `kill` find what they would have found. One already reaped has exited.
+    pub fn exited(&self) -> bool {
+        let id = libc::id_t::try_from(self.pid).expect("a forked pid");
+        // SAFETY: zero is a valid siginfo_t, for `waitid` to fill in.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        loop {
+            // SAFETY: a live out-pointer for the call.
+            let got = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    id,
+                    &raw mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if got == 0 {
+                // SAFETY: `waitid` succeeded; with no child to report the
+                // zeroes stay.
+                return unsafe { info.si_pid() } != 0;
+            }
+            if errno() != libc::EINTR {
+                return true;
+            }
+        }
+    }
+
+    /// Closes this process's slave fd, if it is still open.
+    fn release(&self) {
+        let slave = self.slave.replace(-1);
+        if slave >= 0 {
+            // SAFETY: the fd `fork` kept, closed once: `slave` now says -1.
+            unsafe {
+                libc::close(slave);
+            }
+        }
     }
 
     /// `fcntl.ioctl(fd, TIOCSWINSZ, struct.pack("HHHH", ...))`: a number that
@@ -359,6 +458,12 @@ impl Child {
 
     /// `select.select([fd], [], [], seconds)`: whether a read would not
     /// block. A timeout `select` could not take is its `OverflowError`.
+    ///
+    /// While this process holds the slave, the wait is cut into ticks and
+    /// between them it asks whether the child has gone. Once it has and the
+    /// master has nothing left, the slave is closed, so the master reports
+    /// its EOF as it would have: only what another process still holds keeps
+    /// the reading going.
     pub fn readable(&self, seconds: f64) -> Result<bool, String> {
         let until = clock() + seconds;
         loop {
@@ -366,34 +471,60 @@ impl Child {
             if left.is_nan() || left * 1e9 >= 9.2e18 {
                 return Err("timeout is too large".to_string());
             }
-            let mut tv = libc::timeval {
-                tv_sec: left.trunc() as libc::time_t,
-                tv_usec: (left.fract() * 1e6).ceil().min(999_999.0) as libc::suseconds_t,
+            let held = self.slave.get() >= 0;
+            let wait = if held { left.min(TICK) } else { left };
+            let Some(ready) = self.select(wait)? else {
+                continue;
             };
-            // SAFETY: an fd_set zeroed and then set, and a live timeout, both
-            // for the call.
-            let (got, set) = unsafe {
-                let mut set: libc::fd_set = std::mem::zeroed();
-                libc::FD_ZERO(&raw mut set);
-                libc::FD_SET(self.fd, &raw mut set);
-                let got = libc::select(
-                    self.fd + 1,
-                    &raw mut set,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    &raw mut tv,
-                );
-                (got, set)
-            };
-            if got < 0 {
-                if errno() == libc::EINTR {
-                    continue;
-                }
-                return Err(format!("select: {}", io::Error::last_os_error()));
+            if ready {
+                return Ok(true);
             }
-            // SAFETY: `set` is the one select filled in.
-            return Ok(got > 0 && unsafe { libc::FD_ISSET(self.fd, &raw const set) });
+            if held && self.exited() {
+                // Looked at again: a byte may have come between the empty
+                // select and the exit it was asked about, and a queue is never
+                // closed unread.
+                if self.select(0.0)? == Some(false) {
+                    self.release();
+                }
+                continue;
+            }
+            if wait >= left {
+                return Ok(false);
+            }
         }
+    }
+
+    /// One `select` on the master; `None` where a signal interrupted it.
+    fn select(&self, wait: f64) -> Result<Option<bool>, String> {
+        let mut tv = libc::timeval {
+            tv_sec: wait.trunc() as libc::time_t,
+            tv_usec: (wait.fract() * 1e6).ceil().min(999_999.0) as libc::suseconds_t,
+        };
+        // SAFETY: an fd_set zeroed and then set, and a live timeout, both
+        // for the call.
+        let (got, set) = unsafe {
+            let mut set: libc::fd_set = std::mem::zeroed();
+            libc::FD_ZERO(&raw mut set);
+            libc::FD_SET(self.fd, &raw mut set);
+            let got = libc::select(
+                self.fd + 1,
+                &raw mut set,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &raw mut tv,
+            );
+            (got, set)
+        };
+        if got < 0 {
+            if errno() == libc::EINTR {
+                return Ok(None);
+            }
+            return Err(format!("select: {}", io::Error::last_os_error()));
+        }
+        // SAFETY: `set` is the one select filled in.
+        Ok(Some(
+            got > 0 && unsafe { libc::FD_ISSET(self.fd, &raw const set) },
+        ))
     }
 
     /// `os.read(fd, cap)`.
@@ -483,11 +614,22 @@ impl Child {
         }
     }
 
-    /// `os.close(fd)`.
+    /// `os.close(fd)`, and the slave with it: the master's close is the one
+    /// a child sees.
     pub fn close(&self) {
+        // The master first: were the kept slave the terminal's last close with
+        // bytes unread, it would wait out `ptsclose`'s drain, as the read path
+        // no longer does.
         // SAFETY: the master, closed once, by the tool that opened it.
         unsafe {
             libc::close(self.fd);
         }
+        self.release();
+    }
+}
+
+impl Drop for Child {
+    fn drop(&mut self) {
+        self.release();
     }
 }

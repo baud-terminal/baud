@@ -3537,6 +3537,68 @@ number are refused, as the keystroke driver's are.
 **Red first.** 40 mutations of the Rust each turn a committed test red, one run
 on this tree. `rfc1321-md5` and `pdf-reference-1-4` are pinned `external`.
 
+## A child's last bytes on the pty
+
+Not timed against the core: no byte path changed. `capture-tui` over a program that
+will not start failed once with `0 bytes`: a child that wrote and exited at once had
+lost all it wrote.
+
+**The cause.** `forkpty` closes the slave in the parent after the fork. Where the
+child has already written and exited, that close is the last, so `d_close` runs in the
+parent (`[[source: xnu-spec-vnops]]`). `ptsclose` sets `t_timeout = 60`
+(`[[source: xnu-tty-dev]]`) and `ttylclose` waits that long for the queue to be read,
+then flushes it (`[[source: xnu-tty]]`). The one waiting is the reader.
+
+| control | result |
+|---|---|
+| `forkpty`'s steps, the parent's close put off 0.05 or 0.2 s, no load | close 0.601-0.602 s, 0 bytes read, 5 of 5 |
+| `pty.fork` under the load below, time inside it | lost 38 of 2,700, all 0.603-0.631 s inside; the others at most 0.438 s |
+| `pty.fork`, the reader waits 0.55 s, then 0.65 s, no load | lost 0 of 20, then 20 of 20; slave kept, 0 at every wait to 3 s |
+
+**The arms.** 90 at once beside 18 spinners at nice 0, 18 logical CPUs, the first two
+rows rotated, as were the last three:
+
+| arm | rounds | lost |
+|---|---|---|
+| the tool on `forkpty` | 6 | 304 of 21,600 |
+| the tool keeping the slave | 6 | 0 of 21,600 |
+| Python's `capture-tui`, deleted, under `-I` | 4 | 25 of 3,600 |
+| `pty.fork` in Python | 4 | 85 of 3,600 |
+| `openpty`, the parent keeping the slave | 4 | 0 of 3,600 |
+| `pty.fork`, the child's `tcdrain` before its exit | 4 | 0 of 3,600 |
+
+The first three run `-- ./nope/x`, a lost run being exit 1. At nice 10 without spinners
+the first two gave no power, 2 of 21,600 and 0. Only keeping the slave asks nothing of
+the child. No test can show a race gone: these counts are that claim.
+
+**The fix.** `Child` is `openpty`, `fork` and, in the child, the master's close and
+`login_tty`; the parent keeps the slave. `readable` selects in ticks of 5 ms, asks
+`waitid` with `WNOWAIT` between them, and closes the slave once the child is gone and
+the master empty. A byte wakes `select` whatever the tick. On Darwin a session leader's
+exit revokes the terminal (`[[source: xnu-kern-exit]]`), so the master has its EOF
+first and the tick decides nothing; on Linux, with that close taken out, the capture
+tests hang. `-- /usr/bin/true`, 40 runs twice, ended at medians of 315.8 and 312.9 ms
+before and 314.6 and 316.2 after; 5 s idle read 0.00 s user and sys on each. A child
+left with bytes unread at the tool's end (`yes`, 1 s) ends as it did before only
+because the master closes first; with the slave closed first it ended 0.6 s later,
+the same wait.
+
+**Unchanged.** A C program printing its session, group, foreground, fds, signals, mask,
+umask and termios is byte-equal to the build before, through both pty tools and with
+the tool's fds 0, 1 or all three closed; `/usr/bin/env` too; on Linux, through
+`capture-tui`, the same. vim equals the committed 138,583 bytes. `capture-resize`
+over bash equals the build before, 171 bytes over 26 steps. A `.steps` file's read
+splits differ between runs of one build.
+
+**Departures from Python.** It lost these bytes and the tool does not, cause and
+controls above. A plain program that closes fds 0, 1 and 2 and lives on ended Python's
+read at once; here the read ends at its exit, the price of the fd. A grandchild
+ignoring SIGHUP ends as it did: `early` on Darwin, `earlylate` on Linux.
+
+Nine perturbations each turned a named test red, seven on Darwin and two on Linux. A
+close with bytes unread turned none on either, so that guard has no test.
+`baud-app/src/pty.rs` is still on `forkpty`; whether it loses bytes is unmeasured.
+
 ## The launch, idle and reply programs are examples
 
 Not timed against the core: no byte path changed. The programs that measure the

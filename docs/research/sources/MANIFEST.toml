@@ -2381,6 +2381,40 @@ group  = "E"
 # `TTYHOG - 2`, which is the bound an emulator's *keystrokes* see, not its
 # reads.
 
+[sources.xnu-kern-exit]
+key    = "xnu-kern-exit"
+title  = "XNU xnu-12377.121.6, bsd/kern/kern_exit.c -- proc_exit, a session leader's exit and its controlling terminal"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_exit.c"
+file   = ""
+sha256 = "3bf5d40cf482254ec47626108c760e0879fac2e41145bd63566d13f9acab311a"
+bytes  = 125873
+status = "external"
+group  = "E"
+# XNU's own file, not committed; this URL serves these bytes. `proc_exit` runs
+# `fdt_invalidate` (line 2384), then for a session leader with a controlling
+# terminal `pgsignal(SIGHUP)`, `ttywait(tp)` (line 2470) under the tty's own
+# `t_timeout`, and `VNOP_REVOKE(ttyvp, REVOKEALL, ...)` (line 2476), which ends
+# every open of that terminal, the parent's included.
+
+[sources.xnu-spec-vnops]
+key    = "xnu-spec-vnops"
+title  = "XNU xnu-12377.121.6, bsd/miscfs/specfs/spec_vnops.c -- spec_close_internal, a device's close on its last reference"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/miscfs/specfs/spec_vnops.c"
+file   = ""
+sha256 = "ab793e5aa1a332e8f10731b6d628eb76d2c4606fc86c7cb936571da043aac2f2"
+bytes  = 90091
+status = "external"
+group  = "E"
+# XNU's own file, not committed; this URL serves these bytes. A character
+# device's `d_close` runs on `vcount(vp) == 0` or on a revoke: while another
+# process holds the slave, an exiting child's close does not reach `ptsclose`.
+
 [sources.xnu-tty-subr]
 key    = "xnu-tty-subr"
 title  = "XNU xnu-12377.121.6, bsd/kern/tty_subr.c -- the clist: clalloc, b_to_q and q_to_b"

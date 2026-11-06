@@ -2,13 +2,16 @@
 //! --noprofile --norc` in a scratch home, with `HISTFILE` at `/dev/null`, and
 //! nothing that opens a window. A real program's run is in `MEASUREMENTS.md`,
 //! "The capture tools are examples". A test's child ends itself, so the tool
-//! ends on the pty's EOF rather than on a clock.
+//! ends on the pty's EOF rather than on a clock, but for the tests of the clock
+//! itself, whose child the tool kills.
 
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
+use baud_bench::capture::pty::{Child, Environ, Lookup, Spawn};
 use baud_bench::capture::{kitten, kitten::Direct, resize, shell_start, tui, vim_unicode};
 use baud_bench::capture::{marks, yazi_files, yazi_walk};
 
@@ -44,6 +47,12 @@ fn as_the_tool() {
         "gen-yazi-files" => yazi_files::run(&args),
         "winsize" => print_winsize(),
         "sigxfsz" => print_sigxfsz(),
+        "late-reader" => late_reader(&args),
+        "exit-kept" => exit_kept(&args),
+        "bound" => bound(&args),
+        "beside" => beside(&args),
+        "ttys" => print_ttys(),
+        "closes" => closes_the_terminal(),
         other => panic!("no tool {other}"),
     };
     std::process::exit(code);
@@ -79,6 +88,119 @@ fn print_sigxfsz() -> i32 {
         now.sa_sigaction == libc::SIG_IGN
     };
     println!("SIGXFSZ ignored: {ignored}");
+    0
+}
+
+/// `argv` on a pty of its own.
+fn on_a_pty(argv: &[std::ffi::OsString], env: &Environ) -> Child {
+    let spawn = Spawn::new(Lookup::Path, argv, None, env, 127).expect("a command");
+    Child::fork(&spawn).expect("a child on a pty")
+}
+
+/// All the master gives, by the path every tool reads it.
+fn read_to_eof(child: &Child) -> Vec<u8> {
+    let mut all = Vec::new();
+    while child.readable(60.0).expect("select") {
+        match child.read(65536) {
+            Ok(b) if !b.is_empty() => all.extend_from_slice(&b),
+            _ => break,
+        }
+    }
+    all
+}
+
+/// The child's exit code and what it wrote, read only once a second has gone.
+fn late_reader(args: &[std::ffi::OsString]) -> i32 {
+    let child = on_a_pty(args, &Environ::current());
+    std::thread::sleep(Duration::from_secs(1));
+    let all = read_to_eof(&child);
+    let code = child.wait().expect("the child");
+    child.close();
+    print!("{code} {}", String::from_utf8_lossy(&all));
+    0
+}
+
+/// Asks after a silent child until it has gone, then reaps it.
+fn exit_kept(args: &[std::ffi::OsString]) -> i32 {
+    let child = on_a_pty(args, &Environ::current());
+    while !child.exited() {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    print!(
+        "{}",
+        child.wait().expect("the child is still there to reap")
+    );
+    child.close();
+    0
+}
+
+/// What a quarter of a second's `readable` says of a child that stays silent,
+/// and how long it took.
+fn bound(args: &[std::ffi::OsString]) -> i32 {
+    let child = on_a_pty(args, &Environ::current());
+    let start = Instant::now();
+    let ready = child.readable(0.25).expect("select");
+    let took = start.elapsed().as_secs_f64();
+    println!("{ready} {} {took}", child.exited());
+    let _ = child.kill(libc::SIGKILL);
+    child.close();
+    0
+}
+
+/// This binary as the `ttys` tool, beside a pty held open and then on a pty of
+/// its own: the held pty's name, then what each of the two found open.
+fn beside(args: &[std::ffi::OsString]) -> i32 {
+    let env = Environ::current();
+    let child = on_a_pty(args, &env);
+    // SAFETY: the master of a pty, and the name is copied before another call.
+    let name = unsafe { std::ffi::CStr::from_ptr(libc::ptsname(child.fd)) };
+    println!("held {}", name.to_str().expect("a device name"));
+    let exe = std::env::current_exe().expect("this test binary");
+    let words = ["--exact", "as_the_tool", "--nocapture", "--format", "terse"];
+    let o = Command::new(&exe)
+        .args(words)
+        .env(TOOL, "ttys")
+        .output()
+        .expect("the tool runs");
+    print!("{}", String::from_utf8_lossy(&o.stdout));
+    let mut argv = vec![exe.into_os_string()];
+    argv.extend(words.iter().map(std::ffi::OsString::from));
+    let mut own = env;
+    own.set(TOOL, "ttys");
+    let second = on_a_pty(&argv, &own);
+    print!("{}", String::from_utf8_lossy(&read_to_eof(&second)));
+    second.close();
+    let _ = child.kill(libc::SIGKILL);
+    child.close();
+    0
+}
+
+/// Closes the terminal and lives on for a second.
+fn closes_the_terminal() -> i32 {
+    // SAFETY: fds of this process, and nothing here writes to them again.
+    unsafe {
+        libc::close(0);
+        libc::close(1);
+        libc::close(2);
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    0
+}
+
+/// Each open fd that is a terminal, and its name.
+fn print_ttys() -> i32 {
+    for fd in 0..256 {
+        // SAFETY: a number, and the name is copied before another call.
+        unsafe {
+            let name = libc::ttyname(fd);
+            if !name.is_null() {
+                println!(
+                    "tty {fd} {}",
+                    std::ffi::CStr::from_ptr(name).to_string_lossy()
+                );
+            }
+        }
+    }
     0
 }
 
@@ -401,6 +523,173 @@ fn a_program_that_will_not_start_says_so_on_the_pty() {
     assert_eq!(
         String::from_utf8(read(&raw)).unwrap(),
         "exec ./nope/x: [Errno 2] No such file or directory\r\n"
+    );
+}
+
+/// A reader held off past `ptsclose`'s wait still gets everything, whether
+/// the child wrote what the queue holds and exited, or wrote more than it
+/// holds. Without the parent's slave fd the first two lose it all on Darwin,
+/// every time. No test can show the race in `forkpty` gone, and this is the
+/// same discard with the race taken out of it; `MEASUREMENTS.md`, "A child's
+/// last bytes on the pty", counts the race. The children are plain programs: a
+/// bash child did not lose its bytes this way with the fd gone.
+#[test]
+fn a_late_reader_gets_all_a_child_wrote_before_it_exited() {
+    let s = Scratch::new("pty-late");
+    let path = [("PATH", "/usr/bin:/bin")];
+    let r = tool_in("late-reader", &words(&["./nope/x"]), &path);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(
+        r.out,
+        "127 exec ./nope/x: [Errno 2] No such file or directory\r\n"
+    );
+    let r = tool_in("late-reader", &words(&["echo", "one"]), &path);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(r.out, "0 one\r\n");
+    let long = s.at("long");
+    fs::write(&long, "x".repeat(5000)).unwrap();
+    let r = tool_in("late-reader", &words(&["cat", &long]), &path);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(r.out, format!("0 {}", "x".repeat(5000)));
+}
+
+/// `exited` leaves the zombie: the exit code is still there for `wait`.
+#[test]
+fn asking_whether_the_child_has_gone_does_not_reap_it() {
+    let s = Scratch::new("pty-exited");
+    let r = tool("exit-kept", &s.bash("exit 7"));
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(r.out, "7");
+}
+
+/// A tool's bound is the time asked for, in ticks or not, and a child still
+/// running is not called gone.
+#[test]
+fn a_silent_running_child_times_out_when_asked() {
+    let s = Scratch::new("pty-bound");
+    let r = tool("bound", &s.bash("exec sleep 30"));
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let words: Vec<&str> = r.out.split_whitespace().collect();
+    assert_eq!(words[..2], ["false", "false"], "{}", r.out);
+    let took: f64 = words[2].parse().expect("a number");
+    assert!((0.25..10.0).contains(&took), "{took}");
+
+    let raw = s.at("o.raw");
+    let start = Instant::now();
+    let r = tool(
+        "capture-tui",
+        &with_cmd(&["--seconds", "1", "--out", &raw], &s.bash("exec sleep 30")),
+    );
+    let took = start.elapsed().as_secs_f64();
+    assert_eq!(r.code, Some(1), "{}", r.err);
+    assert_eq!(r.out, format!("0 bytes -> {raw}\n"));
+    assert!((1.0..20.0).contains(&took), "{took}");
+}
+
+/// A child that exits having written nothing ends the tool at once rather than
+/// at `--seconds`, as `0 bytes` and exit 1.
+#[test]
+fn a_child_that_exits_silently_ends_the_tool_promptly() {
+    let s = Scratch::new("pty-silent");
+    let raw = s.at("o.raw");
+    let start = Instant::now();
+    let r = tool(
+        "capture-tui",
+        &with_cmd(
+            &["--seconds", "40", "--out", &raw],
+            &words(&["/usr/bin/true"]),
+        ),
+    );
+    assert!(start.elapsed() < Duration::from_secs(20));
+    assert_eq!(r.code, Some(1), "{}", r.err);
+    assert_eq!(r.out, format!("0 bytes -> {raw}\n"));
+    assert_eq!(read(&raw), b"");
+}
+
+/// A grandchild left running when the child exits, SIGHUP ignored from before
+/// it started. On Darwin the terminal is revoked at a session leader's exit
+/// (`[[source: xnu-kern-exit]]`): the later write is lost and the tool ends
+/// there. On Linux it is captured and the tool ends when it closes. Python's
+/// `capture-tui`, under `-I`, gave these bytes on each.
+#[test]
+fn a_grandchild_outliving_the_child_ends_as_it_did_under_python() {
+    let s = Scratch::new("pty-grandchild");
+    let raw = s.at("o.raw");
+    let start = Instant::now();
+    let r = tool(
+        "capture-tui",
+        &with_cmd(
+            &["--seconds", "40", "--out", &raw],
+            &s.bash("trap '' HUP; (sleep 1; printf late) & printf early; exit 0"),
+        ),
+    );
+    assert!(start.elapsed() < Duration::from_secs(20));
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let want: &[u8] = if cfg!(target_os = "macos") {
+        b"early"
+    } else {
+        b"earlylate"
+    };
+    assert_eq!(read(&raw), want);
+}
+
+/// The other side of what the slave fd costs, and a departure from Python: a
+/// child that closes the terminal and lives on no longer ends the tool's read
+/// there, but when it exits. `MEASUREMENTS.md`, "A child's last bytes on the
+/// pty". A plain program again: a bash child's read did not end at such a close
+/// with the fd gone.
+#[test]
+fn a_child_that_closes_the_terminal_ends_the_tool_when_it_exits() {
+    let s = Scratch::new("pty-closes");
+    let raw = s.at("o.raw");
+    let exe = std::env::current_exe().expect("this test binary");
+    let start = Instant::now();
+    let r = tool(
+        "capture-tui",
+        &with_cmd(
+            &["--seconds", "40", "--out", &raw],
+            &words(&[
+                "/usr/bin/env",
+                &format!("{TOOL}=closes"),
+                exe.to_str().expect("a UTF-8 path"),
+                "--exact",
+                "as_the_tool",
+                "--nocapture",
+                "--format",
+                "terse",
+            ]),
+        ),
+    );
+    let took = start.elapsed().as_secs_f64();
+    assert!((1.0..20.0).contains(&took), "{took}");
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert_eq!(read(&raw), b"\r\nrunning 1 test\r\n");
+}
+
+/// The fd the parent keeps is its own: a program run beside the pty, or on a
+/// second pty, finds its own terminals open and never the first pty's slave.
+#[test]
+fn the_slave_kept_is_not_inherited() {
+    let s = Scratch::new("pty-beside");
+    let r = tool("beside", &s.bash("exec sleep 30"));
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let held = r.out.lines().next().unwrap().strip_prefix("held ").unwrap();
+    let ttys: Vec<&str> = r
+        .out
+        .lines()
+        .filter_map(|l| l.strip_prefix("tty "))
+        .collect();
+    // The second's own 0, 1 and 2: the listing does see a slave.
+    let own: Vec<&str> = ttys
+        .iter()
+        .filter_map(|t| t.split_whitespace().nth(1))
+        .filter(|n| *n != held && !n.ends_with("ptmx"))
+        .collect();
+    assert!(own.len() >= 3, "{}", r.out);
+    assert!(
+        !ttys.iter().any(|t| t.ends_with(&format!(" {held}"))),
+        "{}",
+        r.out
     );
 }
 
