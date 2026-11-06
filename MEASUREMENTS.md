@@ -2989,8 +2989,9 @@ done items oldest first, sorted and then reversed, the `fn` boundary
 dropped, the README count off by one; a first form of the boundary
 mutation did not compile and is not counted.
 
-`readme-forbidden.py` stays: eight of the external list's patterns use
-look-around, which `regex` lacks. The verify `cargo xtask publish`
+`readme-forbidden.py` stayed at this commit: eight of the external list's
+patterns use look-around, which `regex` lacks ("The forbidden search in
+`xtask::forbidden`" below). The verify `cargo xtask publish`
 runs builds the default targets, the library and the binaries, never an
 example ([[source: cargo-eb94155-package-verify-rs]] lines 95-110), and
 baud-app's `include` leaves `examples/` out of its .crate.
@@ -3603,3 +3604,51 @@ interrupt lines alone, 19 undoings, turns a named test red. The sweep's first 15
 `idle-cpu` lines differed in exit on 2,031 on the build before them; all 19,335 differ on
 207 now. `catch_interrupt` in the example has no test, because no test runs an example;
 real signals to that binary, before and after, gave the figures above.
+
+## The forbidden search in `xtask::forbidden`
+
+Not timed: no byte path changed, and the app's release binary, built base and
+change at one path, is byte-identical (`cmp`). `readme-forbidden.py` is now a
+module and `cargo xtask forbidden`, on `regex::bytes` with `unicode(false)`;
+`demo` and its test call the module through a path-only dev-dependency, which
+`cargo xtask publish --verify` never builds. No second engine: 8 of the external
+list's 48 patterns used look-around, and a copy of the list holds them rewritten
+at the same line numbers, with a capture group named `hit` as the reported span.
+
+**Every pattern against Python 3.13.12's `re.finditer` on the original**, on both
+views of each input: 17,223 blobs reachable from master at `eccfbdd9` and 2,968
+tracked files (1.77 GB, 0 spans either way), 187,456 hand-built edge cases and
+1,600,000 seeded token strings. 3,643,323 spans, 0 differences on all 48 lines:
+
+| line | spans | line | spans |
+|---|---|---|---|
+| 48 | 133,799 | 60 | 52,890 |
+| 55 | 161,512 | 62 | 130,259 |
+| 58 | 206,119 | 63 | 136,593 |
+| 59 | 225,957 | 64 | 159,084 |
+
+The other forty total 2,437,110. 400 real blobs with every control planted:
+37,910 spans, 0 differences. The escape-stripped view hashed equal on all
+1,804,690 inputs. The proof can fire: 12 perturbations of the eight lines, a guard
+or a refusal taken out, each moved that line's spans.
+
+**The script against the module.** 2,968 tracked files: 0 hits, stdout, stderr and
+exit equal; each control planted in its own file: 53 hits, equal. Of 117
+side-by-side cases, 87 are equal, 13 are tracebacks with stdout and exit equal,
+and 6 are the usage line, which names the command. The other 11: a pattern the
+engine refuses (look-around, a backreference, `\Z`, an unclosed group) exits 2,
+naming its label and reason and not its text, where an uncaught `re.error` exited
+1; a raw byte above 0x7f is refused rather than read as a character; `(?i)` and a
+group name hold to their own pattern, where the script's text join stopped; two
+labels that are not UTF-8 give one line; `$` is the end of the text alone. The
+list holds no raw high byte, bare flag, unescaped `$`, `\<` or class operation.
+
+**Red:** 36 mutations of the module, 35 turning a named test red (an empty hit
+never ending as a hang at 300 s); the other takes out `\x1b[()*+][0-~]`, which
+`\x1b[ -/]*[0-~]` already covers. 83 of the tests' 84 span rows were checked
+against `re`, 0 differences; the 84th pins the departure below.
+
+Open: `^` holds at offset 0 alone, so after a one-byte hit there, or a refusal
+with a look-behind, a hit at offset 1 is not reported
+(`offset_one_is_not_looked_at_twice`). No line of the list reaches it. The command
+still exits 1 for a line with no label, as the script did; `demo` reads the verdict.

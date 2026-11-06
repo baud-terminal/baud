@@ -64,6 +64,12 @@ baud-present-macos = { workspace = true }
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 macos-liquid-glass = { version = "1.0.0-beta.8", features = ["drawable"] }
 
+# The `demo` example's search of its session's bytes (`xtask::forbidden`).
+# By path alone, so cargo leaves it out of what it publishes: `include`
+# leaves `examples/` out and a published crate's verify builds no example.
+[dev-dependencies]
+xtask = { path = "../xtask" }
+
 # The `demo` example's desktop calls: the window list, the frontmost
 # application, the key and wheel events and the Screen Recording check
 # (CGPreflightScreenCaptureAccess, in CGWindow). Each is already in the

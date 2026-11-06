@@ -216,7 +216,7 @@ pub mod tests {
     }
 
     /// **The search for what must never be filmed fires, and refuses to
-    /// search without its controls** (`scripts/readme-forbidden.py`, which
+    /// search without its controls** (`xtask::forbidden`, which
     /// `--record` and `--headless` run over the session's bytes): a list of
     /// the made-up machine's names, a clean file passes (0), the user's
     /// name coloured letter by letter is found once the escapes are out
@@ -238,34 +238,23 @@ pub mod tests {
         let controls = w("controls", b"user\tQZUSER\nhost\tat qzhost.local\n");
         let clean = w("clean", b"baud@demo:~$ fastfetch\r\n");
         let coloured = w("coloured", b"\x1b[1mqz\x1b[0m\x1b[33muser\x1b[0m@demo\n");
-        let script = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../scripts/readme-forbidden.py"
-        );
         let code = |list: &std::path::Path, controls: &std::path::Path, file: &std::path::Path| {
-            std::process::Command::new("python3")
-                .arg("-I")
-                .arg(script)
-                .args([list, controls, file])
-                .output()
-                .expect("python3")
-                .status
-                .code()
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            xtask::forbidden::search(list, controls, &[file.to_path_buf()], &mut out, &mut err)
+                .expect("the files are there")
+                .exit()
+                .0
         };
-        assert_eq!(code(&list, &controls, &clean), Some(0));
+        assert_eq!(code(&list, &controls, &clean), 0);
         assert_eq!(
             code(&list, &controls, &coloured),
-            Some(1),
+            1,
             "found past its escapes"
         );
         let one = w("one", b"user\tQZUSER\n");
-        assert_eq!(
-            code(&list, &one, &clean),
-            Some(2),
-            "a label with no control"
-        );
+        assert_eq!(code(&list, &one, &clean), 2, "a label with no control");
         let wrong = w("wrong", b"user\tsomeone\nhost\tqzhost.local\n");
-        assert_eq!(code(&list, &wrong, &clean), Some(2), "a control not found");
+        assert_eq!(code(&list, &wrong, &clean), 2, "a control not found");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

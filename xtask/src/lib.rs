@@ -30,6 +30,9 @@
 //!   `scripts/vt-compare.sh`'s results.
 //! - `pmc <export.xml>`: the counter columns of an `xctrace` export
 //!   (`scripts/counter-controls/`).
+//! - `forbidden PATTERNS CONTROLS FILE...`: files searched for a list kept
+//!   outside the repository, each pattern found in its control first; the
+//!   README session's `demo` runs the same module over its bytes.
 
 #![forbid(unsafe_code)]
 
@@ -39,6 +42,7 @@ pub mod difflib;
 pub mod features;
 pub mod features_since;
 pub mod fnv;
+pub mod forbidden;
 pub mod html;
 pub mod impl_audit;
 pub mod loop_head;

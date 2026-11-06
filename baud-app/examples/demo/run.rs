@@ -9,6 +9,8 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use xtask::forbidden::{self, Verdict};
+
 use crate::container;
 use crate::film::{self, Display};
 use crate::fonts::{self, PINNED};
@@ -288,7 +290,6 @@ fn run(args: &Args) -> Result<(), String> {
     }
     let forbidden = match (&args.forbidden, &args.controls) {
         (Some(list), Some(controls)) => Some(Forbidden {
-            python: nix_out("python3^out")?.join("bin/python3"),
             list: list.clone(),
             controls: controls.clone(),
         }),
@@ -421,32 +422,30 @@ fn headless(
 }
 
 /// **What must never be filmed**, as a list kept outside the repository:
-/// `scripts/readme-forbidden.py` searches the session's bytes for it with
-/// the pinned Python, once every pattern has been found in its control.
+/// `xtask::forbidden` searches the session's bytes for it, once every
+/// pattern has been found in its control.
 struct Forbidden {
-    python: PathBuf,
     list: PathBuf,
     controls: PathBuf,
 }
 
 impl Forbidden {
     fn search(&self, files: &[PathBuf]) -> Result<(), String> {
-        let script = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../scripts/readme-forbidden.py"
+        let verdict = forbidden::search(
+            &self.list,
+            &self.controls,
+            files,
+            &mut std::io::stdout().lock(),
+            &mut std::io::stderr().lock(),
         );
-        let status = Command::new(&self.python)
-            .arg("-I")
-            .arg(script)
-            .arg(&self.list)
-            .arg(&self.controls)
-            .args(files)
-            .status()
-            .map_err(|e| format!("python: {e}"))?;
-        match status.code() {
-            Some(0) => Ok(()),
-            Some(1) => Err("the session's bytes hold what must never be filmed".to_string()),
-            _ => Err("the forbidden list could not be searched with".to_string()),
+        match verdict {
+            Ok(Verdict::Clean) => Ok(()),
+            Ok(Verdict::Hits) => {
+                Err("the session's bytes hold what must never be filmed".to_string())
+            }
+            Ok(Verdict::Refused(_)) | Err(_) => {
+                Err("the forbidden list could not be searched with".to_string())
+            }
         }
     }
 }

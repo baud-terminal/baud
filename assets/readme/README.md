@@ -242,10 +242,10 @@ A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
 `cargo run --release --example demo -- --record assets/readme/hero.gif
 --forbidden LIST --controls FILE` (`baud-app/examples/demo.rs`). LIST is
-what must never be filmed, kept outside the repository because it names
-what it forbids, and FILE an example of each of its patterns. The
-session's bytes are searched for LIST once every pattern has been found in
-its example, and a hit fails the recording. It writes a file named
+what must never be filmed, in `regex` syntax, kept outside the repository
+because it names what it forbids, and FILE an example of each of its
+patterns. The session's bytes are searched for LIST once every pattern has
+been found in its example, and a hit fails the recording. It writes a file named
 hero.gif.provenance.toml beside the GIF: the commit of baud that was
 built and filmed and whether its tree was clean, every step with its
 time since the launch, each tool's nixpkgs store path, the encoder's

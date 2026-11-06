@@ -96,7 +96,7 @@
 //! exits non-zero. At the end the window is closed, the container and its
 //! image removed, and the pty log must name nothing of this machine; with
 //! `--forbidden LIST --controls FILE` it must also hold nothing LIST
-//! forbids (`scripts/readme-forbidden.py`, a list kept outside the
+//! forbids (`xtask::forbidden`, a list kept outside the
 //! repository, each pattern found in its control first). Ctrl-C stops the
 //! session at its next wait, and the container, its image and the
 //! session's VM are removed as they are at the end; it exits 130.

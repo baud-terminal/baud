@@ -15,7 +15,9 @@ use xtask::publish::{self, Flags};
 use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
-use xtask::{changelog, features, features_since, fnv, loop_head, pdf_search, pmc, text, vt_table};
+use xtask::{
+    changelog, features, features_since, fnv, forbidden, loop_head, pdf_search, pmc, text, vt_table,
+};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -163,6 +165,11 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                 pmc::run(rest, &mut stdout, &mut io::stderr().lock()).map_err(|e| e.to_string())?;
             Ok(ExitCode::from(exit.0))
         }
+        ["forbidden", rest @ ..] => {
+            let exit = forbidden::run(rest, &mut stdout, &mut io::stderr().lock())
+                .map_err(|e| e.to_string())?;
+            Ok(ExitCode::from(exit.0))
+        }
         _ => {
             eprintln!(
                 "usage: cargo xtask audit | impl-audit <file> | scan-audit [limit] \
@@ -173,7 +180,7 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test] | pdf-search <key> [<term>...] \
                  | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \
-                 | pmc <export.xml>"
+                 | pmc <export.xml> | forbidden <patterns> <controls> <file>..."
             );
             Ok(ExitCode::from(2))
         }
