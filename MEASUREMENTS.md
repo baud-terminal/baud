@@ -660,8 +660,8 @@ wait.
 The wait is `_mdns_atfork_prepare()`, 2.66-32.92 ms timed alone; the
 kernel's `__fork()` beside the same thread never took over 0.37 ms. The
 `BAUD_STARTUP=1` launch log before the change read `renderer` at 14.9 ms
-and `pty` at 77.0. `docs/research/sources/aj-observed/fork-wait.txt` has
-the rest.
+and `pty` at 77.0. The rest of that capture, `fork-wait.txt`, is no longer
+in this repository.
 
 ## Overlapping sharedApplication with the CoreGraphics connection (row 4, reverted)
 
@@ -1753,7 +1753,7 @@ and on the glass over a white and a black desktop (`FLASH_GLASS=1`),
 8,064 cases, and on the red and dark red grounds a program sets, opaque,
 2,688 more. The block control failed at 4 Hz and passed at 2 Hz on every
 run. Worst areas in pt² over 1x and 2x, against 21,824; the base is the
-committed O2 census's plasma, the dark and light pages bare
+O2 census's plasma, the dark and light pages bare
 (`b68-o2-census.tsv.gz`); "lit and clamped" is the tree before the blend:
 
 | font | cell | base | lit and clamped | in front | glass | strict | red grounds | busiest pixel, a second |
@@ -4038,3 +4038,50 @@ inner's bound each inert; the helper turning a failure into 113; a kill of one m
 helper without the file, where the two refusal tests now say which refusal; a comment on the value's
 line. All of this ran on macOS: the three refusal tests are shared and were not run on Linux, and the
 sizes, read through a stand-in for the watcher, are macOS's tests of shell code both share.
+
+## The observed captures left the repository
+
+Not timed: no byte path changed. `baud-domain/src/cache.rs` is the one per-byte
+source touched, comment lines only. `ingest2` built from `git archive` at one path:
+`__TEXT,__text` is 1,225,600 bytes on base, change and an A/A copy, SHA-256
+6b41d34e450e9e91 on all three; `min_cols + 1` in `store_stride` moves it to
+4d7dd87d9fe68adb, so the comparison can fail.
+
+**What left.** 258 of the 261 files under `docs/research/sources/*-observed/`: the
+67 screenshots, the 20 Python harnesses, and the probes, sweeps and outputs of notes
+AA, AD, AH, AI, AJ, AK, AL, BE and the XParseColor probe. Also the two Noto Emoji
+tools, and five scripts with one sibling: `gen-utf8-tables`, `stride-pad-search`,
+`utf8-runs`, `sbix-probe-fonts` with `sbix-probe.swift`, and `locale/zle_repro`. They
+are kept outside this repository. 260 manifest rows, 266 lines of `third-party.toml`.
+
+**What stayed, and why.** Three files, with no script beside them, because a test
+reads each: `xparsecolor-observed/rgb.out` and `xcms.out`
+(`baud-domain/tests/x_parse_color.rs`, `x_parse_color_specs.rs`,
+`baud-domain/src/vt/xcms/tests.rs`) and `al-observed/thresholds-out.txt`
+(`baud-render/tests/al_observed.rs`). The two XParseColor rows now carry how the probe
+was built, which its own row held.
+
+**One test follows.** `baud-domain/tests/zlib.rs` walks every PNG in the tree and floors
+the count: 185 is 144 now, in three asserts, the only non-comment Rust lines of this
+change. The 144 hold every colour type, bit depth, interlace and filter the 67 did,
+which were all 8-bit RGB or RGBA and not interlaced. What the corpus gives up: its
+largest IDAT falls from 323,000 bytes to 54,332, and no file now has the ancillary chunk
+`caNv`, though other ancillary chunks remain.
+
+**Nothing the build needs left.** No removed script produces a committed table:
+the three tables `gen-utf8-tables` printed are nowhere in the tree, and `decode.rs`
+builds its own by `const fn`; the score `stride-pad-search` printed is `deepest_set`
+in `baud-domain/tests/cache.rs`.
+
+**Citations.** Six comments in `baud-app` and two in `baud-domain`'s tests cited rows
+that left, and one `docs/vt-coverage.md` row cited two. Each still states the fact and
+says it was measured; a dropped key fails `cargo xtask sources` when cited in a copy of
+the tree. These facts now have no public capture behind them: an app `open` starts has
+parent 1 and one a shell starts has that shell, `open` passes on the shell's `PWD` while
+the app's directory is `/`, launchd's `XPC_FLAGS` is `0x0`, and libX11's three stock
+`Xcms.txt` names resolve with case and spaces ignored and fail under
+`XCMSDB=/dev/null`. An orphan's parent being launchd is still run, by the orphan arm of
+`a_shell_spawned_under_launchd_starts_home`.
+
+**LICENSE.** Its sentence on these directories now names their data files; no
+screenshot is left for it to name.

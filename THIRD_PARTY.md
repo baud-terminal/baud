@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 333 | 67 | redistributable, and its notice is satisfied |
-| own | 265 | 7 | the work of baud's author |
-| total | 599 | 75 | |
+| kept | 331 | 67 | redistributable, and its notice is satisfied |
+| own | 10 | 7 | the work of baud's author |
+| total | 342 | 75 | |
 
 ## Licence texts in LICENSES/
 
@@ -1296,18 +1296,6 @@ notice is, and the URL each file was copied from.
 | [neovim-tui-input.c](docs/research/sources/neovim-tui-input.c) | https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/input.c |
 | [neovim-tui.c](docs/research/sources/neovim-tui.c) | https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/tui.c |
 
-### Noto Emoji's tools (Google); its README puts the tools under Apache-2.0
-
-- **Status:** kept -- redistributable, and its notice is satisfied
-- **Licence:** Apache-2.0
-- **Notice:** [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt)
-- **Files:** 2
-
-| file | copied from |
-|---|---|
-| [noto-emoji-add_emoji_gsub.py](docs/research/sources/noto-emoji-add_emoji_gsub.py) | https://raw.githubusercontent.com/googlefonts/noto-emoji/main/add_emoji_gsub.py |
-| [noto-emoji-add_glyphs.py](docs/research/sources/noto-emoji-add_glyphs.py) | https://raw.githubusercontent.com/googlefonts/noto-emoji/main/add_glyphs.py |
-
 ### OpenType Sanitizer
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -1892,272 +1880,17 @@ notice is, and the URL each file was copied from.
 | [mlg-glass.rs](docs/research/sources/mlg-glass.rs) | https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/src/glass.rs |
 | [mlg-window.rs](docs/research/sources/mlg-window.rs) | https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/src/window.rs |
 
-### The project's own probes, captures and renders
+### The project's own probe outputs and captures
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 259
+- **Files:** 4
 
 | file | copied from |
 |---|---|
-| [aa-observed/cwdprobe-run.txt](docs/research/sources/aa-observed/cwdprobe-run.txt) | cwdprobe run 2026-10-14 directly and through open -n; its own output file, then ps |
-| [ad-observed/coretext-cbdt-load.txt](docs/research/sources/ad-observed/coretext-cbdt-load.txt) | a Swift probe compiled with /usr/bin/swiftc (Apple Swift 6.4) |
-| [ad-observed/coretext-createforstring.txt](docs/research/sources/ad-observed/coretext-createforstring.txt) | a Swift probe |
-| [ad-observed/coretext-ctline-fira.txt](docs/research/sources/ad-observed/coretext-ctline-fira.txt) | a C probe over CTLineCreateWithAttributedString |
-| [ad-observed/coretext-mn-coverage.txt](docs/research/sources/ad-observed/coretext-mn-coverage.txt) | a C probe over CTFontCreateForString |
-| [ad-observed/coretext-runs.txt](docs/research/sources/ad-observed/coretext-runs.txt) | a Swift probe over CTLineCreateWithAttributedString at 40 pt |
-| [ad-observed/frequency-emoji-rows.tsv](docs/research/sources/ad-observed/frequency-emoji-rows.tsv) | rows of the scratch results-emoji.tsv (146,780 rows, not committed) selected by extract.py |
-| [ad-observed/frequency-emoji.txt](docs/research/sources/ad-observed/frequency-emoji.txt) | a scratch crate over baud-core Term and baud-render Renderer at e0a611d |
-| [ad-observed/frequency-marks-missing.txt](docs/research/sources/ad-observed/frequency-marks-missing.txt) | results-marks.tsv.missing.json from the frequency lens, one line per face or stack and group |
-| [ad-observed/frequency-marks.txt](docs/research/sources/ad-observed/frequency-marks.txt) | a scratch crate over baud-font and baud-render at e0a611d |
-| [ad-observed/frequency-replay.txt](docs/research/sources/ad-observed/frequency-replay.txt) | a scratch crate over baud-core and baud-render at e0a611d |
-| [ad-observed/frequency-saturate.txt](docs/research/sources/ad-observed/frequency-saturate.txt) | a scratch crate over baud-core at e0a611d (bin saturate) |
-| [ad-observed/frequency-storetest.txt](docs/research/sources/ad-observed/frequency-storetest.txt) | a scratch crate over baud-core at e0a611d |
-| [ad-observed/kitty-run-a.log](docs/research/sources/ad-observed/kitty-run-a.log) | kitty --debug-font-fallback |
-| [ad-observed/kitty-run-b.log](docs/research/sources/ad-observed/kitty-run-b.log) | kitty --debug-font-fallback |
-| [ad-observed/noto-tag-flags.png](docs/research/sources/ad-observed/noto-tag-flags.png) | fontTools CBDT extraction of the glyph ids ad-obs-reserved-tags-vs reports: 2.042 g481 g1951 g1467 g1911, then 2.051 g481 g1481 g1913, left to right |
-| [ad-observed/pango-marks.png](docs/research/sources/ad-observed/pango-marks.png) | pango-view, fontconfig limited to scratch fonts |
-| [ad-observed/reserved-tags-selectors.txt](docs/research/sources/ad-observed/reserved-tags-selectors.txt) | a scratch crate over baud-core and baud-render at e0a611d (the fixer probe) |
-| [ad-observed/review-v13-sheet-d-28.png](docs/research/sources/ad-observed/review-v13-sheet-d-28.png) | a starter sheet rendered for note AD (sheet-d-28.png), copied unchanged |
-| [ad-observed/review-v13-sheet-d-56.png](docs/research/sources/ad-observed/review-v13-sheet-d-56.png) | a starter sheet rendered for note AD (sheet-d-56.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-a-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-a-28.png) | a starter sheet rendered for note AD (sheet-noto-a-28.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-a-56.png](docs/research/sources/ad-observed/review-v13-sheet-noto-a-56.png) | a starter sheet rendered for note AD (sheet-noto-a-56.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-b-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-b-28.png) | a starter sheet rendered for note AD (sheet-noto-b-28.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-b-56.png](docs/research/sources/ad-observed/review-v13-sheet-noto-b-56.png) | a starter sheet rendered for note AD (sheet-noto-b-56.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-c-28.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-28.png) | a starter sheet rendered for note AD (sheet-noto-c-28.png), copied unchanged |
-| [ad-observed/review-v13-sheet-noto-c-56.png](docs/research/sources/ad-observed/review-v13-sheet-noto-c-56.png) | a starter sheet rendered for note AD (sheet-noto-c-56.png), copied unchanged |
-| [ad-observed/supp-coretext-fira-runs.txt](docs/research/sources/ad-observed/supp-coretext-fira-runs.txt) | probe source in supp-coretext-probe.swift |
-| [ad-observed/supp-coretext-jbm-runs.txt](docs/research/sources/ad-observed/supp-coretext-jbm-runs.txt) | supp-coretext-probe.swift JetBrainsMono-Regular 12 over the five cases its headers name, run from the repository root with REGISTER_FONT=baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf (registered for the process only) |
-| [ad-observed/supp-coretext-probe.swift](docs/research/sources/ad-observed/supp-coretext-probe.swift) | the supplement's swift/probe2.swift, copied unchanged |
-| [ad-observed/supp-coretext-render.swift](docs/research/sources/ad-observed/supp-coretext-render.swift) | the supplement's swift/render.swift, copied unchanged |
-| [ad-observed/supp-mux-cases.txt](docs/research/sources/ad-observed/supp-mux-cases.txt) | the supplement's cases_mux.txt, copied unchanged |
-| [ad-observed/supp-mux-cprprobe.py](docs/research/sources/ad-observed/supp-mux-cprprobe.py) | the supplement's mux/cprprobe.py, copied unchanged |
-| [ad-observed/supp-mux-harness.py](docs/research/sources/ad-observed/supp-mux-harness.py) | the supplement's mux/harness.py, copied unchanged |
-| [ad-observed/supp-terminalapp-cpr.json](docs/research/sources/ad-observed/supp-terminalapp-cpr.json) | CSI 6n before and after printing each case in a fresh window |
-| [ad-observed/supp-tmux-cpr.json](docs/research/sources/ad-observed/supp-tmux-cpr.json) | supp-mux-cprprobe.py inside a tmux pane |
-| [ad-observed/supp-tmux-out.bin](docs/research/sources/ad-observed/supp-tmux-out.bin) | supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, LANG=C.UTF-8, -f /dev/null; SIDECAR at 2 s: respawn-pane -k printing supp-mux-cases.txt one case a line as tag[text] |
-| [ad-observed/supp-zellij-cpr.json](docs/research/sources/ad-observed/supp-zellij-cpr.json) | supp-mux-cprprobe.py inside a zellij pane |
-| [ad-observed/supp-zellij-out.bin](docs/research/sources/ad-observed/supp-zellij-out.bin) | supp-mux-harness.py under a Python pty at 100x50, plugin-free layout |
-| [ad-observed/terminals-cases-e1first.txt](docs/research/sources/ad-observed/terminals-cases-e1first.txt) | hand-written test input |
-| [ad-observed/terminals-cases.txt](docs/research/sources/ad-observed/terminals-cases.txt) | hand-written test input |
-| [ad-observed/tux-shape.txt](docs/research/sources/ad-observed/tux-shape.txt) | a scratch crate over baud-font at e0a611d on Apple Color Emoji 22.0d3e2 |
-| [ad-observed/wezterm-ls-fonts.txt](docs/research/sources/ad-observed/wezterm-ls-fonts.txt) | wezterm ls-fonts |
-| [ah-observed/child_probe.c](docs/research/sources/ah-observed/child_probe.c) | a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk |
-| [ah-observed/child_probe.out](docs/research/sources/ah-observed/child_probe.out) | output of child_probe <scratch-dir>, sandboxed shell, 2026-10-09 |
-| [ah-observed/leds_probe.c](docs/research/sources/ah-observed/leds_probe.c) | a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk -lutil |
-| [ah-observed/leds_probe.out](docs/research/sources/ah-observed/leds_probe.out) | output of leds_probe <scratch-dir>, sandboxed shell, 2026-10-09 |
-| [ah-observed/leds_probe_ssh.out](docs/research/sources/ah-observed/leds_probe_ssh.out) | output of leds_probe --pid <ssh-pid>, sandboxed shell, 2026-10-09 |
-| [ah-observed/listings.out](docs/research/sources/ah-observed/listings.out) | shell commands, sandboxed shell, 2026-10-09 |
-| [ah-observed/pcb64_probe.c](docs/research/sources/ah-observed/pcb64_probe.c) | a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk |
-| [ah-observed/pcb64_probe.out](docs/research/sources/ah-observed/pcb64_probe.out) | output of pcb64_probe <ssh-pid>, sandboxed shell, 2026-10-09 |
-| [ah-observed/titlebar_probe.out](docs/research/sources/ah-observed/titlebar_probe.out) | output of titlebar_probe, sandboxed shell, 2026-10-09 |
-| [ah-observed/titlebar_probe.swift](docs/research/sources/ah-observed/titlebar_probe.swift) | a Swift probe, built with /usr/bin/swiftc -O -sdk MacOSX27.0.sdk |
-| [ah-observed/titlebar_probe_sdk14.m](docs/research/sources/ah-observed/titlebar_probe_sdk14.m) | an Objective-C probe, built with nix clang 21.1.8 and apple-sdk 14.4, -mmacosx-version-min=14.0 |
-| [ah-observed/titlebar_probe_sdk14.out](docs/research/sources/ah-observed/titlebar_probe_sdk14.out) | output of titlebar_probe_sdk14, sandboxed shell, 2026-10-09 |
-| [ai-observed/FdProbe-Info.plist](docs/research/sources/ai-observed/FdProbe-Info.plist) | probe source, written for the note |
-| [ai-observed/admin-and-shim.txt](docs/research/sources/ai-observed/admin-and-shim.txt) | id, log show, cc, otool and nm, 12:04:31 |
-| [ai-observed/capprobe-reread.txt](docs/research/sources/ai-observed/capprobe-reread.txt) | log show, read-only, 12:04 |
-| [ai-observed/capprobe.c](docs/research/sources/ai-observed/capprobe.c) | probe source, written for the note |
-| [ai-observed/capprobe2.c](docs/research/sources/ai-observed/capprobe2.c) | probe source, written for the note |
-| [ai-observed/capprobe2.txt](docs/research/sources/ai-observed/capprobe2.txt) | capprobe2 run at 12:05:02 and log show |
-| [ai-observed/costprobe-rerun.txt](docs/research/sources/ai-observed/costprobe-rerun.txt) | costprobe run at 12:04:04 |
-| [ai-observed/costprobe.c](docs/research/sources/ai-observed/costprobe.c) | probe source, written for the note |
-| [ai-observed/fdprobe-run.txt](docs/research/sources/ai-observed/fdprobe-run.txt) | fdprobe run at 11:09:38 directly and through open(1); its own output file |
-| [ai-observed/fdprobe-stderr-direct.txt](docs/research/sources/ai-observed/fdprobe-stderr-direct.txt) | stderr of fdprobe, 11:09:38 |
-| [ai-observed/fdprobe-stderr-open.txt](docs/research/sources/ai-observed/fdprobe-stderr-open.txt) | stderr of the launched fdprobe, 11:09:38 |
-| [ai-observed/fdprobe.c](docs/research/sources/ai-observed/fdprobe.c) | probe source, written for the note |
-| [ai-observed/lifeprobe.c](docs/research/sources/ai-observed/lifeprobe.c) | probe source, written for the note |
-| [ai-observed/lifeprobe.txt](docs/research/sources/ai-observed/lifeprobe.txt) | lifeprobe run at 12:05:34; log show readings with their queries |
-| [ai-observed/log-invocations.txt](docs/research/sources/ai-observed/log-invocations.txt) | log show, read-only, 12:59 |
-| [ai-observed/log-show-probes.txt](docs/research/sources/ai-observed/log-show-probes.txt) | log show at 11:20:30; its query is in log-invocations.txt |
-| [ai-observed/longline-reread.txt](docs/research/sources/ai-observed/longline-reread.txt) | log show, read-only, 12:09 |
-| [ai-observed/nslogprobe-stderr.txt](docs/research/sources/ai-observed/nslogprobe-stderr.txt) | stderr of nslogprobe, 11:17:29 |
-| [ai-observed/nslogprobe.m](docs/research/sources/ai-observed/nslogprobe.m) | probe source, written for the note |
-| [ai-observed/observations.txt](docs/research/sources/ai-observed/observations.txt) | written for the note |
-| [ai-observed/privprobe.c](docs/research/sources/ai-observed/privprobe.c) | probe source, written for the note |
-| [ai-observed/review-costprobe-lines.txt](docs/research/sources/ai-observed/review-costprobe-lines.txt) | log show, read-only, 11:59, run while checking the first draft |
-| [ai-observed/review-info-debug-absent.txt](docs/research/sources/ai-observed/review-info-debug-absent.txt) | log show, read-only, 11:59, run while checking the first draft |
-| [ai-observed/set-hook-sweep.txt](docs/research/sources/ai-observed/set-hook-sweep.txt) | cargo tree and grep over the cargo registry, 12:57 |
-| [ai-observed/shim-reread.txt](docs/research/sources/ai-observed/shim-reread.txt) | log show, read-only, 12:59 |
-| [ai-observed/shim-run.txt](docs/research/sources/ai-observed/shim-run.txt) | shimmain built with the devenv shell's cc and run, 11:35:32 |
-| [ai-observed/shim.c](docs/research/sources/ai-observed/shim.c) | probe source, written for the note |
-| [ai-observed/shimmain.c](docs/research/sources/ai-observed/shimmain.c) | probe source, written for the note |
-| [ai-observed/stat-volume.txt](docs/research/sources/ai-observed/stat-volume.txt) | GNU stat -f, 12:09 |
-| [ai-observed/stderr-marker-requery.txt](docs/research/sources/ai-observed/stderr-marker-requery.txt) | log show, read-only, 12:57 |
-| [ai-observed/syslogprobe.c](docs/research/sources/ai-observed/syslogprobe.c) | probe source, written for the note |
-| [ai-observed/syslogprobe1-reread.txt](docs/research/sources/ai-observed/syslogprobe1-reread.txt) | log show, read-only, 12:59 |
-| [ai-observed/syslogprobe1.txt](docs/research/sources/ai-observed/syslogprobe1.txt) | log show at 11:21:37; its query is in log-invocations.txt |
-| [ai-observed/syslogprobe2-syntax.txt](docs/research/sources/ai-observed/syslogprobe2-syntax.txt) | Xcode clang, 12:57 |
-| [ai-observed/syslogprobe2.c](docs/research/sources/ai-observed/syslogprobe2.c) | probe source, written for the note |
-| [ai-observed/syslogprobe2.txt](docs/research/sources/ai-observed/syslogprobe2.txt) | syslogprobe2 run at 12:05:14 and log show |
-| [aj-observed/emerge-census.txt](docs/research/sources/aj-observed/emerge-census.txt) | baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's pace and the hold varied, 2026-10-28, from c10174a0 with the emerge built |
-| [aj-observed/emerge-lead-kitty.png](docs/research/sources/aj-observed/emerge-lead-kitty.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
-| [aj-observed/emerge-trail-1.4x.png](docs/research/sources/aj-observed/emerge-trail-1.4x.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
-| [aj-observed/emerge-trail-2.1x.png](docs/research/sources/aj-observed/emerge-trail-2.1x.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
-| [aj-observed/emerge-trail-kitty.png](docs/research/sources/aj-observed/emerge-trail-kitty.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 15 frames left to right then down: the emerge at 0, 17, 33, 67, 100, 150 and 300 ms, the logo held, the vanish at 0, 17, 33, 67, 100, 150 and 300 ms; made 2026-10-28 on an Apple M5 Max under macOS 27.0 from c10174a0 with the emerge built |
-| [aj-observed/flash-census.tsv](docs/research/sources/aj-observed/flash-census.tsv) | cargo build --release -p baud-bench --bench flash, then the binary run seven times at once on an Apple M5 Max under macOS 27.0 (26A5425a) on AC, 2026-10-09: `all 13x1 60,120 all all`, `all 13x2 60,120 all all`, `all 32x1 60,120 all all`, `all 32x2 60,120 all dark,light`, `all 32x2 60,120 all red,darkred`, `all 72x1 60,120 all dark,light` and `all 72x1 60,120 all red,darkred`, joined in that order with the repeated control rows (which agree) dropped; every column it shares with an earlier build's census, run without the apart columns, agrees |
-| [aj-observed/flash_area.py](docs/research/sources/aj-observed/flash_area.py) | a Python script written for note AJ; reads no files, its constants copied from baud-render/src/plasma.rs, shaders.metal, metrics.rs, color.rs, trail.rs and metal.rs at ccb8aaa |
-| [aj-observed/flash_area.txt](docs/research/sources/aj-observed/flash_area.txt) | python3 docs/research/sources/aj-observed/flash_area.py, run from the repository root at ccb8aaa |
-| [aj-observed/font_probe.py](docs/research/sources/aj-observed/font_probe.py) | a Python script written for note AJ, run from the repository root |
-| [aj-observed/font_probe.txt](docs/research/sources/aj-observed/font_probe.txt) | python3 docs/research/sources/aj-observed/font_probe.py, run from the repository root at ccb8aaa |
-| [aj-observed/fork-wait.txt](docs/research/sources/aj-observed/fork-wait.txt) | C and Objective-C probes in fresh processes, three of them quoted in the file, Apple M5 Max, macOS 27.0, 2026-10-30; no window opened |
-| [aj-observed/glyph-measure.txt](docs/research/sources/aj-observed/glyph-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it |
-| [aj-observed/glyph-seam-blend.png](docs/research/sources/aj-observed/glyph-seam-blend.png) | the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.05 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/glyph-seam-cut.png](docs/research/sources/aj-observed/glyph-seam-cut.png) | the splash rendered on baud-render's CPU path over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), JetBrains Mono, the region from 'u' to the block at full scale, the frames at 0.00 s and 0.10 s side by side, the dark theme above and the light below; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that seam built in a scratch tree |
-| [aj-observed/glyph-strip-dark.png](docs/research/sources/aj-observed/glyph-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 11 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/glyph-strip-light.png](docs/research/sources/aj-observed/glyph-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 11 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/glyph-strip-one.png](docs/research/sources/aj-observed/glyph-strip-one.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme above and light theme below, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 9 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
-| [aj-observed/glyph-strip-overlap.png](docs/research/sources/aj-observed/glyph-strip-overlap.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme above and light theme below, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 10 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
-| [aj-observed/kitty-measure.txt](docs/research/sources/aj-observed/kitty-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied |
-| [aj-observed/kitty-strip-dark.png](docs/research/sources/aj-observed/kitty-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/kitty-strip-light.png](docs/research/sources/aj-observed/kitty-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/logo_probe.sh](docs/research/sources/aj-observed/logo_probe.sh) | a shell script written for note AJ, run from the repository root |
-| [aj-observed/logo_probe.txt](docs/research/sources/aj-observed/logo_probe.txt) | bash docs/research/sources/aj-observed/logo_probe.sh, run from the repository root at ccb8aaa |
-| [aj-observed/plasma-measure.txt](docs/research/sources/aj-observed/plasma-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, the cell harness of baud-present-macos for the GPU, 2026-10-29, from 24540262 and with the change applied |
-| [aj-observed/plasma-strip-a-dark.png](docs/research/sources/aj-observed/plasma-strip-a-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262 |
-| [aj-observed/plasma-strip-b-dark.png](docs/research/sources/aj-observed/plasma-strip-b-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 16 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on 24540262 |
-| [aj-observed/plasma-strip-before-dark.png](docs/research/sources/aj-observed/plasma-strip-before-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 10 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 24540262 |
-| [aj-observed/plasma-strip-c-dark.png](docs/research/sources/aj-observed/plasma-strip-c-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/plasma-strip-c-light.png](docs/research/sources/aj-observed/plasma-strip-c-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the logo's middle three fifths and shown at half scale; 14 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/probe-logo-sampling.sh](docs/research/sources/aj-observed/probe-logo-sampling.sh) | a shell script written for note AJ, run in the directory of the pinned clones |
-| [aj-observed/probe-logo-sampling.txt](docs/research/sources/aj-observed/probe-logo-sampling.txt) | bash probe-logo-sampling.sh, run in the directory of git clone --depth 1 copies at the pins in aj-obs-probe-terminals |
-| [aj-observed/probe-run.sh](docs/research/sources/aj-observed/probe-run.sh) | a shell script written for note AJ |
-| [aj-observed/probe-terminals.txt](docs/research/sources/aj-observed/probe-terminals.txt) | bash probe-run.sh probe.sh, run in the directory of git clone --depth 1 copies at the printed pins |
-| [aj-observed/probe.sh](docs/research/sources/aj-observed/probe.sh) | the other-terminals sweep's probe script, kept as run |
-| [aj-observed/seam-measure.txt](docs/research/sources/aj-observed/seam-measure.txt) | seam_probe.rs and seam_strip.py on baud-render's CPU path, and baud-bench's flash bench with FLASH_HASH=1 on the Metal cell path, base and change, 2026-10-30 |
-| [aj-observed/seam-strip.png](docs/research/sources/aj-observed/seam-strip.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 64x20-cell window at 14 px (1x) and 200x50 at 28 px (2x), JetBrains Mono; made 2026-10-30 on an Apple M5 Max under macOS 27.0 |
-| [aj-observed/seam_probe.rs](docs/research/sources/aj-observed/seam_probe.rs) | a test written for note AJ section 21, run in baud-bench/tests/ with --ignored on the base and on the change, 2026-10-30 |
-| [aj-observed/seam_strip.py](docs/research/sources/aj-observed/seam_strip.py) | a Python script written for note AJ section 21; reads the probe's whole frames |
-| [aj-observed/snappy-measure.txt](docs/research/sources/aj-observed/snappy-measure.txt) | set_splash, sync_styles and the instance arm's Gpu::draw timed per frame headless, baud-render's CPU path read per frame, and baud_bench::flash::Census over the splash's whole life, 2026-10-29, from c98a05ab and with the change applied |
-| [aj-observed/snappy-strip-before-dark.png](docs/research/sources/aj-observed/snappy-strip-before-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 24 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from c98a05ab |
-| [aj-observed/snappy-strip-glow-dark.png](docs/research/sources/aj-observed/snappy-strip-glow-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 14 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab |
-| [aj-observed/snappy-strip-sweep-dark.png](docs/research/sources/aj-observed/snappy-strip-sweep-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/snappy-strip-sweep-light.png](docs/research/sources/aj-observed/snappy-strip-sweep-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 11 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/snappy-strip-wave-dark.png](docs/research/sources/aj-observed/snappy-strip-wave-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 12 frames, five to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from a prototype on c98a05ab |
-| [aj-observed/turn-census.txt](docs/research/sources/aj-observed/turn-census.txt) | baud_bench::flash::Census over the splash's whole life on baud-render's CPU path, as baud-bench/tests/splash_flashes.rs counts it, with the emerge's end and the hold varied, 2026-10-29, from 3fefb118 with the change applied |
-| [aj-observed/turn-strip-at-end-dark.png](docs/research/sources/aj-observed/turn-strip-at-end-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied, the vanish started at 0.63 s |
-| [aj-observed/turn-strip-dark.png](docs/research/sources/aj-observed/turn-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, dark theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied |
-| [aj-observed/turn-strip-light.png](docs/research/sources/aj-observed/turn-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 110x30-cell window at 14 px, light theme, JetBrains Mono, cropped to the logo; 18 frames, five to a row, left to right then down, frame k at k x 0.1 s from the emerge's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 from 3fefb118 with the change applied |
-| [aj-observed/word-measure.txt](docs/research/sources/aj-observed/word-measure.txt) | baud-render's CPU path read per frame and baud_bench::flash::Census over the splash's whole life, 2026-10-29, with the change applied, and the placements weighed beside it |
-| [aj-observed/word-strip-dark.png](docs/research/sources/aj-observed/word-strip-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/word-strip-lead-dark.png](docs/research/sources/aj-observed/word-strip-lead-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 13 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
-| [aj-observed/word-strip-light.png](docs/research/sources/aj-observed/word-strip-light.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), light theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 17 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with the change applied |
-| [aj-observed/word-strip-span15-dark.png](docs/research/sources/aj-observed/word-strip-span15-dark.png) | the splash rendered on baud-render's CPU path (the pixels the GPU arms are held to by the pixel oracle) over a blank 200x50-cell window at 28 px (the 2x size, a 3400x1850 frame), dark theme, JetBrains Mono, cropped to the middle three fifths of the frame's width and of the logo's band, shown at a quarter scale; 19 frames, four to a row, left to right then down, frame k at k x 0.05 s from the splash's first frame; made 2026-10-29 on an Apple M5 Max under macOS 27.0 with that placement built in a scratch tree |
-| [ak-observed/lossy-out.txt](docs/research/sources/ak-observed/lossy-out.txt) | output of ak-obs-lossy-rs |
-| [ak-observed/lossy.rs](docs/research/sources/ak-observed/lossy.rs) | test source, compiled and run locally |
-| [ak-observed/observations.txt](docs/research/sources/ak-observed/observations.txt) | shell commands, each printed before its output |
-| [ak-observed/probe-run-path-sleep.txt](docs/research/sources/ak-observed/probe-run-path-sleep.txt) | output of ak-obs-probe-c with the job sleep 5 from PATH |
-| [ak-observed/probe-runs.txt](docs/research/sources/ak-observed/probe-runs.txt) | output of ak-obs-probe-c, three launches |
-| [ak-observed/probe.c](docs/research/sources/ak-observed/probe.c) | probe source, compiled and run locally |
-| [ak-observed/proxy-runs.txt](docs/research/sources/ak-observed/proxy-runs.txt) | output of ak-obs-proxy-m, two runs |
-| [ak-observed/proxy.m](docs/research/sources/ak-observed/proxy.m) | probe source, compiled and run locally |
-| [al-observed/b68-analysis.txt](docs/research/sources/al-observed/b68-analysis.txt) | python3 b68_analyze.py |
-| [al-observed/b68-base-census.tsv.gz](docs/research/sources/al-observed/b68-base-census.tsv.gz) | flash bench at 49aa8251, FLASH_HASH=1, sharded by size and ground |
-| [al-observed/b68-cpu-base-census.tsv.gz](docs/research/sources/al-observed/b68-cpu-base-census.tsv.gz) | flash bench at 49aa8251, FLASH_PATH=cpu |
-| [al-observed/b68-cpu-o2-census.tsv.gz](docs/research/sources/al-observed/b68-cpu-o2-census.tsv.gz) | flash bench with O2, FLASH_PATH=cpu |
-| [al-observed/b68-o2-census.tsv.gz](docs/research/sources/al-observed/b68-o2-census.tsv.gz) | flash bench with O2, FLASH_HASH=1, sharded by size and ground |
-| [al-observed/b68_analyze.py](docs/research/sources/al-observed/b68_analyze.py) | written for note AL's O2 census check |
-| [al-observed/b71-analysis.txt](docs/research/sources/al-observed/b71-analysis.txt) | python3 b71_summary.py b71-ghost-census.tsv.gz |
-| [al-observed/b71-ghost-census.tsv.gz](docs/research/sources/al-observed/b71-ghost-census.tsv.gz) | flash bench ghost arm, FLASH_HASH=1, base and bound, sharded by size and ground; the build column says which |
-| [al-observed/b71-other-arms-hashes.tsv.gz](docs/research/sources/al-observed/b71-other-arms-hashes.tsv.gz) | flash bench, FLASH_HASH=1 (and FLASH_TEXT=1), base and bound |
-| [al-observed/b71_summary.py](docs/research/sources/al-observed/b71_summary.py) | written for note AL's ghost census |
-| [al-observed/b76-glass-census.tsv.gz](docs/research/sources/al-observed/b76-glass-census.tsv.gz) | flash bench, FLASH_GLASS=1 FLASH_HASH=1, sharded by size and ground; the desktop column says which |
-| [al-observed/b76-glass-screens.tsv.gz](docs/research/sources/al-observed/b76-glass-screens.tsv.gz) | flash_screens bench, 13,24,32 all |
-| [al-observed/b76-opaque-hashes.tsv.gz](docs/research/sources/al-observed/b76-opaque-hashes.tsv.gz) | flash bench, FLASH_HASH=1, both builds; the build column says which |
-| [al-observed/base-fire13-f39.png](docs/research/sources/al-observed/base-fire13-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire32-f19.png](docs/research/sources/al-observed/base-fire32-f19.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire32-f39.png](docs/research/sources/al-observed/base-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire32-f43.png](docs/research/sources/al-observed/base-fire32-f43.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire32-footprint.png](docs/research/sources/al-observed/base-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire72-f31.png](docs/research/sources/al-observed/base-fire72-f31.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base-fire72-footprint.png](docs/research/sources/al-observed/base-fire72-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
-| [al-observed/base_frames-out.txt](docs/research/sources/al-observed/base_frames-out.txt) | python3 -I base_frames.py FLASH_FIX_DIR, the prototypes' working directory |
-| [al-observed/base_frames.py](docs/research/sources/al-observed/base_frames.py) | written for note AL |
-| [al-observed/cell-sizes.txt](docs/research/sources/al-observed/cell-sizes.txt) | flash bench stderr, prototype O4's base binary |
-| [al-observed/census-out.txt](docs/research/sources/al-observed/census-out.txt) | python3 docs/research/sources/al-observed/census.py, from the repository root |
-| [al-observed/census.py](docs/research/sources/al-observed/census.py) | written for the flash-fix analysis |
-| [al-observed/cross_base-out.txt](docs/research/sources/al-observed/cross_base-out.txt) | python3 -I cross_base.py . docs/research/sources/aj-observed/flash-census.tsv |
-| [al-observed/cross_base.py](docs/research/sources/al-observed/cross_base.py) | written for note AL |
-| [al-observed/gates-out.txt](docs/research/sources/al-observed/gates-out.txt) | python3 -I gates.py FLASH_FIX_DIR SCRATCH_BIN docs/research/sources/aj-observed/flash-census.tsv |
-| [al-observed/gates.py](docs/research/sources/al-observed/gates.py) | written for note AL |
-| [al-observed/o1-analyze-out.txt](docs/research/sources/al-observed/o1-analyze-out.txt) | python3 o1-analyze.py |
-| [al-observed/o1-analyze.py](docs/research/sources/al-observed/o1-analyze.py) | written by the O1 prototype |
-| [al-observed/o1-census.tsv](docs/research/sources/al-observed/o1-census.tsv) | flash bench on f5725ab with and without features flash-o1 and flash-o1-29, joined by o1-analyze.py |
-| [al-observed/o1-fire32-f39.png](docs/research/sources/al-observed/o1-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
-| [al-observed/o1-fire32-footprint.png](docs/research/sources/al-observed/o1-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
-| [al-observed/o1-fire72-f31.png](docs/research/sources/al-observed/o1-fire72-f31.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
-| [al-observed/o1-fire72-footprint.png](docs/research/sources/al-observed/o1-fire72-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1 |
-| [al-observed/o2-analyze.py](docs/research/sources/al-observed/o2-analyze.py) | written by the O2 prototype |
-| [al-observed/o2-census.tsv](docs/research/sources/al-observed/o2-census.tsv) | flash bench on 4ccd622 with and without feature flash-o2, joined by o2-analyze.py |
-| [al-observed/o2-drop-particles-72x1-dark.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-dark.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
-| [al-observed/o2-drop-particles-72x1-light.tsv](docs/research/sources/al-observed/o2-drop-particles-72x1-light.tsv) | flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1 |
-| [al-observed/o2-fire32-f19.png](docs/research/sources/al-observed/o2-fire32-f19.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2 |
-| [al-observed/o2-fire32-f39.png](docs/research/sources/al-observed/o2-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2 |
-| [al-observed/o2-fire32-footprint.png](docs/research/sources/al-observed/o2-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2 |
-| [al-observed/o2-summary.tsv](docs/research/sources/al-observed/o2-summary.tsv) | python3 o2-analyze.py |
-| [al-observed/o3-analyse.py](docs/research/sources/al-observed/o3-analyse.py) | written by the O3 prototype |
-| [al-observed/o3-analysis.txt](docs/research/sources/al-observed/o3-analysis.txt) | python3 -I o3-analyse.py runs census.tsv out56.tsv out: the O3 prototype's runs directory (not in the repository), aj-observed/flash-census.tsv and replica-out56.tsv |
-| [al-observed/o3-census.tsv](docs/research/sources/al-observed/o3-census.tsv) | flash bench on dc2fce3 with and without feature flash-o3, joined by o3-analyse.py |
-| [al-observed/o3-fire32-f39.png](docs/research/sources/al-observed/o3-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
-| [al-observed/o3-fire32-f43.png](docs/research/sources/al-observed/o3-fire32-f43.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
-| [al-observed/o3-fire32-footprint.png](docs/research/sources/al-observed/o3-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3 |
-| [al-observed/o4-analyze.py](docs/research/sources/al-observed/o4-analyze.py) | written by the O4 prototype |
-| [al-observed/o4-census.tsv](docs/research/sources/al-observed/o4-census.tsv) | flash bench on 43b72d7 with and without feature flash-o4, joined by o4-analyze.py |
-| [al-observed/o4-dim13-f39.png](docs/research/sources/al-observed/o4-dim13-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4, off arm |
-| [al-observed/o4-fire32-footprint.png](docs/research/sources/al-observed/o4-fire32-footprint.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4 |
-| [al-observed/o4-pollcost-main.rs](docs/research/sources/al-observed/o4-pollcost-main.rs) | written by the O4 prototype |
-| [al-observed/o4-summary.py](docs/research/sources/al-observed/o4-summary.py) | written by the O4 prototype |
-| [al-observed/o4-summary.txt](docs/research/sources/al-observed/o4-summary.txt) | python3 o4-summary.py |
-| [al-observed/options_table-out.txt](docs/research/sources/al-observed/options_table-out.txt) | python3 -I options_table.py |
-| [al-observed/options_table.py](docs/research/sources/al-observed/options_table.py) | written for note AL |
-| [al-observed/replica-Cargo.toml](docs/research/sources/al-observed/replica-Cargo.toml) | written for the flash-fix analysis |
-| [al-observed/replica-gate.py](docs/research/sources/al-observed/replica-gate.py) | written for the flash-fix analysis |
-| [al-observed/replica-main.rs](docs/research/sources/al-observed/replica-main.rs) | written for the flash-fix analysis |
-| [al-observed/replica-matrix-out.txt](docs/research/sources/al-observed/replica-matrix-out.txt) | python3 replica-matrix.py |
-| [al-observed/replica-matrix.py](docs/research/sources/al-observed/replica-matrix.py) | written for the flash-fix analysis |
-| [al-observed/replica-out1.tsv](docs/research/sources/al-observed/replica-out1.tsv) | replica, jobs1 |
-| [al-observed/replica-out2.tsv](docs/research/sources/al-observed/replica-out2.tsv) | replica, jobs2 |
-| [al-observed/replica-out3.tsv](docs/research/sources/al-observed/replica-out3.tsv) | replica, jobs3 |
-| [al-observed/replica-out4.tsv](docs/research/sources/al-observed/replica-out4.tsv) | replica, jobs4 |
-| [al-observed/replica-out56.tsv](docs/research/sources/al-observed/replica-out56.tsv) | replica, jobs56 |
-| [al-observed/replica-out7.tsv](docs/research/sources/al-observed/replica-out7.tsv) | replica, jobs7 |
-| [al-observed/replica-refs.rs](docs/research/sources/al-observed/replica-refs.rs) | written for the flash-fix analysis |
-| [al-observed/replica-tab.py](docs/research/sources/al-observed/replica-tab.py) | written for the flash-fix analysis |
-| [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | printed by thresholds.py (git blob a11dc088); recomputed by baud-render/tests/al_observed.rs, which asserts it equal to this file |
-| [be-observed/damage.txt](docs/research/sources/be-observed/damage.txt) | scripts/linux-damage.sh, nine rounds; the two perturbations with BAUD_DAMAGE_ROUNDS=2 BAUD_DAMAGE_FRAMES=30 and the patch the file holds |
-| [be-observed/frames-sway.txt](docs/research/sources/be-observed/frames-sway.txt) | scripts/linux-frames.sh, the sway arm: sway 1.10.1 headless, Debian trixie |
-| [be-observed/frames-weston-base.txt](docs/research/sources/be-observed/frames-weston-base.txt) | scripts/linux-frames.sh, the weston arm, on d75734a3 |
-| [be-observed/frames-weston-early.txt](docs/research/sources/be-observed/frames-weston-early.txt) | scripts/linux-frames.sh, the weston arm, on the change planning each frame for the next refresh after now |
-| [be-observed/frames-weston-late.txt](docs/research/sources/be-observed/frames-weston-late.txt) | scripts/linux-frames.sh, the weston arm, on the change with its stamp moved one refresh later |
-| [be-observed/frames-weston-rounds.txt](docs/research/sources/be-observed/frames-weston-rounds.txt) | scripts/linux-frames.sh, the weston arm, the change and d75734a3 alternating |
-| [be-observed/frames-weston.txt](docs/research/sources/be-observed/frames-weston.txt) | scripts/linux-frames.sh, the weston arm: weston 16.0.0 headless, Debian sid's snapshot of 2026-10-30 |
-| [be-observed/pixels-fraction-probe.txt](docs/research/sources/be-observed/pixels-fraction-probe.txt) | scripts/linux-pixels.sh's sway stage in an earlier version, whose moves were first, moved, across and back, on a probe binary |
-| [be-observed/pixels-fraction.txt](docs/research/sources/be-observed/pixels-fraction.txt) | scripts/linux-pixels.sh, its weston fixtures and its sway stage |
-| [be-observed/pixels-scale.txt](docs/research/sources/be-observed/pixels-scale.txt) | scripts/linux-pixels.sh, each fixture at scale 1 and three at 2 |
-| [be-observed/pointer-base-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-base-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm, base binary |
-| [be-observed/pointer-base.txt](docs/research/sources/be-observed/pointer-base.txt) | scripts/linux-pointer.sh on the base binary, both arms |
-| [be-observed/pointer-base2.txt](docs/research/sources/be-observed/pointer-base2.txt) | scripts/linux-pointer.sh on the base binary, both arms, at scale 1, 2 and 1.5 |
-| [be-observed/pointer-bookworm-block.png](docs/research/sources/be-observed/pointer-bookworm-block.png) | grim -c after the Alt drag of the select session, bookworm arm |
-| [be-observed/pointer-bookworm-hand2.png](docs/research/sources/be-observed/pointer-bookworm-hand2.png) | grim -c after OSC 22 hand2 in the shape session, bookworm arm |
-| [be-observed/pointer-bookworm-link-hand.png](docs/research/sources/be-observed/pointer-bookworm-link-hand.png) | grim -c after mods ctrl in the link session, bookworm arm |
-| [be-observed/pointer-bookworm.txt](docs/research/sources/be-observed/pointer-bookworm.txt) | scripts/linux-pointer.sh, the bookworm arm: sway 1.7 headless, the app drawing its own pointer |
-| [be-observed/pointer-hand.txt](docs/research/sources/be-observed/pointer-hand.txt) | scripts/linux-pointer.sh on sway 1.7 and 1.10.1, the change and the base binary |
-| [be-observed/pointer-scale-drawn-base.txt](docs/research/sources/be-observed/pointer-scale-drawn-base.txt) | scripts/linux-pointer.sh on the base binary, both arms at every scale |
-| [be-observed/pointer-scale-drawn.txt](docs/research/sources/be-observed/pointer-scale-drawn.txt) | scripts/linux-pointer.sh, both arms at every scale |
-| [be-observed/pointer-scale-follow.txt](docs/research/sources/be-observed/pointer-scale-follow.txt) | scripts/linux-pointer.sh, both arms at every scale |
-| [be-observed/pointer-scale.txt](docs/research/sources/be-observed/pointer-scale.txt) | scripts/linux-pointer.sh, both arms at scale 2 and 1.5 |
-| [be-observed/pointer-trixie-hand2.png](docs/research/sources/be-observed/pointer-trixie-hand2.png) | grim -c after OSC 22 hand2 in the shape session, trixie arm |
-| [be-observed/pointer-trixie-link-hand.png](docs/research/sources/be-observed/pointer-trixie-link-hand.png) | grim -c after mods ctrl in the link session, trixie arm |
-| [be-observed/pointer-trixie-link-preview.png](docs/research/sources/be-observed/pointer-trixie-link-preview.png) | grim -c with Ctrl held over the link in the link session, trixie arm |
-| [be-observed/pointer-trixie-wheel-back.png](docs/research/sources/be-observed/pointer-trixie-wheel-back.png) | grim after wheel -3 in the wheel session, trixie arm |
-| [be-observed/pointer-trixie.txt](docs/research/sources/be-observed/pointer-trixie.txt) | scripts/linux-pointer.sh, the trixie arm: sway 1.10.1 headless, cursor-shape-v1 |
 | [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-10-28 |
-| [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
-| [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | the specs rgb-specs.py printed (git blob 23c5314e), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |
-| [xparsecolor-observed/xcms-names-nodb.out](docs/research/sources/xparsecolor-observed/xcms-names-nodb.out) | XCMSDB=/dev/null probe < xcms-names-specs.txt, same build and server, 2026-10-18 |
-| [xparsecolor-observed/xcms-names-specs.txt](docs/research/sources/xparsecolor-observed/xcms-names-specs.txt) | probe < xcms-names-specs.txt |
-| [xparsecolor-observed/xcms-names.out](docs/research/sources/xparsecolor-observed/xcms-names.out) | xparsecolor-observed/probe.c built against nixpkgs libX11 1.8.13, on Xvfb 21.1.24 -screen 0 1024x768x24, 2026-10-18 |
-| [xparsecolor-observed/xcms.out](docs/research/sources/xparsecolor-observed/xcms.out) | the specs xcms-specs.py printed (git blob cc086db0), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through the probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property |
+| [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | the specs rgb-specs.py printed (git blob 23c5314e), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |
+| [xparsecolor-observed/xcms.out](docs/research/sources/xparsecolor-observed/xcms.out) | the specs xcms-specs.py printed (git blob cc086db0), now computed by baud-domain/tests/x_parse_color_specs.rs and held to this file's first column, through a C probe of XParseColor and XAllocColor, built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1, run on Xvfb 21.1.24 -screen 0 1024x768x24 at DISPLAY=:85, 2026-10-18; Xvfb at depth 24 sets no XDCCC property |
 

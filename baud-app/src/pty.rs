@@ -975,8 +975,7 @@ pub(crate) enum Parent {
 
 /// launchd's process ID. launchd(8): "During boot launchd is invoked by
 /// the kernel to run as the first process on the system"
-/// (`[[source: macos-man-launchd]]`), and `ps -p 1` names it
-/// (`[[source: aa-obs-cwdprobe-run]]`).
+/// (`[[source: macos-man-launchd]]`).
 #[cfg(target_os = "macos")]
 const LAUNCHD: u32 = 1;
 
@@ -984,14 +983,14 @@ impl Parent {
     /// **This process's parent, read once, in the parent, at the spawn**:
     /// launchd when `getppid()` is 1 -- Ghostty's `getppid()` test on macOS
     /// (`[[source: ghostty-d9840f3-desktop]]`). An app `open` starts has
-    /// parent 1, and one run from a shell has that shell
-    /// (`[[source: ai-obs-fdprobe-run]]`, and again for this change,
-    /// `[[source: aa-obs-cwdprobe-run]]`).
+    /// parent 1, and one run from a shell has that shell: measured
+    /// twice, with two probe apps each run both ways; the captures are not
+    /// in this repository.
     ///
     /// One misreading is known and kept, as Ghostty keeps it: an exiting
     /// process's children are given to "an implementation-defined system
     /// process" (`[[source: posix-exit]]`), on macOS launchd
-    /// (`[[source: aa-obs-cwdprobe-run]]`), so
+    /// (`a_shell_spawned_under_launchd_starts_home`'s orphan arm), so
     /// a baud started from a shell that exited before the spawn reads as
     /// launchd's too, and its shell starts home.
     #[cfg(target_os = "macos")]
@@ -1064,7 +1063,7 @@ pub fn start_dir() -> std::path::PathBuf {
 /// (`[[source: posix-xbd-8]]`). A child sent home would inherit a `PWD`
 /// naming somewhere else -- `open` run from a shell passes that shell's on
 /// to the app it starts, while the app's directory is `/`
-/// (`[[source: aa-obs-cwdprobe-run]]`) -- so it is replaced with `HOME`,
+/// (measured with `open -n`) -- so it is replaced with `HOME`,
 /// as Ghostty sets it (note AA section 9). A
 /// child that stays keeps its environment as it is.
 fn with_pwd(mut env: Vec<CString>, start: &StartIn) -> Vec<CString> {
@@ -3672,7 +3671,7 @@ mod tests {
     /// [`spawn_helper`] twice, from the same directory with the same `HOME`:
     /// once as this test's child, and once as an orphan, whose parent is then
     /// launchd for real -- which is what a Dock or Finder launch's parent is
-    /// (`[[source: ai-obs-fdprobe-run]]`, ppid 1 under `open`). The two
+    /// (measured: ppid 1 under `open`). The two
     /// directories differ, so either answer can be told from the other.
     ///
     /// `HOME` is a symbolic link to the directory, as `/var` is on macOS,

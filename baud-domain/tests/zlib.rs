@@ -371,7 +371,7 @@ fn a_reference_before_the_start_and_a_bad_stored_length_are_refused() {
 }
 
 /// Every PNG under the repository's own directories, sorted: the font
-/// fixtures, the cursor captures and the sources' images (185 tracked).
+/// fixtures, the cursor captures and the sources' images (144 tracked).
 fn repo_pngs() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut v = Vec::new();
@@ -439,7 +439,7 @@ fn idat_stream(png: &[u8]) -> Vec<u8> {
 #[test]
 fn the_repo_pngs_cut_anywhere_decode_as_one_read_and_the_oracle() {
     let files = repo_pngs();
-    assert!(files.len() >= 185, "found {}", files.len());
+    assert!(files.len() >= 144, "found {}", files.len());
     for p in files {
         let bytes = std::fs::read(&p).expect("readable");
         agrees(&bytes, &p.display().to_string()).expect("the oracle reads every one");
@@ -847,7 +847,7 @@ fn reconstructs_as_it_decodes(what: &str, png: &Png<'_>) -> bool {
 #[test]
 fn reconstructing_then_writing_is_the_one_shot_decode() {
     let files = repo_pngs();
-    assert!(files.len() >= 185, "found {}", files.len());
+    assert!(files.len() >= 144, "found {}", files.len());
     for p in files {
         let bytes = std::fs::read(&p).expect("readable");
         let what = p.display().to_string();
@@ -871,7 +871,7 @@ fn reconstructing_then_writing_is_the_one_shot_decode() {
 #[test]
 fn a_stepped_decode_is_the_one_shot_decode_at_every_step_size() {
     let files = repo_pngs();
-    assert!(files.len() >= 185, "found {}", files.len());
+    assert!(files.len() >= 144, "found {}", files.len());
     for p in files {
         let bytes = std::fs::read(&p).expect("readable");
         let what = p.display().to_string();

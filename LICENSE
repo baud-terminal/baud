@@ -147,7 +147,5 @@ Third-party research sources:
       THIRD_PARTY.md lists every file with its licence, where its notice is
       and where it came from, and names those that carry no grant to
       redistribute; the licence texts are in LICENSES/. The owner's own
-      observations there (the *-observed/ directories) are under this
-      licence, except for the third-party artwork the screenshots show:
-      Apple Color Emoji and other system fonts' glyphs stay their owners',
-      and THIRD_PARTY.md names each screenshot that shows them.
+      observations there (the data files in the *-observed/ directories)
+      are under this licence.

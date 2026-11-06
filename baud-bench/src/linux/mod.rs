@@ -11,7 +11,7 @@
 //! The examples of the same names hand these their arguments. Each is built
 //! where it runs: [`damage`] and the Mac half of `linux-pixels.sh` by the
 //! host's cargo, the rest in the container, as the app is. Their outputs are
-//! the bytes the drivers and `docs/research/sources/be-observed/` hold, so
+//! the bytes the drivers and `tests/linux_tools/goldens.rs` hold, so
 //! `\d`, `str.strip` and the rest read as they do in `key_latency::py`.
 //! `MEASUREMENTS.md`, "The Linux tools are examples", has what was checked
 //! against what.

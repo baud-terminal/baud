@@ -290,8 +290,8 @@ impl Session {
 /// `LOGNAME`, `TMPDIR` and `__CF_USER_TEXT_ENCODING` as this process has
 /// them, a system `PATH` and `SHELL` -- and no `LANG` or `LC_*`, which
 /// launchd does not set (measured with `launchctl getenv LANG` and two
-/// launchd-started apps' environments) -- with launchd's `XPC_FLAGS` (`[[source:
-/// aa-obs-cwdprobe-run]]`; its `XPC_SERVICE_NAME`, which names the app, is
+/// launchd-started apps' environments) -- with launchd's `XPC_FLAGS` (measured
+/// in an app `open -n` started; its `XPC_SERVICE_NAME`, which names the app, is
 /// left out: no locale rule reads it).
 pub(super) fn launchd_environment() -> Vec<(OsString, OsString)> {
     let mut env: Vec<(OsString, OsString)> = [

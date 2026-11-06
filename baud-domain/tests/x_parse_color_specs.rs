@@ -1,7 +1,7 @@
 //! **The specs fed to libX11, computed here and held to the first column of
 //! what it answered**: `[[source: xparsecolor-obs-rgb-out]]` and
-//! `[[source: xparsecolor-obs-xcms-out]]`, each line the spec the probe
-//! (`[[source: xparsecolor-obs-probe-c]]`) read from stdin. Python scripts
+//! `[[source: xparsecolor-obs-xcms-out]]`, each line the spec a probe in C
+//! (each entry's `url` says how it was built) read from stdin. Python scripts
 //! wrote both corpora once (git blobs 23c5314e and cc086db0); the lists below
 //! are theirs, in their order, so what `x_parse_color.rs` and
 //! `src/vt/xcms/tests.rs` hold baud to is a corpus that can be read and

@@ -26,13 +26,13 @@
 //!
 //! The golden fraction of one period was the first repair and it is not
 //! portable: `0.618` of a 16 KB way is `0.47` of a 4 KB one, and rows two
-//! apart nearly coincide on the L1 every x86-64 part has. So the pad is a
-//! **table found by search** -- `scripts/stride-pad-search.py` lays every
-//! odd-total pad against every way from 4 to 32 KB, three widths and every
-//! height to 150 rows, and keeps the one that least often stacks a set past
-//! eight lines where the dense layout does not. The table's violation
-//! profile is pinned in `tests/cache.rs`, with the two pitches that lose as
-//! the controls, so it cannot drift from the search.
+//! apart nearly coincide on the L1 every x86-64 part has. So the pad became
+//! a **table found by search**, which laid every odd-total pad against every
+//! way from 4 to 32 KB, three widths and every height to 150 rows, and kept
+//! the one that least often stacked a set past eight lines where the dense
+//! layout did not. [`store_stride`] says why the dense pitch replaced it.
+//! `deepest_set` in `tests/cache.rs` is the search's score, pinned with the
+//! pitch one line past a way as the control, so the rule cannot drift from it.
 //!
 //! Why any of it matters: striding the grid by `MAX_COLS = 2048` cells put
 //! rows exactly one 16 KB L1 way apart on this class of machine, so every

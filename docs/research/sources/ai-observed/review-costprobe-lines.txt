@@ -1,8 +1,0 @@
-# Fri Oct  9 11:59:11 MDT 2026
-# /usr/bin/log show --start '2026-10-09 11:00:00' --end '2026-10-09 11:40:00' --predicate 'subsystem == "dev.baud.probe3"' --style compact | per pid/type count, first, last
-1000 costprobe[<pid>:5e5f59] Df 11:20:16.605 11:20:16.606
-1000 costprobe[<pid>:5e5f59] E 11:20:16.606 11:20:16.607
-1000 costprobe[<pid>:5e5f76] Df 11:20:16.616 11:20:16.618
-1000 costprobe[<pid>:5e5f76] E 11:20:16.618 11:20:16.618
-1000 costprobe[<pid>:5e5f7a] Df 11:20:16.629 11:20:16.630
-1000 costprobe[<pid>:5e5f7a] E 11:20:16.630 11:20:16.632

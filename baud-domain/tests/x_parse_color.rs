@@ -9,7 +9,7 @@
 //! XParseColor unread (`[[source: xterm-misc]]`, `xtermAllocColor`).
 //!
 //! The oracle is libX11 1.8.13 against a 24-bit TrueColor Xvfb
-//! (`[[source: xparsecolor-obs-probe-c]]`): each line is the spec, the
+//! (`[[source: xparsecolor-obs-rgb-out]]`): each line is the spec, the
 //! 16-bit value XParseColor returned and the pixel XAllocColor gave it, which
 //! is the value's high byte -- the eight bits xterm draws.
 use baud_domain::{Chan, XColor};

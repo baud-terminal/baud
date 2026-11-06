@@ -1,9 +1,0 @@
-== assets/logo/*.svg: files with animation markup, and the control
-animate|@keyframes|<style: 0 of 20 files
-rect (control): 20 of 20 files
-== docs/research/sources/sfte.h: matching lines
-splash, case-insensitive: 0
-SFTE_TERM_ANIMATE_SCREEN (control): 30
-logo, case-sensitive: 954 15335 
-logo, case-insensitive: 954 15335 37297 38786 
-logo, whole word, case-insensitive: 0

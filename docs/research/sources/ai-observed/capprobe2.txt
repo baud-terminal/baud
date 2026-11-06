@@ -1,6 +1,0 @@
-# 2026-10-09 12:05:02 MDT -- capprobe2: os_log_error / os_log_fault / os_log_info macros, 600 bytes of %{public}s; os_log control
-$ /usr/bin/log show --info --last 2m --predicate 'subsystem == "dev.baud.probe7"' --style json | python3 (type, bytes, z count, tail)
-2026-10-09 12:05:02.875573-0600 Error bytes 622 z 600 'zzzz END'
-2026-10-09 12:05:02.875581-0600 Fault bytes 622 z 600 'zzzz END'
-2026-10-09 12:05:02.875587-0600 Info bytes 621 z 600 'zzzz END'
-2026-10-09 12:05:02.875589-0600 Default bytes 22 z 0 'OL short'

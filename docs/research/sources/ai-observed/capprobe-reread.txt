@@ -1,5 +1,0 @@
-# 2026-10-09 12:04:42 MDT -- re-read of capprobe's three lines (logged 11:26:01.690)
-$ /usr/bin/log show --info --start '2026-10-09 11:20:00' --predicate 'subsystem == "dev.baud.probe4"' --style json | python3 (type, bytes, y count, tail)
-2026-10-09 11:26:01.690030-0600 Error bytes 617 y 600 'yyyy END'
-2026-10-09 11:26:01.690033-0600 Default bytes 619 y 600 'yyyy END'
-2026-10-09 11:26:01.690042-0600 Fault bytes 617 y 600 'yyyy END'
