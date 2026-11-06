@@ -952,7 +952,7 @@ one this row skipped.
 
 ## Smooth scroll idle (measured, no change)
 
-Taken at `fdda380`, 2026-09-21. Apple M5 Max, macOS 27.0, on AC. `scripts/idle-cpu.py` on the release
+Taken at `fdda380`, 2026-09-21. Apple M5 Max, macOS 27.0, on AC. scripts/idle-cpu.py on the release
 `baud`, interleaving `[scroll] mode = smooth`, `= normal` and an A/A copy of
 smooth in one sweep through pid-preserving wrappers, first round discarded.
 The child writes nothing.
@@ -1126,7 +1126,7 @@ frame, every pair disjoint with the copy on the change: btop 155.5
 766.9 to **737.7**, cat-cjk 1095.5 to **1066.0**, git-log 1002.3 to
 **980.1**.
 
-**What the app spends**, `scripts/idle-cpu.py` over a user config with a
+**What the app spends**, scripts/idle-cpu.py over a user config with a
 child moving the cursor every 200 ms, the window unfocused, five rounds of
 ten seconds, the first dropped; percent of one core, frames a second and the
 app's own `convert` from its report. The trail on by default at `60cce43`
@@ -1425,7 +1425,7 @@ vim-unicode with BDSM set in both builds, the check reporting it. The
 published here labelled, and **nothing on this page gives the blink's cost
 at HEAD**.
 
-`scripts/idle-cpu.py`, each arm a wrapper that raises its window and then
+scripts/idle-cpu.py, each arm a wrapper that raises its window and then
 `exec`s baud, four rounds of ten seconds with the first discarded, a focused
 window, an A/A copy of HEAD in the sweep; percent of one core:
 
@@ -1587,7 +1587,7 @@ dark GIF's page pixels are off the page, by at most 13 levels.
 
 ## The cursor trails' costs
 
-`scripts/idle-cpu.py`, the window unfocused, five rounds of ten seconds with the
+scripts/idle-cpu.py, the window unfocused, five rounds of ten seconds with the
 first dropped, an A/A copy of the new arm in each sweep; percent of one core,
 frames from the app's own report over each run's first ten seconds where they were kept. Two movers from the quad on: a 30-column jump every 200 ms,
 and typing -- a keystroke every 100 ms with a newline every 5 s (the quad's
@@ -3533,63 +3533,73 @@ README or `.steps` names one, `\xNN` writes the same byte, and the names and
 aliases of 256 code points would be carried for it. Non-ASCII digits in a
 number are refused, as the keystroke driver's are.
 
-**Message text, at equal exit codes.** Usage names the tool and wraps to its
-shorter name. An uncaught exception is one stderr line, stdout the same; the
-differential saw 11 kinds. `\q` in an escape string no longer warns. A program
-that will not start writes one line to its pty where Python's traceback went,
-under four tools. Run with `no-such-prog` from one scratch path, which the
-traceback prints: `capture-resize` 56 bytes in the `.raw` against 852, exit 0
-both; `capture-yazi-walk` 56 against 876, exit 1 both. `record-kitten-icat` and
-`record-shell-start` have the same uncaught shape by source, `os.execv` and
-`os.execve` with `os.chdir`. `capture-tui`'s own line is byte-equal, Python's
-execv naming no file: eight runs over a `PATH` miss, a name with a directory,
-Permission denied, and `PATH` entries ending in a slash or empty, `cmp` equal.
-A name is shown as `sys.stderr` showed it, `\udcXX` for a byte UTF-8 does not
-take: eight names under five locales, 36 of 40 runs `cmp` equal. The 4 are UTF-8
-past ASCII under ISO 8859-1 or US-ASCII, where Python wrote that locale's charset
-and the tool writes the UTF-8.
+**Red first.** 40 mutations of the Rust each turn a committed test red, one run
+on this tree. `rfc1321-md5` and `pdf-reference-1-4` are pinned `external`.
 
-**The locale a child is given is Python's.** Python's start-up coerces a C
-locale before a script's first line (PEP 538), and `pty::coerce_locale` does what
-`_Py_CoerceLegacyLocale` does, so a child on the pty or off it finds
-`LC_CTYPE=C.UTF-8` where it did. vim on `unicode.txt` under `env -i` with no
-locale, three runs of each tool at 2 s: 8,284 bytes, `cmp` equal, and equal to
-the run with `LANG=en_US.UTF-8`. Before this it was 8,395 bytes against 8,284.
-`/usr/bin/env` under `capture-tui`, `capture-resize` and `capture-yazi-walk`, and
-a C stand-in printing `environ` under `record-shell-start`, over 16 locale
-settings: 64 runs, every pair equal once the one line below is taken out, order
-included. `record-kitten-icat`'s pty child was not in those runs; it takes the
-same `Environ`, and stand-ins for `nix` and `sips` read the value under both.
-`PYTHONCOERCECLOCALE` is not read, as `-I` did not read it; a script run without
-`-I` did.
+## The launch, idle and reply programs are examples
 
-**One variable a child inherits is not mirrored.** `__CF_USER_TEXT_ENCODING`
-comes from CoreFoundation, which this Python links: an interposed `setenv` shows
-`__CFInitialize` calling `_CFStringGetUserDefaultEncoding` before `main`. The
-tools link no CoreFoundation, so a caller with no such variable, as under
-`env -i`, passes none. The control is two C programs printing `environ`: the one
-linked against the framework has the line and the one not linked does not. Given
-the variable by the caller, `/usr/bin/env` under `capture-tui` is `cmp` equal, 231
-bytes. A child that links CoreFoundation sets the variable itself, so only a dump
-of the environment sees the difference, and linking a framework for it would load
-one into tools that use nothing of it. Everything else a C stand-in on the pty
-read is `cmp` equal: the ignored signals, `SIGXFSZ` among them, the umask, the
-file and stack limits, the process group and the open descriptors.
+Not timed against the core: no byte path changed. The programs that measure the
+app from outside are examples over `baud-bench/src/host/mod.rs`: `startup-bench`,
+`idle-cpu`, `shader-cache-bench`, `vt-reply` and `dock-launch-check`. The dated
+sections above name each script as it was run then. No app ran here: each launches
+what it is handed, and these runs handed `baud-bench/tests/host/app.sh`.
 
-**What stays.** `tests/recordings/ascii/git-log.raw`, three `tests/resize/*.raw`
-and `tests/resize/zdotdir/banner` print the scripts' old names: evidence, and
-what the recordings' shell printed.
+Python 3.13.12 against the Rust, stdout and exit code:
 
-**Red first.** The goldens came from the Python, the exec lines from the
-deleted `capture-tui.py` run on each test's own arguments. Of 146 mutations, 134
-turn a committed test red; the first pass left alive what took a test or a
-golden to close, among them `TOO_FAR` and the stored block's boundary. Of the
-first 122, the 6 on the exec path ran again on this code, and 24 more are on the
-exec line, the locale, `SIGXFSZ`, `--out` and `--scan`. The 12 left change no byte: an `end`
-already past, a clamp that already gives 0, the static test at equality, the
-slide's and the blank-length loop's unreachable edges, the last string inserted,
-stale window bytes no match reads, a `PATH` entry's slash test now the line
-prints no path, a `setlocale` query that does not answer null, a codeset no locale
-here lacks and the reset behind it, and the locale the tool puts back and never
-reads. Under load one assertion on a child's start order went red with no code at
-fault and is gone; nine concurrent runs then passed.
+| input | cases | result |
+|---|---|---|
+| `baud-bench/tests/host/cases.tsv`, the stand-in moving the clock | 195: exit 0 on 95, 1 on 67, 2 on 33 | byte-equal, help's name set |
+| the same rows, the Python alone | hash seeds 0-5 | byte-equal to the goldens |
+| real clocks over the stand-ins | 8, and 3 of `vt-reply` | equal, clock figures scrubbed |
+| option forms, nothing patched: `--opt=a b`, `--op=v`, `-1e5`, `-1.`, `-1_0`, `-1`, an option after an option, a repeat | 21,169: `idle-cpu` 19,335, `startup-bench` 1,355, `shader-cache-bench` 142, `vt-reply` 251, `dock-launch-check` 86 | exit equal on 20,949; 7 ran past the sweep's 25 s in both arms; the other 213 hold a non-ASCII digit |
+| mutated lines through each parser against Python's `re` | 40,000 | same fields |
+| `int`, `float` and `splitlines` on mutated text | 20,000, 20,000 | same values |
+
+`baud-bench/tests/host/golden/` keeps the first row's answers. The stand-in prints
+other numbers while its cache directory is away, so a cold arm is seen, and no run
+touched the real caches.
+
+**What differs.** A traceback is one stderr line at the same exit code and stdout.
+Stages at one median came out in Python's `set` order, five orders over six seeds on
+one fixture; here by name. `startup-bench` and `shader-cache-bench` require the
+binary where Python defaulted to `target/release/baud`, so `startup-bench 0` stops at
+the usage where it printed a blank line, exit 1 in both. `BAUD_BENCH_STAGE` is
+`|`-separated names, not the pattern `re` took. `SIGTERM` and `SIGHUP` left the Metal
+caches aside under Python, until its next run; here they restore them and exit 130,
+as `SIGINT` does.
+
+`idle-cpu` catches the same three. Sent to it alone, `SIGINT` stopped the launched
+program under Python, and `SIGTERM` and `SIGHUP`, which it did not catch, left it
+running. Here all three stop it, remove the `--aa` copy and exit 130, where Python
+died of the signal: -2, -15 and -1 to its parent.
+
+**Two kinds of command line keep a different exit code.** Non-ASCII digits are refused
+where `\d`, `int` and `float` took them: `--rounds ٣` is exit 2 where it ran three
+rounds, `startup-bench ٣ <binary>` and `vt-reply ٣` exit 1 where they ran, and
+`--arm -٣` or `--cmd -٣` is an option here, exit 2, where `\d` made it a value. A count
+is typed in ASCII, and a path or a command opening on `-` and such a digit is the one
+value this loses; reading them would take a table of Unicode's decimal digits here. A
+count past `usize` is no rounds and past `i128` is refused, in the three programs that
+take one, where Python went on until stopped: a run that never ends has no report to keep.
+
+**Beside them.** `iutf8_probe` is `the_kernels_erase_follows_iutf8_alone`. The embedded
+half of `verify_fonts` is `baud-font/tests/embedded_hebrew.rs`, fontTools 4.63.0's
+counts held against baud-font's reader. The live kitten test forks its own pty in
+place of its Python bridge, because only it runs kitten; on kitten 0.49.2 base and
+change printed the same control data and counts in all three modes.
+
+**The wall.** One stand-in through each `startup-bench`, six rotated sweeps of seven
+launches, the first dropped: medians [18.3-50.5] ms under Python, [20.4-70.8] here, [17.6-73.5] an
+A/A copy. Load average 44, and the ranges overlap: no result. `scripts/vt-child.sh` runs the reader between its two clocks,
+and a waiting reply took [11.9-20.8] ms through Python and [3.5-6.6] here, so a `vt-compare` wall
+from now on holds that much less harness, on every terminal alike.
+
+**Red first.** Deleting the scripts turned
+`every_repository_path_named_in_the_docs_exists` red on the idle script's path. Of 77
+mutations of the Rust, 76 are red; a first pass left 9 green and 6 unbuilt, and each
+got a case or a rewrite. The last changes only a message: `dock-launch-check` without
+its `access` check still fails the spawn. Undoing each of `idle-cpu`'s option and
+interrupt lines alone, 19 undoings, turns a named test red. The sweep's first 15,807
+`idle-cpu` lines differed in exit on 2,031 on the build before them; all 19,335 differ on
+207 now. `catch_interrupt` in the example has no test, because no test runs an example;
+real signals to that binary, before and after, gave the figures above.

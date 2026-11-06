@@ -1,0 +1,4 @@
+?metal startup: gpu build: device 5.0 ms, library 3.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metal startup: gpu build: device 5.5 ms, library 30.5 (Library), pipelines 80.0, warm pass 2.5, probe 120.0
+@wall 4
+startup: first present 4.0 ms

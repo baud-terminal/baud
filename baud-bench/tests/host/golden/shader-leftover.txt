@@ -1,0 +1,21 @@
+launch 0 cold: library   30.5 ms (Library), pipelines   80.0, device   5.5, warm pass   2.5, probe  120.0, wall to first present   70.5  (discarded)
+launch 0 warm: library    4.0 ms (Library), pipelines   46.0, device   5.2, warm pass   2.1, probe   61.0, wall to first present   72.5  (discarded)
+launch 1 cold: library   31.5 ms (Library), pipelines   82.0, device   6.0, warm pass   2.8, probe  122.0, wall to first present   74.5
+launch 1 warm: library    5.0 ms (Library), pipelines   48.0, device   5.8, warm pass   2.4, probe   63.0, wall to first present   76.5
+
+field      warm median [min-max]        cold median [min-max]        cold - warm
+device         5.8 [   5.8-   5.8]           6.0 [   6.0-   6.0]          +0.2 ms
+library        5.0 [   5.0-   5.0]          31.5 [  31.5-  31.5]         +26.5 ms
+pipelines     48.0 [  48.0-  48.0]          82.0 [  82.0-  82.0]         +34.0 ms
+warm           2.4 [   2.4-   2.4]           2.8 [   2.8-   2.8]          +0.4 ms
+probe         63.0 [  63.0-  63.0]         122.0 [ 122.0- 122.0]         +59.0 ms
+wall          76.5 [  76.5-  76.5]          74.5 [  74.5-  74.5]          -2.0 ms
+bg             4.5 [   4.5-   4.5]          13.5 [  13.5-  13.5]          +9.0 ms
+glyph          5.5 [   5.5-   5.5]          14.5 [  14.5-  14.5]          +9.0 ms
+cell_bg        6.5 [   6.5-   6.5]          15.5 [  15.5-  15.5]          +9.0 ms
+cell_glyph     7.5 [   7.5-   7.5]          16.5 [  16.5-  16.5]          +9.0 ms
+cell_shape     8.5 [   8.5-   8.5]          17.5 [  17.5-  17.5]          +9.0 ms
+
+1 settled launches an arm; the first of each arm is discarded; the cold arm moved aside: com.apple.metal, com.apple.metalfe.
+warm  library from: Library
+cold  library from: Library

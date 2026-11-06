@@ -1,0 +1,35 @@
+?metalfe startup: gpu build: device 5.0 ms, library 3.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 33.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metalfe startup: gpu build: device 5.0 ms, library 4.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 34.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metalfe startup: gpu build: device 5.0 ms, library 5.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 35.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metalfe startup: gpu build: device 5.0 ms, library 6.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 36.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metalfe startup: gpu build: device 5.0 ms, library 7.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 37.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metalfe startup: gpu build: device 5.0 ms, library 8.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metalfe startup: gpu build: device 5.0 ms, library 38.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 70.5
+startup: first present 70.5 ms

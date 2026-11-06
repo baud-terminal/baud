@@ -1,0 +1,11 @@
+round 0 arm base :      4.0 ms to the stage  (discarded)
+round 1 arm base :      4.0 ms to the stage
+
+startup: נקודה 1.0 ms
+startup: first present 4.0 ms
+
+== arm base (1 settled launches) ==
+  wall to the stage: median 4.0 ms, range [4.0-4.0]
+  נקודה                median      1.0 ms  [    1.0-    1.0]
+  first present        median      4.0 ms  [    4.0-    4.0]
+

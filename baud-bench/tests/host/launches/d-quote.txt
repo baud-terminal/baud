@@ -1,0 +1,2 @@
+@locale it's.UTF-8
+@run

@@ -1151,64 +1151,46 @@ mod tests {
         assert_eq!(t.reply(), FILE_ERR);
     }
 
-    /// The bridge between `kitten` and the harness below: a pty of 24x80
-    /// cells of 10x20 pixels, kitten on its subsidiary, and its manager
-    /// relayed to this process's stdin and stdout.
-    const BRIDGE: &str = r#"
-import fcntl, os, pty, select, struct, sys, termios
-kitten, mode, image = sys.argv[1:4]
-pid, m = pty.fork()
-if pid == 0:
-    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 800, 480))
-    os.environ["TERM"] = "xterm-256color"
-    os.execv(kitten, [kitten, "icat", "--transfer-mode=" + mode, image])
-done = False
-while True:
-    r, _, _ = select.select([m, 0], [], [], 0.2)
-    if m in r:
-        try:
-            d = os.read(m, 65536)
-        except OSError:
-            d = b""
-        if not d:
-            break
-        os.write(1, d)
-    if 0 in r:
-        d = os.read(0, 65536)
-        if d:
-            os.write(m, d)
-os.waitpid(pid, 0)
-"#;
-
     /// **`kitten icat` through the reader, live**: `--transfer-mode=file`,
     /// `memory` and `detect` each run against a terminal reading through
     /// [`LocalFiles`], its replies written back, and the picture is placed,
     /// by `t=f` and `t=s` where those were asked for. Under `detect`
     /// kitten's `t=t` query carries `S` as its path's length, which the
     /// text's "smaller than the client claimed" refuses, and kitten sends
-    /// `t=d`. Not in the suite: it needs kitten, named by
+    /// `t=d`. kitten runs on a pty of 24x80 cells of 10x20 pixels, and this
+    /// test holds the manager. Not in the suite: it needs kitten, named by
     /// `BAUD_KITTEN`. Prints the control data kitten sent.
     #[test]
     #[ignore = "needs kitten: BAUD_KITTEN=<path to kitten>"]
     fn kitten_icat_reads_through_the_reader_live() {
-        use std::io::{Read as _, Write as _};
         let kitten = std::env::var("BAUD_KITTEN").expect("BAUD_KITTEN");
         let d = Dir::new();
         let image = d.put("home/icat.png", PNG);
         for mode in ["file", "memory", "detect"] {
-            let mut child = std::process::Command::new("python3")
-                .args(["-I", "-c", BRIDGE, &kitten, mode])
-                .arg(&image)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .spawn()
-                .expect("python3");
-            let mut out = child.stdout.take().unwrap();
-            let mut inp = child.stdin.take().unwrap();
+            let size = baud_domain::WinSize {
+                ws_col: 80,
+                ws_row: 24,
+            };
+            let ws = crate::pty::text_area(&size, baud_font::Px::of(10), baud_font::Px::of(20));
+            let env: Vec<std::ffi::CString> = std::env::vars()
+                .filter(|(k, _)| k != "TERM")
+                .chain([("TERM".to_string(), "xterm-256color".to_string())])
+                .filter_map(|(k, v)| std::ffi::CString::new(format!("{k}={v}")).ok())
+                .collect();
+            let cmd = format!(
+                "exec '{kitten}' icat --transfer-mode={mode} '{}'",
+                image.display()
+            );
+            let (pid, master) = crate::pty::Pty::fork_child(ws, Some(cmd), env).expect("forkpty");
             let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
             std::thread::spawn(move || {
                 let mut b = vec![0u8; 65536];
-                while let Ok(n) = out.read(&mut b) {
+                loop {
+                    // SAFETY: `b` is a live, writable buffer of the length
+                    // passed. A read of a child's terminal that has closed
+                    // answers 0 or `EIO`, and both end this.
+                    let n = unsafe { crate::sys::read(master, b.as_mut_ptr().cast(), b.len()) };
+                    let n = usize::try_from(n).unwrap_or(0);
                     if n == 0 || tx.send(b[..n].to_vec()).is_err() {
                         break;
                     }
@@ -1231,11 +1213,16 @@ os.waitpid(pid, 0)
                     == baud_domain::DecodeProgress::More
                 {}
                 if !t.reply().is_empty() {
-                    let _ = inp.write_all(t.reply());
+                    // SAFETY: the reply is a live buffer of the length passed.
+                    let _ = unsafe {
+                        crate::sys::write(master, t.reply().as_ptr().cast(), t.reply().len())
+                    };
                     t.clear_reply();
                 }
             }
-            let _ = child.wait();
+            // SAFETY: `pid` is the child forked above, and no other wait
+            // takes it.
+            unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
             let text = String::from_utf8_lossy(&seen);
             let keys: Vec<&str> = text
                 .split("\x1b_G")

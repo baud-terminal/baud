@@ -1,0 +1,12 @@
+usage: idle-cpu [-h] --arm NAME=PATH [--rounds ROUNDS] [--settle SETTLE]
+                [--window WINDOW] [--aa] [--hz HZ] [--cmd CMD]
+
+options:
+  -h, --help       show this help message and exit
+  --arm NAME=PATH
+  --rounds ROUNDS
+  --settle SETTLE
+  --window WINDOW
+  --aa             add a copy of the first arm
+  --hz HZ          the display's rate, for the per-tick column
+  --cmd CMD        the child, which must write nothing

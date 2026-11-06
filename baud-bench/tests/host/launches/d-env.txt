@@ -1,0 +1,8 @@
+@note-env SHELL
+@note-env PATH
+@note-env BAUD_GRID
+@note-env BAUD_STARTUP
+@note-env LEAK
+@note-env USER
+@locale en_US.UTF-8
+@run

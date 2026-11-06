@@ -1,0 +1,3 @@
+ok   dock     LANG='en_US.UTF-8' wc -m='1' notes=[('en_US.UTF-8', '0.4')]
+FAIL empty    LANG='' wc -m='2' notes=[]
+ok   control  LANG='fr_FR.UTF-8' wc -m='1' notes=[]

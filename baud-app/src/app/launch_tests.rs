@@ -286,7 +286,7 @@ impl Session {
 }
 
 /// **What launchd gives an app the Dock starts**, as
-/// `scripts/locale/dock_launch_check.py` launches one: `HOME`, `USER`,
+/// `baud-bench/src/host/dock_check.rs` launches one: `HOME`, `USER`,
 /// `LOGNAME`, `TMPDIR` and `__CF_USER_TEXT_ENCODING` as this process has
 /// them, a system `PATH` and `SHELL` -- and no `LANG` or `LC_*`, which
 /// launchd does not set (measured with `launchctl getenv LANG` and two

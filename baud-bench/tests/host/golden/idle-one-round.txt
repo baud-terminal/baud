@@ -1,0 +1,4 @@
+  round 1 base  :  0.400% of a core,   33.3 us a tick
+  round 1 aa    :  0.400% of a core,   33.3 us a tick
+
+arm          idle CPU                range       a tick

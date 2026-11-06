@@ -1,0 +1,31 @@
+launch 0 cold: library   30.5 ms (Library), pipelines   80.0, device   5.5, warm pass   2.5, probe  120.0, wall to first present   70.5  (discarded)
+launch 0 warm: library    4.0 ms (Library), pipelines   46.0, device   5.2, warm pass   2.1, probe   61.0, wall to first present   72.5  (discarded)
+launch 1 cold: library   31.5 ms (Library), pipelines   82.0, device   6.0, warm pass   2.8, probe  122.0, wall to first present   74.5
+launch 1 warm: library    5.0 ms (Library), pipelines   48.0, device   5.8, warm pass   2.4, probe   63.0, wall to first present   76.5
+launch 2 cold: library   32.5 ms (Library), pipelines   84.0, device   6.5, warm pass   3.0, probe  124.0, wall to first present   78.5
+launch 2 warm: library    6.0 ms (Library), pipelines   50.0, device   6.2, warm pass   2.6, probe   65.0, wall to first present   80.5
+launch 3 cold: library   33.5 ms (Library), pipelines   86.0, device   7.0, warm pass   3.2, probe  126.0, wall to first present   82.5
+launch 3 warm: library    7.0 ms (Library), pipelines   52.0, device   6.8, warm pass   2.9, probe   67.0, wall to first present   84.5
+launch 4 cold: library   30.5 ms (Library), pipelines   80.0, device   5.5, warm pass   2.5, probe  120.0, wall to first present   70.5
+launch 4 warm: library    4.0 ms (Library), pipelines   46.0, device   5.2, warm pass   2.1, probe   61.0, wall to first present   72.5
+launch 5 cold: library   31.5 ms (Library), pipelines   82.0, device   6.0, warm pass   2.8, probe  122.0, wall to first present   74.5
+launch 5 warm: library    5.0 ms (Library), pipelines   48.0, device   5.8, warm pass   2.4, probe   63.0, wall to first present   76.5
+launch 6 cold: library   32.5 ms (Library), pipelines   84.0, device   6.5, warm pass   3.0, probe  124.0, wall to first present   78.5
+launch 6 warm: library    6.0 ms (Library), pipelines   50.0, device   6.2, warm pass   2.6, probe   65.0, wall to first present   80.5
+
+field      warm median [min-max]        cold median [min-max]        cold - warm
+device         6.2 [   5.2-   6.8]           6.5 [   5.5-   7.0]          +0.2 ms
+library        6.0 [   4.0-   7.0]          32.5 [  30.5-  33.5]         +26.5 ms
+pipelines     50.0 [  46.0-  52.0]          84.0 [  80.0-  86.0]         +34.0 ms
+warm           2.6 [   2.1-   2.9]           3.0 [   2.5-   3.2]          +0.4 ms
+probe         65.0 [  61.0-  67.0]         124.0 [ 120.0- 126.0]         +59.0 ms
+wall          80.5 [  72.5-  84.5]          78.5 [  70.5-  82.5]          -2.0 ms
+bg             6.5 [   2.5-   8.5]          15.5 [  11.5-  17.5]          +9.0 ms
+glyph          7.5 [   3.5-   9.5]          16.5 [  12.5-  18.5]          +9.0 ms
+cell_bg        8.5 [   4.5-  10.5]          17.5 [  13.5-  19.5]          +9.0 ms
+cell_glyph     9.5 [   5.5-  11.5]          18.5 [  14.5-  20.5]          +9.0 ms
+cell_shape    10.5 [   6.5-  12.5]          19.5 [  15.5-  21.5]          +9.0 ms
+
+6 settled launches an arm; the first of each arm is discarded; the cold arm moved aside: com.apple.metal, com.apple.metalfe.
+warm  library from: Library
+cold  library from: Library

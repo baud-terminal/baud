@@ -1,0 +1,3 @@
+startup: locale: en_US.UTF-8 in 0.2 ms
+@locale en_US.UTF-8
+@run

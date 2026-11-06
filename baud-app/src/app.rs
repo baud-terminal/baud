@@ -1145,9 +1145,9 @@ impl Boot {
                 ));
                 // **A second line, not a wider first one.** The five are the
                 // answer to row 1's leftover +28.5 ms, and
-                // `scripts/shader-cache-bench.py` anchors a regex on the
-                // whole line above -- appending to it would take the gate
-                // with the finding.
+                // `baud-bench/src/host/shader_cache.rs` reads the line above
+                // field by field -- appending to it would take the gate with
+                // the finding.
                 startup_note(&format!(
                     "gpu pipelines: bg {:.1} ms, glyph {:.1}, cell_bg {:.1}, cell_glyph {:.1}, cell_shape {:.1}",
                     b.each[0].as_secs_f64() * 1e3,

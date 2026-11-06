@@ -1,0 +1,3 @@
+startup: main 1.0 ms
+@wall 4
+startup: first present 4.0 ms

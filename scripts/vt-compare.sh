@@ -12,6 +12,7 @@
 #
 # usage: vt-compare.sh <out-file> <rounds> <reps> <recording>...
 # env:   ALACRITTY, KITTY, GHOSTTY, WEZTERM, BAUD -- the executables.
+#        VT_REPLY -- baud-bench's `vt-reply` example, built here if unset.
 set -u
 out="$1"
 rounds="$2"
@@ -22,24 +23,32 @@ child="$here/scripts/vt-child.sh"
 : "${ALACRITTY:=alacritty}" "${KITTY:=kitty}" "${GHOSTTY:=ghostty}" "${WEZTERM:=wezterm}"
 : "${BAUD:=$here/target/release/baud}"
 : "${TERMINALS:=baud alacritty kitty ghostty wezterm}"
+if [ -z "${VT_REPLY:-}" ]; then
+  (cd "$here" && cargo build --release -q -p baud-bench --example vt-reply) || exit 1
+  VT_REPLY="${CARGO_TARGET_DIR:-$here/target}/release/examples/vt-reply"
+fi
+[ -x "$VT_REPLY" ] || {
+  echo "no vt-reply at $VT_REPLY" >&2
+  exit 1
+}
 run_one() {
   term="$1"
   rec="$2"
   case "$term" in
   baud)
     BAUD_GPU=cells BAUD_GRID=200x50 \
-      BAUD_CMD="exec bash $child baud $rec $reps $out" "$BAUD" 2>/dev/null
+      BAUD_CMD="exec bash $child baud $rec $reps $out $VT_REPLY" "$BAUD" 2>/dev/null
     ;;
   alacritty)
     "$ALACRITTY" -o window.dimensions.columns=200 -o window.dimensions.lines=50 \
       -o 'font.normal.family="Menlo"' -o font.size=13 \
-      -e bash "$child" alacritty "$rec" "$reps" "$out" 2>/dev/null
+      -e bash "$child" alacritty "$rec" "$reps" "$out" "$VT_REPLY" 2>/dev/null
     ;;
   kitty)
     "$KITTY" -o initial_window_width=200c -o initial_window_height=50c \
       -o remember_window_size=no -o font_family=Menlo -o font_size=13 \
       -o macos_quit_when_last_window_closed=yes \
-      bash "$child" kitty "$rec" "$reps" "$out" 2>/dev/null
+      bash "$child" kitty "$rec" "$reps" "$out" "$VT_REPLY" 2>/dev/null
     pkill -f kitty-wrapped 2>/dev/null
     ;;
   ghostty)
@@ -47,14 +56,14 @@ run_one() {
     # Ghostty guards with a dialog asking the user to allow it.
     "$GHOSTTY" --window-width=200 --window-height=50 --font-family=Menlo --font-size=13 \
       --quit-after-last-window-closed=true --confirm-close-surface=false \
-      --initial-command="bash $child ghostty $rec $reps $out" 2>/dev/null
+      --initial-command="bash $child ghostty $rec $reps $out $VT_REPLY" 2>/dev/null
     pkill -x ghostty 2>/dev/null
     ;;
   wezterm)
     "$WEZTERM" --config initial_cols=200 --config initial_rows=50 \
       --config 'font=wezterm.font("Menlo")' --config font_size=13 \
       --config quit_when_all_windows_are_closed=true \
-      start --always-new-process -- bash "$child" wezterm "$rec" "$reps" "$out" 2>/dev/null
+      start --always-new-process -- bash "$child" wezterm "$rec" "$reps" "$out" "$VT_REPLY" 2>/dev/null
     pkill -x wezterm-gui 2>/dev/null
     ;;
   esac

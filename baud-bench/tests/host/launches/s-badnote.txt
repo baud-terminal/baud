@@ -1,0 +1,4 @@
+startup: walk: 1.2.3 ms
+startup: dot . ms
+@wall 4
+startup: first present 4.0 ms

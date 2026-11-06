@@ -1,0 +1,12 @@
+  round 1 base  :  0.100% of a core,    8.3 us a tick
+  round 1 new   :  0.400% of a core,   33.3 us a tick
+  round 2 new   :  0.500% of a core,   41.7 us a tick
+  round 2 base  :  0.000% of a core,    0.0 us a tick
+  round 3 base  :  0.000% of a core,    0.0 us a tick
+  round 3 new   :  0.600% of a core,   50.0 us a tick
+
+arm          idle CPU                range       a tick
+base           0.000% [  0.000-  0.000]       0.0 us
+new            0.550% [  0.500-  0.600]      45.8 us
+
+floor (the new arm's own spread): 0.100% of a core

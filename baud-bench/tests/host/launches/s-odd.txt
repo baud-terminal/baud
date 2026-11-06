@@ -1,0 +1,16 @@
+startup: 1.0 ms
+startup:  2.0 ms
+startup:   3.0 ms
+startup: a b1.0 ms
+startup: a b 1.5 ms
+startup: x 1.2 3.4 ms
+startup:nospace 1.0 ms
+other: x 1.0 ms
+startup: tail 1.0 ms and more
+startup: two  spaces   6.5 ms
+startup: nbsp\0302\0240 7.5 ms
+startup: fs\034 8.5 ms
+startup: dup 1.0 ms
+startup: dup 2.0 ms
+@wall 4
+startup: first present 4.0 ms

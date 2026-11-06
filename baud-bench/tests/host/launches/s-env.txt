@@ -1,0 +1,5 @@
+@env BAUD_CMD
+@env BAUD_GRID
+@env BAUD_STARTUP
+@wall 5
+startup: first present 5.0 ms

@@ -2821,13 +2821,67 @@ mod tests {
 
     /// **Backspace after a Hebrew letter leaves an empty line**, where the
     /// kernel's default left its lead byte `d7` (note AA section 5, measured
-    /// by `scripts/locale/iutf8_probe.py`). The control, `ab` then
+    /// by `the_kernels_erase_follows_iutf8_alone`). The control, `ab` then
     /// Backspace, leaves `61` with the flag or without it, so a probe that
     /// erased everything would fail it.
     #[test]
     fn backspace_after_a_hebrew_letter_erases_the_whole_letter() {
         assert_eq!(line_after(b"ab\x7f\n"), "61", "the control");
         assert_eq!(line_after(b"\xd7\x99\x7f\n"), "");
+    }
+
+    /// **One ERASE removes a whole UTF-8 character with `IUTF8` and one byte
+    /// without it, and the kernel's default is without**: a bare `forkpty`,
+    /// as baud's own is, the child setting the flag itself and printing the
+    /// line it read and the flag `stty` then reports. `ab` then ERASE is the
+    /// control: one byte goes under either flag, so a line discipline that
+    /// erased everything, or a probe that read nothing, would fail it.
+    #[test]
+    fn the_kernels_erase_follows_iutf8_alone() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let ws = text_area(&size, Px::of(8), Px::of(16));
+        let env: Vec<CString> = ["PATH=/usr/bin:/bin", "HOME=/nowhere"]
+            .iter()
+            .map(|e| CString::new(*e).expect("no NUL"))
+            .collect();
+        let line_and_flag = |stty: &str, typed: &[u8]| -> (String, String) {
+            let script = format!(
+                r#"stty -echo {stty}; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | od -An -tx1 | tr -d ' \n')"; stty -a | tr ' ' '\n' | grep -E '^-?iutf8$'"#
+            );
+            let master = bare_fork(ws, &script, &env);
+            read_until(master, "ready\r\n");
+            send(master, typed);
+            let out = read_all(master);
+            // SAFETY: as in `stty_words`.
+            drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+            let text = String::from_utf8_lossy(&out).into_owned();
+            let (line, flag) = text
+                .split_once("GOT[")
+                .and_then(|(_, rest)| rest.split_once(']'))
+                .unwrap_or_else(|| panic!("the child printed no line: {text:?}"));
+            (line.to_string(), flag.trim().to_string())
+        };
+        let yod: &[u8] = b"\xd7\x99\x7f\n";
+        let ab: &[u8] = b"ab\x7f\n";
+        for (stty, yod_line, flag) in [
+            ("", "d7", "-iutf8"),
+            ("-iutf8", "d7", "-iutf8"),
+            ("iutf8", "", "iutf8"),
+        ] {
+            assert_eq!(
+                line_and_flag(stty, yod),
+                (yod_line.to_string(), flag.to_string()),
+                "a Hebrew letter under `stty {stty}`"
+            );
+            assert_eq!(
+                line_and_flag(stty, ab),
+                ("61".to_string(), flag.to_string()),
+                "the control under `stty {stty}`"
+            );
+        }
     }
 
     /// Whether a test lets the line discipline follow the core's encoding,

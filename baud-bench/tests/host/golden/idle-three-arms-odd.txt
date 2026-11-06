@@ -1,0 +1,21 @@
+  round 1 base  :  0.400% of a core,   33.3 us a tick
+  round 1 new   :  0.410% of a core,   34.2 us a tick
+  round 1 aa    :  0.390% of a core,   32.5 us a tick
+  round 2 new   :  0.520% of a core,   43.3 us a tick
+  round 2 aa    :  0.440% of a core,   36.7 us a tick
+  round 2 base  :  0.490% of a core,   40.8 us a tick
+  round 3 aa    :  0.430% of a core,   35.8 us a tick
+  round 3 base  :  0.401% of a core,   33.4 us a tick
+  round 3 new   :  0.580% of a core,   48.3 us a tick
+  round 4 base  :  0.420% of a core,   35.0 us a tick
+  round 4 new   :  0.610% of a core,   50.8 us a tick
+  round 4 aa    :  0.470% of a core,   39.2 us a tick
+
+arm          idle CPU                range       a tick
+base           0.420% [  0.401-  0.490]      35.0 us
+new            0.580% [  0.520-  0.610]      48.3 us
+aa             0.440% [  0.430-  0.470]      36.7 us
+
+floor (the aa arm's own spread): 0.040% of a core
+new against base: +0.160% (+38.1%), ranges disjoint -- result
+aa against base: +0.020% (+4.8%), ranges overlap -- not a result

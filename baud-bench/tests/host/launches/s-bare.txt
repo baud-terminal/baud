@@ -1,0 +1,6 @@
+@wall 4
+startup: first present
+startup: first presented 1.0 ms
+startup: first present\ttabbed
+startup: main 1.0 ms
+@exit 0

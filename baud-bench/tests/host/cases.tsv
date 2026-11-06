@@ -1,0 +1,199 @@
+# tool, case, exit code, environment (;-separated, or -), arguments: tab-separated.
+# {d} is the case's directory, {app:NAME} the stand-in app.sh with launches/NAME.txt,
+# {plain} a file nobody may run. golden/<tool>-<case>.txt holds what the Python this
+# replaced printed to stdout, under the clock the stand-in moves.
+startup	single-odd	0	-	3	{app:s-a}
+startup	single-even	0	-	7	{app:s-a}
+startup	one-round	0	-	1	{app:s-a}
+startup	two-rounds	0	-	2	{app:s-a}
+startup	zero-arms	1	-	--rounds	0	--arm	base={app:s-a}	--arm	new={app:s-b}
+startup	zero-one	1	-	0	{app:s-a}
+startup	negative-positional	1	-	-1	{app:s-a}
+startup	negative-rounds	1	-	--rounds	-2	--arm	base={app:s-a}
+startup	aa-overlap	0	-	--rounds	5	--arm	base={app:s-a}	--arm	new={app:s-b}	--aa
+startup	aa-apart-inside-spread	0	-	--rounds	4	--arm	base={app:s-spread}	--arm	new={app:s-near}	--aa
+startup	aa-past-spread-overlapping	0	-	--rounds	4	--arm	base={app:s-tight}	--arm	new={app:s-broad}	--aa
+startup	no-aa	0	-	--rounds	4	--arm	base={app:s-a}	--arm	new={app:s-b}
+startup	aa-result	0	-	--rounds	5	--arm	base={app:s-a}	--arm	far={app:s-c}	--aa
+startup	aa-result-lower	0	-	--rounds	5	--arm	base={app:s-c}	--arm	near={app:s-a}	--aa
+startup	only-aa	0	-	--rounds	3	--arm	base={app:s-a}	--aa
+startup	same-name	0	-	--rounds	3	--arm	x={app:s-a}	--arm	x={app:s-b}
+startup	arm-called-aa	0	-	--rounds	3	--arm	base={app:s-a}	--arm	aa={app:s-b}
+startup	four-arms	0	-	--rounds	6	--arm	base={app:s-a}	--arm	new={app:s-b}	--arm	far={app:s-c}	--aa
+startup	positional-over-rounds	0	-	--rounds	9	2	--arm	base={app:s-a}
+startup	stage-content	0	BAUD_BENCH_STAGE=first content	3	{app:s-content}
+startup	stage-two	0	BAUD_BENCH_STAGE=first content|first present	3	{app:s-content}
+startup	stage-absent	1	BAUD_BENCH_STAGE=first paint	3	{app:s-content}
+startup	env-default	0	-	2	{app:s-env}
+startup	env-shell	0	BAUD_CMD=shell	2	{app:s-env}
+startup	env-given	0	BAUD_CMD=true;BAUD_GRID=80x24;BAUD_STARTUP=0	2	{app:s-env}
+startup	never	1	-	3	{app:s-never}
+startup	exits-early	1	-	3	{app:s-exit}
+startup	bad-number	1	-	3	{app:s-badnum}
+startup	bad-number-in-a-note	1	-	2	{app:s-badnote}
+startup	odd-lines	0	-	2	{app:s-odd}
+startup	crlf	0	-	2	{app:s-crlf}
+startup	no-final-newline	1	-	2	{app:s-short}
+startup	bare-stage	0	-	2	{app:s-bare}
+startup	stage-then-space	0	-	2	{app:s-tail}
+startup	not-utf8	1	-	2	{app:s-utf8}
+startup	non-ascii	0	-	2	{app:s-wide}
+startup	no-arguments	1	-
+startup	no-binary	1	-	7
+startup	absent	1	-	3	{d}/absent
+startup	not-executable	1	-	3	{plain}
+startup	absent-second-arm	1	-	--rounds	2	--arm	base={app:s-a}	--arm	new={d}/absent
+startup	arm-no-equals	1	-	--arm	noeq
+startup	arm-empty-path	1	-	--arm	x=
+startup	rounds-no-value	1	-	--rounds
+startup	arm-no-value	1	-	--arm
+startup	rounds-not-a-number	1	-	--rounds	x	--arm	base={app:s-a}
+startup	unknown-flag	1	-	--bogus
+startup	runs-not-a-number	1	-	abc	{app:s-a}
+startup	runs-plus	0	-	+2	{app:s-a}
+startup	runs-spaces	0	-	 2 	{app:s-a}
+startup	runs-underscore	0	-	0_2	{app:s-a}
+idle	three-arms-even	0	FAKE_RATES=0.004,0.0041,0.0039,0.0052,0.0044,0.0049,0.0043,0.00401,0.0058,0.0042,0.0061,0.0047,0.0046,0.0064,0.0045	--arm	base={app:idle}	--arm	new={app:idle}	--aa	--rounds	5
+idle	three-arms-odd	0	FAKE_RATES=0.004,0.0041,0.0039,0.0052,0.0044,0.0049,0.0043,0.00401,0.0058,0.0042,0.0061,0.0047,0.0046,0.0064,0.0045	--arm	base={app:idle}	--arm	new={app:idle}	--aa	--rounds	4
+idle	two-arms	0	FAKE_RATES=0.004,0.009,0.0092,0.0041,0.0042,0.0091	--arm	base={app:idle}	--arm	new={app:idle}	--rounds	3
+idle	disjoint-small	0	FAKE_RATES=0.004,0.00401,0.00402,0.004,0.00401,0.00403	--arm	base={app:idle}	--arm	new={app:idle}	--rounds	3
+idle	disjoint-big-under-floor	0	FAKE_RATES=0.004,0.004,0.02,0.01,0.011,0.05	--arm	base={app:idle}	--arm	new={app:idle}	--rounds	3
+idle	disjoint-lower	0	FAKE_RATES=0.004,0.004,0.002,0.01,0.011,0.003	--arm	base={app:idle}	--arm	new={app:idle}	--rounds	3
+idle	single	0	FAKE_RATES=0.004,0.0041,0.0042	--arm	base={app:idle}	--rounds	3
+idle	one-round	0	FAKE_RATES=0.004	--arm	base={app:idle}	--aa	--rounds	1
+idle	zero-rounds	0	-	--arm	base={app:idle}	--rounds	0
+idle	negative-rounds	0	-	--arm	base={app:idle}	--rounds	-1
+idle	same-name	0	FAKE_RATES=0.004,0.005,0.006,0.007,0.008,0.009	--arm	x={app:idle}	--arm	x={app:idle}	--rounds	3
+idle	hz	0	FAKE_RATES=0.004	--arm	base={app:idle}	--rounds	2	--hz	60
+idle	hz-zero	1	FAKE_RATES=0.004	--arm	base={app:idle}	--rounds	2	--hz	0
+idle	hz-inf	0	FAKE_RATES=0.004	--arm	base={app:idle}	--rounds	2	--hz	inf
+idle	hz-nan	0	FAKE_RATES=0.004	--arm	base={app:idle}	--rounds	2	--hz	nan
+idle	settle-negative	1	FAKE_RATES=0.004	--arm	base={app:idle}	--settle	-1
+idle	settle-inline-negative	1	FAKE_RATES=0.004	--arm	base={app:idle}	--settle=-1
+idle	window-nan	1	FAKE_RATES=0.004	--arm	base={app:idle}	--window	nan
+idle	settle-exponent	0	FAKE_RATES=0.004	--arm	base={app:idle}	--settle	1e-3	--rounds	2
+idle	zero-base	1	FAKE_RATES=0.001,0.004,0.005,0,0,0.006	--arm	base={app:idle}	--arm	new={app:idle}	--rounds	3
+idle	gone-in-settle	1	FAKE_RATES=0.004,0.004,gone0	--arm	base={app:idle}	--rounds	3
+idle	gone-in-window	1	FAKE_RATES=0.004,gone1	--arm	base={app:idle}	--rounds	3
+idle	prefix	0	FAKE_RATES=0.004	--arm	base={app:idle}	--ro	2	--se	1	--w	1	--hz	60
+idle	prefix-h-ambiguous	2	-	--arm	base={app:idle}	--h	60
+idle	prefix-arm	0	FAKE_RATES=0.004	--ar	base={app:idle}	--rounds=2	--settle=1
+idle	prefix-ambiguous	2	-	--a	base={app:idle}
+idle	help-short	0	-	-h
+idle	help-long	0	-	--help
+idle	help-prefix	0	-	--he
+idle	help-after-unknown	0	-	--bogus	--help
+idle	help-after-bad-value	2	-	--rounds	x	--help
+idle	help-with-value	2	-	--help=1
+idle	no-arm	2	-
+idle	positional	2	-	--arm	base={app:idle}	stray
+idle	unknown	2	-	--arm	base={app:idle}	--bogus
+idle	double-dash	2	-	--arm	base={app:idle}	--	x
+idle	rounds-no-value	2	-	--arm	base={app:idle}	--rounds
+idle	rounds-float	2	-	--arm	base={app:idle}	--rounds	1.5
+idle	settle-word	2	-	--arm	base={app:idle}	--settle	abc
+idle	aa-with-value	2	-	--arm	base={app:idle}	--aa=1
+idle	cmd-dash	2	-	--arm	base={app:idle}	--cmd	-x
+idle	cmd-dash-space	0	FAKE_RATES=0.004	--arm	base={app:idle}	--cmd	-x y	--rounds	2
+idle	absent	1	-	--arm	base={d}/absent
+idle	absent-aa	1	-	--arm	base={d}/absent	--aa
+idle	arm-no-equals	1	-	--arm	noeq
+idle	relative-path	1	FAKE_RATES=0.004	--arm	base=./absent/../absent
+idle	underscore-rounds	0	FAKE_RATES=0.004	--arm	base={app:idle}	--rounds	0_2
+idle	space-inline-cmd	0	-	--arm	base={app:idle}	--rounds	0	--cmd=sleep 600
+idle	space-inline-prefix	0	-	--arm	base={app:idle}	--rounds	0	--cm=sleep 600
+idle	space-inline-rounds	0	-	--rounds=0 	--arm	base={app:idle}
+idle	space-inline-arm	0	-	--arm=base={app:idle} x	--rounds	0
+idle	space-value-names-option	2	-	--arm	base={app:idle}	--cmd	--arm=a b
+idle	space-inline-plain	0	-	--arm	base={app:idle}	--rounds	0	--cmd=x
+idle	space-value-names-nothing	0	-	--arm	base={app:idle}	--rounds	0	--cmd	--x y
+idle	space-inline-unknown	2	-	--arm	base={app:idle}	--nope=a b
+idle	space-inline-aa	2	-	--arm	base={app:idle}	--aa=a b
+idle	negative-exponent	2	-	--arm	base={app:idle}	--hz	-1e5
+idle	negative-upper-exponent	2	-	--arm	base={app:idle}	--hz	-1E5
+idle	negative-trailing-point	2	-	--arm	base={app:idle}	--hz	-1.
+idle	negative-point-exponent	2	-	--arm	base={app:idle}	--hz	-1.5e2
+idle	negative-underscore	2	-	--arm	base={app:idle}	--hz	-1_0
+idle	negative-settle-point	2	-	--arm	base={app:idle}	--settle	-1.
+idle	negative-settle-exponent	2	-	--arm	base={app:idle}	--settle	-1e5
+idle	negative-rounds-underscore	2	-	--arm	base={app:idle}	--rounds	-1_0
+idle	negative-hz-whole	0	-	--arm	base={app:idle}	--rounds	0	--hz	-5
+idle	negative-hz-bare-point	0	-	--arm	base={app:idle}	--rounds	0	--hz	-.5
+idle	negative-hz-point	0	-	--arm	base={app:idle}	--rounds	0	--hz	-1.5
+idle	ambiguous-before-help	2	-	--arm	base={app:idle}	--a	x	--help
+idle	ambiguous-inline-before-help	2	-	--arm	base={app:idle}	--=x	--help
+idle	help-joined	0	-	-hx
+idle	help-joined-space	0	-	-h x
+idle	help-joined-equals	2	-	-h=1
+idle	help-joined-dash	2	-	-h-x
+idle	help-shaped-value	2	-	--arm	base={app:idle}	--cmd	-h x
+idle	settle-too-long	1	-	--arm	base={app:idle}	--settle	1e300	--rounds	1
+idle	window-too-long	1	-	--arm	base={app:idle}	--window	9.3e9	--rounds	1
+idle	double-dash-alone	2	-	--arm	base={app:idle}	--rounds	0	--
+idle	dash-equals-before-help	2	-	--arm	base={app:idle}	--rounds	0	-=x	--help
+idle	dash-equals-bare-before-help	2	-	--arm	base={app:idle}	--rounds	0	-=	--help
+idle	dash-equals-value	2	-	--arm	base={app:idle}	--rounds	0	--cmd	-=x y
+shader	seven	0	-	7	{app:c-a}
+shader	three	0	-	3	{app:c-a}
+shader	one	0	-	1	{app:c-a}
+shader	two	0	-	2	{app:c-a}
+shader	zero	1	-	0	{app:c-a}
+shader	negative	1	-	-1	{app:c-a}
+shader	aside-metal	0	BAUD_SHADER_CACHE_ASIDE=metal	3	{app:c-a}
+shader	aside-metalfe	0	BAUD_SHADER_CACHE_ASIDE=metalfe	3	{app:c-fe}
+shader	aside-metal-fe-stays	0	BAUD_SHADER_CACHE_ASIDE=metal	3	{app:c-fe}
+shader	aside-both	0	BAUD_SHADER_CACHE_ASIDE=both	3	{app:c-fe}
+shader	aside-bad	1	BAUD_SHADER_CACHE_ASIDE=neither	3	{app:c-a}
+shader	no-gpu	1	-	3	{app:c-nogpu}
+shader	no-pipes	1	-	3	{app:c-nopipes}
+shader	no-first	1	-	3	{app:c-nofirst}
+shader	mixed	1	-	4	{app:c-mixed}
+shader	mixed-first-only	0	-	3	{app:c-mixed-first}
+shader	compiled	0	-	3	{app:c-compiled}
+shader	bad-number	1	-	3	{app:c-badnum}
+shader	bad-pipe-number	1	-	3	{app:c-badpipe}
+shader	tails	0	-	2	{app:c-tail}
+shader	twice	0	-	2	{app:c-twice}
+shader	no-final-newline	1	-	2	{app:c-short}
+shader	odd-lines	1	-	2	{app:c-odd}
+shader	environment	0	BAUD_GRID=1x1;BAUD_CMD=true;BAUD_STARTUP=0	2	{app:c-env}
+shader	leftover	0	SETUP=leftover	2	{app:c-a}
+shader	no-caches	0	SETUP=nocaches	2	{app:c-a}
+shader	no-arguments	1	-
+shader	no-binary	1	-	7
+shader	absent	1	-	3	{d}/absent
+shader	not-a-number	1	-	abc	{app:c-a}
+dock	good	0	-	{app:d-good}
+dock	no-read	1	-	{app:d-noread}
+dock	note-twice	1	-	{app:d-twice}
+dock	not-utf8-name	1	-	{app:d-latin}
+dock	silent	1	-	{app:d-silent}
+dock	note-always	1	-	{app:d-always}
+dock	note-lines	1	-	{app:d-lines}
+dock	quote	1	-	{app:d-quote}
+dock	not-utf8-stderr	1	-	{app:d-bad}
+dock	empty-is-not-unset	1	-	{app:d-unset}
+dock	environment	1	LEAK=1	{app:d-env}
+dock	note-names-another	1	-	{app:d-wrongname}
+dock	name-without-the-suffix	1	-	{app:d-bare}
+dock	no-arguments	1	-
+dock	absent	1	-	{d}/absent
+dock	not-executable	1	-	{plain}
+vt	reply	0	STDIN=\033[13\007337R	0.5	13	37
+vt	reply-after-others	0	STDIN=\033[1\00731R\033[?6c\033[13\007337Rtail	0.5	13	37
+vt	other-position	0	STDIN=\033[1\00731R	0.1	13	37
+vt	nothing	0	STDIN=	0.1	13	37
+vt	default-want	0	STDIN=abRcd	0.5
+vt	two-arguments	0	STDIN=\033[13\007337R	0.5	13
+vt	three-arguments-plus	0	STDIN=\033[13\007337R	0.5	13	37	ignored
+vt	no-arguments	0	STDIN=xR
+vt	timeout-zero	0	STDIN=abc	0	13	37
+vt	timeout-negative	0	STDIN=abc	-1
+vt	timeout-exponent	0	STDIN=abc	1e-1
+vt	timeout-word	1	STDIN=abc	soon
+vt	high-bytes	0	STDIN=\0377\0200R	0.5
+vt	across-the-chunk	0	STDIN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\033[13\007337Rtail	0.5	13	37
+vt	stops-at-the-chunk-it-found	0	STDIN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\033[13\007337Rzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz	0.5	13	37
+vt	an-r-before-the-reply	0	STDIN=Ryyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\033[13\007337R	0.5	13	37
+vt	past-the-chunk	0	STDIN=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\033[13\007337R	0.5	13	37
+vt	first-chunk-stops	0	STDIN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxRzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz	0.5

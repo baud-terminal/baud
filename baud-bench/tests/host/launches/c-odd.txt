@@ -1,0 +1,5 @@
+startup: gpu build: device 5.0 ms, library 3.5 (), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu build: device 5.0 ms, library 3.5 (Lib-rary), pipelines 45.0, warm pass 2.0, probe 60.0
+startup: gpu pipelines: bg x ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+@wall 7
+startup: first present 7.0 ms

@@ -1,0 +1,5 @@
+  round 1 base  :  0.400% of a core,    0.0 us a tick
+  round 2 base  :  0.400% of a core,    0.0 us a tick
+
+arm          idle CPU                range       a tick
+base           0.400% [  0.400-  0.400]       0.0 us

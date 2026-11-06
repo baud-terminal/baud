@@ -1,0 +1,62 @@
+startup: main 1.625 ms
+startup: window 12.75 ms
+startup: gpu 22 ms
+startup: menu 35.5 ms
+@wall 72.75
+startup: first present 72.75 ms
+---
+startup: main 1.75 ms
+startup: window 13.25 ms
+startup: gpu 21 ms
+startup: menu 35.75 ms
+@wall 41.5
+startup: first present 41.5 ms
+---
+startup: main 1.875 ms
+startup: window 13.75 ms
+startup: gpu 20 ms
+startup: menu 36.0 ms
+@wall 45.25
+startup: first present 45.25 ms
+---
+startup: main 2.0 ms
+startup: window 14.25 ms
+startup: gpu 19 ms
+startup: menu 36.25 ms
+@wall 43.0
+startup: first present 43.0 ms
+---
+startup: main 2.125 ms
+startup: window 14.75 ms
+startup: gpu 18 ms
+startup: menu 36.5 ms
+@wall 44.75
+startup: first present 44.75 ms
+---
+startup: main 2.25 ms
+startup: window 15.25 ms
+startup: gpu 17 ms
+startup: menu 36.75 ms
+@wall 43.25
+startup: first present 43.25 ms
+---
+startup: main 2.375 ms
+startup: window 15.75 ms
+startup: gpu 16 ms
+startup: menu 37.0 ms
+@wall 46.75
+startup: first present 46.75 ms
+---
+startup: main 2.5 ms
+startup: window 16.25 ms
+startup: gpu 15 ms
+startup: menu 37.25 ms
+@wall 47.5
+startup: first present 47.5 ms
+---
+startup: main 2.625 ms
+startup: window 16.75 ms
+startup: gpu 14 ms
+startup: menu 37.5 ms
+@wall 42.0
+startup: first present 42.0 ms

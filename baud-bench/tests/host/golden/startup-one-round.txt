@@ -1,0 +1,17 @@
+round 0 arm base :     71.5 ms to the stage  (discarded)
+
+startup: main 1.5 ms
+startup: window 12.25 ms
+startup: gpu 20 ms
+startup: dock icon 30.5 ms
+startup: walk: 0 map misses, 3 hits 0.0 ms
+startup: first present 71.5 ms
+
+== arm base (1 settled launches) ==
+  wall to the stage: median 71.5 ms, range [71.5-71.5]
+  main                 median      1.5 ms  [    1.5-    1.5]
+  window               median     12.2 ms  [   12.2-   12.2]
+  gpu                  median     20.0 ms  [   20.0-   20.0]
+  dock icon            median     30.5 ms  [   30.5-   30.5]
+  first present        median     71.5 ms  [   71.5-   71.5]
+

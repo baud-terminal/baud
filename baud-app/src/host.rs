@@ -589,8 +589,9 @@ pub fn bitmap_refusals(path: &str, face: &Face<'_>) -> Vec<String> {
 /// The launch clock: `startup_begin` is the first thing `main` does, and
 /// `startup_mark` prints how long after it a stage was reached -- when
 /// `BAUD_STARTUP` is set, so a normal launch prints nothing. What it cannot
-/// see is the time before `main`, the loader's; `scripts/startup-bench.py`
-/// measures that from outside and adds the two.
+/// see is the time before `main`, the loader's; `startup-bench`, the example
+/// `baud-bench/src/host/startup.rs` runs, measures that from outside and adds
+/// the two.
 static START: OnceLock<Instant> = OnceLock::new();
 static WANTED: OnceLock<Wanted> = OnceLock::new();
 /// The file the timeline is written to beside stderr ([`Timeline`]).

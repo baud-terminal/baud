@@ -1,0 +1,13 @@
+  round 1 base  :  0.400% of a core,   33.3 us a tick
+  round 1 new   :  0.900% of a core,   75.0 us a tick
+  round 2 new   :  0.920% of a core,   76.7 us a tick
+  round 2 base  :  0.410% of a core,   34.2 us a tick
+  round 3 base  :  0.420% of a core,   35.0 us a tick
+  round 3 new   :  0.910% of a core,   75.8 us a tick
+
+arm          idle CPU                range       a tick
+base           0.415% [  0.410-  0.420]      34.6 us
+new            0.915% [  0.910-  0.920]      76.2 us
+
+floor (the new arm's own spread): 0.010% of a core
+new against base: +0.500% (+120.5%), ranges disjoint -- result

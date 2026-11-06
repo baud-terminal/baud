@@ -1,0 +1,15 @@
+startup: gpu 20 ms
+@wall 50
+startup: first present 50 ms
+---
+startup: gpu 21 ms
+@wall 51
+startup: first present 51 ms
+---
+startup: gpu 22 ms
+@wall 52
+startup: first present 52 ms
+---
+startup: gpu 23 ms
+@wall 53
+startup: first present 53 ms

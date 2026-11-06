@@ -1,0 +1,6 @@
+  round 1 base  :  0.400% of a core,   33.3 us a tick
+  round 2 base  :  0.410% of a core,   34.2 us a tick
+  round 3 base  :  0.420% of a core,   35.0 us a tick
+
+arm          idle CPU                range       a tick
+base           0.415% [  0.410-  0.420]      34.6 us

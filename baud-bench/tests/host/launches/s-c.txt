@@ -1,0 +1,44 @@
+startup: main 9.5 ms
+startup: window 33 ms
+@wall 131.5
+startup: first present 131.5 ms
+---
+startup: main 10.5 ms
+startup: window 34 ms
+@wall 100.25
+startup: first present 100.25 ms
+---
+startup: main 11.5 ms
+startup: window 35 ms
+@wall 104.0
+startup: first present 104.0 ms
+---
+startup: main 12.5 ms
+startup: window 36 ms
+@wall 101.75
+startup: first present 101.75 ms
+---
+startup: main 13.5 ms
+startup: window 37 ms
+@wall 103.5
+startup: first present 103.5 ms
+---
+startup: main 14.5 ms
+startup: window 38 ms
+@wall 102.0
+startup: first present 102.0 ms
+---
+startup: main 15.5 ms
+startup: window 39 ms
+@wall 105.5
+startup: first present 105.5 ms
+---
+startup: main 16.5 ms
+startup: window 40 ms
+@wall 106.25
+startup: first present 106.25 ms
+---
+startup: main 17.5 ms
+startup: window 41 ms
+@wall 100.75
+startup: first present 100.75 ms

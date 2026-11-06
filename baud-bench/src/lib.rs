@@ -11,6 +11,7 @@ use baud_domain::CacheGeometry;
 
 pub mod capture;
 pub mod flash;
+pub mod host;
 pub mod key_latency;
 
 /// The scan this crate's own features name, by the three `cfg`s that pick

@@ -1,0 +1,33 @@
+round 0 arm base :     71.5 ms to the stage  (discarded)
+round 0 arm new  :     72.8 ms to the stage  (discarded)
+round 1 arm new  :     41.5 ms to the stage
+round 1 arm base :     40.3 ms to the stage
+round 2 arm base :     44.0 ms to the stage
+round 2 arm new  :     45.2 ms to the stage
+round 3 arm new  :     43.0 ms to the stage
+round 3 arm base :     41.8 ms to the stage
+
+== arm base (3 settled launches) ==
+  wall to the stage: median 41.8 ms, range [40.3-44.0]
+  main                 median      1.8 ms  [    1.6-    1.9]
+  window               median     13.2 ms  [   12.8-   13.8]
+  gpu                  median     22.0 ms  [   21.0-   23.0]
+  dock icon            median     30.0 ms  [   29.8-   30.2]
+  first present        median     41.8 ms  [   40.2-   44.0]
+
+== arm new (3 settled launches) ==
+  wall to the stage: median 43.0 ms, range [41.5-45.2]
+  main                 median      1.9 ms  [    1.8-    2.0]
+  window               median     13.8 ms  [   13.2-   14.2]
+  gpu                  median     20.0 ms  [   19.0-   21.0]
+  menu                 median     36.0 ms  [   35.8-   36.2]
+  first present        median     43.0 ms  [   41.5-   45.2]
+
+== against base, per stage: arm - base, beside the A/A spread ==
+  new: wall +1.3 ms
+    first present            +1.2 ms
+    gpu                      -2.0 ms
+    main                     +0.1 ms
+    window                   +0.5 ms
+    stages the arm no longer prints: dock icon
+    stages new to the arm: menu

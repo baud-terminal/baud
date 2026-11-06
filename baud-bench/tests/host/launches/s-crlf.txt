@@ -1,0 +1,4 @@
+startup: main 1.0 ms\r
+startup: lone 2.0 ms\rstartup: after 3.0 ms\r\nstartup: more 3.5 ms
+@wall 4
+startup: first present 4.0 ms\r

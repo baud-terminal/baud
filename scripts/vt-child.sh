@@ -5,11 +5,12 @@
 # of it are parsed), and records the wall time, the terminal's CPU time,
 # the geometry it actually got, and the reply itself.
 #
-# usage: vt-child.sh <name> <recording> <reps> <out-file>
+# usage: vt-child.sh <name> <recording> <reps> <out-file> <vt-reply>
 name="$1"
 rec="$2"
 reps="$3"
 out="$4"
+reply="$5"
 size=$(stty size 2>/dev/null | tr ' ' 'x')
 bytes=$(wc -c <"$rec")
 sleep 1
@@ -36,11 +37,11 @@ old=$(stty -g)
 stty raw -echo
 printf '\033[?2026l\033c\033[13;37H\033[6n'
 # The reply is `ESC [ row ; col R`, of whatever length the numbers make:
-# `vt-reply.py` reads up to the `R` and gives up after ten seconds rather
+# `vt-reply` reads up to the `R` and gives up after ten seconds rather
 # than sit on a terminal that answers differently -- the first version
 # read exactly eight bytes and hung two of the five terminals on a
 # seven-byte reply.
-hex=$(python3 "$(dirname "$0")/vt-reply.py" 10 13 37)
+hex=$("$reply" 10 13 37)
 stty "$old"
 t1=$(perl -MTime::HiRes=time -e 'print time')
 # The terminal is an ancestor of this shell: usually its parent, one hop

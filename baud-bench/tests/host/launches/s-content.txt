@@ -1,0 +1,19 @@
+startup: main 1.5 ms
+startup: first present 30 ms
+@wall 50.5
+startup: first content 50.5 ms
+---
+startup: main 2.5 ms
+startup: first present 31 ms
+@wall 44.25
+startup: first content 44.25 ms
+---
+startup: main 3.5 ms
+startup: first present 32 ms
+@wall 46.0
+startup: first content 46.0 ms
+---
+startup: main 4.5 ms
+startup: first present 33 ms
+@wall 45.5
+startup: first content 45.5 ms

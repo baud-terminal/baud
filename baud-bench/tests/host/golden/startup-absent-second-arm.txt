@@ -1,0 +1,1 @@
+round 0 arm base :     71.5 ms to the stage  (discarded)

@@ -1,0 +1,6 @@
+startup: locale: x in 1 ms and more
+startup: locale: y z in 1 ms
+startup: locale:  in 1 ms
+startup: locale: q in . ms
+@locale en_US.UTF-8
+@run

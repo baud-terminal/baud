@@ -1,0 +1,3 @@
+FAIL dock     LANG='' wc -m='' notes=[]
+FAIL empty    LANG='' wc -m='' notes=[]
+FAIL control  LANG='' wc -m='' notes=[]

@@ -1,0 +1,80 @@
+startup: main 1.5 ms
+startup: window 12.25 ms
+startup: gpu 20 ms
+startup: dock icon 30.5 ms
+startup: walk: 0 map misses, 3 hits 0.0 ms
+other line
+@wall 71.5
+startup: first present 71.5 ms
+---
+startup: main 1.625 ms
+startup: window 12.75 ms
+startup: gpu 21 ms
+startup: dock icon 30.25 ms
+startup: walk: 1 map misses, 3 hits 0.0 ms
+startup: first content 60.5 ms
+@wall 40.25
+startup: first present 40.25 ms
+---
+startup: main 1.75 ms
+startup: window 13.25 ms
+startup: gpu 22 ms
+startup: dock icon 30.0 ms
+startup: walk: 2 map misses, 3 hits 0.0 ms
+other line
+@wall 44.0
+startup: first present 44.0 ms
+---
+startup: main 1.875 ms
+startup: window 13.75 ms
+startup: gpu 23 ms
+startup: dock icon 29.75 ms
+startup: walk: 3 map misses, 3 hits 0.0 ms
+startup: first content 60.5 ms
+@wall 41.75
+startup: first present 41.75 ms
+---
+startup: main 2.0 ms
+startup: window 14.25 ms
+startup: gpu 24 ms
+startup: dock icon 29.5 ms
+startup: walk: 4 map misses, 3 hits 0.0 ms
+other line
+@wall 43.5
+startup: first present 43.5 ms
+---
+startup: main 2.125 ms
+startup: window 14.75 ms
+startup: gpu 25 ms
+startup: dock icon 29.25 ms
+startup: walk: 5 map misses, 3 hits 0.0 ms
+startup: first content 60.5 ms
+@wall 42.0
+startup: first present 42.0 ms
+---
+startup: main 2.25 ms
+startup: window 15.25 ms
+startup: gpu 26 ms
+startup: dock icon 29.0 ms
+startup: walk: 6 map misses, 3 hits 0.0 ms
+other line
+@wall 45.5
+startup: first present 45.5 ms
+---
+startup: main 2.375 ms
+startup: window 15.75 ms
+startup: gpu 27 ms
+startup: dock icon 28.75 ms
+startup: walk: 7 map misses, 3 hits 0.0 ms
+startup: first content 60.5 ms
+@wall 46.25
+startup: first present 46.25 ms
+---
+startup: main 2.5 ms
+startup: window 16.25 ms
+startup: gpu 28 ms
+startup: dock icon 28.5 ms
+startup: walk: 8 map misses, 3 hits 0.0 ms
+other line
+@wall 40.75
+startup: first present 40.75 ms

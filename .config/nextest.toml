@@ -6,3 +6,10 @@
 [[profile.default.overrides]]
 filter = 'package(baud) & test(/^programs::/)'
 leak-timeout = "2s"
+
+# The same mark on baud-bench's host suite; each test waits for what it
+# starts, and what holds the output open is not known. 2 s does not always
+# cover it: a run can still print LEAK and pass.
+[[profile.default.overrides]]
+filter = 'package(baud-bench) & binary(host)'
+leak-timeout = "2s"

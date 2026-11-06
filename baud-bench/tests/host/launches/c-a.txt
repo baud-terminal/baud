@@ -1,0 +1,55 @@
+?metal startup: gpu build: device 5.0 ms, library 3.5 (Library), pipelines 45.0, warm pass 2.0, probe 60.0
+!metal startup: gpu build: device 5.5 ms, library 30.5 (Library), pipelines 80.0, warm pass 2.5, probe 120.0
+?metal startup: gpu pipelines: bg 1.5 ms, glyph 2.5, cell_bg 3.5, cell_glyph 4.5, cell_shape 5.5
+!metal startup: gpu pipelines: bg 11.5 ms, glyph 12.5, cell_bg 13.5, cell_glyph 14.5, cell_shape 15.5
+@wall 70.5
+startup: first present 70.5 ms
+---
+?metal startup: gpu build: device 5.25 ms, library 4.0 (Library), pipelines 46.0, warm pass 2.125, probe 61.0
+!metal startup: gpu build: device 5.75 ms, library 31.0 (Library), pipelines 81.0, warm pass 2.625, probe 121.0
+?metal startup: gpu pipelines: bg 2.5 ms, glyph 3.5, cell_bg 4.5, cell_glyph 5.5, cell_shape 6.5
+!metal startup: gpu pipelines: bg 12.5 ms, glyph 13.5, cell_bg 14.5, cell_glyph 15.5, cell_shape 16.5
+@wall 72.5
+startup: first present 72.5 ms
+---
+?metal startup: gpu build: device 5.5 ms, library 4.5 (Library), pipelines 47.0, warm pass 2.25, probe 62.0
+!metal startup: gpu build: device 6.0 ms, library 31.5 (Library), pipelines 82.0, warm pass 2.75, probe 122.0
+?metal startup: gpu pipelines: bg 3.5 ms, glyph 4.5, cell_bg 5.5, cell_glyph 6.5, cell_shape 7.5
+!metal startup: gpu pipelines: bg 13.5 ms, glyph 14.5, cell_bg 15.5, cell_glyph 16.5, cell_shape 17.5
+@wall 74.5
+startup: first present 74.5 ms
+---
+?metal startup: gpu build: device 5.75 ms, library 5.0 (Library), pipelines 48.0, warm pass 2.375, probe 63.0
+!metal startup: gpu build: device 6.25 ms, library 32.0 (Library), pipelines 83.0, warm pass 2.875, probe 123.0
+?metal startup: gpu pipelines: bg 4.5 ms, glyph 5.5, cell_bg 6.5, cell_glyph 7.5, cell_shape 8.5
+!metal startup: gpu pipelines: bg 14.5 ms, glyph 15.5, cell_bg 16.5, cell_glyph 17.5, cell_shape 18.5
+@wall 76.5
+startup: first present 76.5 ms
+---
+?metal startup: gpu build: device 6.0 ms, library 5.5 (Library), pipelines 49.0, warm pass 2.5, probe 64.0
+!metal startup: gpu build: device 6.5 ms, library 32.5 (Library), pipelines 84.0, warm pass 3.0, probe 124.0
+?metal startup: gpu pipelines: bg 5.5 ms, glyph 6.5, cell_bg 7.5, cell_glyph 8.5, cell_shape 9.5
+!metal startup: gpu pipelines: bg 15.5 ms, glyph 16.5, cell_bg 17.5, cell_glyph 18.5, cell_shape 19.5
+@wall 78.5
+startup: first present 78.5 ms
+---
+?metal startup: gpu build: device 6.25 ms, library 6.0 (Library), pipelines 50.0, warm pass 2.625, probe 65.0
+!metal startup: gpu build: device 6.75 ms, library 33.0 (Library), pipelines 85.0, warm pass 3.125, probe 125.0
+?metal startup: gpu pipelines: bg 6.5 ms, glyph 7.5, cell_bg 8.5, cell_glyph 9.5, cell_shape 10.5
+!metal startup: gpu pipelines: bg 16.5 ms, glyph 17.5, cell_bg 18.5, cell_glyph 19.5, cell_shape 20.5
+@wall 80.5
+startup: first present 80.5 ms
+---
+?metal startup: gpu build: device 6.5 ms, library 6.5 (Library), pipelines 51.0, warm pass 2.75, probe 66.0
+!metal startup: gpu build: device 7.0 ms, library 33.5 (Library), pipelines 86.0, warm pass 3.25, probe 126.0
+?metal startup: gpu pipelines: bg 7.5 ms, glyph 8.5, cell_bg 9.5, cell_glyph 10.5, cell_shape 11.5
+!metal startup: gpu pipelines: bg 17.5 ms, glyph 18.5, cell_bg 19.5, cell_glyph 20.5, cell_shape 21.5
+@wall 82.5
+startup: first present 82.5 ms
+---
+?metal startup: gpu build: device 6.75 ms, library 7.0 (Library), pipelines 52.0, warm pass 2.875, probe 67.0
+!metal startup: gpu build: device 7.25 ms, library 34.0 (Library), pipelines 87.0, warm pass 3.375, probe 127.0
+?metal startup: gpu pipelines: bg 8.5 ms, glyph 9.5, cell_bg 10.5, cell_glyph 11.5, cell_shape 12.5
+!metal startup: gpu pipelines: bg 18.5 ms, glyph 19.5, cell_bg 20.5, cell_glyph 21.5, cell_shape 22.5
+@wall 84.5
+startup: first present 84.5 ms

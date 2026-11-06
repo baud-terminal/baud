@@ -1,0 +1,8 @@
+startup: main 1.0 ms
+startup: it's "both" 2.0 ms
+startup: it's 3.0 ms
+startup: tab\there 4.0 ms
+startup: back\\slash 5.0 ms
+startup:bare
+not a mark
+@exit 0
