@@ -202,10 +202,10 @@ fn parse_commands(words: &[&str]) -> Vec<(char, Vec<f32>)> {
 const TOLERANCE: f32 = 0.0005;
 
 /// Every sampled glyph of the three variable faces, drawn at the default
-/// and at the weights `scripts/gvar-oracle.py` names, against HarfBuzz's
-/// drawing. The default rows are the control that the two emit contours by
-/// one rule; the varied rows are the deltas, the inference, the component
-/// offsets and the flattening.
+/// and at the weights `tools/baud-oracle`'s `gvar` names, against
+/// HarfBuzz's drawing. The default rows are the control that the two emit
+/// contours by one rule; the varied rows are the deltas, the inference,
+/// the component offsets and the flattening.
 #[test]
 fn every_sampled_outline_is_harfbuzzs() {
     let text = std::fs::read_to_string(concat!(

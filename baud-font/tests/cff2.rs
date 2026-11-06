@@ -3,11 +3,11 @@
 //! `tests/var/cff2-outlines.txt` is HarfBuzz 12.3.0's drawing of every
 //! seventh glyph of Source Code VF and every glyph of the cases font
 //! (`tools/baud-oracle cases cff2`), at the default instance and at the
-//! settings `scripts/cff2-oracle.py` names, with every coordinate as the
-//! exact `f32` HarfBuzz handed its draw functions. baud computes a CFF2
-//! charstring in `f64`, as HarfBuzz does, and rounds to `f32` only at the
-//! sink, so the comparison is exact: a tolerance would hide a wrong blend
-//! behind a right default.
+//! settings `tools/baud-oracle`'s `cff2` names, with every coordinate as
+//! the exact `f32` HarfBuzz handed its draw functions. baud computes a
+//! CFF2 charstring in `f64`, as HarfBuzz does, and rounds to `f32` only at
+//! the sink, so the comparison is exact: a tolerance would hide a wrong
+//! blend behind a right default.
 //!
 //! **Two normalisations, each counted and pinned.** HarfBuzz's draw session
 //! (`[[source: harfbuzz-12-3-0-draw]]`) defers a moveto until something is

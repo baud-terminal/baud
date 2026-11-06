@@ -1,18 +1,12 @@
-//! **Every oracle regenerates its committed file**, and a changed input
-//! makes `--check` fail: the identity gate the port was made against, kept
-//! as a test so a later engine, binding or format change has to fail here.
-//!
-//! `gvar` and `cff2` are held to their data lines and engine versions only:
-//! their files keep the header the Python scripts beside them wrote, which
-//! LICENSE describes. The other six are held byte for byte.
+//! **Every oracle regenerates its committed file byte for byte**, and a
+//! changed input makes `--check` fail: the identity gate the port was made
+//! against, kept as a test so a later engine, binding or format change has
+//! to fail here.
 
 use std::path::{Path, PathBuf};
 
 use baud_oracle::oracle::ALL;
 use baud_oracle::{Oracle, compare, repo};
-
-/// The two files whose headers still name their Python scripts.
-const PYTHON_HEADERS: [&str; 2] = ["gvar", "cff2"];
 
 fn committed(o: &Oracle) -> String {
     std::fs::read_to_string(repo().join(o.file)).expect("the committed file")
@@ -24,13 +18,11 @@ fn every_oracle_regenerates_its_committed_file() {
         let lines = (o.lines)(&repo());
         let file = committed(o);
         compare(&lines, &file).unwrap_or_else(|e| panic!("{}: {e}", o.name));
-        if !PYTHON_HEADERS.contains(&o.name) {
-            assert!(
-                lines.join("\n") + "\n" == file,
-                "{}: not byte for byte",
-                o.name
-            );
-        }
+        assert!(
+            lines.join("\n") + "\n" == file,
+            "{}: not byte for byte",
+            o.name
+        );
     }
 }
 

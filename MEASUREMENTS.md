@@ -3137,3 +3137,46 @@ against [0.73-0.76], and the lib in [9.26-12.36] s against
 added. Load average 4.8-11.6. Touching `src/lib.rs` ran no build
 script in any round; touching a `data/` file ran it once. The
 `baud-domain` .crate is 1.92 MiB compressed against base's 1.85.
+
+## The gvar and cff2 oracles write their own files
+
+Not timed: no byte path changed. `tools/baud-oracle`'s `gvar` and `cff2`
+bins now write `outlines.txt` and `cff2-outlines.txt`, which their
+Python scripts wrote until now; the bins were held to the data lines
+alone. Only the two header lines changed, as the other six oracles'
+did: `uharfbuzz 0.53.2` to `tools/baud-oracle`, and the generator line
+to the bin. Both arms ran on a copy of the test fonts: the scripts on
+nixos-26.05's Python 3.13.17 with uharfbuzz 0.53.2, its vendored
+HarfBuzz 12.3.0, under `-I`, each edit made once at an anchor the
+driver asserts; the bins on `tools/shell.nix`'s HarfBuzz 12.3.0.
+
+| oracle | arm | rows | data lines, Python against Rust |
+|---|---|---|---|
+| `gvar` | the tree | 1,098 | byte-equal, fnv64 `75ea3687ca6110ae` |
+| `cff2` | the tree | 1,360 | byte-equal, fnv64 `a4441be357bc8cbd` |
+| `gvar` | JetBrains Mono at wght 100, 550, 700, 1000 | 1,098 | equal, `c40591db997cb7bc` |
+| `gvar` | Fira Code's every 29th glyph | 1,158 | equal, `1d5a9ce409fe9cff` |
+| `cff2` | Source Code VF at wght 150, 400, 555, 900 | 1,360 | equal, `ebdace6b81bdb714` |
+| `cff2` | Source Code VF's every 5th glyph | 1,810 | equal, `6ce06aa1e74f0687` |
+
+The digest is FNV-1a over the data lines joined by newlines. 550 and
+555 sit between masters and are sampled nowhere in the committed rows;
+1000 is past JetBrains Mono's 800 and 150 below Source Code VF's 200,
+and HarfBuzz clamps both, so the 1000 rows are the committed 800 rows
+and the 150 rows the default's, each asserted. The steps draw glyphs
+no committed row draws. `tools/baud-oracle/tests/outlines.rs` holds the
+four perturbations and the tree's two digests; `regenerate.rs` now
+holds all eight oracles byte for byte.
+
+Red first: with the header exemption gone from `regenerate.rs` and the
+files not yet rewritten, `every_oracle_regenerates_its_committed_file`
+failed, `cff2: not byte for byte`. Three mutations each turned tests in
+`outlines.rs` red: `gvar`'s four places to three (3 of 5), `cff2`'s
+`repr` to `{}` (3 of 5), and the variations not set (5 of 5); a first
+form of the `{}` mutation did not compile and is not counted.
+baud-font's `var` and `cff2` tests pass unchanged: they skip `#` lines.
+
+`scripts/gvar-oracle.py` and `scripts/cff2-oracle.py` go in the next
+commit. LICENSE names both as the writers of the two files, so
+`cargo xtask third-party --check` fails on that commit until LICENSE
+names `tools/baud-oracle` instead.

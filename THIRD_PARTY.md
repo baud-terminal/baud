@@ -167,20 +167,20 @@ they were built from.
 - **From:** read out of the Hebrew stage fonts by tools/baud-fontbuild's extract
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt](baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt](baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt](baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt), [baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt](baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt)
 
-### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors
+### Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by tools/baud-oracle's gvar, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
 - **Notice:** the two fonts' OFL texts beside it (JetBrainsMono-LICENSE.txt, FiraCode-LICENSE.txt)
-- **From:** read from the test fonts by scripts/gvar-oracle.py
+- **From:** read from the test fonts by tools/baud-oracle's gvar
 - **Files:** [baud-font/tests/var/outlines.txt](baud-font/tests/var/outlines.txt), [baud-font/tests/var/JetBrainsMono-LICENSE.txt](baud-font/tests/var/JetBrainsMono-LICENSE.txt), [baud-font/tests/var/FiraCode-LICENSE.txt](baud-font/tests/var/FiraCode-LICENSE.txt)
 
-### Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe
+### Glyph outlines read out of Source Code VF by tools/baud-oracle's cff2, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
 - **Notice:** [baud-font/tests/var/SourceCodeVF-LICENSE.txt](baud-font/tests/var/SourceCodeVF-LICENSE.txt)
-- **From:** read from the test font by scripts/cff2-oracle.py
+- **From:** read from the test font by tools/baud-oracle's cff2
 - **Files:** [baud-font/tests/var/cff2-outlines.txt](baud-font/tests/var/cff2-outlines.txt), [baud-font/tests/var/SourceCodeVF-LICENSE.txt](baud-font/tests/var/SourceCodeVF-LICENSE.txt)
 
 ### Bungee Tint, a test font, unmodified

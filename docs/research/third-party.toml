@@ -1819,19 +1819,19 @@ upstream = "baud's own build, ported from the research tree"
 status   = "own"
 
 [[tree]]
-what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by scripts/gvar-oracle.py, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors"
+what     = "Glyph outlines read out of JetBrains Mono's and Fira Code's variable fonts by tools/baud-oracle's gvar, the oracle baud-font's gvar code is tested against: part of each font's Font Software, so under its OFL, credited to JetBrains and to Nikita Prokopov and the Fira Code authors"
 paths    = ["baud-font/tests/var/outlines.txt", "baud-font/tests/var/JetBrainsMono-LICENSE.txt", "baud-font/tests/var/FiraCode-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "the two fonts' OFL texts beside it (JetBrainsMono-LICENSE.txt, FiraCode-LICENSE.txt)"
-upstream = "read from the test fonts by scripts/gvar-oracle.py"
+upstream = "read from the test fonts by tools/baud-oracle's gvar"
 status   = "kept"
 
 [[tree]]
-what     = "Glyph outlines read out of Source Code VF by scripts/cff2-oracle.py, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe"
+what     = "Glyph outlines read out of Source Code VF by tools/baud-oracle's cff2, the oracle baud-font's CFF2 code is tested against: part of the font's Font Software, so under its OFL, credited to Adobe"
 paths    = ["baud-font/tests/var/cff2-outlines.txt", "baud-font/tests/var/SourceCodeVF-LICENSE.txt"]
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/var/SourceCodeVF-LICENSE.txt"
-upstream = "read from the test font by scripts/cff2-oracle.py"
+upstream = "read from the test font by tools/baud-oracle's cff2"
 status   = "kept"
 
 [[tree]]
