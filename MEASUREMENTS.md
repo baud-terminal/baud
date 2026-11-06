@@ -2116,7 +2116,8 @@ light header take `#986100`, `BaudCursor::light`'s fill, in place of
 | the word's worst contrast, light | 12.61:1 | 12.61:1 |
 
 Both films pass WCAG 2.3.1 by the area, of 21,824, as before
-(`make-readme-logo.py`, its census and `readme_logo_flashes`); the
+(the film's driver, now `baud-pictures logo`, its census and
+`readme_logo_flashes`); the
 word's ink is unchanged, so its contrast is. The light half's haze is
 0.0% of the page's pixels, at most 10 levels.
 
@@ -3047,15 +3048,16 @@ malformed sources are refused (`tests/stage.rs`).
 
 Not timed: no byte path changed, and nothing in the workspace links the
 crate. `baud-pictures geometry` and `plasma` replace the deleted NumPy
-generator and its no-libm launcher; `make-readme-logo.py` runs them in
-`tools/shell.nix`. Every expression keeps its grouping, and the Python
-and NumPy the bytes rest on are ported: CPython 3.14.7's compensated
-builtin `sum`, `math.fsum`, float `%` and `//`, and both `round`s;
-NumPy 2.5.2's pairwise sum, `arange`'s fill, `gradient`'s one-sided
-edges, and `round` on a `float64`, which rounds `x * 10^n` and divides:
-146.95 to one place is 147.0 there and 146.9 in Python, and the plasma
-takes NumPy's where a waypoint came off a contour walk. Their licences
-and fdlibm's are beside the files and credited.
+generator and its no-libm launcher; the film's driver, then Python and
+now `baud-pictures logo`, runs them in `tools/shell.nix`. Every
+expression keeps its grouping, and the Python and NumPy the bytes rest
+on are ported: CPython 3.14.7's compensated builtin `sum`, `math.fsum`,
+float `%` and `//`, and both `round`s; NumPy 2.5.2's pairwise sum,
+`arange`'s fill, `gradient`'s one-sided edges, and `round` on a
+`float64`, which rounds `x * 10^n` and divides: 146.95 to one place is
+147.0 there and 146.9 in Python, and the plasma takes NumPy's where a
+waypoint came off a contour walk. Their licences and fdlibm's are beside
+the files and credited.
 
 Identity, on master `28878986` and again rebased on `18a091cf`: from
 `logo-walls.png` the four geometry files and, for each half, the
@@ -3090,6 +3092,55 @@ move's end, `floor` for `//`, and `<=` for the coverage tie. The vectors
 hold each function but not the call sites; the tie has no test. The
 deleted generator called its second part of pi/2 33 bits: it is
 fdlibm's `pio2_1t`, all 53. The constant is kept and its comment says so.
+
+## The README logo's film and encoders in `tools/baud-pictures logo`
+
+Not timed: no byte path changed, and the workspace links nothing new.
+`baud-pictures logo [--check]`, run in `tools/shell.nix`, replaces the
+deleted Python driver; `--keep DIR` leaves its frames and encodes. The
+palette snap and delay rewrite are byte edits, gifski 1.34.0 stays a
+program, and WebP goes through libwebp as Pillow 12.3.0 called it
+(`webp.rs`'s module doc). Base `4a1daafc`.
+
+Identity, both arms with `--check`: all four files `same`, the
+2,671,015, 1,178,009, 2,646,127 and 1,100,085 bytes committed, and
+stdout equal but for cargo's own test times. `cmp` finds each half's
+`bare.rgb`, `bare.json`, `strands.txt`, `film.json`, `frames.rgb` and
+`svg.repeats`, the eight geometry files and gifski's raw output equal;
+all 434 snapped frames equal pixel for pixel (`6ee2ade8...`,
+`f971aef3...`).
+
+The GIF checks read baud's own decoder, which on the committed GIFs
+composes all 434 frames and delays as Pillow did (`3937b1f2...`,
+`2f71a24f...`). `tools/` links no crate of the workspace, so `logo` runs
+baud-bench's `gif_frames` example with cargo, as it runs `flash_census`,
+and reads back its frames, delays and size; whether a GIF loops stays
+`gif::loops`, Pillow's rule. On a copy of `logo-dark.gif`, a signature
+byte changed is refused (exit 1) and a byte changed in the first image's
+data changes all 217 frames; that byte changed in what `logo` hands the
+example stops the run, `dark: the word's contrast falls to 1.04 to 1`.
+
+A byte of `logo-walls.png` flipped exits 1 with the same words but for
+the prefix, a byte past `logo-dark.gif`'s trailer prints `DIFFERS` and a
+`FAIL` line, and `--frob` a usage, each exiting 1. Each is a test too
+(`walls_pinned`, `compared`, `args`). The determinism checks on gifski
+and the SVG's encoder, the version refusals, `logo::decoded` and the
+census run have no test of their own; the real runs exercise them.
+`logo` without `--check`, on a `logo-light.svg` with a byte appended,
+wrote all four back to the committed bytes.
+
+Departures, all in the driver's own errors: a failed subprocess prints a
+line where Python printed a traceback, the prefix is now `baud-pictures
+logo:`, and the `tools:` line names zlib and libwebp. Gifski's frame
+PNGs are filter 0 at zlib level 1, and it reads the same pixels;
+`luminance` calls the platform's `pow`, so the printed contrast is not
+held to `det`.
+
+Twenty mutations against `tests/logo.rs`: 17 red. Half-even for
+half-away and a fused composite cannot show, `(v k + g (255 - k)) / 255`
+never being an integer plus a half, and skipping the mux writes the same
+bytes on these files. `--check` runs by hand, not in `devenv test`, as
+before.
 
 ## The DEC, national and ISO 96 sets compiled at build time
 

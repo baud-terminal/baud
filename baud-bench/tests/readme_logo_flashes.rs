@@ -1,5 +1,5 @@
 //! **The README logo's flashes, counted on the committed files**
-//! (`assets/readme/logo-{dark,light}.gif`, `scripts/make-readme-logo.py`;
+//! (`assets/readme/logo-{dark,light}.gif`, `tools/baud-pictures logo`;
 //! WCAG 2.3.1, `[[source: wcag22]]`), by [`baud_bench::flash::Census`]:
 //! each file decoded by baud's own GIF decoder, every frame held for its
 //! delay at 100 samples a second, the file's own grid, at 2 pixels a

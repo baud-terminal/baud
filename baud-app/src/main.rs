@@ -200,7 +200,7 @@ mod programs;
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod film;
 // The README's logo filmed without a window, for
-// scripts/make-readme-logo.py: the tests only.
+// tools/baud-pictures logo: the tests only.
 #[cfg(test)]
 mod logo_film;
 #[cfg(any(target_os = "macos", target_os = "linux"))]

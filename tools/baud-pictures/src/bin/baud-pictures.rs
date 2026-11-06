@@ -1,15 +1,17 @@
 //! `baud-pictures brand [--check] [--root DIR]`,
+//! `baud-pictures logo [--check] [--keep DIR]`,
 //! `baud-pictures geometry <walls.png> <out dir>` and
 //! `baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>`:
 //! see the crate's docs.
 
-use baud_pictures::{brand, geometry, plasma, zlib};
+use baud_pictures::{brand, geometry, logo, plasma, zlib};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
     eprintln!(
         "baud-pictures: usage: baud-pictures brand [--check] [--root DIR]\n\
+         \x20      baud-pictures logo [--check] [--keep DIR]\n\
          \x20      baud-pictures geometry <walls.png> <out dir>\n\
          \x20      baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>"
     );
@@ -66,10 +68,40 @@ fn brand(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn logo(args: &[String]) -> ExitCode {
+    let (check, keep) = match logo::args(args) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("baud-pictures logo: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let bad = match logo::main(&logo::root(), check, keep.as_deref()) {
+        Ok(bad) => bad,
+        Err(msg) => {
+            eprintln!("baud-pictures logo: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for line in &bad {
+        println!("FAIL {line}");
+    }
+    if !bad.is_empty() {
+        return ExitCode::FAILURE;
+    }
+    if check {
+        println!("ok: the logos are the film's, byte for byte");
+    } else {
+        println!("ok");
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("brand") => brand(&args[1..]),
+        Some("logo") => logo(&args[1..]),
         Some("geometry") => {
             if args.len() != 3 {
                 return usage();

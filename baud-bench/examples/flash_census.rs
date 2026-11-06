@@ -1,7 +1,7 @@
 //! **WCAG 2.3.1's census over an animation file's frames**: the method of
 //! `tests/splash_flashes.rs` (`baud_bench::flash::Census`), fed the frames
 //! a decoder read out of a file, so what is counted is what a browser
-//! shows. `scripts/make-readme-logo.py` runs it on the README's logo.
+//! shows. `tools/baud-pictures logo` runs it on the README's logo.
 //!
 //! usage: `flash_census <frames> <repeats> <width> <height> <passes> <hold>
 //! <rate> <scale>`

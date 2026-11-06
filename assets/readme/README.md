@@ -87,15 +87,17 @@ shown; `baud-bench/tests/readme_logo_flashes.rs` takes WCAG 2.3.1's
 census of each GIF at 100 samples a second and 2 pixels a point, the
 last frame held 3 s, and requires both verdicts to pass, no red flash,
 and no more flashes at a pixel or strict area than the files measured.
-`scripts/make-readme-logo.py` films both halves, encodes them with
-gifski 1.34.0 from `readme-film.sh`'s nixpkgs and Pillow from nixpkgs
-`7dd199b0`, the revision `tools/shell.nix` pins for the pictures, every
-pixel within 3 levels of the page set to it first so the encoder cannot
-haze the page (0.0004% of the dark GIF's page pixels are off it, by at
-most 13 levels), checks both
-encoders write the same bytes twice, takes the SVGs' census, writes the
-files and runs the tests; with `--check` it compares the files byte for
-byte instead of writing them. The generator, `tools/baud-pictures
+`tools/baud-pictures logo`, run in `tools/shell.nix`, films both
+halves and encodes them, the GIFs with gifski 1.34.0 from
+`readme-film.sh`'s nixpkgs, run as a program and never linked, and the
+SVGs' frames with libwebp 1.6.0 from nixpkgs `7dd199b0`, the revision
+`tools/shell.nix` pins for the pictures, the build Pillow 12.3.0 linked
+there, called as Pillow called it; every pixel within 3 levels of the
+page is set to it first so the encoder cannot haze the page (0.0004% of
+the dark GIF's page pixels are off it, by at most 13 levels). It checks
+both encoders write the same bytes twice, takes the SVGs' census, writes
+the files and runs the tests; with `--check` it compares the files byte
+for byte instead of writing them. The generator, `tools/baud-pictures
 geometry` and `plasma`, does IEEE's own arithmetic and its own `sin`,
 `cos` and `exp` (`det`), calling none of the platform's, which a test
 holds it to (`the_logo_generator_calls_no_platform_math`), so its frames

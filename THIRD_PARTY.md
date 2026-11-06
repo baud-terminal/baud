@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 326 | 65 | redistributable, and its notice is satisfied |
+| kept | 326 | 66 | redistributable, and its notice is satisfied |
 | own | 269 | 8 | the work of baud's author |
-| total | 596 | 74 | |
+| total | 596 | 75 | |
 
 ## Licence texts in LICENSES/
 
@@ -51,6 +51,7 @@ they were built from.
 | [ijg-README.txt](LICENSES/ijg-README.txt) | IJG | fetched: README in https://www.ijg.org/files/jpegsrc.v6b.tar.gz (sha256 75c3ec241e9996504fe02a9ed4d12f16b74ade713972f3db9e65ce95cd27e35d), unaltered as its condition (1) requires | 4cf9c190f184019b |
 | [iterm2-color-schemes-MIT.txt](LICENSES/iterm2-color-schemes-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE | 2373168614b52749 |
 | [libjpeg-turbo-README-ijg.txt](LICENSES/libjpeg-turbo-README-ijg.txt) | IJG | fetched: README.ijg in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz (sha256 3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c), unaltered as its condition (1) requires | 75815e3bf6484201 |
+| [libwebp-BSD-3-Clause.txt](LICENSES/libwebp-BSD-3-Clause.txt) | BSD-3-Clause | fetched: https://raw.githubusercontent.com/webmproject/libwebp/v1.6.0/COPYING | 5aec868f669e384a |
 | [libx11-compose.txt](LICENSES/libx11-compose.txt) | MIT | built: the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/COPYING, verbatim, with a paragraph saying which copied files it covers | 1ed64ec53f01779b |
 | [libx11-xcms.txt](LICENSES/libx11-xcms.txt) | LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group | built: the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which | e401afaad5a23d6d |
 | [libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt) | MIT AND HPND | fetched: https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE | 967e97b28658f003 |
@@ -119,7 +120,7 @@ they were built from.
 - **From:** https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
 - **Files:** [assets/logo/baud-github-org.png](assets/logo/baud-github-org.png), [assets/logo/baud-github-org.svg](assets/logo/baud-github-org.svg), [assets/logo/baud-icon-32-dark.svg](assets/logo/baud-icon-32-dark.svg), [assets/logo/baud-icon-32-light.svg](assets/logo/baud-icon-32-light.svg), [assets/logo/baud-icon-512-amber.svg](assets/logo/baud-icon-512-amber.svg), [assets/logo/baud-icon-512-dark-blinking.svg](assets/logo/baud-icon-512-dark-blinking.svg), [assets/logo/baud-icon-512-dark.svg](assets/logo/baud-icon-512-dark.svg), [assets/logo/baud-icon-512-light-blinking.svg](assets/logo/baud-icon-512-light-blinking.svg), [assets/logo/baud-icon-512-light.svg](assets/logo/baud-icon-512-light.svg), [assets/logo/baud-icon-dock-1024.png](assets/logo/baud-icon-dock-1024.png), [assets/logo/baud-icon-dock-128.png](assets/logo/baud-icon-dock-128.png), [assets/logo/baud-icon-dock-16.png](assets/logo/baud-icon-dock-16.png), [assets/logo/baud-icon-dock-256.png](assets/logo/baud-icon-dock-256.png), [assets/logo/baud-icon-dock-32.png](assets/logo/baud-icon-dock-32.png), [assets/logo/baud-icon-dock-512.png](assets/logo/baud-icon-dock-512.png), [assets/logo/baud-icon-dock-64.png](assets/logo/baud-icon-dock-64.png), [assets/logo/baud-icon-dock.svg](assets/logo/baud-icon-dock.svg), [assets/logo/baud-lockup-dark-blinking.svg](assets/logo/baud-lockup-dark-blinking.svg), [assets/logo/baud-lockup-dark-tight.svg](assets/logo/baud-lockup-dark-tight.svg), [assets/logo/baud-lockup-dark.svg](assets/logo/baud-lockup-dark.svg), [assets/logo/baud-lockup-light-blinking.svg](assets/logo/baud-lockup-light-blinking.svg), [assets/logo/baud-lockup-light-tight.svg](assets/logo/baud-lockup-light-tight.svg), [assets/logo/baud-lockup-light.svg](assets/logo/baud-lockup-light.svg), [assets/logo/baud-lockup-mono-black.svg](assets/logo/baud-lockup-mono-black.svg), [assets/logo/baud-lockup-mono-white.svg](assets/logo/baud-lockup-mono-white.svg), [assets/logo/baud-mark-amber-tight.svg](assets/logo/baud-mark-amber-tight.svg), [assets/logo/baud-mark-amber.svg](assets/logo/baud-mark-amber.svg), [assets/logo/baud-mark-dark-blinking.svg](assets/logo/baud-mark-dark-blinking.svg), [assets/logo/baud-mark-dark.svg](assets/logo/baud-mark-dark.svg), [assets/logo/baud-mark-light-blinking.svg](assets/logo/baud-mark-light-blinking.svg), [assets/logo/baud-mark-light.svg](assets/logo/baud-mark-light.svg), [assets/logo/JetBrainsMono-OFL.txt](assets/logo/JetBrainsMono-OFL.txt)
 
-### The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own
+### The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (tools/baud-pictures logo). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** OFL-1.1
@@ -487,13 +488,21 @@ they were built from.
 - **From:** https://github.com/fonttools/fonttools/tree/4.63.0
 - **Files:** [tools/baud-pictures/src/outline.rs](tools/baud-pictures/src/outline.rs)
 
-### Code transcribed from Pillow 12.3.0 in tools/baud-pictures, the build tool that draws the logo files: png.rs's PNG writer, which is PngImagePlugin._save(), ImageFile._save() and ZipEncode.c's filter choice and deflate loop, and resample.rs's LANCZOS resize of a mode F image, which is Resample.c's precompute_coeffs() and its 32-bit float passes, so the PNGs are the bytes Pillow wrote. Not published
+### Code transcribed from Pillow 12.3.0 in tools/baud-pictures, the build tool that draws the logo files: png.rs's PNG writer, which is PngImagePlugin._save(), ImageFile._save() and ZipEncode.c's filter choice and deflate loop, resample.rs's LANCZOS resize of a mode F image, which is Resample.c's precompute_coeffs() and its 32-bit float passes, so the PNGs are the bytes Pillow wrote, webp.rs's WebP writer and reader, which are _webp.c's WebPEncode_wrapper() and import_frame_libwebp() and WebPImagePlugin's _save() and the anim decoder it opens with, so the README logo's SVG frames are the bytes Pillow wrote, and gif.rs's loop test, GifImagePlugin's NETSCAPE2.0 read. Not published
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT-CMU
 - **Notice:** [LICENSES/pillow-MIT-CMU.txt](LICENSES/pillow-MIT-CMU.txt)
 - **From:** https://github.com/python-pillow/Pillow/tree/12.3.0
-- **Files:** [tools/baud-pictures/src/png.rs](tools/baud-pictures/src/png.rs), [tools/baud-pictures/src/resample.rs](tools/baud-pictures/src/resample.rs)
+- **Files:** [tools/baud-pictures/src/png.rs](tools/baud-pictures/src/png.rs), [tools/baud-pictures/src/resample.rs](tools/baud-pictures/src/resample.rs), [tools/baud-pictures/src/webp.rs](tools/baud-pictures/src/webp.rs), [tools/baud-pictures/src/gif.rs](tools/baud-pictures/src/gif.rs)
+
+### libwebp 1.6.0's interface transcribed in tools/baud-pictures, the build tool that draws the README logo's SVG frames: webp.rs's WebPConfig, WebPPicture, WebPMemoryWriter, WebPData, WebPBitstreamFeatures and WebPAnimInfo layouts, its extern lines and its ABI version numbers, from encode.h, decode.h, mux.h, demux.h and mux_types.h, so its calls are the ones Pillow made. The library itself is linked from the pinned nixpkgs and nothing of it is shipped. Not published
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** BSD-3-Clause
+- **Notice:** [LICENSES/libwebp-BSD-3-Clause.txt](LICENSES/libwebp-BSD-3-Clause.txt)
+- **From:** https://github.com/webmproject/libwebp/tree/v1.6.0
+- **Files:** [tools/baud-pictures/src/webp.rs](tools/baud-pictures/src/webp.rs)
 
 ### Code transcribed from fdlibm in tools/baud-pictures, the build tool that draws the README logo's plasma: det.rs's sine and cosine kernels, k_sin.c's and k_cos.c's coefficients and the grouping of their polynomials, and three of e_rem_pio2.c's parts of pi/2, so the plasma's strands are the bits its generator wrote. Not published
 

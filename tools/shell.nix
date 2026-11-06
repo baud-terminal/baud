@@ -12,6 +12,9 @@
 # zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs and
 # inflates the README logo's walls with, is the one Pillow 12.3.0 carried
 # in nixpkgs 7dd199b0, the revision the pictures were first drawn from.
+# libwebp 1.6.0, which it encodes and decodes the README logo's SVG
+# frames with, is the build Pillow's `_webp` linked there: libtiff's,
+# `libwebp.override { tiffSupport = false; }`, not the plain attribute.
 #
 #   nix-shell tools/shell.nix --run \
 #     'cargo run --release --manifest-path tools/Cargo.toml --bin advance'
@@ -40,15 +43,18 @@ let
         sha256 = "08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3";
       })
       { };
+  webp = pictures.libwebp.override { tiffSupport = false; };
 in
 assert xkb.libxkbcommon.version == "1.13.2";
 assert pictures.zlib.version == "1.3.2";
+assert webp.version == "1.6.0";
 pkgs.mkShell {
   packages = [ pkgs.pkg-config ];
   # pictures.zlib first, so pkg-config names it before the zlib FreeType
   # propagates from the first revision.
   buildInputs = [
     pictures.zlib
+    webp
     harfbuzz
     pkgs.freetype
     xkb.libxkbcommon

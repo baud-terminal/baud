@@ -384,6 +384,12 @@ from    = "README.ijg in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/
 how     = "fetched"
 sha256  = "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6"
 
+[text."libwebp-BSD-3-Clause.txt"]
+licence = "BSD-3-Clause"
+from    = "https://raw.githubusercontent.com/webmproject/libwebp/v1.6.0/COPYING"
+how     = "fetched"
+sha256  = "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+
 [text."libx11-xcms.txt"]
 licence = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
 from    = "the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which"
@@ -1746,7 +1752,7 @@ public   = "baud's app icon and title bar logo, whose glyphs are JetBrains Mono 
 holder   = "The JetBrains Mono Project Authors"
 
 [[tree]]
-what     = "The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (scripts/make-readme-logo.py). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own"
+what     = "The letters of the repository's link picture and of the README's logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (tools/baud-pictures logo). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape and the plasma are baud's own"
 paths    = ["assets/readme/social.svg", "assets/readme/social.png", "assets/readme/logo-dark.gif", "assets/readme/logo-light.gif", "assets/readme/logo-dark.svg", "assets/readme/logo-light.svg", "assets/readme/logo-walls.png", "assets/readme/JetBrainsMono-OFL.txt"]
 licence  = "OFL-1.1"
 notice   = "assets/readme/JetBrainsMono-OFL.txt"
@@ -2256,13 +2262,22 @@ status   = "kept"
 holder   = "Just van Rossum and the fontTools authors"
 
 [[tree]]
-what     = "Code transcribed from Pillow 12.3.0 in tools/baud-pictures, the build tool that draws the logo files: png.rs's PNG writer, which is PngImagePlugin._save(), ImageFile._save() and ZipEncode.c's filter choice and deflate loop, and resample.rs's LANCZOS resize of a mode F image, which is Resample.c's precompute_coeffs() and its 32-bit float passes, so the PNGs are the bytes Pillow wrote. Not published"
-paths    = ["tools/baud-pictures/src/png.rs", "tools/baud-pictures/src/resample.rs"]
+what     = "Code transcribed from Pillow 12.3.0 in tools/baud-pictures, the build tool that draws the logo files: png.rs's PNG writer, which is PngImagePlugin._save(), ImageFile._save() and ZipEncode.c's filter choice and deflate loop, resample.rs's LANCZOS resize of a mode F image, which is Resample.c's precompute_coeffs() and its 32-bit float passes, so the PNGs are the bytes Pillow wrote, webp.rs's WebP writer and reader, which are _webp.c's WebPEncode_wrapper() and import_frame_libwebp() and WebPImagePlugin's _save() and the anim decoder it opens with, so the README logo's SVG frames are the bytes Pillow wrote, and gif.rs's loop test, GifImagePlugin's NETSCAPE2.0 read. Not published"
+paths    = ["tools/baud-pictures/src/png.rs", "tools/baud-pictures/src/resample.rs", "tools/baud-pictures/src/webp.rs", "tools/baud-pictures/src/gif.rs"]
 licence  = "MIT-CMU"
 notice   = "LICENSES/pillow-MIT-CMU.txt"
 upstream = "https://github.com/python-pillow/Pillow/tree/12.3.0"
 status   = "kept"
 holder   = "Secret Labs AB, Fredrik Lundh, and Jeffrey A. Clark and the Pillow contributors"
+
+[[tree]]
+what     = "libwebp 1.6.0's interface transcribed in tools/baud-pictures, the build tool that draws the README logo's SVG frames: webp.rs's WebPConfig, WebPPicture, WebPMemoryWriter, WebPData, WebPBitstreamFeatures and WebPAnimInfo layouts, its extern lines and its ABI version numbers, from encode.h, decode.h, mux.h, demux.h and mux_types.h, so its calls are the ones Pillow made. The library itself is linked from the pinned nixpkgs and nothing of it is shipped. Not published"
+paths    = ["tools/baud-pictures/src/webp.rs"]
+licence  = "BSD-3-Clause"
+notice   = "LICENSES/libwebp-BSD-3-Clause.txt"
+upstream = "https://github.com/webmproject/libwebp/tree/v1.6.0"
+status   = "kept"
+holder   = "Google Inc."
 
 [[tree]]
 what     = "Code transcribed from fdlibm in tools/baud-pictures, the build tool that draws the README logo's plasma: det.rs's sine and cosine kernels, k_sin.c's and k_cos.c's coefficients and the grouping of their polynomials, and three of e_rem_pio2.c's parts of pi/2, so the plasma's strands are the bits its generator wrote. Not published"

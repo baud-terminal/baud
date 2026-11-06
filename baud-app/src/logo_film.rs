@@ -3,7 +3,7 @@
 //! page colour, with baud's plasma moving round and through it as if each
 //! glyph were a solid wall, its block blinking as baud's cursor blinks by
 //! default, for under five seconds, then resting on the logo with the
-//! block shown. `scripts/make-readme-logo.py` runs
+//! block shown. `tools/baud-pictures logo` runs
 //! [`film_the_readme_logo_bare`] and [`film_the_readme_logo`] for each
 //! half and encodes what they write into `assets/readme/logo-dark.gif`
 //! and `logo-light.gif`; nothing opens a window.
@@ -524,7 +524,7 @@ fn on_stage<T>(theme: Theme, film: impl FnOnce(&mut Frame<'_, '_, '_>) -> T) -> 
 /// `bare.json`, the canvas's size and the default blink's phases, which
 /// the generator builds its frames on.
 #[test]
-#[ignore = "a tool: scripts/make-readme-logo.py runs it"]
+#[ignore = "a tool: tools/baud-pictures logo runs it"]
 fn film_the_readme_logo_bare() {
     let out = path_var("BAUD_LOGO_OUT");
     let (half, theme, page, ..) = half();
@@ -560,7 +560,7 @@ fn film_the_readme_logo_bare() {
 /// film starts and rests on the bare logo, the block shown, and moves for
 /// the blink's whole cycles under [`BOUND`].
 #[test]
-#[ignore = "a tool: scripts/make-readme-logo.py runs it"]
+#[ignore = "a tool: tools/baud-pictures logo runs it"]
 fn film_the_readme_logo() {
     let out = path_var("BAUD_LOGO_OUT");
     let (half, theme, page, ink, amber) = half();
@@ -853,7 +853,7 @@ mod tests {
     /// frame times to the next, on the GIF's own grid, the last hidden at
     /// the GIF's end of motion, under five seconds. It ties each SVG to its
     /// GIF by the base frame and the frame times only, not by the frames'
-    /// content; `make-readme-logo.py --check` is what holds the content.
+    /// content; `baud-pictures logo --check` is what holds the content.
     #[test]
     fn the_readme_svgs_play_the_gifs_times_and_rest_shown() {
         let (cw, ch) = canvas_size();
