@@ -733,6 +733,196 @@ fn the_dock_mark_is_a_prompt_in_the_tiles_upper_left() {
 
 // ---------------------------------------------------------------- the title bar
 
+/// **How far the block's top may sit from the word's top, and how far the
+/// ❯-to-block gap from [`GAP_OF_CELL`]**, in the units of the file: the two
+/// decimals each number is written to.
+const LINED_UP: f64 = 0.02;
+
+/// **The ink gap from the ❯ to the block, as a share of the cell's height**:
+/// baud's own drawing of them, 1.43 pt in the title bar, which lining the
+/// mark up with the word leaves as it was.
+const GAP_OF_CELL: f64 = 0.1134;
+
+/// Every lockup the generator draws, the card's among them, with the index
+/// of its block among the file's rects.
+const LOCKUPS: [(&str, usize); 9] = [
+    ("assets/logo/baud-lockup-dark.svg", 1),
+    ("assets/logo/baud-lockup-dark-blinking.svg", 1),
+    ("assets/logo/baud-lockup-light.svg", 0),
+    ("assets/logo/baud-lockup-light-blinking.svg", 0),
+    ("assets/logo/baud-lockup-mono-black.svg", 0),
+    ("assets/logo/baud-lockup-mono-white.svg", 0),
+    ("assets/logo/baud-lockup-dark-tight.svg", 0),
+    ("assets/logo/baud-lockup-light-tight.svg", 0),
+    ("assets/readme/social.svg", 1),
+];
+
+/// What keeps a lockup's block from standing on the word's top with the
+/// gap as it was, measured off the file: its first path the word, its
+/// second the ❯, and its `block`th rect the block.
+fn lined_up_faults(text: &str, block: usize) -> Vec<String> {
+    let (paths, rects) = drawn(text);
+    let (Some((word, _)), Some((prompt, _)), Some((b, _))) =
+        (paths.first(), paths.get(1), rects.get(block))
+    else {
+        return vec!["no word, ❯ and block".to_owned()];
+    };
+    let axis = |d: &str, x: bool| -> Vec<f64> {
+        let (_, nums, axes) = tokens(d);
+        nums.iter()
+            .zip(&axes)
+            .filter(|(_, a)| **a == x)
+            .map(|(n, _)| *n)
+            .collect()
+    };
+    let top = axis(word, false).into_iter().fold(f64::INFINITY, f64::min);
+    let right = axis(prompt, true)
+        .into_iter()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let mut out = Vec::new();
+    if (top - b[1]).abs() > LINED_UP {
+        out.push(format!(
+            "the block's top {} is not on the word's top {top}",
+            b[1]
+        ));
+    }
+    let gap = b[0] - right;
+    if (gap - GAP_OF_CELL * b[3]).abs() > LINED_UP.max(0.0005 * b[3]) {
+        out.push(format!(
+            "the gap {gap} is not {GAP_OF_CELL} of the cell's {}",
+            b[3]
+        ));
+    }
+    out
+}
+
+/// **The block's top sits on the word's top, and the gap stays**, on every
+/// lockup as the generator wrote it. The controls: the block where it stood
+/// before the two were lined up, 2.26 units lower in the 300 lockup, and the
+/// ❯ a unit to the left, are each refused.
+#[test]
+fn every_lockups_block_stands_on_the_words_top() {
+    let read = |rel: &str| fs::read_to_string(workspace().join(rel)).expect(rel);
+    let mut bad = Vec::new();
+    for (name, block) in LOCKUPS {
+        bad.extend(
+            lined_up_faults(&read(name), block)
+                .into_iter()
+                .map(|f| format!("{name}: {f}")),
+        );
+    }
+    assert!(bad.is_empty(), "not lined up: {bad:#?}");
+    let light = read("assets/logo/baud-lockup-light.svg");
+    let (paths, rects) = drawn(&light);
+    let y = rects[0].0[1];
+    let lower = light.replace(&format!(" y=\"{y}\""), &format!(" y=\"{}\"", y + 2.26));
+    assert_ne!(lower, light, "the control moved the block");
+    let lower = lined_up_faults(&lower, 0);
+    assert_eq!(lower.len(), 1, "{lower:?}");
+    assert!(lower[0].starts_with("the block's top"), "{lower:?}");
+    let shifted = rects[0].0[0] + 1.0;
+    let nearer = light.replace(
+        &format!(" x=\"{}\"", rects[0].0[0]),
+        &format!(" x=\"{shifted}\""),
+    );
+    assert_ne!(nearer, light, "the control moved the block");
+    let nearer = lined_up_faults(&nearer, 0);
+    assert_eq!(nearer.len(), 1, "{nearer:?}");
+    assert!(nearer[0].starts_with("the gap"), "{nearer:?}");
+    assert_eq!(paths.len(), 2, "the word and the ❯");
+}
+
+/// **The README's `<picture>`, what a reader who asked for reduced motion
+/// gets first, in each colour scheme, then the films**: each source's
+/// `media` and `srcset` in order, and the `<img>`'s `src`.
+const README_PICTURE: [(&str, &str); 4] = [
+    (
+        "(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)",
+        "assets/logo/baud-lockup-dark-tight.svg",
+    ),
+    (
+        "(prefers-reduced-motion: reduce)",
+        "assets/logo/baud-lockup-light-tight.svg",
+    ),
+    (
+        "(prefers-color-scheme: dark)",
+        "assets/readme/logo-dark.gif",
+    ),
+    ("", "assets/readme/logo-light.gif"),
+];
+
+/// What keeps `readme`'s first `<picture>` from being [`README_PICTURE`].
+fn picture_faults(readme: &str) -> Vec<String> {
+    let inside = readme
+        .split("<picture>")
+        .nth(1)
+        .and_then(|s| s.split("</picture>").next())
+        .unwrap_or_default();
+    let quoted = |el: &str, k: &str| {
+        el.split(&format!(" {k}=\""))
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let got: Vec<(String, String)> = inside
+        .split('<')
+        .skip(1)
+        .map(|el| match el.starts_with("img") {
+            true => (String::new(), quoted(el, "src")),
+            false => (quoted(el, "media"), quoted(el, "srcset")),
+        })
+        .collect();
+    let want: Vec<(String, String)> = README_PICTURE
+        .iter()
+        .map(|(m, f)| ((*m).to_owned(), (*f).to_owned()))
+        .collect();
+    let mut out = Vec::new();
+    if got != want {
+        out.push(format!("the picture says {got:#?}"));
+    }
+    for (_, file) in &got {
+        if !workspace().join(file).is_file() {
+            out.push(format!("{file} is not there"));
+        }
+    }
+    out
+}
+
+/// **A reader who asked for reduced motion gets a still**: the film repeats
+/// and a README can give it no pause control (WCAG 2.2.2), so the sources for
+/// `prefers-reduced-motion` come first, a browser taking the first that
+/// matches, and each names a file that is there and does not move. The
+/// controls: the two films first, and a still that is not there, are refused.
+#[test]
+fn the_readmes_logo_gives_reduced_motion_a_still() {
+    let readme = fs::read_to_string(workspace().join("README.md")).expect("README.md");
+    let bad = picture_faults(&readme);
+    assert!(bad.is_empty(), "{bad:#?}");
+    for (_, file) in &README_PICTURE[..2] {
+        let text = fs::read_to_string(workspace().join(file)).expect("the still");
+        assert!(!text.contains("<animate"), "{file} moves");
+    }
+    let (reduced, film) = (
+        "(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)",
+        "(prefers-color-scheme: dark)",
+    );
+    let swapped = readme
+        .replacen(reduced, "@@", 1)
+        .replacen(&format!("\"{film}\""), &format!("\"{reduced}\""), 1)
+        .replacen("@@", film, 1);
+    assert_ne!(swapped, readme, "the control swapped them");
+    assert!(!picture_faults(&swapped).is_empty(), "the film first");
+    let gone = readme.replacen("baud-lockup-dark-tight.svg", "baud-lockup-dark-gone.svg", 1);
+    assert_ne!(gone, readme, "the control named another file");
+    assert!(
+        picture_faults(&gone)
+            .iter()
+            .any(|f| f.contains("not there")),
+        "a still that is not there"
+    );
+}
+
 /// The title bar's lockups, each with the lockup it is cropped from: the
 /// light word for a dark appearance, the dark word for a light one.
 const TITLEBAR: [(&str, &str); 2] = [

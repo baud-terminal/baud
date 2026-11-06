@@ -39,26 +39,31 @@
 //! does not as interfering with the whole page. A README carries no control
 //! of its own, and GitHub's setting to pause animated images does not reach
 //! an image inside `<picture>`, so a logo that repeats does not meet it
-//! there. WCAG 2.3.1 is a separate matter and is met: the census counts the
-//! repeat and its join.
+//! there. So the README's `<picture>` serves a reader who asked for reduced
+//! motion the still lockup in place of the film, by
+//! `prefers-reduced-motion` on its first two sources, which
+//! `the_readmes_logo_gives_reduced_motion_a_still` holds; a reader who did
+//! not ask gets the film and no control. WCAG 2.3.1 is a separate matter and
+//! is met: the census counts the repeat and its join.
 //!
 //! **How it is made**, for each half, on GitHub's page colour, `#0d1117`
 //! for the dark theme and `#ffffff` for the light:
 //!  1. baud-app's logo film draws the bare logo, the block shown;
 //!  2. the dark half's bare logo is held to `assets/readme/logo-walls.png`,
 //!     the drawing the plasma's path was chosen against, which
-//!     [`WALLS_SHA256`] pins: today's renderer must draw it within
-//!     [`WALLS_OFF`], or the lockup has moved and the path must be chosen
-//!     again against it;
+//!     [`WALLS_SHA256`] pins: today's renderer must draw the word within
+//!     [`WALLS_OFF`] of it, and the mark moved up as [`MARK_MOVED`] says,
+//!     or the lockup has moved and the path must be chosen again;
 //!  3. [`crate::geometry`] reads the walls' signed distance field, normals
 //!     and counters off it, and [`crate::plasma`] writes each frame's
 //!     strands against them, in arithmetic that calls none of the
 //!     platform's `sin`, `exp` and the rest, so a run is the same on every
 //!     platform;
 //!  4. the film draws each frame through the renderer's splash layers and
-//!     slabs, the block at the caret's phase, in release's optimisation
-//!     without LTO (a test, not an example: the blink is the app's, and
-//!     the app is a binary whose modules no example reaches);
+//!     slabs, cut against today's bare logo and its own distance field, the
+//!     block at the caret's phase, in release's optimisation without LTO (a
+//!     test, not an example: the blink is the app's, and the app is a binary
+//!     whose modules no example reaches);
 //!  5. every pixel within [`SNAP`] levels of the page is set to it, so the
 //!     encoder's error cannot haze the page round the logo;
 //!  6. gifski encodes the GIF at [`QUALITY`], its motion and lossy passes
@@ -175,8 +180,12 @@ pub const MOVED: u8 = 4;
 pub const WALLS: &str = "assets/readme/logo-walls.png";
 pub const WALLS_SHA256: &str = "931c0a901594ee8834194315ce1e36094e4a7dc00a24ea3a4670f48c6dab8638";
 
-/// How far today's bare logo may be from the walls, each at the count
-/// measured when they were frozen: pixels differing and the most a
+/// **The canvas's columns the word stands in**, left of the ❯'s, and of the
+/// mark's reach on the word's distance field.
+pub const WORD_COLUMNS: usize = 510;
+
+/// How far today's word may be from the walls' over [`WORD_COLUMNS`], each
+/// at the count measured when the mark moved: pixels differing and the most a
 /// channel moves, pixels of the ink's half-coverage mask differing, and
 /// the most the signed distance moves, in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -188,11 +197,43 @@ pub struct Off {
 }
 
 pub const WALLS_OFF: Off = Off {
-    pixels: 3930,
+    pixels: 3873,
     levels: 2,
-    mask: 3,
+    mask: 2,
     sdf: 1.0,
 };
+
+/// **A glyph of the mark as it stands against the walls**: its columns of
+/// the canvas, how many rows it stands higher, and how far it may then be
+/// off them, each at the count measured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Moved {
+    pub columns: (usize, usize),
+    pub rows: usize,
+    pub pixels: u64,
+    pub levels: u64,
+}
+
+/// **The mark moved up against the word**: 2.26 of the lockup's units, at
+/// the film's two pixels a unit, the ❯'s baseline and the block's rows each
+/// rounded to their own whole pixel. The path keeps the walls' mark, and
+/// stays the path that was chosen: every chain from the walls of the moved
+/// mark is another path, since each candidate of the search shifts when one
+/// does. The word is where the path was chosen, pixel for pixel.
+pub const MARK_MOVED: [Moved; 2] = [
+    Moved {
+        columns: (WORD_COLUMNS, 562),
+        rows: 4,
+        pixels: 57,
+        levels: 2,
+    },
+    Moved {
+        columns: (562, crate::geometry::W),
+        rows: 5,
+        pixels: 0,
+        levels: 0,
+    },
+];
 
 impl Off {
     /// The dict's `repr`, as the walls line prints it.
@@ -321,6 +362,57 @@ pub fn walls_off(walls: &[u8], today: &[u8], sdf_walls: &[f32], sdf_today: &[f32
         mask,
         sdf: py::round_to(f64::from(sdf), 3),
     }
+}
+
+/// The columns `x0..x1` of `w` by `h` values, each `n` long, row by row.
+fn columns<T: Copy>(v: &[T], (w, h): (usize, usize), n: usize, (x0, x1): (usize, usize)) -> Vec<T> {
+    (0..h)
+        .flat_map(|y| v[(y * w + x0) * n..(y * w + x1) * n].iter().copied())
+        .collect()
+}
+
+/// **What keeps `today`'s word off the `walls`' and its mark from being
+/// theirs moved up**, both RGB canvases, or nothing, with each one's signed
+/// distance field: how far the word is, and each glyph of the mark past its
+/// [`MARK_MOVED`].
+#[must_use]
+pub fn lockup_faults(
+    walls: &[u8],
+    today: &[u8],
+    sdf_walls: &[f32],
+    sdf_today: &[f32],
+) -> (Off, Vec<String>) {
+    let size = (geometry::W, geometry::H);
+    let word = (0, WORD_COLUMNS);
+    let off = walls_off(
+        &columns(walls, size, 3, word),
+        &columns(today, size, 3, word),
+        &columns(sdf_walls, size, 1, word),
+        &columns(sdf_today, size, 1, word),
+    );
+    let mut bad = Vec::new();
+    for m in MARK_MOVED {
+        let (mut pixels, mut levels) = (0u64, 0u64);
+        for y in m.rows..geometry::H {
+            for x in m.columns.0..m.columns.1 {
+                let at = |c: &[u8], row: usize| -> [u8; 3] {
+                    let i = (row * geometry::W + x) * 3;
+                    [c[i], c[i + 1], c[i + 2]]
+                };
+                let (a, b) = (at(walls, y), at(today, y - m.rows));
+                let d = (0..3).map(|j| a[j].abs_diff(b[j])).max().unwrap_or(0);
+                pixels += u64::from(d > 0);
+                levels = levels.max(u64::from(d));
+            }
+        }
+        if pixels > m.pixels || levels > m.levels {
+            bad.push(format!(
+                "columns {:?} are {pixels} pixels, {levels} levels off the walls' {} rows up, at most {} and {}",
+                m.columns, m.rows, m.pixels, m.levels
+            ));
+        }
+    }
+    (off, bad)
 }
 
 /// The haze: of the pixels the film drew as the page, the share in
@@ -1247,8 +1339,9 @@ fn f32s(b: &[u8]) -> Vec<f32> {
 }
 
 /// Hold today's dark bare logo to the walls the path was chosen against,
-/// by [`WALLS_OFF`]; the walls' geometry directory.
-fn walls_hold(root: &Path, today: &[u8], tmp: &Path) -> Result<PathBuf, Fail> {
+/// by [`lockup_faults`]; the walls' geometry directory, which the path is
+/// chosen from, and today's, which the film's slabs are cut from.
+fn walls_hold(root: &Path, today: &[u8], tmp: &Path) -> Result<(PathBuf, PathBuf), Fail> {
     let data = read(&root.join(WALLS))?;
     walls_pinned(&data)?;
     let walls = png::decode(&data)?;
@@ -1274,19 +1367,24 @@ fn walls_hold(root: &Path, today: &[u8], tmp: &Path) -> Result<PathBuf, Fail> {
         }
         dirs.push(g);
     }
-    let off = walls_off(&walls, today, &sdf[0], &sdf[1]);
+    let (off, bad) = lockup_faults(&walls, today, &sdf[0], &sdf[1]);
     println!(
-        "walls: today's bare logo is {} off them, at most {}",
+        "walls: today's word is {} off them, at most {}; {} of the mark's glyphs off where it moved to",
         off.repr(),
-        WALLS_OFF.repr()
+        WALLS_OFF.repr(),
+        bad.len()
     );
-    if off.past(&WALLS_OFF) {
+    for line in &bad {
+        println!("walls: {line}");
+    }
+    if off.past(&WALLS_OFF) || !bad.is_empty() {
         return Err(
             "the lockup has moved off the walls the plasma's path was chosen against: choose the path again"
                 .into(),
         );
     }
-    Ok(dirs.swap_remove(0))
+    let today = dirs.swap_remove(1);
+    Ok((dirs.swap_remove(0), today))
 }
 
 /// The generator's strands for each frame, and its report.
@@ -1413,13 +1511,13 @@ fn make(
     gifski: &Path,
     h: &Half,
     tmp: &Path,
-    geom: &Path,
+    (walls, today): (&Path, &Path),
     blink: &Value,
 ) -> Result<Made, Fail> {
     let half = h.name;
     let d = tmp.join(half);
-    let (prims, report) = strands(geom, half, blink, &d)?;
-    let m = film(root, half, &d, &prims, geom)?;
+    let (prims, report) = strands(walls, half, blink, &d)?;
+    let m = film(root, half, &d, &prims, today)?;
     let delays = delays_of(&m)?;
     let frames = snapped(&read(&d.join("frames.rgb"))?, delays.len(), h.page)?;
     let mut still = canvas(&d.join("still.rgb"))?;
@@ -1615,10 +1713,10 @@ pub fn main(root: &Path, files: &Files, keep: Option<&Path>) -> Result<Vec<Strin
             today.push(t);
             blink.push(m);
         }
-        let geom = walls_hold(root, &today[0], &tmp)?;
+        let (walls, today) = walls_hold(root, &today[0], &tmp)?;
         let mut bad = Vec::new();
         for (h, blink) in HALVES.iter().zip(&blink) {
-            let (g, s, lines) = make(root, &gifski, h, &tmp, &geom, blink)?;
+            let (g, s, lines) = make(root, &gifski, h, &tmp, (&walls, &today), blink)?;
             for line in lines {
                 println!("{line}");
             }

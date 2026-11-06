@@ -2043,7 +2043,9 @@ fn no_surface_keeps_a_slid_frame() {
 /// and the light
 /// half. The cell arm draws what the instance arm draws, pixel for pixel;
 /// the CPU arm, which the Linux driver draws with, the same, but for the
-/// plasma's own rounding against the GPU's -- a step on a few pixels, as
+/// plasma's own rounding against the GPU's -- a step on a band's row of
+/// pixels at most, 76 where the plasma lights on the light half, the box's
+/// top a fraction of a pixel since it stands on the word's -- as
 /// [`effect_scenes`] holds each GPU arm to the effect's reference. The
 /// controls: the held logo changes the frame and its block is the half's
 /// amber, exactly, at the block's centre; each plasma lights pixels the
@@ -2108,7 +2110,7 @@ fn the_splash_draws_alike_on_every_arm() {
             match phase {
                 SplashPhase::Plasma(age) if age < gone => {
                     assert!(
-                        most <= 1 && n <= 40,
+                        most <= 1 && n <= 80,
                         "{at}: the CPU arm differs on {n}, by {most}"
                     );
                 }

@@ -8,7 +8,7 @@
 //! The lockup is
 //! `assets/logo/baud-lockup-dark.svg`'s and `-light.svg`'s, colours and
 //! geometry, as `tools/baud-pictures` draws them: the word's pen
-//! at x 40, the ❯ in its cell from x 192 on rows 45 to 91, placed as baud's
+//! at x 40, the ❯ in its cell from x 192, its top on the word's, placed as baud's
 //! renderer places a glyph at 200 px and scaled to the cell, the block the
 //! very next cell, and the whole moved [`DX`] to centre its ink across the
 //! box -- without the dark one's baked ground, which would be a rectangle
@@ -105,9 +105,14 @@ pub struct Line {
 pub const DX: f32 = 10.362;
 
 /// **Lockup units a pixel of baud's cell at 200 px**: the mark's cell is
-/// 46 units tall, the cursor's rows 45 to 91, and baud's cell at 200 px is
-/// 264 tall (the generator's `CELL_H`).
+/// 46 units tall, and baud's cell at 200 px is 264 tall (the generator's
+/// `CELL_H`).
 pub const K: f32 = 46.0 / 264.0;
+
+/// **The top of the mark's cell, in the lockup's units: the top of the
+/// word's `b` and `d`.** The word's baseline 88 less their 0.73 em at size
+/// 62, the files' `LOCKUP_CELL`, so the block's top sits on the word's top.
+pub const MARK_TOP: f32 = 42.74;
 
 /// `baud`: its pen at x 40 moved by [`DX`], its baseline 88, size 62 and
 /// letter-spacing -2.8 -- the files' `WORD`.
@@ -120,28 +125,29 @@ pub const WORDMARK: Line = Line {
 
 /// `❯`, placed in its cell as baud's renderer places a glyph: its pen at
 /// the cell's left, x 192 moved by [`DX`], its baseline 204 of baud's
-/// 200 px cell below the cell's top at 45, at 200 px, each scaled by [`K`].
+/// 200 px cell below the cell's top, [`MARK_TOP`], at 200 px, each scaled
+/// by [`K`].
 pub const PROMPT: Line = Line {
     x: 192.0 + DX,
-    baseline: 45.0 + 204.0 * K,
+    baseline: MARK_TOP + 204.0 * K,
     size: 200.0 * K,
     tracking: 0.0,
 };
 
 /// The block, the cell after the ❯'s: 120 of baud's 200 px cell wide from
-/// the ❯'s cell's right edge, on rows 45 to 91 --
-/// `<rect x="223.27" y="45" width="20.91" height="46">`.
+/// the ❯'s cell's right edge, 46 units from [`MARK_TOP`] --
+/// `<rect x="223.27" y="42.74" width="20.91" height="46">`.
 pub const BLOCK: Rect = Rect {
     left: 192.0 + DX + 120.0 * K,
-    top: 45.0,
+    top: MARK_TOP,
     right: 192.0 + DX + 240.0 * K,
-    bottom: 91.0,
+    bottom: MARK_TOP + 46.0,
 };
 
 /// **The box the plasma fills at its start**: from the wordmark's pen to
-/// the block's right edge, the block's height -- the lockup's cursor line.
-/// The ascenders of `b` and `d` stand a little above it, inside the
-/// sheath's reach of a block's height.
+/// the block's right edge, the block's height -- the lockup's cursor line,
+/// from the top of the ascenders of `b` and `d` to just past the word's
+/// foot.
 pub const EMITTER: Rect = Rect {
     left: WORDMARK.x,
     top: BLOCK.top,

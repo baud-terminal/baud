@@ -29,8 +29,11 @@
 //! itself, lasts more than five seconds and is shown beside other content
 //! can be paused, stopped or hidden (`[[source: wcag22]]`). A README carries
 //! no control of its own, so a film that repeats does not meet it on a
-//! README's page; `tools/baud-pictures`'s `logo.rs` says the rest. WCAG
-//! 2.3.1 is met, the census counting the repeat and its join.
+//! README's page, and the README's `<picture>` serves a reader who asked for
+//! reduced motion the still lockup in its place; `tools/baud-pictures`'s
+//! `logo.rs` says the rest. The About window plays the file for under five
+//! seconds and cuts to the still. WCAG 2.3.1 is met, the census counting the
+//! repeat and its join.
 
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking};
 use baud_core::{Owned, Term};
@@ -205,8 +208,8 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// **The lockup's glyphs as slabs, off the bare canvas** (`splash::Slabs`),
-/// over the lockup's ink box, units 55 to 244 by 42.5 to 91, and 12 pixels
-/// round it: each pixel's glyph coverage, solved along the line from the
+/// over a box round the lockup's ink, units 55 to 244 by 42.5 to 91, and 12
+/// pixels round it: each pixel's glyph coverage, solved along the line from the
 /// page to the ink it is nearer, the word's or the amber's; the behind cut
 /// that coverage grown by the [`KEYLINE`]; the [`KNOT`] cut, kept off the
 /// block, whose amber parts it from the plasma already and which the cut

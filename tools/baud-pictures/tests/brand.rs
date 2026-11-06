@@ -47,7 +47,7 @@ fn the_readme_tagline_check_fires() {
     let moved = readme.replacen("its own font,", "its own fonts,", 1);
     must_fail(
         brand::tagline_holds(&moved),
-        "README.md line 8 is not the card's tagline: '**The terminal",
+        "README.md line 10 is not the card's tagline: '**The terminal",
     );
 }
 
@@ -119,6 +119,22 @@ fn the_marks_are_the_committed_files() {
     let want = text("assets/logo/baud-icon-32-dark.svg");
     let body = brand::square(32, 7, brand::GROUND) + &small.body;
     assert_eq!(brand::svg("32", "32", &body, "baud", None), want);
+}
+
+/// **The run refuses a lockup whose block's top is not on the word's top**:
+/// the two decimals each is written to pass, the 8.26 units of the title
+/// bar's lockup before they were lined up do not.
+#[test]
+fn the_lined_up_check_fires() {
+    brand::lined_up(156.0939, 156.09).expect("two decimals' rounding");
+    must_fail(
+        brand::lined_up(156.09, 164.35),
+        "the block's top is at 164.35, not on the word's top at 156.09",
+    );
+    must_fail(
+        brand::lined_up(42.74, 42.76),
+        "the block's top is at 42.76, not on the word's top at 42.74",
+    );
 }
 
 /// **The tagline's paths are the card's**, at 400, where `i` is a

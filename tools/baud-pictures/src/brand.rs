@@ -18,8 +18,8 @@
 //!
 //! * `assets/logo/baud-lockup-{dark,light,mono-black,mono-white}.svg`:
 //!   "baud" and the mark on one line, 300 by 130: the word where it always
-//!   was, the ❯'s cell from x 192 on the old cursor's rows, the whole ink
-//!   then centred across the box. The light forms' amber, here and in the
+//!   was, the ❯'s cell from x 192 with the block's top on the word's top
+//!   ([`lined_up`]), the whole ink then centred across the box. The light forms' amber, here and in the
 //!   marks and the title bar's lockup below, is the brand's, [`AMBER`],
 //!   the dark forms' and the amber baud's cursor draws on both themes
 //!   (`BaudCursor::light`, which the plasma example reports and the run
@@ -52,9 +52,9 @@
 //!   with its feed holes.
 //!
 //! In every mark but the Dock's the cell is as tall as the cursor the file
-//! had before (46 at the lockup's 300, 168 at 512, 10.5 at 32), on the
-//! same rows, and the mark's ink is centred across the icon or under the
-//! word. **The Dock icon's mark is a prompt at the start of a terminal's
+//! had before (46 at the lockup's 300, 168 at 512, 10.5 at 32), the 512's
+//! and the 32's on the same rows, and the mark's ink is centred across the
+//! icon or under the word. **The Dock icon's mark is a prompt at the start of a terminal's
 //! first line**: in the tile's upper left, in a terminal's own margin, 1.2
 //! times the 512 icons' cell so it reads at the Dock's 32 pt, the ❯'s cell
 //! corner one of their cell widths (76.36 units) in from the tile's left
@@ -188,7 +188,7 @@ pub const TYPE_DARK: &str = "#F3F4F6";
 pub const TYPE_LIGHT: &str = "#1E2128";
 pub const AMBER: &str = "#F4A32C";
 
-/// The README's tagline (line 8, between its `**`), a card line for each part.
+/// The README's tagline (line 10, between its `**`), a card line for each part.
 pub const LINES: [&str; 4] = [
     "The terminal with character:",
     "its own font,",
@@ -224,11 +224,31 @@ pub const TITLEBAR: [(&str, &str); 2] = [
 pub const MB: usize = 1_000_000;
 
 /// The lockup, 300 by 130: the word at x 40, baseline 88, size 62,
-/// letter-spacing -2.8; the ❯'s cell from x 192, on the rows of the cursor
-/// it had before (45 to 91).
+/// letter-spacing -2.8; the ❯'s cell from x 192, 46 tall, its top the top
+/// of the word's `b` and `d`, 0.73 em above the baseline, so the block's
+/// top sits on the word's top ([`lined_up`]).
 pub const LOCKUP: (f64, f64) = (300.0, 130.0);
 pub const WORD: (f64, f64, f64, f64) = (40.0, 88.0, 62.0, -2.8);
-pub const LOCKUP_CELL: (f64, f64, f64) = (192.0, 45.0, 46.0);
+pub const LOCKUP_CELL: (f64, f64, f64) = (192.0, 42.74, 46.0);
+/// **How far the block's top may sit from the word's top**, in the units
+/// of the file: the two decimals each is written to.
+pub const LINED_UP: f64 = 0.01;
+
+/// The block's top on the word's top, within [`LINED_UP`].
+///
+/// # Errors
+/// When it is not.
+pub fn lined_up(word_top: f64, block_top: f64) -> Result<(), Fail> {
+    if (word_top - block_top).abs() > LINED_UP {
+        fail!(
+            "the block's top is at {}, not on the word's top at {}",
+            py::repr_float(block_top),
+            py::repr_float(word_top)
+        );
+    }
+    Ok(())
+}
+
 /// The organisation picture: the word at 160, and the word and mark rows
 /// as they were, three quarters of the old 22-unit cursor apart.
 pub const ORG_WORD: f64 = 160.0;
@@ -525,6 +545,7 @@ fn lockup(
     let (cx, cy, h) = LOCKUP_CELL;
     let m = mark(t, ox + (cx + dx) * s, oy + cy * s, h * s, mark_fill)?;
     let (ink, cur) = (m.ink, m.cursor);
+    lined_up(wb[1], cur[1])?;
     let bx = [
         py::min(wb[0], ink[0]),
         py::min(py::min(wb[1], ink[1]), cur[1]),
@@ -1352,13 +1373,13 @@ fn names_a_font(bare: &str) -> bool {
 pub fn tagline_holds(readme: &str) -> Result<(), Fail> {
     let lines = py::splitlines(readme);
     let want = format!("**{}**", tagline());
-    match lines.get(7) {
+    match lines.get(9) {
         Some(l) if *l == want => Ok(()),
         Some(l) => fail!(
-            "README.md line 8 is not the card's tagline: {}",
+            "README.md line 10 is not the card's tagline: {}",
             py::repr_str(l)
         ),
-        None => fail!("README.md has no line 8"),
+        None => fail!("README.md has no line 10"),
     }
 }
 

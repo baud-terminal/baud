@@ -524,6 +524,66 @@ fn the_walls_off_counts_are_the_drivers() {
     }
 }
 
+/// **The word held to the walls and the mark to where it moved**, on the
+/// committed walls: today's the walls with the mark moved as `MARK_MOVED`
+/// says passes; the walls themselves, the mark not moved, and the mark moved
+/// a row further are refused by name, and a word moved a pixel is past
+/// `WALLS_OFF`.
+#[test]
+fn the_word_stays_on_the_walls_and_the_mark_moves_as_it_says() {
+    let (w, h) = (W, H);
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/readme/logo-walls.png"
+    ))
+    .unwrap();
+    let walls = png::decode(&bytes).unwrap();
+    let walls: Vec<u8> = match walls.mode {
+        png::Mode::Rgb => walls.px,
+        png::Mode::Rgba => walls
+            .px
+            .chunks_exact(4)
+            .flat_map(|p| [p[0], p[1], p[2]])
+            .collect(),
+    };
+    let moved = |extra: usize| -> Vec<u8> {
+        let mut out = walls.clone();
+        for m in logo::MARK_MOVED {
+            for x in m.columns.0..m.columns.1 {
+                for y in 0..h {
+                    let from = y + m.rows + extra;
+                    let (to, from) = ((y * w + x) * 3, (from.min(h - 1) * w + x) * 3);
+                    let px = [walls[from], walls[from + 1], walls[from + 2]];
+                    out[to..to + 3].copy_from_slice(&px);
+                }
+            }
+        }
+        out
+    };
+    let page = vec![1.0f32; w * h];
+    let ok = moved(0);
+    let (off, bad) = logo::lockup_faults(&walls, &ok, &page, &page);
+    assert_eq!((off.pixels, off.levels), (0, 0));
+    assert!(bad.is_empty(), "{bad:?}");
+
+    let (_, bad) = logo::lockup_faults(&walls, &walls, &page, &page);
+    assert_eq!(bad.len(), 2, "not moved: {bad:?}");
+    let (_, bad) = logo::lockup_faults(&walls, &moved(1), &page, &page);
+    assert_eq!(bad.len(), 2, "a row further: {bad:?}");
+    assert!(bad[0].starts_with("columns (510, 562) are "), "{bad:?}");
+
+    let mut word = ok.clone();
+    for y in 0..h {
+        for x in 1..logo::WORD_COLUMNS {
+            let (to, from) = ((y * w + x) * 3, (y * w + x - 1) * 3);
+            let px = [ok[from], ok[from + 1], ok[from + 2]];
+            word[to..to + 3].copy_from_slice(&px);
+        }
+    }
+    let (off, _) = logo::lockup_faults(&walls, &word, &page, &page);
+    assert!(off.past(&logo::WALLS_OFF), "{off:?}");
+}
+
 #[test]
 fn the_walls_are_the_pinned_file_or_refused() {
     let walls = std::fs::read(concat!(
@@ -646,12 +706,12 @@ fn the_walls_line_prints_the_drivers_dict() {
     };
     assert_eq!(
         off.repr(),
-        "{'pixels': 3930, 'levels': 2, 'mask': 3, 'sdf': 0.125}"
+        "{'pixels': 3873, 'levels': 2, 'mask': 2, 'sdf': 0.125}"
     );
     assert!(!logo::WALLS_OFF.past(&logo::WALLS_OFF));
     // The perturbation: one pixel more than the walls allow.
     let moved = logo::Off {
-        pixels: 3931,
+        pixels: 3874,
         ..logo::WALLS_OFF
     };
     assert!(moved.past(&logo::WALLS_OFF));
