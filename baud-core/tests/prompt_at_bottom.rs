@@ -2,7 +2,7 @@
 //! prompt_at_bottom`, roadmap F1-49), driven by recorded shells.
 //!
 //! `tests/prompt/` holds real bash 5.3 traffic captured through a pty with
-//! `scripts/capture-tui.py` and `scripts/capture-resize.py`, the shell's
+//! the `capture-tui` and `capture-resize` examples, the shell's
 //! `OSC 133` marks set by the three lines in `tests/prompt/bashrc`:
 //! `bash-session` types `clear; ls`, `echo one`, Control-L and `echo two`
 //! in a 60x12 window, and `bash-grow` grows a 60x12 window to 60x20 and

@@ -56,7 +56,7 @@ that lists, and the one every shell here was given.
 ## The files
 
 Each recording is `<name>.raw`, the bytes exactly as the pty returned
-them, and `<name>.steps`, written by `scripts/capture-tui.py --steps`:
+them, and `<name>.steps`, written by the `capture-tui` example's `--steps`:
 one `COLSxROWS <bytes>` line per `read(2)`, and a `# sent` line for each
 key before the first read after it. Nothing in a `.raw` was edited.
 
@@ -102,7 +102,7 @@ for zsh.
   `WEZTERM_SH`, with `WEZTERM_SHELL_SKIP_USER_VARS=1` and
   `WEZTERM_SHELL_SKIP_CWD=1`, so no user, host or directory is sent. It
   is not committed. Its marks carry `aid=` and the shell's process id.
-- `scripts/capture-tui.py --seconds 9 --cols 80 --key-delay 0.3`, with
+- `capture-tui --seconds 9 --cols 80 --key-delay 0.3`, with
   `--rows` from the table and 2 seconds before the first key for zsh, 3
   for the others.
 - fish waits for its `DA1` before it draws a prompt, so its queries were

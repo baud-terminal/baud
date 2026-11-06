@@ -8,7 +8,7 @@
 //! prompt over content. The traffic that actually failed lived in a
 //! bench with its input in a scratch directory, so nothing gated it.
 //!
-//! These fixtures are that traffic. `scripts/capture-resize.py` records
+//! These fixtures are that traffic. The `capture-resize` example records
 //! a real `zsh` through a pty while re-issuing `TIOCSWINSZ`, writing the
 //! bytes as `tests/resize/<name>.raw` -- the shape `tests/recordings/`
 //! already uses -- beside a `<name>.steps` of `COLSxROWS <bytelen>`
@@ -1004,7 +1004,7 @@ fn oldest_numbered(t: &Term<'_>) -> (usize, usize) {
 /// **A narrow drag through a full ring counts the rows it drops** (note V,
 /// V5). `full-ring` is `/bin/sh` running `awk` over 2,600 lines of 145
 /// characters and then `date` every 50 ms, captured by
-/// `scripts/capture-resize.py` through a drag from 200 columns to 40 and
+/// the `capture-resize` example through a drag from 200 columns to 40 and
 /// back while the clock still prints, so every width change is in the
 /// output zone and re-cuts the 2,000-line history. A narrower width makes
 /// each line more rows, and the ring keeps the newest: each step's count

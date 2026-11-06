@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 333 | 66 | redistributable, and its notice is satisfied |
+| kept | 333 | 67 | redistributable, and its notice is satisfied |
 | own | 265 | 8 | the work of baud's author |
-| total | 599 | 75 | |
+| total | 599 | 76 | |
 
 ## Licence texts in LICENSES/
 
@@ -568,6 +568,14 @@ they were built from.
 - **From:** https://github.com/elementary/wallpapers
 - **Files:** [assets/readme/hero.gif](assets/readme/hero.gif)
 
+### A Rust port of zlib 1.3.1's deflate at level 6 (deflate.c and trees.c), so baud-bench's gen-yazi-files writes the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** Zlib
+- **Notice:** in the file
+- **From:** https://zlib.net/fossils/zlib-1.3.1.tar.gz
+- **Files:** [baud-bench/src/capture/deflate.rs](baud-bench/src/capture/deflate.rs)
+
 ### The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -648,7 +656,7 @@ they were built from.
 - **From:** baud's own build, ported from the research tree
 - **Files:** [baud-app/fonts/glyphs/languages/hebrew/casanchors.py](baud-app/fonts/glyphs/languages/hebrew/casanchors.py), [baud-app/fonts/glyphs/languages/hebrew/build/build.py](baud-app/fonts/glyphs/languages/hebrew/build/build.py), [baud-app/fonts/glyphs/languages/hebrew/build/design.py](baud-app/fonts/glyphs/languages/hebrew/build/design.py), [baud-app/fonts/glyphs/languages/hebrew/build/design2.py](baud-app/fonts/glyphs/languages/hebrew/build/design2.py), [baud-app/fonts/glyphs/languages/hebrew/build/design3.py](baud-app/fonts/glyphs/languages/hebrew/build/design3.py), [baud-app/fonts/glyphs/languages/hebrew/build/field.py](baud-app/fonts/glyphs/languages/hebrew/build/field.py), [baud-app/fonts/glyphs/languages/hebrew/build/geom.py](baud-app/fonts/glyphs/languages/hebrew/build/geom.py), [baud-app/fonts/glyphs/languages/hebrew/build/narrow.py](baud-app/fonts/glyphs/languages/hebrew/build/narrow.py), [baud-app/fonts/glyphs/languages/hebrew/build/optical.py](baud-app/fonts/glyphs/languages/hebrew/build/optical.py), [baud-app/fonts/glyphs/languages/hebrew/build/style.py](baud-app/fonts/glyphs/languages/hebrew/build/style.py)
 
-### A recording of pipes.sh 1.3.0's output, captured by scripts/capture-tui.py on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
+### A recording of pipes.sh 1.3.0's output, captured by the script now baud-bench's capture-tui example on 2026-10-28 (tests/recordings/README.md): cursor moves, SGRs and characters from the program's own ASCII pipe sets, no art. pipes.sh is MIT (Pipeseroni/pipes.sh contributors, Yu-Jie Lin, Matthew Simpson); the capture copies none of its code
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
@@ -656,7 +664,7 @@ they were built from.
 - **From:** https://github.com/pipeseroni/pipes.sh/tree/v1.3.0
 - **Files:** [tests/recordings/ascii/pipes.raw](tests/recordings/ascii/pipes.raw)
 
-### Recordings of btop 1.4.7 (cpu and mem boxes), vim 9.1 paging a file scripts/gen-vim-unicode.py writes, and yazi 26.5.6 walking the files scripts/gen-yazi-files.py writes, captured on 2026-10-28 (tests/recordings/README.md): what each program drew, and in yazi's the Sixel previews of baud's own generated pictures
+### Recordings of btop 1.4.7 (cpu and mem boxes), vim 9.1 paging a file baud-bench's gen-vim-unicode example writes, and yazi 26.5.6 walking the files its gen-yazi-files example writes, captured on 2026-10-28 (tests/recordings/README.md): what each program drew, and in yazi's the Sixel previews of baud's own generated pictures
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
@@ -664,7 +672,7 @@ they were built from.
 - **From:** generated: tests/recordings/README.md
 - **Files:** [tests/recordings/utf8/btop.raw](tests/recordings/utf8/btop.raw), [tests/recordings/utf8/vim-unicode.raw](tests/recordings/utf8/vim-unicode.raw), [tests/recordings/sixel/yazi-walk.raw](tests/recordings/sixel/yazi-walk.raw)
 
-### The seven resize recordings: zsh 5.9.2 resized through a pty by scripts/capture-resize.py in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks
+### The seven resize recordings: zsh 5.9.2 resized through a pty by the script now baud-bench's capture-resize example in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0
@@ -672,7 +680,7 @@ they were built from.
 - **From:** generated: tests/resize/README.md
 - **Files:** [tests/resize/drag.raw](tests/resize/drag.raw), [tests/resize/drag.steps](tests/resize/drag.steps), [tests/resize/drag.sizes](tests/resize/drag.sizes), [tests/resize/short.raw](tests/resize/short.raw), [tests/resize/short.steps](tests/resize/short.steps), [tests/resize/short.sizes](tests/resize/short.sizes), [tests/resize/zoom.raw](tests/resize/zoom.raw), [tests/resize/zoom.steps](tests/resize/zoom.steps), [tests/resize/zoom.sizes](tests/resize/zoom.sizes), [tests/resize/fresh-drag.raw](tests/resize/fresh-drag.raw), [tests/resize/fresh-drag.steps](tests/resize/fresh-drag.steps), [tests/resize/fresh-drag.sizes](tests/resize/fresh-drag.sizes), [tests/resize/fresh-zoom.raw](tests/resize/fresh-zoom.raw), [tests/resize/fresh-zoom.steps](tests/resize/fresh-zoom.steps), [tests/resize/fresh-zoom.sizes](tests/resize/fresh-zoom.sizes), [tests/resize/fresh-burst.raw](tests/resize/fresh-burst.raw), [tests/resize/fresh-burst.steps](tests/resize/fresh-burst.steps), [tests/resize/fresh-burst.sizes](tests/resize/fresh-burst.sizes), [tests/resize/live-drag.raw](tests/resize/live-drag.raw), [tests/resize/live-drag.steps](tests/resize/live-drag.steps), [tests/resize/live-drag.sizes](tests/resize/live-drag.sizes), [tests/resize/zdotdir/.zshrc](tests/resize/zdotdir/.zshrc), [tests/resize/zdotdir/banner](tests/resize/zdotdir/banner), [tests/resize/zdotdir/banner-fresh](tests/resize/zdotdir/banner-fresh)
 
-### tmux 3.7c starting with no configuration, captured by scripts/capture-tui.py in the same container on 2026-10-28: what tmux sends the outer terminal, its status line and the shell's prompt (tests/scheme/README.md)
+### tmux 3.7c starting with no configuration, captured by the script now baud-bench's capture-tui example in the same container on 2026-10-28: what tmux sends the outer terminal, its status line and the shell's prompt (tests/scheme/README.md)
 
 - **Status:** own -- the work of baud's author
 - **Licence:** CC-BY-NC-SA-4.0

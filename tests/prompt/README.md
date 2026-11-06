@@ -8,7 +8,7 @@ holding three empty files, `alpha`, `beta` and `gamma`; `bashrc` sets the
 
 | file | how | what |
 |---|---|---|
-| `bash-session` | `scripts/capture-tui.py --rows 12 --cols 60` with the keys `clear; ls`, `echo one`, Control-L, `echo two`, `exit` | a fresh prompt, a prompt after `clear`, Control-L's redraw |
-| `bash-grow` | `scripts/capture-resize.py` through 60x12, 60x20, 80x20 | readline's redraw, its `A` included, after each `SIGWINCH` |
+| `bash-session` | the `capture-tui` example, `--rows 12 --cols 60`, with the keys `clear; ls`, `echo one`, Control-L, `echo two`, `exit` | a fresh prompt, a prompt after `clear`, Control-L's redraw |
+| `bash-grow` | the `capture-resize` example through 60x12, 60x20, 80x20 | readline's redraw, its `A` included, after each `SIGWINCH` |
 
 Each `.steps` file is `COLSxROWS <bytes>` lines, as in `tests/resize/`.

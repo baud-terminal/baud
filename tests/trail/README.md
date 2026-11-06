@@ -7,10 +7,14 @@ key a second after the one before:
 ```sh
 python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
 : > empty.toml
-TERM=xterm-256color python3 scripts/capture-tui.py --seconds 6.5 --rows 50 \
+TERM=xterm-256color capture-tui --seconds 6.5 --rows 50 \
   --cols 200 --key-delay 1.0 --keys 'gegg:' --out helix-ge-gg.raw \
   -- hx --config empty.toml lines.txt
 ```
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 Run from the directory holding `lines.txt`, so the status line names
 `lines.txt` and not a path on the machine that captured it.
@@ -43,7 +47,7 @@ in, once helix has waited out its start-up queries:
 python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
 : > empty.toml
 W='\x1b[<64;41;11M'
-TERM=xterm-256color python3 scripts/capture-tui.py --seconds 5.5 --rows 24 \
+TERM=xterm-256color capture-tui --seconds 5.5 --rows 24 \
   --cols 80 --first-key 2.5 --key-delay 0.3 --key-sep '|' \
   --keys "g|e|g|t|$W|$W|$W|$W|$W" --out helix-wheel.raw \
   -- hx --config empty.toml lines.txt
@@ -74,7 +78,7 @@ everything the program wrote and a `.steps` log of when: `R <seconds> <bytes>`
 for each read off the terminal device, `K <seconds> <label> <name> <hex>` for
 each key written whole, and `A` for an answer sent back. The first line names
 the program and its arguments. They were taken with a copy of
-`scripts/capture-tui.py` that stamps each read and key with the time since the
+the `capture-tui` tool, then a script, that stamps each read and key with the time since the
 fork, every program with `HOME` and the XDG directories in a scratch
 directory, `TERM=xterm-256color`, from a directory holding `lines.txt` (two
 hundred numbered lines, as above), `trail.rs` (`baud-app/src/trail.rs` as of

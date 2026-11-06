@@ -13,9 +13,13 @@ describes (host name `baud`, user `user`, programs from nixpkgs
 `319e4cebef10cbb636c6ea392137b52ad105336a`), in `/home/user`, with
 `SHELL` the zsh there and `ZDOTDIR` naming `tests/resize/zdotdir/`:
 
-    TERM=xterm-256color python3 scripts/capture-tui.py --seconds 4 \
+    TERM=xterm-256color capture-tui --seconds 4 \
         --rows 50 --cols 200 --out tmux-start.raw \
         -- tmux -L baudcap -f /dev/null new-session
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 It is a recording of what tmux sent; nothing in it was edited. The capture
 answers none of tmux's queries, so what tmux draws after them is what it

@@ -394,7 +394,7 @@ fn a_cell_delete_leaves_the_grid_and_an_id_delete_takes_it() {
 
 /// `kitten icat --unicode-placeholder` 0.49.2's output for a 60x40
 /// picture in an 80x24 window at 17x34 a cell, as the pty received it
-/// (`scripts/record-kitten-icat.py`'s `placeholder` mode;
+/// (the `record-kitten-icat` example's `placeholder` mode;
 /// `tests/recordings/README.md`): `a=T,U=1,c=4,r=2,X=4` with the PNG, then
 /// two rows of four U+10EEEE cells, each with its row, column and id-byte
 /// diacritics, centred with spaces.

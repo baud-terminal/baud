@@ -4,7 +4,7 @@
 //!
 //! **The recording is a shell's first output with its timing**: each read
 //! as a little-endian `f64` of seconds since the shell was forked, a `u32`
-//! length and the bytes, as `scripts/record-shell-start.py` writes it. A
+//! length and the bytes, as the `record-shell-start` example writes it. A
 //! shell's output names its machine and its user, so no such recording is
 //! in the corpus; the bench takes a path.
 //!

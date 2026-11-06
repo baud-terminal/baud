@@ -24,12 +24,12 @@ and 2) and not committed, because they show a home directory's paths.
 
 ## How they were made
 
-With `scripts/capture-tui.py` at the corpus geometry, 200x50, six seconds
+With the `capture-tui` example at the corpus geometry, 200x50, six seconds
 each, the listed keys typed in after the program starts:
 
 ```sh
 cap() { n=$1; shift; secs=$1; shift; keys=$1; shift
-  python3 scripts/capture-tui.py --seconds $secs --rows 50 --cols 200 \
+  capture-tui --seconds $secs --rows 50 --cols 200 \
     --keys "$keys" --out tests/panels/$n.raw -- "$@"; }
 cap helix 6 'jjjjjxxxjjj' env TERM=xterm-256color COLORTERM=truecolor \
   hx baud-core/src/prompt.rs
@@ -40,6 +40,10 @@ cap vimhl 6 'jjjjjVjjj' env TERM=xterm-256color vim -u NONE -c 'syntax on' \
   -c 'colorscheme desert' -c 'set cursorline number hlsearch' -c '/self' \
   baud-core/src/prompt.rs
 ```
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 Taken on 2026-09-22 with helix 25.07.1 and vim 9.1. The md5 digests are
 `e2e62b524db392f729d07732f0fcdc1a` for `helix.raw`,

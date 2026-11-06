@@ -59,9 +59,9 @@ case where a wide character lands against the last column.
 
 yazi 26.5.6's output, 2,804,600 bytes (sha256
 `a6ef7cade8cb52f13aa776343fc4e3a588ac631f80435630862ca1dc4801f599`), as
-`scripts/capture-yazi-walk.py`'s pty received it at 120x40: the cursor
+the `capture-yazi-walk` example's pty received it at 120x40: the cursor
 stepped down six files with `j` and back six with `k` over the seven files
-`scripts/gen-yazi-files.py` writes -- `photo.jpg`, `flat.png`, `alpha.png`,
+the `gen-yazi-files` example writes -- `photo.jpg`, `flat.png`, `alpha.png`,
 `screenshot.png`, `small.png`, `sparse.pdf` and `text.pdf`. Thirteen
 previews, each a Sixel `ESC P 9;1 q "1;1;W;H` -- `P2 = 1`, so an unset bit
 keeps what is under the image -- cleared with spaces and the next drawn at
@@ -76,7 +76,7 @@ the capture of 2026-10-09 it replaces; only the text around them moved.
 
 ## kitty graphics: regenerated, not committed
 
-`scripts/record-kitten-icat.py` records what `kitten icat` 0.49.2 writes,
+The `record-kitten-icat` example records what `kitten icat` 0.49.2 writes,
 `--transfer-mode=stream`, to a pty carrying the app's pixels (17x34 a
 cell), for note V's V19 step 0. Unlike the captures
 above, these regenerate: kitty and the two nixos-artwork pictures are
@@ -103,7 +103,7 @@ The sha256 of each:
 
 **One is committed**, `kitty/grad-80x24-placeholder.raw` (8604 bytes, sha256
 `5860df5a73c9e2ba9e63303ad4ff85afd895d96438cf60c1910c75a7559bcc5a`): the
-script's `placeholder` mode, `--unicode-placeholder`, at 80x24, for a 60x40
+tool's `placeholder` mode, `--unicode-placeholder`, at 80x24, for a 60x40
 RGB gradient made for it -- pixel `(x, y)` is `(4x, 6y, 3(x + y))` mod 256,
 written as a PNG with zlib level 9 (sha256
 `198fb2c1572a4da53a7140ba8dfcd0ac10954c199d5a1064707c2871a19389af`), no
@@ -112,15 +112,16 @@ of four U+10EEEE cells, each with its row, column and id-byte diacritics.
 `kittens_placeholders_place_the_picture` (`baud-render/tests/kitty_placeholder.rs`)
 replays it. The image id is random, so a new run has other bytes.
 
-The script checks each input against its sha256 first, and skips the
+The tool checks each input against its sha256 first, and skips the
 macOS file where it differs. Its `detect-*` sessions answer
 kitten's queries as baud would and name a random temp file in a query, so
 they have no fixed sha256.
 
 ## Provenance
 
-`scripts/capture-tui.py` is how these were made and is kept for provenance, not
-because a gate runs it. **A capture is not reproducible**: btop draws live CPU
+The `capture-tui` example (`baud-bench/src/capture/tui.rs`) is how these were
+made, a Python script then, and is kept for provenance, not because a gate
+runs it. **A capture is not reproducible**: btop draws live CPU
 figures, so a second run of the same command produces different bytes and a
 different hash. That is why these are committed rather than regenerated: a
 recording that changes is a recording that is no longer the thing the
@@ -143,7 +144,7 @@ environment emptied but for `PATH=/usr/bin:/bin`, `TERM=xterm-256color` and
 
 - **btop** 1.4.7, nixpkgs `319e4cebef10cbb636c6ea392137b52ad105336a`, 45
   seconds at 45x160:
-  `capture-tui.py --seconds 45 --rows 45 --cols 160 -- btop -c btop.conf`,
+  `capture-tui --seconds 45 --rows 45 --cols 160 -- btop -c btop.conf`,
   where `btop.conf` is `btop --default-config` with three keys changed:
   `shown_boxes = "cpu mem"`, `disks_filter = "/"` and
   `show_battery = false`. btop's README gives the first: "Manually set which
@@ -151,18 +152,20 @@ environment emptied but for `PATH=/usr/bin:/bin`, `TERM=xterm-256color` and
   "gpu5"" (`[[source: btop-readme-147]]`). Without the process box, which
   lists every user's commands, and the net box, which shows the address.
 - **vim** 9.1 (`/usr/bin/vim`, patches 1-1752, no vimrc in `HOME`) on
-  `unicode.txt`, written by `scripts/gen-vim-unicode.py`, opened by that
+  `unicode.txt`, written by the `gen-vim-unicode` example, opened by that
   relative name from its own directory, at 45x160, sent `^F` twelve times,
   `^B` twice and `^F` twice, 0.35 s apart:
-  `capture-tui.py --seconds 9 --rows 45 --cols 160 --keys <those> -- vim unicode.txt`.
+  `capture-tui --seconds 9 --rows 45 --cols 160 --keys <those> -- vim unicode.txt`.
+  Run again on this machine with the example, this gives the file back byte
+  for byte (`MEASUREMENTS.md`, "The capture tools are examples").
 - **pipes.sh** 1.3.0 (MIT), the same nixpkgs, 200 seconds at 45x160:
-  `capture-tui.py --seconds 200 --rows 45 --cols 160 -- pipes.sh -t 4 -t 5 -t 8 -p 4 -f 100 -r 0`:
+  `capture-tui --seconds 200 --rows 45 --cols 160 -- pipes.sh -t 4 -t 5 -t 8 -p 4 -f 100 -r 0`:
   its three ASCII pipe sets, four pipes, a hundred frames a second, never
   reset. What it draws is its own pipe characters, so the capture carries
   no one's art.
 - **yazi** 26.5.6 (nixpkgs' build of 2026-05-05, with its own `file`,
   poppler and ImageMagick on its `PATH`), started in `~/files`:
-  `capture-yazi-walk.py --cols 120 --out yazi-walk.raw -- yazi`.
+  `capture-yazi-walk --cols 120 --out yazi-walk.raw -- yazi`.
 
 They are fixtures, deliberately not entries in
 `docs/research/sources/MANIFEST.toml`. That manifest is for *specifications*: a

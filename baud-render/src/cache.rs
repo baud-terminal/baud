@@ -255,7 +255,7 @@ impl RunCache {
 /// and a one-byte answer, 1,024 times -- and a renderer holds two, so 34 KB
 /// of working set that only a marked cell touches; what that costs beside
 /// the run cache is unmeasured. The payload the memo was measured on
-/// (`scripts/gen-marks-payload.py`: twelve letters under six mark sets, and
+/// (the `gen-marks-payload` example: twelve letters under six mark sets, and
 /// one `q` with U+0316 and U+0301) names 73 distinct marked clusters; how
 /// many a real session names is uncounted. Two that share a slot cost a
 /// recomputation, never a wrong answer.
@@ -337,7 +337,7 @@ pub enum Cover {
 /// asked).
 ///
 /// **What marked cells pay is not separated from what the build moved.** On
-/// that payload (`scripts/gen-marks-payload.py covered`: nothing moves face
+/// that payload (`gen-marks-payload covered`: nothing moves face
 /// and nothing is dropped, so both arms do the same work), against the code
 /// before any of this, with an A/A copy of the new binary, interleaved,
 /// seven settled rounds on mains: convert 1,307 us [1,296-1,326] before and

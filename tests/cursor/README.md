@@ -7,13 +7,17 @@ opened on a file of two hundred numbered lines, and sent `:`, `q` and Return:
 ```sh
 python3 -c "open('lines.txt','w').write(''.join(f'line {i:03}\n' for i in range(1,201)))"
 : > empty.toml
-TERM=xterm-256color python3 scripts/capture-tui.py --seconds 8 --rows 50 \
+TERM=xterm-256color capture-tui --seconds 8 --rows 50 \
   --cols 200 --key-delay 1.5 --keys ':q\r' --out vim-exit.raw \
   -- vim -u NONE -N lines.txt
-TERM=xterm-256color python3 scripts/capture-tui.py --seconds 10 --rows 50 \
+TERM=xterm-256color capture-tui --seconds 10 --rows 50 \
   --cols 200 --key-delay 2.0 --keys ':q\r' --out helix-exit.raw \
   -- hx --config empty.toml lines.txt
 ```
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 Run from the directory holding `lines.txt`, so the status lines name
 `lines.txt` and not a path on the machine that captured them.
@@ -32,7 +36,7 @@ terminfo's `Se`, then `cnorm`, all before it leaves the alternate screen
 `Se=\E[2 q` and `cnorm=\E[?12l\E[?25h`, and an entry with another `Se` would
 send another reset.
 
-Nothing answers the programs' queries: `capture-tui.py` answers none, so
+Nothing answers the programs' queries: `capture-tui` answers none, so
 helix waits out its keyboard-enhancement query before it draws, and the
 captures carry the queries unanswered.
 

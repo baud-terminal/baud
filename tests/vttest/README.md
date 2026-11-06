@@ -8,10 +8,14 @@ built out of tree with its own `configure` and `make`, and driven by its menu
 keys:
 
 ```sh
-python3 scripts/capture-tui.py --seconds 8 --rows 24 --cols 80 \
+capture-tui --seconds 8 --rows 24 --cols 80 \
   --out tests/vttest/doublesize.raw --first-key 1.0 --key-delay 0.6 \
   --keys '4\r\r\r\r\r\r\r\r0\r' -- ./vttest 24x80.132
 ```
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 | file | menu keys | what it draws |
 |---|---|---|

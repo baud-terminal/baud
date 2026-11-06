@@ -5,10 +5,10 @@ size in force when each of them arrived. `baud-core/tests/resize_recorded.rs`,
 `resize_measure.rs` and `prompt_at_bottom.rs` replay them, and the `winch`,
 `drag` and `flash_screens` benches read them.
 
-Each recording is two files written by `scripts/capture-resize.py`:
+Each recording is two files written by the `capture-resize` example:
 `<name>.raw`, the bytes exactly as the pty returned them, and
 `<name>.steps`, one `COLSxROWS <bytes>` line per step. `<name>.sizes` is the
-gesture the script was given. Nothing in a `.raw` was edited.
+gesture the tool was given. Nothing in a `.raw` was edited.
 
 | recording | started in | before the first prompt | gesture | steps | bytes |
 |---|---|---|---|---|---|
@@ -51,10 +51,14 @@ shell reports is `baud` and the user is `user`:
 Each recording, from the directory in the table, with `BAUD_BANNER` naming
 the banner file in the table (unset for `live-drag`):
 
-    python3 scripts/capture-resize.py --sizes tests/resize/<name>.sizes \
+    capture-resize --sizes tests/resize/<name>.sizes \
         --out <name> -- zsh -i
 
-`capture-resize.py`'s defaults were used: 2.5 seconds before the first
+`capture-resize` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-resize` puts it in
+`target/release/examples/`.
+
+`capture-resize`'s defaults were used: 2.5 seconds before the first
 size, 0.05 a step, 0.02 between the sizes of a burst, 2 after the last.
 
 ## The shell

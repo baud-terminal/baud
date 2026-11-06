@@ -9,6 +9,7 @@
 use baud_core::RunScan;
 use baud_domain::CacheGeometry;
 
+pub mod capture;
 pub mod flash;
 pub mod key_latency;
 

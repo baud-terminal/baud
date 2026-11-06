@@ -13,8 +13,10 @@ in it comes from the terminal's sixteen, which is what
 Captured with (the fixture directory built as above, `F` its path):
 
     P=$(nix shell nixpkgs#coreutils nixpkgs#lsd nixpkgs#bat -c sh -c 'echo $PATH')
-    TERM=xterm-256color PATH=$P python3 scripts/capture-tui.py --seconds 2 \
+    TERM=xterm-256color PATH=$P target/release/examples/capture-tui --seconds 2 \
         --rows 50 --cols 200 --out tests/palette/ls-lsd-bat.raw -- \
         sh -c "cd $F && unset LS_COLORS; ls --color=always; \
                lsd --color=always --icon=never; \
                bat --color=always --theme=ansi --style=plain --paging=never main.rs"
+
+`cargo build --release -p baud-bench --example capture-tui` builds it.

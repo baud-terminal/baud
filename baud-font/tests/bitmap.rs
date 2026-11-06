@@ -1797,7 +1797,7 @@ fn the_interlaced_system_pngs_agree_with_the_oracle() {
     // /Applications, every one 8-bit (149 RGBA, 5 RGB, 1 palette); these
     // two directories hold 137 of them. Every one found must agree; the
     // count is a positive control only where Skyglow, the interlaced PNG
-    // `scripts/record-kitten-icat.py` pins, has its macOS 27.0 bytes, so
+    // `baud-bench/src/capture/kitten.rs` pins, has its macOS 27.0 bytes, so
     // another release that moves the files cannot fail it.
     if !cfg!(target_os = "macos") {
         return;

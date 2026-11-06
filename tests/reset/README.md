@@ -5,9 +5,13 @@ pty rather than written by hand: the byte shape a full reset arrives in, with
 the output that came before and after it.
 
 ```sh
-TERM=xterm-256color python3 scripts/capture-tui.py --seconds 3 --rows 20 \
+TERM=xterm-256color capture-tui --seconds 3 --rows 20 \
   --cols 60 --out tests/reset/seq-reset.raw -- sh -c 'seq 1 45; reset; seq 101 105'
 ```
+
+`capture-tui` is the `baud-bench` example:
+`cargo build --release -p baud-bench --example capture-tui` puts it in
+`target/release/examples/`.
 
 `reset` here is macOS's `/usr/bin/reset` (ncurses `tset`). What it sends after
 the forty-five lines is the tab-stop reset (`CSI 3 g`, then `HTS` every eight

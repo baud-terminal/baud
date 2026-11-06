@@ -3495,91 +3495,101 @@ baud's GIF decoder, within a millisecond and under five seconds, so a tick steps
 by AppKit's reading. The two GIFs, 5.3 MB, go in the bundle's Resources: in the
 crate they would take `baud` from 4.39 MiB to about 9.7 of crates.io's 10.
 
-## PDF search, loop-head, vt-table and pmc in `cargo xtask`
+## The capture tools are examples
 
-Not timed: no byte path changed. `cargo xtask pdf-search <key> [<term>...]`
-replaces the three PDF extractors, each still its own reader. A document has a
-row in `DOCUMENTS` or is refused, so no search runs without a control: nine
-committed PDFs, two `external`. `loop-head`, `vt-table` and `pmc` replace their
-scripts. The two "rendered N" renderers left with the research note they serve,
-since nothing here cites them.
+Not timed: no byte path changed. The five capture and record scripts and the
+three input generators are examples over `baud-bench/src/capture/mod.rs`,
+flags kept. Python 3.13.12 under `-I` against the debug build, each run to a
+scratch path; no committed recording was written:
 
-Python 3.13.12 against the debug build, stdout and exit code, logs kept:
-
-| input | cases | equal |
+| tool | run | Python against Rust |
 |---|---|---|
-| documented searches, argparse edges | 164 | 161, 3 below |
-| Adobe's two PDFs, 1,000 folded probes each | 2 | 2: 1,045 hit, 955 miss |
-| one built PDF a branch, 360 seeded, 2-5 forms each | 1,511 | 1,497, 14 below |
-| `vt-table`, seeded and built results | 449 | all, exits 0, 1 |
-| `pmc`, seeded and built exports; real `xctrace` | 151; 4 | all, exits 0, 1 |
-| `loop-head`, a stand-in objdump; `ingest2` at opt 3, 2 | 277; 168 | all, exits 0-2 |
+| `gen-vim-unicode` | the file | byte-equal, sha256 `8ed81bcbf06b3258` |
+| `gen-marks-payload` | `marks`, `covered` | byte-equal, 1,048,665 and 1,048,653 bytes |
+| `gen-yazi-files` | seven files, the same `sips` | byte-equal, `photo.jpg` too |
+| `capture-tui` | vim 9.1 on that file, 9 s, 16 keys | equal, and equal to `tests/recordings/utf8/vim-unicode.raw`, 138,583 bytes |
+| `capture-tui` | btop 1.4.7, 3 s, a scratch home | `.steps` header equal; 85,648 and 85,644 bytes, 18,084 in common, then live figures |
+| `capture-resize` | bash over `tests/resize/short.sizes` | `.raw` and `.steps` equal; header and size column equal the committed zsh `.steps` |
+| `capture-yazi-walk` | yazi 26.5.6 on each's own files, 120x40 | equal, 2,804,522 bytes |
+| `record-kitten-icat` | all 16 cases | 12 stream cases equal, with the README's sha256s; 4 differ |
+| `record-shell-start` | a stand-in execing `bash --noprofile --norc` | one read, the same 18 bytes; only its time differs |
+| the command lines | 1,034 random and listed lines | exit code, stdout and every file equal |
 
-Text is byte-equal on the nine rows that can dump it, and a term's hit or miss
-is a function of that text; `parabix` reads as MANIFEST.toml says, `PACT` and
-`2014` missing. The same harness against a mutated binary reports 492
-differences. The tests' expected values are the scripts' answers.
+The walk's 13 Sixel bodies equal the committed file's, generator and `sips`
+included; of the 14 stretches of text around them one differs from the
+committed bytes, the first screen, 2,318 bytes to 2,396, in both tools' runs.
+The 4 kitten cases differ between two Python runs as well: a random image id
+in `placeholder`, a random temp-file name in the `detect-*` queries.
 
-**Exit codes that differ, each on purpose.** `ecma48 --find` and `--section`
-never ran the control: with it missing and the needle present the script said
-HIT and 0, and this says the extraction is broken and 1 (8 of the 14 are these
-control cases; 7 of the 8 keep their exit). A lone word on `ecma48` was "unrecognized arguments", 2; on 8
-command lines tried (`-`, of the 3) it is now a term, the form this command
-exists to add, and on an LZW key it was ignored with the text dumped. A key
-replaced a path, so no row, a missing file and a `--file` that is not the pinned
-bytes are 2, where a bad path raised. At an equal exit, `--help` is shorter (14
-command lines, 2 of the 3) and a stopped run says one line for a traceback.
+`baud-bench/src/capture/deflate.rs` is zlib 1.3.1's level 6 in Rust: which
+bytes a deflate writes is the deflater's choice, and no C engine links into the
+workspace. Against `zlib.compress`, 600 inputs differ in none; against Python's
+`repr`, `unicode_escape`, `float` and `int`, 40,000, 20,000 and 20,000 inputs
+differ in none.
 
-**Inputs no pinned document holds.** `baud_domain::zlib`'s `Code::build` allows
-any incomplete code set and zlib only a single distance code, so 6 of the 14 read
-a stream the script skipped; `an_incomplete_code_set_inflates_where_zlib_refused_it`
-holds it. Non-ASCII digits are refused in `pmc` and `vt-table`, a counter past
-`i128` leaves its row out of `pmc`, and with a `nan` in a cell of 64 or more runs
-`sorted` keeps inserting where CPython merges.
+**Two exit codes differ, on values no caller uses.** `\N{NAME}` in `--keys` or
+`--answer` is refused, exit 1, where Python took a name at or below U+00FF: no
+README or `.steps` names one, `\xNN` writes the same byte, and the names and
+aliases of 256 code points would be carried for it. Non-ASCII digits in a
+number are refused, as the keystroke driver's are.
 
-**Red first.** 40 mutations of the Rust each turn a committed test red, one run
-on this tree. `rfc1321-md5` and `pdf-reference-1-4` are pinned `external`.
+**Message text, at equal exit codes.** Usage names the tool and wraps to its
+shorter name. An uncaught exception is one stderr line, stdout the same; the
+differential saw 11 kinds. `\q` in an escape string no longer warns. A program
+that will not start writes one line to its pty where Python's traceback went,
+under four tools. Run with `no-such-prog` from one scratch path, which the
+traceback prints: `capture-resize` 56 bytes in the `.raw` against 852, exit 0
+both; `capture-yazi-walk` 56 against 876, exit 1 both. `record-kitten-icat` and
+`record-shell-start` have the same uncaught shape by source, `os.execv` and
+`os.execve` with `os.chdir`. `capture-tui`'s own line is byte-equal, Python's
+execv naming no file: eight runs over a `PATH` miss, a name with a directory,
+Permission denied, and `PATH` entries ending in a slash or empty, `cmp` equal.
+A name is shown as `sys.stderr` showed it, `\udcXX` for a byte UTF-8 does not
+take: eight names under five locales, 36 of 40 runs `cmp` equal. The 4 are UTF-8
+past ASCII under ISO 8859-1 or US-ASCII, where Python wrote that locale's charset
+and the tool writes the UTF-8.
 
-## Four research scripts become tests
+**The locale a child is given is Python's.** Python's start-up coerces a C
+locale before a script's first line (PEP 538), and `pty::coerce_locale` does what
+`_Py_CoerceLegacyLocale` does, so a child on the pty or off it finds
+`LC_CTYPE=C.UTF-8` where it did. vim on `unicode.txt` under `env -i` with no
+locale, three runs of each tool at 2 s: 8,284 bytes, `cmp` equal, and equal to
+the run with `LANG=en_US.UTF-8`. Before this it was 8,395 bytes against 8,284.
+`/usr/bin/env` under `capture-tui`, `capture-resize` and `capture-yazi-walk`, and
+a C stand-in printing `environ` under `record-shell-start`, over 16 locale
+settings: 64 runs, every pair equal once the one line below is taken out, order
+included. `record-kitten-icat`'s pty child was not in those runs; it takes the
+same `Environ`, and stand-ins for `nix` and `sips` read the value under both.
+`PYTHONCOERCECLOCALE` is not read, as `-I` did not read it; a script run without
+`-I` did.
 
-The two analyses behind the trails' flash bound and the two corpora fed to
-libX11 were Python that nothing ran once it had printed. A test now computes
-each and holds it to what it printed: `baud-render/tests/al_observed.rs` and
-`baud-domain/tests/x_parse_color_specs.rs`. No observation moved. What each arm
-wrote, the Python on the base tree and the Rust before the Python was deleted:
+**One variable a child inherits is not mirrored.** `__CF_USER_TEXT_ENCODING`
+comes from CoreFoundation, which this Python links: an interposed `setenv` shows
+`__CFInitialize` calling `_CFStringGetUserDefaultEncoding` before `main`. The
+tools link no CoreFoundation, so a caller with no such variable, as under
+`env -i`, passes none. The control is two C programs printing `environ`: the one
+linked against the framework has the line and the one not linked does not. Given
+the variable by the caller, `/usr/bin/env` under `capture-tui` is `cmp` equal, 231
+bytes. A child that links CoreFoundation sets the variable itself, so only a dump
+of the environment sees the difference, and linking a framework for it would load
+one into tools that use nothing of it. Everything else a C stand-in on the pty
+read is `cmp` equal: the ignored signals, `SIGXFSZ` among them, the umask, the
+file and stack limits, the process group and the open descriptors.
 
-| output | bytes | SHA-256, both arms |
-|---|---|---|
-| `al-observed/thresholds-out.txt` | 3,816 | e2b5681c95650182 |
-| the O2 caps, 16 lines | 1,168 | e0f4d5c402d8cfba |
-| column 1 of `xparsecolor-observed/rgb.out` | 8,017 | 70e61bac85eac208 |
-| column 1 of `xparsecolor-observed/xcms.out` | 16,563 | c6883b65f729f89c |
+**What stays.** `tests/recordings/ascii/git-log.raw`, three `tests/resize/*.raw`
+and `tests/resize/zdotdir/banner` print the scripts' old names: evidence, and
+what the recordings' shell printed.
 
-**The caps had no file.** Their script's output was never committed, and an
-observation made now would not be the one the note read, so the 16 lines are a
-literal in the test, and a further test holds their a* to what `under_threshold`
-computes for all sixteen pairs.
-
-**Red, each run by hand and restored**, by the line the output parts at:
-`thresholds-out.txt` 0.3160 to 0.3161, line 4; rounding half away instead of half
-to even, line 7; green's weight 0.7153, line 3; the caps' sample at an interval's
-start, line 5; their margin ceil - 1, line 1, and `under_threshold` disagrees;
-`rgb.out` `#3a7` to `#3a8`, line 1; no `rgb:1/2/3/4`, line 597; padding with a 1,
-line 18; `xcms.out` `TekHVC:0/100/50` to `51`, line 952; numbers keeping their
-zeros, line 11; the product reversed, line 11; no `CIELab:50/0`, line 979.
-Committed tests hold seven more inputs at named lines: a ground a byte off in
-each analysis, a 1/1000 scan, the bound unhalved, another stride, a missing width
-and a moved grid value.
-
-**One did not fire:** taking the caps' `f32` steps out changes no line, since
-they sample inside an interval, so that blend is ported as it ran and the test
-does not prove its width. No decision rests on a libm's last bit: over the 2,856
-composites either blend reaches, the nearest |dL| to 0.10 is 8.6e-5 away, u'v'
-to a bound 1.4e-4, redness to 0.8 8.2e-4, the darker state to 0.80 9.0e-4; the
-nearest printed value to a rounding boundary is a luminance, 7.2e-6.
-
-The one non-test source edit is a doc comment in `baud-render/src/flash.rs`, so
-nothing was timed. Open: the manifest's note on `xcms.out` names `rgbi:1.1/0/0`,
-`rgbi:1/0/0/9` and `rgbi:0x1/0/0`, and `x_parse_color.rs` says the first draws
-0b0000, but none of the three is a line of that file, so those readings have no
-committed observation.
+**Red first.** The goldens came from the Python, the exec lines from the
+deleted `capture-tui.py` run on each test's own arguments. Of 146 mutations, 134
+turn a committed test red; the first pass left alive what took a test or a
+golden to close, among them `TOO_FAR` and the stored block's boundary. Of the
+first 122, the 6 on the exec path ran again on this code, and 24 more are on the
+exec line, the locale, `SIGXFSZ`, `--out` and `--scan`. The 12 left change no byte: an `end`
+already past, a clamp that already gives 0, the static test at equality, the
+slide's and the blank-length loop's unreachable edges, the last string inserted,
+stale window bytes no match reads, a `PATH` entry's slash test now the line
+prints no path, a `setlocale` query that does not answer null, a codeset no locale
+here lacks and the reset behind it, and the locale the tool puts back and never
+reads. Under load one assertion on a child's start order went red with no code at
+fault and is gone; nine concurrent runs then passed.
