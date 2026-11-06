@@ -10,10 +10,6 @@ mod iterm;
 mod iterm_file;
 #[cfg(test)]
 mod iterm_keys;
-#[cfg(test)]
-mod iterm_keys_built {
-    include!(concat!(env!("OUT_DIR"), "/iterm_keys.rs"));
-}
 mod key;
 mod kitty_color;
 mod level;
@@ -33,12 +29,6 @@ mod sgr;
 mod stack;
 mod tcap;
 mod tcap_data;
-#[cfg(test)]
-mod tcap_built {
-    include!(concat!(env!("OUT_DIR"), "/tcap_data.rs"));
-}
-#[cfg(test)]
-mod table_identity;
 mod tsr;
 mod vt52;
 mod window;

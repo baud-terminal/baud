@@ -35,6 +35,8 @@ mod merged;
 mod nrcs;
 #[path = "build/placeholder.rs"]
 mod placeholder;
+#[path = "build/py_random.rs"]
+mod py_random;
 #[path = "build/search.rs"]
 mod search;
 #[path = "build/sequence.rs"]

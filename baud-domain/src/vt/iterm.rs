@@ -8,8 +8,8 @@
 //! Sequence of characters not = or ^G" (`[[source:
 //! iterm2-964a75d-xtermparser]]`). The table's rows are every key the pinned
 //! pages name and every key iTerm2's `executeXtermSetKvp` compares
-//! (`[[source: iterm2-964a75d-vt100terminal]]`), listed in `iterm_keys.rs`
-//! by `scripts/gen-iterm2-keys.py`; `every_iterm2_key_has_its_row` fails
+//! (`[[source: iterm2-964a75d-vt100terminal]]`), compiled into `iterm_keys`
+//! by `build/iterm_keys.rs`; `every_iterm2_key_has_its_row` fails
 //! when a key there has no row here, or a row names a key neither lists.
 //!
 //! **Each row says what baud does with its key** ([`ItermDoes`]): acts on
@@ -248,8 +248,8 @@ const KEY_NAMES: [&[u8]; ITERM_KEYS] = {
     out
 };
 
-/// A multiplier under which no two keys share a bucket, searched for by
-/// `scripts/gen-iterm2-keys.py --search`: a key is one hash and one compare.
+/// A multiplier under which no two keys share a bucket, the seeded search's
+/// (`each_index_multiplier_is_the_seeded_search`): one hash, one compare.
 const KEY_INDEX: NameIndex<128> = NameIndex::build(&KEY_NAMES, 0xad79_0546_471e_f041);
 const _: () = assert!(KEY_INDEX.probes == 0);
 
@@ -1402,7 +1402,7 @@ mod tests {
 
     /// **Every key the pinned pages name and every key iTerm2's source
     /// compares has its row, and no row names a key neither lists**:
-    /// `iterm_keys.rs`, generated from both by `scripts/gen-iterm2-keys.py`,
+    /// `iterm_keys`, compiled by `build/iterm_keys.rs` from both lists' names,
     /// against the table, through the index a message is dispatched by.
     #[test]
     fn every_iterm2_key_has_its_row() {
@@ -1420,6 +1420,23 @@ mod tests {
             );
         }
         assert_eq!(SOURCE_KEYS.len(), ITERM_KEYS, "the source names every key");
+    }
+
+    /// **Each index's multiplier is the seeded search** that found it: the
+    /// first odd draw of `random.Random(7)`, drawn afresh for each index,
+    /// under which no two of its names share a slot. A key added that
+    /// collides fails the index's assert; this says which multiplier
+    /// follows.
+    #[test]
+    fn each_index_multiplier_is_the_seeded_search() {
+        fn search<const S: usize>(names: &[&[u8]]) -> Option<u64> {
+            let mut r = super::py_random::PyRandom::new(7);
+            (0..10_000)
+                .map(|_| r.bits64() | 1)
+                .find(|&m| NameIndex::<S>::build(names, m).probes == 0)
+        }
+        assert_eq!(search::<128>(&KEY_NAMES), Some(KEY_INDEX.mul));
+        assert_eq!(search::<64>(&COLOR_NAMES), Some(COLOR_INDEX.mul));
     }
 
     /// A key is compared exactly, as `isEqualToString:` compares it.
@@ -1689,3 +1706,9 @@ mod tests {
         assert_eq!(points_hundredths(1, BackingScale::UNTOLD), None);
     }
 }
+
+// After every line of the crate's code, so its panic locations keep
+// their lines.
+#[cfg(test)]
+#[path = "../../build/py_random.rs"]
+mod py_random;

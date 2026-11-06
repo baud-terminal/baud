@@ -4,47 +4,8 @@
 use baud_domain::*;
 use std::collections::BTreeSet;
 
-/// The generated table is what the generator writes from the pinned source.
-#[test]
-fn the_tcap_table_is_the_pinned_source() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-tcap-table.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "tcap_data.rs is stale -- rerun scripts/gen-tcap-table.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-/// **The termcap keyboard's table is the pinned entry's**, joined to
-/// xterm's table: `termcap_data.rs` is exactly what
-/// `scripts/gen-termcap-keys.py` writes from `terminfo/xterm-256color.ti`
-/// and `xterm-xtermcap.c`.
-#[test]
-fn the_termcap_table_is_the_pinned_entry() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let out = std::process::Command::new("python3")
-        .arg(format!("{root}/scripts/gen-termcap-keys.py"))
-        .arg("--check")
-        .current_dir(root)
-        .output()
-        .expect("python3 to run the generator");
-    assert!(
-        out.status.success(),
-        "termcap_data.rs is stale -- rerun scripts/gen-termcap-keys.py\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 /// The names of xterm's table, read from the pinned source here rather
-/// than by the generator: every quoted name of a `DATA` row, and the seven
+/// than by the build: every quoted name of a `DATA` row, and the seven
 /// names each `DGRP` group spells (xtermcap.c 189-243).
 fn xterm_names() -> BTreeSet<String> {
     let src = std::fs::read_to_string(concat!(

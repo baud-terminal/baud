@@ -10,8 +10,8 @@
 //! name (one not found in xterm's tables) ends processing of the list".
 //!
 //! **The names are xterm's table**, `[[source: xterm-xtermcap-c]]` 70-244,
-//! compiled into `tcap_data.rs` by `scripts/gen-tcap-table.py` and indexed
-//! at build time: a request costs a hash and at most [`TCAP_PROBES`]
+//! compiled into `tcap_data` by `build/tcap.rs` and indexed at build
+//! time: a request costs a hash and at most [`TCAP_PROBES`]
 //! compares, never a walk of the table. **A key's value is what baud's key
 //! sends now**: the row's key and modifiers through [`encode_key`] under the
 //! live [`KeyState`], the press xterm simulates through `Input()`
@@ -120,7 +120,7 @@ const fn pack(name: &[u8]) -> Option<u64> {
 const SLOTS: usize = 1024;
 
 /// The bucket, from the **high** bits of a multiplicative hash, as
-/// `StyleId::bucket` takes them, by the multiplier the generator searched
+/// `StyleId::bucket` takes them, by the multiplier `build/tcap.rs` searches
 /// for. The golden ratio's walks seven slots at worst over this table.
 const fn bucket(k: u64) -> usize {
     (k.wrapping_mul(MUL) >> (64 - SLOTS.trailing_zeros())) as usize

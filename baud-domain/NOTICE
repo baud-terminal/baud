@@ -143,27 +143,6 @@ sets
   Status:  kept: redistributable, and its notice is satisfied
   From:    https://www.unicode.org/Public/MAPPINGS/
 
-The termcap keyboard's table: each key of xterm's xtermcap.c table that
-ncurses' xterm-256color terminal description gives a string, with that
-string, in the order of xterm's table
-  Files:   src/vt/key/termcap_data.rs
-  Holder:  Thomas E. Dickey and the Free Software Foundation (ncurses);
-           Thomas E. Dickey (xterm)
-  Licence: X11
-  Notice:  LICENSES/ncurses-COPYING.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://invisible-island.net/ncurses/ and
-           https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c
-
-xterm's XTGETTCAP table: its 319 terminfo and termcap names, each with the
-key baud's encoder sends for it, generated from xterm's xtermcap.c
-  Files:   src/vt/tcap_data.rs
-  Holder:  Thomas E. Dickey (xterm)
-  Licence: X11
-  Notice:  LICENSES/xterm-COPYING.txt
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c
-
 DirectWrite's grayscale text-contrast curve as Windows Terminal ports it in
 dwrite_helpers.hlsl: its four gamma coefficients in build.rs, and its
 formula, compiled into a table, in contrast.rs
@@ -224,18 +203,6 @@ VT100Terminal.m compares, kept as the protocol's interface data. No prose or
 code of iTerm2's is kept
   Files:   data/iterm2-osc1337-doc-keys.txt,
            data/iterm2-osc1337-source-keys.txt
-  Holder:  George Nachman (iTerm2)
-  Licence: protocol interface data, attributed to iTerm2 at 964a75d (George
-           Nachman)
-  Notice:  none
-  Status:  kept: redistributable, and its notice is satisfied
-  From:    https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m
-
-The OSC 1337 key names in iterm_keys.rs, the words an application sends to
-iTerm2's protocol: 39 that its documentation names and 54 that its
-VT100Terminal.m compares, kept as the protocol's interface data. No prose or
-code of iTerm2's is kept
-  Files:   src/vt/iterm_keys.rs
   Holder:  George Nachman (iTerm2)
   Licence: protocol interface data, attributed to iTerm2 at 964a75d (George
            Nachman)

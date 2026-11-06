@@ -3290,3 +3290,51 @@ default delta off names GPOS in Bold alone; the dotted-circle swap off
 names GSUB's nukt; the stage's splice off fails the new test. A face
 swapped in fires the shaping probes (399 of 798, 7,830 of 39,252). A fifth,
 a floor on the axis name's ID, did not fire: no such name exists to reuse.
+
+## The tcap, termcap and iTerm2 key tables compiled at build time
+
+`build/tcap.rs`, `build/termcap_keys.rs` and `build/iterm_keys.rs`
+compile xterm's 319 XTGETTCAP names, the termcap keyboard's 107 strings
+and iTerm2's OSC 1337 keys from `data/` links to xtermcap.c,
+xterm-256color.ti and two files of names. Those hold 39 and 54
+identifiers and nothing else of the GPL-2.0 pages and source, which stay
+`external`; line 1 of each names its parents' sha256s, which a test holds
+to the manifest. Before the delete, `gen-iterm2-keys.py --check`, which
+nothing had called, passed for the first time, and the identity commit
+printed "identical: MUL 0xf2242639261b5841, ROWS 319, DOC_KEYS 39,
+SOURCE_KEYS 54; both files' Rust as text" and "identical: string over 84
+keys and every parameter, 21504 asked, 107 given; the file's Rust as text".
+
+**The searches.** `MUL` is the first of 3,000 odd draws of CPython's
+MT19937 from seed 1 that keeps every name within one slot, the 1009th,
+found again by `build/py_random.rs`, its draws held to Python 3.13.12's
+for seeds 0, 1 and 7. `--search` read 47 of `iterm.rs`'s 54 rows, its
+pattern missing those rustfmt wraps; a multiplier refused for some names
+is refused for all, so the search over all 54 finds the committed one,
+and `each_index_multiplier_is_the_seeded_search` holds both indexes to it.
+
+**Release binaries.** `baud` and `ingest2`, built at one path from fresh
+extractions with every file touched, baud-domain recompiled in each arm:
+base, change and A/A are byte-identical. The comparison is not vacuous:
+with the modules written inline in `key.rs` and `py_random` declared at
+the top of `iterm.rs`, `__TEXT,__text` matched and `cmp` differed, on 9
+words of `__DATA_CONST,__const` in `ingest2`, line numbers moved by those
+files' 9 and 6 lines. So each table keeps its file, now an `include!`, and
+`py_random` is declared after `iterm.rs`' last line. No timing run.
+
+**Red first.** The identity test is red with termcap names taken first
+(ROWS[0]) and with the termcap table's last row winning. After the
+delete, the tcap build's Left mapped to Right turns
+`xtgettcap_answers_a_key_as_it_would_be_sent_now` red, the termcap build's
+Up and Down swapped `the_termcap_keyboard_sends_the_entrys_strings`, Copy
+misspelt in the names `every_iterm2_key_has_its_row`, and seed 8 the search
+test. In `build_tables.rs` 38 perturbed inputs each fire their own
+`cargo::error`, across the table reader, the entry and the names.
+
+**The build.** `cargo build -p baud-domain --timings`, both arms at one
+path, five rounds rotated, the first dropped: the build script compiles
+in [1.05-1.35] s against base's [0.99-1.02], runs in [0.76-0.82] s
+against [0.75-0.80], and the lib in [9.08-10.76] s against [9.31-9.37];
+only the compile's ranges part. Load average 3.7-7.1. Touching
+`src/lib.rs` ran no build script in any round; touching a `data/` file
+ran it once. The `baud-domain` .crate is 1.93 MiB compressed.

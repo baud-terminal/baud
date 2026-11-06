@@ -81,6 +81,8 @@ mod merged;
 mod nrcs;
 #[path = "../build/placeholder.rs"]
 mod placeholder;
+#[path = "../build/py_random.rs"]
+mod py_random;
 #[path = "../build/search.rs"]
 mod search;
 #[path = "../build/sequence.rs"]
@@ -2353,11 +2355,78 @@ fn the_pinned_files_build_the_key_tables() {
     }
 }
 
-/// **The multiplier is Python's search**: `PyRandom` draws what CPython's
-/// `random.Random(seed).getrandbits(64)` does, and the search over the
-/// table's names takes the 1009th draw, the multiplier the generator found.
+/// **Each names file's line 1 names its parents as the manifest pins
+/// them**, the entry's `derived_from` listing them, and every row holds an
+/// identifier and nothing else. The manifest is read here, not by a build
+/// module.
 #[test]
-fn the_tcap_multiplier_is_the_seeded_search_and_its_bound_is_held() {
+fn the_names_files_name_their_parents_and_hold_only_identifiers() {
+    let manifest = include_str!("../../docs/research/sources/MANIFEST.toml");
+    let field = |key: &str, name: &str| -> String {
+        let at = manifest
+            .find(&format!("[sources.{key}]\n"))
+            .unwrap_or_else(|| panic!("{key} in the manifest"));
+        manifest[at..]
+            .lines()
+            .take_while(|l| !l.is_empty())
+            .find_map(|l| {
+                let (n, v) = l.split_once('=')?;
+                (n.trim() == name).then(|| v.trim().to_string())
+            })
+            .unwrap_or_else(|| panic!("{key} has no {name}"))
+    };
+    for (key, file, parents, fields) in [
+        (
+            "iterm2-osc1337-doc-keys",
+            DOC_KEYS,
+            &[
+                "iterm2-escape-codes",
+                "iterm2-images",
+                "iterm2-badges",
+                "iterm2-feature-reporting",
+            ][..],
+            2,
+        ),
+        (
+            "iterm2-osc1337-source-keys",
+            SOURCE_KEYS,
+            &["iterm2-964a75d-vt100terminal"][..],
+            1,
+        ),
+    ] {
+        let text = pinned(file).expect("the names file");
+        let first = text.lines().next().expect("line 1");
+        let derived = field(key, "derived_from");
+        for parent in parents {
+            let sha = field(parent, "sha256");
+            let sha = sha.trim_matches('"');
+            assert_eq!(sha.len(), 64, "{parent}");
+            assert!(
+                first.contains(&format!("[[source: {parent}]] at sha256 {sha}")),
+                "{file}: line 1 does not name {parent} at {sha}"
+            );
+            assert!(
+                derived.contains(&format!("\"{parent}\"")),
+                "{key}: {parent}"
+            );
+            assert_eq!(field(parent, "status"), "\"external\"", "{parent}");
+            assert_eq!(field(parent, "file"), "\"\"", "{parent} is not in the tree");
+        }
+        for row in text.lines().filter(|l| !l.starts_with('#')) {
+            let cells: Vec<&str> = row.split("; ").collect();
+            assert_eq!(cells.len(), fields, "{row}");
+            assert!(cells[0].bytes().all(|b| b.is_ascii_alphanumeric()), "{row}");
+            if let Some(page) = cells.get(1) {
+                assert!(parents.contains(page), "{row}");
+            }
+        }
+    }
+}
+
+/// `PyRandom` draws what CPython's `random.Random(seed).getrandbits(64)`
+/// draws: the first three of each seed, as Python 3.13.12 printed them.
+#[test]
+fn each_seed_draws_what_python_draws() {
     for (seed, want) in [
         (
             1,
@@ -2384,12 +2453,30 @@ fn the_tcap_multiplier_is_the_seeded_search_and_its_bound_is_held() {
             ],
         ),
     ] {
-        let mut r = tcap::PyRandom::new(seed);
+        let mut r = py_random::PyRandom::new(seed);
         assert_eq!(want.map(|_| r.bits64()), want, "seed {seed}");
     }
-    let mut r = tcap::PyRandom::new(tcap::SEED);
+}
+
+/// **The multiplier is the generator's search**: of the odd draws of
+/// `PyRandom` seeded with 1, the first under which no name walks two slots
+/// is the 1009th, the multiplier the Python generator found.
+#[test]
+fn the_tcap_multiplier_is_the_seeded_search_and_its_bound_is_held() {
+    let mut r = py_random::PyRandom::new(tcap::SEED);
     let draws: Vec<u64> = (0..tcap::TRIES).map(|_| r.bits64() | 1).collect();
-    assert_eq!(draws[1008], 0xf224_2639_261b_5841);
+    let emit = tcap::build(&pinned).expect("the tcap table");
+    let names: Vec<&[u8]> = emit
+        .rust()
+        .lines()
+        .filter_map(|l| l.strip_prefix("    (b\"")?.split('"').next())
+        .map(str::as_bytes)
+        .collect();
+    assert_eq!(names.len(), 319);
+    let first = draws.iter().position(|&m| tcap::walk(&names, m) <= 1);
+    assert_eq!(first, Some(1008));
+    assert_eq!(tcap::multiplier(&names), Some(0xf224_2639_261b_5841));
+    assert!(emit.rust().contains("const MUL: u64 = 0xf2242639261b5841;"));
     // Three names in one bucket under any multiplier: one of them walks
     // two slots, so no multiplier holds the bound.
     assert_eq!(tcap::multiplier(&[b"ab", b"ab", b"ab"]), None);

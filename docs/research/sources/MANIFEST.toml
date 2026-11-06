@@ -36769,10 +36769,11 @@ group        = "AX"
 # else of the pages. The controls held: 39 keys, SetProfile (written with
 # no `;`) in iterm2-escape-codes, FileEnd in iterm2-images,
 # SetBadgeFormat in iterm2-badges, Capabilities in
-# iterm2-feature-reporting. Produced once by scripts/gen-iterm2-keys.py
-# (git blob 102f0fad), its manifest(), read() and doc_keys() run under
-# python3 -I (Python 3.13.12) on the fetched files; its own --check passed
-# against the iterm_keys.rs it had written. Line 1 names each parent's
+# iterm2-feature-reporting. Produced once by the Python generator the
+# build replaced (git blob 102f0fad), its own readers run under python3 -I
+# (Python 3.13.12) on the fetched files; its check passed against the
+# table it had committed (git blob 21cb8fb0), the table the build compiles
+# from this file. Line 1 names each parent's
 # sha256, and baud-domain's build (build/iterm_keys.rs) refuses another.
 
 [sources.iterm2-osc1337-source-keys]
@@ -36789,13 +36790,12 @@ derived_from = "iterm2-964a75d-vt100terminal"
 status       = "retrieved"
 group        = "AX"
 # How it was read: the source fetched from its URL and refused unless it
-# hashed to its entry's sha256; from `- (void)executeXtermSetKvp:` to the
-# next line that starts `- (`, the string of every
-# `[key isEqualToString:@"..."]`, each once, one a line, sorted by byte,
-# and nothing else of the source. The controls held: 54 keys, CursorShape
-# and ExecFailed among them. Produced once by scripts/gen-iterm2-keys.py
-# (git blob 102f0fad), its source_keys() run under python3 -I (Python
-# 3.13.12) on the fetched file. Line 1 names the parent's sha256, and
+# hashed to its entry's sha256; within the method executeXtermSetKvp, the
+# string each isEqualToString: compare of `key` names, each once, one a
+# line, sorted by byte, and nothing else of the source. The controls held:
+# 54 keys, CursorShape and ExecFailed among them. Produced once by the
+# Python generator the build replaced (git blob 102f0fad), its own reader
+# run under python3 -I (Python 3.13.12) on the fetched file. Line 1 names the parent's sha256, and
 # baud-domain's build (build/iterm_keys.rs) refuses another.
 
 [sources.iterm2-964a75d-screen-terminal-delegate]
