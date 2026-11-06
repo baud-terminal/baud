@@ -1,12 +1,12 @@
-//! **baud's cursor is the brand's amber**, on the CPU path, chosen against
-//! the page it is drawn on: the dark theme's is `#F4A32C`, read from the
-//! brand sheet's generator, and on a page it does not read on, that amber
-//! with its OKLCH lightness alone stepped away from the page until it reads
-//! at 4.5:1 -- WCAG 2.2's for text (1.4.3, `[[source: wcag22]]`), past
-//! 1.4.11's 3:1 for a component, since the prompt's `❯` is drawn in it --
-//! derived here step by step from the standard's definitions. The text
-//! under the block is the brand's ground where it reads 4.5:1 on the fill,
-//! else the page.
+//! **baud's cursor is the brand's amber**, on the CPU path: `#F4A32C`, read
+//! from the brand sheet's generator, on both built-in themes' pages and on
+//! each reversed, with the brand's ground under the block, whatever that
+//! costs against the page. On a page from a theme file or a program it does
+//! not read on, it is that amber with its OKLCH lightness alone stepped away
+//! from the page until it reads at 4.5:1 -- WCAG 2.2's for text (1.4.3,
+//! `[[source: wcag22]]`), past 1.4.11's 3:1 for a component -- derived here
+//! step by step from the standard's definitions, with the brand's ground
+//! under the block where it reads 4.5:1 on the fill, else the page.
 //!
 //! **The block draws them**, a reversed video's and a flash's included,
 //! and the trail takes the block's colour without the core being told it:
@@ -195,40 +195,102 @@ fn the_dark_cursor_is_the_brands_amber_on_its_ground() {
     );
 }
 
-/// **The light theme's cursor is the amber darkened in OKLCH lightness
-/// alone, the first step to read 4.5:1 against the page**, `#986100`: from
-/// the brand's amber down by 0.0001 at a time, its hue held and its chroma
-/// as much of its own as sRGB holds, each step rounded to bytes. The step
-/// before it reads under 4.5:1 and the hue moves under a degree. The
-/// brand's ground reads under 4.5:1 on it, so the text under the block is
-/// the page, which reads on it as it reads on the page.
+/// **The light theme's cursor is the brand's amber on the brand's ground**,
+/// the logo's on both themes, so `❯█` is one colour: 1.80:1 against the
+/// page, under the 3:1 WCAG 2.2's Understanding page for 1.4.11 asks of a
+/// caret that is the only sign of focus, a cost taken by choice and held
+/// here so it cannot drift unseen; the text under the block reads 8.65:1,
+/// better than the page's 4.52 under the darkened amber it replaced.
 #[test]
-fn the_light_cursor_is_the_amber_darkened_to_four_and_a_half_to_one() {
+fn the_light_cursor_is_the_brands_amber_on_its_ground() {
+    let (amber, ground) = (brand("AMBER"), brand("GROUND"));
     let light = Theme::light();
-    let (got, before) = derived(light.bg);
-    assert_eq!(BaudCursor::light(), got, "{:08X}", got.fill.0);
+    assert_eq!(
+        BaudCursor::light(),
+        BaudCursor {
+            fill: amber,
+            text: ground
+        }
+    );
+    assert_eq!(light.cursor, Some(CellPaint::Colour(amber)));
+    assert_eq!(light.cursor_text, Some(CellPaint::Colour(ground)));
+    let reads = ratio(amber, light.bg);
+    assert!((1.795..1.805).contains(&reads), "{reads:.4}");
+    let text = ratio(ground, amber);
+    assert!((8.645..8.655).contains(&text), "{text:.4}");
+    assert_eq!(painted(light, b""), (amber, ground), "the block as drawn");
+}
+
+/// **A page that is a theme file's keeps the derivation, even in baud's own
+/// colours**: a file whose page is the light theme's, `#EFEFEF`, draws
+/// `#986100`, the amber darkened to the first step that reads 4.5:1, with
+/// the page under it, where the brand's ground reads under 4.5:1, and the
+/// hue moves under a degree; a page that is the amber itself, where the
+/// brand's would vanish, reads 4.5:1 too. A file that names no page and no
+/// text draws the built-in page, so the brand's amber. Drawn after a
+/// built-in theme on one renderer, so the page alone does not decide.
+#[test]
+fn a_theme_files_page_keeps_the_derivation() {
+    let themed = |text: &[u8]| {
+        let mut t = Theme::light();
+        t.take_scheme(&kitty(text, |_, _, _| {}).expect("the file reads"));
+        t
+    };
+    let same = themed(b"background #efefef\n");
+    let (got, before) = derived(same.bg);
+    assert_eq!(BaudCursor::on(same.bg), got, "the reference");
     assert_eq!(got.fill, Argb(0xFF_98_61_00));
-    assert!(ratio(before, light.bg) < 4.5, "{:08X}", before.0);
-    let reads = ratio(got.fill, light.bg);
+    assert_eq!(same.cursor, Some(CellPaint::Colour(got.fill)));
+    assert_eq!(same.cursor_text, Some(CellPaint::Colour(got.text)));
+    assert!(ratio(before, same.bg) < 4.5, "{:08X}", before.0);
+    let reads = ratio(got.fill, same.bg);
     assert!((4.5..4.53).contains(&reads), "{reads:.4}");
     let (_, _, h0) = oklch(brand("AMBER"));
     let (_, _, h) = oklch(got.fill);
     assert!((h - h0).abs() < 1.0, "the hue moved to {h:.2} from {h0:.2}");
-    assert!(ratio(brand("AMBER"), light.bg) < 3.0, "the brand's own");
     assert!(ratio(brand("GROUND"), got.fill) < 4.5, "the ground on it");
-    assert_eq!(got.text, Argb(light.bg.0 | 0xFF00_0000), "the page");
-    assert_eq!(light.cursor, Some(CellPaint::Colour(got.fill)));
-    assert_eq!(light.cursor_text, Some(CellPaint::Colour(got.text)));
-    let text = ratio(got.text, got.fill);
-    assert!(text >= 4.5, "the page on the amber: {text:.2}");
-    assert!(ratio(light.fg, got.fill) < 4.5, "the light text");
+    assert_eq!(got.text, Argb(same.bg.0 | 0xFF00_0000), "the page");
+    assert!(ratio(got.text, got.fill) >= 4.5, "the page on the amber");
+
+    let own = themed(b"background #f4a32c\n");
+    let c = own.cursor.and_then(CellPaint::colour).expect("a colour");
+    assert!(ratio(c, own.bg) >= 4.5, "the block on the amber's own page");
+
+    let plain = themed(b"color1 #ff0000\n");
+    assert_eq!(plain.cursor, Some(CellPaint::Colour(brand("AMBER"))));
+
+    // One renderer, a built-in theme's frame and then the file's.
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::light(),
+        Blend::Native,
+        Cols::of_index(6),
+        Rows::of_index(2),
+    )
+    .unwrap();
+    let mut owned = Owned::new(&WS);
+    let t = Term::new(owned.storage(), &WS);
+    let drawn = |r: &mut Renderer<'_, '_>| {
+        r.convert(&t, Rows::ZERO, Damage::Full);
+        match r.block_paint().fill {
+            Some(CellPaint::Colour(c)) => c,
+            other => panic!("the block is no colour: {other:?}"),
+        }
+    };
+    assert_eq!(drawn(&mut r), brand("AMBER"), "the built-in theme");
+    r.set_theme(same.clone());
+    assert_eq!(drawn(&mut r), got.fill, "the file's, on the same page");
 }
 
-/// **One amber on light**: the launch logo's light amber and every light
-/// logo file's -- the lockup, its title-bar form and the mark, each with
-/// its `-blinking` twin -- is the light cursor's, [`BaudCursor::light`],
-/// and the dark ones are the brand's, [`BaudCursor::dark`]. Each light
-/// file fills its ❯ and its block with it and nothing else with an amber.
+/// **One amber**: the launch logo's light amber and every light logo
+/// file's -- the lockup, its title-bar form and the mark, each with its
+/// `-blinking` twin -- is the light cursor's, [`BaudCursor::light`], and
+/// the dark ones are [`BaudCursor::dark`]'s, the same colour, the brand's.
+/// Each light file fills its ❯ and its block with it and nothing else with
+/// an amber.
 #[test]
 fn the_light_logo_is_the_light_cursors_amber() {
     use baud_render::splash;
@@ -259,9 +321,8 @@ fn the_light_logo_is_the_light_cursors_amber() {
 /// **The brand sheet's colour table is measured**: each row of
 /// `assets/logo/README.md`'s Colour table gives its colour's OKLCH as this
 /// file's [`oklch`] measures the hex, rounded to the digits the row writes,
-/// the hue in degrees from 0 to 360; and its two ambers are the cursor's,
-/// [`BaudCursor::dark`] and [`BaudCursor::light`], so the light one is
-/// the rule's and not a second literal.
+/// the hue in degrees from 0 to 360; and its one amber is the cursor's on
+/// both themes, [`BaudCursor::dark`] and [`BaudCursor::light`].
 #[test]
 fn the_brand_sheets_colours_are_measured() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/logo/README.md");
@@ -303,17 +364,31 @@ fn the_brand_sheets_colours_are_measured() {
         }
         rows += 1;
     }
-    assert_eq!(rows, 5, "the table's five rows");
-    assert_eq!(ambers, [BaudCursor::dark().fill, BaudCursor::light().fill]);
+    assert_eq!(rows, 4, "the table's four rows");
+    assert_eq!(ambers, [BaudCursor::dark().fill]);
+    assert_eq!(ambers, [BaudCursor::light().fill]);
 }
 
-/// **Every page gets the reference's colour**: the two themes' pages and
-/// their reversed ones, black, white, a mid grey neither end of the amber
-/// wins on at once, and pages it must lighten on -- navy and a dark red
-/// -- each the colour the reference derives, reading 4.5:1 against the
-/// page with a text reading 4.5:1 on it.
+/// **baud's own pages take the brand's amber, every other page the
+/// reference's colour**: the two themes' pages and their reversed ones, on
+/// those themes, are the brand's on its ground; black, white, a mid grey
+/// neither end of the amber wins on at once, and pages it must lighten on
+/// -- navy and a dark red -- and those same four colours as a theme file's
+/// pages, are each the colour the reference derives, reading 4.5:1 against
+/// the page with a text reading 4.5:1 on it.
 #[test]
-fn every_page_gets_the_reference_derivation() {
+fn every_page_gets_the_brands_amber_or_the_reference_derivation() {
+    for theme in [Theme::dark(), Theme::light()] {
+        for page in [theme.bg, theme.fg] {
+            let got = theme.bauds_cursor_on(page);
+            assert_eq!(got, BaudCursor::brand(), "{:08X}", page.0);
+            let text = ratio(got.text, got.fill);
+            assert!(text >= 4.5, "{:08X}: {text:.2}", page.0);
+        }
+        // A program's page is no theme's, on a built-in theme too.
+        let program = Argb(0xFF_77_77_77);
+        assert_eq!(theme.bauds_cursor_on(program), derived(program).0);
+    }
     let pages = [
         0x10_10_10, 0xEF_EF_EF, 0xD8_D8_D8, 0x27_27_27, 0x00_00_00, 0xFF_FF_FF, 0x77_77_77,
         0x00_00_80, 0x60_10_10, 0x1D_1F_22, 0xFD_F6_E3,
@@ -322,6 +397,10 @@ fn every_page_gets_the_reference_derivation() {
         let page = Argb(0xFF00_0000 | p);
         let got = BaudCursor::on(page);
         assert_eq!(got, derived(page).0, "{p:06X}");
+        let mut file = Theme::light();
+        let text = format!("background #{p:06x}\n");
+        file.take_scheme(&kitty(text.as_bytes(), |_, _, _| {}).expect("the file reads"));
+        assert_eq!(file.bauds_cursor_on(page), got, "{p:06X} from a file");
         let (fill, text) = (ratio(got.fill, page), ratio(got.text, got.fill));
         assert!(
             fill >= 4.5 && text >= 4.5,
@@ -398,16 +477,27 @@ fn the_block_is_the_amber_and_osc_112_returns_to_it() {
     }
 }
 
-/// **Under reverse video baud's cursor is chosen against the page drawn**,
-/// on both themes, `?5`'s and the bell's flash alike: the block reads 4.5:1
-/// against the reversed page, past 1.4.11's 3:1, and its glyph 4.5:1 on
-/// the block (1.4.3), where the dark theme's amber on its reversed page
-/// read 1.46:1. Back in normal video it is the theme's own.
+/// **Under reverse video baud's own themes keep the brand's amber**, `?5`'s
+/// and the bell's flash alike, on the ground: 7.20:1 on the light theme
+/// reversed, and 1.46:1 on the dark theme reversed, a cost held here; the
+/// glyph reads past 4.5:1 on the block (1.4.3). **A theme file's page has it
+/// chosen again**: past 1.4.11's 3:1 on the reversed page, the glyph past
+/// 4.5:1 on it. Back in normal video it is the theme's own.
 #[test]
-fn reverse_video_chooses_the_amber_against_the_page_drawn() {
-    for theme in [Theme::dark(), Theme::light()] {
+fn reverse_video_keeps_the_brands_amber_and_chooses_on_a_files_page() {
+    let mut file = Theme::light();
+    let text = b"background #fdf6e3\nforeground #657b83\n";
+    file.take_scheme(&kitty(text, |_, _, _| {}).expect("the file reads"));
+    for (theme, reads) in [
+        (Theme::dark(), Some(1.46)),
+        (Theme::light(), Some(7.20)),
+        (file, None),
+    ] {
         let reversed = Argb(theme.fg.0 | 0xFF00_0000);
-        let want = BaudCursor::on(reversed);
+        let want = match reads {
+            Some(_) => BaudCursor::brand(),
+            None => BaudCursor::on(reversed),
+        };
         for (how, bytes, flash) in [
             ("?5", &b"\x1b[?5h"[..], VideoFlash::Off),
             ("the flash", &b""[..], VideoFlash::On),
@@ -415,12 +505,18 @@ fn reverse_video_chooses_the_amber_against_the_page_drawn() {
             let (fill, glyph) = painted_in(theme.clone(), bytes, flash);
             assert_eq!((fill, glyph), (want.fill, want.text), "{how}");
             let (block, text) = (ratio(fill, reversed), ratio(glyph, fill));
-            assert!(block >= 3.0, "{how}: the block on the page, {block:.2}");
+            match reads {
+                Some(r) => assert!((block - r).abs() < 0.005, "{how}: {block:.3}"),
+                None => assert!(block >= 3.0, "{how}: the block on the page, {block:.2}"),
+            }
             assert!(text >= 4.5, "{how}: the glyph on the block, {text:.2}");
         }
         let normal = painted_in(theme.clone(), b"\x1b[?5h\x1b[?5l", VideoFlash::Off);
-        let own = BaudCursor::on(theme.bg);
+        let own = theme.bauds_cursor_on(theme.bg);
         assert_eq!(normal, (own.fill, own.text), "back to normal video");
+        if reads.is_none() {
+            assert_ne!(own.fill, want.fill, "the control: the two differ");
+        }
         let (fill, _) = painted_in(
             theme.clone(),
             b"\x1b[?5h\x1b]12;#ff0000\x07",
@@ -467,7 +563,7 @@ fn a_theme_files_cursor_takes_the_amber_and_its_text_away() {
 /// **The trail is the block's colour without the core being told it**:
 /// the ghost drawn over empty cells, where the core has no configured
 /// cursor colour, is the amber, on both themes, and under reverse video
-/// the amber chosen against the reversed page, as the block's is.
+/// the amber for the reversed page, as the block's is.
 #[test]
 fn the_trail_takes_the_amber_without_the_core() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -493,13 +589,13 @@ fn the_trail_takes_the_amber_without_the_core() {
         (
             Theme::dark(),
             &b"\x1b[?5h"[..],
-            BaudCursor::on(reversed(&Theme::dark())),
+            Theme::dark().bauds_cursor_on(reversed(&Theme::dark())),
             reversed(&Theme::dark()),
         ),
         (
             Theme::light(),
             &b"\x1b[?5h"[..],
-            BaudCursor::on(reversed(&Theme::light())),
+            Theme::light().bauds_cursor_on(reversed(&Theme::light())),
             reversed(&Theme::light()),
         ),
     ] {

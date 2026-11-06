@@ -67,10 +67,13 @@ prompt like any other, and needs nothing from you
 
 starship cannot see whether the terminal is dark or light, so the file
 carries two palettes, `baud-dark` and `baud-light`, and starts with the
-dark one. Three colours change between them: the amber ❯, the red of a
-failure, and the colour of a git operation in progress, a slow command's
-time and background jobs (yellow on dark, violet on light, where yellow
-sits too close to the darker amber).
+dark one. Two colours change between them: the red of a failure, and the
+colour of a git operation in progress, a slow command's time and background
+jobs (yellow on dark, violet on light). The amber ❯ is the same on both, the
+logo's `#f4a32c`, beside a cursor in the same colour. It reads 1.80:1 on the
+light page, under the 4.5:1 the file's other colours meet; for the contrast,
+set `amber = "#986100"` in `baud-light`, and in baud's config `[palette]
+cursor = "#986100"` and `cursor_text = "#EFEFEF"`, which keeps ❯█ one colour.
 
 **Two files, chosen with `STARSHIP_CONFIG`.** Keep a second copy with the
 palette line changed:

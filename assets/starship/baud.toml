@@ -106,14 +106,14 @@ note = "yellow"
 
 # The light page, #efefef. The same names, so the format never changes.
 [palettes.baud-light]
-# The brand amber made dark enough to read: 4.52:1, where #f4a32c is 1.80:1.
-# OKLCH lightness 0.778 -> 0.540 with the hue kept (70.7 -> 71.1 degrees).
-# sRGB holds no colour that dark at the brand's chroma, so chroma also falls,
-# 0.155 -> 0.116. baud's light cursor must use this value, or ❯█ splits.
-amber = "#986100"
+# baud's brand amber, the same as on the dark page: 1.80:1 here, under the
+# 4.5:1 every other colour in this file meets, by choice. For the contrast
+# instead, use #986100 here and set baud's [palette] cursor = "#986100" and
+# cursor_text = "#EFEFEF". baud's light cursor must use this value, or ❯█ splits.
+amber = "#f4a32c"
 # A failure: entry 1, #a60000 in baud, 6.97:1. Entry 9 (#972500, 7.08:1)
-# also passes, but beside the light amber a red ❯ and an amber one looked
-# alike in the renders of two designs; entry 1 is the redder of the two.
+# also passes, but entry 1 is the redder of the two, the plainer against
+# the amber, which it reads 3.86:1 beside.
 # On the dark page entry 1 reads only 4.50:1, so there it stays entry 9.
 fail = "red"
 # Context: entry 8, #595959, 6.09:1.
@@ -121,8 +121,8 @@ quiet = "bright-black"
 # What changed in git: entry 6, #005e8b, 6.14:1.
 change = "cyan"
 # What wants attention: entry 13, #531ab6, 8.34:1. Not yellow on this page:
-# Modus yellow #6f5500 sits 17 degrees of hue from the light amber, so "merge"
-# or "7s" read as the ❯'s colour. On the dark page the two are 39 degrees apart.
+# Modus yellow #6f5500 sits 17 degrees of hue from the amber and is far darker,
+# so "merge" or "7s" would read as a dark amber, not a colour of their own.
 note = "bright-purple"
 
 # Who: shown by starship only as root, over ssh, or as another user.

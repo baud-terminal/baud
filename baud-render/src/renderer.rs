@@ -2428,9 +2428,9 @@ pub struct Renderer<'f, 'a> {
     /// core holds -- else the theme's, which may name the cell's own, and
     /// the theme's text under the block ([`Renderer::block_paint`]).
     block_paint: BlockPaint,
-    /// baud's cursor on the last page it was chosen against
-    /// ([`BaudCursor::on`]), which a flip of the video or an `OSC 11`
-    /// chooses again, once.
+    /// baud's cursor on the last page it was asked for
+    /// ([`Theme::bauds_cursor_on`]), which a flip of the video, an `OSC 11`
+    /// or a new theme asks again, once.
     bauds: (Argb, BaudCursor),
     /// **The most alpha a repeat pass's records carry** (note AL, option
     /// O2): the least [`flash::under_threshold`] of the cursor's colour over
@@ -5582,6 +5582,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the next convert or resolve puts it back (`refresh_screen`).
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+        self.bauds = (Argb::default(), BaudCursor::dark());
         self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
         self.known = Prev::Unknown;
         self.defaults = self.theme.defaults(self.video, |_| None);
@@ -5605,10 +5606,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .defaults(Video::Normal, |d| term.dynamic_color(d));
         self.page_default = stored.1;
         self.reversed = (self.reversed_of(stored), stored);
-        // **baud's own cursor is chosen against the page drawn**, a
-        // reversed video's or a flash's included, while no program names a
-        // cursor colour: the amber the core was told was chosen against the
-        // theme's page, where a reversed one would read it at 1.46:1.
+        // **baud's own cursor is the page drawn's**, a reversed video's or
+        // a flash's included, while no program names a cursor colour: the
+        // amber the core was told was the theme's page's, where a theme
+        // file's reversed page may need another.
         let bauds = match (
             self.theme.cursor_made,
             term.program_paint(PaintRole::Cursor),
@@ -5616,7 +5617,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (CursorMade::Bauds | CursorMade::BaudsFill, ProgramPaint::Unset) => {
                 let page = defaults.1.with_alpha(Chan::from_u8(0xFF));
                 if self.bauds.0 != page {
-                    self.bauds = (page, BaudCursor::on(page));
+                    self.bauds = (page, self.theme.bauds_cursor_on(page));
                 }
                 Some(self.bauds.1)
             }

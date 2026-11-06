@@ -25,36 +25,51 @@ when the key was a switch reads as it did.
 
 The cursor is baud's amber, the logo's, and so is every trail and blink
 animation: `[palette] cursor = "baud"`, the default, over a theme file's
-cursor too. The amber is chosen against the page it is drawn on, and the code
-computes it (`BaudCursor::on`, `baud-render/src/color.rs`): the logo's
-`#F4A32C`, oklch(0.7775 0.155 70.7), where it reads at 4.5:1 against the page,
-and elsewhere that amber with its OKLCH lightness alone stepped away from the
-page by 0.0001 at a time -- its hue held, as much of its chroma as sRGB keeps,
-each step rounded to bytes -- to the first step that reads 4.5:1. That is
-WCAG 2.2's ratio for text (1.4.3) [[source: wcag22]], past the 3:1 it asks
-of a user interface component (1.4.11), because the prompt's `❯` is text in
-the same amber, and `❯` and the block beside it read as one colour, the
-logo's `❯█`. The text under a block cursor is the logo's near-black
-`#15171B` where it reads 4.5:1 on the amber, and else the page, which reads
-on the amber as the amber reads on the page.
+cursor too. On baud's own themes, dark and light, and on each reversed, it is
+the logo's `#F4A32C`, oklch(0.7775 0.155 70.7), so the prompt's `❯` and the
+block beside it are the logo's `❯█` on every page baud ships. The text under a
+block cursor there is the logo's near-black `#15171B`.
 
 | page | cursor | against the page | text under the block | text on the cursor |
 |---|---|---|---|---|
 | `#101010`, the dark theme's | `#F4A32C`, the logo's | 9.17 | `#15171B` | 8.65 |
-| `#EFEFEF`, the light theme's | `#986100` | 4.52 | `#EFEFEF`, the page | 4.52 |
-| `#D8D8D8`, the dark theme reversed | `#855400` | 4.51 | `#D8D8D8`, the page | 4.51 |
+| `#EFEFEF`, the light theme's | `#F4A32C` | 1.80 | `#15171B` | 8.65 |
+| `#D8D8D8`, the dark theme reversed | `#F4A32C` | 1.46 | `#15171B` | 8.65 |
 | `#272727`, the light theme reversed | `#F4A32C` | 7.20 | `#15171B` | 8.65 |
 
-On the light page the logo's `#F4A32C` reads 1.80:1, and the light logo's
-earlier `#C8801F` 2.78:1; `#986100` is 2,374 steps down, at L 0.540, chroma
-0.116 and hue 71.1, and the step before it, `#996200`, reads 4.49:1. The
-light logo files and the launch logo on a light window take `#986100` too,
-from the same rule, so light has one amber. The near-black
-reads only 3.46:1 on it, so the light theme's text under the block is the
-page. **Under reverse video** -- `?5`, and the bell's flash, which draws the
-same exchange -- the amber is chosen again against the reversed page, so the
-dark theme's block reads 4.51:1 where its own amber would read 1.46:1, and
-the trail follows the block. Each ratio is against the page drawn opaque.
+**What that costs, on the light page.** The amber is a brand colour first, and
+it reads 1.80:1 against `#EFEFEF`. WCAG 2.2 exempts a logo from contrast
+(1.4.3's Logotypes [[source: wcag22]], and 1.4.11's Understanding page: "Logos
+are exempted" [[source: wcag22-understanding-non-text-contrast]]), but the
+prompt's `❯` is text, which 1.4.3 asks 4.5:1 of, and that Understanding page
+fails a caret under 3:1 that is the only sign of focus (its Figure 44). So on the light page, and on the dark theme reversed, both fall
+short, by choice. A failed command's `❯` in the starship preset, `#A60000`,
+reads 6.97:1 there, far more strongly than a good one's.
+
+**For the contrast instead**, the darkened amber that stands out from the
+light page keeps `❯█` one colour: `[palette] cursor = "#986100"` and
+`cursor_text = "#EFEFEF"`, and `amber = "#986100"` in the starship preset's
+`baud-light` palette. It reads 4.52:1 against the page, and the page 4.52:1 on
+it.
+
+**On any other page**, a theme file's whatever its colour, or one a program sets
+with `OSC 11` in a colour other than those four, the amber is chosen against the
+page drawn, and the code computes it
+(`BaudCursor::on`, `baud-render/src/color.rs`): the logo's `#F4A32C` where it
+reads at 4.5:1 against the page, and elsewhere that amber with its OKLCH
+lightness alone stepped away from the page by 0.0001 at a time -- its hue held,
+as much of its chroma as sRGB keeps, each step rounded to bytes -- to the first
+step that reads 4.5:1. That is WCAG 2.2's ratio for text (1.4.3)
+[[source: wcag22]], past the 3:1 it asks of a user interface component
+(1.4.11), so no theme can make the block vanish, as a page of the amber itself
+would. A theme file whose page is `#EFEFEF` draws `#986100`, 2,374 steps down,
+at L 0.540, chroma 0.116 and hue 71.1; the step before it, `#996200`, reads
+4.49:1. The text under its block is the logo's near-black where it reads 4.5:1
+on the amber, and else the page, which reads on the amber as the amber reads on
+the page. **Under reverse video** -- `?5`, and the bell's flash, which draws the
+same exchange -- such a page has the amber chosen again against the reversed
+page, and the trail follows the block. Each ratio is against the page drawn
+opaque.
 **Two places are not held to it**: where the glass lets the desktop through the page, the amber's
 contrast with the page depends on the desktop; and an input method's
 composition line, drawn over a bar cursor, takes the bar's lowest pixels in

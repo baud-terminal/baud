@@ -114,8 +114,9 @@ pub use cellmap::{
     Reach, Resolved, Selected, Shapes, Swaps, Text, WalkKey, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
-    AppBg, Argb, Backdrop, BaudCursor, CURSOR_CONTRAST, CursorMade, Floor, MODUS_OPERANDI,
-    PictureBg, SixelBg, Theme, Video, contrast_over, dark_palette, light_palette, xterm_palette,
+    AppBg, Argb, Backdrop, BaudCursor, CURSOR_CONTRAST, CursorMade, CursorPages, Floor,
+    MODUS_OPERANDI, PictureBg, SixelBg, Theme, Video, contrast_over, dark_palette, light_palette,
+    xterm_palette,
 };
 pub use composite::{Blend, Blit, Mix, Page, Target, Texels};
 pub use find::{Current, FIELD_COLS, Field, Find, FindLook, Mark, Position, Query, Typing};

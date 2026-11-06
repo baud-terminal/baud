@@ -12,9 +12,9 @@
 //! the workspace takes no parser for either.
 //!
 //! The palettes are held to baud's colours, so the preset cannot drift
-//! from them: `amber` is the brand's amber on the dark page and the
-//! light theme's amber on the light one, and every other name is the
-//! theme entry its comment names, at the contrast the comment states.
+//! from them: `amber` is the brand's amber on both pages, and every other
+//! name is the theme entry its comment names, at the contrast the comment
+//! states.
 
 use std::fs;
 use std::path::PathBuf;
@@ -33,11 +33,10 @@ const PRESET: &str = "assets/starship/baud.toml";
 const SCHEMA: &str = "docs/research/sources/starship-1.27.0-config-schema.json";
 const GUIDE: &str = "docs/guide/starship.md";
 
-/// **The light theme's amber, `#986100`**: the brand's amber darkened in
-/// OKLCH lightness alone, its hue kept, to read 4.52:1 on the light page,
-/// the value baud's light cursor is drawn in ([`BaudCursor::light`]), so
-/// the ❯ and the block beside it are one colour.
-const LIGHT_AMBER: u32 = 0x98_6100;
+/// **What the light page's amber reads against the page, 1.80:1**: the
+/// one colour of the file under 4.5:1, by choice, the brand's amber kept so
+/// the ❯ and the block beside it ([`BaudCursor::light`]) are one colour.
+const LIGHT_AMBER_READS: f64 = 1.80;
 
 // ---------------------------------------------------------------- JSON
 
@@ -796,8 +795,9 @@ fn hex_in(said: &str) -> u32 {
 }
 
 /// **Each palette is baud's colours, at the contrast its comments state.**
-/// `amber` is the brand's amber on the dark page -- the brand generator's
-/// `AMBER` and the lockup's -- and [`LIGHT_AMBER`] on the light page;
+/// `amber` is the brand's amber -- the brand generator's `AMBER` and the
+/// lockup's -- on both pages, and reads [`LIGHT_AMBER_READS`] on the light
+/// one, the one colour under 4.5:1;
 /// every other name is one of the terminal's sixteen, the entry its
 /// comment names, which is the value baud's theme draws for that entry,
 /// at the ratio the comment gives on that theme's page. The control: the
@@ -822,15 +822,8 @@ fn the_palettes_are_baud_s_colours() {
     );
     // The cursor's amber on each page, the ❯'s neighbour.
     assert_eq!(rgb(BaudCursor::dark().fill), amber, "the dark cursor");
-    assert_eq!(
-        rgb(BaudCursor::light().fill),
-        LIGHT_AMBER,
-        "the light cursor"
-    );
-    for (which, theme, want_amber) in [
-        ("baud-dark", Theme::dark(), amber),
-        ("baud-light", Theme::light(), LIGHT_AMBER),
-    ] {
+    assert_eq!(rgb(BaudCursor::light().fill), amber, "the light cursor");
+    for (which, theme) in [("baud-dark", Theme::dark()), ("baud-light", Theme::light())] {
         let page = rgb(theme.bg);
         let lines = palette_lines(&text, which);
         let names: Vec<&str> = lines.iter().map(|(k, _, _)| k.as_str()).collect();
@@ -842,7 +835,7 @@ fn the_palettes_are_baud_s_colours() {
         for (name, value, said) in &lines {
             let drawn = if name == "amber" {
                 let v = argb(value);
-                assert_eq!(v, want_amber, "{which} amber");
+                assert_eq!(v, amber, "{which} amber");
                 v
             } else {
                 let i = entry(value);
@@ -860,7 +853,14 @@ fn the_palettes_are_baud_s_colours() {
                 (c - ratio(said)).abs() <= 0.0051,
                 "{which} {name}: {c:.3}:1 against the comment's {said}"
             );
-            assert!(c >= 4.5, "{which} {name} reads {c:.2}:1");
+            if which == "baud-light" && name == "amber" {
+                assert!(
+                    (c - LIGHT_AMBER_READS).abs() <= 0.0051,
+                    "{which} {name} reads {c:.3}:1, the one exception's own"
+                );
+            } else {
+                assert!(c >= 4.5, "{which} {name} reads {c:.2}:1");
+            }
         }
     }
     let light = Theme::light();

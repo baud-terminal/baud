@@ -280,7 +280,7 @@ area = "window"
 status = "done"
 date = "2026-10-18"
 title = "Readable colours on the light and dark glass"
-summary = "Every built-in light and dark colour but the page's own reads at 4.5:1 on its page, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper."
+summary = "Every built-in light and dark colour reads at 4.5:1 on its page, but the page's own and the brand's amber on the light page, 1.80:1 by choice, and the see-through window is dimmed enough to keep text readable over a white or a black wallpaper."
 
 [[item]]
 id = "F1-31"

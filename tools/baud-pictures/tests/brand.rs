@@ -102,10 +102,9 @@ fn a_character_the_face_lacks_is_refused() {
 fn the_marks_are_the_committed_files() {
     let f = committed_fonts();
     let t = Type::new(&f).expect("the faces read");
-    let light = "#986100";
     for (name, fill) in [
         ("dark", brand::AMBER),
-        ("light", light),
+        ("light", brand::AMBER),
         ("amber", brand::AMBER),
     ] {
         let m = brand::centred(&t, 256.0, 172.0, 168.0, fill).expect("drawn");
@@ -333,11 +332,11 @@ fn the_plasma_report_checks_fire() {
     };
     let (pen, hole) = ("[50.362, 88]", "[223.27109, 45, 244.18018, 91]");
     let (x0, cur) = (50.362_15, [223.27, 45.0, 244.18, 91.0]);
-    brand::plasma_holds(&rep(pen, hole, "120", "#F4A32C", "#986100"), x0, cur)
+    brand::plasma_holds(&rep(pen, hole, "120", "#F4A32C", "#F4A32C"), x0, cur)
         .expect("the base's report");
     must_fail(
         brand::plasma_holds(
-            &rep("[50.37, 88]", hole, "120", "#F4A32C", "#986100"),
+            &rep("[50.37, 88]", hole, "120", "#F4A32C", "#F4A32C"),
             x0,
             cur,
         ),
@@ -350,7 +349,7 @@ fn the_plasma_report_checks_fire() {
                 "[223.3, 45, 244.18018, 91]",
                 "120",
                 "#F4A32C",
-                "#986100",
+                "#F4A32C",
             ),
             x0,
             cur,
@@ -358,16 +357,16 @@ fn the_plasma_report_checks_fire() {
         "the splash's block is [223.3, 45, 244.18018, 91], not the lockup's cursor (223.27, 45.0, 244.18, 91.0)",
     );
     must_fail(
-        brand::plasma_holds(&rep(pen, hole, "121", "#F4A32C", "#986100"), x0, cur),
+        brand::plasma_holds(&rep(pen, hole, "121", "#F4A32C", "#F4A32C"), x0, cur),
         "baud's renderer draws a 121 by 264 cell, baseline 204, at 200 px",
     );
     must_fail(
-        brand::plasma_holds(&rep(pen, hole, "120", "#F4A32D", "#986100"), x0, cur),
+        brand::plasma_holds(&rep(pen, hole, "120", "#F4A32D", "#F4A32C"), x0, cur),
         "baud's cursor on the dark page is #F4A32D, not the brand's #F4A32C",
     );
     must_fail(
-        brand::plasma_holds(&rep(pen, hole, "120", "#F4A32C", "#98610"), x0, cur),
-        "baud's cursor on the light page reads '#98610', not a colour",
+        brand::plasma_holds(&rep(pen, hole, "120", "#F4A32C", "#986100"), x0, cur),
+        "baud's cursor on the light page is #986100, not the brand's #F4A32C",
     );
 }
 

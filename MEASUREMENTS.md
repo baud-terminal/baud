@@ -4161,3 +4161,60 @@ workspace doctests, `sources`, `third-party --check`, `features --check`, `audit
 --size`, `scripts/check-features.sh` and `scripts/build-fonts.sh --check`. A stub cannot see an
 absolute path: a tracked one fires the gate, and one inside a tool is not seen.
 `bench-others/kitty-bench` loads kitty's interpreter by design and is outside these gates.
+
+## One amber: `#F4A32C` on dark and on light
+
+The logo, the cursor and the prompt's `❯` take the brand's amber on both
+built-in themes and on each reversed, in place of `#986100` on light, so `❯█`
+is one colour. A theme file's page keeps the derivation (`BaudCursor::on`), and
+so does a program's `OSC 11` unless its colour is one of those four, so no theme
+can make the block vanish.
+
+**Contrast**, WCAG 2.2's ratio (`[[source: wcag22]]`), against the page drawn
+opaque, by `baud-render/tests/cursor_amber.rs`:
+
+| page | cursor | on the page | text | text on it | before |
+|---|---|---|---|---|---|
+| `#101010`, dark | `#F4A32C` | 9.17 | `#15171B` | 8.65 | the same |
+| `#EFEFEF`, light | `#F4A32C` | **1.80** | `#15171B` | 8.65 | `#986100` 4.52, text 4.52 |
+| `#D8D8D8`, dark reversed | `#F4A32C` | **1.46** | `#15171B` | 8.65 | `#855400` 4.51, text 4.51 |
+| `#272727`, light reversed | `#F4A32C` | 7.20 | `#15171B` | 8.65 | the same |
+
+The cost is taken by choice and held by the tests, not hidden. A logo is
+exempt (1.4.3's Logotypes; `[[source: wcag22-understanding-non-text-contrast]]`,
+"Logos are exempted"). The `❯` is text and 1.4.3 asks 4.5:1, and that
+Understanding page's Figure 44 fails a caret under 3:1 that is the only sign of
+focus. `docs/cursor.md` gives the colours that buy the contrast back, and
+`git_log_paints_to_its_pinned_light_frame` holds them to the old frame.
+
+**Drawn, on the light page, opaque, headless, CPU renderer at 28 px**, of the
+pixels that were the bare page, the most contrast against it, this amber
+against `#986100`. Trails at half their life on a screen of text:
+
+| draw | pixels | `#F4A32C` | `#986100` |
+|---|---|---|---|
+| block | 629 | 1.80 | 4.52 |
+| bar | 74 | 1.80 | 4.52 |
+| underline | 34 | 1.80 | 4.52 |
+| hollow | 200 | 1.80 | 4.52 |
+| plasma trail, 0.2 of its life / half | 8,522 / 2,094 | 2.13 / 1.28 | 4.88 / 1.62 |
+| fire trail, 0.2 / half | 20,159 / 4,556 | 1.78 / 1.35 | 4.31 / 1.96 |
+| ghost trail, 0.2 / half | 588 / 629 | 1.40 / 1.23 | 2.16 / 1.58 |
+| sweep trail, 0.2 / half | 5,546 / 405 | 1.35 / 1.33 | 1.98 / 1.92 |
+| the splash's amber pixels, 0.03 / 0.25 s in | 188 / 509 | 3.81 / 1.92 | not taken |
+
+`#F4A32C` stands on every trail on the light page. The faded end of plasma, 2.13
+then 1.28, and of fire, 1.78 then 1.35, is accepted as it is, and nothing is
+strengthened for it.
+
+**What moved.** One pin, the light git-log, `0xafa79c97e05778b1` to
+`0x806a7ccc11ad07b1`; with `#986100` over `#EFEFEF` named it is the old digest,
+so the cursor alone moved it. Every dark pin, and every trail's and blink's
+per-OS pin, is unmoved. `the_cell_arm_draws_what_the_instance_arm_draws` takes a
+slack of 2 levels on light glass. Over the light glass at alpha 153 a half-faded
+plasma in this amber lands above both ends: pixel 96068, green, 145 against
+135-143. The base's renderer does the same with only the colour changed, so the
+amber shows the overshoot and the renderer's edits here do not cause it. Which
+layer lifts it is not isolated. WCAG 2.3.1 is unmoved: `trail_flashes`
+and `splash_flashes` pass, and no red transition, the amber's linear R/(R+G+B)
+0.70 on both themes.

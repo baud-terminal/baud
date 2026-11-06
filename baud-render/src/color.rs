@@ -852,6 +852,8 @@ pub struct Theme {
     /// Whether the cursor's colours are baud's, chosen against the page
     /// each frame is drawn on, or named by a theme file or the config.
     pub cursor_made: CursorMade,
+    /// Whose page this is: baud's own, or a theme file's.
+    pub cursor_pages: CursorPages,
     /// What the selection's text answers where [`Theme::selection_text`]
     /// is unset: reverse video's, or a kitty theme's
     /// `selection_foreground none`. Drawn the same either way.
@@ -954,48 +956,78 @@ pub enum SixelBg {
 pub use baud_domain::Video;
 
 /// **baud's own cursor on one page**: the brand's amber as the block's
-/// fill, and the text under the block, chosen against that page by
-/// [`BaudCursor::on`]. What `[palette] cursor = "baud"`, the default, draws.
+/// fill and the brand's ground as the text under it on baud's own pages
+/// ([`Theme::bauds_cursor_on`]), each chosen against the page by
+/// [`BaudCursor::on`] on any other. What `[palette] cursor = "baud"`, the
+/// default, draws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct BaudCursor {
     pub fill: Argb,
     pub text: Argb,
 }
 
-/// **The contrast baud's cursor reads at against the page, 4.5:1**: WCAG
-/// 2.2's for text (1.4.3, `[[source: wcag22]]`), past its 3:1 for a user
-/// interface component (1.4.11), because the prompt's `❯` is text drawn in
-/// the same amber, so `❯` and the block beside it read as one colour, the
-/// logo's `❯█`, on every page.
+/// **The contrast baud's cursor reads at against a page it is chosen for,
+/// and the text under its block on the fill, 4.5:1**: WCAG 2.2's for text
+/// (1.4.3, `[[source: wcag22]]`), past its 3:1 for a user interface
+/// component (1.4.11). baud's own pages take the brand's amber and do not
+/// ask it ([`BaudCursor::brand`]); a page from a theme file, or a program's
+/// `OSC 11` in another colour, is chosen for, so no such page can make the
+/// block vanish.
 pub const CURSOR_CONTRAST: f64 = 4.5;
 
 /// The brand's ground, `#15171B`, the icons' near-black on amber: the text
 /// under baud's block wherever it reads at [`CURSOR_CONTRAST`] on the fill.
 const GROUND: Argb = Argb(0xFF15_171B);
 
+/// **baud's own themes' pages**, opaque: each theme's and the same theme's
+/// reversed, where [`Theme::dark`] and [`Theme::light`] draw the brand's
+/// amber.
+const OWN_PAGES: [Argb; 4] = [
+    Argb(0xFF10_1010),
+    Argb(0xFFD8_D8D8),
+    Argb(0xFFEF_EFEF),
+    Argb(0xFF27_2727),
+];
+
 impl BaudCursor {
-    /// **On the dark theme's page, the brand's amber, `#F4A32C`**, the
-    /// lockup's ([`crate::splash::DARK`], `tools/baud-pictures`'s
-    /// `AMBER`), at 9.17:1, with the brand's ground under it at 8.65:1.
+    /// **The brand's amber, `#F4A32C`**, the lockup's
+    /// ([`crate::splash::DARK`], `tools/baud-pictures`'s `AMBER`), with the
+    /// brand's ground under it at 8.65:1: one colour on every page baud
+    /// ships, so the prompt's `❯` and the block beside it are the logo's
+    /// `❯█`, on dark and on light. It costs contrast by choice: 9.17:1 on
+    /// the dark page, 7.20 on the light theme reversed, and 1.80 on the
+    /// light page and 1.46 on the dark theme reversed, under the 3:1 WCAG
+    /// 2.2's Understanding page for 1.4.11 asks of a caret that is the only
+    /// sign of focus (`[[source: wcag22-understanding-non-text-contrast]]`),
+    /// and for the `❯`, text, under 1.4.3's 4.5:1 (`[[source: wcag22]]`).
+    /// `docs/cursor.md` gives what to set to have the contrast instead.
+    pub fn brand() -> BaudCursor {
+        BaudCursor {
+            fill: crate::splash::DARK.amber,
+            text: GROUND,
+        }
+    }
+
+    /// On the dark theme's page: [`BaudCursor::brand`], at 9.17:1.
     pub fn dark() -> BaudCursor {
-        BaudCursor::on(grey(0x10))
+        BaudCursor::brand()
     }
 
-    /// **On the light theme's page `#EFEFEF`, `#986100`**: the amber
-    /// darkened in OKLCH lightness alone to 4.52:1, the page's own colour
-    /// under it at 4.52:1, where the brand's ground reads 3.46:1.
+    /// On the light theme's page `#EFEFEF`: [`BaudCursor::brand`], at
+    /// 1.80:1.
     pub fn light() -> BaudCursor {
-        BaudCursor::on(grey(0xEF))
+        BaudCursor::brand()
     }
 
-    /// **baud's cursor against `page`**, opaque: the brand's amber,
-    /// `#F4A32C`, oklch(0.7775 0.155 70.7), its lightness stepped away from
-    /// the page by 0.0001 at a time, its hue held and its chroma the most
-    /// of its own that sRGB holds at each step, bisected, each step rounded
-    /// to bytes; the first step to read [`CURSOR_CONTRAST`] against the
-    /// page is the fill. A page it already reads on keeps the brand's own.
-    /// The text is the brand's ground where it reads 4.5:1 on the fill,
-    /// and else the page, which reads on it as the fill reads on the page.
+    /// **baud's cursor chosen against `page`**, opaque, for a page that is
+    /// not one of baud's own: the brand's amber, `#F4A32C`, oklch(0.7775
+    /// 0.155 70.7), its lightness stepped away from the page by 0.0001 at a
+    /// time, its hue held and its chroma the most of its own that sRGB holds
+    /// at each step, bisected, each step rounded to bytes; the first step to
+    /// read [`CURSOR_CONTRAST`] against the page is the fill. A page it
+    /// already reads on keeps the brand's own. The text is the brand's
+    /// ground where it reads 4.5:1 on the fill, and else the page, which
+    /// reads on it as the fill reads on the page.
     ///
     /// **Darker first, then lighter**: the first step in either direction,
     /// the darker on a tie; black or white reads at least 4.58:1 against
@@ -1005,23 +1037,11 @@ impl BaudCursor {
     /// hundredth of lightness moves each channel by more than the byte's
     /// rounding can move it back. IEEE arithmetic only, through
     /// `baud_domain::LINEAR` and this module's `cbrt`, so the colour does
-    /// not depend on a platform maths library. The two built-in pages are
-    /// derived once; `baud-render/tests/cursor_amber.rs` derives every one
-    /// again from the standard's definitions.
+    /// not depend on a platform maths library.
+    /// `baud-render/tests/cursor_amber.rs` derives every one again from the
+    /// standard's definitions.
     pub fn on(page: Argb) -> BaudCursor {
-        static DARK: std::sync::OnceLock<BaudCursor> = std::sync::OnceLock::new();
-        static LIGHT: std::sync::OnceLock<BaudCursor> = std::sync::OnceLock::new();
         let page = page.with_alpha(Chan::from_u8(0xFF));
-        if page == grey(0x10) {
-            return *DARK.get_or_init(|| BaudCursor::derive(page));
-        }
-        if page == grey(0xEF) {
-            return *LIGHT.get_or_init(|| BaudCursor::derive(page));
-        }
-        BaudCursor::derive(page)
-    }
-
-    fn derive(page: Argb) -> BaudCursor {
         let amber = crate::splash::DARK.amber;
         let [_, r, g, b] = amber.channels();
         let lin = |v: u8| Linear::of(Chan::from_u8(v)).0;
@@ -1102,8 +1122,8 @@ fn amber_at(l: f64, chroma: f64, ua: f64, ub: f64) -> Argb {
 /// renderer chooses them again against the page each frame is drawn on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CursorMade {
-    /// baud's: its amber and the text under it, chosen against the page
-    /// drawn ([`BaudCursor::on`]), a reversed video's and a program's
+    /// baud's: its amber and the text under it, for the page drawn
+    /// ([`Theme::bauds_cursor_on`]), a reversed video's and a program's
     /// `OSC 11` included, while no program names a cursor colour.
     Bauds,
     /// baud's amber, chosen so, with a text the config names.
@@ -1112,15 +1132,41 @@ pub enum CursorMade {
     Named,
 }
 
+/// **Whose page a theme draws**, which says what baud's cursor is on it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorPages {
+    /// baud's own: on the theme's page and on it reversed, the brand's
+    /// amber ([`BaudCursor::brand`]).
+    Bauds,
+    /// A theme file's: the amber chosen against whatever is drawn
+    /// ([`BaudCursor::on`]), so no file can make the block vanish, even one
+    /// whose page is one of baud's own colours.
+    Files,
+}
+
 impl Theme {
-    /// **This theme with baud's cursor on its page**: [`BaudCursor::on`]'s
-    /// fill, and its text under a cursor of a colour of its own, set aside
+    /// **baud's cursor on `page`, as this theme draws it**: the brand's
+    /// amber on one of baud's own pages under one of baud's own themes;
+    /// any other page, a theme file's or a program's `OSC 11`, has it
+    /// chosen against that page.
+    pub fn bauds_cursor_on(&self, page: Argb) -> BaudCursor {
+        let opaque = page.with_alpha(Chan::from_u8(0xFF));
+        if self.cursor_pages == CursorPages::Bauds && OWN_PAGES.contains(&opaque) {
+            BaudCursor::brand()
+        } else {
+            BaudCursor::on(opaque)
+        }
+    }
+
+    /// **This theme with baud's cursor on its page**:
+    /// [`Theme::bauds_cursor_on`]'s fill, and its text under a cursor of a
+    /// colour of its own, set aside
     /// under the swap -- so a cursor of no colour, a program's automatic
     /// one, is the cell's colours swapped, the classic block, and a
     /// program's `OSC 12` colour keeps the text, as kitty keeps its
     /// `cursor_text_color` under one.
     pub fn with_bauds_cursor(mut self) -> Theme {
-        let b = BaudCursor::on(self.bg);
+        let b = self.bauds_cursor_on(self.bg);
         self.cursor = Some(CellPaint::Colour(b.fill));
         self.cursor_text = Some(CellPaint::Colour(b.text));
         self.cursor_text_under = CursorText::UnderACursorColour;
@@ -1156,6 +1202,7 @@ impl Theme {
             cursor_text: None,
             cursor_text_under: CursorText::UnderEveryCursor,
             cursor_made: CursorMade::Named,
+            cursor_pages: CursorPages::Bauds,
             unset_selection_text: SelectionText::Reverse,
         }
         .with_bauds_cursor()
@@ -1163,7 +1210,7 @@ impl Theme {
 
     /// Dark text on near-white, with [`light_palette`]: [`MODUS_OPERANDI`]
     /// as the sixteen, entry 7 made readable on this page; baud's amber
-    /// cursor darkened for this page, [`BaudCursor::light`].
+    /// cursor, [`BaudCursor::light`].
     ///
     /// The two greys are [`Theme::dark`]'s mirrored channel for channel --
     /// `0xFF - 0xD8` is `0x27` and `0xFF - 0x10` is `0xEF` -- so the pair
@@ -1193,6 +1240,7 @@ impl Theme {
             cursor_text: None,
             cursor_text_under: CursorText::UnderEveryCursor,
             cursor_made: CursorMade::Named,
+            cursor_pages: CursorPages::Bauds,
             unset_selection_text: SelectionText::Reverse,
         }
         .with_bauds_cursor()
@@ -1215,6 +1263,9 @@ impl Theme {
                 Some(a) => *slot = a,
                 None => unset += 1,
             }
+        }
+        if scheme.page.is_some() || scheme.text.is_some() {
+            self.cursor_pages = CursorPages::Files;
         }
         // The selection's and the cursor's colours are not counted: a theme
         // that leaves them unset leaves the half's, the selection's swap

@@ -23,7 +23,7 @@
 //! Writes `word.raw`, `mark-base.raw` and `mark-trail.raw` (little-endian
 //! `0xAARRGGBB`, row-major) and `plasma.json` (the cursor's amber on the
 //! dark and the light theme's page, [`BaudCursor::dark`] and
-//! [`BaudCursor::light`], which the light logo files take; each canvas's
+//! [`BaudCursor::light`], which the generator holds to the brand's; each canvas's
 //! size, the cell metrics, the seeds and the times, and the splash's word
 //! pen and block, which the generator holds to the lockup's) into
 //! `<out dir>`. Before it
@@ -223,8 +223,8 @@ fn main() {
     write_raw(&format!("{out}/mark-trail.raw"), &trail);
     let (mw, mh) = r.pixel_size();
 
-    // The ambers the logo files take: the cursor's on each theme's page,
-    // so the light files follow the light cursor's rule, not a literal.
+    // The cursor's amber on each theme's page, which the generator holds
+    // to the brand's, the amber the logo files take.
     let hex = |c: Argb| format!("#{:06X}", c.0 & 0xFF_FFFF);
     let (on_dark, on_light) = (hex(BaudCursor::dark().fill), hex(BaudCursor::light().fill));
     let json = format!(

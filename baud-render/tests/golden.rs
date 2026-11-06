@@ -9,6 +9,7 @@
 
 mod support;
 
+use baud_domain::themefile::CellPaint;
 use baud_font::Face;
 use baud_render::Damage;
 use support::*;
@@ -145,19 +146,18 @@ fn every_recording_paints_to_its_pinned_frame() {
 /// (note Y, decision 3). git-log colours its hashes and refs from the
 /// sixteen, so a change to the light table moves this digest; the same frame
 /// under xterm's sixteen on the light page is a different digest, the control
-/// that the pin is the table's.
+/// that the pin is the table's. With the cursor `docs/cursor.md` names for the
+/// contrast, `#986100` over `#EFEFEF`, it is the digest before the light amber
+/// became the brand's, so the cursor is all that move changed.
 #[test]
 fn git_log_paints_to_its_pinned_light_frame() {
-    const LIGHT_GIT_LOG: u64 = 0xafa79c97e05778b1;
+    const LIGHT_GIT_LOG: u64 = 0x806a7ccc11ad07b1;
+    const FOR_THE_CONTRAST: u64 = 0xafa79c97e05778b1;
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let bytes = recording("ascii/git-log.raw");
-    let digest = |palette: Option<[baud_render::Argb; 256]>| {
+    let draw = |theme: baud_render::Theme| {
         let mut r = renderer(&faces);
-        let mut theme = baud_render::Theme::light();
-        if let Some(p) = palette {
-            theme.palette = p;
-        }
         r.set_theme(theme);
         let mut canvas = Canvas::for_renderer(&r);
         replay_final(&bytes, |t| {
@@ -165,11 +165,22 @@ fn git_log_paints_to_its_pinned_light_frame() {
         });
         canvas.digest()
     };
-    let light = digest(None);
-    let xterm = digest(Some(baud_render::xterm_palette()));
+    let light = draw(baud_render::Theme::light());
+    let mut other = baud_render::Theme::light();
+    other.palette = baud_render::xterm_palette();
+    let xterm = draw(other);
     if std::env::var("GOLDEN_PRINT").is_ok() {
         eprintln!("light git-log: {light:#018x}");
     }
     assert_ne!(light, xterm, "the control: the sixteen reach the pixels");
     assert_eq!(light, LIGHT_GIT_LOG, "light git-log frame moved");
+    let mut contrast = baud_render::Theme::light();
+    contrast.cursor = Some(CellPaint::Colour(baud_render::Argb(0xFF_98_61_00)));
+    contrast.cursor_text = Some(CellPaint::Colour(baud_render::Argb(0xFF_EF_EF_EF)));
+    contrast.cursor_made = baud_render::CursorMade::Named;
+    assert_eq!(
+        draw(contrast),
+        FOR_THE_CONTRAST,
+        "the cursor alone moved the frame"
+    );
 }

@@ -19,7 +19,7 @@ Every mark ships in **dark** and **light** mode. **Every file here is fixed.** T
 The word is where it always was (x 40, baseline 88, size 62, letter-spacing -2.8); the ❯'s cell starts at x 192 on the cursor's old rows, 45 to 91; then every glyph moves 10.36 units right, so the ink, from the word's left to the cursor's right, is centred across the box. The launch splash (`baud-render/src/splash.rs`) draws the same lockup, moved by the same 10.362: `the_held_splash_is_the_lockup_files` (`baud-render/tests/splash.rs`) reads `baud-lockup-dark.svg` and holds the splash's held frame to it within a pixel at 1.6 pixels a unit, the block to its rect and the ❯ to its path's ink. The splash draws the word in the renderer's badge face, JetBrains Mono Bold, where the files trace it at 500, so the test holds the word's top, foot and centre, which the two weights share, and not its sides, which the Bold sets 0.68 units further out.
 
 ## Symbol only, transparent (512)
-`baud-mark-dark[-blinking].svg` (bright amber, for dark backgrounds) · `baud-mark-light[-blinking].svg` (deeper amber, for light backgrounds) · `baud-mark-amber.svg`
+`baud-mark-dark[-blinking].svg` (bright amber, for dark backgrounds) · `baud-mark-light[-blinking].svg` (the same amber, for light backgrounds) · `baud-mark-amber.svg`
 
 ## App icon / favicon
 `baud-icon-512-dark[-blinking].svg` — amber on near-black · `baud-icon-512-light[-blinking].svg` and `-amber.svg` — near-black on amber · `baud-icon-32-dark.svg` / `-light.svg` — favicon. Corner radius 112 at 512 (22%).
@@ -30,7 +30,7 @@ The word is where it always was (x 40, baseline 88, size 62, letter-spacing -2.8
 | file | appearance | type | amber |
 | --- | --- | --- | --- |
 | `baud-lockup-dark-tight.svg` | dark | `#F3F4F6` | `#F4A32C` |
-| `baud-lockup-light-tight.svg` | light | `#1E2128` | `#986100` |
+| `baud-lockup-light-tight.svg` | light | `#1E2128` | `#F4A32C` |
 
 The window's title strip shows the full lockup beside the traffic lights, in the form for the window's light or dark (`baud-app/src/mark.rs`, which embeds both through `baud-app/assets/logo/`). Each is `baud-lockup-dark.svg` or `baud-lockup-light.svg`, word and mark, scaled so the ❯'s cell is 168 units tall, the cell of `baud-mark-amber-tight.svg`, on no ground: the strip is the ground. The box is snug to the ink across, from the word's left to the cursor's right, so the picture ends where the cursor does, and centred on the cell's rows up and down, so the mark sits on the strip's centre line. Both forms share one box, so a swap of appearance moves nothing. The app draws them at the points per unit the mark alone had, so the mark keeps its size and the word is added before it. `the_title_bars_lockups_are_the_lockups_cropped` (`baud-app/tests/brand_pictures.rs`) holds each to its lockup within one unit, and holds the app's embedded copy to the file.
 
@@ -52,10 +52,9 @@ Both pictures are within GitHub's limits ([[source: github-docs-profile-picture]
 | ground | `#15171B` | oklch(0.204 0.009 264.4) |
 | type on dark | `#F3F4F6` | oklch(0.967 0.003 264.5) |
 | type on light | `#1E2128` | oklch(0.248 0.014 267.0) |
-| amber, dark mode | `#F4A32C` | oklch(0.777 0.155 70.7) |
-| amber, light mode | `#986100` | oklch(0.540 0.116 71.1) |
+| amber | `#F4A32C` | oklch(0.777 0.155 70.7) |
 
-Each OKLCH is measured from the hex, CSS Color 4's OKLab, and `the_brand_sheets_colours_are_measured` (`baud-render/tests/cursor_amber.rs`) holds every row to it. **Light mode's amber is baud's cursor on the light page**: `#F4A32C` darkened in OKLCH lightness alone, its hue held, until it reads 4.5:1 on the light theme's `#EFEFEF` (`BaudCursor::light`, `baud-render/src/color.rs`), where `#F4A32C` reads 1.80:1. So the light lockups and marks, the launch logo on a light window, the README's light header and the light theme's cursor are one amber; `baud-pictures brand` (`tools/baud-pictures`) takes it from the renderer, not from a literal, and the same test holds both ambers to the cursor's.
+Each OKLCH is measured from the hex, CSS Color 4's OKLab, and `the_brand_sheets_colours_are_measured` (`baud-render/tests/cursor_amber.rs`) holds every row to it. **One amber, on dark and on light**: the lockups and marks, the launch logo, the README's header and baud's cursor on both themes are `#F4A32C` (`BaudCursor::light`, `baud-render/src/color.rs`), so `❯█` is one colour everywhere. On the light theme's `#EFEFEF` it reads 1.80:1: WCAG 2.2 sets no contrast for a logo (1.4.3's Logotypes, [[source: wcag22]]), and what it costs the cursor and the prompt is in `docs/cursor.md`. `baud-pictures brand` (`tools/baud-pictures`) holds the renderer's amber to the brand's, and the same test holds the table's amber to the cursor's on both themes.
 
 ## Type
 JetBrains Mono — 500 for the wordmark, 700 for the prompt glyph, letter-spacing -0.045em.

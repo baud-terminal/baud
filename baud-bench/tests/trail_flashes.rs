@@ -11,9 +11,9 @@
 //!
 //! **Each passes on both readings**, the verdict's and the chained one,
 //! and makes no red transition at all: the amber is not a saturated red,
-//! its R/(R+G+B) 0.70 on the linear values on the dark theme and 0.72 on
-//! the light, under the census's 0.8, and nothing it is drawn over makes
-//! it one. The counts are printed. **The controls**: every run's frames
+//! its R/(R+G+B) 0.70 on the linear values on both themes, under the
+//! census's 0.8, and nothing it is drawn over makes it one. The counts are
+//! printed. **The controls**: every run's frames
 //! hold pixels the trail drew in the amber, so the census counted the
 //! amber; and a plasma trail a program's `OSC 12` makes saturated red does
 //! make red transitions, so the red reading can fire on a trail.

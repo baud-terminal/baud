@@ -219,14 +219,12 @@ pub const DARK: Colours = Colours {
     amber: Argb(0xFFF4_A32C),
 };
 
-/// **The light lockup's**: `#1E2128`, and the light cursor's amber,
-/// [`crate::BaudCursor::light`]'s fill, `#986100`: one amber on light, the
-/// brand's darkened in OKLCH lightness alone until it reads 4.5:1 on the
-/// light page, which the brand's `#F4A32C`, 1.80:1 there, does not.
+/// **The light lockup's**: `#1E2128`, and the brand's amber, `#F4A32C`,
+/// the dark lockup's and the light cursor's, so `❯█` is one colour.
 pub fn light() -> Colours {
     Colours {
         wordmark: Argb(0xFF1E_2128),
-        amber: crate::BaudCursor::light().fill,
+        amber: DARK.amber,
     }
 }
 

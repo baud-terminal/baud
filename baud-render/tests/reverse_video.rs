@@ -21,12 +21,12 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::themefile::CellPaint;
+use baud_domain::themefile::{CellPaint, kitty};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    AppBg, Argb, BaudCursor, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll,
-    Scroller, Stack, Theme, Trail, TrailLook, Transition, Widths, Window,
+    AppBg, Argb, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller,
+    Stack, Theme, Trail, TrailLook, Transition, Widths, Window,
 };
 use support::font;
 
@@ -704,12 +704,13 @@ fn the_overlays_follow_the_flip_on_the_frame_it_happens() {
     assert_eq!(fade, vec![rgb(theme.fg)]);
 }
 
-/// **baud's own cursor follows the flip on the frame it happens**, on both
-/// themes over the dim: the trail and the block are the amber chosen
-/// against the page drawn ([`BaudCursor::on`]) -- the theme's, then the
-/// reversed one, where the dark theme's amber would read 1.46:1 -- and the
-/// theme's again once the flip is undone. The tests above draw the classic
-/// cursor, which follows the text instead.
+/// **baud's own cursor follows the flip on the frame it happens**, over the
+/// dim, on both built-in themes and a theme file's: the trail and the block
+/// are the amber for the page drawn ([`Theme::bauds_cursor_on`]) -- the
+/// theme's, then the reversed one, which is the brand's again on a built-in
+/// theme and chosen anew on a file's, the control that the frame asks -- and
+/// the theme's again once the flip is undone. The tests above draw the
+/// classic cursor, which follows the text instead.
 #[test]
 fn bauds_cursor_follows_the_flip_on_the_frame_it_happens() {
     let data = font("JetBrainsMono-Regular.ttf");
@@ -728,7 +729,14 @@ fn bauds_cursor_follows_the_flip_on_the_frame_it_happens() {
             strength: baud_render::Strength::Full,
         }))
     };
-    for base in [Theme::dark(), Theme::light()] {
+    let mut file = Theme::light();
+    let text = b"background #fdf6e3\nforeground #657b83\n";
+    file.take_scheme(&kitty(text, |_, _, _| {}).expect("the file reads"));
+    for (base, files) in [
+        (Theme::dark(), false),
+        (Theme::light(), false),
+        (file, true),
+    ] {
         let mut theme = base;
         theme.bg_alpha = Chan::from_u8(DIM);
         let mut r = Renderer::new(
@@ -752,7 +760,10 @@ fn bauds_cursor_follows_the_flip_on_the_frame_it_happens() {
             };
             (trail, block)
         };
-        let (own, reversed) = (BaudCursor::on(theme.bg), BaudCursor::on(theme.fg));
+        let (own, reversed) = (
+            theme.bauds_cursor_on(theme.bg),
+            theme.bauds_cursor_on(theme.fg),
+        );
         let each = |c: Argb| (vec![rgb(c); 1], rgb(c));
         let one = |(t, b): (Vec<u32>, u32)| (t[..1].to_vec(), b);
         let same = |(t, b): (Vec<u32>, u32)| t.iter().all(|&c| c == t[0]) && t[0] == b;
@@ -767,7 +778,7 @@ fn bauds_cursor_follows_the_flip_on_the_frame_it_happens() {
         let got = drawn(&r);
         assert!(same(got.clone()), "one colour, flipped");
         assert_eq!(one(got), each(reversed.fill), "the reversed page's");
-        assert_ne!(own.fill, reversed.fill, "the control: the two differ");
+        assert_eq!(own.fill != reversed.fill, files, "the control");
         r.set_trail(trail());
         feed(&mut t, b"\x1b[?5l");
         r.convert(&t, Rows::ZERO, Damage::Incremental);

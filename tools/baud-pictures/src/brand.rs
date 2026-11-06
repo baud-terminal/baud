@@ -20,9 +20,10 @@
 //!   "baud" and the mark on one line, 300 by 130: the word where it always
 //!   was, the ❯'s cell from x 192 on the old cursor's rows, the whole ink
 //!   then centred across the box. The light forms' amber, here and in the
-//!   marks and the title bar's lockup below, is baud's cursor on the light
-//!   theme's page (`BaudCursor::light`, which the plasma example reports),
-//!   so it is the amber the light theme's cursor and launch logo draw.
+//!   marks and the title bar's lockup below, is the brand's, [`AMBER`],
+//!   the dark forms' and the amber baud's cursor draws on both themes
+//!   (`BaudCursor::light`, which the plasma example reports and the run
+//!   holds to it), so the launch logo and the cursor match.
 //! * `assets/logo/baud-lockup-{dark,light}-blinking.svg`: their fixed
 //!   twins' bytes, under the names the brand sheet and `THIRD_PARTY.md`
 //!   give them.
@@ -186,9 +187,6 @@ pub const GROUND: &str = "#15171B";
 pub const TYPE_DARK: &str = "#F3F4F6";
 pub const TYPE_LIGHT: &str = "#1E2128";
 pub const AMBER: &str = "#F4A32C";
-// The light forms' amber is no literal: it is baud's cursor on the light
-// theme's page, BaudCursor::light() (baud-render/src/color.rs), which the
-// plasma example reports (plasma()), so one amber is drawn on light.
 
 /// The README's tagline (line 8, between its `**`), a card line for each part.
 pub const LINES: [&str; 4] = [
@@ -549,17 +547,16 @@ fn get<'o>(out: &'o [(String, String)], name: &str) -> &'o str {
     &out.iter().find(|(n, _)| n == name).expect("drawn above").1
 }
 
-/// Every SVG in `assets/logo` but the organisation picture's, the light
-/// forms in `amber_light`.
+/// Every SVG in `assets/logo` but the organisation picture's.
 ///
 /// # Errors
 /// As [`Type::text`].
-pub fn logo_svgs(t: &Type<'_>, amber_light: &str) -> Result<Vec<(String, String)>, Fail> {
+pub fn logo_svgs(t: &Type<'_>) -> Result<Vec<(String, String)>, Fail> {
     let mut out = Vec::new();
     let (w, h) = LOCKUP;
     for (name, word, amber, ground) in [
         ("dark", TYPE_DARK, AMBER, Some(GROUND)),
-        ("light", TYPE_LIGHT, amber_light, None),
+        ("light", TYPE_LIGHT, AMBER, None),
         ("mono-black", "#000000", "#000000", None),
         ("mono-white", "#FFFFFF", "#FFFFFF", None),
     ] {
@@ -575,7 +572,7 @@ pub fn logo_svgs(t: &Type<'_>, amber_light: &str) -> Result<Vec<(String, String)
     // At 512 the cell is 168 tall from 172, as the cursor was; at 32, 10.5
     // from 10.75. Light is the dark one reversed, and amber is light's.
     let (big, small) = ((256.0, 172.0, 168.0), (16.0, 10.75, 10.5));
-    for (name, fill) in [("dark", AMBER), ("light", amber_light), ("amber", AMBER)] {
+    for (name, fill) in [("dark", AMBER), ("light", AMBER), ("amber", AMBER)] {
         let m = centred(t, big.0, big.1, big.2, fill)?;
         put(
             &mut out,
@@ -660,7 +657,7 @@ pub fn logo_svgs(t: &Type<'_>, amber_light: &str) -> Result<Vec<(String, String)
     let s = big.2 / LOCKUP_CELL.2;
     for ((_, file), (word, amber)) in TITLEBAR
         .into_iter()
-        .zip([(TYPE_DARK, AMBER), (TYPE_LIGHT, amber_light)])
+        .zip([(TYPE_DARK, AMBER), (TYPE_LIGHT, AMBER)])
     {
         let (body, bx, _) = lockup(t, 0.0, 0.0, s, word, amber)?;
         let top = r2(LOCKUP_CELL.1 * s);
@@ -1027,7 +1024,8 @@ pub fn plasma(
 
 /// Refuses a splash whose word pen or block is not the lockup's (its pen
 /// at `x0` on the word's baseline, its block the cursor `cur`), a
-/// renderer whose cell is not this one, and ambers not the brand's.
+/// renderer whose cell is not this one, and a cursor on either theme's page
+/// that is not the brand's amber.
 ///
 /// # Errors
 /// When one of those differs.
@@ -1077,17 +1075,10 @@ pub fn plasma_holds(rep: &Value, x0: f64, cur: Box4) -> Result<(), Fail> {
             a.get("dark")?.py()
         );
     }
-    let light = a.get("light")?.text()?;
-    let b = light.as_bytes();
-    if !(b.len() == 7
-        && b[0] == b'#'
-        && b[1..]
-            .iter()
-            .all(|c| c.is_ascii_digit() || (b'A'..=b'F').contains(c)))
-    {
+    if a.get("light")?.text()? != AMBER {
         fail!(
-            "baud's cursor on the light page reads {}, not a colour",
-            py::repr_str(light)
+            "baud's cursor on the light page is {}, not the brand's {AMBER}",
+            a.get("light")?.py()
         );
     }
     Ok(())
@@ -1408,8 +1399,7 @@ pub fn draw(root: &Path, tmp: &Path) -> Result<Files, Fail> {
     let t = Type::new(&fonts)?;
     let org = organisation(&t)?;
     let p = plasma(&t, root, tmp, org.pen, org.s)?;
-    let light = p.rep.get("amber")?.get("light")?.text()?.to_string();
-    let mut text = logo_svgs(&t, &light)?;
+    let mut text = logo_svgs(&t)?;
     text.push((format!("{}.svg", ORG.0), org.svg.clone()));
     text.push((format!("{}.svg", CARD.0), card(&t)?));
     for (name, body) in &text {
@@ -1446,7 +1436,7 @@ pub fn draw(root: &Path, tmp: &Path) -> Result<Files, Fail> {
     out.push((format!("{}.png", ORG.0), png::encode(&pic)));
     let (w, m) = (p.rep.get("word")?, p.rep.get("mark")?);
     println!(
-        "plasma: the word's light is the splash's first pass at {} s, seed {}, its box {} and hole {} at scale {} from {}, the splash's own over {} columns; the mark's is the cursor's trail at {} s, seed {}, at {} px; {lit} pixels lit, peak {peak:.3}; with no light, the SVG's drawing to the pixel; the light forms' amber is baud's cursor on the light page, {light}",
+        "plasma: the word's light is the splash's first pass at {} s, seed {}, its box {} and hole {} at scale {} from {}, the splash's own over {} columns; the mark's is the cursor's trail at {} s, seed {}, at {} px; {lit} pixels lit, peak {peak:.3}; with no light, the SVG's drawing to the pixel",
         w.get("t")?.py(),
         w.get("seed")?.py(),
         w.get("box")?.py(),

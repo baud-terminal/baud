@@ -222,14 +222,14 @@ ambiguous_width = "narrow"
 # reset (OSC 117 and 119) returns to these.
 #
 # `cursor` and `cursor_text`: the cursor's colour and the colour of the text
-# under a block cursor. "baud", the default, is baud's amber, the logo's,
-# chosen against the background it is drawn on: the logo's #F4A32C on the
-# dark theme, and on the light one #986100, the same amber darkened until it
-# reads at 4.5:1, as the prompt's text in that amber must. The text under the
-# block is the logo's near-black #15171B where it reads at 4.5:1, as on the
-# dark theme, and else the background, as on the light. Under reverse video
-# the amber is chosen again against the background then drawn. "baud" keeps
-# the amber whatever a theme file says; "theme" asks for a theme file's cursor
+# under a block cursor. "baud", the default, is baud's amber, the logo's:
+# #F4A32C on the dark and the light theme and on each reversed, with the logo's
+# near-black #15171B under it. On the light theme it reads at 1.80:1, under the
+# 4.5:1 of text, by choice; for the contrast, set cursor = "#986100" and
+# cursor_text = "#EFEFEF". On a theme file's background or one a program sets,
+# it is chosen against the background then drawn: darkened until it reads at
+# 4.5:1, with the near-black under it where that reads at 4.5:1 and else the
+# background. "baud" keeps the amber whatever a theme file says; "theme" asks for a theme file's cursor
 # colour and text where it names them. A colour set here wins over the theme
 # file's, and "none", or a theme file's none under "theme", makes a block
 # cursor its cell's text and background exchanged, the classic cursor. Every
