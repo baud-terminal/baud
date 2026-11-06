@@ -20,7 +20,8 @@ _:
       "rust-analyzer"
     ];
 
-    # Warnings are errors for every cargo invocation in the shell, matching CI.
+    # Warnings are errors for every cargo invocation in the shell, `devenv test`
+    # included.
     # devenv folds this into the RUSTFLAGS env var (languages.rust.rustflags).
     # Cargo passes `--cap-lints allow` to registry/git dependencies, so only
     # this project's own crates are held to it — a warning in a third-party
@@ -28,7 +29,7 @@ _:
     rustflags = "-D warnings";
 
     # Fetched by rust-overlay alongside the toolchain, so the bare-metal gate in
-    # `tasks."test:bare"` needs no extra setup step in CI. x86_64-unknown-none
+    # `tasks."test:bare"` needs no extra setup step. x86_64-unknown-none
     # has no OS and no allocator, which is what makes it a real test of
     # baud-core's #![no_std] and its default-off `alloc` feature.
     # The two Linux targets are for `cargo check` of the Wayland wiring in

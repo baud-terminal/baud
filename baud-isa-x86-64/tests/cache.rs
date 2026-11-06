@@ -3,9 +3,9 @@
 //! with no L1 data cache in it is the walk being wrong rather than the
 //! machine being exotic.
 //!
-//! Written on an aarch64 box that cannot compile this file; the CI runner is
-//! the first machine it runs on, and a red first run there is the test
-//! working.
+//! Written on an aarch64 box that cannot compile this file; an x86-64 host
+//! is the first machine it runs on (`devenv tasks run test:x86-avx2` runs
+//! it), and a red first run there is the test working.
 
 #![cfg(target_arch = "x86_64")]
 

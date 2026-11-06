@@ -75,7 +75,7 @@
             "-p"
             "baud"
           ];
-          # The suite runs in the dev shell and in CI. Here it would open
+          # The suite runs in the dev shell (`devenv test`). Here it would open
           # ptys and wait on a display it does not have.
           doCheck = false;
           # **The binary the repository measures.** nixpkgs' cargo setup

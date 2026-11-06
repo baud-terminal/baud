@@ -84,7 +84,7 @@ OFF_ARM64="route-stride"
 EXCLUDED="
 alloc                    on in every test build: the dev-dependency on baud-core itself enables it
 neon-scan                the default feature, so test:unit runs it
-avx2-scan                inert off x86-64; ci.yml runs the workspace suite with it and +avx2
+avx2-scan                inert off x86-64; test:x86-avx2 runs the workspace suite with it and +avx2
 ceiling-no-write         wrong by construction: the_cell_table_is_what_the_write_path_writes
 ceiling-no-decode        wrong by construction: the_cell_table_is_what_the_write_path_writes
 ceiling-no-classify      wrong by construction: every_line_of_the_suite_clusters_through_the_terminal

@@ -84,7 +84,8 @@ itself again under that Python with -I and refuses other versions. The
 frames come from the repository's renderer, built by the cargo on PATH.
 The generator's arithmetic is the same on every platform
 (tools/baud-pictures' det);
-the files were made on aarch64-darwin, and --check runs by hand, not in CI.
+the files were made on aarch64-darwin, and --check runs by hand, not in
+devenv test.
 """
 
 import base64

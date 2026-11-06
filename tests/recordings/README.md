@@ -120,7 +120,7 @@ they have no fixed sha256.
 ## Provenance
 
 `scripts/capture-tui.py` is how these were made and is kept for provenance, not
-because CI runs it. **A capture is not reproducible**: btop draws live CPU
+because a gate runs it. **A capture is not reproducible**: btop draws live CPU
 figures, so a second run of the same command produces different bytes and a
 different hash. That is why these are committed rather than regenerated: a
 recording that changes is a recording that is no longer the thing the

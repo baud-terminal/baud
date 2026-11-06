@@ -11,7 +11,7 @@
 //! machine in the crate and the one a hostile file can steer furthest.
 //!
 //! `PROPTEST_CASES=20000` before trusting a change here; the default is what
-//! CI can afford.
+//! `devenv test` can afford.
 
 use baud_domain::Codepoint;
 use baud_domain::GlyphId;

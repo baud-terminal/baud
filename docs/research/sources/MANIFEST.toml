@@ -26287,7 +26287,8 @@ sha256 = "01389b75e2c3b70eb9747612d3f63231fd8b4d1700d81fea2b66cd0c7f6f04c5"
 bytes  = 46327
 status = "external"
 group  = "AN"
-# Retrieved 2026-10-28. The release nixpkgs carries and ci.yml pins.
+# Retrieved 2026-10-28. The release nixpkgs carries, and the one
+# release-plz.toml was read against.
 
 [sources.release-plz-v0-3-172-changelog-md]
 key    = "release-plz-v0-3-172-changelog-md"

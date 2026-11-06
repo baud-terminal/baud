@@ -1,10 +1,28 @@
 # Release configuration. https://release-plz.dev/docs/config
 #
-# The workflow restricts releasing to master, and to the repository once it
-# is public (`.github/workflows/ci.yml`); this file decides what gets
-# released once there. `baud` and the crates it is built from are published
-# to crates.io, so `cargo install baud` installs the terminal;
-# `cargo xtask publish` says which crates those are.
+# **Publishing runs locally, by hand; no hosted service runs it.** From a
+# checkout of master's tip, inside the dev shell (the workspace manifest's
+# `cargo-features` needs its nightly), and only once the repository is
+# public, in this order:
+#
+#   1. `cargo xtask publish --release`, which refuses while a shipped file's
+#      licence row is open, unverified, no-grant or copyleft: crates.io
+#      cannot take a version back;
+#   2. `release-plz release`, which publishes, tags and makes `baud`'s
+#      GitHub release, and does so only from the commit of a merged
+#      Release PR (`release_always` below);
+#   3. `release-plz release-pr`, which opens the next Release PR. It runs
+#      after 2 because it computes the bump from the newest version on
+#      crates.io.
+#
+# release-plz 0.3.172 is the version this file was read against. It takes
+# a GitHub token as `--git-token`, and `cargo publish` a crates.io token
+# from `CARGO_REGISTRY_TOKEN`. Nothing checks the order, the branch or
+# that the repository is public: whoever runs the release does.
+#
+# This file decides what gets released. `baud` and the crates it is built
+# from are published to crates.io, so `cargo install baud` installs the
+# terminal; `cargo xtask publish` says which crates those are.
 
 [workspace]
 # Defaults for every member; the per-package blocks at the end override what

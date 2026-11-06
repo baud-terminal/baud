@@ -585,7 +585,7 @@ fn every_test_named_in_the_docs_exists() {
         ),
         (
             "_mm256_movemask_epi8",
-            "an x86 intrinsic, named where CI checks the binary for its              instruction rather than trusting the AVX2 property's output match",
+            "an x86 intrinsic, named where the AVX2 arm's binary is checked for its              instruction rather than trusting the AVX2 property's output match",
         ),
         (
             "_mm256_loadu_si256",

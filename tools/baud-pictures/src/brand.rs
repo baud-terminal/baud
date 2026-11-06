@@ -126,10 +126,10 @@
 //! fonts by hash; the plasma comes from the repository's own renderer,
 //! built by the cargo on PATH. Measured on aarch64-darwin only: whether
 //! the same bytes come out on another system is unmeasured, which is why
-//! `--check` runs by hand and not in CI (it also needs the network, for
-//! the archive). `baud-app/tests/brand_pictures.rs` holds the committed
-//! files to the parts that need neither: the limits, outlines in place of
-//! text, and the mark against baud's renderer.
+//! `--check` runs by hand and not in `devenv test` (it also needs the
+//! network, for the archive). `baud-app/tests/brand_pictures.rs` holds the
+//! committed files to the parts that need neither: the limits, outlines in
+//! place of text, and the mark against baud's renderer.
 
 use crate::json::{self, Value};
 use crate::outline::{Bounds, Face, SvgPath, Transform};

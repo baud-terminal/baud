@@ -69,7 +69,8 @@
 fn main() {
     // Imported here rather than at the top of the file: this bench is macOS
     // only, so a top-level `use` is unused on every other target and `-D
-    // warnings` makes that an error. CI lints on ubuntu; a Mac cannot see it.
+    // warnings` makes that an error. A lint for Linux sees it; one on a Mac
+    // cannot.
     use baud_core::{Depth, Owned, Screen, Term, grid_stride};
     use baud_domain::PackedCell;
     use baud_domain::{

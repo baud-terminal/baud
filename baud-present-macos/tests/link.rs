@@ -2,7 +2,7 @@
 //! the policy admits and refuses what it refuses, the scheme check can say
 //! no, and LaunchServices can be asked for a handler without launching one.
 //!
-//! A developer's machine and not CI, like every test in this crate.
+//! A Mac only, like every test in this crate.
 #![cfg(target_os = "macos")]
 
 use baud_present_macos::link::{Agree, Opened, handler, host_name, parse, scheme_agrees};

@@ -17,7 +17,7 @@ writing two files:
 Two files rather than one JSON blob on purpose. `baud-bench`'s `winch`
 parses JSON with a hand-rolled reader whose fields all fall back to zero,
 so a malformed capture replays as a `0x0` resize with no bytes instead of
-failing; a fixture that gates CI has to fail loudly. The pair is also
+failing; a fixture that gates the suite has to fail loudly. The pair is also
 diffable, and it keeps the bytes in the shape the rest of the corpus is
 already in.
 

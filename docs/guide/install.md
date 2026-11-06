@@ -99,6 +99,9 @@ has used it on a real screen yet, so it is not ready to use.
 
 ## For contributors
 
-`devenv test` runs the test suites and the gates, the same nix-defined
-suite CI runs; [MEASUREMENTS.md](../../MEASUREMENTS.md) says how each
-benchmark is run.
+`devenv test` runs the test suites and the gates, and the pre-push hook
+runs it too. Every check runs locally: baud has no hosted CI.
+`devenv tasks run test:x86-avx2` runs the checks of the AVX2 scanner,
+which need any x86_64 Linux whose `/proc/cpuinfo` lists `avx2` and
+refuse to run anywhere else. [MEASUREMENTS.md](../../MEASUREMENTS.md)
+says how each benchmark is run.

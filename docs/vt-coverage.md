@@ -1266,7 +1266,7 @@ operation's status was ever going to find it.
 ## How this file stays true
 
 `baud-core/tests/coverage.rs` reads this file and fails if a row marked **done**
-names an operation no test mentions. Run by `devenv test`, so it gates CI.
+names an operation no test mentions. Run by `devenv test`, so it gates every push.
 
 Be precise about what that proves, because this paragraph was itself the
 failure it warns about for most of the project's life: it named

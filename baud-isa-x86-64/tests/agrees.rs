@@ -6,7 +6,8 @@
 //! between the deletion and these files **nothing tested either scanner**.
 //!
 //! **This one cannot run on the development box**, which is aarch64. It is
-//! written for CI's `ubuntu-latest` and for anyone on x86-64, and it is gated on
+//! written for any x86-64 host with AVX2, where `devenv tasks run
+//! test:x86-avx2` runs it and refuses a host without, and it is gated on
 //! `target_feature = "avx2"` for the same reason `Avx2`'s safe surface is: AVX2
 //! is not baseline, `no_std` has no `is_x86_feature_detected!`, and a build that
 //! does not target the feature must not call these at all.

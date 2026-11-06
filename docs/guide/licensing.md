@@ -42,7 +42,7 @@ Stated plainly so nobody sponsors expecting otherwise:
 - **No priority queue.** Bugs are triaged by severity, not by sponsor status.
 
 What it does buy is maintenance time — the unglamorous half of the work.
-Dependency bumps and CI upkeep are what keep a project usable, and they
+Dependency bumps and toolchain upkeep are what keep a project usable, and they
 are the first thing to lapse when there is none.
 
 ## Other ways to help

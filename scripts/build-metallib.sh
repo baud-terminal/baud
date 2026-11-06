@@ -12,7 +12,7 @@
 # WHY THE ARTEFACT IS COMMITTED
 #     The machine that builds baud is usually not the machine that has
 #     the Metal toolchain -- it is a separate Xcode component, absent by
-#     default, and absent entirely on Linux and on CI. A generated file
+#     default, and absent entirely on Linux. A generated file
 #     in the tree is how this repo already ships every table it cannot
 #     rebuild everywhere, and `the_library_was_built_from_the_shaders_beside_it`
 #     in `baud-present-macos/tests/metallib.rs` is the gate that stops it

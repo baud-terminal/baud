@@ -5,8 +5,8 @@
 //! types into it as a keyboard would; feeds what it writes into a
 //! terminal, answering its queries; and reads the screen, the prompts and
 //! the words drawn (`baud_render::Reorder`, as `baud-render`'s word-wrap
-//! tests draw them). A shell not on `PATH` -- CI's runners carry bash and
-//! seldom zsh or fish -- is skipped with the reason printed, and so is a
+//! tests draw them). A shell not on `PATH` -- a Linux host often carries bash
+//! and not zsh or fish -- is skipped with the reason printed, and so is a
 //! bash baud does not mark (macOS's own).
 //!
 //! **Waits are bounded and never sleep**: each one polls the master until

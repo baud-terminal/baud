@@ -148,7 +148,8 @@ mod caret {
 fn main() {
     // Imported here rather than at the top of the file: this bench is macOS
     // only, so a top-level `use` is unused on every other target and `-D
-    // warnings` makes that an error. CI lints on ubuntu; a Mac cannot see it.
+    // warnings` makes that an error. A lint for Linux sees it; one on a Mac
+    // cannot.
     use baud_bench::flash::{Area, Census, Outcome, Rate, Report, Scale};
     use baud_core::{DynamicColor, Owned, Term};
     use baud_domain::{

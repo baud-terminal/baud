@@ -7,9 +7,8 @@
 //! gives that date. This file fails on a
 //! lock bumped alone and on a document left on an old nightly. The dev
 //! shell names no date, so both locks moved together can take its nightly
-//! past the flake's; that pair is not held here, and neither are the
-//! date's other copies: the two `toolchain:` lines of the CI workflow and
-//! the defaults of `scripts/linux-*.sh`.
+//! past the flake's; that pair is not held here, and neither is the
+//! date's other copy: the defaults of `scripts/linux-*.sh`.
 //!
 //! The install guides give `nix run` the address `Cargo.toml`'s
 //! `repository` names, and no document, manifest or notice names another

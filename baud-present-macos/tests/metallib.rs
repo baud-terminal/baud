@@ -12,9 +12,8 @@
 //! library loads perfectly and the pixels are merely wrong. That is this
 //! repo's "a gate that cannot fail" shape, so here is the gate.
 //!
-//! **A developer's machine and not CI**, like every test in this crate:
-//! the workflows are `ubuntu-latest` and there is no macOS runner, so
-//! these go red where the shaders are edited and nowhere else.
+//! **A Mac only**, like every test in this crate: these go red on the Mac
+//! where the shaders are edited, and no Linux host runs them.
 #![cfg(target_os = "macos")]
 
 /// The shaders as the compiler reads them: `src/shaders.metal` with the

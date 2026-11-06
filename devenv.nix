@@ -24,6 +24,13 @@ let
   # `nix/rust.nix` fetches lets clippy type-check it here. A module nothing
   # builds does not go red, it goes absent.
   linuxTarget = "aarch64-unknown-linux-gnu";
+  # The disassembler `test:x86-avx2` reads the AVX2 arm with. GNU objdump,
+  # whose AT&T output is what `scripts/x86-avx2.sh` matches; only Linux
+  # builds it, since the script refuses every other host first.
+  objdump =
+    if pkgs.stdenv.hostPlatform.isLinux
+    then "${pkgs.binutils-unwrapped}/bin/objdump"
+    else "objdump";
 in
 {
   # Set root explicitly for flake compatibility
@@ -102,7 +109,7 @@ in
   '';
 
   scripts.dev-ci.exec = ''
-    echo "Running a subset of the CI checks (devenv test runs them all)..."
+    echo "Running a subset of the checks (devenv test runs them all)..."
     echo "=== fmt ==="
     treefmt --fail-on-change || { echo "FAILED: fmt"; exit 1; }
     echo "=== clippy ==="
@@ -150,10 +157,9 @@ in
   # Development shell setup.
   #
   # The whole banner goes to stderr. `devenv shell -- <cmd>` runs this first, so
-  # anything on stdout is prepended to that command's output - and CI runs
-  # `devenv shell -- cargo metadata` as Swatinem/rust-cache's cmd-format probe,
-  # where a banner in front of the JSON is unparseable. The action swallows that
-  # error, keeps the step green, and caches nothing.
+  # anything on stdout is prepended to that command's output, and a caller
+  # that parses it -- `devenv shell -- cargo metadata`, say -- finds a banner
+  # in front of the JSON and cannot read it.
   enterShell = ''
     {
       clear
@@ -166,7 +172,7 @@ in
       } | ${pkgs.boxes}/bin/boxes -d stone -a l -i none
       echo
       echo "Available scripts:"
-      echo "  devenv test   - The check suite CI and the pre-push hook run"
+      echo "  devenv test   - The check suite the pre-push hook runs"
       echo "  dev-ci        - A quicker subset (fmt, clippy, check, test, bare, linux, sources, audit)"
       echo "  dev-test      - Run tests"
       echo "  dev-fmt       - Check formatting"
@@ -182,10 +188,11 @@ in
 
   # https://devenv.sh/integrations/treefmt/
   #
-  # One formatter for the whole tree, not just Rust — a Nix or shell file that
-  # CI reformats is as much a diff-noise source as an unformatted .rs. `treefmt`
-  # is the single entry point for `dev-fmt`, `tasks."test:fmt"`, and the
-  # pre-commit hook, so all three can only ever agree.
+  # One formatter for the whole tree, not just Rust — a Nix or shell file
+  # that the next run reformats is as much a diff-noise source as an
+  # unformatted .rs. `treefmt` is the single entry point for `dev-fmt`,
+  # `tasks."test:fmt"`, and the pre-commit hook, so all three can only ever
+  # agree.
   treefmt = {
     enable = true;
     config = {
@@ -254,14 +261,15 @@ in
   git-hooks.hooks = {
     treefmt.enable = true;
 
-    # The same task set CI runs, on pre-push rather than pre-commit.
+    # The whole check suite, `devenv test`, on pre-push rather than
+    # pre-commit. Every check is local: no hosted service runs any of them.
     #
-    # This exists because local `dev-ci` green is not evidence CI is green, and
-    # relying on remembering to run it did not work: master sat red while the
-    # local gate passed, because the failure was in a job the local gate does
-    # not have. Pre-push is the right stage -- pre-commit would run the whole
-    # suite on every commit of a stack, and the thing being protected is the
-    # remote, not the reflog.
+    # This exists because `dev-ci` green is not evidence the suite is green,
+    # and relying on remembering to run the suite did not work: master once
+    # sat red while `dev-ci` passed, because the failure was in a check
+    # `dev-ci` does not have. Pre-push is the right stage -- pre-commit would
+    # run the whole suite on every commit of a stack, and the thing being
+    # protected is the remote, not the reflog.
     #
     # Cost: seconds when the dev shell and ./target are warm, a full dev-shell
     # build when cold. `git push --no-verify` skips it, deliberately -- there
@@ -278,10 +286,12 @@ in
 
   # https://devenv.sh/tasks/
   #
-  # These tasks ARE the check suite. `enterTest` runs them, so `devenv test`
-  # locally and `devenv test` in .github/workflows/ci.yml execute the same
-  # thing by construction — the workflow is a thin wrapper, and the two cannot
-  # drift apart.
+  # These tasks ARE the check suite, and every one runs on a developer's
+  # machine: baud has no hosted CI, and publishing runs locally as well
+  # (`release-plz.toml`). `enterTest` runs the push gates, so `devenv test`
+  # and the pre-push hook execute the same thing by construction. Three are
+  # run by hand and not in `enterTest`: `test:feature-suites`,
+  # `test:advisories` and, on an x86-64 host with AVX2, `test:x86-avx2`.
   #
   # The `after` edges are load-bearing, and they set two things that are
   # separate. Order: devenv runs tasks with no edge between them
@@ -392,8 +402,8 @@ in
     # character the computing path attaches, such as a mark or ZWJ, and
     # `the_table_read_writes_what_the_computing_path_writes` is red under it.
     # Run by hand (`devenv tasks run test:feature-suites`) and not in
-    # `enterTest`: in `devenv test` it would run on every push and in CI's
-    # Lint/UT job, whose timeout is sized without it.
+    # `enterTest`: in `devenv test` it would add those five builds to every
+    # push.
     "test:feature-suites" = {
       exec = "bash ./scripts/test-features.sh";
       after = [ "test:features" ];
@@ -426,8 +436,8 @@ in
     # each with the fields crates.io shows, a version beside every path
     # dependency, its licence and notices, a .crate under the upload limit,
     # and each built from its own .crate as `cargo publish` builds it, so a
-    # tarball that does not build fails on the pull request, not partway
-    # through a release.
+    # tarball that does not build fails at the push, not partway through a
+    # release.
     "test:publish" = {
       exec = "cargo xtask publish --verify";
       # After the features gate, not after paths: the verify builds the
@@ -435,6 +445,26 @@ in
       # own under ./target (xtask/src/publish.rs, package()), so it waits for the
       # cargo chain to finish rather than share the machine with it.
       after = [ "test:features@completed" ];
+    };
+
+    # **The AVX2 arm's checks, the ones no other host can make**
+    # (`scripts/x86-avx2.sh` says what each proves): `Avx2` against
+    # `Portable` (`baud-isa-x86-64/tests/agrees.rs`) and the crate's other
+    # tests, the workspace suite under `baud-core/avx2-scan`, and the
+    # disassembly showing the arm is live -- a `vpmovmskb` on a `%ymm` in the
+    # avx2 build of the `ingest2` bench, and that build differing from the
+    # portable one by `cmp -s`. Each is built with `-C target-feature=+avx2`,
+    # which `avx2-scan` and the isa crate's tests are cfg'd on.
+    #
+    # **It needs any x86_64 Linux whose /proc/cpuinfo lists avx2; yoga is
+    # the default host.** On any other host it refuses and exits non-zero,
+    # rather than pass having built the portable path in the arm's place.
+    # Run by hand there (`devenv tasks run test:x86-avx2`) and not in
+    # `enterTest`, where it would refuse every push from an aarch64 Mac. No
+    # `after` edge: run alone, it schedules no other gate and its failure is
+    # hard (see the comment above `enterTest`).
+    "test:x86-avx2" = {
+      exec = "OBJDUMP=${objdump} bash ./scripts/x86-avx2.sh";
     };
 
     # RustSec advisories, which SECURITY.md asks reporters for. Run by hand

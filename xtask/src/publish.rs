@@ -49,9 +49,9 @@
 //! 6. no published crate ships a file of a sidecar entry whose status is one
 //!    of [`UNSETTLED`]: without `--release` each is printed and the check
 //!    still passes, since what is missing is a decision, not a change to
-//!    the tree; with `--release` (the Release job, before anything is
-//!    uploaded) each one refuses the release. A file with no entry at all
-//!    is not seen here;
+//!    the tree; with `--release` (run before `release-plz release`, before
+//!    anything is uploaded) each one refuses the release. A file with no
+//!    entry at all is not seen here;
 //! 7. each published crate carries NOTICE, and it is what [`notice`] writes
 //!    from the crate's own file list (`--write-notices` writes them);
 //! 8. what a NOTICE prints of a settled entry is its `public` and `holder`
