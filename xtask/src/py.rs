@@ -3,7 +3,20 @@
 //! TOML value as `tomllib` returned it, `str()` of one, and `sorted()`
 //! of a list of strings.
 
+use std::sync::LazyLock;
+
+use regex::Regex;
 use toml::Value;
+
+/// A word character of Python's `\w` on a `str` pattern: a letter, a
+/// number, or the underscore.
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\p{L}\p{N}_]$").expect("WORD"));
+
+/// Whether `\w` holds for a character.
+pub fn word(c: char) -> bool {
+    let mut b = [0; 4];
+    WORD.is_match(c.encode_utf8(&mut b))
+}
 
 /// Whether `str.isprintable()` holds for a character `repr` would keep.
 /// Python leaves out the categories Cc, Cf, Cs, Co, Cn, Zl, Zp and every

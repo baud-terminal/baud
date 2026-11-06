@@ -202,20 +202,12 @@ fn partition<'a>(x: &'a str, sep: &str) -> (&'a str, bool, &'a str) {
     }
 }
 
-/// A word character of Python's `\w` on a `str` pattern: a letter, a
-/// number, or the underscore.
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\p{L}\p{N}_]$").expect("WORD"));
 static NOT_SLUG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[^\p{L}\p{N}_\- ]").expect("NOT_SLUG"));
 /// `See all (\S+) features`, with Python's `\S`: `str.isspace()` also
 /// holds for the four information separators.
 static SEE_ALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"See all ([^\s\x1c-\x1f]+) features").expect("SEE_ALL"));
-
-fn word(c: char) -> bool {
-    let mut b = [0; 4];
-    WORD.is_match(c.encode_utf8(&mut b))
-}
 
 /// GitHub's anchor for a heading: lower case, punctuation dropped, each
 /// space a hyphen.
@@ -323,7 +315,7 @@ pub fn fns(src: &str) -> HashSet<String> {
     let mut out = HashSet::new();
     let mut from = 0;
     while let Some(i) = src[from..].find("fn ").map(|i| i + from) {
-        let boundary = src[..i].chars().next_back().is_none_or(|c| !word(c));
+        let boundary = src[..i].chars().next_back().is_none_or(|c| !py::word(c));
         let rest = &src[i + 3..];
         let len = rest
             .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))

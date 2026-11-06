@@ -3338,3 +3338,51 @@ against [0.75-0.80], and the lib in [9.08-10.76] s against [9.31-9.37];
 only the compile's ranges part. Load average 3.7-7.1. Touching
 `src/lib.rs` ran no build script in any round; touching a `data/` file
 ran it once. The `baud-domain` .crate is 1.93 MiB compressed.
+
+## The feature arms' scope in `cargo xtask features-since`
+
+Not timed: no byte path changed. `cargo xtask features-since <rev>|--explain`
+replaces the Python script `check-features.sh --since` ran, whose command
+line is unchanged, and the script is deleted. The lexer is scanned by hand
+over code points, since `regex` has no look-behind and `'é'` is a literal
+because of the quote two code points on.
+
+| arm | inputs | result |
+|---|---|---|
+| `--explain` | 10 checkouts from the tip back 1,200 commits, 15 dirty trees | byte-equal; 1 checkout cargo refuses, both exit 1 |
+| `<rev>` | 95 runs: 43 scoped, 42 `all`, 10 FAIL, edges among them (non-ancestor tips and merge bases, root, tag, reflog, short SHA, tree, blob, untracked, ignored, a subdirectory, no cargo), and the tests' trees, 130 runs | 95 equal in stdout and exit, and the 130; master has no merge commit, and a scoped merge base is a test |
+| random workspaces | 300 trees with 774 revs, seed 21 | 258 explains and 774 revs equal; 42 trees the script never returned on |
+| lexer, `os.path` | 120,000 random inputs and every `.rs` of the tree, seed 31 | every line equal |
+
+A wrong port is caught by the three arms that ran it: one built with `'é'` read in bytes and
+reads matched as paths differed on 5,761 lexer lines, on 32 of the 121 rev
+and explain lines, and on the fourth random tree.
+
+Accepted, every exit code equal. The usage line names the command. Where
+the script stopped on an exception on `--explain`, the run prints one line
+in place of the traceback, stdout empty. `cargo metadata` output that is
+not JSON gives serde_json's words inside the `all` line; the control is a
+`cargo` that prints `nonsense`.
+
+**One departure in what it does, a hang, accepted as a recorded lean under the departure rule.** The script's loop re-queued the
+file of every `include!` it resolved on every pass and ran while the queue
+held anything, so a tree with one `include!` naming a file never returned:
+under `ulimit -t 15` it exits 152, and the same tree with `include_str!`
+exits 0. Master holds no such `include!`; the next one would have hung
+`--since`. Here a file already scanned does not count, so a tree the script
+returned on takes one pass, and the others end with the file followed.
+
+The list that reaches every crate names `features_since.rs`, `py.rs`,
+`py_path.rs` and `text.rs` in place of the script; the side-by-side arm was
+built with the script's list, and the two differ by those lines. An xtask
+that does not build checks every crate.
+
+Python's text layer is kept: `\r` and `\r\n` read as `\n`, invalid UTF-8
+as U+FFFD, and `\s`, `\w` and `\d` as Python reads them.
+
+Each case is a `#[test]`, 106 of them. Red: 114 perturbations turned their
+named test red and two turned another test red, by the kept logs; most ran
+before the raw-byte paths and the digits, which they do not touch, 14 did
+not build under `-D warnings` and ran without it, and two were green until
+a test reached them: a reason repeated on a second pass, and `anything`
+reaching on a change in a member.

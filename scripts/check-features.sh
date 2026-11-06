@@ -48,13 +48,14 @@
 # **`--since <rev>` checks only the crates a change can reach.** An arm
 # breaks only when something it compiles changed: its crate's directory, a
 # crate it depends on, or a file it reads from outside its directory, which
-# `scripts/check-features-since.py` finds in the sources -- baud-bench
-# compiles `baud-app/src/trail.rs` without depending on baud-app. The change
-# is everything between <rev> and the working tree, committed or not. A
-# change to the lock file, the workspace manifest, cargo's configuration,
-# the toolchain's pins or either script checks every crate, and so does a
-# scope the helper cannot compute. Each crate skipped is named with the
-# reason, and every floor below is checked whether its arms run or not.
+# `cargo xtask features-since` finds in the sources -- baud-bench compiles
+# `baud-app/src/trail.rs` without depending on baud-app. The change is
+# everything between <rev> and the working tree, committed or not. A change
+# to the lock file, the workspace manifest, cargo's configuration, the
+# toolchain's pins, this script or that command's sources checks every
+# crate, and so does a scope it cannot compute. Each crate skipped is named
+# with the reason, and every floor below is checked whether its arms run or
+# not.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -200,11 +201,7 @@ fi
 scoped=""
 reach=" "
 if [ -n "$since" ]; then
-  command -v python3 >/dev/null || {
-    echo "FAIL: --since needs python3, which is not on PATH; devenv provides it"
-    exit 1
-  }
-  scope=$(python3 -I scripts/check-features-since.py "$since")
+  scope=$(cargo xtask features-since "$since")
   status=$?
   tab=$(printf '\t')
   case "$status:$scope" in
@@ -229,7 +226,7 @@ if [ -n "$since" ]; then
     fi
     ;;
   *)
-    echo "since $since: the scope script failed, so every crate is checked"
+    echo "since $since: the scope command failed, so every crate is checked"
     ;;
   esac
 fi
