@@ -3437,3 +3437,59 @@ swap does to a sweep's `build` is unmeasured.
 34 and `-h=1` reaching help. A first run left three alive: two have tests
 now, and the third weights the quartile by 3/4 and 1/4, which are exact, so
 it is the same function, and 200,000 random lists found no difference.
+
+## The build's name: `<version>+<commit>`, and what it costs the core
+
+The app calls itself `1.0.0-beta.1+0a8418b`: the manifests' version and SemVer
+build metadata (`[[source: semver]]`, rule 10), which orders nothing and is
+"generally ignored by Cargo" (`[[source: cargo-manifest-version]]`). A registry
+index keeps one entry for `1.0.7` and `1.0.7+extra`
+(`[[source: cargo-registry-index]]`), so a hash in a manifest would have nowhere
+to go; none goes there. `baud-app/build.rs` writes `BAUD_VERSION`, and no file.
+
+**Real runs of the identifier**, `baud --version` after each build:
+
+| tree | prints |
+|---|---|
+| a clean commit | `1.0.0-beta.1+0a8418b` |
+| a tracked doc edited | `1.0.0-beta.1+0a8418b.dirty` |
+| the edit reverted | `1.0.0-beta.1+0a8418b` |
+| `BAUD_GIT_REV=abc1234-dirty`, nix's form | `1.0.0-beta.1+abc1234.dirty` |
+| `git archive` unpacked, no `.git` | `1.0.0-beta.1+unknown` |
+| `BAUD_GIT_REV=a_b` | the build stops, naming the rule |
+
+No build leaves a file in `git status`. `self.shortRev` evaluated to `11dd43f` for a
+commit and the flake's `BAUD_GIT_REV` to `11dd43f-dirty` on a dirty tree, so a
+clone takes the same seven digits. An edit reruns the build script and
+recompiles the `baud` crate, 3.1-5.4 s here, since a binary that kept saying
+"clean" would be the wrong answer; a second build with nothing changed is fresh,
+a packed ref and a missing `packed-refs` included.
+
+**XTVERSION's text is told at run time and lives in `StrBuf`**, an
+`Option<&'static VersionText>`, 8 bytes that `StrBuf`'s 11 of end padding hold.
+`-Zprint-type-sizes` gives `Term`, 17,264 bytes, and `Storage`, 15,600, the same
+fields at the same places as base; inside `StrBuf`, `end padding` goes 11 to 3.
+
+**`ingest2` is not byte-identical**: `__text` 1,225,216 against 1,225,472 bytes,
+`cmp` differs, an A/A rebuild of the change is identical. `want_reply` grows from
+48 to 112 bytes of code. The `StrBuf` fields laid out after the new one sit 8
+bytes later, and `feed_read_outlined` reads some of them, so that is an immediate
+in a path that runs per read, and it was timed. Base e34337a3, change and A/A at
+one path, six rounds rotated, the first dropped, MB/s median [range], load average
+9.3-9.6:
+
+| payload, reps | base | change | A/A |
+|---|---|---|---|
+| cat, 400 | 1519 [1397-1579] | 1539 [1518-1566] | 1533 [1382-1565] |
+| btop, 200 | 857 [854-858] | 856 [854-861] | 854 [840-856] |
+| cat-cjk, 100 | 506 [500-514] | 504 [491-508] | 503 [502-510] |
+| less, 400 | 1361 [1350-1377] | 1358 [1342-1364] | 1369 [1364-1380] |
+
+Every range overlaps base's: no result. `cells_written` is the same on all three
+arms of each payload: 339,854,081, 25,964,600, 38,322,698, 20,748,228. What would
+have proven it wrong is a range parting below base's; none did.
+
+**The film.** `NSImageCurrentFrameDuration` sums to the file's own delays, by
+baud's GIF decoder, within a millisecond and under five seconds, so a tick steps
+by AppKit's reading. The two GIFs, 5.3 MB, go in the bundle's Resources: in the
+crate they would take `baud` from 4.39 MiB to about 9.7 of crates.io's 10.

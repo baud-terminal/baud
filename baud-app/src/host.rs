@@ -252,6 +252,7 @@ pub fn set_up_term<'t>(
         cfg.clipboard.osc52,
     );
     crate::host::set_term_name(&mut term);
+    crate::host::set_version_text(&mut term);
     crate::host::set_logging(&mut term, cfg.logging);
     // **No print panel in this driver**: the core is told there is no
     // printer, so DSR `?15` answers "no printer" and a print is ignored and
@@ -755,6 +756,13 @@ pub fn set_term_name(term: &mut baud_core::Term<'_>) {
     if let Some(name) = baud_core::TermName::new(crate::bell::TERM.as_bytes()) {
         term.set_term_name(name);
     }
+}
+
+/// Tell the core the build's name, which a program's XTVERSION asks for and
+/// which `TERM_PROGRAM_VERSION` says too. One function for both drivers,
+/// called before the first feed.
+pub fn set_version_text(term: &mut baud_core::Term<'_>) {
+    term.set_version_text(&crate::version::TEXT);
 }
 
 /// Tell the core whether there is a pointer for DEC's locator, so `DSR
@@ -2268,11 +2276,15 @@ mod tests {
         assert_eq!(t.reply(), format!("\x1bP1+r544E={hex}\x1b\\").as_bytes());
         assert_eq!(crate::bell::TERM, "xterm-256color");
         const CALL: &str = concat!("crate::host::", "set_term_name(");
+        // What XTVERSION names, told the same way: the app's terminal answers
+        // the build's name, and both drivers say it once.
+        const VERSION: &str = concat!("crate::host::", "set_version_text(");
         for (driver, src) in [
             ("macOS", include_str!("app.rs")),
             ("Linux", &super::linux_driver_src()),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            assert_eq!(src.matches(VERSION).count(), 1, "{driver}: the version");
         }
     }
 

@@ -376,6 +376,15 @@ impl Strip {
         }
     }
 
+    /// **How wide the lights are, in points**: what the build's name leaves
+    /// room for (`Mark::fit`); none with no lights.
+    pub(crate) fn across(&self) -> CGFloat {
+        match self.plate {
+            Some(_) => self.spans.width,
+            None => 0.0,
+        }
+    }
+
     /// Re-place every view at the strip's right, and hide the ones a
     /// narrow window has no room for: on every resize. The accessory first,
     /// to the lights' width and the room `edges` leave, none with no
@@ -385,11 +394,8 @@ impl Strip {
         let Some(holder) = &self.holder else {
             return;
         };
-        let across = match self.plate {
-            Some(_) => self.spans.width,
-            None => 0.0,
-        };
-        let (room, left) = holder.fit_lights(edges, across, CGFloat::from(PLATE_PAD), self.scale);
+        let (room, left) =
+            holder.fit_lights(edges, self.across(), CGFloat::from(PLATE_PAD), self.scale);
         let inset = room.height;
         let frames = placed(room, inset, edges.right, left, self.scale, &self.spans);
         if let Some(v) = &self.plate {

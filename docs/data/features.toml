@@ -179,6 +179,17 @@ chips = ["kitty desktop notifications"]
 shipped = ["SQ-v1.0-09"]
 
 [[feature]]
+id = "build-version"
+area = "window"
+name = "Which build this is"
+does = "baud says which build it is: the version and the commit it was built from, `<version>+<commit>`, with `.dirty` when it was built from uncommitted changes and `unknown` from a source archive. `baud --version` prints it, a program can read it from `TERM_PROGRAM_VERSION` and by asking the terminal, and on macOS the title bar shows it after the logo, giving way first in a narrow window. On macOS, baud > About baud opens a window with the version, the home page and the licence; from the app bundle it plays the logo's plasma once, and rests on the logo under Reduce Motion."
+status = "built"
+platform = "both"
+tests = ["baud-app/tests/version.rs::a_clean_tree_is_the_short_hash", "baud-app/tests/version.rs::a_dirty_tree_says_so", "baud-app/tests/version.rs::no_git_is_unknown", "baud-app/tests/version.rs::every_answer_is_valid_semver", "baud-app/src/version.rs::main_answers_before_it_starts_anything", "baud-app/src/pty.rs::the_environment_names_what_xtversion_reports", "baud-core/tests/xterm/keypad_version.rs::xtversion_names_what_the_embedder_tells", "baud-app/src/film/chrome.rs::the_name_of_the_build_yields_before_the_lights", "baud-present-macos/src/about.rs::a_frame_lasts_its_delay_and_the_last_is_the_rest"]
+rows = ["vt:`CSI > 0 q`"]
+paths = ["baud-app/build.rs", "baud-app/src/build_id.rs", "baud-app/src/version.rs", "baud-app/src/about.rs", "baud-present-macos/src/about.rs"]
+
+[[feature]]
 id = "iterm2-messages"
 area = "programs"
 name = "Programs written for iTerm2"

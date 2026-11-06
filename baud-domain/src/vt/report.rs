@@ -361,7 +361,68 @@ const _: () = assert!(core::mem::size_of::<Report>() == 40);
 // `ESC P > |`, the text and `ESC \` fit, or a longer version would lose the
 // `ST` to `ReportBytes::push`'s silent drop and send a reply of the wrong
 // shape. Checked at compile time because the text is the build's.
-const _: () = assert!(4 + Report::VERSION_TEXT.len() + 2 <= Report::MAX_LEN);
+const _: () = assert!(VersionText::PACKAGE.reply_len() <= Report::MAX_LEN);
+
+/// **The version XTVERSION names, as the embedder tells it**: the program's
+/// own, build metadata included, between the parentheses of
+/// `DCS > | baud(<version>) ST`. Until an embedder tells one it is
+/// [`VersionText::PACKAGE`], the workspace version: the core has no git and
+/// no build to ask, so what a build is called is the embedder's to say, as
+/// the `TERM` XTGETTCAP names is (`TermName`).
+///
+/// The bound is xterm's: `sprintf("%.80s(%d)", ...)`
+/// (`[[source: xterm-version]]`, line 72) keeps 80 bytes of its text. Each
+/// byte is `21-7E`, so nothing in a text can end the control
+/// string early (`[[source: williams]]`: ESC cancels one).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct VersionText {
+    version: &'static str,
+}
+
+impl VersionText {
+    /// The longest text told, in bytes.
+    pub const MAX: usize = 80;
+
+    /// The workspace version, every crate's: what an embedder that tells
+    /// nothing answers with.
+    pub const PACKAGE: VersionText = VersionText {
+        version: env!("CARGO_PKG_VERSION"),
+    };
+
+    /// `version`, if it is 1 to [`VersionText::MAX`] bytes, each `21-7E`.
+    /// A `const fn` so a build's own text can be refused at compile time.
+    pub const fn new(version: &'static str) -> Option<VersionText> {
+        let b = version.as_bytes();
+        if b.is_empty() || b.len() > VersionText::MAX {
+            return None;
+        }
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] < 0x21 || b[i] > 0x7e {
+                return None;
+            }
+            i += 1;
+        }
+        Some(VersionText { version })
+    }
+
+    /// The text told.
+    pub const fn as_str(self) -> &'static str {
+        self.version
+    }
+
+    /// The reply's bytes in order: `DCS > | baud(`, the text and `) ST`.
+    /// `ESC P` under `S8C1T` too, as `Report::Version` encodes it.
+    pub const fn reply_parts(self) -> [&'static [u8]; 3] {
+        [b"\x1bP>|baud(", self.version.as_bytes(), b")\x1b\\"]
+    }
+
+    /// How long the reply is, in bytes.
+    pub const fn reply_len(self) -> usize {
+        let [a, b, c] = self.reply_parts();
+        a.len() + b.len() + c.len()
+    }
+}
 
 /// Whether the Primary DA advertises Sixel graphics (attribute `4`). A typed
 /// flag rather than a `bool` so the call site reads as what it is, and so the
@@ -672,13 +733,6 @@ impl Report {
     /// zero. `report_encodings_fit` pins it, and `ReportBytes::push` drops
     /// past it in silence, which is why that test names every variant.
     pub const MAX_LEN: usize = 39;
-
-    /// XTVERSION's text: the name and then the workspace version,
-    /// `baud(<version>)`. `[[source: ctlseqs]]` asks for "name and
-    /// version"; the parenthesised form is xterm's own reply, `XTerm(411)`
-    /// (`[[source: xterm-version]]`), and foot's. `TERM_PROGRAM_VERSION`
-    /// reads the same `CARGO_PKG_VERSION`, since every crate inherits it.
-    pub const VERSION_TEXT: &'static str = concat!("baud(", env!("CARGO_PKG_VERSION"), ")");
 
     /// Render the report to bytes.
     ///
@@ -1009,17 +1063,16 @@ impl Report {
             Report::Version => {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here
                 // replaces the `ESC [` the encoder starts with, so the branch
-                // rewinds rather than appending.
+                // rewinds rather than appending. The text is the package's
+                // here; a `Term` told another writes that one
+                // (`Paint::want_reply`), which may be longer than this
+                // buffer.
                 e.len = ByteLen::ZERO;
-                e.push(0x1b);
-                e.push(b'P');
-                e.push(b'>');
-                e.push(b'|');
-                for &b in Report::VERSION_TEXT.as_bytes() {
-                    e.push(b);
+                for part in VersionText::PACKAGE.reply_parts() {
+                    for &b in part {
+                        e.push(b);
+                    }
                 }
-                e.push(0x1b);
-                e.push(b'\\');
             }
             Report::Color {
                 index,

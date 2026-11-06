@@ -115,6 +115,9 @@ const _: () = assert!(XTGETTCAP_MAX <= REPLY_MOST);
 pub const XTGETXRES_MAX: usize = xres_reply_max(OSC_MAX - 1);
 const _: () = assert!(XTGETXRES_MAX <= REPLY_MOST);
 
+// XTVERSION with the longest text an embedder can tell: a hold leaves room.
+const _: () = assert!(b"\x1bP>|baud()\x1b\\".len() + baud_domain::VersionText::MAX <= REPLY_MOST);
+
 /// What a `DCS +` reads and leaves: the name `TN` answers, the embedder's
 /// (`Term::set_term_name`), which `RIS` keeps; and the XTSETTCAPs refused.
 pub(crate) struct Tcap {

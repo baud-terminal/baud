@@ -26,7 +26,8 @@
   };
 
   outputs =
-    { nixpkgs
+    { self
+    , nixpkgs
     , rust-overlay
     , nixpkgs-demo
     , ...
@@ -86,6 +87,10 @@
           # config's `rustflags`, as devenv's does, and the profile's
           # `rustflags`, the function alignment, still apply.
           env.RUSTFLAGS = "";
+          # **The build's name** (`baud-app/build.rs`). A nix build has no
+          # `.git`, so the flake says which commit this is; `dirtyShortRev`
+          # is its answer for a tree that differs from the commit.
+          env.BAUD_GIT_REV = self.shortRev or self.dirtyShortRev or "unknown";
 
           # The Linux desktop entry is checked against the specification as
           # it is installed; the macOS bundle is signed ad hoc, as a clone's

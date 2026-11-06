@@ -28,8 +28,11 @@
 //! `host.rs`'s release of the fonts a font reload replaced, in `lent.rs`'s
 //! loans to a window's terminal and renderer, given back when it closes,
 //! and in `heap.rs`, the macOS allocator, which forbid nothing and say why
-//! at every call; `app.rs`, `link.rs` and `mark.rs` forbid it.
+//! at every call; `about.rs`, `app.rs`, `link.rs` and `mark.rs` forbid it.
 
+// What the About window says, and the film it plays (`baud_present_macos`).
+#[cfg(target_os = "macos")]
+mod about;
 // What the system's accessibility settings ask -- reduced motion, increased
 // contrast: both drivers read their own system and act through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -282,12 +285,18 @@ mod windows;
 // run on every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod winops;
+// The build's name, where the app says it. Pure, and on every platform.
+mod version;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform, and both drivers scroll through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod wheel;
 
 fn main() {
+    if version::asks(std::env::args_os().skip(1)) {
+        println!("{}", version::line(version::BUILD));
+        return;
+    }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     host::startup_begin();
     // The installed fonts are read on a thread of their own from the

@@ -1170,6 +1170,40 @@ pub fn draw_led(
     Some(())
 }
 
+/// **A line of small text's width, in points**, in `face` at `size`.
+pub fn text_width(face: &Face<'_>, text: &str, size: f32) -> f32 {
+    advance(face, text, size)
+}
+
+/// **A line of small text as a picture**, `height` points tall, in `ink`,
+/// its capitals centred as a light's letters are: what the composed title
+/// strip (`baud-app/src/film/chrome.rs`) shows the build's name with, where
+/// there is no AppKit to ask for a label.
+pub fn draw_text(
+    face: &Face<'_>,
+    text: &str,
+    size: f32,
+    ink: Argb,
+    scale: f32,
+    height: f32,
+    out: &mut LightsImage,
+) -> Option<()> {
+    let w = Px::of(u32::try_from((advance(face, text, size) * scale).ceil() as i64).ok()?);
+    let h = Px::of(u32::try_from((height * scale).round() as i64).ok()?);
+    let extent = Extent::new(w, h);
+    let px = size * scale;
+    let pen = Point::new(0.0, height * scale / 2.0 + CAP * px / 2.0);
+    let cover = coverage(extent, |c| letters(face, c, text, px, pen))?;
+    out.width = w;
+    out.height = h;
+    out.pixels.clear();
+    out.pixels.resize(slots(w) * slots(h), Argb(0));
+    for (p, &c) in out.pixels.iter_mut().zip(&cover) {
+        *p = over(*p, ink, c);
+    }
+    Some(())
+}
+
 /// A disc of radius `r` about `c` over `extent`, less the disc of `hole`
 /// inside it where one is given.
 fn disc_coverage(extent: Extent, c: Point, r: f32, hole: Option<f32>) -> Option<Vec<Chan>> {

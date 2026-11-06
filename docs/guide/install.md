@@ -69,7 +69,7 @@ devenv shell -- cargo run --release
 
 baud tells the programs it runs who it is the usual way: `TERM` is
 `xterm-256color`, `COLORTERM` is `truecolor`, `TERM_PROGRAM` is `baud`, and
-`TERM_PROGRAM_VERSION` is baud's version (the one XTVERSION reports).
+`TERM_PROGRAM_VERSION` is baud's version with its build, `<version>+<commit>` (the one XTVERSION reports and `baud --version` prints).
 Programs read these to decide which keys, colours and features to use.
 
 ## Make it yours

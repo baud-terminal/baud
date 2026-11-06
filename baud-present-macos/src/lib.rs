@@ -33,6 +33,7 @@
 #![cfg(target_os = "macos")]
 #![deny(unsafe_code)]
 
+pub mod about;
 pub mod clipboard;
 pub mod closing;
 pub mod full_screen;

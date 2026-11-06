@@ -2597,10 +2597,10 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // reason on record was that answering "would name a version this core
         // does not have" -- but `Report::Version` is `baud_domain`'s and
         // already encodes `DCS > | baud(<version>) ST`, the name and the
-        // workspace version (`Report::VERSION_TEXT`). The name is the
-        // *program*'s rather than the core's, and the program is baud. Read a
-        // refusal against its scope, which this file says to do and which has
-        // closed four others.
+        // workspace version, or what the embedder tells
+        // (`Term::set_version_text`). The name is the *program*'s rather than
+        // the core's, and the program is baud. Read a refusal against its
+        // scope, which this file says to do and which has closed four others.
         DomCsi::RequestVersion => {
             p.want_reply(Report::Version);
             p.hold_for_replies(node);

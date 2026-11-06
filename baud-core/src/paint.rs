@@ -2079,6 +2079,27 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn want_reply(&mut self, r: Report) {
+        // XTVERSION's text is the embedder's and may be longer than a
+        // `ReportBytes`, so it goes in part by part.
+        if let Report::Version = r {
+            let told = self
+                .strs
+                .version
+                .unwrap_or(&baud_domain::VersionText::PACKAGE);
+            let at = self.reply_len.index();
+            match at + told.reply_len() <= self.reply.len() {
+                true => {
+                    let mut end = at;
+                    for part in told.reply_parts() {
+                        self.reply[end..end + part.len()].copy_from_slice(part);
+                        end += part.len();
+                    }
+                    self.reply_len = ByteLen::from_index(end);
+                }
+                false => self.reply_overflows += 1,
+            }
+            return;
+        }
         let bytes = r.encode(self.cold.replies.c1());
         let b = bytes.as_bytes();
         let at = self.reply_len.index();

@@ -586,6 +586,13 @@ pub struct StrBuf<'b> {
     /// many have come.
     pub(crate) fireworks: Option<(Row, Col)>,
     pub(crate) fireworks_requests: crate::notice::ReportCount,
+    /// **What XTVERSION names**, the embedder's (`Term::set_version_text`),
+    /// which `RIS` keeps, none until told. Only that reply reads it. Eight
+    /// bytes, which `StrBuf`'s end padding held, so `Term` is the size it was;
+    /// the fields laid out after it, `.sixel` to `.prompt_at_bottom`, sit 8
+    /// bytes later (`-Zprint-type-sizes`), which moves an offset
+    /// `feed_read_outlined` uses; MEASUREMENTS.md has the timing.
+    pub(crate) version: Option<&'static baud_domain::VersionText>,
     /// iTerm2's `OSC 1337` messages: the host `RemoteHost` named, the
     /// backing scale and the counts (`crate::iterm`). Here for the reason
     /// `window_asks` is: only an `OSC 1337` reaches it.
@@ -685,6 +692,7 @@ impl<'b> StrBuf<'b> {
             attention_requests: crate::notice::ReportCount::FIRST,
             fireworks: None,
             fireworks_requests: crate::notice::ReportCount::FIRST,
+            version: None,
             iterm: crate::iterm::Iterm::NEW,
             user_vars: &mut [],
             iterm_file: ItermFile::NEW,
@@ -1073,6 +1081,7 @@ impl Owned {
                 attention_requests: crate::notice::ReportCount::FIRST,
                 fireworks: None,
                 fireworks_requests: crate::notice::ReportCount::FIRST,
+                version: None,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
                 iterm_file: ItermFile::NEW,
@@ -1179,6 +1188,7 @@ impl Owned {
                 attention_requests: crate::notice::ReportCount::FIRST,
                 fireworks: None,
                 fireworks_requests: crate::notice::ReportCount::FIRST,
+                version: None,
                 iterm: crate::iterm::Iterm::NEW,
                 user_vars: &mut self.user_vars,
                 iterm_file: ItermFile::NEW,

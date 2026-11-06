@@ -7203,6 +7203,14 @@ impl<'b> Term<'b> {
         self.store.strs.tcap.name = name;
     }
 
+    /// **The version XTVERSION names**, the build's as the embedder knows
+    /// it: the core has no git and is published without one. Until one is
+    /// told the reply names the workspace version
+    /// ([`baud_domain::VersionText::PACKAGE`]). `RIS` keeps it.
+    pub fn set_version_text(&mut self, version: &'static baud_domain::VersionText) {
+        self.store.strs.version = Some(version);
+    }
+
     /// How many XTSETTCAPs, `DCS + p Pt ST`, were refused: baud has no
     /// terminal database to load an entry from, so each changes nothing
     /// (`Paint::tcap_end`). Each is counted in `unsupported` too.

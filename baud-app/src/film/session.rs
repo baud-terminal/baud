@@ -818,8 +818,9 @@ fn the_readme_session_lights_every_light() {
     let mut window: Vec<u32> = Vec::new();
     let take = super::film(&f, |fr| {
         blinked.push((fr.step, fr.caret != baud_render::CursorPhase::SHOWN));
-        let s = strip
-            .get_or_insert_with(|| super::chrome::Strip::new(fr.size.0, f64::from(super::SCALE)));
+        let s = strip.get_or_insert_with(|| {
+            super::chrome::Strip::new(fr.size.0, f64::from(super::SCALE), crate::version::BUILD)
+        });
         s.compose(fr.lights, fr.pixels, &mut window);
         let px = (fr.size.0.value(), fr.size.1.value() + s.height().value());
         if let Some(to) = &film_to {

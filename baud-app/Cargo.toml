@@ -102,6 +102,11 @@ test = true
 # views are main-thread-only and libtest runs each test on a thread of its
 # own, so the test is its own `main` and answers nextest's `--list` itself.
 [[test]]
+name = "about_window"
+path = "tests/about_window.rs"
+harness = false
+
+[[test]]
 name = "titlebar_mark"
 path = "tests/titlebar_mark.rs"
 harness = false

@@ -18,8 +18,70 @@
 //! a config file sets, so a flag there would be silently gone under the
 //! shell that runs every gate. `cargo:rustc-link-arg-bins` survives it.
 
+//!
+//! **And the build's name**: `BAUD_VERSION`, `<package version>+<identifier>`,
+//! the logic in `src/build_id.rs`. It writes no file; a `rustc-env` is all
+//! the tree sees of it.
+
+#[path = "src/build_id.rs"]
+mod build_id;
+
+use std::path::Path;
+use std::process::Command;
+
+/// The build's identifier, and what Cargo should rerun this for.
+fn identifier() -> String {
+    println!("cargo:rerun-if-changed=src/build_id.rs");
+    println!("cargo:rerun-if-env-changed=BAUD_GIT_REV");
+    if let Some(rev) = std::env::var("BAUD_GIT_REV").ok().filter(|r| !r.is_empty()) {
+        return build_id::told(&rev).unwrap_or_else(|e| panic!("{e}"));
+    }
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it");
+    let crate_dir = std::fs::canonicalize(&manifest).expect("the package's folder");
+    let git = |args: &[&str]| {
+        // Asked of the crate's folder, whatever a hook this build runs
+        // under has exported.
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&crate_dir)
+            .args(args)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    };
+    match build_id::read(Path::new(&crate_dir), &git) {
+        Some(read) => {
+            // Canonical, as git's paths are: `CARGO_TARGET_DIR` is taken as
+            // written, `..` and symbolic links included.
+            let out = std::env::var("OUT_DIR").expect("cargo sets it");
+            let out = std::fs::canonicalize(&out).expect("cargo made it");
+            let entries = |dir: &Path| {
+                std::fs::read_dir(dir).map_or_else(
+                    |_| Vec::new(),
+                    |entries| entries.flatten().map(|e| e.path()).collect(),
+                )
+            };
+            for path in build_id::rerun_on(&read, &out, &|p| p.exists(), &entries) {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+            read.id
+        }
+        None => build_id::UNKNOWN.to_owned(),
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    let package = std::env::var("CARGO_PKG_VERSION").expect("cargo sets it");
+    println!(
+        "cargo:rustc-env=BAUD_VERSION={}",
+        build_id::full(&package, &identifier())
+    );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         // **AppKit has to be named as needed, or the strip takes it too.**
         // The Objective-C classes the app uses -- NSApplication, NSWindow,

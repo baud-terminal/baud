@@ -42894,3 +42894,89 @@ group  = "AN"
 # and their characters are exactly Python 3.13's html.entities.html5, the
 # table the learn.microsoft.com article-text pins were decoded with;
 # `cargo xtask page-text` decodes with this file.
+
+# **The build's name**: `<package version>+<commit>` (`baud-app/src/build_id.rs`).
+# Hash-verified, not committed: a page of the web and a vendor header.
+[sources.semver]
+key    = "semver"
+title  = "Semantic Versioning 2.0.0"
+author = "Tom Preston-Werner"
+year   = 2013
+venue  = "semver.org"
+url    = "https://semver.org/spec/v2.0.0.html"
+file   = ""
+sha256 = "f9d4b8b1a5e9a0de6621dbbc70d69fdf05310b7a737509317b94a7bddfb9409e"
+bytes  = 31121
+status = "external"
+group  = "H"
+# Rule 10: "Build metadata MAY be denoted by appending a plus sign and a series of dot separated identifiers immediately following the patch or pre-release version. Identifiers MUST comprise only ASCII alphanumerics and hyphens [0-9A-Za-z-]. Identifiers MUST NOT be empty. Build metadata MUST be ignored when determining version precedence." Its grammar's `<dot-separated build identifiers>`.
+
+[sources.cargo-manifest-version]
+key    = "cargo-manifest-version"
+title  = "The Cargo Book: The Manifest Format, the version field"
+author = "The Cargo Team"
+year   = 2026
+venue  = "doc.rust-lang.org"
+url    = "https://doc.rust-lang.org/cargo/reference/manifest.html#the-version-field"
+file   = ""
+sha256 = "faabed42690ed91a33349e0a00980008a451332bcbab7ca215facee9c3d473b6"
+bytes  = 59809
+status = "external"
+group  = "H"
+# "A metadata part can be added after a plus, such as 1.0.0+21AF26D3. This is for informational purposes only and is generally ignored by Cargo."
+
+[sources.cargo-registry-index]
+key    = "cargo-registry-index"
+title  = "The Cargo Book: Registry Index, version uniqueness"
+author = "The Cargo Team"
+year   = 2026
+venue  = "doc.rust-lang.org"
+url    = "https://doc.rust-lang.org/cargo/reference/registry-index.html"
+file   = ""
+sha256 = "9e458427827df353c5e4f311fe066731489d89aa4a87f09bc5e92794b6ad76fa"
+bytes  = 44109
+status = "external"
+group  = "H"
+# "Indexes must ensure that each version only appears once for each package. This includes ignoring SemVer build metadata. For example, the index must not contain two entries with a version 1.0.7 and 1.0.7+extra."
+
+[sources.nix-call-flake]
+key    = "nix-call-flake"
+title  = "Nix, src/libflake/call-flake.nix: a flake's outputs and self"
+author = "The Nix contributors"
+year   = 2026
+venue  = "NixOS/nix, master"
+url    = "https://raw.githubusercontent.com/NixOS/nix/master/src/libflake/call-flake.nix"
+file   = ""
+sha256 = "9bda256f5e51cffacbe8b7ff9dfe855b6a692a229008f36b06472d76a30a495c"
+bytes  = 3431
+status = "external"
+group  = "H"
+# Read beside a run: `self.shortRev` evaluated to `11dd43f` for 11dd43f47127581be602ae846301ff75ce1c057e, seven digits.
+
+[sources.sdk27-nsbitmapimagerep-h]
+key    = "sdk27-nsbitmapimagerep-h"
+title  = "macOS SDK 27.0, AppKit NSBitmapImageRep.h -- 'NSImageCurrentFrame'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSBitmapImageRep.h"
+file   = ""
+sha256 = "023d1a388515247852e35efac8ddb30082ad6e2165b1a686c36206d817103d41"
+bytes  = 11305
+status = "external"
+group  = "J"
+# NSImageFrameCount "GIF input (int in NSNumber) (read-only)", NSImageCurrentFrame "GIF input (int in NSNumber)". Hash recorded only, not committed -- a vendor header.
+
+[sources.sdk27-nsimageview-h]
+key    = "sdk27-nsimageview-h"
+title  = "macOS SDK 27.0, AppKit NSImageView.h -- '@property BOOL animates;'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSImageView.h"
+file   = ""
+sha256 = "80039073b09b9f5c7216ce0cbde39a70741d2fdef506aa1d4b92e596594035f7"
+bytes  = 6582
+status = "external"
+group  = "J"
+# Hash recorded only, not committed -- a vendor header.

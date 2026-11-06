@@ -464,7 +464,7 @@ const OURS: [(&str, &str); 4] = [
     ("TERM", crate::bell::TERM),
     ("COLORTERM", "truecolor"),
     ("TERM_PROGRAM", "baud"),
-    ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION")),
+    ("TERM_PROGRAM_VERSION", env!("BAUD_VERSION")),
 ];
 
 /// The variables a shell reads its locale from: `LC_ALL` outranks every
@@ -2464,15 +2464,30 @@ mod tests {
     /// program reads `TERM_PROGRAM` and `TERM_PROGRAM_VERSION` before it
     /// starts and asks `CSI > q` once running (yazi does both); the two
     /// answers come from two crates, so this holds them to one text:
-    /// `DCS > | baud(<workspace version>) ST`.
+    /// `DCS > | baud(<version>+<build>) ST`, a real `Term` answering after
+    /// the call both drivers make, so a build whose core stopped being told
+    /// fails here with its environment still right.
     #[test]
     fn the_environment_names_what_xtversion_reports() {
         let get = |k: &str| OURS.iter().find(|(o, _)| *o == k).map(|(_, v)| *v);
         let (name, version) = (get("TERM_PROGRAM"), get("TERM_PROGRAM_VERSION"));
         let want = format!("\x1bP>|{}({})\x1b\\", name.unwrap(), version.unwrap());
-        let got = baud_domain::Report::Version.encode(baud_domain::C1Transmit::SevenBit);
+        assert!(version.unwrap().contains('+'), "the build is in it");
+        let ws = baud_domain::WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = baud_core::Owned::new(&ws);
+        let mut t = baud_core::Term::new(s.storage(), &ws);
+        crate::host::set_version_text(&mut t);
+        let query = b"\x1b[>q";
+        t.write_at(baud_domain::BytePos::ZERO, query);
+        t.feed(
+            baud_domain::BytePos::ZERO,
+            baud_domain::ReadLen::from_index(query.len()),
+        );
         assert_eq!(
-            String::from_utf8_lossy(got.as_bytes()),
+            String::from_utf8_lossy(t.reply()),
             want,
             "XTVERSION against TERM_PROGRAM and TERM_PROGRAM_VERSION"
         );

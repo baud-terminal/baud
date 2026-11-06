@@ -107,6 +107,10 @@ const SMALLEST: NSSize = NSSize::new(200.0, 100.0);
 #[cfg(target_os = "macos")]
 const SPANS_WIDTH: CGFloat = 180.25;
 
+/// The longest name a build has: seven digits of hash and `.dirty`.
+#[cfg(target_os = "macos")]
+const VERSION: &str = "1.0.0-beta.1+0123abc.dirty";
+
 /// The plate's pad before the first light, `baud_render::lights::PLATE_PAD`.
 #[cfg(target_os = "macos")]
 const PAD: CGFloat = 4.0;
@@ -153,7 +157,7 @@ fn run() {
             );
             container.addSubview(&view);
             window.set_content_view(&container);
-            let mark = mark::Mark::put(mtm, &window, inset).expect("the lockups decode");
+            let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
             let lights = strip::Accessory::put(
                 mtm,
                 &window,
@@ -173,6 +177,7 @@ fn run() {
             let place = || {
                 w.layoutIfNeeded();
                 mark.place();
+                mark.fit(w, SPANS_WIDTH);
                 let edges = strip::edges(w, Some(mark.end()));
                 let (room, least) =
                     lights.fit_lights(edges, SPANS_WIDTH, PAD, w.backingScaleFactor());
@@ -238,7 +243,129 @@ fn run() {
         }
     }
     assert_eq!(checked, 8, "two bodies at four sizes");
+    name_yields_first(mtm);
     println!("{NAME}: ok, {checked} windows");
+}
+
+/// **A window just too narrow for the name and every light gives up the
+/// name and keeps the lights**; at its width plus a point it has both, and
+/// the smallest window has neither, which `check` holds. The small system
+/// font is what the composed strip draws at, so its layout is this one's.
+/// Perturbation: `Mark::fit` that always shows the name fails the first
+/// half, and one that forgets the accessory's width fails `check`.
+#[cfg(target_os = "macos")]
+fn name_yields_first(mtm: MainThreadMarker) {
+    assert_eq!(
+        macos_liquid_glass::objc2_app_kit::NSFont::smallSystemFontSize(),
+        mark::VERSION_POINTS
+    );
+    let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+    let w = window.ns_window();
+    let inset = strip::inset_of(w);
+    let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
+    w.layoutIfNeeded();
+    mark.fit(w, SPANS_WIDTH);
+    let across = mark.version_label().frame().size.width;
+    let close = w
+        .standardWindowButton(macos_liquid_glass::objc2_app_kit::NSWindowButton::CloseButton)
+        .expect("a close button")
+        .frame()
+        .origin
+        .x;
+    let room = mark.lockup_end() + mark::VERSION_GAP * 2.0 + across + SPANS_WIDTH + close;
+    for (width, shown) in [(room.ceil(), true), (room.ceil() - 1.0, false)] {
+        w.setContentSize(NSSize::new(width, WINDOW_SIZE.height));
+        w.layoutIfNeeded();
+        mark.place();
+        mark.fit(w, SPANS_WIDTH);
+        assert_eq!(!mark.version_label().isHidden(), shown, "at {width} points");
+        let edges = strip::edges(w, Some(mark.end()));
+        assert!(
+            edges.width - edges.right - SPANS_WIDTH >= edges.left - 1e-6,
+            "at {width} points every light still fits: {edges:?}"
+        );
+    }
+    renders(mtm);
+}
+
+/// **The title bar's left end as AppKit draws it, for each appearance at 1x
+/// and 2x**, when `BAUD_ABOUT_RENDERS` names a folder: the window's frame
+/// view into a bitmap, its window never shown, over a plain grey standing
+/// for the material, which only a window on screen composites.
+#[cfg(target_os = "macos")]
+fn renders(mtm: MainThreadMarker) {
+    use macos_liquid_glass::objc2::AnyThread;
+    use macos_liquid_glass::objc2_app_kit::{
+        NSBitmapFormat, NSBitmapImageFileType, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace,
+    };
+    use macos_liquid_glass::objc2_foundation::NSDictionary;
+    let Some(dir) = std::env::var_os("BAUD_ABOUT_RENDERS") else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    const ACROSS: CGFloat = 360.0;
+    for (name, look, grey) in [
+        ("NSAppearanceNameDarkAqua", "dark", 0.227),
+        ("NSAppearanceNameAqua", "light", 0.925),
+    ] {
+        let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+        let w = window.ns_window();
+        let a = NSAppearance::appearanceNamed(&NSString::from_str(name)).expect("a stock one");
+        window.set_appearance(Some(&a));
+        w.setOpaque(true);
+        w.setBackgroundColor(Some(&NSColor::colorWithWhite_alpha(grey, 1.0)));
+        let inset = strip::inset_of(w);
+        let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
+        w.layoutIfNeeded();
+        mark.place();
+        mark.fit(w, SPANS_WIDTH);
+        // SAFETY: a view's superview, read and kept for this block; the
+        // window that owns it lives past it.
+        let frame = w
+            .contentView()
+            .and_then(|v| unsafe { v.superview() })
+            .expect("the frame view");
+        let top = frame.bounds().size.height - inset;
+        let rect = NSRect::new(NSPoint::new(0.0, top), NSSize::new(ACROSS, inset));
+        for scale in [1.0f64, 2.0] {
+            let (pw, ph) = (
+                (ACROSS * scale).round() as isize,
+                (inset * scale).round() as isize,
+            );
+            // SAFETY: no planes, so AppKit allocates; the depth and the row
+            // bytes are a 32-bit RGBA bitmap's.
+            let rep = unsafe {
+                NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+                    NSBitmapImageRep::alloc(),
+                    core::ptr::null_mut(),
+                    pw,
+                    ph,
+                    8,
+                    4,
+                    true,
+                    false,
+                    NSDeviceRGBColorSpace,
+                    NSBitmapFormat::empty(),
+                    4 * pw,
+                    32,
+                )
+            }
+            .expect("a bitmap");
+            rep.setSize(NSSize::new(ACROSS, inset));
+            frame.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
+            // SAFETY: an empty property list, which the header allows.
+            let png = unsafe {
+                rep.representationUsingType_properties(
+                    NSBitmapImageFileType::PNG,
+                    &NSDictionary::new(),
+                )
+            }
+            .expect("a PNG");
+            let path = dir.join(format!("titlebar-{look}-{}x.png", scale as u32));
+            std::fs::write(&path, png.to_vec()).expect("written");
+        }
+    }
 }
 
 /// **The grid's top through a full screen and back**, driven by posting
@@ -532,11 +659,55 @@ fn check(
         "{at}: the frame {m:?} is not the picture's shape {art:?}"
     );
     assert!(
-        (mark.end() - (mw.origin.x + mw.size.width)).abs() < EPS,
+        (mark.lockup_end() - (mw.origin.x + mw.size.width)).abs() < EPS,
         "{at}: the lockup ends at {}, its frame at {}",
-        mark.end(),
+        mark.lockup_end(),
         mw.origin.x + mw.size.width
     );
+    // **The build's name**: shown only while every light fits past it, whole
+    // in the accessory beside the lockup, on the strip's centre line, its
+    // text and its size what they were put with, and clear of the lights.
+    let label = mark.version_label();
+    let lf = label.frame();
+    let shows = mark::version_shows(
+        w.frame().size.width,
+        c.origin.x,
+        SPANS_WIDTH,
+        mark.lockup_end(),
+        lf.size.width,
+    );
+    assert_eq!(label.isHidden(), !shows, "{at}: shown as it fits");
+    assert_eq!(label.stringValue().to_string(), VERSION, "{at}");
+    assert!(
+        (lf.origin.x - (m.size.width + mark::VERSION_GAP)).abs() < EPS,
+        "{at}: the name at {lf:?}, the lockup {m:?}"
+    );
+    assert!(
+        (lf.origin.y + lf.size.height / 2.0 - b.size.height / 2.0).abs() < 1.0,
+        "{at}: the name's centre is not the strip's: {lf:?} in {b:?}"
+    );
+    if shows {
+        assert!(
+            lf.origin.x + lf.size.width <= b.size.width + EPS,
+            "{at}: the name {lf:?} is outside its accessory {b:?}"
+        );
+        let end = label.convertRect_toView(label.bounds(), None);
+        assert!(
+            (mark.end() - (end.origin.x + end.size.width)).abs() < EPS,
+            "{at}: the left part ends at {}, the name at {end:?}",
+            mark.end()
+        );
+    } else {
+        // AppKit rounds an accessory's width out to a whole half point.
+        assert!(
+            (b.size.width - m.size.width).abs() < 1.0,
+            "{at}: hidden, the accessory is the lockup's: {b:?}, {m:?}"
+        );
+        assert!(
+            (mark.end() - mark.lockup_end()).abs() < EPS,
+            "{at}: the end"
+        );
+    }
     let pair = f64::from(baud_render::lights::PAIR);
     assert!(
         (mark.lights_left() - mark.end() - pair).abs() < EPS,

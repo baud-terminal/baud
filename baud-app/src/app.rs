@@ -1435,6 +1435,7 @@ impl App {
         crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
         crate::host::set_hebrew_layout(&mut term, crate::layouts::hebrew_layout());
         crate::host::set_term_name(&mut term);
+        crate::host::set_version_text(&mut term);
         crate::host::set_logging(&mut term, logging);
         // A printer only where one is listed (`print.rs`; note AW), and a
         // DSR `?15` held while the list is read again.
@@ -12652,6 +12653,15 @@ pub fn run() {
     // The menu before the run loop: key equivalents need it from the first
     // event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
+    // baud > About baud, which the window crate's menu does not have. The
+    // item's target is weak in AppKit's hands, so it is kept for the process.
+    if let Some(target) =
+        baud_present_macos::about::add_menu_item(&ns_app, mtm, "About baud", move || {
+            crate::about::open(mtm);
+        })
+    {
+        core::mem::forget(target);
+    }
     // File > New Window reaches the app through its delegate, with a window
     // or without (`new_window_from_menu`). Kept for the process:
     // `NSApplication.delegate` holds it weakly.
@@ -13174,7 +13184,7 @@ impl Opening {
         // lights size to themselves at every layout (`strip.rs`). Both are
         // in the traffic lights' own view, which AppKit detaches from the
         // window in full screen, so neither stays behind in the content.
-        driver.icon = crate::mark::Mark::put(mtm, &window, inset);
+        driver.icon = crate::mark::Mark::put(mtm, &window, inset, crate::version::BUILD);
         let holder = crate::strip::Accessory::put(
             mtm,
             &window,
@@ -13192,8 +13202,10 @@ impl Opening {
         // holding the view's borrow cannot survive.
         window.set_content_view(glass.view());
         glass.set_content_view(&container);
-        // The body sized the container to itself: the mark against that.
+        // The body sized the container to itself: the mark against that,
+        // and the build's name beside it, with the lights not drawn yet.
         driver.place_icon();
+        driver.place_lights();
         startup_mark("glass installed");
         // **Follow the system's appearance and tint, which nothing did.** The
         // titlebar changed on a light/dark flip and the body did not, because
@@ -14992,6 +15004,15 @@ impl Driver {
             self.strip_edges(),
             self.icon_inset,
         );
+        // The lights know their width only once they are drawn, and the
+        // build's name gives way to it.
+        if self
+            .icon
+            .as_ref()
+            .is_some_and(|m| m.lights_moved(self.lights.across()))
+        {
+            self.place_lights();
+        }
         // **On their own line, the frame's**: the renderer draws the same
         // pictures there, and a light that changed owes a frame, which
         // names another picture and draws none (`Renderer::place_lights`).
@@ -15093,8 +15114,12 @@ impl Driver {
         )
     }
 
-    /// The activity lights follow the window's top-right on every resize.
+    /// The activity lights follow the window's top-right on every resize;
+    /// the build's name gives way to them first (`Mark::fit`).
     fn place_lights(&self) {
+        if let Some(mark) = &self.icon {
+            mark.fit(self.window.ns_window(), self.lights.across());
+        }
         self.lights.place(self.strip_edges());
     }
 
@@ -20219,7 +20244,7 @@ mod mark_tests {
         let body = show(src);
         assert!(!body.contains(concat!("full", ".height")), "{body}");
         let put = body
-            .find(concat!("crate::mark::Mark::", "put(mtm, &window, inset)"))
+            .find(concat!("crate::mark::Mark::", "put(mtm, &window, inset,"))
             .expect("show puts the mark in the title bar");
         let taken = body
             .find(concat!("glass.set_content_view(", "&container);"))

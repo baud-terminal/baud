@@ -128,6 +128,8 @@ pub use baud_domain::Resource;
 pub use baud_domain::TermName;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
+/// What [`Term::set_version_text`] takes: the version XTVERSION names.
+pub use baud_domain::VersionText;
 /// Notifications and progress from programs (`OSC 9`, `777`, `99`,
 /// `9 ; 4`, `1337 ; RequestAttention`), what an embedder delivers and
 /// tells the core.

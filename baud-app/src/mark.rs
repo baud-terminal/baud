@@ -44,6 +44,14 @@
 //! picture in the strip's otherwise unused left end, outside the content,
 //! and the window's title text stays hidden.
 //!
+//! **The build's name follows it**, `<version>+<hash>`, in the same
+//! accessory, so it goes with the title bar in full screen: AppKit's own
+//! label, its small system font and its secondary label colour, which
+//! follows the window's appearance by itself. It is the first thing a
+//! narrow window gives up: shown only while every activity light still fits
+//! past it ([`version_shows`]), so no light drops for it, and hidden the
+//! accessory is the lockup's width as it was.
+//!
 //! **The title bar places it, in the traffic lights' own view.** In full
 //! screen AppKit detaches that view from the window, so the lockup goes
 //! with the buttons rather than staying behind in the content
@@ -60,10 +68,11 @@ use std::cell::Cell;
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearanceCustomization, NSImage, NSImageView, NSView, NSWindow, NSWindowButton,
+    NSAppearanceCustomization, NSColor, NSFont, NSImage, NSImageView, NSTextField, NSView,
+    NSWindow, NSWindowButton,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
-use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
 
 use crate::strip::Accessory;
@@ -208,8 +217,33 @@ impl Place {
     }
 }
 
+/// **The gap between the lockup and the build's name**, in points: a
+/// light's gap, the strip's one spacing.
+pub(crate) const VERSION_GAP: CGFloat = baud_render::lights::PAIR as CGFloat;
+
+/// **The build's name's size, in points**: `NSFont.smallSystemFontSize`,
+/// which `baud-app/tests/titlebar_mark.rs` holds this to. Here so the composed
+/// strip, which asks AppKit nothing, says it at the same size.
+pub(crate) const VERSION_POINTS: CGFloat = 11.0;
+
+/// **Whether the build's name is shown** in a window `width` points wide:
+/// only if the lights, `lights_across` wide and ending `right` short of the
+/// window's edge, still start a light's gap past its end when it follows the
+/// lockup, whose right edge is at `lockup_end`. In the window's points, the
+/// test the lights' own `placed` makes of each light.
+pub(crate) fn version_shows(
+    width: CGFloat,
+    right: CGFloat,
+    lights_across: CGFloat,
+    lockup_end: CGFloat,
+    version_width: CGFloat,
+) -> bool {
+    let end = lockup_end + VERSION_GAP + version_width;
+    width - right - lights_across >= end + VERSION_GAP
+}
+
 /// **The lockup on screen**: its view, in its titlebar accessory, its
-/// size, both forms, and the one shown.
+/// size, both forms, and the one shown; and the build's name after it.
 pub(crate) struct Mark {
     view: Retained<NSImageView>,
     accessory: Accessory,
@@ -217,6 +251,10 @@ pub(crate) struct Mark {
     on_dark: Retained<NSImage>,
     on_light: Retained<NSImage>,
     shown: Cell<Lockup>,
+    version: Retained<NSTextField>,
+    version_size: NSSize,
+    version_shown: Cell<bool>,
+    fitted_across: Cell<CGFloat>,
 }
 
 impl Mark {
@@ -229,8 +267,14 @@ impl Mark {
     /// **The lockup put in `glass`'s title bar**, a leading accessory
     /// beside its traffic lights, sized for a title bar `inset` points tall,
     /// in the form for the window's appearance now, and centred at once in
-    /// the height AppKit gave it. `None` when an SVG does not decode.
-    pub(crate) fn put(mtm: MainThreadMarker, glass: &GlassWindow, inset: CGFloat) -> Option<Mark> {
+    /// the height AppKit gave it, `version` after it. `None` when an SVG
+    /// does not decode.
+    pub(crate) fn put(
+        mtm: MainThreadMarker,
+        glass: &GlassWindow,
+        inset: CGFloat,
+        version: &str,
+    ) -> Option<Mark> {
         let window = glass.ns_window();
         let on_dark = macos_liquid_glass::image_from_bytes(Lockup::OnDark.svg())?;
         let on_light = macos_liquid_glass::image_from_bytes(Lockup::OnLight.svg())?;
@@ -265,7 +309,17 @@ impl Mark {
         // No autoresizing mask: a drag to a tiny window clamped the frame
         // and it never recovered, so the lockup is placed on every resize.
         accessory.view.addSubview(&view);
+        let label = NSTextField::labelWithString(&NSString::from_str(version), mtm);
+        label.setFont(Some(&NSFont::systemFontOfSize(VERSION_POINTS)));
+        label.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        label.setHidden(true);
+        let version_size = label.fittingSize();
+        accessory.view.addSubview(&label);
         let mark = Mark {
+            version: label,
+            version_size,
+            version_shown: Cell::new(false),
+            fitted_across: Cell::new(0.0),
             view,
             accessory,
             place,
@@ -286,6 +340,50 @@ impl Mark {
             NSPoint::new(0.0, (h - self.place.height) / 2.0),
             NSSize::new(self.place.width, self.place.height),
         ));
+        self.version.setFrame(NSRect::new(
+            NSPoint::new(
+                self.place.width + VERSION_GAP,
+                (h - self.version_size.height) / 2.0,
+            ),
+            self.version_size,
+        ));
+    }
+
+    /// **The build's name shown or hidden for `window` as it is now**, the
+    /// lights being `lights_across` wide (`version_shows`), and the accessory
+    /// the width of what it shows. On every resize, before the lights are
+    /// placed against [`Mark::end`].
+    pub(crate) fn fit(&self, window: &NSWindow, lights_across: CGFloat) {
+        self.fitted_across.set(lights_across);
+        let lockup_end = self.lockup_end();
+        let edges = crate::strip::edges(window, Some(lockup_end));
+        let shows = version_shows(
+            edges.width,
+            edges.right,
+            lights_across,
+            lockup_end,
+            self.version_size.width,
+        );
+        self.version.setHidden(!shows);
+        self.version_shown.set(shows);
+        self.accessory.set_width(match shows {
+            true => self.place.width + VERSION_GAP + self.version_size.width,
+            false => self.place.width,
+        });
+    }
+
+    /// Whether the lights have become another width since the last
+    /// [`Mark::fit`], as they do when they are first drawn or turned off:
+    /// one compare, for the path that runs on every tick.
+    pub(crate) fn lights_moved(&self, lights_across: CGFloat) -> bool {
+        self.fitted_across.get() != lights_across
+    }
+
+    /// The label the build's name is in, which
+    /// `baud-app/tests/titlebar_mark.rs` looks at.
+    #[allow(dead_code)]
+    pub(crate) fn version_label(&self) -> &NSTextField {
+        &self.version
     }
 
     /// **The form for `appearance`**, the window's: its picture swapped
@@ -318,12 +416,21 @@ impl Mark {
     /// **The lockup's right edge in the window**, where AppKit put its
     /// accessory; [`Place::end`] while the title bar is not laid out yet,
     /// which an accessory at the window's left edge says.
-    pub(crate) fn end(&self) -> CGFloat {
+    pub(crate) fn lockup_end(&self) -> CGFloat {
         let at = self.accessory.in_window();
         if at.origin.x < 1.0 {
             return self.place.end();
         }
         at.origin.x + self.place.width
+    }
+
+    /// **Where the strip's left part ends in the window**: the build's name
+    /// while it is shown, else the lockup.
+    pub(crate) fn end(&self) -> CGFloat {
+        match self.version_shown.get() {
+            true => self.lockup_end() + VERSION_GAP + self.version_size.width,
+            false => self.lockup_end(),
+        }
     }
 
     /// Where the activity lights may start: a light's gap past
