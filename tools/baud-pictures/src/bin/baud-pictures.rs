@@ -1,5 +1,5 @@
 //! `baud-pictures brand [--check] [--root DIR]`,
-//! `baud-pictures logo [--check] [--keep DIR]`,
+//! `baud-pictures logo [--check | --out DIR] [--keep DIR]`,
 //! `baud-pictures geometry <walls.png> <out dir>` and
 //! `baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>`:
 //! see the crate's docs.
@@ -11,7 +11,7 @@ use std::process::ExitCode;
 fn usage() -> ExitCode {
     eprintln!(
         "baud-pictures: usage: baud-pictures brand [--check] [--root DIR]\n\
-         \x20      baud-pictures logo [--check] [--keep DIR]\n\
+         \x20      baud-pictures logo [--check | --out DIR] [--keep DIR]\n\
          \x20      baud-pictures geometry <walls.png> <out dir>\n\
          \x20      baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>"
     );
@@ -69,14 +69,14 @@ fn brand(args: &[String]) -> ExitCode {
 }
 
 fn logo(args: &[String]) -> ExitCode {
-    let (check, keep) = match logo::args(args) {
+    let (files, keep) = match logo::args(args) {
         Ok(a) => a,
         Err(msg) => {
             eprintln!("baud-pictures logo: {msg}");
             return ExitCode::FAILURE;
         }
     };
-    let bad = match logo::main(&logo::root(), check, keep.as_deref()) {
+    let bad = match logo::main(&logo::root(), &files, keep.as_deref()) {
         Ok(bad) => bad,
         Err(msg) => {
             eprintln!("baud-pictures logo: {msg}");
@@ -89,7 +89,7 @@ fn logo(args: &[String]) -> ExitCode {
     if !bad.is_empty() {
         return ExitCode::FAILURE;
     }
-    if check {
+    if files == logo::Files::Check {
         println!("ok: the logos are the film's, byte for byte");
     } else {
         println!("ok");

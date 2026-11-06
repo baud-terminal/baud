@@ -2,25 +2,45 @@
 //! encoded**: `baud-pictures logo` writes `assets/readme/logo-dark.gif`,
 //! `logo-light.gif`, `logo-dark.svg` and `logo-light.svg`; `logo --check`
 //! films and encodes all four again and fails unless each equals the
-//! committed file byte for byte, writing no tracked file.
+//! committed file byte for byte, writing no tracked file; `logo --out DIR`
+//! writes all four to `DIR` in place of the tree, and holds those.
 //!
 //! **What it shows**: the lockup, `baud ❯ █`, as the launch splash holds
 //! it and the logo files draw it, with baud's white plasma moving round
 //! and through it as if each glyph were a solid wall, its block blinking
 //! as baud's cursor blinks by default, the app's own caret asked for each
-//! frame. It moves for the most whole blink cycles that end before five
-//! seconds, nine at the default 250 ms shown and 250 hidden, 4.5 s,
-//! fading in from the bare logo and out to it, then rests on the logo
-//! with the block shown. `baud-app/src/logo_film.rs` draws each frame;
-//! [`crate::plasma`] decides what the plasma does.
+//! frame. It plays the plasma's whole loop, twenty blink cycles at the
+//! default 250 ms shown and 250 hidden, at full light, and repeats, so the
+//! plasma never rests: no frame is the bare logo. `baud-app/src/logo_film.rs`
+//! draws each frame; [`crate::plasma`] decides what the plasma does.
 //!
-//! **Why it plays once and stops**: WCAG 2.2's 2.2.2 Pause, Stop, Hide
-//! (Level A) asks that moving or blinking content which starts by itself,
-//! lasts more than five seconds and is shown beside other content can be
-//! paused, stopped or hidden (`[[source: wcag22]]`). A README carries no
-//! control of its own, and GitHub's setting to pause animated images does
-//! not reach an image inside `<picture>`, so the logo moves for under
-//! five seconds and rests.
+//! **How the random path closes.** A random walk does not come back, so the
+//! plasma's is built to: its moves are drawn from a seeded random number
+//! and the last one is laid back onto the first's start with its depth's
+//! parity kept, its current is curl noise of waves each periodic in the loop
+//! (Bridson's construction made tileable in time), and its surges and events
+//! wrap, so the frame after the last is the first. No fade or cross-dissolve
+//! hides a seam, because there is none.
+//! [`crate::plasma::Plasma::first_unrepeated`] holds that each frame's strands
+//! equal those a whole loop later, which tests the paths that read raw time.
+//! The current reads time already reduced to the loop, so this test cannot see
+//! a current that does not close; the strand digests pin the waves, and the
+//! decoded film's wrap step is measured against every other step. The file
+//! then only says to repeat:
+//! the GIF's NETSCAPE2.0 block, a count of zero
+//! (`[[source: netscape-2-0-extension]]`), and the SVG's discrete SMIL
+//! animations, `repeatCount="indefinite"` (`[[source: smil-animation]]`).
+//!
+//! **Where it departs from a standard, knowingly**: WCAG 2.2's 2.2.2 Pause,
+//! Stop, Hide (Level A) asks that moving or blinking content which starts by
+//! itself, lasts more than five seconds and is shown beside other content
+//! can be paused, stopped or hidden (`[[source: wcag22]]`), and
+//! `[[source: wcag22-understanding-pause-stop-hide]]` counts content that
+//! does not as interfering with the whole page. A README carries no control
+//! of its own, and GitHub's setting to pause animated images does not reach
+//! an image inside `<picture>`, so a logo that repeats does not meet it
+//! there. WCAG 2.3.1 is a separate matter and is met: the census counts the
+//! repeat and its join.
 //!
 //! **How it is made**, for each half, on GitHub's page colour, `#0d1117`
 //! for the dark theme and `#ffffff` for the light:
@@ -42,35 +62,39 @@
 //!  5. every pixel within [`SNAP`] levels of the page is set to it, so the
 //!     encoder's error cannot haze the page round the logo;
 //!  6. gifski encodes the GIF at [`QUALITY`], its motion and lossy passes
-//!     whole, the page a fixed colour of its palette, played once; every
-//!     palette entry within [`crate::gif::PALETTE_SNAP`] levels of the
+//!     whole, the page a fixed colour of its palette, repeating for ever;
+//!     every palette entry within [`crate::gif::PALETTE_SNAP`] levels of the
 //!     page is then set to it, and each frame's delay to the film's, which
 //!     gifski's frame rate cannot say for frames of two lengths;
 //!  7. the SVG is the bare logo as a PNG with each frame over it as a WebP
-//!     of what it changes, shown and hidden by SMIL `<set>` at the GIF's
-//!     own times, all hidden at 4.5 s so it rests on the logo.
+//!     of what it changes, each shown and hidden by one discrete SMIL
+//!     `<animate>` at the GIF's own times, repeating over its length.
 //!
 //! **What it checks before it writes**, each from the files it made:
 //!  - gifski and the SVG's encoder, run twice on the same frames, write
 //!    the same bytes;
-//!  - the GIF lasts the film's length, 840 by 580, no loop, under
+//!  - the GIF lasts the film's length, 840 by 580, repeats, under
 //!    [`LIMIT`] bytes; each of the SVG's frame images ends where the next
 //!    frame starts;
+//!  - the plasma never rests and the wrap is no jump: every frame moves
+//!    pixels off the block against the bare logo, and the step from the last
+//!    frame to the first moves no more than the film's busiest ([`wrap_holds`]);
 //!  - the haze: of the pixels the film drew as the page, the share the
 //!    decoded GIF shows off it, and the worst level (the GIF decoded by
 //!    baud-bench's `gif_frames` example);
 //!  - the word's contrast against the ground round it, every frame of both
 //!    files, at least [`CONTRAST`] to one;
 //!  - WCAG 2.3.1's census of the SVG's frames as they decode, at 100
-//!    samples a second and 2 pixels a point, its last frame held 3 s: both
-//!    verdicts pass (baud-bench's `flash_census` example).
+//!    samples a second and 2 pixels a point, fed twice over so every second
+//!    across the join is counted: both verdicts pass (baud-bench's
+//!    `flash_census` example).
 //!
-//! Then, on the files in the tree -- written, or with `--check` the
-//! committed ones -- it runs the tests that hold them, and prints what
-//! they read: baud-app's
-//! `logo_film::tests::the_readme_logos_move_under_five_seconds_and_rest_shown`
-//! and `logo_film::tests::the_readme_svgs_play_the_gifs_times_and_rest_shown`,
-//! and baud-bench's `readme_logo_flashes`, the census of the GIFs.
+//! Then, on the files it wrote -- or with `--check` the committed ones -- it
+//! runs the tests that hold them, and prints what they read: baud-app's
+//! `logo_film::tests::the_readme_logos_repeat_and_the_plasma_never_rests`
+//! and `logo_film::tests::the_readme_svgs_repeat_at_the_gifs_times`, and
+//! baud-bench's `readme_logo_flashes`, the census of the GIFs, each pointed
+//! at `DIR` by `BAUD_README_FILES` under `--out`.
 //!
 //! **The environment is pinned whole.** zlib 1.3.2 and libwebp 1.6.0,
 //! linked through `extern "C"` ([`crate::zlib`], [`crate::webp`]), come
@@ -141,9 +165,12 @@ pub const HALVES: [Half; 2] = [
 /// The canvas.
 pub const W: usize = 840;
 pub const H: usize = 580;
-/// A README loads its header on every visit: 4.5 s of plasma at 50
-/// frames a second is about 3 MB a GIF.
+/// A README loads its header on every visit.
 pub const LIMIT: usize = 5_000_000;
+/// A channel this far off another counts as moved, past [`SNAP`]: the snap
+/// sets a pixel this near the page to it, and the plasma's faintest light
+/// is not a thing the eye reads as motion.
+pub const MOVED: u8 = 4;
 
 pub const WALLS: &str = "assets/readme/logo-walls.png";
 pub const WALLS_SHA256: &str = "931c0a901594ee8834194315ce1e36094e4a7dc00a24ea3a4670f48c6dab8638";
@@ -210,8 +237,8 @@ const TESTS: [&[&str]; 2] = [
         "--bin",
         "baud",
         "--",
-        "logo_film::tests::the_readme_logos_move_under_five_seconds_and_rest_shown",
-        "logo_film::tests::the_readme_svgs_play_the_gifs_times_and_rest_shown",
+        "logo_film::tests::the_readme_logos_repeat_and_the_plasma_never_rests",
+        "logo_film::tests::the_readme_svgs_repeat_at_the_gifs_times",
     ],
     &["-p", "baud-bench", "--test", "readme_logo_flashes"],
 ];
@@ -435,8 +462,58 @@ pub fn contrast(
     (py::round_to(rs[0], 2), py::round_to(rs[rs.len() / 2], 2))
 }
 
-/// The GIF's own checks: it lasts the film's length, plays once, is the
-/// canvas's size and under [`LIMIT`] bytes.
+/// **The film's moved pixels**: how many of two canvases' pixels differ by
+/// more than [`MOVED`] in a channel, outside `block`, which the blink alone
+/// moves.
+#[must_use]
+pub fn moved(a: &[u8], b: &[u8], block: [usize; 4]) -> usize {
+    let [x0, y0, x1, y1] = block;
+    a.chunks_exact(3)
+        .zip(b.chunks_exact(3))
+        .enumerate()
+        .filter(|(i, (p, q))| {
+            let (x, y) = (i % W, i / W);
+            !((x0..x1).contains(&x) && (y0..y1).contains(&y))
+                && (0..3).any(|j| p[j].abs_diff(q[j]) > MOVED)
+        })
+        .count()
+}
+
+/// **The plasma never rests and the wrap is no jump**: every frame moves
+/// pixels against the bare logo, and the step from the last frame to the
+/// first moves no more than the film's busiest step. The least a frame moves
+/// against the bare logo, the wrap's and the busiest step's.
+///
+/// # Errors
+/// When a frame is the bare logo, or the wrap jumps.
+pub fn wrap_holds(
+    half: &str,
+    frames: &[Vec<u8>],
+    still: &[u8],
+    block: [usize; 4],
+) -> Result<(usize, usize, usize), Fail> {
+    let (mut least, mut busiest) = (usize::MAX, 0);
+    for (k, f) in frames.iter().enumerate() {
+        let lit = moved(f, still, block);
+        if lit == 0 {
+            return Err(format!("{half}: frame {k} is the bare logo"));
+        }
+        least = least.min(lit);
+        if k > 0 {
+            busiest = busiest.max(moved(f, &frames[k - 1], block));
+        }
+    }
+    let wrap = moved(&frames[0], &frames[frames.len() - 1], block);
+    if wrap > busiest {
+        return Err(format!(
+            "{half}: the wrap moves {wrap} pixels, past the film's busiest step's {busiest}"
+        ));
+    }
+    Ok((least, wrap, busiest))
+}
+
+/// The GIF's own checks: it lasts the film's length, repeats, is the canvas's
+/// size and under [`LIMIT`] bytes.
 ///
 /// # Errors
 /// The driver's words for whichever fails first.
@@ -453,7 +530,7 @@ pub fn gif_holds(
             "{half}: the GIF lasts {lasts} cs, not the film's {total}"
         ));
     }
-    if loops || size != (W, H) || bytes >= LIMIT {
+    if !loops || size != (W, H) || bytes >= LIMIT {
         let l = if loops { "True" } else { "False" };
         return Err(format!(
             "{half}: loops {l}, {}x{}, {bytes} bytes",
@@ -463,24 +540,42 @@ pub fn gif_holds(
     Ok(())
 }
 
-/// `logo`'s arguments: whether it only checks, and where it keeps its
+/// `logo`'s usage line.
+const USAGE: &str = "usage: baud-pictures logo [--check | --out DIR] [--keep DIR]";
+
+/// What `logo` does with the files it makes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Files {
+    /// Writes them over the tree's.
+    Write,
+    /// Compares them with the tree's, writing nothing tracked.
+    Check,
+    /// Writes them to this directory, and holds those.
+    Out(PathBuf),
+}
+
+/// `logo`'s arguments: what it does with the files, and where it keeps its
 /// work.
 ///
 /// # Errors
 /// The usage line.
-pub fn args(argv: &[String]) -> Result<(bool, Option<PathBuf>), Fail> {
-    let (mut check, mut keep, mut it) = (false, None, argv.iter());
+pub fn args(argv: &[String]) -> Result<(Files, Option<PathBuf>), Fail> {
+    let (mut files, mut keep, mut it) = (Files::Write, None, argv.iter());
     while let Some(a) = it.next() {
-        match a.as_str() {
-            "--check" => check = true,
-            "--keep" => match it.next() {
-                Some(d) => keep = Some(PathBuf::from(d)),
-                None => return Err("usage: baud-pictures logo [--check] [--keep DIR]".into()),
-            },
-            _ => return Err("usage: baud-pictures logo [--check] [--keep DIR]".into()),
+        match (a.as_str(), it.as_slice().first(), &files) {
+            ("--check", _, Files::Write) => files = Files::Check,
+            ("--out", Some(d), Files::Write) => {
+                files = Files::Out(PathBuf::from(d));
+                it.next();
+            }
+            ("--keep", Some(d), _) => {
+                keep = Some(PathBuf::from(d));
+                it.next();
+            }
+            _ => return Err(USAGE.into()),
         }
     }
-    Ok((check, keep))
+    Ok((files, keep))
 }
 
 /// The walls are the drawing the path was chosen against.
@@ -634,22 +729,44 @@ fn starts(delays: &[u32]) -> Vec<u32> {
     s
 }
 
-/// **The SVG**: the bare logo, the film's last frame, as a PNG, and each
-/// frame that differs from it over it as a WebP of the box it changes and
-/// two pixels round, its unchanged pixels clear, shown from its start to
-/// the next frame's by SMIL.
+/// **A proportion of the loop's `total` hundredths at `cs`**, as a keyTimes
+/// value.
+#[must_use]
+pub fn key_time(cs: u32, total: u32) -> String {
+    format!("{:.5}", f64::from(cs) / f64::from(total))
+}
+
+/// **A frame's visibility over the loop, discrete**
+/// (`[[source: smil-animation]]`, whose first discrete time must be 0, and
+/// whose time "defines when the value is set"): the values and keyTimes that
+/// show it from `on` to `off` of `total` hundredths.
+fn shown(on: u32, off: u32, total: u32) -> (&'static str, String) {
+    let (a, b) = (key_time(on, total), key_time(off, total));
+    match (on, off == total) {
+        (0, true) => ("visible", "0".to_string()),
+        (0, false) => ("visible;hidden", format!("0;{b}")),
+        (_, true) => ("hidden;visible", format!("0;{a}")),
+        (_, false) => ("hidden;visible;hidden", format!("0;{a};{b}")),
+    }
+}
+
+/// **The SVG**: `still`, the bare logo, as a PNG, and each frame that differs
+/// from it over it as a WebP of the box it changes and two pixels round, its
+/// unchanged pixels clear, shown from its start to the next frame's by a
+/// discrete SMIL animation repeating over the film's length.
 ///
 /// # Errors
 /// The WebP encoder's refusal.
-pub fn svg(frames: &[Vec<u8>], delays: &[u32]) -> Result<Vec<u8>, Fail> {
-    let base = &frames[frames.len() - 1];
+pub fn svg(frames: &[Vec<u8>], still: &[u8], delays: &[u32]) -> Result<Vec<u8>, Fail> {
+    let base = still;
     let png = png::encode(&Image {
         w: W,
         h: H,
         mode: Mode::Rgb,
-        px: base.clone(),
+        px: base.to_vec(),
     });
     let st = starts(delays);
+    let total = st[st.len() - 1];
     let mut out = vec![
         format!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{W}\" height=\"{H}\" viewBox=\"0 0 {W} {H}\">"
@@ -661,7 +778,7 @@ pub fn svg(frames: &[Vec<u8>], delays: &[u32]) -> Result<Vec<u8>, Fail> {
         ),
         "<g>".to_string(),
     ];
-    for (k, f) in frames[..frames.len() - 1].iter().enumerate() {
+    for (k, f) in frames.iter().enumerate() {
         let changed: Vec<bool> = f
             .chunks_exact(3)
             .zip(base.chunks_exact(3))
@@ -695,13 +812,14 @@ pub fn svg(frames: &[Vec<u8>], delays: &[u32]) -> Result<Vec<u8>, Fail> {
             method: 6,
         };
         let data = webp::encode(&rgba, cw, ch, settings)?;
+        let (values, keys) = shown(st[k], st[k + 1], total);
         out.push(format!(
             "<image x=\"{x0}\" y=\"{y0}\" width=\"{cw}\" height=\"{ch}\" visibility=\"hidden\" \
-             href=\"data:image/webp;base64,{}\"><set attributeName=\"visibility\" to=\"visible\" \
-             begin=\"{}\"/><set attributeName=\"visibility\" to=\"hidden\" begin=\"{}\"/></image>",
+             href=\"data:image/webp;base64,{}\"><animate attributeName=\"visibility\" \
+             calcMode=\"discrete\" values=\"{values}\" keyTimes=\"{keys}\" dur=\"{}\" \
+             repeatCount=\"indefinite\"/></image>",
             b64encode(&data),
-            secs(st[k]),
-            secs(st[k + 1])
+            secs(total)
         ));
     }
     out.push("</g>".into());
@@ -736,9 +854,21 @@ fn time(s: &str, i: usize) -> Option<(u32, usize)> {
     }
 }
 
-/// One frame image at `i`, as the driver's `FRAME` pattern reads it: x,
-/// y, the WebP's base64, begin and end in hundredths, and where it ends.
-fn frame_at(s: &str, i: usize) -> Option<(usize, usize, &str, u32, u32, usize)> {
+/// The hundredths of a keyTimes value of a loop of `total`.
+fn cs_of(key: &str, total: u32) -> Option<u32> {
+    let k: f64 = key.parse().ok()?;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a proportion of a whole number of hundredths"
+    )]
+    Some((k * f64::from(total)).round() as u32)
+}
+
+/// One frame image at `i`: x, y, the WebP's base64, begin and end in
+/// hundredths, and where it ends. `total` is the film's length, which its
+/// animation must repeat over.
+fn frame_at(s: &str, i: usize, total: u32) -> Option<(usize, usize, &str, u32, u32, usize)> {
     let i = lit(s, i, "<image x=\"")?;
     let (x, i) = digits(s, i)?;
     let i = lit(s, i, "\" y=\"")?;
@@ -760,16 +890,26 @@ fn frame_at(s: &str, i: usize) -> Option<(usize, usize, &str, u32, u32, usize)> 
     let i = lit(
         s,
         i + n,
-        "\"><set attributeName=\"visibility\" to=\"visible\" begin=\"",
+        "\"><animate attributeName=\"visibility\" calcMode=\"discrete\" values=\"",
     )?;
-    let (begin, i) = time(s, i)?;
-    let i = lit(
-        s,
-        i,
-        "\"/><set attributeName=\"visibility\" to=\"hidden\" begin=\"",
-    )?;
-    let (end, i) = time(s, i)?;
-    let i = lit(s, i, "\"/></image>")?;
+    let v = s[i..].bytes().take_while(|&c| c != b'"').count();
+    let values = &s[i..i + v];
+    let i = lit(s, i + v, "\" keyTimes=\"")?;
+    let k = s[i..].bytes().take_while(|&c| c != b'"').count();
+    let keys: Vec<&str> = s[i..i + k].split(';').collect();
+    let i = lit(s, i + k, "\" dur=\"")?;
+    let (dur, i) = time(s, i)?;
+    let i = lit(s, i, "\" repeatCount=\"indefinite\"/></image>")?;
+    if dur != total || keys.first() != Some(&"0") {
+        return None;
+    }
+    let (begin, end) = match (values, keys.as_slice()) {
+        ("visible", [_]) => (0, total),
+        ("visible;hidden", [_, b]) => (0, cs_of(b, total)?),
+        ("hidden;visible", [_, a]) => (cs_of(a, total)?, total),
+        ("hidden;visible;hidden", [_, a, b]) => (cs_of(a, total)?, cs_of(b, total)?),
+        _ => return None,
+    };
     Some((x as usize, y as usize, data, begin, end, i))
 }
 
@@ -802,7 +942,8 @@ fn base_at(s: &str) -> Option<&str> {
 ///
 /// # Errors
 /// "the SVG's frame at {at} cs ends at {end}, not {next}", "the SVG
-/// shows frames at no frame's start: [...]", and an undecodable image.
+/// shows frames at no frame's start: [...]", a frame image that does not
+/// repeat over the film's length, and an undecodable image.
 pub fn svg_frames(b: &[u8], delays: &[u32]) -> Result<Vec<Vec<u8>>, Fail> {
     let text = std::str::from_utf8(b).map_err(|e| e.to_string())?;
     let base = base_at(text).ok_or("the SVG has no base image")?;
@@ -815,17 +956,20 @@ pub fn svg_frames(b: &[u8], delays: &[u32]) -> Result<Vec<Vec<u8>>, Fail> {
             .flat_map(|p| p[..3].iter().map(|&v| f64::from(v)))
             .collect(),
     };
+    let total: u32 = delays.iter().sum();
     let mut shown: Vec<(u32, Shown<'_>)> = Vec::new();
     let mut i = 0;
     while let Some(k) = text[i..].find("<image x=\"") {
         let at = i + k;
-        if let Some((x, y, data, begin, end, next)) = frame_at(text, at) {
+        if let Some((x, y, data, begin, end, next)) = frame_at(text, at, total) {
             // A dict: a later frame at the same start replaces the earlier.
             shown.retain(|(b, _)| *b != begin);
             shown.push((begin, (x, y, data, end)));
             i = next;
         } else {
-            i = at + 1;
+            return Err(format!(
+                "the SVG's frame image at byte {at} does not repeat over the film's {total} cs"
+            ));
         }
     }
     let mut out = Vec::with_capacity(delays.len());
@@ -1199,7 +1343,7 @@ fn delays_of(m: &Value) -> Result<Vec<u32>, Fail> {
         .collect())
 }
 
-/// gifski's GIF of the frames, played once, then [`gif::rewrite`].
+/// gifski's GIF of the frames, repeating for ever, then [`gif::rewrite`].
 fn encode(
     gifski: &Path,
     d: &Path,
@@ -1225,7 +1369,7 @@ fn encode(
         "--lossy-quality",
         &LOSSY.to_string(),
     ])
-    .args(["--fixed-color", &fixed, "--repeat", "-1", "-o"])
+    .args(["--fixed-color", &fixed, "--repeat", "0", "-o"])
     .arg(&out)
     .args(names);
     run(&mut cmd, "gifski")?;
@@ -1233,7 +1377,8 @@ fn encode(
 }
 
 /// The census of `frames`, each held its hundredths at 100 samples a
-/// second and 2 pixels a point, the last 3 s more: `flash_census`'s report.
+/// second and 2 pixels a point, fed twice over, so the frames either side of
+/// the join are counted as the repeat shows them: `flash_census`'s report.
 fn census(
     root: &Path,
     frames: &[Vec<u8>],
@@ -1255,7 +1400,7 @@ fn census(
         .args(["-p", "baud-bench", "--example", "flash_census", "--"])
         .arg(&raw)
         .arg(&reps)
-        .args([&W.to_string(), &H.to_string(), "1", "300", "100", "2"])
+        .args([&W.to_string(), &H.to_string(), "2", "0", "100", "2"])
         .current_dir(root);
     let out = run(&mut cmd, "flash_census")?;
     let _ = std::fs::remove_file(&raw);
@@ -1277,6 +1422,27 @@ fn make(
     let m = film(root, half, &d, &prims, geom)?;
     let delays = delays_of(&m)?;
     let frames = snapped(&read(&d.join("frames.rgb"))?, delays.len(), h.page)?;
+    let mut still = canvas(&d.join("still.rgb"))?;
+    snap(&mut still, h.page);
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`int(v)` of pixel coordinates"
+    )]
+    let block: Vec<usize> = m
+        .get("block")?
+        .nums()?
+        .iter()
+        .map(|&v| v as usize)
+        .collect();
+    let round = 2usize;
+    let block = [
+        block[0].saturating_sub(round),
+        block[1].saturating_sub(round),
+        block[2] + round,
+        block[3] + round,
+    ];
+    let (least, wrap, busiest) = wrap_holds(half, &frames, &still, block)?;
     let mut names = Vec::with_capacity(frames.len());
     for (i, f) in frames.iter().enumerate() {
         let p = d.join(format!("{i:05}.png"));
@@ -1293,8 +1459,8 @@ fn make(
     let total: u32 = delays.iter().sum();
     let lasts: u32 = got.iter().map(|(_, cs)| cs).sum();
     gif_holds(half, lasts, total, loops, size, b.len())?;
-    let s = svg(&frames, &delays)?;
-    if svg(&frames, &delays)? != s {
+    let s = svg(&frames, &still, &delays)?;
+    if svg(&frames, &still, &delays)? != s {
         return Err(format!(
             "{half}: the SVG's encoder wrote different bytes from the same frames"
         ));
@@ -1313,19 +1479,18 @@ fn make(
         .map(|(f, _)| f.as_slice())
         .chain(seen.iter().map(Vec::as_slice))
         .collect();
-    let (worst, median) = contrast(&all, &frames[frames.len() - 1], word, h.page, h.word);
+    let (worst, median) = contrast(&all, &still, word, h.page, h.word);
     contrast_holds(half, worst)?;
     let c = census(root, &seen, &delays, &d, "svg")?;
     census_holds(half, &c)?;
     let (o, so) = (c.get("outcome")?.text()?, c.get("strict_outcome")?.text()?);
-    let motion = delays[..delays.len() - 1].iter().sum::<u32>() * 10;
-    let sets = s.windows(5).filter(|w| w == b"<set ").count() / 2;
+    let shows = s.windows(9).filter(|w| w == b"<animate ").count();
     let p = |k: &str| -> Result<String, Fail> { Ok(m.get(k)?.py()) };
     let r = |k: &str| -> Result<String, Fail> { Ok(report.get(k)?.py()) };
     let cp = |k: &str| -> Result<String, Fail> { Ok(c.get(k)?.py()) };
     let lines = vec![
         format!(
-            "{}: {} bytes, {} frames on {}, played once, {motion} ms of motion ({} cycles of {} ms shown and {} hidden), then the logo, the block shown",
+            "{}: {} bytes, {} frames on {}, repeating every {total} cs ({} cycles of {} ms shown and {} hidden)",
             h.gif,
             b.len(),
             got.len(),
@@ -1335,14 +1500,13 @@ fn make(
             p("off_ms")?
         ),
         format!(
-            "{}: {} bytes, {sets} frame images over the logo, at the GIF's times",
+            "{}: {} bytes, {shows} frame images over the logo, at the GIF's times",
             h.svg,
             s.len()
         ),
         format!(
-            "  the plasma: seed {}, from {:.2} s of its loop, {} events between the fades; {} layers at most a frame",
+            "  the plasma: seed {}, {} events in the loop; {} layers at most a frame; off the block, at least {least} pixels a frame away from the bare logo, the wrap moves {wrap} and the busiest step {busiest}",
             r("seed")?,
-            report.get("start_cs")?.num()? / 100.0,
             r("events")?,
             p("most_layers")?
         ),
@@ -1367,11 +1531,15 @@ fn make(
     Ok((b, s, lines))
 }
 
-/// The tests that hold the files in the tree, their output shown.
-fn tests(root: &Path) -> Result<(), Fail> {
+/// The tests that hold the files, in the tree or in `out`, their output
+/// shown.
+fn tests(root: &Path, out: Option<&Path>) -> Result<(), Fail> {
     for t in TESTS {
         let mut cmd = Command::new("cargo");
         cmd.args(["test", "--quiet", "--locked"]).args(FAST).args(t);
+        if let Some(d) = out {
+            cmd.env("BAUD_README_FILES", d);
+        }
         if !t.contains(&"--") {
             cmd.arg("--");
         }
@@ -1393,7 +1561,7 @@ fn tests(root: &Path) -> Result<(), Fail> {
         let status = child.wait().map_err(|e| format!("cargo test: {e}"))?;
         let text = String::from_utf8_lossy(&bytes);
         for line in py::splitlines(&text) {
-            if line.starts_with("../assets/readme/") || line.starts_with("test ") {
+            if line.starts_with("logo-") || line.starts_with("test ") {
                 println!("{line}");
             }
         }
@@ -1405,12 +1573,23 @@ fn tests(root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
-/// `logo [--check]`: the run, its lines printed; the files that differ.
+/// `logo [--check | --out DIR]`: the run, its lines printed; the files that
+/// differ.
 ///
 /// # Errors
 /// What stops the run before the files are compared or written.
-pub fn main(root: &Path, check: bool, keep: Option<&Path>) -> Result<Vec<String>, Fail> {
+pub fn main(root: &Path, files: &Files, keep: Option<&Path>) -> Result<Vec<String>, Fail> {
     libraries()?;
+    let out = match files {
+        Files::Out(d) => {
+            std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+            Some(
+                d.canonicalize()
+                    .map_err(|e| format!("{}: {e}", d.display()))?,
+            )
+        }
+        _ => None,
+    };
     eprintln!(
         "tools: zlib {} and libwebp {} from nixpkgs {NIXPKGS_REV}, gifski from {GIFSKI_NIXPKGS}",
         crate::zlib::ZLIB,
@@ -1445,14 +1624,16 @@ pub fn main(root: &Path, check: bool, keep: Option<&Path>) -> Result<Vec<String>
             }
             for (path, b) in [(h.gif, g), (h.svg, s)] {
                 let at = root.join(path);
-                if check {
+                if *files == Files::Check {
                     let committed = std::fs::read(&at).ok();
                     let (line, refusal) = compared(path, committed.as_deref(), &b);
                     println!("{line}");
                     bad.extend(refusal);
                 } else {
-                    std::fs::write(&at, &b).map_err(|e| format!("{path}: {e}"))?;
-                    println!("wrote {path}");
+                    let name = Path::new(path).file_name().ok_or("a file's name")?;
+                    let to = out.as_ref().map_or(at, |d| d.join(name));
+                    std::fs::write(&to, &b).map_err(|e| format!("{}: {e}", to.display()))?;
+                    println!("wrote {}", to.display());
                 }
             }
         }
@@ -1462,6 +1643,6 @@ pub fn main(root: &Path, check: bool, keep: Option<&Path>) -> Result<Vec<String>
         let _ = std::fs::remove_dir_all(&tmp);
     }
     let bad = result?;
-    tests(root)?;
+    tests(root, out.as_deref())?;
     Ok(bad)
 }

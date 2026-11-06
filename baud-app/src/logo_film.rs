@@ -2,8 +2,8 @@
 //! splash holds, `baud ❯ █`, at twice its 300-unit size on GitHub's own
 //! page colour, with baud's plasma moving round and through it as if each
 //! glyph were a solid wall, its block blinking as baud's cursor blinks by
-//! default, for under five seconds, then resting on the logo with the
-//! block shown. `tools/baud-pictures logo` runs
+//! default, for the whole of the plasma's loop, the file repeating so the
+//! plasma never rests. `tools/baud-pictures logo` runs
 //! [`film_the_readme_logo_bare`] and [`film_the_readme_logo`] for each
 //! half and encodes what they write into `assets/readme/logo-dark.gif`
 //! and `logo-light.gif`; nothing opens a window.
@@ -24,13 +24,13 @@
 //! `tools/baud-pictures plasma`'s, which writes each frame's strands;
 //! the film draws them.
 //!
-//! **Why it stops before five seconds.** WCAG 2.2's 2.2.2 Pause, Stop,
-//! Hide (Level A) asks that moving or blinking content which starts by
+//! **Where it departs from a standard, knowingly.** WCAG 2.2's 2.2.2 Pause,
+//! Stop, Hide (Level A) asks that moving or blinking content which starts by
 //! itself, lasts more than five seconds and is shown beside other content
-//! can be paused, stopped or hidden (`[[source: wcag22]]`). A README
-//! carries no control of its own, so the film moves for the most whole
-//! blink cycles that end before [`BOUND`] and rests on the logo with the
-//! block shown, played once.
+//! can be paused, stopped or hidden (`[[source: wcag22]]`). A README carries
+//! no control of its own, so a film that repeats does not meet it on a
+//! README's page; `tools/baud-pictures`'s `logo.rs` says the rest. WCAG
+//! 2.3.1 is met, the census counting the repeat and its join.
 
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking};
 use baud_core::{Owned, Term};
@@ -66,19 +66,9 @@ const CANVAS: [f32; 4] = [-60.0, -75.0, 360.0, 215.0];
 const PAGE_DARK: Argb = Argb(0xFF0D_1117);
 const PAGE_LIGHT: Argb = Argb(0xFFFF_FFFF);
 
-/// WCAG 2.2.2's five seconds: the motion ends before it.
-const BOUND: Duration = Duration::from_secs(5);
-
-/// The files the script writes, from this crate's directory: each half's
-/// GIF and SVG.
-const GIFS: [(&str, Argb); 2] = [
-    ("../assets/readme/logo-dark.gif", PAGE_DARK),
-    ("../assets/readme/logo-light.gif", PAGE_LIGHT),
-];
-const SVGS: [&str; 2] = [
-    "../assets/readme/logo-dark.svg",
-    "../assets/readme/logo-light.svg",
-];
+/// The files the script writes: each half's GIF and SVG.
+const GIFS: [(&str, Argb); 2] = [("logo-dark.gif", PAGE_DARK), ("logo-light.gif", PAGE_LIGHT)];
+const SVGS: [&str; 2] = ["logo-dark.svg", "logo-light.svg"];
 
 /// **The keyline round a letter in front of plasma**, in pixels: at most
 /// 2, or 0.3 of the opening's half-width where that is less -- the
@@ -109,11 +99,16 @@ struct Cycles(u32);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Hundredths(u16);
 
-/// **The blink's whole cycles that end before [`BOUND`]**: the most `n`
-/// with `n (on + off) < 5 s`.
-fn cycles(on: Duration, off: Duration) -> Cycles {
-    let n = (BOUND.as_nanos() - 1) / (on + off).as_nanos();
-    Cycles(u32::try_from(n).expect("a count of cycles"))
+/// **The blink's whole cycles in a film of `end`**, which it has to hold
+/// whole, so the first frame's phase follows the last's across the wrap.
+fn cycles(end: Duration, on: Duration, off: Duration) -> Cycles {
+    let cycle = (on + off).as_nanos();
+    assert_eq!(
+        end.as_nanos() % cycle,
+        0,
+        "the film of {end:?} is not whole cycles of {on:?} and {off:?}"
+    );
+    Cycles(u32::try_from(end.as_nanos() / cycle).expect("a count of cycles"))
 }
 
 /// `d` in hundredths of a second, which it has to be whole.
@@ -542,23 +537,23 @@ fn film_the_readme_logo_bare() {
     let (cw, ch) = canvas_size();
     let json = format!(
         "{{\"half\": \"{half}\", \"width\": {cw}, \"height\": {ch}, \"on_ms\": {}, \
-         \"off_ms\": {}, \"cycles\": {}}}",
+         \"off_ms\": {}}}",
         on.as_millis(),
         off.as_millis(),
-        cycles(on, off).0
     );
     std::fs::write(out.join("bare.json"), json).expect("bare.json");
 }
 
 /// **The README's logo, one half**: `BAUD_LOGO_HALF` into `BAUD_LOGO_OUT`
-/// -- `frames.rgb`, every frame's canvas as RGB one after another, and
+/// -- `frames.rgb`, every frame's canvas as RGB one after another,
+/// `still.rgb`, the bare logo with the block shown and no plasma, and
 /// `film.json`, each frame's delay in hundredths, the canvas's size, the
 /// blink's phases and cycles, the block's box and the most layers a frame
 /// drew. Each frame is `BAUD_LOGO_PRIMS`'s, the generator's, its strands
 /// drawn through the slabs read off the bare canvas and `BAUD_LOGO_GEOM`'s
 /// distance field, its block the caret's phase at the frame's time. The
-/// film starts and rests on the bare logo, the block shown, and moves for
-/// the blink's whole cycles under [`BOUND`].
+/// film is the whole loop, the blink's whole cycles, its last frame ending
+/// at the time the generator wraps at, and no frame is the bare logo.
 #[test]
 #[ignore = "a tool: tools/baud-pictures logo runs it"]
 fn film_the_readme_logo() {
@@ -567,8 +562,12 @@ fn film_the_readme_logo() {
     let text = std::fs::read_to_string(path_var("BAUD_LOGO_PRIMS")).expect("the strands");
     let sdf = field(&path_var("BAUD_LOGO_GEOM").join("sdf.f32"));
     let mut film: Vec<(Duration, Vec<&str>)> = Vec::new();
+    let mut wraps = None;
     for l in text.lines() {
-        if let Some(rest) = l.strip_prefix("F ") {
+        if let Some(cs) = l.strip_prefix("E ") {
+            let cs: u64 = cs.parse().expect("the time the film wraps at");
+            wraps = Some(Duration::from_millis(cs * 10));
+        } else if let Some(rest) = l.strip_prefix("F ") {
             let cs: u64 = rest
                 .split_whitespace()
                 .nth(1)
@@ -579,17 +578,13 @@ fn film_the_readme_logo() {
             film.last_mut().expect("a frame first").1.push(l);
         }
     }
-    let rest = film.last().expect("a frame");
-    assert!(rest.1.is_empty(), "the last frame is the bare logo");
-    let rest_at = rest.0;
+    let wraps = wraps.expect("the time the film wraps at");
     let epoch = Instant::now();
     let (mut caret, on, off) = default_caret(epoch);
-    let Cycles(n) = cycles(on, off);
-    assert_eq!(rest_at, (on + off) * n, "the film moves for whole cycles");
-    assert!(rest_at < BOUND, "the film moves for {rest_at:?}");
+    let Cycles(n) = cycles(wraps, on, off);
     let mut phases = Vec::new();
     for (i, (at, _)) in film.iter().enumerate() {
-        let end = film.get(i + 1).map_or(*at + on, |f| f.0);
+        let end = film.get(i + 1).map_or(wraps, |f| f.0);
         assert!(end > *at, "the frames run forward");
         phases.push((
             phase_over(&mut caret, epoch, *at, end),
@@ -597,30 +592,27 @@ fn film_the_readme_logo() {
         ));
     }
     assert_eq!(
-        phases.last().map(|p| p.0),
-        Some(CursorPhase::SHOWN),
-        "it rests shown"
+        (phases.first().map(|p| p.0), phases.last().map(|p| p.0)),
+        (Some(CursorPhase::SHOWN), Some(CursorPhase::HIDDEN)),
+        "the blink carries on across the wrap"
     );
-    let last = film.len() - 1;
     let most = on_stage(theme, |s| {
         s.r.set_splash_ink(Some(ink));
         s.r.set_splash_cursor(CursorPhase::SHOWN);
         let bare = s.draw();
+        std::fs::write(out.join("still.rgb"), &bare).expect("still.rgb");
         let at = s.at;
         s.r.set_splash_slabs(Some(slabs(&bare, at, (page, ink, amber), &sdf)));
         let mut file = std::io::BufWriter::new(
             std::fs::File::create(out.join("frames.rgb")).expect("frames.rgb"),
         );
         let mut most = 0usize;
-        for (k, ((_, lines), (phase, _))) in film.iter().zip(&phases).enumerate() {
+        for ((_, lines), (phase, _)) in film.iter().zip(&phases) {
             let l = layers(at, lines);
             most = most.max(l.len());
             s.r.set_splash_layers(&l);
             s.r.set_splash_cursor(*phase);
             let f = s.draw();
-            if k == 0 || k == last {
-                assert!(f == bare, "frame {k} is not the bare logo");
-            }
             std::io::Write::write_all(&mut file, &f).expect("a frame");
         }
         std::io::Write::flush(&mut file).expect("frames.rgb");
@@ -668,16 +660,16 @@ mod tests {
     /// near neighbours to the page.
     const PALETTE: u8 = 32;
 
-    /// **The blink ends before five seconds, by whole cycles**: at 250 ms a
-    /// phase ten cycles end at exactly 5 s, which is not before it, so nine
-    /// play; at 333 seven, 4.66 s.
+    /// **A film holds the blink whole**: 10 s at the default 250 ms a phase
+    /// is twenty cycles, and a length that is not whole cycles is refused,
+    /// since its first frame's phase would not follow its last's.
     #[test]
-    fn the_blink_plays_the_whole_cycles_before_five_seconds() {
+    fn a_film_holds_the_blink_in_whole_cycles() {
         let ms = Duration::from_millis;
-        assert_eq!(cycles(ms(250), ms(250)), Cycles(9));
-        assert_eq!(cycles(ms(333), ms(333)), Cycles(7));
-        assert_eq!(cycles(ms(2500), ms(2499)), Cycles(1));
-        assert_eq!(cycles(ms(2500), ms(2500)), Cycles(0));
+        assert_eq!(cycles(ms(10_000), ms(250), ms(250)), Cycles(20));
+        assert_eq!(cycles(ms(1998), ms(333), ms(333)), Cycles(3));
+        let across = std::panic::catch_unwind(|| cycles(ms(4750), ms(250), ms(250)));
+        assert!(across.is_err(), "a film of 19 phases is refused");
     }
 
     /// **The default blink is the grid the generator builds its frames
@@ -729,35 +721,72 @@ mod tests {
         n as f32 / all as f32
     }
 
-    /// **The committed README logos move for under five seconds and rest on
-    /// the logo with the block shown** (`assets/readme/logo-{dark,light}.gif`,
-    /// decoded by baud's own GIF decoder): each plays once, 840 by 580;
-    /// the plasma moves, off the block; read off the block's pixels -- amber over half of
-    /// them or over none, whatever plasma passes over it -- shown and
-    /// hidden alternate from shown, each run the default phase's length,
-    /// the motion over before five seconds; and the last frame is the
-    /// first, the bare logo, which the file rests on.
+    /// A file of the README's pictures: the committed one, or under
+    /// `BAUD_README_FILES` the one `baud-pictures logo --out` wrote there.
+    fn readme_file(name: &str) -> String {
+        match std::env::var("BAUD_README_FILES") {
+            Ok(dir) => format!("{dir}/{name}"),
+            Err(_) => format!("{}/../assets/readme/{name}", env!("CARGO_MANIFEST_DIR")),
+        }
+    }
+
+    /// A count of pixels that moved.
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+    struct Moved(usize);
+
+    /// The pixels of two canvases, RGBA, off the block and 2 pixels round
+    /// it, which the blink alone moves, that differ past [`PALETTE`].
+    fn moved_off_block(a: &[u8], b: &[u8]) -> Moved {
+        let (cw, ch) = canvas_size();
+        let [bx0, by0, bx1, by1] = block_on_canvas(-2.0);
+        Moved(
+            (0..cw * ch)
+                .filter(|&i| {
+                    let (x, y) = (i % cw, i / cw);
+                    !((bx0..bx1).contains(&x) && (by0..by1).contains(&y))
+                        && (0..3).any(|c| a[i * 4 + c].abs_diff(b[i * 4 + c]) > PALETTE)
+                })
+                .count(),
+        )
+    }
+
+    /// The bare logo, RGBA: the SVG's base image, its ground.
+    fn still_of(svg: &str) -> Vec<u8> {
+        let tags: Vec<&str> = svg.split("<image ").skip(1).collect();
+        let href = attr(tags[0], "href");
+        let png = unbase64(href.strip_prefix("data:image/png;base64,").expect("a PNG"));
+        let png = baud_domain::png::Png::parse(&png).unwrap();
+        let mut raw = vec![0u8; png.raw_len().unwrap()];
+        let mut rgba = vec![0u8; png.rgba_len().unwrap()];
+        png.decode(&mut raw, &mut rgba).unwrap();
+        rgba
+    }
+
+    /// **The README logos repeat, and the plasma never rests**
+    /// (`logo-{dark,light}.gif`, decoded by baud's own GIF decoder): each
+    /// plays for ever (`[[source: netscape-2-0-extension]]`), 840 by 580;
+    /// no frame is the bare logo, the plasma off the block in every one;
+    /// read off the block's pixels -- amber over half of them or over none,
+    /// whatever plasma passes over it -- shown and hidden alternate from
+    /// shown in whole cycles of the default phases, so the blink carries on
+    /// across the wrap; and the wrap, from the last frame to the first,
+    /// moves no more pixels than the film's busiest step, so it is no jump.
     #[test]
-    fn the_readme_logos_move_under_five_seconds_and_rest_shown() {
+    fn the_readme_logos_repeat_and_the_plasma_never_rests() {
         let epoch = Instant::now();
         let (_, on, off) = default_caret(epoch);
-        let Cycles(n) = cycles(on, off);
-        let mut want: Vec<(bool, u32)> = Vec::new();
-        for _ in 0..n {
-            want.push((true, u32::try_from(on.as_millis()).unwrap()));
-            want.push((false, u32::try_from(off.as_millis()).unwrap()));
-        }
         let (cw, ch) = canvas_size();
         let inner = block_on_canvas(2.0);
-        for (path, page) in GIFS {
+        for ((path, page), svg_path) in GIFS.into_iter().zip(SVGS) {
             let colours = if page == PAGE_DARK {
                 splash::DARK
             } else {
                 splash::light()
             };
-            let data = std::fs::read(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+            let still = still_of(&std::fs::read_to_string(readme_file(svg_path)).unwrap());
+            let data = std::fs::read(readme_file(path)).unwrap();
             let gif = Gif::parse(&data).unwrap();
-            assert_eq!(gif.plays(), 1, "{path} plays once");
+            assert_eq!(gif.plays(), 0, "{path} plays for ever");
             let size = gif.size();
             assert_eq!(
                 (usize::try_from(size.width), usize::try_from(size.height)),
@@ -766,20 +795,15 @@ mod tests {
             );
             let mut scratch = vec![0u8; gif.scratch_len()];
             let mut runs: Vec<(bool, u32)> = Vec::new();
-            let mut first: Option<Vec<u8>> = None;
-            let mut last = Vec::new();
-            let mut moved = false;
+            let (mut first, mut last): (Option<Vec<u8>>, Vec<u8>) = (None, Vec::new());
+            let (mut busiest, mut least) = (Moved(0), Moved(usize::MAX));
             gif.decode(&mut scratch, |f| {
-                let ground = first.get_or_insert_with(|| f.rgba.to_vec());
-                // Off the block and 2 pixels round it, which the blink
-                // alone moves.
-                let [bx0, by0, bx1, by1] = block_on_canvas(-2.0);
-                moved |= (0..cw * ch).any(|i| {
-                    let (x, y) = (i % cw, i / cw);
-                    let blink = (bx0..bx1).contains(&x) && (by0..by1).contains(&y);
-                    !blink
-                        && (0..3).any(|c| ground[i * 4 + c].abs_diff(f.rgba[i * 4 + c]) > PALETTE)
-                });
+                least = least.min(moved_off_block(f.rgba, &still));
+                if first.is_none() {
+                    first = Some(f.rgba.to_vec());
+                } else {
+                    busiest = busiest.max(moved_off_block(f.rgba, &last));
+                }
                 last.clear();
                 last.extend_from_slice(f.rgba);
                 let amber = share_near(f.rgba, inner, colours.amber);
@@ -795,22 +819,29 @@ mod tests {
                 true
             })
             .unwrap();
-            assert!(moved, "{path}: the plasma moves");
-            let (rest, blink) = runs.split_last().unwrap();
-            println!("{path}: {blink:?}, then {rest:?} and still");
-            assert!(rest.0, "{path}: the last frame shows the block");
-            let first = first.unwrap();
-            let whole = first
-                .iter()
-                .zip(&last)
-                .all(|(a, b)| a.abs_diff(*b) <= PALETTE);
-            assert!(whole, "{path}: the last frame is not the logo the first is");
-            assert_eq!(blink, &want[..], "{path}: the default blink's phases");
-            let ms: u32 = blink.iter().map(|r| r.1).sum();
-            assert!(
-                u128::from(ms) < BOUND.as_millis(),
-                "{path}: it moves for {ms} ms"
+            let join = moved_off_block(&last, &first.unwrap());
+            println!(
+                "{path}: {} blink runs; the plasma off the block, at least {} pixels a frame; \
+                 the wrap moves {}, the busiest step {}",
+                runs.len(),
+                least.0,
+                join.0,
+                busiest.0
             );
+            assert!(least > Moved(0), "{path}: a frame is the bare logo");
+            assert!(join > Moved(0), "{path}: the wrap moves nothing");
+            assert!(
+                join <= busiest,
+                "{path}: the wrap jumps, {join:?} of {busiest:?}"
+            );
+            let total: u32 = runs.iter().map(|r| r.1).sum();
+            let Cycles(n) = cycles(Duration::from_millis(total.into()), on, off);
+            let mut want = Vec::new();
+            for _ in 0..n {
+                want.push((true, u32::try_from(on.as_millis()).unwrap()));
+                want.push((false, u32::try_from(off.as_millis()).unwrap()));
+            }
+            assert_eq!(runs, want, "{path}: the default blink's phases");
         }
     }
 
@@ -844,18 +875,19 @@ mod tests {
         Hundredths(at)
     }
 
-    /// **The committed README SVGs play the GIFs' times and rest on the
-    /// logo with the block shown** (`assets/readme/logo-{dark,light}.svg`):
-    /// nothing in either can run or fetch -- no script, every image a
-    /// `data:` one -- and nothing repeats; a base image, 840 by 580, which
-    /// baud's PNG decoder reads as the GIF's last frame, the block shown;
-    /// over it frame images, each shown by SMIL from one of the film's
-    /// frame times to the next, on the GIF's own grid, the last hidden at
-    /// the GIF's end of motion, under five seconds. It ties each SVG to its
-    /// GIF by the base frame and the frame times only, not by the frames'
-    /// content; `baud-pictures logo --check` is what holds the content.
+    /// **The README SVGs repeat at the GIFs' own times**
+    /// (`logo-{dark,light}.svg`): nothing in either can run or fetch -- no
+    /// script, every image a `data:` one; a base image, 840 by 580, the bare
+    /// logo with the block shown; over it frame images, each hidden until
+    /// its time and shown once a repeat by one discrete SMIL animation
+    /// (`[[source: smil-animation]]`), repeating for ever over the GIF's
+    /// length, from one of the film's frame times to the next, on the GIF's
+    /// own grid; and from the first to the last no gap between them, so no
+    /// moment is the bare logo and the wrap is one more step. It ties each
+    /// SVG to its GIF by the frame times only, not by the frames' content;
+    /// `baud-pictures logo --check` is what holds the content.
     #[test]
-    fn the_readme_svgs_play_the_gifs_times_and_rest_shown() {
+    fn the_readme_svgs_repeat_at_the_gifs_times() {
         let (cw, ch) = canvas_size();
         let inner = block_on_canvas(2.0);
         for (svg_path, (gif_path, page)) in SVGS.iter().zip(GIFS) {
@@ -864,15 +896,8 @@ mod tests {
             } else {
                 splash::light()
             };
-            let dir = env!("CARGO_MANIFEST_DIR");
-            let text = std::fs::read_to_string(format!("{dir}/{svg_path}")).unwrap();
-            for no in [
-                "<script",
-                "repeatCount",
-                "indefinite",
-                "<foreignObject",
-                "url(",
-            ] {
+            let text = std::fs::read_to_string(readme_file(svg_path)).unwrap();
+            for no in ["<script", "<set ", "<foreignObject", "url("] {
                 assert!(!text.contains(no), "{svg_path}: {no}");
             }
             let hrefs: Vec<&str> = text.split(" href=\"").skip(1).collect();
@@ -880,45 +905,26 @@ mod tests {
                 hrefs.iter().all(|h| h.starts_with("data:image/")),
                 "{svg_path}: an image from elsewhere"
             );
-            // The GIF's times: each frame's start, and its end of motion.
-            let data = std::fs::read(format!("{dir}/{gif_path}")).unwrap();
+            // The GIF's times: each frame's start, and its length.
+            let data = std::fs::read(readme_file(gif_path)).unwrap();
             let gif = Gif::parse(&data).unwrap();
             let mut scratch = vec![0u8; gif.scratch_len()];
-            let (mut starts, mut at, mut last) = (Vec::new(), 0u32, Vec::new());
+            let (mut starts, mut total) = (Vec::new(), 0u32);
             gif.decode(&mut scratch, |f| {
-                starts.push(at);
-                at += f.gap_ms / 10;
-                last.clear();
-                last.extend_from_slice(f.rgba);
+                starts.push(total);
+                total += f.gap_ms / 10;
                 true
             })
             .unwrap();
-            let end = *starts.last().unwrap();
-            let tags: Vec<&str> = text.split("<image ").skip(1).collect();
-            let (base, frames) = tags.split_first().expect("a base image");
-            let href = attr(base, "href");
-            let png = unbase64(href.strip_prefix("data:image/png;base64,").expect("a PNG"));
-            let png = baud_domain::png::Png::parse(&png).unwrap();
-            let mut raw = vec![0u8; png.raw_len().unwrap()];
-            let mut rgba = vec![0u8; png.rgba_len().unwrap()];
-            let size = png.decode(&mut raw, &mut rgba).unwrap();
-            assert_eq!(
-                (usize::try_from(size.width), usize::try_from(size.height)),
-                (Ok(cw), Ok(ch)),
-                "{svg_path}: the base's size"
-            );
+            let still = still_of(&text);
+            assert_eq!(still.len(), cw * ch * 4, "{svg_path}: the base's size");
             assert!(
-                rgba.iter()
-                    .zip(&last)
-                    .all(|(a, b)| a.abs_diff(*b) <= PALETTE),
-                "{svg_path}: the base is not the GIF's last frame"
+                share_near(&still, inner, colours.amber) >= 0.5,
+                "{svg_path}: the block is shown in the bare logo"
             );
-            assert!(
-                share_near(&rgba, inner, colours.amber) >= 0.5,
-                "{svg_path}: the block is shown at rest"
-            );
+            let tags: Vec<&str> = text.split("<image ").skip(2).collect();
             let mut shows = Vec::new();
-            for tag in frames {
+            for tag in &tags {
                 assert_eq!(
                     attr(tag, "visibility"),
                     "hidden",
@@ -928,12 +934,34 @@ mod tests {
                     attr(tag, "href").starts_with("data:image/webp;base64,"),
                     "{svg_path}"
                 );
-                let sets: Vec<&str> = tag.split("<set ").skip(1).collect();
-                assert_eq!(sets.len(), 2, "{svg_path}: shown, then hidden");
-                assert_eq!(attr(sets[0], "to"), "visible");
-                assert_eq!(attr(sets[1], "to"), "hidden");
-                let at = |set: &str| u32::from(clock(attr(set, "begin")).0);
-                shows.push((at(sets[0]), at(sets[1])));
+                let anim: Vec<&str> = tag.split("<animate ").skip(1).collect();
+                assert_eq!(anim.len(), 1, "{svg_path}: one animation a frame");
+                let a = anim[0];
+                assert!(a.starts_with("attributeName=\"visibility\""), "{svg_path}");
+                assert_eq!(attr(a, "calcMode"), "discrete", "{svg_path}");
+                assert_eq!(attr(a, "repeatCount"), "indefinite", "{svg_path}");
+                assert_eq!(
+                    u32::from(clock(attr(a, "dur")).0),
+                    total,
+                    "{svg_path}: it repeats over the GIF's length"
+                );
+                let values: Vec<&str> = attr(a, "values").split(';').collect();
+                let keys: Vec<u32> = attr(a, "keyTimes")
+                    .split(';')
+                    .map(|k| {
+                        let at = k.parse::<f64>().expect("a time") * f64::from(total);
+                        u32::try_from(at.round() as i64).expect("a proportion of the loop")
+                    })
+                    .collect();
+                assert_eq!(values.len(), keys.len(), "{svg_path}: a time a value");
+                assert_eq!(keys[0], 0, "{svg_path}: SMIL's first discrete time");
+                let at = |v: &str| values.iter().position(|x| *x == v);
+                let on = keys[at("visible").expect("shown")];
+                let off = at("hidden")
+                    .and_then(|_| values.iter().rposition(|x| *x == "hidden"))
+                    .filter(|&i| i > at("visible").expect("shown"))
+                    .map_or(total, |i| keys[i]);
+                shows.push((on, off));
             }
             assert!(
                 shows.len() > 100,
@@ -941,11 +969,11 @@ mod tests {
                 shows.len()
             );
             for w in shows.windows(2) {
-                assert!(w[0].1 <= w[1].0, "{svg_path}: two frames at once, {w:?}");
+                assert_eq!(w[0].1, w[1].0, "{svg_path}: a gap or an overlap, {w:?}");
             }
-            // The film's grid: a frame every 2 hundredths, 3 closing each
+            // The film's grid: a frame every 3 hundredths, 4 closing each
             // 25 hundredths' phase.
-            let grid = |cs: u32| cs % 25 <= 22 && (cs % 25).is_multiple_of(2);
+            let grid = |cs: u32| cs % 25 <= 21 && (cs % 25).is_multiple_of(3);
             for &(on, off) in &shows {
                 assert!(on < off, "{svg_path}: a frame from {on} to {off} cs");
                 assert!(
@@ -954,14 +982,11 @@ mod tests {
                 );
             }
             assert!(starts.iter().all(|&s| grid(s)), "{gif_path}: off the grid");
-            let (_, last_off) = *shows.last().unwrap();
+            assert_eq!(shows[0].0, 0, "{svg_path}: a frame from the first moment");
             assert_eq!(
-                last_off, end,
-                "{svg_path}: its motion ends where the GIF's does"
-            );
-            assert!(
-                u128::from(end) * 10 < BOUND.as_millis(),
-                "{svg_path}: it moves for {end} cs"
+                shows[shows.len() - 1].1,
+                total,
+                "{svg_path}: a frame to the last moment"
             );
         }
     }

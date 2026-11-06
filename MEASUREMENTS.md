@@ -4218,3 +4218,54 @@ amber shows the overshoot and the renderer's edits here do not cause it. Which
 layer lifts it is not isolated. WCAG 2.3.1 is unmoved: `trail_flashes`
 and `splash_flashes` pass, and no red transition, the amber's linear R/(R+G+B)
 0.70 on both themes.
+
+## The README's logo repeats, and the plasma never rests
+
+`logo-{dark,light}.gif` and `.svg` play the plasma's whole ten-second chain and
+repeat, with no bare logo and no seam. Not timed: no byte path changed, only
+`tools/baud-pictures`, the film test module and its census. These figures are
+of `baud-pictures logo --out`, the films not being committed with this change.
+
+**How a random path closes.** It is built to: the chain's last move lands on its
+start with its depth's parity kept, the current is curl noise of waves periodic
+in the loop (Bridson's, tileable in time), and the surges and events wrap.
+`first_unrepeated` holds that each frame's strands equal those a whole loop
+later, which tests the paths that read raw time. The current reads time already
+reduced to the loop, so this test cannot see a current that does not close; the
+strand digests pin the waves, and the decoded film's wrap step is measured
+against every other step. So there is no cross-dissolve and nothing to hide; the file need only say to
+repeat, a NETSCAPE2.0 count of zero and `repeatCount="indefinite"`.
+
+**The whole chain does not fit 5 MB at 50 frames a second**, so the grid moved.
+GIF bytes of the dark half at gifski's own settings, `QUALITY` 90 throughout but
+where the row says:
+
+| frames a second | quality | frames | bytes |
+|---|---|---|---|
+| 50 (20 ms, 30 closing a phase) | 90 | 480 | 6,446,961 |
+| 50 | 85 / 80 | 480 | 6,438,190 / 6,416,624 |
+| 50 | 70 | 480 | 2,817,523 |
+| **32 on average (30 ms, 40 closing a phase; gifski's nominal `--fps` 33)** | **90** | **320** | **4,491,817** |
+| 25 (40 ms, 50 closing a phase) | 90 | 240 | 3,466,947 |
+
+This grid keeps the quality chosen against haze. 70 was not looked at past its size.
+
+| file | bytes | frames | general / red flashes at a pixel a second | area, strict, of 21,824 | word's worst contrast | off the block, least away from the bare logo; the wrap; busiest step |
+|---|---|---|---|---|---|---|
+| `logo-dark.gif` | 4,491,817 | 320 | 7 / 0 | 381.5, 1,420.5 | 6.71 | 1,544; 5,652; 9,248 |
+| `logo-light.gif` | 4,410,396 | 320 | 7 / 0 | 518.75, 2,189 | 12.03 | 1,362; 5,503; 9,047 |
+| `logo-dark.svg` | 1,829,234 | 320 images | 7 / 0 | 369.8, 1,427.8 | | |
+| `logo-light.svg` | 1,722,338 | 320 images | 7 / 0 | 493.5, 2,203.5 | | |
+
+**WCAG 2.3.1 passes across the repeat** by its second half, each file fed twice
+over so every second across the join is counted, by both verdicts, with no red
+transition. Haze: 0.0006% of the page's pixels dark, by 20 levels at worst,
+0.0001% light, by 13. The wrap moves fewer pixels than the busiest step in both
+halves, each read from the decoded GIF at the test's 32 levels.
+
+**Departure.** WCAG 2.2's 2.2.2 Pause, Stop, Hide (Level A,
+`[[source: wcag22]]`) is not met on a README's page: the motion starts by itself
+and lasts past five seconds, with no control, and GitHub's setting does not
+reach an image inside `<picture>`. `logo.rs` states it. 2.3.1 is a separate
+criterion. The SVGs' `<animate>` is checked by parse and compose, not in a
+browser.

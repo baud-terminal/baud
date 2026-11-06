@@ -44,20 +44,28 @@
 //! light, the chord from `b` to `f`, its width and plasma cell, its body's
 //! age and its detail clock (`effect::Live`), its filaments' fine wiggle
 //! (amplitude, cycles a cell and a second), its ions a cell, and its seed.
-//! The film (`baud-app/src/logo_film.rs`) draws each through the
-//! renderer's splash layers. On stdout, one JSON line: the seed, the
-//! film's start in the loop, its events and frames, and the chain's stats.
+//! A last line `E <cs>` gives the time the film wraps at. The film
+//! (`baud-app/src/logo_film.rs`) draws each through the renderer's splash
+//! layers. On stdout, one JSON line: the seed, the loop's length, its events
+//! and frames, and the chain's stats.
 //!
-//! **The film is 4.5 s of the loop**: nine of the default blink's 500 ms
-//! cycles, which `on_ms` and `off_ms` name and the frame grid is built on
-//! (the frame grid is 20 ms, with 30 ms closing each 250 ms phase), so the
-//! blink plays whole cycles under WCAG 2.2's five seconds. It is the
-//! stretch with the most of the chain's events -- crossings, wall hits,
-//! grazes and surges -- between its fades, of those the one with the least
-//! light under the fades, starting on a blink cycle (`choose_window`). The
-//! plasma fades in over its first 0.3 s and out over its last 0.4 s, so
-//! the film starts and ends on the bare logo, and a last frame at 4.5 s
-//! holds the bare logo with the block shown.
+//! **The film is the whole loop**: the chain's `LOOP` seconds, twenty of the
+//! default blink's 500 ms cycles, which `on_ms` and `off_ms` name and the
+//! frame grid is built on (the frame grid is 30 ms, with 40 ms closing each
+//! 250 ms phase: at 20 ms and 30 the whole loop's GIF is 6.4 MB, past the 5
+//! MB limit), at full light from its first frame to its last, so the
+//! file repeats with no bare logo and nothing to join: the frame after the
+//! last is the first, the chain, the current, the surges and the events each
+//! being periodic in the loop. [`Plasma::first_unrepeated`] holds that each
+//! frame's strands equal those a whole loop later, which tests the paths that
+//! read raw time. The current reads time already reduced to the loop, so this
+//! test cannot see a current that does not close; the strand digests pin the
+//! waves, and the decoded film's wrap step is measured against every other step.
+//!
+//! **[`Plasma::strands`] keeps the 4.5 s the film was before**, the stretch
+//! with the most of the chain's events between two fades, starting on a
+//! blink cycle (`choose_window`): its digests are the ones the Python wrote,
+//! so it is what holds this port to that program.
 //!
 //! Lockup units (u); the canvas is px = (u + 60) * 2, py = (v + 75) * 2,
 //! and the geometry is [`crate::geometry`]'s. All arithmetic is IEEE's own
@@ -78,6 +86,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 const LOOP: f64 = 10.0;
+/// `LOOP` in hundredths, the film's length.
+const LOOP_CS: i64 = 1000;
 /// A chord every 12.5 ms.
 const STEP: f64 = 0.0125;
 const ZMAX: f64 = 24.0;
@@ -2724,6 +2734,15 @@ fn phase_times_cs(a: i64) -> Vec<i64> {
     out
 }
 
+/// The film's frames over the whole loop: in each 250 ms phase, every 30 ms,
+/// the last 40.
+fn film_times_cs() -> Vec<i64> {
+    (0..LOOP_CS)
+        .step_by(25)
+        .flat_map(|a| (0..8).map(move |i| a + 3 * i))
+        .collect()
+}
+
 /// A strand line's field `i`, as Python's `float()` reads it.
 fn field(line: &str, i: usize) -> f64 {
     line.split(' ')
@@ -2792,6 +2811,48 @@ impl Plasma {
         );
         Ok((text, report))
     }
+
+    /// **The film**: the strands file's text for the whole loop, at full
+    /// light, and the report's JSON line.
+    ///
+    /// # Errors
+    /// When no chain from the seed meets the targets, or an assertion fails.
+    pub fn whole_loop(&self) -> Result<(String, String), Stop> {
+        let b = self.build()?;
+        let film = film_times_cs();
+        let mut text = String::new();
+        for (i, &cs) in film.iter().enumerate() {
+            writeln!(text, "F {i} {cs}").expect("a String");
+            for l in b.frame_lines(self, cs * 20) {
+                if field(&l, 2) >= 1e-4 {
+                    text.push_str(&l);
+                    text.push('\n');
+                }
+            }
+        }
+        writeln!(text, "E {LOOP_CS}").expect("a String");
+        let report = format!(
+            "{{\"seed\": {}, \"period_cs\": {LOOP_CS}, \"events\": {}, \"frames\": {}, \"stats\": {}}}\n",
+            b.seed,
+            b.events().len(),
+            film.len(),
+            b.stats
+        );
+        Ok((text, report))
+    }
+
+    /// **The first frame time of the film, in hundredths, whose strands are
+    /// not those of the same time a whole loop later**, `None` where every
+    /// one repeats: the wrap draws what the next frame in the loop draws.
+    ///
+    /// # Errors
+    /// As [`Plasma::whole_loop`].
+    pub fn first_unrepeated(&self) -> Result<Option<i64>, Stop> {
+        let b = self.build()?;
+        Ok(film_times_cs()
+            .into_iter()
+            .find(|&cs| b.frame_lines(self, cs * 20) != b.frame_lines(self, (cs + LOOP_CS) * 20)))
+    }
 }
 
 /// `plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>`: writes the
@@ -2812,7 +2873,7 @@ pub fn run(args: &[String]) -> Result<String, Stop> {
         )));
     }
     let pl = Plasma::load(Path::new(&args[0]), args[1] == "dark")?;
-    let (text, report) = pl.strands()?;
+    let (text, report) = pl.whole_loop()?;
     std::fs::write(&args[4], text).map_err(|e| Stop::Exit(format!("plasma: {}: {e}", args[4])))?;
     Ok(report)
 }

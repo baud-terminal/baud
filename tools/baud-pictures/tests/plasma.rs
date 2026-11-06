@@ -75,6 +75,53 @@ fn the_walls_geometry_and_both_halves_are_the_pythons() {
     );
 }
 
+/// **The film is the whole loop, and the frame after its last is its
+/// first**: on both halves, the committed walls' chain, every frame of the
+/// grid's strands the same a whole loop later, so the wrap draws what the
+/// next frame draws; twenty 500 ms cycles of eight frames a phase, the last
+/// line the time it wraps at, and strands in every frame, so none is the bare
+/// logo.
+#[test]
+fn the_film_is_the_whole_loop_and_repeats() {
+    let f = geometry::fields(&walls());
+    for dark in [true, false] {
+        let p = Plasma::new(clone(&f), dark);
+        assert_eq!(p.first_unrepeated().expect("a chain"), None, "{dark}");
+        let (text, report) = p.whole_loop().expect("a chain");
+        assert!(
+            report.starts_with(
+                "{\"seed\": 2241, \"period_cs\": 1000, \"events\": 14, \"frames\": 320,"
+            ),
+            "{report}"
+        );
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.last(), Some(&"E 1000"), "where it wraps");
+        let frames: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.starts_with("F ") || l.starts_with("E "))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(frames.len(), 321, "the frames and the end");
+        for w in frames.windows(2) {
+            assert!(w[1] > w[0] + 1, "a frame with no strands: {}", lines[w[0]]);
+        }
+        let times: Vec<u32> = lines
+            .iter()
+            .filter_map(|l| l.strip_prefix("F "))
+            .map(|l| {
+                l.split(' ')
+                    .nth(1)
+                    .expect("a time")
+                    .parse()
+                    .expect("a number")
+            })
+            .collect();
+        assert_eq!(times[..9], [0, 3, 6, 9, 12, 15, 18, 21, 25], "the grid");
+        assert_eq!(times[319], 996, "the last frame, 40 ms to the wrap");
+    }
+}
+
 /// **A dot of the word's ink on the page moves the geometry as it moved
 /// the Python's**: a 5 by 5 block at canvas (300, 100), clear of the
 /// letters, so the signed distance and the normals change round it and

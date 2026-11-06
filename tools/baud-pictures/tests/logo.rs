@@ -252,8 +252,8 @@ fn the_snap_the_haze_the_contrast_and_the_svg_are_the_drivers() {
             (17.01, 17.1),
             "82307d83cf416d30bd015e20d8555033e3d4de6f9477e59c54d314950364b1a4",
             (0.014, 242),
-            "3bcf29568e79eda2ac366ffb73db75e217a9f4a2ffaf33d59c76dcff24868af8",
-            47972,
+            "740b185e9d8f4502ef8d0d59f520301c208e70bdda1412e1fc3ebbaf993eb4fa",
+            48097,
             "2e80490eab08786a24efdbc32c9f7c414ec78a1e7cb60319c507f19d945a34ce",
         ),
         (
@@ -263,8 +263,8 @@ fn the_snap_the_haze_the_contrast_and_the_svg_are_the_drivers() {
             (15.79, 15.83),
             "5e0e8745f1304c178f352e16bf25e2bbe58f48faf7eabf960371ab1ddf2c40dc",
             (0.014, 255),
-            "a93f64ec5bb7a13dfe7c87176c8fb82507bcd717fc1c571382d296377cb3050e",
-            48532,
+            "a0cc425e6fecf9757bc7208c345cc75abc2bebfe21f79148b10eb979c4aed30f",
+            48657,
             "a8a5a859ad6e907666e8522430c5bb036bd197e4fa23b46e59e54cd07787641a",
         ),
     ] {
@@ -292,7 +292,7 @@ fn the_snap_the_haze_the_contrast_and_the_svg_are_the_drivers() {
             haze,
             "{page:?}: the haze"
         );
-        let s = logo::svg(&snapped, &DELAYS).unwrap();
+        let s = logo::svg(&snapped, &snapped[snapped.len() - 1], &DELAYS).unwrap();
         assert_eq!(
             (s.len(), sha(&s).as_str()),
             (svg_len, svg),
@@ -302,9 +302,10 @@ fn the_snap_the_haze_the_contrast_and_the_svg_are_the_drivers() {
         assert_eq!(sha(&back.concat()), seen, "{page:?}: the SVG as composed");
         // The perturbations: a frame that ends late, and one at no start.
         let text = String::from_utf8(s).unwrap();
+        let at = |cs: u32| logo::key_time(cs, 36);
         let late = text.replacen(
-            "to=\"hidden\" begin=\"0.05s\"",
-            "to=\"hidden\" begin=\"0.06s\"",
+            &format!("keyTimes=\"0;{};{}\"", at(2), at(5)),
+            &format!("keyTimes=\"0;{};{}\"", at(2), at(6)),
             1,
         );
         assert_ne!(late, text, "the late end is made");
@@ -313,14 +314,22 @@ fn the_snap_the_haze_the_contrast_and_the_svg_are_the_drivers() {
             "the SVG's frame at 2 cs ends at 6, not 5"
         );
         let off = text.replacen(
-            "to=\"visible\" begin=\"0.05s\"",
-            "to=\"visible\" begin=\"0.06s\"",
+            &format!("keyTimes=\"0;{};{}\"", at(5), at(7)),
+            &format!("keyTimes=\"0;{};{}\"", at(6), at(7)),
             1,
         );
         assert_ne!(off, text, "the stray start is made");
         assert_eq!(
             logo::svg_frames(off.as_bytes(), &DELAYS).unwrap_err(),
             "the SVG shows frames at no frame's start: [6]"
+        );
+        // A third: an animation that repeats over another length.
+        let short = text.replacen("dur=\"0.36s\"", "dur=\"0.35s\"", 1);
+        assert_ne!(short, text, "the short loop is made");
+        let refused = logo::svg_frames(short.as_bytes(), &DELAYS).unwrap_err();
+        assert!(
+            refused.contains("does not repeat over the film's 36 cs"),
+            "{refused}"
         );
     }
 }
@@ -346,12 +355,12 @@ fn an_svg_frame_is_the_box_it_changes_and_two_pixels_round() {
         }
     }
     put(&mut c, W - 1, H - 1, [1, 2, 3]);
-    let s = logo::svg(&[a, c, bare], &[2, 2, 25]).unwrap();
+    let s = logo::svg(&[a, c, bare.clone()], &bare, &[2, 2, 25]).unwrap();
     assert_eq!(
         (s.len(), sha(&s).as_str()),
         (
-            5354,
-            "f18e6035ee6f4ee34cf2e29c7cd61709d9cb4eb2467ef3f7e57dda9430f0af39"
+            5409,
+            "b7d7f20d1f2ef86fb33f24c4cdea0f72cc622ccd50b8be2d83b34d4c0bb0e2d5"
         )
     );
 }
@@ -393,14 +402,15 @@ fn a_frames_alpha_composes_as_the_drivers_numpy_did() {
     let t = format!(
         "<image width=\"{W}\" height=\"{H}\" href=\"data:image/png;base64,{}\"/>\n\
          <image x=\"40\" y=\"100\" width=\"{w}\" height=\"{h}\" visibility=\"hidden\" \
-         href=\"data:image/webp;base64,{}\"><set attributeName=\"visibility\" to=\"visible\" \
-         begin=\"0.00s\"/><set attributeName=\"visibility\" to=\"hidden\" begin=\"0.02s\"/></image>",
+         href=\"data:image/webp;base64,{}\"><animate attributeName=\"visibility\" \
+         calcMode=\"discrete\" values=\"visible;hidden\" keyTimes=\"0;0.40000\" dur=\"0.05s\" \
+         repeatCount=\"indefinite\"/></image>",
         logo::b64encode(&base),
         logo::b64encode(&file)
     );
     assert_eq!(
         sha(t.as_bytes()),
-        "ad51ddc7820d83e02de7c7b79c1ac64c2fcbccbb0ea2c930808585127164f38a",
+        "a0b2e7bcfbe73cbf04694b7eee78a404cac916b6ab0695886788b4c63f942502",
         "the same SVG"
     );
     let seen = logo::svg_frames(t.as_bytes(), &[2, 3]).unwrap();
@@ -412,23 +422,23 @@ fn a_frames_alpha_composes_as_the_drivers_numpy_did() {
 
 #[test]
 fn the_checks_on_the_files_fire_in_the_drivers_words() {
-    assert!(logo::gif_holds("dark", 475, 475, false, (W, H), 4_999_999).is_ok());
+    assert!(logo::gif_holds("dark", 475, 475, true, (W, H), 4_999_999).is_ok());
     for (args, words) in [
         (
-            (474, false, (W, H), 100),
+            (474, true, (W, H), 100),
             "dark: the GIF lasts 474 cs, not the film's 475",
         ),
         (
-            (475, true, (W, H), 100),
-            "dark: loops True, 840x580, 100 bytes",
+            (475, false, (W, H), 100),
+            "dark: loops False, 840x580, 100 bytes",
         ),
         (
-            (475, false, (840, 581), 100),
-            "dark: loops False, 840x581, 100 bytes",
+            (475, true, (840, 581), 100),
+            "dark: loops True, 840x581, 100 bytes",
         ),
         (
-            (475, false, (W, H), 5_000_000),
-            "dark: loops False, 840x580, 5000000 bytes",
+            (475, true, (W, H), 5_000_000),
+            "dark: loops True, 840x580, 5000000 bytes",
         ),
     ] {
         let (lasts, loops, size, bytes) = args;
@@ -547,20 +557,76 @@ fn check_says_same_only_of_the_same_bytes() {
 }
 
 #[test]
-fn logos_arguments_are_check_and_keep_and_no_other() {
+fn logos_arguments_are_check_out_and_keep_and_no_other() {
+    use logo::Files;
     let a = |v: &[&str]| logo::args(&v.iter().map(ToString::to_string).collect::<Vec<_>>());
-    assert_eq!(a(&[]).unwrap(), (false, None));
-    assert_eq!(a(&["--check"]).unwrap(), (true, None));
+    assert_eq!(a(&[]).unwrap(), (Files::Write, None));
+    assert_eq!(a(&["--check"]).unwrap(), (Files::Check, None));
     assert_eq!(
         a(&["--keep", "d", "--check"]).unwrap(),
-        (true, Some("d".into()))
+        (Files::Check, Some("d".into()))
     );
-    for bad in [&["--frob"][..], &["--keep"][..], &["--check", "x"][..]] {
+    assert_eq!(
+        a(&["--out", "o", "--keep", "d"]).unwrap(),
+        (Files::Out("o".into()), Some("d".into()))
+    );
+    for bad in [
+        &["--frob"][..],
+        &["--keep"][..],
+        &["--out"][..],
+        &["--check", "x"][..],
+        &["--check", "--out", "o"][..],
+        &["--out", "o", "--check"][..],
+    ] {
         assert_eq!(
             a(bad).unwrap_err(),
-            "usage: baud-pictures logo [--check] [--keep DIR]"
+            "usage: baud-pictures logo [--check | --out DIR] [--keep DIR]"
         );
     }
+}
+
+/// **The plasma never rests and the wrap is no jump**, on canvases that
+/// differ by hand: a frame that is the bare logo is refused, and so is a
+/// wrap that moves more than the busiest step; the block's box is left out
+/// of the count, as the blink alone moves it, and a change of no more than
+/// [`logo::MOVED`] levels counts for nothing.
+#[test]
+fn the_wrap_and_the_rest_are_held() {
+    let still = DARK.repeat(W * H);
+    let block = [100, 100, 110, 110];
+    let lit = |x0: usize, n: usize| {
+        let mut f = still.clone();
+        for x in x0..x0 + n {
+            f[(10 * W + x) * 3] = 0xFF;
+        }
+        f
+    };
+    let frames = vec![lit(0, 4), lit(2, 4), lit(4, 4)];
+    assert_eq!(logo::moved(&frames[0], &still, block), 4);
+    assert_eq!(
+        logo::wrap_holds("dark", &frames, &still, block).unwrap_err(),
+        "dark: the wrap moves 8 pixels, past the film's busiest step's 4"
+    );
+    let closing = vec![lit(0, 4), lit(2, 4), lit(4, 4), lit(2, 4)];
+    assert_eq!(
+        logo::wrap_holds("dark", &closing, &still, block),
+        Ok((4, 4, 4))
+    );
+    let mut bare = closing.clone();
+    bare[2] = still.clone();
+    assert_eq!(
+        logo::wrap_holds("dark", &bare, &still, block).unwrap_err(),
+        "dark: frame 2 is the bare logo"
+    );
+    // The block's box does not count, and neither does a change of MOVED.
+    let mut in_box = still.clone();
+    in_box[(105 * W + 105) * 3] = 0xFF;
+    assert_eq!(logo::moved(&in_box, &still, block), 0);
+    let mut faint = still.clone();
+    faint[(10 * W + 10) * 3] = DARK[0] + logo::MOVED;
+    assert_eq!(logo::moved(&faint, &still, block), 0);
+    faint[(10 * W + 10) * 3] = DARK[0] + logo::MOVED + 1;
+    assert_eq!(logo::moved(&faint, &still, block), 1);
 }
 
 #[test]

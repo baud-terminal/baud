@@ -10,8 +10,8 @@
 //! three bytes, red, green and blue, row after row, opaque; `<repeats>`
 //! is a line for each frame, the samples at `<rate>` a second it lasts on
 //! the file's own timeline. They are fed `<passes>` times -- two for a
-//! looping file, so the wrap is counted -- and the last then `<hold>` more
-//! times: a file played once rests on it. `<scale>` is the device pixels a
+//! repeating file, so the wrap is counted -- and the last then `<hold>` more
+//! times, for a file that rests on it. `<scale>` is the device pixels a
 //! point the file is shown at. Prints the report as one JSON object.
 
 use baud_bench::flash::{Census, Outcome, Rate, Scale};

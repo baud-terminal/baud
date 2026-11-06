@@ -1,10 +1,11 @@
-//! **The README logo's flashes, counted on the committed files**
-//! (`assets/readme/logo-{dark,light}.gif`, `tools/baud-pictures logo`;
-//! WCAG 2.3.1, `[[source: wcag22]]`), by [`baud_bench::flash::Census`]:
-//! each file decoded by baud's own GIF decoder, every frame held for its
-//! delay at 100 samples a second, the file's own grid, at 2 pixels a
-//! point, as the README shows its 840 pixels at 420, and the last frame
-//! held 3 s more, as a file played once rests on it.
+//! **The README logo's flashes, counted on the files, the repeat included**
+//! (`assets/readme/logo-{dark,light}.gif`, or under `BAUD_README_FILES` the
+//! ones `tools/baud-pictures logo --out` wrote there; WCAG 2.3.1,
+//! `[[source: wcag22]]`), by [`baud_bench::flash::Census`]: each file decoded
+//! by baud's own GIF decoder, every frame held for its delay at 100 samples
+//! a second, the file's own grid, at 2 pixels a point, as the README shows
+//! its 840 pixels at 420, and fed twice over, as a file that repeats shows
+//! it, so every one-second window across the join is counted.
 //!
 //! **Both pass, general and red, by the area and by the strict reading.**
 //! WCAG 2.3.1 passes content with no more than three flashes in any one
@@ -23,32 +24,36 @@ use baud_font::Px;
 /// The files, each with the most flashes at a pixel in a second and the
 /// most strict area it measured.
 const FILES: [(&str, (Flashes, f64)); 2] = [
-    (
-        "../assets/readme/logo-dark.gif",
-        (Flashes(MOST_DARK), STRICT_DARK),
-    ),
-    (
-        "../assets/readme/logo-light.gif",
-        (Flashes(MOST_LIGHT), STRICT_LIGHT),
-    ),
+    ("logo-dark.gif", (Flashes(MOST_DARK), STRICT_DARK)),
+    ("logo-light.gif", (Flashes(MOST_LIGHT), STRICT_LIGHT)),
 ];
 
-/// What the committed files measured: the most flashes at a pixel in a
-/// second, and the strict reading's area, of the 21,824 the threshold is.
-const MOST_DARK: u32 = 9;
-const STRICT_DARK: f64 = 1495.0;
-const MOST_LIGHT: u32 = 9;
-const STRICT_LIGHT: f64 = 2304.5;
+/// A file of the README's pictures: the committed one, or under
+/// `BAUD_README_FILES` the one `baud-pictures logo --out` wrote there.
+fn readme_file(name: &str) -> String {
+    match std::env::var("BAUD_README_FILES") {
+        Ok(dir) => format!("{dir}/{name}"),
+        Err(_) => format!("{}/../assets/readme/{name}", env!("CARGO_MANIFEST_DIR")),
+    }
+}
+
+/// What the files `baud-pictures logo` makes measured: the most flashes at
+/// a pixel in a second, and the strict reading's area, of the 21,824 the
+/// threshold is.
+const MOST_DARK: u32 = 7;
+const STRICT_DARK: f64 = 1420.5;
+const MOST_LIGHT: u32 = 7;
+const STRICT_LIGHT: f64 = 2189.0;
 
 /// Samples a second: a GIF's delays are hundredths.
 const RATE: u32 = 100;
 
 /// The census of `path`'s frames, each held `k` of its hundredths in four
-/// (4 for the file's own timing), then the last 3 s more.
+/// (4 for the file's own timing), fed twice over, as the repeat shows them.
 fn count(path: &str, quarters: u32) -> Report {
-    let data = std::fs::read(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let data = std::fs::read(readme_file(path)).unwrap();
     let gif = Gif::parse(&data).unwrap();
-    assert_eq!(gif.plays(), 1, "{path} plays once");
+    assert_eq!(gif.plays(), 0, "{path} repeats for ever");
     let size = gif.size();
     let mut census = Census::new(
         Px::of(size.width),
@@ -58,22 +63,21 @@ fn count(path: &str, quarters: u32) -> Report {
     );
     let mut scratch = vec![0u8; gif.scratch_len()];
     let mut last = Vec::new();
-    gif.decode(&mut scratch, |f| {
-        last.clear();
-        last.extend(
-            f.rgba
-                .chunks_exact(4)
-                .map(|p| u32::from_be_bytes([0xFF, p[0], p[1], p[2]])),
-        );
-        assert!(f.gap_ms % 10 == 0, "{path}: a delay of {} ms", f.gap_ms);
-        for _ in 0..(f.gap_ms / 10 * quarters / 4).max(1) {
-            census.frame(&last);
-        }
-        true
-    })
-    .unwrap();
-    for _ in 0..3 * RATE {
-        census.frame(&last);
+    for _ in 0..2 {
+        gif.decode(&mut scratch, |f| {
+            last.clear();
+            last.extend(
+                f.rgba
+                    .chunks_exact(4)
+                    .map(|p| u32::from_be_bytes([0xFF, p[0], p[1], p[2]])),
+            );
+            assert!(f.gap_ms % 10 == 0, "{path}: a delay of {} ms", f.gap_ms);
+            for _ in 0..(f.gap_ms / 10 * quarters / 4).max(1) {
+                census.frame(&last);
+            }
+            true
+        })
+        .unwrap();
     }
     census.finish()
 }

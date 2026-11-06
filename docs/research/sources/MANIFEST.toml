@@ -34767,6 +34767,19 @@ status = "external"
 group  = "J"
 # Read 2026-10-23 (lane b176).
 
+[sources.smil-animation]
+key    = "smil-animation"
+title  = "SMIL Animation -- calcMode 'discrete' 'will jump from one value to the next without any interpolation'; keyTimes 'For discrete animation, the first time value in the list must be 0'; repeatCount"
+author = "Patrick Schmitz, Aaron Cohen"
+year   = 2001
+venue  = "W3C Recommendation, 4 September 2001"
+url    = "https://www.w3.org/TR/2001/REC-smil-animation-20010904/"
+file   = ""
+sha256 = "6753f320784df517b0d149752071cc4bb581a6d9194e928ef2e4171b6ec1519e"
+bytes  = 297024
+status = "external"
+group  = "J"
+
 [sources.iterm2-964a75d-animated-image-info]
 key    = "iterm2-964a75d-animated-image-info"
 title  = "iTerm2 964a75d, sources/InlineImages/iTermAnimatedImageInfo.m -- frameForTimestamp: fmod over the summed delays, so every GIF loops for ever"
