@@ -1,14 +1,16 @@
-//! `zlib.compress(data, 6)`, byte for byte: zlib 1.3.1's `deflate_slow` and
-//! tree builder at level 6, window 15, memLevel 8, default strategy, with all
-//! the input in one call and `Z_FINISH`.
+//! `zlib.compress(data, level)`, byte for byte, at levels 6 and 9: zlib
+//! 1.3.1's `deflate_slow` and tree builder, window 15, memLevel 8, default
+//! strategy, with all the input in one call and `Z_FINISH`. The two levels
+//! take one path and differ by a row of `configuration_table`.
 //!
 //! **Why here and in Rust.** Which bytes a deflate writes is the deflater's
 //! choice (`[[source: rfc1951-deflate]]` fixes only what they decode to), and
-//! `gen-yazi-files` writes its PNGs in the bytes the script's zlib chose. The
+//! `gen-yazi-files` and `linux-pixels` write their PNGs in the bytes the
+//! scripts' zlib chose, at 6 and 9. The
 //! crates that link C engines live outside the workspace (`tools/`), so this
 //! crate does not take `-lz`, and a Rust port gives the same bytes on a host
 //! whatever zlib it has. It is a port of two of zlib's files, not a general
-//! deflater: one level, no resumption, nothing but what that path reaches.
+//! deflater: two levels, no resumption, nothing but what that path reaches.
 //!
 //! ```text
 //! zlib 1.3.1 (deflate.c, trees.c), this file altered into Rust from them.
@@ -42,11 +44,50 @@ const MAX_MATCH: usize = 258;
 const MIN_LOOKAHEAD: usize = MAX_MATCH + MIN_MATCH + 1;
 const MAX_DIST: usize = W_SIZE - MIN_LOOKAHEAD;
 const TOO_FAR: usize = 4096;
-// Level 6's row of `configuration_table`.
-const GOOD_LENGTH: usize = 8;
-const MAX_LAZY: usize = 16;
-const NICE_LENGTH: usize = 128;
-const MAX_CHAIN: usize = 128;
+
+/// A level `deflate_slow` runs at: a row of `configuration_table`, and the
+/// zlib header's level bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    /// `{8, 16, 128, 128}`, zlib's default.
+    Six,
+    /// `{32, 258, 258, 4096}`, the most it will search.
+    Nine,
+}
+
+/// The row of `configuration_table` a level names.
+#[derive(Clone, Copy)]
+struct Row {
+    good_length: N,
+    max_lazy: N,
+    nice_length: N,
+    max_chain: N,
+}
+
+impl Level {
+    fn row(self) -> Row {
+        let row = |good, lazy, nice, chain| Row {
+            good_length: N(good),
+            max_lazy: N(lazy),
+            nice_length: N(nice),
+            max_chain: N(chain),
+        };
+        match self {
+            Level::Six => row(8, 16, 128, 128),
+            Level::Nine => row(32, 258, 258, 4096),
+        }
+    }
+
+    /// CMF and FLG: `deflateInit`'s window of 15 and these level bits, the
+    /// check making the pair a multiple of 31.
+    fn header(self) -> [u8; 2] {
+        match self {
+            Level::Six => [0x78, 0x9c],
+            Level::Nine => [0x78, 0xda],
+        }
+    }
+}
+
 /// `lit_bufsize`, and a block ends one symbol short of it.
 const LIT_BUFSIZE: usize = 16384;
 
@@ -520,6 +561,7 @@ fn send_tree(out: &mut Out, bl: &[Ct], tree: &[Ct], max_code: usize) {
 
 /// The compressor's state.
 struct State<'a> {
+    row: Row,
     input: &'a [u8],
     read: N,
     window: Vec<u8>,
@@ -597,11 +639,11 @@ fn fill_window(s: &mut State<'_>) {
 /// `longest_match`.
 fn longest_match(s: &mut State<'_>, first: usize) -> usize {
     let scan = s.strstart.0;
-    let mut chain = MAX_CHAIN;
+    let mut chain = s.row.max_chain.0;
     let mut best = s.prev_length.0;
-    let mut nice = NICE_LENGTH;
+    let mut nice = s.row.nice_length.0;
     let limit = scan.saturating_sub(MAX_DIST);
-    if s.prev_length.0 >= GOOD_LENGTH {
+    if s.prev_length.0 >= s.row.good_length.0 {
         chain >>= 2;
     }
     if nice > s.lookahead.0 {
@@ -814,7 +856,10 @@ fn deflate_slow(s: &mut State<'_>) {
         s.prev_length = s.match_length;
         let prev_match = s.match_start;
         s.match_length = N(MIN_MATCH - 1);
-        if hash_head != 0 && s.prev_length.0 < MAX_LAZY && s.strstart.0 - hash_head <= MAX_DIST {
+        if hash_head != 0
+            && s.prev_length.0 < s.row.max_lazy.0
+            && s.strstart.0 - hash_head <= MAX_DIST
+        {
             s.match_length.0 = longest_match(s, hash_head);
             if s.match_length.0 <= 5
                 && s.match_length.0 == MIN_MATCH
@@ -885,7 +930,13 @@ fn adler32(data: &[u8]) -> u32 {
 
 /// `zlib.compress(data, 6)`.
 pub fn compress(data: &[u8]) -> Vec<u8> {
+    compress_at(data, Level::Six)
+}
+
+/// `zlib.compress(data, level)`.
+pub fn compress_at(data: &[u8], level: Level) -> Vec<u8> {
     let mut s = State {
+        row: level.row(),
         input: data,
         read: N(0),
         window: vec![0; WINDOW + MAX_MATCH],
@@ -912,7 +963,7 @@ pub fn compress(data: &[u8]) -> Vec<u8> {
             static_len: Bits(0),
         },
         out: Out {
-            bytes: vec![0x78, 0x9c],
+            bytes: level.header().to_vec(),
             acc: Bits(0),
             have: N(0),
         },

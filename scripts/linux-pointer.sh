@@ -23,7 +23,7 @@
 #   trixie    sway 1.10, wlroots 0.18: cursor-shape-v1, so the app names
 #             a shape; wl_seat 9, the wheel in axis_value120
 #
-# The pointer and the keyboard are scripts/linux-pointer.py, one client
+# The pointer and the keyboard are baud-bench's linux-pointer example, one client
 # holding one zwlr_virtual_pointer_v1 and one zwp_virtual_keyboard_v1, so
 # a drag is one device's press, moves and release, and every event carries
 # a time from the script's own clock. sway runs with WAYLAND_DEBUG=server,
@@ -73,7 +73,7 @@ for arm in bookworm trixie; do
 FROM debian:$arm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends sway grim wl-clipboard libxkbcommon-tools \
-    wayland-utils dmz-cursor-theme python3 \
+    wayland-utils dmz-cursor-theme \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 done
@@ -83,7 +83,10 @@ docker run --rm -v "$root":/src:ro \
   -v "$tag-target":/target \
   -v "$tag-registry":/usr/local/cargo/registry \
   "$tag-build" bash -c \
-  'cd /src && CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings" cargo build -q --release -p baud --bin baud'
+  'cd /src && export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
+   cargo build -q --release -p baud --bin baud
+   cargo build -q --release -p baud-bench --example linux-pointer \
+     --example linux-pointer-trace --example linux-pixels'
 
 # One arm, as the user baud (sway will not run as root). Results go to
 # /tmp/out, which leaves the container as tar on stdout.
@@ -139,7 +142,7 @@ session() {
   S=$D/$1 && mkdir -p "$S" && : > "$S/got"
   printf 'until [ "$(stty size)" = "24 80" ]; do sleep 0.05; done\nstty raw -echo\n%s\n' "$2" > "$S/child.sh"
   # Each session starts with the pointer off the window.
-  echo "move 900 700" | python3 /src/scripts/linux-pointer.py keymap.xkb
+  echo "move 900 700" | /target/release/examples/linux-pointer keymap.xkb
   from=$(wc -l < sway.log)
   BAUD_LOG=debug BAUD_CONFIG=baud.toml S=$S \
     BAUD_CMD="bash $S/child.sh" /target/release/baud > "$S/baud.log" 2>&1 &
@@ -147,12 +150,12 @@ session() {
   for _ in $(seq 100); do [ -e "$S/ready" ] && break; sleep 0.1; done
   [ -e "$S/ready" ] || { echo "FAILED  $1: the child never started"; FAILED=1; }
   sleep 0.5
-  S=$S python3 /src/scripts/linux-pointer.py keymap.xkb
+  S=$S /target/release/examples/linux-pointer keymap.xkb
   sleep 0.3
   kill $BAUD; wait $BAUD 2>/dev/null
   # The app's pointer requests and the pointer events it was sent, in
   # order, without timestamps, serials or object numbers.
-  tail -n +$((from + 1)) sway.log | python3 /src/scripts/linux-pointer-trace.py > $O/trace-$1.txt
+  tail -n +$((from + 1)) sway.log | /target/release/examples/linux-pointer-trace > $O/trace-$1.txt
   cp "$S/baud.log" $O/baud-$1.log
 }
 
@@ -307,7 +310,7 @@ check "the thumb dragged to the top, the top row" $D/wheel/thumb 'line 1'
 check "the wheel on the primary screen sends the program nothing" $D/wheel/got ''
 # Rows 3 to 23 three lines back against rows 0 to 20 live, short of the
 # scrollbar's column: 600x357 pixels each.
-px="python3 /src/scripts/linux-pixels.py"
+px=/target/release/examples/linux-pixels
 $px crop $O/wheel-back.png 0 51 600 357 $D/wheel/back.pam
 $px crop $O/wheel-live.png 0 0 600 357 $D/wheel/live.pam
 $px diff $D/wheel/back.pam $D/wheel/live.pam | head -1 > $D/wheel/drawn

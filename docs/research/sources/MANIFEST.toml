@@ -40328,7 +40328,7 @@ bytes  = 6895
 status = "retrieved"
 group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file. The requests
-# scripts/linux-pointer.py spells, in their order: opcodes 1 to 8.
+# baud-bench/src/linux/pointer.rs spells, in their order: opcodes 1 to 8.
 
 [sources.virtual-keyboard-unstable-v1]
 key    = "virtual-keyboard-unstable-v1"
@@ -40343,7 +40343,7 @@ bytes  = 4937
 status = "retrieved"
 group  = "BE"
 # Committed under docs/research/sources/ -- a protocol file. The requests
-# scripts/linux-pointer.py spells: keymap, key, modifiers, destroy.
+# baud-bench/src/linux/pointer.rs spells: keymap, key, modifiers, destroy.
 
 [sources.be-obs-pointer-bookworm]
 key    = "be-obs-pointer-bookworm"

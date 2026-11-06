@@ -79,7 +79,6 @@ out=$(cd "$out" && pwd)
 # BAUD_PIXELS_TAG names the image and volumes it makes (by default
 # baud-linux-pixels), so two runs on one engine keep apart.
 image=${BAUD_PIXELS_TAG:-baud-linux-pixels}
-py="python3 $root/scripts/linux-pixels.py"
 
 # name, recording under tests/recordings (or "control"), grid, scale, and
 # the compositor the app's frame is taken under
@@ -133,7 +132,7 @@ nightly=${BAUD_NIGHTLY:-nightly-2026-04-11}
 docker build -q -t "$image" - >/dev/null <<EOF
 FROM rustlang/rust:nightly-bookworm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    --no-install-recommends weston sway wtype wl-clipboard python3 \
+    --no-install-recommends weston sway wtype wl-clipboard \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 RUN rustup toolchain install $nightly --profile minimal \
     && rustup default $nightly
@@ -165,6 +164,7 @@ mkdir -p /io/linux /io/shot /io/clip /io/faces/system
 cd /src
 export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
 cargo build -q --release -p baud --bin baud
+cargo build -q --release -p baud-bench --example linux-pointer-trace --example linux-pixels
 cargo bench -q -p baud-bench --bench pixels --no-run
 # The system face the default stack finds here, which the bench is told
 # of and which goes out for the Mac arm to read.
@@ -297,7 +297,7 @@ for arm in bookworm trixie; do
 FROM debian:$arm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends sway grim wl-clipboard libxkbcommon-tools \
-    wayland-utils dmz-cursor-theme python3 \
+    wayland-utils dmz-cursor-theme \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 done
@@ -344,7 +344,7 @@ start_baud() { # stream, rows, cols, log
 # log so far: the last buffer size, buffer scale, destination and the
 # scales sway sent.
 told() {
-  python3 /src/scripts/linux-pointer-trace.py < sway.log | grep '^surface window' > told.all
+  /target/release/examples/linux-pointer-trace < sway.log | grep '^surface window' > told.all
   for k in attach buffer_scale destination preferred_buffer_scale fractional_scale; do
     grep "^surface window $k " told.all | tail -1
   done
@@ -387,15 +387,7 @@ step() { # name, the absolute position or "here", the outputs to take
     swaymsg "[app_id=\"org.baud.terminal\"] move absolute position $at" > /dev/null
     sleep 2
   fi
-  swaymsg -t get_tree | python3 -c '
-import json, sys
-def walk(n):
-    if n.get("app_id") == "org.baud.terminal":
-        r = n["rect"]
-        print(f"""{r["x"]},{r["y"]} {r["width"]}x{r["height"]}""")
-    for k in n.get("nodes", []) + n.get("floating_nodes", []):
-        walk(k)
-walk(json.load(sys.stdin))' > $M/$name.rect
+  swaymsg -t get_tree | /target/release/examples/linux-pixels window-rect > $M/$name.rect
   for o in "$@"; do grim -o $o $M/$name-$o.png; done
   told > $M/$name.told
 }
@@ -404,7 +396,7 @@ step across-from-1 "300 0" HEADLESS-1 HEADLESS-2
 step moved "800 0" HEADLESS-2
 step across-from-2 "300 0" HEADLESS-1 HEADLESS-2
 step back "0 0" HEADLESS-1
-python3 /src/scripts/linux-pointer-trace.py < sway.log | grep '^surface window' > $M/told.all
+/target/release/examples/linux-pointer-trace < sway.log | grep '^surface window' > $M/told.all
 stop
 STAGE
 )
@@ -436,7 +428,10 @@ echo "$fixtures" | while read -r name rec ws scale comp; do
     "$out/streams/$name.bin" "$out/mac/$name.pam"
 done
 
-# The comparisons.
+# The comparisons, by baud-bench's linux-pixels example, built here as the Mac
+# arm's bench was.
+cargo build -q --release --manifest-path "$root/Cargo.toml" -p baud-bench --example linux-pixels
+px=${CARGO_TARGET_DIR:-$root/target}/release/examples/linux-pixels
 echo "$fixtures" | while read -r name rec ws scale comp; do
   [ -n "$name" ] || continue
   echo "== $name ($ws, scale $scale, $comp)"
@@ -445,34 +440,24 @@ echo "$fixtures" | while read -r name rec ws scale comp; do
   if cmp -s "$out/mac/$name.pam" "$out/linux/$name.pam"; then
     echo identical
   else
-    $py diff "$out/mac/$name.pam" "$out/linux/$name.pam" "$out/diff/$name-os.png" || true
+    $px diff "$out/mac/$name.pam" "$out/linux/$name.pam" "$out/diff/$name-os.png" || true
   fi
   printf 'the screenshot settled: '
-  $py diff "$out/shot/$name.png" "$out/shot/$name.again.png" >/dev/null &&
+  $px diff "$out/shot/$name.png" "$out/shot/$name.again.png" >/dev/null &&
     echo yes || echo "no, it changed in the second after"
-  $py over-black "$out/linux/$name.pam" "$out/linux/$name.over.pam"
+  $px over-black "$out/linux/$name.pam" "$out/linux/$name.over.pam"
   w=$(sed -n 's/^WIDTH //p' "$out/linux/$name.pam" | head -1)
   h=$(sed -n 's/^HEIGHT //p' "$out/linux/$name.pam" | head -1)
-  $py crop "$out/shot/$name.png" 0 0 "$w" "$h" "$out/shot/$name.grid.pam"
+  $px crop "$out/shot/$name.png" 0 0 "$w" "$h" "$out/shot/$name.grid.pam"
   printf 'linux over black against the screenshot: '
-  $py diff "$out/linux/$name.over.pam" "$out/shot/$name.grid.pam" "$out/diff/$name-app.png" || true
+  $px diff "$out/linux/$name.over.pam" "$out/shot/$name.grid.pam" "$out/diff/$name-app.png" || true
 done
-# The control's one value, computed here and not read from either arm:
-# rgb(185, 37, 105) at the dark dim's alpha, round(0.70 * 255) = 179,
+# The control's one value, which linux-pixels computes and reads from neither
+# arm: rgb(185, 37, 105) at the dark dim's alpha, round(0.70 * 255) = 179,
 # premultiplied over black and rounded.
 for c in control control-x2 control-sway control-x1.5; do
   printf 'the %s holds one value, (130, 26, 74), everywhere: ' "$c"
-  python3 - "$out/shot/$c.grid.pam" "$root/scripts/linux-pixels.py" <<'EOF'
-import importlib.util, sys
-spec = importlib.util.spec_from_file_location("lp", sys.argv[2])
-lp = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lp)
-w, h, p = lp.read(sys.argv[1])
-want = bytes([(c * 179 + 127) // 255 for c in (185, 37, 105)] + [255])
-truncated = bytes([c * 179 // 255 for c in (185, 37, 105)] + [255])
-assert want == bytes([130, 26, 74, 255]) and truncated == bytes([129, 25, 73, 255])
-print("yes" if p == bytearray(want * (w * h)) else "no")
-EOF
+  $px control "$out/shot/$c.grid.pam"
 done
 # The moves: each step's window, what it attached and told, and its frame
 # on the output it is on against the bench at that output's scale.
@@ -489,9 +474,9 @@ for arm in bookworm trixie; do
     w=$(sed -n 's/^WIDTH //p' "$out/linux/$b.pam" | head -1)
     h=$(sed -n 's/^HEIGHT //p' "$out/linux/$b.pam" | head -1)
     printf '%s, its screenshot %s, against the bench at %s: ' "$f" \
-      "$(python3 -c 'import struct,sys; d=open(sys.argv[1],"rb").read(24); print("%dx%d" % struct.unpack(">II", d[16:24]))' "$m/$f.png")" "$sc"
-    $py crop "$m/$f.png" 0 0 "$w" "$h" "$m/$f.grid.pam"
-    $py diff "$out/linux/$b.over.pam" "$m/$f.grid.pam" "$out/diff/$arm-$f.png" || true
+      "$($px png-size "$m/$f.png")" "$sc"
+    $px crop "$m/$f.png" 0 0 "$w" "$h" "$m/$f.grid.pam"
+    $px diff "$out/linux/$b.over.pam" "$m/$f.grid.pam" "$out/diff/$arm-$f.png" || true
   done
   echo "-- every window buffer size and scale told, in order:"
   sed 's/^/        /' "$m/told.all"

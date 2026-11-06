@@ -109,6 +109,7 @@ dependencies = [
  "baud-wayland",
  "libc",
  "macos-liquid-glass",
+ "serde_json",
 ]
 
 [[package]]

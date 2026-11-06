@@ -29,7 +29,7 @@
 # seconds of the launch splash and a program printing a line every 30 ms
 # for a second and a half. The compositor runs with WAYLAND_DEBUG=server,
 # which logs each request the app sends it and each event it sends the
-# app, and scripts/linux-frames.py reads that log. Every check prints
+# app, and baud-bench's linux-frames example reads that log. Every check prints
 # "ok" or "FAILED" with what was read; the script exits non-zero when one
 # failed or a step could not run.
 set -euo pipefail
@@ -60,13 +60,13 @@ RUN rm -f /etc/apt/sources.list.d/* \
     && echo 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261030T000000Z sid main' \
        > /etc/apt/sources.list \
     && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-       --no-install-recommends weston wayland-utils python3 \
+       --no-install-recommends weston wayland-utils \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 docker build -q -t "$tag-sway" - >/dev/null <<'EOF'
 FROM debian:trixie
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    --no-install-recommends sway wayland-utils python3 \
+    --no-install-recommends sway wayland-utils \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 docker volume create "$tag-target" >/dev/null
@@ -75,7 +75,9 @@ docker run --rm -v "$root":/src:ro \
   -v "$tag-target":/target \
   -v "$tag-registry":/usr/local/cargo/registry \
   "$tag-build" bash -c \
-  'cd /src && CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings" cargo build -q --release -p baud --bin baud'
+  'cd /src && export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
+   cargo build -q --release -p baud --bin baud
+   cargo build -q --release -p baud-bench --example linux-frames'
 
 # One arm, as the user baud (sway will not run as root). Results go to
 # /tmp/out, which leaves the container as tar on stdout.
@@ -119,7 +121,7 @@ session() { # name, tearing
   sleep 3
   kill $BAUD; wait $BAUD 2>/dev/null
   tail -n +$((from + 1)) compositor.log > "$S/traffic.log"
-  python3 /src/scripts/linux-frames.py "$S/traffic.log" "$O/compositor.txt" "$2" > "$O/frames-$1.txt" || FAILED=1
+  /target/release/examples/linux-frames "$S/traffic.log" "$O/compositor.txt" "$2" > "$O/frames-$1.txt" || FAILED=1
   echo "== $1, tearing $2"
   cat "$O/frames-$1.txt"
   cp "$S/baud.log" "$O/baud-$1.log"

@@ -284,7 +284,7 @@ mod tests {
             }
         }
         // The hotspots tell the images apart, as a compositor's log shows
-        // them (`scripts/linux-pointer-trace.py`).
+        // them (`baud-bench/src/linux/trace.rs`).
         let spots: std::collections::HashSet<_> = Drawn::ALL.map(Drawn::hotspot).into();
         assert_eq!(spots.len(), 3);
     }

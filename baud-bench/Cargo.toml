@@ -26,6 +26,8 @@ baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render", default-features = false, features = ["exceptions"] }
 libc = "0.2"
+# `linux-pixels window-rect` reads sway's tree.
+serde_json = "1.0.154"
 # `present` shows frames on a Wayland compositor through the Linux
 # driver's window.
 baud-present-wayland = { path = "../baud-present-wayland" }

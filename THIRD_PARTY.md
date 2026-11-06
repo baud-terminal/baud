@@ -568,7 +568,7 @@ they were built from.
 - **From:** https://github.com/elementary/wallpapers
 - **Files:** [assets/readme/hero.gif](assets/readme/hero.gif)
 
-### A Rust port of zlib 1.3.1's deflate at level 6 (deflate.c and trees.c), so baud-bench's gen-yazi-files writes the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered
+### A Rust port of zlib 1.3.1's deflate at levels 6 and 9 (deflate.c and trees.c), so baud-bench's gen-yazi-files and linux-pixels write the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** Zlib

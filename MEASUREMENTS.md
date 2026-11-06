@@ -3714,3 +3714,62 @@ Open: `^` holds at offset 0 alone, so after a one-byte hit there, or a refusal
 with a look-behind, a hit at offset 1 is not reported
 (`offset_one_is_not_looked_at_twice`). No line of the list reaches it. The command
 still exits 1 for a line with no label, as the script did; `demo` reads the verdict.
+
+## The Linux tools are examples
+
+Not timed: no byte path changed. The five tools of `scripts/linux-damage.sh`,
+`linux-frames.sh`, `linux-pixels.sh` and `linux-pointer.sh` are examples over
+`baud-bench/src/linux/mod.rs`; the three Python blocks in `linux-pixels.sh` are
+`linux-pixels window-rect`, `control` and `png-size`; `python3` is off the four
+`apt-get` lines. What runs in a container is built by the driver's build step into
+its target volume, `linux-damage` and the Mac half of `linux-pixels.sh` by the host's.
+
+| driver, every arm | Python's run against Rust's |
+|---|---|
+| `linux-pointer.sh`, two runs each, six arms | stdout byte-equal, 86 ok and 16 FAILED, pixel counts too |
+| its client's requests, 34 sessions | 1,590 lines of sway's log byte-equal, the time taken off |
+| its 34 traces | 6 differ, and 3 between the two Python runs: the app's requests move against its events |
+| `linux-pixels.sh`, 18 fixtures and the moves | the comparison stage's 237 lines byte-equal |
+| `linux-frames.sh`, weston 16.0.0 and sway 1.10.1 | the same 23 checks ok; commits and gaps are the run's |
+| `linux-damage.sh`, 3 rounds, 100 frames, 10 shots | exit 0 on both; times are the run's |
+
+**Each tool on the same inputs.** Python and Rust over every log, screen and tree those
+runs kept, and 300 random frames through `png`: 1,189 comparisons of stdout, exit code
+or bytes, none differing, on the Mac (Python 3.13.12, zlib 1.3.1) and with the Linux
+build in trixie (3.13.5, 1.3.1) and bookworm (3.11.2, 1.2.13). The Rust comparison stage
+over Python's frames gave its 24 diff PNGs and 42 PAMs byte-equal. `linux-pointer`
+against a fake compositor, on Linux: every request byte, keymap, stdout and exit code
+equal over 103 scripts, and the exit code and requests over 9 starts. These and 456
+reader runs, each one input perturbed, are the Python's goldens in
+`baud-bench/tests/linux_tools/`, run on the Mac and on Linux. A test reads the opcodes
+from the two pinned XMLs.
+
+**zlib.** `write_png` deflates at level 9. `baud-bench/src/capture/deflate.rs` now takes
+a level: 6 and 9 run one path, 9's row being `{32, 258, 258, 4096}` of 1.3.1's
+`configuration_table`, read there. `tools/baud-pictures` links real zlib, but the drivers
+build no part of that workspace. A PNG's chunks and filters are read here and its stream
+by `baud_domain::zlib`, because `baud_domain::png` refuses a wrong CRC and a filter above
+4, which the Python read.
+
+**What differs.** Text at equal codes, each with a golden or a run showing it: a
+traceback is one line; the usage says `linux-pixels`, loses "Standard library only" and
+gains three commands; an `sh` line not UTF-8 reaches bash with U+FFFD; a compositor time
+of `nan` prints the other numbers' range. Exit codes, on values no driver writes:
+non-ASCII digits and integers past `i128` are refused, as are, in sway's tree, a list or
+object as a rect's field, `NaN` and nesting past 128. A trace's stdin not UTF-8 reads with
+U+FFFD, as in the containers' locale; under a UTF-8 one the Python exited 1.
+
+**A half close the test could not rely on.** The fake compositor's `shutdown(SHUT_WR)`
+left the client blocked in `recv` in 130 of 120,000 runs on this Mac and 0 of 20,000 on
+Linux; a plain socketpair in Python lost none of 40,000, and the cause was not found. The
+fake closes at the client's next `sync` instead, 0 of 120,000.
+
+**Red first.** 93 mutations of the Rust over four passes, tests added as survivors showed
+what they missed: 92 turned a test red, level 9's row and level 6 among them. The other
+changes a global's name padding, which no request shows: each name bound, with its NUL, is
+a multiple of four bytes.
+
+**On this tree, in both arms.** `linux-pointer.sh` exits 1, its 16 FAILED being the wheel,
+the thumb and the edges, and `linux-pixels.sh` reports screens that differ from the
+bench, which it exits 0 on. `snapshot.debian.org`, which `linux-frames.sh` pins, failed
+image builds with a 504 where the error was read, and later let them through.

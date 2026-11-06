@@ -34,8 +34,9 @@
 # must be the frame itself, and once at the default dim, where the two
 # arms' screens must hash the same. The log's frame traffic is kept,
 # without timestamps, as trace-<page>-<arm>.txt.
-# scripts/linux-damage.py reads it all and prints the summary; the script
-# exits non-zero when a screen check fails or a step could not run.
+# baud-bench's linux-damage example, built by this Mac's cargo, reads it all
+# and prints the summary; the script exits non-zero when a screen check
+# fails or a step could not run.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -66,7 +67,7 @@ for arm in bookworm trixie; do
 FROM debian:$arm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     --no-install-recommends sway grim wl-clipboard libxkbcommon-tools \
-    wayland-utils dmz-cursor-theme python3 \
+    wayland-utils dmz-cursor-theme \
     && rm -rf /var/lib/apt/lists/* && useradd -m baud
 EOF
 done
@@ -159,4 +160,4 @@ for arm in bookworm trixie; do
     'cat > /tmp/arm.sh && runuser -u baud -- env LABEL="$LABEL" ROUNDS="$ROUNDS" FRAMES="$FRAMES" SHOTS="$SHOTS" bash /tmp/arm.sh >&2; tar -C /tmp/out -c .' \
     <<<"$inner" 2>"$out/$label/$arm/container.log" | tar -C "$out/$label/$arm" -x
 done
-python3 "$root/scripts/linux-damage.py" "$out/$label"
+cargo run -q --manifest-path "$root/Cargo.toml" -p baud-bench --example linux-damage -- "$out/$label"
