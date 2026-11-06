@@ -1,0 +1,24 @@
+== keystroke-to-pixel sweep ==
+power: Now drawing from 'AC Power'
+power: -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true
+display: refresh 120
+swift: bash tests/keylat/stub/helper scripts/key-post.swift
+child: cat (cat)
+gap: 150 ms MEAN; each inter-key gap is uniform in [112.5-187.5] ms, seeded from baud's pid (printed per round) -- a fixed gap phase-locks to the refresh and narrows vsync/total falsely
+pairing window: 100 ms (minimum jittered gap 112.5 ms)
+A/B number: to_shown (post -> the surface on the layer; no display-period quantisation). vsync/total are a bracket, not a measurement -- see the doc.
+arm base: tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71dfb5c83797fbb8260bcc562
+arm order rotates every round so no arm is always last
+
+round 1: order ['base']
+  round 1 arm base: helper FAILED, exit 7
+  helper argv: bash tests/keylat/stub/helper scripts/key-post.swift PID 3 150 asdfjkl
+  helper stdout:
+partial output
+
+  helper stderr:
+the helper's complaint
+
+
+the helper failed; sweep aborted
+--- exit 4

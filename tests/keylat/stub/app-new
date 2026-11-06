@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# The stand-in as a second binary: other bytes, and an arm name that moves
+# the helper stand-in's numbers.
+KEYLAT_STUB_ARM=new exec bash "$(dirname "$0")/app"

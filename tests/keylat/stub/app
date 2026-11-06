@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Stands in for baud under a sweep: no window, no pty, no key. It says it
+# presented, then prints on stderr whatever keylat lines the helper stand-in
+# leaves it, until SIGTERM.
+state=$KEYLAT_STUB_STATE
+echo $$ >"$state/app.pid"
+echo "${KEYLAT_STUB_ARM:-base}" >"$state/app.arm"
+trap 'exit 0' TERM
+if [ "${KEYLAT_STUB_MODE:-}" = never ]; then
+  echo "startup: launched" >&2
+  exit 0
+fi
+echo "startup: first present        1.000 ms" >&2
+while :; do
+  if [ -f "$state/lines" ]; then
+    cat "$state/lines" >&2
+    rm "$state/lines"
+  fi
+  sleep 0.02
+done

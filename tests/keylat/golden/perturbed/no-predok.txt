@@ -1,0 +1,36 @@
+exit 0
+SELFTEST OK
+  fixtures: <fixtures>/keylat-fixture.txt
+            <fixtures>/keylat-posts-fixture.txt
+  parsed 9 keylat records, 10 posts, 1 parse failure (missing vsync_hi on seq=10), 1 landing refused
+  pairing: 5 completed, 4 excluded (seq=6: event<post, seq=7: event-post>=window, seq=8: seq-mismatch, seq=9: refused-landing)
+
+== arm fixture ==
+posted=10 paired=9 completed=5 excluded=4 shared_a_frame=0
+excluded by reason: event-post>=window=1, event<post=1, refused-landing=1, seq-mismatch=1
+unpaired posts=1 unpaired keylats=0 parse failures=1 landings refused=1
+NOT QUOTABLE -- 1 landing(s) refused in the runs pooled here: a GPU end stamp off the clock; 1 row(s) on the GPU path with landed=- excluded as refused-landing
+      leg  median us   (n)  IQR [q1-q3]              range [min-max]
+    stamp        0.0 (  5)  [0.0-0.0]                [0.0-0.0]
+  deliver      300.0 (  5)  [300.0-300.0]            [300.0-300.0]
+    write       50.0 (  5)  [50.0-50.0]              [50.0-50.0]
+  predict          -        -                        -
+    child       10.0 (  5)  [10.0-10.0]              [10.0-10.0]
+     wake        5.0 (  5)  [5.0-5.0]                [5.0-5.0]
+    build        5.0 (  5)  [5.0-5.0]                [5.0-5.0]
+      gpu       10.0 (  5)  [10.0-10.0]              [10.0-10.0]
+     show        5.0 (  5)  [5.0-5.0]                [5.0-5.0]
+      app       85.0 (  5)  [85.0-85.0]              [85.0-85.0]
+    vsync       35.0 (  5)  [25.0-45.0]              [15.0-55.0]
+ vsync_hi       51.7 (  5)  [41.7-61.7]              [31.7-71.7]
+ to_shown      385.0 (  5)  [385.0-385.0]            [385.0-385.0]
+    total      420.0 (  5)  [410.0-430.0]            [400.0-440.0]
+ total_hi      436.7 (  5)  [426.7-446.7]            [416.7-456.7]
+
+  extra cases: strict tokens (missing/bare value -> parse failure, unknown token dropped); `-` legs -> None and not completed;
+  `N keys open`/`landing refused`/noise skipped; negative leg excluded; 2 keys share a frame within 200 ns off non-multiple-
+  of-1000 events (0 with exact equality); refused landings: CPU path untouched, GPU path with a refusal excludes every
+  committed landed=- row, commit=- stays incomplete, an excluded row keeps its reason, refused_runs names arm/round/count;
+  empty warm-up round reported; gap bounds -/+ a quarter and the window follows the MINIMUM gap; arm order rotates;
+  A/A floor ignores a 163 ms outlier; arm deltas: result only above the floor with disjoint IQRs, three not-a-result
+  verdicts; one round flagged warm-up; --child none is the no-echo control.

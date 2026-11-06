@@ -1,0 +1,7 @@
+exit 3
+SELFTEST FAILED:
+  - leg show: {'median': 6.0, 'q1': 5.0, 'q3': 6.0, 'min': 5.0, 'max': 6.0, 'n': 5} != median 5.0 n 5
+  - leg app: {'median': 86.0, 'q1': 85.0, 'q3': 86.0, 'min': 85.0, 'max': 86.0, 'n': 5} != median 85.0 n 5
+  - leg vsync: {'median': 34.0, 'q1': 24.0, 'q3': 45.0, 'min': 14.0, 'max': 55.0, 'n': 5} != median 35.0 n 5
+  - leg vsync_hi: {'median': 50.7, 'q1': 40.7, 'q3': 61.7, 'min': 30.7, 'max': 71.7, 'n': 5} != median 51.7 n 5
+  - leg to_shown: {'median': 386.0, 'q1': 385.0, 'q3': 386.0, 'min': 385.0, 'max': 386.0, 'n': 5} != median 385.0 n 5

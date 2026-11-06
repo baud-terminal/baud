@@ -1,0 +1,5 @@
+exit 3
+SELFTEST FAILED:
+  - expected 5 completed, got 4
+  - leg vsync: {'median': 40.0, 'q1': 32.5, 'q3': 47.5, 'min': 25.0, 'max': 55.0, 'n': 4} != median 35.0 n 5
+  - leg total: {'median': 425.0, 'q1': 417.5, 'q3': 432.5, 'min': 410.0, 'max': 440.0, 'n': 4} != median 420.0 n 5

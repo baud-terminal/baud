@@ -1,0 +1,117 @@
+== keystroke-to-pixel sweep ==
+power: Now drawing from 'AC Power'
+power: -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true
+display: refresh 120
+swift: bash tests/keylat/stub/helper scripts/key-post.swift
+child: cat (cat)
+gap: 0 ms MEAN; each inter-key gap is uniform in [0-0] ms, seeded from baud's pid (printed per round) -- a fixed gap phase-locks to the refresh and narrows vsync/total falsely
+pairing window: 1 ms (minimum jittered gap 0 ms)
+  minimum gap under 100 ms: the window is that minimum - 5 ms so a one-key shift cannot fit inside it
+A/B number: to_shown (post -> the surface on the layer; no display-period quantisation). vsync/total are a bracket, not a measurement -- see the doc.
+arm a: tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71dfb5c83797fbb8260bcc562
+arm b: tests/keylat/stub/app sha256=55429b552627270f765f67750fe02bdfbba79fc71dfb5c83797fbb8260bcc562
+WARNING: arms a and b are byte-identical -- an A/B of one binary against itself measures the hour
+arm order rotates every round so no arm is always last
+
+round 1: order ['a', 'b']
+  round 1 arm a: predict refused: zone=1
+  round 1 arm a: excluded seq=2 (app seq=2): negative build
+  round 1 arm a: excluded seq=4 (app seq=4): negative child
+  round 1 arm a: excluded seq=5 (app seq=500): seq-mismatch
+  round 1 arm a: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-a-1.tsv
+  round 1 arm b: predict refused: zone=1
+  round 1 arm b: predict noted: over-occupied=1
+  round 1 arm b: excluded seq=2 (app seq=2): negative build
+  round 1 arm b: excluded seq=4 (app seq=4): negative child
+  round 1 arm b: excluded seq=5 (app seq=500): seq-mismatch
+  round 1 arm b: pid=PID posted=8 keylats=8 paired=8 unpaired posts=0 unpaired keylats=0 seq mismatches=1 negative=2 parse failures=0 landings refused=0 -> <dir>/scratch/keylat-b-1.tsv
+
+== arm a ==
+posted=8 paired=8 completed=4 excluded=3 shared_a_frame=0
+predicted=1 confirmed=1 contradicted=0 unjudged=0
+predict refused: zone=1
+excluded by reason: negative=2, seq-mismatch=1
+unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
+      leg  median us   (n)  IQR [q1-q3]              range [min-max]
+    stamp        0.6 (  5)  [0.3-0.7]                [0.1-0.8]
+  deliver      322.9 (  5)  [321.7-334.5]            [308.9-348.5]
+    write       52.1 (  5)  [50.7-54.2]              [50.6-54.9]
+  predict        2.0 (  1)  [2.0-2.0]                [2.0-2.0]
+    child       11.4 (  5)  [11.2-12.5]              [10.0-13.9]
+     wake        5.6 (  5)  [5.3-5.7]                [5.1-5.8]
+    build        5.3 (  5)  [5.2-5.7]                [3.0-6.0]
+      gpu          -        -                        -
+     show          -        -                        -
+      app       89.2 (  5)  [87.6-92.9]              [72.1-94.5]
+    vsync       20.0 (  4)  [17.5-24.6]              [16.4-32.0]
+ vsync_hi     8353.0 (  4)  [8350.5-8357.7]          [8349.4-8365.0]
+ to_shown      414.6 (  5)  [398.1-429.0]            [395.0-436.1]
+    total      436.2 (  4)  [425.3-447.5]            [420.3-454.0]
+ total_hi     8769.2 (  4)  [8758.3-8780.5]          [8753.3-8787.0]
+
+== arm b ==
+posted=8 paired=8 completed=4 excluded=3 shared_a_frame=0
+predicted=1 confirmed=1 contradicted=0 unjudged=0
+predict refused: zone=1
+predict noted: over-occupied=1
+excluded by reason: negative=2, seq-mismatch=1
+unpaired posts=0 unpaired keylats=0 parse failures=0 landings refused=0
+      leg  median us   (n)  IQR [q1-q3]              range [min-max]
+    stamp        0.6 (  5)  [0.3-0.7]                [0.1-0.8]
+  deliver      333.0 (  5)  [320.2-334.2]            [309.8-345.8]
+    write       52.1 (  5)  [50.7-54.2]              [50.6-54.9]
+  predict        2.0 (  1)  [2.0-2.0]                [2.0-2.0]
+    child       11.3 (  5)  [10.1-11.5]              [10.0-12.6]
+     wake        5.6 (  5)  [5.3-5.7]                [5.1-5.8]
+    build        5.3 (  5)  [5.2-5.7]                [3.0-6.0]
+      gpu          -        -                        -
+     show          -        -                        -
+      app       89.4 (  5)  [87.8-90.7]              [72.1-93.1]
+    vsync       20.0 (  4)  [17.5-24.7]              [16.4-32.2]
+ vsync_hi     8353.0 (  4)  [8350.5-8357.7]          [8349.4-8365.2]
+ to_shown      409.6 (  5)  [406.3-426.1]            [397.6-436.5]
+    total      435.1 (  4)  [427.7-442.1]            [415.5-452.9]
+ total_hi     8768.1 (  4)  [8760.7-8775.1]          [8748.5-8785.9]
+
+WARM-UP ROUND USED -- --rounds 1 has no settled round; not quotable
+
+== A/B: b - a, per leg, beside the A/A floor ==
+no A/A floor (run with --aa): no row can be a result
+result = |delta| above the floor AND the two arms' IQRs disjoint; anything else is not a result
+      leg           a           b   delta us   floor us             IQR a             IQR b  verdict
+    stamp         0.6         0.6       +0.0          -         [0.3-0.7]         [0.3-0.7]  no A/A floor -- not a result
+  deliver       322.9       333.0      +10.1          -     [321.7-334.5]     [320.2-334.2]  no A/A floor -- not a result
+    write        52.1        52.1       +0.0          -       [50.7-54.2]       [50.7-54.2]  no A/A floor -- not a result
+  predict         2.0         2.0       +0.0          -         [2.0-2.0]         [2.0-2.0]  no A/A floor -- not a result
+    child        11.4        11.3       -0.1          -       [11.2-12.5]       [10.1-11.5]  no A/A floor -- not a result
+     wake         5.6         5.6       +0.0          -         [5.3-5.7]         [5.3-5.7]  no A/A floor -- not a result
+    build         5.3         5.3       +0.0          -         [5.2-5.7]         [5.2-5.7]  no A/A floor -- not a result
+      gpu           -           -          -          -                 -                 -  -
+     show           -           -          -          -                 -                 -  -
+      app        89.2        89.4       +0.2          -       [87.6-92.9]       [87.8-90.7]  no A/A floor -- not a result
+    vsync        20.0        20.0       +0.0          -       [17.5-24.6]       [17.5-24.7]  no A/A floor -- not a result
+ vsync_hi      8353.0      8353.0       +0.0          -   [8350.5-8357.7]   [8350.5-8357.7]  no A/A floor -- not a result
+ to_shown       414.6       409.6       -5.0          -     [398.1-429.0]     [406.3-426.1]  no A/A floor -- not a result
+    total       436.2       435.1       -1.1          -     [425.3-447.5]     [427.7-442.1]  no A/A floor -- not a result
+ total_hi      8769.2      8768.1       -1.1          -   [8758.3-8780.5]   [8760.7-8775.1]  no A/A floor -- not a result
+--- keylat-a-1.tsv
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	pred	echo	fed	commit	landed	shown	vsync	vsync_hi	predok
+1	1	a	1010149999900	1010150000000	False	None	1010150348400	1010150399100	None	1010150410500	1010150415600	1010150420900	None	1010150436000	1010150453900	1010158786900	-
+2	2	a	1010150099800	1010150100000	True	negative build	1010150200000	1010150300000	None	1010150400000	1010150500000	1010150420900	None	1010150436000	1010150456800	1010158789800	-
+3	3	a	1010449999700	1010450000000	False	None	1010450322600	1010450374700	1010450376700	1010450384700	1010450390000	1010450379700	None	1010450394700	1010450426700	1010458759700	yes
+4	4	a	1010599999600	1010600000000	True	negative child	1010600309700	1010600362500	None	1010600358900	1010600379200	1010600384300	None	1010600399400	1010600418000	1010608751000	-
+5	500	a	1010749999500	1010750000000	True	seq-mismatch	1010750346800	1010750400300	None	1010750412900	1010750418400	1010750423800	None	1010750438900	1010750460400	1010758793400	-
+6	6	a	1010899999400	1010900000000	False	None	1010900333900	1010900388100	None	1010900402000	1010900407600	1010900413300	None	1010900428400	1010900444800	1010908777800	-
+7	7	a	1011049999300	1011050000000	False	None	1011050321000	1011050375900	None	1011050387100	1011050392800	1011050398800	None	1011050413900	None	None	-
+8	8	a	1011199999200	1011200000000	False	None	1011200308100	1011200358700	None	1011200371200	1011200377000	1011200382200	None	1011200397300	1011200419500	1011208752500	-
+--- keylat-b-1.tsv
+seq	app_seq	char	post	event	excluded	exclude_reason	handled	written	pred	echo	fed	commit	landed	shown	vsync	vsync_hi	predok
+1	1	a	1020149999900	1020150000000	False	None	1020150309700	1020150360400	None	1020150371900	1020150377000	1020150382300	None	1020150397500	1020150415400	1020158748400	-
+2	2	a	1020150099800	1020150100000	True	negative build	1020150200000	1020150300000	None	1020150400000	1020150500000	1020150382300	None	1020150397500	1020150418300	1020158751300	-
+3	3	a	1020449999700	1020450000000	False	None	1020450333900	1020450386000	1020450388000	1020450396100	1020450401400	1020450391000	None	1020450406000	1020450438200	1020458771200	yes
+4	4	a	1020599999600	1020600000000	True	negative child	1020600321000	1020600373800	None	1020600370200	1020600390600	1020600395700	None	1020600410900	1020600429500	1020608762500	-
+5	500	a	1020749999500	1020750000000	True	seq-mismatch	1020750308100	1020750361600	None	1020750374300	1020750379800	1020750385200	None	1020750400400	1020750421900	1020758754900	-
+6	6	a	1020899999400	1020900000000	False	None	1020900345200	1020900399400	None	1020900409400	1020900415000	1020900420700	None	1020900435900	1020900452300	1020908785300	-
+7	7	a	1021049999300	1021050000000	False	None	1021050332300	1021050387200	None	1021050398500	1021050404200	1021050410200	None	1021050425400	None	None	-
+8	8	a	1021199999200	1021200000000	False	None	1021200319400	1021200370000	None	1021200382600	1021200388400	1021200393600	None	1021200408800	1021200431000	1021208764000	-
+--- exit 0

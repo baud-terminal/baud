@@ -10,6 +10,7 @@ use baud_core::RunScan;
 use baud_domain::CacheGeometry;
 
 pub mod flash;
+pub mod key_latency;
 
 /// The scan this crate's own features name, by the three `cfg`s that pick
 /// `baud_core::RUN_SCAN`, read over `neon-scan` and `avx2-scan` here.

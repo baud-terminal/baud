@@ -1,0 +1,5 @@
+exit 3
+SELFTEST FAILED:
+  - leg deliver: {'median': 301.0, 'q1': 300.0, 'q3': 301.0, 'min': 300.0, 'max': 301.0, 'n': 5} != median 300.0 n 5
+  - leg write: {'median': 49.0, 'q1': 49.0, 'q3': 50.0, 'min': 49.0, 'max': 50.0, 'n': 5} != median 50.0 n 5
+  - leg app: {'median': 84.0, 'q1': 84.0, 'q3': 85.0, 'min': 84.0, 'max': 85.0, 'n': 5} != median 85.0 n 5

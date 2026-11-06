@@ -1,5 +1,5 @@
 // Post plain letters to `baud` as CGEvents stamped with the mach host-time
-// clock, for scripts/key-latency.py. This is the *only* thing in the row-0
+// clock, for baud-bench's key-latency. This is the *only* thing in the row-0
 // instrument that touches the desktop, so it is guarded hard.
 //
 // WHAT IT DOES

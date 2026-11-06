@@ -3386,3 +3386,54 @@ before the raw-byte paths and the digits, which they do not touch, 14 did
 not build under `-D warnings` and ran without it, and two were green until
 a test reached them: a reason repeated on a second pass, and `anything`
 reaching on a change in a member.
+
+## The keystroke driver is an example
+
+Not timed: no byte path changed. The Python keystroke driver is now
+`baud-bench/examples/key-latency.rs` over
+`baud-bench/src/key_latency/mod.rs`, with the flags it had; the sweeps
+above name the script as it was then. An example, because
+`baud_is_the_only_binary_and_the_default` allows no other binary and a bare
+`cargo bench` would launch a bench that posts keys. It still runs
+`scripts/key-post.swift`; `scripts/key-pixel.swift` was never launched by
+the driver and is still run by hand. No real sweep ran: one posts keys to
+a window. The self-test and the stand-ins below open none.
+
+Python 3.13.12 under `-I` against the debug build, each input to both:
+
+| input | cases | stdout and exit code |
+|---|---|---|
+| the tree's self-test, `tests/keylat/` | 1 | byte-equal, sha256 `9b817f3c588d2695` |
+| one perturbation of its fixture a branch | 41, exit 3 on 35, 0 on 6 | byte-equal |
+| whole sweeps over `tests/keylat/stub` | 7, exits 0, 1, 2, 4 | byte-equal, raw rows too, pids scrubbed |
+| command lines that stop before a launch | 53 | byte-equal, help's name scrubbed |
+| mutated `keylat:` lines | 20,000 | same record or same failure text |
+| `front` and `post` lines | 3,021 and 13 | same fields |
+| random three-arm runs, all tables | 1,500 | byte-equal |
+
+The first three rows' answers are committed in `tests/keylat/golden/`, so
+`baud-bench/tests/` holds the Rust to them with the Python gone.
+`the_fixture_s_first_record_is_what_the_line_emits` still ties the fixture
+to `baud-app/src/latency.rs`.
+
+**What differs.** With `BAUD_KEYLAT_FIXTURES` unset the `fixtures:` lines
+read `baud-bench/..` for `scripts/..`; set, they are equal. A Python
+traceback (a fixture unreadable, a binary that will not start) is one
+stderr line at the same exit code and stdout, and a helper that will not
+start now also stops the app. An offset too large for a stamp is a counted
+parse failure where Python crashed. Non-ASCII digits are refused where
+`int` took them; the app prints ASCII, and every ASCII case above agrees.
+
+**The stream child.** `--child stream` ran `python3 -u`; it now runs this
+driver with a flag, so the header's `child:` line names that command. Over
+a datagram socket, which keeps each write(2) apart, both children write the
+number and the line's end separately, and
+`the_stream_child_writes_each_number_and_each_end_alone` pins it. Through a
+pipe, five rounds rotated, the first dropped, a line takes [2.512-2.573] ms
+under Python and [2.531-2.598] ms here: ranges overlap, no result. What the
+swap does to a sweep's `build` is unmeasured.
+
+**Red first.** 35 mutations of the Rust each turn a test red, the kept logs'
+34 and `-h=1` reaching help. A first run left three alive: two have tests
+now, and the third weights the quartile by 3/4 and 1/4, which are exact, so
+it is the same function, and 200,000 random lists found no difference.

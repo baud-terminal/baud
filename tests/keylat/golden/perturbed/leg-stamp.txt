@@ -1,0 +1,7 @@
+exit 3
+SELFTEST FAILED:
+  - leg stamp: {'median': 1.0, 'q1': 0.0, 'q3': 1.0, 'min': 0.0, 'max': 1.0, 'n': 5} != median 0.0 n 5
+  - leg deliver: {'median': 301.0, 'q1': 300.0, 'q3': 301.0, 'min': 300.0, 'max': 301.0, 'n': 5} != median 300.0 n 5
+  - leg to_shown: {'median': 386.0, 'q1': 385.0, 'q3': 386.0, 'min': 385.0, 'max': 386.0, 'n': 5} != median 385.0 n 5
+  - leg total: {'median': 421.0, 'q1': 411.0, 'q3': 430.0, 'min': 401.0, 'max': 440.0, 'n': 5} != median 420.0 n 5
+  - leg total_hi: {'median': 437.7, 'q1': 427.7, 'q3': 446.7, 'min': 417.7, 'max': 456.7, 'n': 5} != median 436.7 n 5

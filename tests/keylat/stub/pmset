@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stands in for pmset: the power source KEYLAT_STUB_POWER names, AC by default.
+if [ "${KEYLAT_STUB_POWER:-ac}" = battery ]; then
+  echo "Now drawing from 'Battery Power'"
+else
+  echo "Now drawing from 'AC Power'"
+fi
+echo " -InternalBattery-0 (id=1)	100%; charged; 0:00 remaining present: true"
+echo "a third line no report reads"

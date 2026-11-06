@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Stands in for scripts/key-post.swift under a sweep: it posts nothing. The
+# driver runs it through BAUD_SWIFT, so its first argument is the script's
+# path. Each run's stamps are arithmetic on the key, the run and the arm, so
+# the sweep's report is the same on every box; KEYLAT_STUB_MODE picks the
+# path through the driver.
+state=$KEYLAT_STUB_STATE
+mode=${KEYLAT_STUB_MODE:-sweep}
+shift
+case $1 in
+--info)
+  echo "refresh 120"
+  exit 0
+  ;;
+--front)
+  pid=$(cat "$state/app.pid")
+  if [ "$mode" = refused ]; then
+    echo "front 1 Other App app 1 Other App"
+  else
+    echo "front $pid Stub App app $pid Stub App"
+  fi
+  exit 0
+  ;;
+esac
+pid=$1 keys=$2 gap=$3
+if [ "$mode" = failed ]; then
+  echo "partial output"
+  echo "the helper's complaint" >&2
+  exit 7
+fi
+run=$(($(cat "$state/run" 2>/dev/null || echo 0) + 1))
+echo $run >"$state/run"
+bump=0
+[ "$(cat "$state/app.arm")" = new ] && bump=4000
+us() { printf '+%d.%d' $(($1 / 10)) $(($1 % 10)); }
+echo "jitter seed $pid mean $gap ms range [1-2] ms"
+: >"$state/lines.tmp"
+{
+  echo "keylat: refused zone"
+  [ $((run % 2)) = 0 ] && echo "keylat: noted over-occupied"
+  echo "not a keylat line"
+} >>"$state/lines.tmp"
+commit_prev=0 event_prev=0
+k=0
+while [ $k -lt "$keys" ]; do
+  k=$((k + 1))
+  event=$((1000000000000 + run * 10000000000 + k * 150000000))
+  [ $k = 2 ] && event=$((event_prev + 100000))
+  post=$((event - k * 100))
+  echo "post $k $post a"
+  handled=$((3000 + (k * 371 + run * 113) % 500))
+  written=$((handled + 500 + (k * 7) % 50))
+  echo=$((written + 100 + (k * 13 + run) % 40 + bump))
+  fed=$((echo + 50 + k % 9))
+  commit=$((fed + 50 + (k * 3) % 11))
+  [ $k = 2 ] && {
+    handled=1000 written=2000 echo=3000 fed=4000
+    commit=$((commit_prev - 1000))
+  }
+  landed=$((commit + 100 + run % 7))
+  shown=$((landed + 50))
+  vsync=$((shown + 150 + (k * 29) % 80))
+  hi=$((vsync + 83330))
+  pred=- predok=-
+  case $((k % 7)) in
+  3)
+    p=$((written + 20))
+    pred=$(us $p)
+    commit=$((p + 30))
+    landed=$((commit + 100))
+    shown=$((landed + 50))
+    predok=yes
+    [ $k -gt 7 ] && predok=no
+    ;;
+  esac
+  seq=$k
+  [ $k = 5 ] && seq=500
+  [ $k = 4 ] && echo=$((written - 36))
+  line="keylat: seq=$seq event=$event handled=$(us $handled) written=$(us $written)"
+  line="$line pred=$pred echo=$(us $echo) fed=$(us $fed) commit=$(us $commit)"
+  if [ "$mode" = landings ] && [ $((k % 2)) = 0 ]; then
+    line="$line landed=-"
+  elif [ "$mode" = cpu ]; then
+    line="$line landed=-"
+  else
+    line="$line landed=$(us $landed)"
+  fi
+  line="$line shown=$(us $shown)"
+  if [ $k = 7 ]; then
+    line="$line vsync=- vsync_hi=-"
+  else
+    line="$line vsync=$(us $vsync) vsync_hi=$(us $hi)"
+  fi
+  [ "$pred" != - ] && line="$line predok=$predok"
+  [ $k = 6 ] && line="$line extra=tolerated"
+  [ $k = "$keys" ] && [ "$k" -gt 8 ] && line="keylat: seq=$k event=$event handled=$(us $handled)"
+  [ "$mode" = silent ] || echo "$line" >>"$state/lines.tmp"
+  commit_prev=$commit event_prev=$event
+  if [ "$mode" = refused ] && [ $k = 2 ]; then
+    echo "REFUSED front window 1 Other App front app 1 Other App posted 2"
+    break
+  fi
+done
+[ "$mode" = landings ] && echo "keylat: landing refused ended=2 now=1" >>"$state/lines.tmp"
+echo "keylat: 1 keys open" >>"$state/lines.tmp"
+mv "$state/lines.tmp" "$state/lines"
+while [ -f "$state/lines" ]; do sleep 0.01; done
+[ "$mode" = refused ] && exit 3
+exit 0

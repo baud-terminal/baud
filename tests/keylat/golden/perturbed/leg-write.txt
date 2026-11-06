@@ -1,0 +1,4 @@
+exit 3
+SELFTEST FAILED:
+  - leg write: {'median': 51.0, 'q1': 50.0, 'q3': 51.0, 'min': 50.0, 'max': 51.0, 'n': 5} != median 50.0 n 5
+  - leg child: {'median': 9.0, 'q1': 9.0, 'q3': 10.0, 'min': 9.0, 'max': 10.0, 'n': 5} != median 10.0 n 5

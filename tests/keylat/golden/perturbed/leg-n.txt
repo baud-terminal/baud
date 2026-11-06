@@ -1,0 +1,4 @@
+exit 3
+SELFTEST FAILED:
+  - leg build: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 4} != median 5.0 n 5
+  - leg gpu: {'median': 10.0, 'q1': 10.0, 'q3': 10.0, 'min': 10.0, 'max': 10.0, 'n': 4} != median 10.0 n 5

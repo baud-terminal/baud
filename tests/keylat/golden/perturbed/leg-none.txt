@@ -1,0 +1,7 @@
+exit 3
+SELFTEST FAILED:
+  - leg show: None != median 5.0 n 5
+  - leg app: None != median 85.0 n 5
+  - leg vsync: None != median 35.0 n 5
+  - leg vsync_hi: None != median 51.7 n 5
+  - leg to_shown: None != median 385.0 n 5

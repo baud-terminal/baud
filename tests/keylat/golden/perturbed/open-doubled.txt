@@ -1,0 +1,3 @@
+exit 3
+SELFTEST FAILED:
+  - expected the one open-keys line, got ['keylat: 3 keys open', 'keylat: 4 keys open']

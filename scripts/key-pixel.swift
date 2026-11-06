@@ -1,6 +1,6 @@
 // The external keystroke-to-pixel probe: post ONE letter to baud and time,
 // from outside the app, when the pixels actually change. Its purpose is to
-// validate the in-app `vsync` estimate that scripts/key-latency.py reports --
+// validate the in-app `vsync` estimate that baud-bench's key-latency reports --
 // `vsync` is baud's guess at the pixel time; this is a measurement of it.
 //
 // HOW IT DETECTS THE CHANGE -- bytes, never idle status

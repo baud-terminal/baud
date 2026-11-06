@@ -1,0 +1,21 @@
+exit 3
+SELFTEST FAILED:
+  - expected 9 keylat records, got 10
+  - expected one parse failure naming vsync_hi on seq=10, got []
+  - pairing counts wrong: {'posted': 10, 'keylats': 10, 'paired': 10, 'unpaired_posts': 0, 'unpaired_keylats': 0, 'seq_mismatch': 1, 'event_before_post': 1, 'window': 1, 'negative': 0}
+  - posted/paired: 10/10 != 10/9
+  - expected 5 completed, got 6
+  - leg stamp: {'median': 0.0, 'q1': 0.0, 'q3': 0.0, 'min': 0.0, 'max': 0.0, 'n': 6} != median 0.0 n 5
+  - leg deliver: {'median': 300.0, 'q1': 300.0, 'q3': 300.0, 'min': 300.0, 'max': 300.0, 'n': 6} != median 300.0 n 5
+  - leg write: {'median': 50.0, 'q1': 50.0, 'q3': 50.0, 'min': 50.0, 'max': 50.0, 'n': 6} != median 50.0 n 5
+  - leg child: {'median': 10.0, 'q1': 10.0, 'q3': 10.0, 'min': 10.0, 'max': 10.0, 'n': 6} != median 10.0 n 5
+  - leg wake: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg build: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg gpu: {'median': 10.0, 'q1': 10.0, 'q3': 10.0, 'min': 10.0, 'max': 10.0, 'n': 6} != median 10.0 n 5
+  - leg show: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg app: {'median': 85.0, 'q1': 85.0, 'q3': 85.0, 'min': 85.0, 'max': 85.0, 'n': 6} != median 85.0 n 5
+  - leg vsync: {'median': 30.0, 'q1': 17.5, 'q3': 42.5, 'min': 15.0, 'max': 55.0, 'n': 6} != median 35.0 n 5
+  - leg vsync_hi: {'median': 46.7, 'q1': 34.2, 'q3': 59.2, 'min': 31.7, 'max': 71.7, 'n': 6} != median 51.7 n 5
+  - leg to_shown: {'median': 385.0, 'q1': 385.0, 'q3': 385.0, 'min': 385.0, 'max': 385.0, 'n': 6} != median 385.0 n 5
+  - leg total: {'median': 415.0, 'q1': 402.5, 'q3': 427.5, 'min': 400.0, 'max': 440.0, 'n': 6} != median 420.0 n 5
+  - leg total_hi: {'median': 431.7, 'q1': 419.2, 'q3': 444.2, 'min': 416.7, 'max': 456.7, 'n': 6} != median 436.7 n 5

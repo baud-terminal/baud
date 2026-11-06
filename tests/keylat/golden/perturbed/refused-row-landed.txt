@@ -1,0 +1,21 @@
+exit 3
+SELFTEST FAILED:
+  - expected 1 refused-landing row, got 0
+  - expected exclusions {6: 'event<post', 7: 'event-post>=window', 8: 'seq-mismatch', 9: 'refused-landing'}, got {6: 'event<post', 7: 'event-post>=window', 8: 'seq-mismatch'}
+  - expected 5 completed, got 6
+  - expected 4 excluded, got 3
+  - refused-landing must be counted by reason: {'event<post': 1, 'event-post>=window': 1, 'seq-mismatch': 1}
+  - leg stamp: {'median': 0.0, 'q1': 0.0, 'q3': 0.0, 'min': 0.0, 'max': 0.0, 'n': 6} != median 0.0 n 5
+  - leg deliver: {'median': 300.0, 'q1': 300.0, 'q3': 300.0, 'min': 300.0, 'max': 300.0, 'n': 6} != median 300.0 n 5
+  - leg write: {'median': 50.0, 'q1': 50.0, 'q3': 50.0, 'min': 50.0, 'max': 50.0, 'n': 6} != median 50.0 n 5
+  - leg child: {'median': 10.0, 'q1': 10.0, 'q3': 10.0, 'min': 10.0, 'max': 10.0, 'n': 6} != median 10.0 n 5
+  - leg wake: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg build: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg gpu: {'median': 10.0, 'q1': 10.0, 'q3': 10.0, 'min': 10.0, 'max': 10.0, 'n': 6} != median 10.0 n 5
+  - leg show: {'median': 5.0, 'q1': 5.0, 'q3': 5.0, 'min': 5.0, 'max': 5.0, 'n': 6} != median 5.0 n 5
+  - leg app: {'median': 85.0, 'q1': 85.0, 'q3': 85.0, 'min': 85.0, 'max': 85.0, 'n': 6} != median 85.0 n 5
+  - leg vsync: {'median': 40.0, 'q1': 27.5, 'q3': 52.5, 'min': 15.0, 'max': 65.0, 'n': 6} != median 35.0 n 5
+  - leg vsync_hi: {'median': 56.7, 'q1': 44.2, 'q3': 69.2, 'min': 31.7, 'max': 81.7, 'n': 6} != median 51.7 n 5
+  - leg to_shown: {'median': 385.0, 'q1': 385.0, 'q3': 385.0, 'min': 385.0, 'max': 385.0, 'n': 6} != median 385.0 n 5
+  - leg total: {'median': 425.0, 'q1': 412.5, 'q3': 437.5, 'min': 400.0, 'max': 450.0, 'n': 6} != median 420.0 n 5
+  - leg total_hi: {'median': 441.7, 'q1': 429.2, 'q3': 454.2, 'min': 416.7, 'max': 466.7, 'n': 6} != median 436.7 n 5

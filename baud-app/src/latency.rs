@@ -1,6 +1,6 @@
 //! The keystroke-to-pixel instrument: one record per key, stamped as the
 //! key crosses each stage of this process, and one line to stderr per key
-//! once the last stage is known. `scripts/key-latency.py` drives it.
+//! once the last stage is known. `baud-bench`'s `key-latency` drives it.
 //!
 //! **The clock.** Every stamp is a [`HostTime`] -- mach host time in
 //! nanoseconds -- whether it came from `NSEvent.timestamp`, from the pty
@@ -1085,7 +1085,7 @@ mod tests {
         assert_eq!(c.settle(t(us!(16_666))).len(), 1);
     }
 
-    /// The driver's self-test fixture is parsed by `scripts/key-latency.py`
+    /// The driver's self-test fixture is parsed by `baud-bench`'s `key-latency`
     /// and its first record has to be what `Record::line` emits, or the two
     /// halves of the instrument can drift apart while both suites stay
     /// green. Rebuilding the record from the fixture's own numbers and

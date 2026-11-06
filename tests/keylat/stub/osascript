@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stands in for osascript, so a test of the sweep raises no process: it notes
+# that it was asked, and does nothing.
+echo "$*" >>"$KEYLAT_STUB_STATE/osascript.log"

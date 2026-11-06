@@ -1,0 +1,4 @@
+exit 3
+SELFTEST FAILED:
+  - leg vsync: {'median': 9015.0, 'q1': 55.0, 'q3': 9025.0, 'min': 45.0, 'max': 9035.0, 'n': 5} != median 35.0 n 5
+  - leg total: {'median': 9400.0, 'q1': 440.0, 'q3': 9410.0, 'min': 430.0, 'max': 9420.0, 'n': 5} != median 420.0 n 5
