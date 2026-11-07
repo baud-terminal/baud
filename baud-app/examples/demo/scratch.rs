@@ -3,7 +3,7 @@
 //! the person's own -- no shell startup file, no program's config --
 //! reaches the film.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// **The grid the window opens at: 80 columns by 24 rows, the VT100's
 /// screen, at 14 points.** The README shows the GIF 776 px wide whatever
@@ -16,6 +16,25 @@ pub const POINTS: u32 = 14;
 
 /// baud's config under the home, as the session's helix opens it.
 pub const CONFIG: &str = ".config/baud/config.toml";
+
+/// **A new directory in `tmp`, by its physical path.** macOS's `/var` is a
+/// symbolic link to `/private/var`, and a terminal's `TMPDIR` is under `/var`.
+/// A shell told no `PWD`, as the window's is, finds the resolved path, and
+/// starship and zsh spell a path from `HOME` only when `HOME` is a prefix of
+/// it: under a `HOME` in the other spelling the prompt showed the path,
+/// `⋯/baud-demo-18837-0/home/baud`, where `~/baud` belongs, and the session's
+/// leak check refused the take. So every path the session is given is
+/// resolved here, once, and all of them share it.
+pub fn fresh_root(tmp: &Path) -> Result<PathBuf, String> {
+    let tmp = std::fs::canonicalize(tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    for n in 0..100 {
+        let dir = tmp.join(format!("baud-demo-{}-{n}", std::process::id()));
+        if std::fs::create_dir(&dir).is_ok() {
+            return Ok(dir);
+        }
+    }
+    Err(format!("no new directory in {}", tmp.display()))
+}
 
 /// Where everything lives under the scratch root.
 pub struct Layout {
@@ -254,6 +273,54 @@ mod tests {
         assert_eq!(env_named(&env(&at, &path), &root, &n), []);
         let leaky = zshrc("/Users/me/bin:/usr/bin");
         assert!(!named(leaky.as_bytes(), &n).is_empty());
+    }
+
+    /// **Every path the session is given is physical, whatever spells the
+    /// temporary directory**: a root made through a real symbolic link is the
+    /// resolved path, `HOME`, `ZDOTDIR`, `TMPDIR` and `BAUD_PTYLOG` all under
+    /// it, and a shell in the working directory told no `PWD`, as the window's
+    /// is, reads a `PWD` and a `pwd -P` under `HOME`, which is what makes the
+    /// prompt `~/baud`. Perturbation: join the link's spelling without
+    /// resolving it, and `HOME` is no prefix of what `pwd -P` prints, the run
+    /// that showed `⋯/baud-demo-18837-0/home/baud`.
+    #[test]
+    fn every_path_the_session_is_given_is_physical() {
+        let base = std::env::temp_dir().join(format!("demo-physical-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let resolved = real.canonicalize().unwrap();
+
+        let root = fresh_root(&link).unwrap();
+        assert!(root.starts_with(&resolved), "{}", root.display());
+        assert_eq!(root.canonicalize().unwrap(), root);
+
+        let at = Layout { root: root.clone() };
+        std::fs::create_dir_all(at.work()).unwrap();
+        let e = env(&at, "/a/bin");
+        let var = |k: &str| {
+            let (_, v) = e.iter().find(|(key, _)| key == k).unwrap();
+            PathBuf::from(v)
+        };
+        for k in ["HOME", "ZDOTDIR", "TMPDIR", "BAUD_PTYLOG"] {
+            assert!(var(k).starts_with(&root), "{k}: {}", var(k).display());
+        }
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", "pwd -P; printf '%s\n' \"$PWD\""])
+            .env_clear()
+            .env("HOME", var("HOME"))
+            .current_dir(at.work())
+            .output()
+            .unwrap();
+        let said = String::from_utf8(out.stdout).unwrap();
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), 2, "{said}");
+        for line in lines {
+            assert!(Path::new(line).starts_with(var("HOME")), "{line}");
+        }
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// **The config lists baud's own faces by name and the pinned ones by

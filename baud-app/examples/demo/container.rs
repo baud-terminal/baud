@@ -39,18 +39,18 @@
 //! in the scratch directory, and the host key is known before the first
 //! connection, so ssh never asks and never writes.
 //!
-//! **colima's own profiles are left as they were found**: the session's VM
-//! is a profile of its own, [`COLIMA_PROFILE`], made with every CPU of
-//! this Mac and docker's context left where it was, and deleted with its
-//! data at the end; a profile of that name already there is refused. The
-//! container and its image are removed, and the VM deleted, on every way
-//! out ([`Running`]'s drop), Ctrl-C among them: its handler only sets
-//! [`INTERRUPTED`], and every wait the session makes stops on it and
-//! returns, so the drop runs.
+//! **colima's own directories are left as they were found**: the session's
+//! VM is a profile of its own, [`COLIMA_PROFILE`], in a directory made for
+//! the session ([`ColimaHome`]), made with every CPU of this Mac and
+//! docker's context left where it was, and deleted with its data and that
+//! directory at the end. The container and its image are removed, and the
+//! VM deleted, on every way out ([`Running`]'s drop), Ctrl-C among them: its
+//! handler only sets [`INTERRUPTED`], and every wait the session makes stops
+//! on it and returns, so the drop runs.
 
 use std::fs;
 use std::io::{Read as _, Write as _};
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -270,14 +270,65 @@ pub fn keys(home: &Path, dir: &Path, keygen: &Path, port: u16) -> Result<(Keys, 
 pub const COLIMA_PROFILE: &str = "baud-demo";
 
 /// **`colima start`'s arguments for the session's VM**: [`COLIMA_PROFILE`]
-/// with `cpus`, colima's defaults for the rest, and docker's context not
-/// switched to it, since the session talks to its socket alone.
+/// with `cpus`, colima's defaults for the rest, docker's context not
+/// switched to it, since the session talks to its socket alone, and
+/// `~/.ssh/config` not touched: colima's default prepends an
+/// `Include <its directory>/ssh_config` there, which for a directory of one
+/// take would be a dangling line in that file for every take.
 fn start_args(cpus: usize) -> Vec<String> {
     ["start", "-p", COLIMA_PROFILE, "--cpus"]
         .into_iter()
         .map(str::to_string)
-        .chain([cpus.to_string(), "--activate=false".to_string()])
+        .chain([
+            cpus.to_string(),
+            "--activate=false".to_string(),
+            "--ssh-config=false".to_string(),
+        ])
         .collect()
+}
+
+/// Where each session's colima directory goes ([`ColimaHome`]).
+const COLIMA_BASE: &str = "/tmp";
+
+/// How each session's colima directory is named, before its pid.
+const COLIMA_PREFIX: &str = "baud-colima-";
+
+/// **The command that deletes a session's VM from the directory it is in.**
+fn delete_command(home: &str) -> String {
+    format!("COLIMA_HOME={home} LIMA_HOME={home}/_lima colima delete -p {COLIMA_PROFILE} -f --data")
+}
+
+/// What the end of a session says of its VM's deletion.
+fn deleted_line(deleted: &Said, home: &str) -> String {
+    match deleted {
+        Ok(_) => "colima:  the session's VM deleted".to_string(),
+        Err(_) => format!(
+            "colima:  the session's VM deleted -- FAILED: run `{}`, then remove that directory",
+            delete_command(home)
+        ),
+    }
+}
+
+/// **A session that did not end**, from the names in `base`: a directory of
+/// a session is removed at its end, so one still there is a take killed past
+/// the reach of its handler, whose VM may still run where a plain
+/// `colima list` does not look, or a take running now. A second VM beside
+/// it is not started; the sentence names the directory and how to delete
+/// what is in it.
+fn leftover(base: &Path, names: impl Iterator<Item = String>) -> Result<(), String> {
+    let mut left: Vec<String> = names.filter(|n| n.starts_with(COLIMA_PREFIX)).collect();
+    left.sort();
+    let Some(first) = left.first() else {
+        return Ok(());
+    };
+    let dir = base.join(first).to_string_lossy().into_owned();
+    Err(format!(
+        "{dir} is left by a session that did not end, or is in use by one running now, and its \
+         VM may still run where a plain `colima list` does not look: run `{}`, then remove that \
+         directory ({} found)",
+        delete_command(&dir),
+        left.len()
+    ))
 }
 
 /// Whether `colima list --json`, a profile a line, names
@@ -287,11 +338,132 @@ fn listed(list: &str) -> bool {
     list.lines().any(|l| l.contains(&name))
 }
 
-/// What docker's context was before the session, and the docker it talks
-/// to: the session's VM's socket, empty until it is up.
+/// **The room kept for what lima puts under colima's directory**, in bytes:
+/// a socket's path must fit `sun_path`, and the sockets of a running VM are
+/// its own directory's and its network's, under this.
+const SOCKET_ROOM: usize = 64;
+
+/// The longest a Unix socket's path can be on macOS (`sun_path`).
+const SOCKET_PATH: usize = 104;
+
+/// **colima's directory for the session's VM**, every colima command run
+/// with it: its config, lima's instance, the VM's disk and docker's socket
+/// all go here, so no directory of colima's in the home is read, written or
+/// made. colima 0.10.3 obeys `COLIMA_HOME` only when it names a directory
+/// that exists (`os.Stat`, its `config/files.go`), and otherwise goes on to
+/// `~/.colima`, which it makes if `XDG_CONFIG_HOME` is unset, and which once
+/// it exists hides `$XDG_CONFIG_HOME/colima` and every VM there. So this is
+/// made first. `LIMA_HOME` is named after the first command too, since
+/// colima obeys one it inherits before its own directory's `_lima`. In
+/// `/tmp`, physical, for the sockets:
+/// the system's temporary directory leaves too little room. Dropped, it is
+/// removed, unless [`ColimaHome::keep`] said the VM is still in it.
+struct ColimaHome {
+    dir: Option<PathBuf>,
+}
+
+impl ColimaHome {
+    /// A new directory `baud-colima-<pid>-<n>` in `base`, this user's alone.
+    fn new_in(base: &Path, pid: u32) -> Result<ColimaHome, String> {
+        let base = fs::canonicalize(base).map_err(|e| format!("{}: {e}", base.display()))?;
+        for n in 0..100 {
+            let dir = base.join(format!("{COLIMA_PREFIX}{pid}-{n}"));
+            if fs::DirBuilder::new().mode(0o700).create(&dir).is_ok() {
+                let home = ColimaHome { dir: Some(dir) };
+                if home.path().len() + SOCKET_ROOM > SOCKET_PATH {
+                    return Err(format!(
+                        "{} leaves lima too little room for a socket's path",
+                        home.path()
+                    ));
+                }
+                return Ok(home);
+            }
+        }
+        Err(format!("no new directory in {}", base.display()))
+    }
+
+    fn path(&self) -> String {
+        self.dir
+            .as_deref()
+            .map_or(String::new(), |d| d.to_string_lossy().into_owned())
+    }
+
+    /// What every colima command after the first is run with.
+    fn env(&self) -> [(&'static str, String); 2] {
+        let home = self.path();
+        let lima = format!("{home}/_lima");
+        [("COLIMA_HOME", home), ("LIMA_HOME", lima)]
+    }
+
+    /// **The first colima command**, told this directory and no `LIMA_HOME`,
+    /// not even one it would inherit: colima makes and obeys a `LIMA_HOME`
+    /// whichever directory it chose (`limaDir`, its `config/files.go`), so
+    /// only without one does `_lima` say which it chose.
+    fn list_command(&self) -> Command {
+        let mut c = Command::new("colima");
+        c.args(["list", "--json"])
+            .env("COLIMA_HOME", self.path())
+            .env_remove("LIMA_HOME")
+            .stdin(Stdio::null());
+        c
+    }
+
+    /// `cmd`, [`ColimaHome::list_command`], run, and what it listed, or why
+    /// nothing may be started: it failed, or colima did not use this
+    /// directory ([`ColimaHome::obeyed`]).
+    fn first_list(&self, mut cmd: Command) -> Result<String, String> {
+        let out = cmd.output().map_err(|e| format!("colima: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "colima list failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        self.obeyed()?;
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    /// **Whether colima is using this directory**: told no `LIMA_HOME`, a
+    /// colima command makes `_lima` in the directory it chose, so after one,
+    /// none here means it chose another.
+    fn obeyed(&self) -> Result<(), String> {
+        match self.dir.as_deref().map(|d| d.join("_lima").is_dir()) {
+            Some(true) => Ok(()),
+            _ => Err(format!(
+                "colima did not use {}, the directory made for it, so nothing was started",
+                self.path()
+            )),
+        }
+    }
+
+    /// The VM could not be deleted, so what is left of it stays here.
+    fn keep(&mut self) {
+        self.dir = None;
+    }
+}
+
+impl Drop for ColimaHome {
+    fn drop(&mut self) {
+        if let Some(d) = &self.dir {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+}
+
+/// What docker's context was before the session, the docker it talks to --
+/// the session's VM's socket, empty until it is up -- and colima's directory
+/// for the VM.
 struct Colima {
     context: Option<String>,
     host: String,
+    home: ColimaHome,
+}
+
+/// Whether `colima delete` took the session's VM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gone {
+    Yes,
+    No,
 }
 
 /// A command's output, or why it failed.
@@ -329,30 +501,34 @@ impl Undo {
     /// `run`: the container removed, then its image, once the VM's docker
     /// answers; then the session's VM deleted with its data, however far
     /// its start got; then docker switched back to its context if anything
-    /// moved it. Each is tried whatever the one before did.
-    fn run(&self, run: &mut Runner) {
+    /// moved it. Each is tried whatever the one before did. Says whether
+    /// the VM is gone.
+    fn run(&self, run: &mut Runner) -> Gone {
         if !self.colima.host.is_empty() {
             let host = [("DOCKER_HOST", self.colima.host.as_str())];
             let _ = run("docker", &["rm", "-f", &self.name], &host);
             let _ = run("docker", &["image", "rm", "-f", &self.image], &host);
         }
+        let env = self.colima.home.env();
+        let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
         let deleted = run(
             "colima",
             &["delete", "-p", COLIMA_PROFILE, "-f", "--data"],
-            &[],
+            &env,
         );
-        println!(
-            "colima:  the session's VM deleted{}",
-            match deleted {
-                Ok(_) => String::new(),
-                Err(_) => format!(" -- FAILED: run `colima delete -p {COLIMA_PROFILE} -f --data`"),
-            }
-        );
+        // Not `println!`: with its terminal closed, the session's drop still
+        // has the rest of this to do.
+        let line = deleted_line(&deleted, &self.colima.home.path());
+        let _ = writeln!(std::io::stdout(), "{line}");
         let now = run("docker", &["context", "show"], &[]).ok();
         if let (Some(was), Some(now)) = (&self.colima.context, now) {
             if *was != now {
                 let _ = run("docker", &["context", "use", was], &[]);
             }
+        }
+        match deleted {
+            Ok(_) => Gone::Yes,
+            Err(_) => Gone::No,
         }
     }
 }
@@ -375,7 +551,9 @@ impl Running {
 
 impl Drop for Running {
     fn drop(&mut self) {
-        self.undo.run(&mut say);
+        if self.undo.run(&mut say) == Gone::No {
+            self.undo.colima.home.keep();
+        }
     }
 }
 
@@ -388,11 +566,13 @@ fn socket(status: &str) -> Option<String> {
 }
 
 /// **The container up**, its sshd answering on `port`: the session's VM
-/// started as [`COLIMA_PROFILE`] with every CPU of this Mac, the image
-/// loaded from its checked stream, the host key and the user's public key
-/// copied in owned by root, and the container started; then the banner
-/// read through colima's port forward. A profile of that name already
-/// there is refused, not reused: it is a session's that did not end.
+/// started as [`COLIMA_PROFILE`] in its own directory ([`ColimaHome`]) with
+/// every CPU of this Mac, the image loaded from its checked stream, the host
+/// key and the user's public key copied in owned by root, and the container
+/// started; then the banner read through colima's port forward. Nothing is
+/// started while a directory of a session that did not end is there
+/// ([`leftover`]), nor unless colima is using this one: it made `_lima` there
+/// when told no `LIMA_HOME` and lists no profile in it yet.
 /// Everything it started is undone when the result drops, and on an error
 /// before that -- the undo exists before the VM's start, so a start
 /// Ctrl-C cut short is deleted too. Ctrl-C ends the wait for the banner
@@ -400,12 +580,23 @@ fn socket(status: &str) -> Option<String> {
 pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
     let tar = image.gnutar.as_path();
     let context = say("docker", &["context", "show"], &[]).ok();
-    let list = say("colima", &["list", "--json"], &[])
+    let base = fs::canonicalize(COLIMA_BASE).map_err(|e| format!("{COLIMA_BASE}: {e}"))?;
+    let names = fs::read_dir(&base).map_err(|e| format!("{}: {e}", base.display()))?;
+    leftover(
+        &base,
+        names.filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned())),
+    )?;
+    let home = ColimaHome::new_in(&base, std::process::id())?;
+    let owned_env = home.env();
+    let env: Vec<(&str, &str)> = owned_env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let list = home
+        .first_list(home.list_command())
         .map_err(|e| format!("{e}; the session's container runs in colima"))?;
     if listed(&list) {
         return Err(format!(
-            "colima already has a profile {COLIMA_PROFILE}, a session's that did not end; \
-             `colima delete -p {COLIMA_PROFILE} -f --data` removes it"
+            "colima lists a profile {COLIMA_PROFILE} in {}, a directory made for this session, \
+             so it is not reading that directory",
+            home.path()
         ));
     }
     let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
@@ -414,17 +605,20 @@ pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
             colima: Colima {
                 context,
                 host: String::new(),
+                home,
             },
             name: format!("baud-demo-{}", std::process::id()),
             image: IMAGE.to_string(),
         },
     };
     println!(
-        "colima:  starting the session's VM, profile {COLIMA_PROFILE}, with this Mac's {cpus} \
-         CPUs; it is deleted at the end"
+        "colima:  starting the session's VM, profile {COLIMA_PROFILE}, in {}, with this Mac's \
+         {cpus} CPUs; it is deleted at the end",
+        run.undo.colima.home.path()
     );
     let ok = Command::new("colima")
         .args(start_args(cpus))
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .status()
         .map_err(|e| format!("colima: {e}"))?;
@@ -432,7 +626,7 @@ pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
     if !ok.success() {
         return Err("colima did not start the session's VM".to_string());
     }
-    run.undo.colima.host = say("colima", &["status", "-p", COLIMA_PROFILE, "--json"], &[])
+    run.undo.colima.host = say("colima", &["status", "-p", COLIMA_PROFILE, "--json"], &env)
         .ok()
         .and_then(|s| socket(&s))
         .unwrap_or_default();
@@ -961,6 +1155,9 @@ mod tests {
             colima: Colima {
                 context: Some(was.to_string()),
                 host: host.to_string(),
+                home: ColimaHome {
+                    dir: Some(PathBuf::from("/c/home")),
+                },
             },
             name: "baud-demo-7".to_string(),
             image: IMAGE.to_string(),
@@ -982,16 +1179,19 @@ mod tests {
     /// Ctrl-C's alike, since Ctrl-C returns through the drop: the container
     /// and then its image removed from the VM's docker, the image though
     /// the container's removal failed; the session's VM deleted with its
-    /// data, and before its docker answered only that; and docker's context
-    /// put back only if it moved. No other profile is named: none is
-    /// stopped. The VM's start names its own profile, every CPU asked
-    /// for, and leaves docker's context; a profile of its name already
-    /// listed is found, and the control, another's, is not.
+    /// data, in colima's directory for it, and before its docker answered
+    /// only that; and docker's context put back only if it moved. No other
+    /// profile is named: none is stopped. The VM's start names its own
+    /// profile, every CPU asked for, and leaves docker's context and
+    /// `~/.ssh/config`; a profile of its name already listed is found, and
+    /// the control, another's, is not. Perturbation: pass the delete no
+    /// environment, and colima looks for the VM in the home.
     #[test]
     fn the_undo_removes_the_container_and_deletes_the_vm() {
         let rm = "DOCKER_HOST=unix:///c/docker.sock docker rm -f baud-demo-7";
         let rmi = "DOCKER_HOST=unix:///c/docker.sock docker image rm -f baud-demo:readme";
-        let delete = "colima delete -p baud-demo -f --data";
+        let delete =
+            "COLIMA_HOME=/c/home LIMA_HOME=/c/home/_lima colima delete -p baud-demo -f --data";
         assert_eq!(
             undone("unix:///c/docker.sock", "default", "colima-baud-demo"),
             [
@@ -1019,7 +1219,8 @@ mod tests {
                 "baud-demo",
                 "--cpus",
                 "18",
-                "--activate=false"
+                "--activate=false",
+                "--ssh-config=false"
             ]
         );
         let list = "{\"name\":\"default\",\"status\":\"Stopped\"}\n";
@@ -1027,6 +1228,207 @@ mod tests {
         assert!(listed(&format!(
             "{list}{{\"name\":\"baud-demo\",\"status\":\"Running\"}}\n"
         )));
+    }
+
+    /// **colima's directory exists before colima is asked**, since 0.10.3
+    /// goes on to `~/.colima` from a `COLIMA_HOME` that does not exist; it
+    /// is this user's alone and physical through a symbolic link, names
+    /// itself and lima's directory in the environment, leaves a socket room,
+    /// and a second one in the same place is another. Dropped, it is gone,
+    /// and one told to keep what is in it stays. `obeyed` reads the `_lima`
+    /// a colima command makes: without it, colima chose another directory.
+    /// Perturbation: name the path without making it, and the first assert
+    /// fails, which is the run that made `~/.colima`.
+    #[test]
+    fn colima_s_directory_is_made_first_and_taken_away_last() {
+        // In /tmp, as the real one is: the temporary directory is too long.
+        let short = |tag: &str| {
+            let d = PathBuf::from(format!("/tmp/c-{}-{tag}", std::process::id()));
+            let _ = fs::remove_dir_all(&d);
+            fs::create_dir_all(&d).unwrap();
+            d
+        };
+        let real = short("r");
+        let link = short("l").join("b");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let home = ColimaHome::new_in(&link, 42).unwrap();
+        let dir = PathBuf::from(home.path());
+        assert!(dir.is_dir(), "there before colima is asked");
+        assert_eq!(dir, real.canonicalize().unwrap().join("baud-colima-42-0"));
+        let mode = fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        assert_eq!(
+            home.env(),
+            [
+                ("COLIMA_HOME", home.path()),
+                ("LIMA_HOME", format!("{}/_lima", home.path()))
+            ]
+        );
+        assert!(home.obeyed().is_err(), "no command has used it");
+        fs::create_dir(dir.join("_lima")).unwrap();
+        assert_eq!(home.obeyed(), Ok(()));
+        let mut second = ColimaHome::new_in(&link, 42).unwrap();
+        assert_ne!(second.path(), home.path());
+        let left = PathBuf::from(second.path());
+        second.keep();
+        drop(second);
+        assert!(left.is_dir(), "the VM could not be deleted");
+        drop(home);
+        assert!(!dir.exists());
+        let longest = format!("/private/tmp/{COLIMA_PREFIX}{}-99", u32::MAX);
+        assert!(longest.len() + SOCKET_ROOM <= SOCKET_PATH);
+        let far = real.join("x".repeat(100));
+        fs::create_dir_all(&far).unwrap();
+        assert!(
+            ColimaHome::new_in(&far, 42).is_err(),
+            "a long directory leaves too little room"
+        );
+        for d in [real, link.parent().unwrap().to_path_buf()] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    /// **A session that did not end is refused, by name, with the command
+    /// that deletes it**, the first of them when there are several; what else
+    /// is in the directory is not a session's. Perturbation: find nothing,
+    /// and a second VM starts beside the one a killed take left.
+    #[test]
+    fn a_session_that_did_not_end_is_refused_by_name() {
+        let base = Path::new("/private/tmp");
+        let names = |n: &[&str]| {
+            n.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        assert_eq!(leftover(base, names(&[])), Ok(()));
+        assert_eq!(
+            leftover(
+                base,
+                names(&["baud-colima", "baud-demo-7-0", "x-baud-colima-7-0"])
+            ),
+            Ok(()),
+            "none is a session's"
+        );
+        let said = leftover(
+            base,
+            names(&["other", "baud-colima-9-0", "baud-colima-10-0"]),
+        );
+        let said = said.unwrap_err();
+        assert!(
+            said.starts_with("/private/tmp/baud-colima-10-0 is left by"),
+            "{said}"
+        );
+        assert!(
+            said.contains(
+                "run `COLIMA_HOME=/private/tmp/baud-colima-10-0 \
+                 LIMA_HOME=/private/tmp/baud-colima-10-0/_lima colima delete -p baud-demo -f \
+                 --data`, then remove"
+            ),
+            "{said}"
+        );
+        assert!(said.contains("(2 found)"), "{said}");
+    }
+
+    /// **The line a failed delete prints can be pasted**: the command whole,
+    /// one space between its words, and the directory it names. Perturbation:
+    /// a string continued without its backslash, as this was, holds the
+    /// source's indent in the middle of the command.
+    #[test]
+    fn a_failed_delete_prints_a_command_that_can_be_pasted() {
+        assert_eq!(
+            deleted_line(&Err("no".to_string()), "/h"),
+            "colima:  the session's VM deleted -- FAILED: run `COLIMA_HOME=/h LIMA_HOME=/h/_lima \
+             colima delete -p baud-demo -f --data`, then remove that directory"
+        );
+        assert_eq!(
+            deleted_line(&Ok(String::new()), "/h"),
+            "colima:  the session's VM deleted"
+        );
+    }
+
+    /// **The first colima command is told this directory and no `LIMA_HOME`**,
+    /// taking out one it would inherit, and it is the only one that is.
+    /// Perturbation: name `LIMA_HOME` on it, and with colima ignoring this
+    /// directory `_lima` appears here anyway, so `obeyed` could never fire.
+    #[test]
+    fn the_first_list_is_told_no_lima_home() {
+        let home = ColimaHome {
+            dir: Some(PathBuf::from("/c/home")),
+        };
+        let c = home.list_command();
+        let envs: Vec<(String, Option<String>)> = c
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert!(envs.contains(&("LIMA_HOME".to_string(), None)), "{envs:?}");
+        assert!(
+            envs.contains(&("COLIMA_HOME".to_string(), Some("/c/home".to_string()))),
+            "{envs:?}"
+        );
+        assert_eq!(
+            c.get_args().collect::<Vec<_>>(),
+            ["list", "--json"],
+            "reads, starts nothing"
+        );
+        assert!(
+            home.env().iter().any(|(k, _)| *k == "LIMA_HOME"),
+            "the rest are"
+        );
+    }
+
+    /// **colima itself refuses to be believed unless it used the directory**,
+    /// through its real `list`, under a scratch `HOME`, `XDG_CONFIG_HOME`
+    /// unset: a directory that is missing, which colima goes past to
+    /// `~/.colima`, is refused, and that `~/.colima` is the scratch home's; a
+    /// directory that exists is used. The control, why the first command is
+    /// told no `LIMA_HOME`: given one, the missing directory reads as used.
+    /// A host with no colima is skipped, saying so.
+    #[test]
+    fn colima_is_not_believed_unless_it_used_the_directory() {
+        let d = scratch("colima-obeyed");
+        let scratch_home = d.join("h");
+        fs::create_dir_all(&scratch_home).unwrap();
+        let found = Command::new("colima")
+            .arg("version")
+            .env("HOME", &scratch_home)
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("COLIMA_HOME")
+            .env_remove("LIMA_HOME")
+            .output();
+        if found.is_err() {
+            println!("skipped: no colima on PATH");
+            let _ = fs::remove_dir_all(&d);
+            return;
+        }
+        let in_scratch = |home: &ColimaHome| {
+            let mut c = home.list_command();
+            c.env("HOME", &scratch_home).env_remove("XDG_CONFIG_HOME");
+            c
+        };
+        let missing = ColimaHome {
+            dir: Some(d.join("missing")),
+        };
+        let said = missing.first_list(in_scratch(&missing)).unwrap_err();
+        assert!(said.contains("did not use"), "{said}");
+        assert!(scratch_home.join(".colima/_lima").is_dir(), "where it went");
+        let mut told = in_scratch(&missing);
+        told.env("LIMA_HOME", d.join("missing/_lima"));
+        assert!(
+            missing.first_list(told).is_ok(),
+            "the check that cannot fire"
+        );
+        let made = d.join("made");
+        fs::create_dir_all(&made).unwrap();
+        let made = ColimaHome { dir: Some(made) };
+        assert!(made.first_list(in_scratch(&made)).is_ok());
+        drop((missing, made));
+        let _ = fs::remove_dir_all(&d);
     }
 
     /// **The wait for sshd stops on Ctrl-C** at once, with nothing

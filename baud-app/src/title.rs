@@ -434,6 +434,31 @@ pub fn folder_text(path: &[u8], home: Option<&[u8]>) -> String {
 mod tests {
     use super::*;
 
+    /// **A folder the kernel reads is `~` under a physical `HOME`, and not
+    /// under one spelled through a symbolic link**: [`crate::fg::dir`]
+    /// answers the resolved path and [`folder_text`] matches `HOME` as a
+    /// prefix, so the demo's scratch home is physical
+    /// (`baud-app/examples/demo/scratch.rs`). Run on this process's own
+    /// working directory.
+    #[test]
+    fn a_folder_the_kernel_reads_is_home_only_under_a_physical_home() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let pid = Pid::try_from(std::process::id()).expect("a pid in range");
+        let read = crate::fg::dir(pid).expect("the kernel names this process's directory");
+        let here = std::env::current_dir().unwrap().canonicalize().unwrap();
+        assert_eq!(read, here, "the resolved path");
+        let path = read.as_os_str().as_bytes();
+        assert_eq!(folder_text(path, Some(path)), "~");
+        let base = std::env::temp_dir().join(format!("baud-title-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let link = base.join("home");
+        std::os::unix::fs::symlink(&here, &link).unwrap();
+        let spelled = folder_text(path, Some(link.as_os_str().as_bytes()));
+        assert_ne!(spelled, "~", "the same directory, another spelling");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
     /// The kernel as a test writes it, counting what each check asked.
     struct Fake {
         group: Option<Pid>,

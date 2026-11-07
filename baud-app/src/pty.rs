@@ -1368,6 +1368,19 @@ impl Pty {
             Some(dir) => StartIn::Dir(dir),
             None => start_in(started_by, &parent),
         };
+        let (exec, stay) = Pty::exec_and_env(cmd, parent, locale, shell)?;
+        let home = with_pwd(stay.clone(), &start);
+        Pty::fork_in(ws, &exec, &home, &stay, &start)
+    }
+
+    /// What the child runs, and its environment when it stays where baud
+    /// is.
+    fn exec_and_env(
+        cmd: Option<String>,
+        parent: Vec<(OsString, OsString)>,
+        locale: impl FnOnce() -> Option<String>,
+        shell: &ShellStart,
+    ) -> Option<(Exec, Vec<CString>)> {
         let exec = Exec::of(cmd, &parent, shell.integration, shell.program.as_deref())?;
         let mut stay = spawn_env(parent, locale);
         if let Some(v) = &exec.shell_var {
@@ -1376,8 +1389,7 @@ impl Pty {
         if let Some(i) = &exec.injection {
             i.apply(&mut stay);
         }
-        let home = with_pwd(stay.clone(), &start);
-        Pty::fork_in(ws, &exec, &home, &stay, &start)
+        Some((exec, stay))
     }
 
     /// [`Pty::fork_in`] where baud is, for the tests that hand the child a
@@ -1414,21 +1426,25 @@ impl Pty {
     /// integration on, as [`Pty::fork`] starts a window's -- the README
     /// session played without a window (`film::session`). The child's pid
     /// beside the master.
+    ///
+    /// **It is told no `PWD`, as the filmed window's shell is told none**:
+    /// the demo launches baud in `dir` with no `PWD` in its environment, and
+    /// baud under any parent but launchd leaves the child as it is
+    /// ([`StartIn::Inherited`]), so the shell finds its own, the resolved
+    /// path, and a `HOME` spelled through a symbolic link is not a prefix of
+    /// it. Given `dir`'s spelling, as a new window is ([`with_pwd`]), the
+    /// session's prompt read `~/baud` where the window's did not.
     #[cfg(all(test, target_os = "macos"))]
     pub(crate) fn fork_shell(
         ws: crate::sys::Winsize,
-        parent: Vec<(OsString, OsString)>,
+        mut parent: Vec<(OsString, OsString)>,
         dir: &std::path::Path,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
-        Pty::fork_given(
-            ws,
-            None,
-            parent,
-            || None,
-            Parent::Other,
-            Some(dir),
-            &crate::shell::Integration::On.into(),
-        )
+        parent.retain(|(k, _)| k != "PWD");
+        let (exec, env) =
+            Pty::exec_and_env(None, parent, || None, &crate::shell::Integration::On.into())?;
+        let start = StartIn::Dir(CString::new(dir.as_os_str().as_bytes()).ok()?);
+        Pty::fork_in(ws, &exec, &env, &env, &start)
     }
 
     /// [`Pty::fork`] with what the child runs ([`Exec`]), the environments
@@ -3654,6 +3670,56 @@ mod tests {
         .expect("forkpty");
         for line in String::from_utf8_lossy(&read_all(master)).lines() {
             println!("CHILD[{}]", line.trim_end_matches('\r'));
+        }
+    }
+
+    /// **The film's shell finds its own `PWD`, as the window's does**
+    /// ([`Pty::fork_shell`]): a real login zsh started in a directory spelled
+    /// through a symbolic link, with a `HOME` and a `PWD` in that spelling,
+    /// reports the resolved path as `PWD`, not the spelling. The control is
+    /// a new window's start of the same directory
+    /// (`a_new_windows_shell_starts_in_the_directory_it_inherits`), which
+    /// keeps the spelling. Perturbation: give it `with_pwd`, and `PWD` is the
+    /// link's, and a headless take cannot go red where a window does.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_film_s_shell_finds_its_own_pwd() {
+        let real = scratch_dir("film-pwd");
+        let link = scratch_dir("film-pwd-link").join("home");
+        std::os::unix::fs::symlink(&real, &link).expect("a link to it");
+        std::fs::write(
+            real.join(".zshrc"),
+            "print -r -- \"PWD=$PWD\"\nprint -r -- \"HOME=$HOME\"\nexit 0\n",
+        )
+        .expect("the startup file");
+        let spelled = link.to_str().expect("a UTF-8 path");
+        let parent = env_of(&[
+            ("HOME", spelled),
+            ("ZDOTDIR", spelled),
+            ("PWD", spelled),
+            ("SHELL", "/bin/zsh"),
+            ("PATH", "/usr/bin:/bin"),
+            ("LANG", "C"),
+            ("NOSYSZSHRC", "1"),
+        ]);
+        let size = WinSize {
+            ws_col: 200,
+            ws_row: 24,
+        };
+        let (_, master) = Pty::fork_shell(text_area(&size, Px::of(8), Px::of(16)), parent, &link)
+            .expect("forkpty");
+        let said = String::from_utf8_lossy(&read_all(master)).into_owned();
+        let lines: Vec<&str> = said.lines().map(|l| l.trim_end_matches('\r')).collect();
+        assert!(
+            lines.contains(&format!("PWD={}", real.display()).as_str()),
+            "{said:?}"
+        );
+        assert!(
+            lines.contains(&format!("HOME={spelled}").as_str()),
+            "the home keeps its spelling: {said:?}"
+        );
+        for d in [real, link.parent().expect("its directory").into()] {
+            let _ = std::fs::remove_dir_all(d);
         }
     }
 

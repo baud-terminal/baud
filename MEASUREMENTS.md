@@ -4477,3 +4477,26 @@ overridden `isKeyWindow` leaves `hasKeyAppearance` no. None of these state names
 the SDK's AppKit headers. The lamps, the plate and the mark were already `NSImageView`s
 before the panel (`lights.rs`, `mark.rs` at its parent), so whatever this does to a
 window in the background, the panel did not bring it.
+
+## The demo's scratch paths and colima's directory
+
+Not timed: no byte path changed. The defect was in what `--record` hands a session. A
+`TMPDIR` under `/var/folders`, a terminal's default, gave the session a `HOME` in that
+spelling, and a shell told no `PWD`, as the window's is, reads `/private/var/folders`,
+so the prompt showed `⋯/baud-demo-18837-0/home/baud` on all 6 prompts and the leak check
+refused the take. `--headless` had passed the same `TMPDIR`, since its shell was given a
+`PWD` in `HOME`'s spelling; told none, it fails with the window's `["/home/"]`, and it
+passes with a physical root.
+
+colima 0.10.3 obeys `COLIMA_HOME` only when that directory exists (`os.Stat`, its
+`config/files.go`), and a probe with scratch homes confirms it: named and missing, it goes
+to `~/.colima` with `XDG_CONFIG_HOME` unset or `~/.colima` there, and to
+`$XDG_CONFIG_HOME/colima` otherwise; named and existing, it is used in all four cases. So
+the demo makes the directory first, in `/tmp` for the sockets (a live VM's longest,
+`user-v2_qemu.sock`, was 74 bytes of `sun_path`'s 104), and names it on every colima call.
+The first call is told no `LIMA_HOME`, because colima makes one it is given whichever
+directory it chose, so only then does `_lima` show it chose this one. `colima start` also
+takes `--ssh-config=false`: a real start under a scratch `HOME` with a regular
+`~/.ssh/config` prepended `Include <its directory>/ssh_config` without it and left the file
+unchanged with it, and with its image cache pointed outside that `HOME` wrote nothing else
+there but `.docker/contexts/meta`.

@@ -412,6 +412,7 @@ fn headless(
     }
     let heard = prep.at.root.join("heard.log");
     check_printed(&prep.faces, &heard)?;
+    leaks(&heard, &prep.at.root)?;
     if let Some(f) = forbidden {
         f.search(std::slice::from_ref(&heard))?;
     }
@@ -518,7 +519,7 @@ fn prepare() -> Result<Prep, String> {
     }
 
     let at = Layout {
-        root: fresh_root()?,
+        root: scratch::fresh_root(&std::env::temp_dir())?,
     };
     let path = scratch::path(&bins);
     let files: Vec<&str> = PINNED.iter().map(|p| p.file()).collect();
@@ -706,18 +707,6 @@ fn fetch(p: &fonts::Pinned, cache: &Path) -> Result<PathBuf, String> {
     Ok(f)
 }
 
-/// A new directory in the system's temporary one.
-fn fresh_root() -> Result<PathBuf, String> {
-    let tmp = std::env::temp_dir();
-    for n in 0..100 {
-        let dir = tmp.join(format!("baud-demo-{}-{n}", std::process::id()));
-        if fs::create_dir(&dir).is_ok() {
-            return Ok(dir);
-        }
-    }
-    Err(format!("no new directory in {}", tmp.display()))
-}
-
 /// **The faces baud draws the session with**, in the order of the stack
 /// baud builds from the scratch config: its text face, its icon face, the
 /// four pinned faces, STIX Two Math.
@@ -859,7 +848,8 @@ fn check_names(
 
 /// This machine's names: [`names::machine_names`] over this process's
 /// environment and temporary directory, the host name and the computer's
-/// two names; and the scratch root, which the pty log must not name.
+/// two names; and the temporary directory and the scratch root in every
+/// spelling ([`names::scratch_names`]), which the pty log must not name.
 fn machine_names(root: &Path) -> Result<Vec<String>, String> {
     let env: Vec<(String, String)> = std::env::vars().collect();
     let say = |cmd: &str, args: &[&str]| {
@@ -877,9 +867,11 @@ fn machine_names(root: &Path) -> Result<Vec<String>, String> {
     if hosts[0].is_empty() {
         return Err("hostname said nothing, so the names check would miss the host".to_string());
     }
-    let temp = std::env::temp_dir().to_string_lossy().into_owned();
-    let mut n = names::machine_names(&env, &temp, &hosts);
-    n.push(root.to_string_lossy().into_owned());
+    let temp = std::env::temp_dir();
+    let mut n = names::machine_names(&env, &temp.to_string_lossy(), &hosts);
+    n.extend(names::scratch_names(&temp, root));
+    n.sort();
+    n.dedup();
     Ok(n)
 }
 
@@ -1286,7 +1278,7 @@ fn live(
     }
     close(&mut child, pid);
     let first = played?;
-    leaks(at)?;
+    leaks(&at.pty_log(), &at.root)?;
     check_printed(&prep.faces, &at.pty_log())?;
     if let Some(f) = forbidden {
         f.search(&[at.pty_log()])?;
@@ -1367,7 +1359,9 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
             guard::Settle::Moved { first, now } => {
                 return Err(format!(
                     "baud's window moved after it was first seen ({first:?}, then {now:?}), \
-                     and the session crops to where it was first seen, so no one crop holds it"
+                     and the session crops to where it was first seen, so no one crop holds it. \
+                     A window sliding in from a Space switch likely reads this way: start from \
+                     a normal desktop, not a full-screen Space"
                 ));
             }
             guard::Settle::Waiting if settling.elapsed() > SETTLE_LIMIT => {
@@ -1476,12 +1470,13 @@ fn check_config(at: &Layout) -> Result<(), String> {
     Ok(())
 }
 
-/// **Nothing baud was sent names this machine**, the scratch directory
-/// included: what the programs printed is on film. The repository's
-/// address, which the README prints, aside.
-fn leaks(at: &Layout) -> Result<(), String> {
-    let bytes = fs::read(at.pty_log()).map_err(|e| format!("the pty log: {e}"))?;
-    let n = machine_names(&at.root)?;
+/// **Nothing baud was sent names this machine**, the scratch directory in
+/// every spelling and its own name alone included
+/// ([`names::with_scratch_leaf`]): what the programs printed is on film. The
+/// repository's address, which the README prints, aside.
+fn leaks(log: &Path, root: &Path) -> Result<(), String> {
+    let bytes = fs::read(log).map_err(|e| format!("{}: {e}", log.display()))?;
+    let n = names::with_scratch_leaf(machine_names(root)?, root);
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
     let hit = names::named_outside(&bytes, &n, &[&public]);
     if !hit.is_empty() {
@@ -1511,6 +1506,33 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    /// **The leak search refuses the scratch directory however it is
+    /// spelled**: as the root is made, through the temporary directory's own
+    /// spelling, and by its name alone past a prompt's cut; and it passes
+    /// what names none of them, so it is not refusing everything.
+    /// Perturbation: search the machine's names alone, and the last spelling
+    /// passes.
+    #[test]
+    fn the_leak_search_refuses_the_scratch_directory_however_spelled() {
+        let temp = std::env::temp_dir();
+        let root = crate::scratch::fresh_root(&temp).unwrap();
+        let leaf = root.file_name().unwrap().to_string_lossy().into_owned();
+        let log = root.join("log");
+        let says = |text: &str| {
+            std::fs::write(&log, text).unwrap();
+            super::leaks(&log, &root)
+        };
+        assert_eq!(says("~/x \u{276F} "), Ok(()));
+        for spelled in [
+            format!("{}/x", root.display()),
+            format!("{}/x", temp.join(&leaf).display()),
+            format!("\u{22EF}/{leaf}/x \u{276F} "),
+        ] {
+            assert!(says(&spelled).is_err(), "{spelled}");
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     /// **The demo arms, starts and reads baud's full-screen reading by the
     /// names baud uses**, each the app's constant as its source spells it.
     /// The control: a name of the app's not spelt so is caught.

@@ -15,9 +15,9 @@
 //! cargo run --release --example demo              # the session
 //! cargo run --release --example demo -- --dry     # all but the window
 //! cargo run --release --example demo -- --headless DIR   # no window
-//! cargo run --release --example demo -- --record assets/readme/hero.gif \
-//!     --forbidden LIST --controls FILE
-//! cargo run --example demo -- --verify assets/readme/hero.gif
+//! devenv shell -- cargo run --release --example demo -- \
+//!     --record assets/readme/demo.gif --forbidden LIST --controls FILE
+//! cargo run --example demo -- --verify assets/readme/demo.gif
 //! ```
 //!
 //! Either from the repository's root or from `baud-app/`. macOS only but
@@ -29,9 +29,11 @@
 //! faces and the photo it caches; colima and docker, for the container
 //! (`demo/container.rs`), whose image the repository's flake makes with
 //! nixpkgs' `dockerTools` from packages cache.nixos.org holds, so no Linux
-//! builder -- in a VM of its own, colima's profile `baud-demo`, made for
-//! the session with every CPU of this Mac and deleted with its data at the
-//! end, colima's other profiles neither started nor changed; and for the
+//! builder -- in a VM of its own, colima's profile `baud-demo` in a directory
+//! of `/tmp` made for the session, with every CPU of this Mac, deleted with
+//! its data and that directory at the end, `~/.colima`, `~/.config/colima`
+//! and `~/.ssh/config` neither read nor changed, and refused while such a
+//! directory of a session that did not end is there; and for the
 //! session itself, Accessibility for the terminal it runs in (System
 //! Settings > Privacy & Security > Accessibility), which it checks before
 //! posting anything and, missing, names and stops at. `--record` also
@@ -45,7 +47,9 @@
 //! beside it. A profile given only as `--config` on the command line is
 //! not seen by that build.
 //!
-//! **What it makes**, in a fresh directory in the system's temporary one:
+//! **What it makes**, in a fresh directory in the system's temporary one,
+//! by its physical path (`/var` is a symbolic link on macOS, and the shell's
+//! working directory must lie under the `HOME` it is given):
 //! a scratch home with a `.zshrc` whose prompt is `baud ❯` and whose `ssh`
 //! reads the scratch home's ssh config, helix's config, the session's two
 //! ssh keys, baud's config at `~/.config/baud/config.toml` -- 14 points,
@@ -105,7 +109,8 @@
 //!
 //! **`--headless DIR`**: the session with no window, the container
 //! running: baud's own test of it (`film::session` in `baud-app/src/`)
-//! types every step into baud's login shell through baud's core, reads the
+//! starts baud's login shell in the working directory told no `PWD`, as the
+//! window's is, types every step into it through baud's core, reads the
 //! config again when helix saves it, feeds the nine activity lights as the
 //! macOS driver does, and fails unless each lights, the trail is
 //! plasma at `ge` and liquid at `gg` and the second `ge`, and the jump

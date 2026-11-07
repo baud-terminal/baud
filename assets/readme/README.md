@@ -175,9 +175,11 @@ at its pinned nixpkgs (`nix build .#demo-container`,
 build. The packages come from cache.nixos.org, so a Mac makes it with no
 Linux builder, and the demo refuses the image unless its stream hashes to
 the SHA-256 it pins (`baud-app/examples/demo/container.rs`). docker runs it
-in a colima VM of the demo's own, the profile `baud-demo`, made with every
-CPU of the Mac and deleted with its data at the end, after Ctrl-C too;
-colima's other profiles and docker's context are left as they were. Its
+in a colima VM of the demo's own, the profile `baud-demo` in a directory of
+`/tmp` made for the session, with every CPU of the Mac, deleted with its data
+and that directory at the end, after Ctrl-C too; `~/.colima`,
+`~/.config/colima`, `~/.ssh/config` and docker's current context are left as
+they were. Its
 host is named `demo` and its user `baud`, and its shell marks each prompt
 with `OSC 133` as baud's own shell does, sets the badge as the session
 starts and clears it as it ends, in the `C.UTF-8` locale. fastfetch's
@@ -209,7 +211,8 @@ is owed it. Keys typed at a person's pace never fill that, so CS stays lit
 through the session.
 
 `cargo run --release --example demo -- --headless DIR` plays the session
-without a window, through baud's core and CPU renderer, reading the config
+without a window, its shell started as the window's is, through baud's core
+and CPU renderer, reading the config
 again when helix saves it, and fails unless each of the nine lights
 lights, FAX first in the photo's shot, the trail is plasma at `ge` and
 liquid at `gg` and the second `ge`, `gg` lights a liquid, and every move of
@@ -259,18 +262,21 @@ in the liquid trail.
 
 A recording for the README is made by one command, which plays the
 session in baud's window, films it and encodes the GIF:
-`cargo run --release --example demo -- --record assets/readme/hero.gif
---forbidden LIST --controls FILE` (`baud-app/examples/demo.rs`). LIST is
+`devenv shell -- cargo run --release --example demo -- --record
+assets/readme/demo.gif --forbidden LIST --controls FILE`
+(`baud-app/examples/demo.rs`). Start it from a normal desktop and not a
+full-screen Space: a window sliding in from a Space switch likely moves after
+it is first seen, and the recording then stops. LIST is
 what must never be filmed, in `regex` syntax, kept outside the repository
 because it names what it forbids, and FILE an example of each of its
 patterns. The session's bytes are searched for LIST once every pattern has
 been found in its example, and a hit fails the recording. It writes a file named
-hero.gif.provenance.toml beside the GIF: the commit of baud that was
+demo.gif.provenance.toml beside the GIF: the commit of baud that was
 built and filmed and whether its tree was clean, every step with its
 time since the launch, each tool's nixpkgs store path, the encoder's
 settings and the SHA-256 of the GIF, the raw film and every pinned file.
 Anyone can check that the GIF is the one it describes with
-`cargo run --example demo -- --verify assets/readme/hero.gif`. The
+`cargo run --example demo -- --verify assets/readme/demo.gif`. The
 `hero.gif` here was recorded before that command existed, and has no
 provenance file yet.
 

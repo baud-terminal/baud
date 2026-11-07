@@ -59,8 +59,10 @@ extern "C" {
     fn AXIsProcessTrusted() -> Boolean;
 }
 
-/// `SIGINT` in `<sys/signal.h>`; the probe holds it.
+/// `SIGHUP`, `SIGINT` and `SIGTERM` in `<sys/signal.h>`; the probe holds them.
+const SIGHUP: i32 = 1;
 const SIGINT: i32 = 2;
+const SIGTERM: i32 = 15;
 
 extern "C" {
     /// `void (*signal(int, void (*)(int)))(int)`; the probe holds the type
@@ -82,7 +84,12 @@ extern "C" fn on_interrupt(_: i32) {
 pub fn catch_interrupt() {
     // SAFETY: `on_interrupt` is `void (int)`, the type the probe holds
     // `signal`'s handler to, and touches only an atomic.
-    unsafe { signal(SIGINT, on_interrupt) };
+    unsafe {
+        signal(SIGINT, on_interrupt);
+        // A closed terminal and a harness stopping it, as likely as Ctrl-C.
+        signal(SIGHUP, on_interrupt);
+        signal(SIGTERM, on_interrupt);
+    }
 }
 
 /// Whether this process may post events: Accessibility trust, which macOS
@@ -291,16 +298,18 @@ mod tests {
     use super::*;
     use crate::keys::{ESCAPE, ESCAPE_NAME, RETURN, RETURN_NAME, US};
 
-    /// **Ctrl-C sets the flag and the process lives**: the handler
-    /// installed, a real `SIGINT` raised against this process sets
-    /// [`crate::container::INTERRUPTED`]. Without the handler the signal's
-    /// default ends the test binary. `SIGINT` and `signal`'s type are
-    /// `<signal.h>`'s, by a C probe that refuses to compile otherwise.
+    /// **Ctrl-C, a closed terminal and `SIGTERM` set the flag and the process
+    /// lives**: the handler installed, each real signal raised against this
+    /// process sets [`crate::container::INTERRUPTED`]. Without the handler the
+    /// signal's default ends the test binary. The signals and `signal`'s type
+    /// are `<signal.h>`'s, by a C probe that refuses to compile otherwise.
     #[test]
     fn ctrl_c_sets_the_flag_and_the_process_lives() {
         let src = format!(
             "#include <signal.h>\n\
+             _Static_assert(SIGHUP == {SIGHUP}, \"SIGHUP\");\n\
              _Static_assert(SIGINT == {SIGINT}, \"SIGINT\");\n\
+             _Static_assert(SIGTERM == {SIGTERM}, \"SIGTERM\");\n\
              _Static_assert(__builtin_types_compatible_p(__typeof__(signal), \
              void (*(int, void (*)(int)))(int)), \"signal's type\");\n\
              int main(void) {{ return 0; }}\n"
@@ -326,9 +335,15 @@ mod tests {
             fn raise(sig: i32) -> i32;
         }
         catch_interrupt();
-        // SAFETY: `int raise(int)`; the handler it runs touches an atomic.
-        assert_eq!(unsafe { raise(SIGINT) }, 0);
-        assert!(crate::container::INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed));
+        for sig in [SIGINT, SIGHUP, SIGTERM] {
+            crate::container::INTERRUPTED.store(false, std::sync::atomic::Ordering::Relaxed);
+            // SAFETY: `int raise(int)`; the handler it runs touches an atomic.
+            assert_eq!(unsafe { raise(sig) }, 0);
+            assert!(
+                crate::container::INTERRUPTED.load(std::sync::atomic::Ordering::Relaxed),
+                "{sig}"
+            );
+        }
     }
 
     /// **The key codes, and the trust call's type, are the SDK headers'

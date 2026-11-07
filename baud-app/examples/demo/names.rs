@@ -6,6 +6,8 @@
 //! computer's two names, which `scripts/readme-film.sh` hands the film
 //! tool, since this example reads them itself.
 
+use std::path::Path;
+
 /// **The machine's names**: `USER`, `LOGNAME`, `HOME`, `TMPDIR` and the
 /// temporary directory, the roots `/Users/`, `/home/`, `/private/` and
 /// `/var/folders`, and each of `hosts` -- the host name, the computer's
@@ -32,6 +34,41 @@ pub fn machine_names(env: &[(String, String)], temp: &str, hosts: &[String]) -> 
     names.retain(|n| n.len() >= 3);
     names.sort();
     names.dedup();
+    names
+}
+
+/// **Every spelling this process can tell of a directory**: as given and as
+/// the file system resolves it, neither with a slash at its end. A program
+/// can print either: under `/var/folders` as its `TMPDIR` says, or
+/// under `/private/var/folders` as `getcwd` does.
+pub fn spellings(dir: &Path) -> Vec<String> {
+    let bare = |p: &Path| p.to_string_lossy().trim_end_matches('/').to_string();
+    let mut all = vec![bare(dir)];
+    if let Ok(real) = std::fs::canonicalize(dir) {
+        all.push(bare(&real));
+    }
+    all.dedup();
+    all
+}
+
+/// **The temporary directory and the scratch root, each in every spelling**:
+/// `root` is in `temp`, reached through `temp`'s spelling or its own.
+pub fn scratch_names(temp: &Path, root: &Path) -> Vec<String> {
+    let mut all = spellings(temp);
+    all.extend(spellings(root));
+    if let Some(leaf) = root.file_name() {
+        all.extend(spellings(&temp.join(leaf)));
+    }
+    all
+}
+
+/// **`names` and the scratch root's own name, for what the session printed
+/// alone.** A prompt truncates a path to its last folders, so a path holding
+/// neither a root of the machine's nor the temporary directory still shows
+/// `baud-demo-18837-0`. Not one of [`machine_names`]: the scratch directory
+/// is the one path the environment may carry ([`env_named`]).
+pub fn with_scratch_leaf(mut names: Vec<String>, root: &Path) -> Vec<String> {
+    names.extend(root.file_name().map(|l| l.to_string_lossy().into_owned()));
     names
 }
 
@@ -213,6 +250,61 @@ pub mod tests {
         assert_eq!(found[1].0, "HOSTNAME");
         let named_root = "/private/qz/T/qzuser-demo";
         assert_eq!(env_named(&[], named_root, &n).len(), 1);
+    }
+
+    /// **The search names both spellings of a temporary directory reached
+    /// through a symbolic link, and of the scratch root in it**: a program
+    /// can print the one its `TMPDIR` says or the one `getcwd` does.
+    /// Perturbation: keep only the spelling given, and the resolved one is
+    /// not a name.
+    #[test]
+    fn the_search_names_both_spellings_of_a_linked_temporary_directory() {
+        let base = std::env::temp_dir().join(format!("demo-spellings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let resolved = real.canonicalize().unwrap();
+        let root = crate::scratch::fresh_root(&link).unwrap();
+        let leaf = root.file_name().unwrap().to_owned();
+        let n = scratch_names(&link, &root);
+        for want in [
+            link.clone(),
+            link.join(&leaf),
+            resolved.clone(),
+            resolved.join(&leaf),
+        ] {
+            let want = want.to_string_lossy().into_owned();
+            assert!(n.contains(&want), "{want} in {n:?}");
+            let printed = format!("\x1b[0m{want}/home/baud \u{276F} ");
+            assert!(named(printed.as_bytes(), &n).contains(&want), "{want}");
+        }
+        std::fs::remove_dir_all(&base).unwrap();
+        let slash = spellings(Path::new("/no/such/dir/"));
+        assert_eq!(slash, ["/no/such/dir"], "as given, its slash off");
+    }
+
+    /// **A truncated path is found by the scratch directory's own name, in
+    /// what the session printed alone**: the prompt of the take that showed
+    /// the path holds no root once `/home/` is past its cut. The control: the
+    /// machine's names alone do not find it, and they must not, as the
+    /// environment names the directory. Perturbation: add nothing, and the
+    /// truncated path passes.
+    #[test]
+    fn a_truncated_path_is_found_by_the_scratch_directory_s_name() {
+        let root = Path::new("/private/qz/T/baud-demo-18837-0");
+        let printed = "\u{22EF}/baud-demo-18837-0/baud \u{276F} ".as_bytes();
+        assert_eq!(named(printed, &qz()), Vec::<String>::new(), "the control");
+        assert_eq!(
+            named(printed, &with_scratch_leaf(qz(), root)),
+            ["baud-demo-18837-0"]
+        );
+        let clean = "~/baud \u{276F} ".as_bytes();
+        assert_eq!(
+            named(clean, &with_scratch_leaf(qz(), root)),
+            Vec::<String>::new()
+        );
     }
 
     /// **The search for what must never be filmed fires, and refuses to
