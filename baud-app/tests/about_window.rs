@@ -129,7 +129,9 @@ mod checks {
         for row in px.chunks_exact(stride) {
             out.extend(
                 row[..w * 4]
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .flat_map(|p| [p[0], p[1], p[2]]),
             );
         }
@@ -146,7 +148,7 @@ mod checks {
                 .all(|(a, b)| a.abs_diff(*b) <= 16)
         };
         let mut b: Option<[usize; 4]> = None;
-        for (i, p) in px.chunks_exact(3).enumerate() {
+        for (i, p) in px.as_chunks::<3>().0.iter().enumerate() {
             if near(p) {
                 let (x, y) = (i % w, i / w);
                 b = Some(match b {

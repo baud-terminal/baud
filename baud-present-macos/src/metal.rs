@@ -1642,14 +1642,21 @@ impl Gpu {
             // whole length, at least `end` after the check above, and nothing
             // is in flight, so the GPU is not reading it.
             let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), end) };
-            for (chunk, d) in dst[..records].chunks_exact_mut(Instance::BYTES).zip(draws) {
+            for (chunk, d) in dst[..records]
+                .as_chunks_mut::<{ Instance::BYTES }>()
+                .0
+                .iter_mut()
+                .zip(draws)
+            {
                 let mut inst = d.inst;
                 inst.y = Screen(inst.y.0.saturating_add(pan16));
                 chunk.copy_from_slice(&inst.to_bytes());
             }
             for (d, &(xs, _)) in draws.iter().zip(&maps) {
                 for (out, v) in dst[xs..xs + d.map.len() * 4]
-                    .chunks_exact_mut(4)
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
                     .zip(&d.map)
                 {
                     out.copy_from_slice(&v.to_le_bytes());
@@ -2332,7 +2339,9 @@ impl Gpu {
             // nothing is in flight, so the GPU is not reading it.
             let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
             for (i, (chunk, inst)) in dst
-                .chunks_exact_mut(Instance::BYTES)
+                .as_chunks_mut::<{ Instance::BYTES }>()
+                .0
+                .iter_mut()
                 .zip(
                     renderer
                         .instances()
@@ -2971,7 +2980,9 @@ impl Gpu {
                     let ptr = buffer.contents().cast::<u8>();
                     let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
                     for (i, (chunk, inst)) in dst
-                        .chunks_exact_mut(Instance::BYTES)
+                        .as_chunks_mut::<{ Instance::BYTES }>()
+                        .0
+                        .iter_mut()
                         .zip(
                             input
                                 .grounds

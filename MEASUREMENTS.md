@@ -31,6 +31,32 @@ opcost found no rate that moved, and multibench found none where its
 ghostty control held (less-pager, asciiquarium); its other rows were
 void.
 
+The compiler moved again, to rustc 1.101.0-nightly 249c1e4e3 (LLVM 23.1.5),
+the nightly of 2026-11-06, with every lock file: `cargo update` in all six
+workspaces, png 0.17 to 0.18, vt100 0.16 to 0.18, resvg 0.48 to 0.49,
+nextest 0.9.130 to 0.9.146. No figure here was changed. `ingest2` built at
+one path by `git archive`, on AC, ten rotated rounds with the first dropped,
+reps cat 200, btop 200, vim 400, less 400, load 2.2-2.4. Base is 1f93d9bf on
+1.96; lock is the same compiler with the new lock files; change is the new
+compiler and the `as_chunks` loops; A/A is a second build of change, whose
+binary `cmp` found identical. `cells_written` is the same on all four arms.
+
+| MB/s | base | lock | change | A/A |
+|---|---|---|---|---|
+| cat | 1367.1 [1262.9-1518.6] | 1460.3 [1289.8-1516.8] | 1448.8 [1313.6-1513.0] | 1461.3 [1308.9-1531.8] |
+| btop | 811.9 [799.6-821.4] | 813.0 [803.7-819.9] | 856.8 [853.0-859.3] | 850.8 [844.3-859.1] |
+| vim | 575.8 [570.7-580.3] | 577.1 [573.7-580.6] | 592.1 [582.8-597.3] | 585.8 [574.9-593.3] |
+| less-pager | 1380.0 [1363.6-1396.8] | 1388.3 [1371.8-1396.8] | 1379.9 [1360.9-1391.1] | 1374.5 [1352.9-1391.1] |
+
+cat and less-pager overlap: no result. btop is 5% up, its ranges apart from
+both base and lock. vim has no result: change's range clears base's and the
+A/A's, the same bytes, does not. The lock arm overlaps base on every row.
+The app's binary went 15,232,896 to 15,217,520 bytes and its `__text`
+4,066,688 to 4,058,688. `-align-all-functions=6` still takes effect: of
+3,884 functions in it, 3 are off a 64-byte boundary, all compiler_builtins,
+as 3 of 3,866 were on 1.96. The built fonts and every brand picture but the
+organisation PNG rebuild byte for byte on the new compiler and locks.
+
 **Recordings captured again on 2026-10-28.** `utf8/btop.raw`,
 `utf8/vim-unicode.raw`, `sixel/yazi-walk.raw`, the seven `tests/resize/`
 gestures and `tests/scheme/tmux-start.raw` were captured again, and

@@ -16,12 +16,14 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # **The README session's prompt** (`nix/demo-container/`): starship
-    # 1.27.0 and the bash it runs under, from a nixpkgs-unstable revision,
-    # pinned here by its commit. The revision above carries starship 1.24.2,
-    # inside two advisories. The demo takes its own starship from the same
-    # commit (`baud-app/examples/demo/container.rs`), and only the container's
-    # image reads this input.
+    # **The README session's container** (`nix/demo-container/`): its
+    # aarch64-linux packages, starship 1.27.0 among them, from a
+    # nixpkgs-unstable revision, pinned here by its commit. The revision
+    # above carries an older starship, inside two advisories, and a Mac
+    # cannot evaluate it for Linux: its source is a derivation for the system
+    # asked for. The demo takes its own starship from the same commit
+    # (`baud-app/examples/demo/container.rs`), and only the container's image
+    # reads this input.
     nixpkgs-demo.url = "github:NixOS/nixpkgs/13e53762c5afaf384d4614e94527a9ccfafe41d0";
   };
 
@@ -57,10 +59,10 @@
         pkgs:
         let
           # The nightly `nix/rust.nix` takes from that rust-overlay revision:
-          # rustc 1.96.0-nightly 02c7f9bec. baud-domain and baud-font use
+          # rustc 1.101.0-nightly 249c1e4e3. baud-domain and baud-font use
           # `#![feature]`s, and the manifests' `cargo-features`, so no stable
           # release builds them. docs/embedding.md names the same date.
-          toolchain = pkgs.rust-bin.nightly."2026-04-11".minimal;
+          toolchain = pkgs.rust-bin.nightly."2026-11-06".minimal;
           rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
             rustc = toolchain;
@@ -172,8 +174,7 @@
           # packages are aarch64-linux ones cache.nixos.org holds.
           aarch64-darwin.demo-container = import ./nix/demo-container {
             pkgs = pkgsFor "aarch64-darwin";
-            linux = pkgsFor "aarch64-linux";
-            prompt = nixpkgs-demo.legacyPackages.aarch64-linux;
+            linux = nixpkgs-demo.legacyPackages.aarch64-linux;
           };
         };
 

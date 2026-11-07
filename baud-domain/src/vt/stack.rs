@@ -227,7 +227,7 @@ pub fn decode_hex_title<'o>(hex: &[u8], out: &'o mut [u8]) -> Option<&'o [u8]> {
         _ => None,
     };
     let mut n = 0;
-    for pair in hex.chunks_exact(2) {
+    for pair in hex.as_chunks::<2>().0 {
         out[n] = (digit(pair[0])? << 4) | digit(pair[1])?;
         n += 1;
     }

@@ -5,12 +5,11 @@
 # nixpkgs' own `dockerTools.streamLayeredImage`, with baud's mark as a
 # picture for fastfetch to draw.
 #
-# `pkgs` is the build host's nixpkgs and `linux` the same revision for
-# aarch64-linux, the system colima's VM runs on an Apple silicon Mac.
-# `prompt` is the later nixpkgs the flake pins for starship 1.27.0 and
-# the bash it runs under, for aarch64-linux too: the flake's own revision
-# carries starship 1.24.2, which advisories GHSA-679r-jwc5-r5m3 and
-# GHSA-x486-6jjc-phfp cover. The image takes only those six packages,
+# `pkgs` is the build host's nixpkgs and `linux` the nixpkgs-unstable
+# revision the flake pins for aarch64-linux, the system colima's VM runs
+# on an Apple silicon Mac, with starship 1.27.0, the first release outside
+# advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp. The image takes
+# only six packages from it,
 # which cache.nixos.org holds, and makes everything else -- its files,
 # its customisation layer, the mark's picture, the prompt's config, the
 # script that streams it -- with `pkgs`, so a Mac with no Linux builder
@@ -31,10 +30,9 @@
 # of their own, and the container's name it shows in docker -- so the
 # prompt there reads `~ ❯`, as baud's own shell does. The session's badge
 # names the server while it is in.
-{ pkgs, linux, prompt }:
+{ pkgs, linux }:
 let
-  inherit (linux) busybox openssh fastfetchMinimal btop;
-  inherit (prompt) starship bashInteractive;
+  inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive;
   starshipConfig = (pkgs.formats.toml { }).generate "starship.toml" (
     pkgs.lib.recursiveUpdate (pkgs.lib.importTOML ../../assets/starship/baud.toml) {
       username.disabled = true;
@@ -69,7 +67,7 @@ pkgs.dockerTools.streamLayeredImage {
     ln -s ${busybox}/bin bin
     ln -s ${bashInteractive}/bin/bash usr/bin/bash
     ln -s ${starship}/bin/starship usr/bin/starship
-    ln -s ${fastfetchMinimal}/bin/fastfetch usr/bin/fastfetch
+    ln -s ${fastfetch-unwrapped}/bin/fastfetch usr/bin/fastfetch
     ln -s ${btop}/bin/btop usr/bin/btop
     ln -s ${openssh}/bin/sshd usr/sbin/sshd
   '';
@@ -83,5 +81,5 @@ pkgs.dockerTools.streamLayeredImage {
     "-e"
   ];
   # For the provenance file: each package's store path.
-  passthru.packages = { inherit busybox bashInteractive starship openssh fastfetchMinimal btop; };
+  passthru.packages = { inherit busybox bashInteractive starship openssh fastfetch-unwrapped btop; };
 }

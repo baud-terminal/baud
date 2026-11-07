@@ -379,7 +379,10 @@ impl Procs for Live {
             return Got::Gone;
         };
         let mut refused = false;
-        for fd in self.fds[..n.min(self.fds.len())].chunks_exact(FDINFO_SIZE) {
+        for fd in self.fds[..n.min(self.fds.len())]
+            .as_chunks::<FDINFO_SIZE>()
+            .0
+        {
             let (Some(number), Some(kind)) =
                 (int(four(fd, FDINFO_FD..)), int(four(fd, FDINFO_TYPE..)))
             else {

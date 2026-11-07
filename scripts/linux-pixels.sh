@@ -128,7 +128,7 @@ toolchain=$(rustc -Vv | sed -n 's/^commit-hash: //p')
 
 # The image: weston 10.0.1 and wl-clipboard from Debian bookworm, and the
 # nightly whose commit is this Mac's, checked below.
-nightly=${BAUD_NIGHTLY:-nightly-2026-04-11}
+nightly=${BAUD_NIGHTLY:-nightly-2026-11-06}
 docker build -q -t "$image" - >/dev/null <<EOF
 FROM rustlang/rust:nightly-bookworm
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \

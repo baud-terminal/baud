@@ -478,7 +478,7 @@ impl<'a> RegisCanvas<'a> {
             }
             let xs = &mut xs[..n];
             xs.sort_unstable();
-            for pair in xs.chunks_exact(2) {
+            for pair in xs.as_chunks::<2>().0 {
                 let x0 = ((pair[0] + 0xffff) >> 16).max(0);
                 let x1 = (((pair[1] + 0xffff) >> 16) - 1).min(i64::from(self.w) - 1);
                 for x in x0..=x1 {

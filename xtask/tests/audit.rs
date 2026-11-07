@@ -305,7 +305,7 @@ fn the_cross_compile_fails_on_the_crate_and_on_the_control() {
     only_fail(
         &report,
         failed,
-        "  FAIL x86_64-unknown-none: the control crate does not build, so this gate checked nothing",
+        "  FAIL x86_64-unknown-linux-gnu: the control crate does not build, so this gate checked nothing",
     );
 }
 

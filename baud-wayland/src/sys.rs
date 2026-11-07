@@ -233,8 +233,8 @@ pub fn recv(sock: &UnixStream, buf: &mut [u8], fds: &mut Vec<OwnedFd>) -> io::Re
         }
         if c.level == SOL_SOCKET && c.ty == SCM_RIGHTS {
             let data = &control[at + hdr..at + len];
-            for raw in data.chunks_exact(4) {
-                let fd = RawFd::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
+            for raw in data.as_chunks::<4>().0 {
+                let fd = RawFd::from_ne_bytes(*raw);
                 // SAFETY: the kernel just installed this descriptor for us and
                 // nothing else owns it.
                 fds.push(unsafe { OwnedFd::from_raw_fd(fd) });

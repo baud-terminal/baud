@@ -45,7 +45,7 @@ fn main() {
         let mut f = std::io::BufReader::new(std::fs::File::open(path).expect("the frames"));
         for &times in &repeats {
             f.read_exact(&mut buf).expect("a frame");
-            for (p, c) in last.iter_mut().zip(buf.chunks_exact(3)) {
+            for (p, c) in last.iter_mut().zip(buf.as_chunks::<3>().0) {
                 *p = u32::from_be_bytes([0xFF, c[0], c[1], c[2]]);
             }
             for _ in 0..times {

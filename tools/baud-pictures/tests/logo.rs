@@ -542,7 +542,9 @@ fn the_word_stays_on_the_walls_and_the_mark_moves_as_it_says() {
         png::Mode::Rgb => walls.px,
         png::Mode::Rgba => walls
             .px
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect(),
     };

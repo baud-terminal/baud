@@ -264,7 +264,7 @@ fn run(ops: &[Op]) {
     // The store's borrow of the arena ends with its last use above.
     let bytes: &[u8] = zerocopy::IntoBytes::as_bytes(&px[..]);
     let lead = base.next_multiple_of(PAGE) - base;
-    for page in bytes[lead..].chunks_exact(PAGE) {
+    for page in bytes[lead..].as_chunks::<PAGE>().0 {
         assert!(
             page.iter().all(|&b| b == 0) || page.iter().all(|&b| b == POISON),
             "a page at {:#x} still holds what an image wrote: {:x?}",

@@ -68,7 +68,9 @@ fn count(path: &str, quarters: u32) -> Report {
             last.clear();
             last.extend(
                 f.rgba
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|p| u32::from_be_bytes([0xFF, p[0], p[1], p[2]])),
             );
             assert!(f.gap_ms % 10 == 0, "{path}: a delay of {} ms", f.gap_ms);

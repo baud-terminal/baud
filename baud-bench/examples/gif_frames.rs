@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     let size = Gif::parse(&data).and_then(|g| {
         let mut scratch = vec![0u8; g.scratch_len()];
         g.decode(&mut scratch, |f| {
-            for p in f.rgba.chunks_exact(4) {
+            for p in f.rgba.as_chunks::<4>().0 {
                 out.write_all(&p[..3]).expect("a frame");
             }
             delays.push((f.gap_ms / 10).to_string());

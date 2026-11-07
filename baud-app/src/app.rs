@@ -17205,7 +17205,7 @@ mod tests {
                 repeat: false,
             };
             let m = held_with_locks(&k, flags);
-            let unshifted = Some(key).filter(|_| shift);
+            let unshifted = shift.then_some(key);
             let e = match held.control {
                 false => {
                     let text = typed.to_string();
@@ -17225,7 +17225,7 @@ mod tests {
             );
             assert_eq!(
                 e.shifted,
-                Some(Codepoint::from_char(typed)).filter(|_| typed != key && shift),
+                (typed != key && shift).then_some(Codepoint::from_char(typed)),
                 "{line}"
             );
             let modes = match mode.split_once('=') {

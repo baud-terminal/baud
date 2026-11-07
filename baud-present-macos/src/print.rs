@@ -100,7 +100,7 @@ const KERN: &str = "NSKern";
 /// A picture's pixels as premultiplied RGBA into `out`, four bytes each:
 /// a picture's pixels are opaque or clear, so each is its colour or zero.
 fn rgba(p: &Picture, out: &mut [u8]) {
-    for (px, o) in p.pixels.iter().zip(out.chunks_exact_mut(4)) {
+    for (px, o) in p.pixels.iter().zip(out.as_chunks_mut::<4>().0) {
         let (r, g, b) = px.rgb();
         let a = px.alpha().get();
         let c = |v: baud_domain::Chan| if a == 0 { 0 } else { v.get() };

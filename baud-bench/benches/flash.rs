@@ -725,7 +725,7 @@ fn main() {
             let y = 0.212_672_9 * lr + 0.715_152_2 * lg + 0.072_175 * lb;
             let z = 0.019_333_9 * lr + 0.119_192 * lg + 0.950_304_1 * lb;
             let d = x + 15.0 * y + 3.0 * z;
-            (d > 0.0).then(|| (4.0 * x / d, 9.0 * y / d))
+            (d > 0.0).then_some((4.0 * x / d, 9.0 * y / d))
         };
         let (u, v) = uv(lr, lg, lb).unwrap_or_else(|| uv(1.0, 1.0, 1.0).unwrap_or((0.0, 0.0)));
         let sum = lr + lg + lb;

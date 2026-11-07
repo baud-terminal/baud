@@ -40,18 +40,18 @@ fn check(bytes: &[u8]) {
     let sb = StreamByte::slice_from(bytes);
     let got = unsafe { Portable::block(sb) };
     let mut at = 0usize;
-    for k in 0..got.count.index() {
+    for (k, cp) in got.cps.iter().enumerate().take(got.count.index()) {
         let Some((want, len)) = scalar(bytes, at) else {
             panic!(
                 "block decoded {:?} at {at} where the scalar decoder refused: {bytes:02x?}",
-                got.cps[k].value()
+                cp.value()
             );
         };
         assert_eq!(
-            got.cps[k].value(),
+            cp.value(),
             want.value(),
             "lane {k} at byte {at}: block says U+{:04X}, scalar says U+{:04X} -- {bytes:02x?}",
-            got.cps[k].value(),
+            cp.value(),
             want.value()
         );
         at += len;

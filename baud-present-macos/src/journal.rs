@@ -303,7 +303,7 @@ impl Journal {
             self.wheel.landed(tag.frame);
         }
         self.flying
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 Some(n.saturating_sub(1))
             })
             .ok();
@@ -319,7 +319,7 @@ impl Journal {
             self.wheel.landed(tag.frame);
         }
         self.flying
-            .fetch_update(Ordering::Release, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Release, Ordering::Relaxed, |n| {
                 Some(n.saturating_sub(1))
             })
             .ok();
@@ -368,7 +368,7 @@ impl Journal {
             self.wheel.landed(tag.frame);
         }
         self.flying
-            .fetch_update(Ordering::Release, Ordering::Relaxed, |n| {
+            .try_update(Ordering::Release, Ordering::Relaxed, |n| {
                 Some(n.saturating_sub(1))
             })
             .ok();
@@ -422,6 +422,41 @@ impl Journal {
             gpu: Duration::from_nanos(self.gpu_nanos.load(Ordering::Relaxed)),
             ended: HostTime::of_nanos(self.ended_nanos.load(Ordering::Acquire)),
         }
+    }
+}
+
+/// Whether a landed frame reaches the layer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Show {
+    /// Set it as the layer's contents.
+    Now,
+    /// Drop it. The surfaces it drew into are not the ones the layer shows
+    /// from any more, so showing it would put an older image over a newer.
+    Skip,
+}
+
+/// The one place that decides, so the completion path and the tests that
+/// pin it cannot drift apart.
+///
+/// **A frame is shown exactly while the surfaces it drew into are the ones
+/// the layer shows from.** A superseded frame is dropped: it was drawn for
+/// a geometry that no longer exists, so putting it on the layer replaces a
+/// current image with an older, differently-sized one -- and
+/// `contentsGravity` pins it to the top-left rather than stretching it, so
+/// what a user saw was two images at once. No frame the layer shows may be
+/// a size behind.
+///
+/// The discard is safe because it is a *generation* comparison rather than
+/// a size: a window dragged from A to B and back to A leaves two surface
+/// sets that compare equal by size, and one counter cannot mistake them.
+/// The failure where the two never agree and every frame is discarded --
+/// a black window -- is what `a_steady_surface_set_shows_every_frame`
+/// exists to catch, and it is why this cannot be tested by the discard
+/// alone.
+pub fn admits(fate: Fate) -> Show {
+    match fate {
+        Fate::Current => Show::Now,
+        Fate::Superseded { .. } => Show::Skip,
     }
 }
 
@@ -658,40 +693,5 @@ mod tests {
         };
         assert_eq!(j.land(fresh, &epoch, quiet()), Fate::Current);
         assert_eq!(j.counts().shown, 2);
-    }
-}
-
-/// Whether a landed frame reaches the layer.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Show {
-    /// Set it as the layer's contents.
-    Now,
-    /// Drop it. The surfaces it drew into are not the ones the layer shows
-    /// from any more, so showing it would put an older image over a newer.
-    Skip,
-}
-
-/// The one place that decides, so the completion path and the tests that
-/// pin it cannot drift apart.
-///
-/// **A frame is shown exactly while the surfaces it drew into are the ones
-/// the layer shows from.** A superseded frame is dropped: it was drawn for
-/// a geometry that no longer exists, so putting it on the layer replaces a
-/// current image with an older, differently-sized one -- and
-/// `contentsGravity` pins it to the top-left rather than stretching it, so
-/// what a user saw was two images at once. No frame the layer shows may be
-/// a size behind.
-///
-/// The discard is safe because it is a *generation* comparison rather than
-/// a size: a window dragged from A to B and back to A leaves two surface
-/// sets that compare equal by size, and one counter cannot mistake them.
-/// The failure where the two never agree and every frame is discarded --
-/// a black window -- is what `a_steady_surface_set_shows_every_frame`
-/// exists to catch, and it is why this cannot be tested by the discard
-/// alone.
-pub fn admits(fate: Fate) -> Show {
-    match fate {
-        Fate::Current => Show::Now,
-        Fate::Superseded { .. } => Show::Skip,
     }
 }

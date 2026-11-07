@@ -297,7 +297,9 @@ fn from_hex(hex: &[u8]) -> Result<Vec<u8>, Stop> {
         return stop("an odd number of hex digits");
     }
     Ok(nibbles
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u8::try_from(p[0] * 16 + p[1]).expect("two hex digits"))
         .collect())
 }

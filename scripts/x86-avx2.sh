@@ -72,12 +72,12 @@ echo "=== 2. the workspace suite with baud-core/avx2-scan and $RF"
 RUSTFLAGS="$RF" cargo test --release --no-fail-fast --workspace --features baud-core/avx2-scan
 
 echo "=== 3. the avx2 arm is live"
-# **A `[[bench]]` target lands in `deps/` under a feature-dependent hash,
-# not at `target/release/<name>`**, so the path is asked for rather than
-# assumed. `--message-format=json` reports it even on a cached build, where
-# the human-readable "Executable ..." line does not print -- and a glob plus
+# **A `[[bench]]` target lands under a feature-dependent hash, not at
+# `target/release/<name>`**, so the path is asked for rather than assumed.
+# `--message-format=json` reports it even on a cached build, where the
+# human-readable "Executable ..." line does not print -- and a glob plus
 # "newest" would race the two arms, which differ only by a feature and so
-# coexist in `deps/`.
+# coexist.
 bench_exe() {
   # shellcheck disable=SC2086 # $1 is zero or two words, split on purpose
   RUSTFLAGS="$RF" cargo bench --no-run -q -p baud-bench --bench ingest2 $1 --message-format=json |

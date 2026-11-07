@@ -57,11 +57,11 @@ impl Sha256 {
             compress(&mut self.h, &block);
             self.block.clear();
         }
-        let mut chunks = data.chunks_exact(64);
-        for c in &mut chunks {
-            compress(&mut self.h, c.try_into().expect("a whole block"));
+        let (whole, rest) = data.as_chunks::<64>();
+        for c in whole {
+            compress(&mut self.h, c);
         }
-        self.block.extend_from_slice(chunks.remainder());
+        self.block.extend_from_slice(rest);
     }
 
     /// The digest, as 64 lowercase hex characters.
@@ -82,8 +82,8 @@ impl Sha256 {
 
 fn compress(h: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0u32; 64];
-    for (i, word) in block.chunks_exact(4).enumerate() {
-        w[i] = u32::from_be_bytes(word.try_into().expect("four bytes"));
+    for (i, word) in block.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_be_bytes(*word);
     }
     for i in 16..64 {
         let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);

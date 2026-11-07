@@ -2045,7 +2045,7 @@ mod tests {
         let jpg = include_bytes!("../../baud-domain/tests/jpeg/small.jpg");
         let (size, px) = rgba(jpg).expect("a JPEG decodes");
         assert_eq!((size.width, size.height, px.len()), (29, 21, 29 * 21 * 4));
-        assert!(px.chunks_exact(4).all(|p| p[3] == 255), "opaque");
+        assert!(px.as_chunks::<4>().0.iter().all(|p| p[3] == 255), "opaque");
         let j = baud_domain::jpeg::Jpeg::parse(jpg).expect("parses");
         let mut scratch = vec![0u8; j.scratch_len().expect("a layout")];
         let mut want = vec![baud_domain::Pixel::CLEAR; 29 * 21];

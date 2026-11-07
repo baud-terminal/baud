@@ -238,7 +238,7 @@ fn decode_name(
     if len > XNAME_MAX {
         return Some((at + digits, None));
     }
-    for (i, pair) in list[at..at + digits].chunks_exact(2).enumerate() {
+    for (i, pair) in list[at..at + digits].as_chunks::<2>().0.iter().enumerate() {
         name[i] = (hex_value(pair[0]) << 4) | hex_value(pair[1]);
     }
     Some((at + digits, Some(len)))

@@ -50,7 +50,7 @@ if [ -n "$patch" ]; then
 fi
 
 toolchain=$(rustc -Vv | sed -n 's/^commit-hash: //p')
-nightly=${BAUD_NIGHTLY:-nightly-2026-04-11}
+nightly=${BAUD_NIGHTLY:-nightly-2026-11-06}
 tag=${BAUD_DAMAGE_TAG:-baud-linux-damage}
 docker build -q -t "$tag-build" - >/dev/null <<EOF
 FROM rustlang/rust:nightly-bookworm
@@ -91,8 +91,8 @@ tar -C /src --exclude=./target -c . | tar -C /build -x
 if [ -s /tmp/patch ]; then patch -d /build -p1 < /tmp/patch; fi
 cd /build
 export CARGO_TARGET_DIR=/target/$LABEL RUSTFLAGS="-D warnings"
-cargo bench -q -p baud-bench --bench present --no-run 2>/dev/null
-bin=$(ls -t $CARGO_TARGET_DIR/release/deps/present-* | grep -v "\.d$" | head -1)
+bin=$(cargo bench -q -p baud-bench --bench present --no-run --message-format=json 2>/dev/null |
+  grep -o "\"executable\":\"[^\"]*present[^\"]*\"" | tail -1 | cut -d\" -f4)
 cp "$bin" /target/$LABEL/present-bench
 '
 

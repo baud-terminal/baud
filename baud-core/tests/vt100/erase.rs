@@ -151,7 +151,7 @@ fn erase_is_chunk_invariant() {
 /// with its spaces read as empty.
 #[test]
 fn selective_erase_splits_the_row_where_plain_erase_does() {
-    for ps in [b'0', b'1', b'2'] {
+    for ps in *b"012" {
         let mut plain = b"abcdefghij\x1b[1;5H\x1b[".to_vec();
         plain.push(ps);
         plain.push(b'J');

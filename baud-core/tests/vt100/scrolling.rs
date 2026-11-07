@@ -594,11 +594,11 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
 
     // Fill every row with a distinguishable marker, so a row that moves to the
     // wrong place is visible rather than merely blank.
-    for y in 0..ROWS {
+    for (y, row) in m.rows.iter_mut().enumerate().take(ROWS) {
         b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
         let text = format!("row{y:02}");
         b.extend_from_slice(text.as_bytes());
-        m.rows[y] = text;
+        *row = text;
     }
 
     // A region, then every line-moving operation inside and across it.
@@ -674,11 +674,11 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
     // and entering it clears the screen, so the markers must be written after.
     let mut b: Vec<u8> = b"\x1b[?1049h".to_vec();
 
-    for y in 0..ROWS {
+    for (y, row) in m.rows.iter_mut().enumerate().take(ROWS) {
         b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
         let text = format!("row{y:02}");
         b.extend_from_slice(text.as_bytes());
-        m.rows[y] = text;
+        *row = text;
     }
 
     // Plain `LF` at the last row is the case the recording is full of -- 638 of

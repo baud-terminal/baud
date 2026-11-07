@@ -302,7 +302,7 @@ type Made = (Vec<u8>, Vec<u8>, Vec<String>);
 /// The snap: every pixel of an RGB frame whose channels are all within
 /// [`SNAP`] of `page` set to `page`.
 pub fn snap(frame: &mut [u8], page: [u8; 3]) {
-    for p in frame.chunks_exact_mut(3) {
+    for p in frame.as_chunks_mut::<3>().0 {
         if (0..3).all(|j| p[j].abs_diff(page[j]) <= SNAP) {
             p.copy_from_slice(&page);
         }
@@ -339,7 +339,12 @@ pub fn snapped(raw: &[u8], frames: usize, page: [u8; 3]) -> Result<Vec<Vec<u8>>,
 #[must_use]
 pub fn walls_off(walls: &[u8], today: &[u8], sdf_walls: &[f32], sdf_today: &[f32]) -> Off {
     let (mut pixels, mut levels) = (0u64, 0u64);
-    for (a, b) in walls.chunks_exact(3).zip(today.chunks_exact(3)) {
+    for (a, b) in walls
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(today.as_chunks::<3>().0)
+    {
         let d = (0..3).map(|j| a[j].abs_diff(b[j])).max().unwrap_or(0);
         if d > 0 {
             pixels += 1;
@@ -429,13 +434,15 @@ pub fn haze(
     let (mut n, mut off, mut worst, mut i) = (0u64, 0u64, 0u8, 0usize);
     for (g, cs) in got {
         let dv: Vec<u8> = g
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|p| (0..3).map(|j| p[j].abs_diff(page[j])).max().unwrap_or(0))
             .collect();
         let mut span = 0;
         while span < *cs {
-            for (p, &d) in rendered[i].chunks_exact(3).zip(&dv) {
-                if p == page {
+            for (p, &d) in rendered[i].as_chunks::<3>().0.iter().zip(&dv) {
+                if *p == page {
                     n += 1;
                     if d >= 1 {
                         off += 1;
@@ -560,8 +567,10 @@ pub fn contrast(
 #[must_use]
 pub fn moved(a: &[u8], b: &[u8], block: [usize; 4]) -> usize {
     let [x0, y0, x1, y1] = block;
-    a.chunks_exact(3)
-        .zip(b.chunks_exact(3))
+    a.as_chunks::<3>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<3>().0)
         .enumerate()
         .filter(|(i, (p, q))| {
             let (x, y) = (i % W, i / W);
@@ -796,7 +805,7 @@ pub fn b64decode(text: &str) -> Result<Vec<u8>, Fail> {
             .ok_or_else(|| format!("a base64 character {c:#x}"))
     };
     let mut out = Vec::with_capacity(b.len() / 4 * 3);
-    for q in b.chunks_exact(4) {
+    for q in b.as_chunks::<4>().0 {
         let pad = q.iter().rev().take_while(|&&c| c == b'=').count();
         let mut n = 0u32;
         for &c in &q[..4 - pad] {
@@ -872,8 +881,10 @@ pub fn svg(frames: &[Vec<u8>], still: &[u8], delays: &[u32]) -> Result<Vec<u8>, 
     ];
     for (k, f) in frames.iter().enumerate() {
         let changed: Vec<bool> = f
-            .chunks_exact(3)
-            .zip(base.chunks_exact(3))
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(base.as_chunks::<3>().0)
             .map(|(a, b)| a != b)
             .collect();
         let (mut xmin, mut ymin, mut xmax, mut ymax) = (usize::MAX, usize::MAX, 0, 0);
@@ -1044,7 +1055,9 @@ pub fn svg_frames(b: &[u8], delays: &[u32]) -> Result<Vec<Vec<u8>>, Fail> {
         Mode::Rgb => ground.px.iter().map(|&v| f64::from(v)).collect(),
         Mode::Rgba => ground
             .px
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| p[..3].iter().map(|&v| f64::from(v)))
             .collect(),
     };
@@ -1273,7 +1286,7 @@ pub fn repr(v: &Value) -> String {
 #[must_use]
 pub fn quick_png(px: &[u8]) -> Vec<u8> {
     let mut raw = Vec::with_capacity(H * (W * 3 + 1));
-    for row in px.chunks_exact(W * 3) {
+    for row in px.as_chunks::<{ W * 3 }>().0 {
         raw.push(0);
         raw.extend_from_slice(row);
     }
@@ -1333,8 +1346,10 @@ fn bare(root: &Path, half: &str, d: &Path) -> Result<(Vec<u8>, Value), Fail> {
 }
 
 fn f32s(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect()
 }
 
@@ -1349,7 +1364,9 @@ fn walls_hold(root: &Path, today: &[u8], tmp: &Path) -> Result<(PathBuf, PathBuf
         Mode::Rgb => walls.px,
         Mode::Rgba => walls
             .px
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect(),
     };

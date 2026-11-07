@@ -399,7 +399,7 @@ pub fn decode(file: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
     };
     let mut out = out;
     if !alpha {
-        for p in out.chunks_exact_mut(4) {
+        for p in out.as_chunks_mut::<4>().0 {
             p[3] = 255;
         }
     }

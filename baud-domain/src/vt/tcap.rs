@@ -271,7 +271,7 @@ fn name_at(list: &[u8], at: usize, term: &TermName) -> (Option<TcapValue>, usize
         return (None, end);
     }
     let mut name = [0u8; NAME_MAX];
-    for (k, pair) in list[at..end].chunks_exact(2).enumerate() {
+    for (k, pair) in list[at..end].as_chunks::<2>().0.iter().enumerate() {
         name[k] = (hex_digit(pair[0]) << 4) | hex_digit(pair[1]);
     }
     let found = match tcap_lookup(&name[..digits / 2]) {

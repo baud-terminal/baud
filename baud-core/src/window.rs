@@ -415,5 +415,5 @@ pub(crate) enum Spelled {
 /// `1;` or `2;`: under ISO 8859-1 with the UTF-8 title mode set, the rest
 /// of such a body keeps its GR bytes (`Paint::osc_gr`).
 pub(crate) fn names_a_label(kept: &[u8]) -> bool {
-    matches!(kept, [b'0' | b'1' | b'2', b';', ..])
+    matches!(kept, [b'0'..=b'2', b';', ..])
 }

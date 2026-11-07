@@ -510,14 +510,14 @@ impl<'a> Jpeg<'a> {
             total: 0,
         };
         let mut at = 0usize;
-        for c in 0..f.n {
+        for (c, plane) in lay.plane.iter_mut().enumerate().take(f.n) {
             let (bw, bh) = f.blocks(c);
-            lay.plane[c] = at;
+            *plane = at;
             at = at.checked_add(bw.checked_mul(bh)?.checked_mul(u * u * bytes)?)?;
         }
-        for c in 0..f.n {
+        for (c, coef) in lay.coef.iter_mut().enumerate().take(f.n) {
             let (bw, bh) = f.blocks(c);
-            lay.coef[c] = at;
+            *coef = at;
             if f.process == Process::Progressive {
                 at = at.checked_add(bw.checked_mul(bh)?.checked_mul(128)?)?;
             }
@@ -553,7 +553,7 @@ impl<'a> Jpeg<'a> {
         match self.frame.bytes() {
             1 => work[..lay.coef[0]].fill(mid[0]),
             _ => {
-                for s in work[..lay.coef[0]].chunks_exact_mut(2) {
+                for s in work[..lay.coef[0]].as_chunks_mut::<2>().0 {
                     s.copy_from_slice(&mid);
                 }
             }
@@ -2383,7 +2383,7 @@ fn idct_into<const W: usize>(
         let out = idct8(row).map(|v| descale(v, CONST_BITS + pass1 + 3));
         let at = (y0 + r) * stride + x0;
         if let Some(dst) = plane.get_mut(at * W..(at + 8) * W) {
-            for (d, v) in dst.chunks_exact_mut(W).zip(out) {
+            for (d, v) in dst.as_chunks_mut::<W>().0.iter_mut().zip(out) {
                 let sample = (v + centre).clamp(0, max) as u16;
                 d.copy_from_slice(&sample.to_le_bytes()[..W]);
             }

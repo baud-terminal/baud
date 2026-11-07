@@ -706,8 +706,10 @@ impl Plasma {
                     W_ * H_
                 )));
             }
-            Ok(b.chunks_exact(4)
-                .map(|c| f64::from(f32::from_le_bytes(c.try_into().expect("four bytes"))))
+            Ok(b.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f64::from(f32::from_le_bytes(*c)))
                 .collect())
         };
         let (sdf, nx, ny) = (floats("sdf.f32")?, floats("nx.f32")?, floats("ny.f32")?);

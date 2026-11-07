@@ -447,7 +447,7 @@ impl Designation {
     /// national mode, designates into G0 to G3.
     pub const HEBREW_NRCS: Designation = Designation {
         size: SetSize::Chars94,
-        tail: [b'%', b'='],
+        tail: *b"%=",
     };
 
     /// ISO Latin-1 Supplemental, `ESC - A`: what `ESC SP L` and `ESC SP M`

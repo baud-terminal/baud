@@ -1014,7 +1014,9 @@ fn drawn(view: &NSView) -> (usize, Vec<u8>) {
 #[cfg(target_os = "macos")]
 fn chroma(bytes: &[u8]) -> u8 {
     bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|p| {
             let (lo, hi) = (p[0].min(p[1]).min(p[2]), p[0].max(p[1]).max(p[2]));
             hi - lo

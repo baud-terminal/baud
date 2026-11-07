@@ -420,8 +420,10 @@ fn layers(at: Pt, lines: &[&str]) -> Vec<Layer> {
 fn field(path: &std::path::Path) -> Vec<f32> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let f: Vec<f32> = b
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect();
     let (w, h) = canvas_size();
     assert_eq!(f.len(), w * h, "{}: a field of the canvas", path.display());

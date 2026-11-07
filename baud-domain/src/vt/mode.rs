@@ -1573,20 +1573,6 @@ pub const SLOT_WIRE: [u16; 75] = [
 
 const _: () = assert!(SLOT_WIRE.len() <= 128, "SavedModes keeps two words of each");
 
-#[cfg(test)]
-mod slot_wire {
-    use super::*;
-
-    /// Each entry of [`SLOT_WIRE`] is the mode whose slot is its index.
-    #[test]
-    fn every_slot_is_its_wire_number() {
-        for (i, w) in SLOT_WIRE.iter().enumerate() {
-            let m = PrivateMode::from_wire(Some(Param(*w)));
-            assert_eq!(m.slot(), Some(ModeSlot(i as u8)), "?{w}");
-        }
-    }
-}
-
 /// XTSAVE's one-level cache, `CSI ? Pm s`, which XTRESTORE `CSI ? Pm r` reads
 /// back (`[[source: ctlseqs]]`): "Like Save Cursor (DECSC), this uses a
 /// one-level cache. Unlike Save Cursor, specific settings can be saved and
@@ -1930,6 +1916,20 @@ impl PrivateMode {
             34 => PrivateMode::CursorRightToLeft,
             35 => PrivateMode::HebrewKeyboard,
             n => PrivateMode::Other(Param(n)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod slot_wire {
+    use super::*;
+
+    /// Each entry of [`SLOT_WIRE`] is the mode whose slot is its index.
+    #[test]
+    fn every_slot_is_its_wire_number() {
+        for (i, w) in SLOT_WIRE.iter().enumerate() {
+            let m = PrivateMode::from_wire(Some(Param(*w)));
+            assert_eq!(m.slot(), Some(ModeSlot(i as u8)), "?{w}");
         }
     }
 }

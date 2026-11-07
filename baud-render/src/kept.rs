@@ -99,14 +99,14 @@ impl RowKey {
             u64::from(c.content.bits()) | (u64::try_from(c.style.index()).unwrap_or(u64::MAX) << 32)
         };
         let mut lanes = [Digest::start(); 4];
-        let mut chunks = cells.chunks_exact(4);
-        for c in &mut chunks {
+        let (chunks, rest) = cells.as_chunks::<4>();
+        for c in chunks {
             for (l, cell) in lanes.iter_mut().zip(c) {
                 *l = l.fold(word(cell));
             }
         }
         let mut d = lanes.iter().fold(Digest::start(), |d, l| d.fold(l.value()));
-        for cell in chunks.remainder() {
+        for cell in rest {
             d = d.fold(word(cell));
         }
         RowKey(

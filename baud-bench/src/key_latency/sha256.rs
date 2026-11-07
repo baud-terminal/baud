@@ -18,8 +18,8 @@ const K: [u32; 64] = [
 
 fn compress(h: &mut [u32; 8], block: &[u8]) {
     let mut w = [0u32; 64];
-    for (t, word) in block.chunks_exact(4).enumerate() {
-        w[t] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+    for (t, word) in block.as_chunks::<4>().0.iter().enumerate() {
+        w[t] = u32::from_be_bytes(*word);
     }
     for t in 16..64 {
         let s0 = w[t - 15].rotate_right(7) ^ w[t - 15].rotate_right(18) ^ (w[t - 15] >> 3);
@@ -63,17 +63,17 @@ pub fn digest(bytes: &[u8]) -> String {
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
         0x5be0cd19,
     ];
-    let mut chunks = bytes.chunks_exact(64);
-    for block in chunks.by_ref() {
+    let (blocks, rest) = bytes.as_chunks::<64>();
+    for block in blocks {
         compress(&mut h, block);
     }
-    let mut tail = chunks.remainder().to_vec();
+    let mut tail = rest.to_vec();
     tail.push(0x80);
     while tail.len() % 64 != 56 {
         tail.push(0);
     }
     tail.extend_from_slice(&(bytes.len() as u64 * 8).to_be_bytes());
-    for block in tail.chunks_exact(64) {
+    for block in tail.as_chunks::<64>().0 {
         compress(&mut h, block);
     }
     h.iter().map(|w| format!("{w:08x}")).collect()

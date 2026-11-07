@@ -502,7 +502,7 @@ fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pictu
         let Some(px) = store.frame_mut(id, made, f.gap_ms, wait) else {
             return false;
         };
-        for (p, c) in px.iter_mut().zip(f.rgba.chunks_exact(4)) {
+        for (p, c) in px.iter_mut().zip(f.rgba.as_chunks::<4>().0) {
             *p = Pixel::straight(
                 Chan::from_u8(c[3]),
                 Chan::from_u8(c[0]),

@@ -457,23 +457,6 @@ pub const ENCODINGS: [MouseEncoding; 4] = [
     MouseEncoding::SgrPixels,
 ];
 
-#[cfg(test)]
-mod encoding_modes {
-    use super::*;
-
-    /// Each encoding a mode selects is the one that mode names, and X10 is
-    /// selected by none.
-    #[test]
-    fn each_encoding_is_its_modes() {
-        for e in ENCODINGS {
-            let m = e.mode().expect("a mode selects it");
-            assert_eq!(m.encoding(), Some(e), "{e:?}");
-        }
-        assert_eq!(MouseEncoding::X10.mode(), None);
-        assert_eq!(PrivateMode::MouseNormal.encoding(), None);
-    }
-}
-
 /// `?1007` -- whether the wheel on the alternate screen sends the cursor
 /// keys when no tracking takes it.
 ///
@@ -856,4 +839,21 @@ pub enum MouseTracking {
     /// Its reports are `Term::locator`'s, so `Term::mouse_report` sends
     /// nothing under it.
     Locator,
+}
+
+#[cfg(test)]
+mod encoding_modes {
+    use super::*;
+
+    /// Each encoding a mode selects is the one that mode names, and X10 is
+    /// selected by none.
+    #[test]
+    fn each_encoding_is_its_modes() {
+        for e in ENCODINGS {
+            let m = e.mode().expect("a mode selects it");
+            assert_eq!(m.encoding(), Some(e), "{e:?}");
+        }
+        assert_eq!(MouseEncoding::X10.mode(), None);
+        assert_eq!(PrivateMode::MouseNormal.encoding(), None);
+    }
 }

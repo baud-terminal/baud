@@ -495,13 +495,13 @@ impl Walk<'_> {
                         action = Action::Help;
                         let tail = chars.as_str();
                         if tail.is_empty() {
-                            sep = String::new();
+                            sep.clear();
                             explicit = None;
                         } else if let Some(v) = tail.strip_prefix('=') {
                             sep = "=".to_string();
                             explicit = Some(v.to_string());
                         } else {
-                            sep = String::new();
+                            sep.clear();
                             explicit = Some(tail.to_string());
                         }
                     } else {

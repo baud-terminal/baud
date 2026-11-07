@@ -234,7 +234,7 @@ fn lead(at: Pt, to: Pt, centre: Pt) -> Option<f32> {
     let (dx, dy) = (to.x - at.x, to.y - at.y);
     let (ox, oy) = (to.x - centre.x, to.y - centre.y);
     let (travel, out) = (dx.det_hypot(dy), ox.det_hypot(oy));
-    (travel >= 1e-3 && out > 0.0).then(|| (dx * ox + dy * oy) / (travel * out))
+    (travel >= 1e-3 && out > 0.0).then_some((dx * ox + dy * oy) / (travel * out))
 }
 
 impl Segment {

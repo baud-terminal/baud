@@ -340,10 +340,7 @@ fn number(word: &str) -> Option<usize> {
     };
     let t = TENS.iter().position(|x| *x == tens)?;
     let u = match unit {
-        Some(u) => match UNITS[1..10].iter().position(|x| *x == u) {
-            Some(i) => i + 1,
-            None => return None,
-        },
+        Some(u) => UNITS[1..10].iter().position(|x| *x == u)? + 1,
         None => 0,
     };
     Some((t + 2) * 10 + u)

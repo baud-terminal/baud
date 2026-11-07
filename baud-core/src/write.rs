@@ -2841,7 +2841,7 @@ fn esc_final(
             // (conformance_level > 2)"; below that they are counted. xterm sets an ANSI level
             // and designates nothing, a departure from the text not
             // followed.
-            b' ' if matches!(b.raw_byte(), b'L' | b'M' | b'N') => {
+            b' ' if matches!(b.raw_byte(), b'L'..=b'N') => {
                 match Function::Announce.introduced().admits(p.cold.level) {
                     true => p.announce(b),
                     false => p.unsupported_total += 1,

@@ -1522,7 +1522,7 @@ fn objects(f: &FontRef, x: &Extent) -> Res<Objects> {
     let (start, offs, _) = lookup_region(t)?;
     lines.insert(
         "GSUB lookups".into(),
-        format!("{} {}", offs.len() >= nsub, &t[start..].starts_with(region)),
+        format!("{} {}", offs.len() >= nsub, t[start..].starts_with(region)),
     );
     // GPOS's lookups and every language system's features, as the
     // comparator expands them.

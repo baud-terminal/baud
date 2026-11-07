@@ -917,8 +917,8 @@ fn play(
             }
             _ => {
                 if plan.slide.is_none() {
-                    kept = Vec::new();
-                    composed = Vec::new();
+                    kept.clear();
+                    composed.clear();
                 }
                 crate::effects::Composed::No
             }

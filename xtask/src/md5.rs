@@ -27,8 +27,8 @@ const SHIFT: [[u32; 4]; 4] = [
 
 fn compress(h: &mut [u32; 4], block: &[u8]) {
     let mut x = [0u32; 16];
-    for (word, bytes) in x.iter_mut().zip(block.chunks_exact(4)) {
-        *word = u32::from_le_bytes(bytes.try_into().expect("four bytes"));
+    for (word, bytes) in x.iter_mut().zip(block.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
     }
     let [mut a, mut b, mut c, mut d] = *h;
     for i in 0..64 {
@@ -66,11 +66,12 @@ pub fn digest(data: &[u8]) -> [u8; 16] {
         .expect("a length in bytes")
         .wrapping_mul(8);
     tail.extend_from_slice(&bits.to_le_bytes());
-    for block in data[..whole].chunks_exact(64).chain(tail.chunks_exact(64)) {
+    let blocks = data[..whole].as_chunks::<64>().0.iter();
+    for block in blocks.chain(tail.as_chunks::<64>().0) {
         compress(&mut h, block);
     }
     let mut out = [0; 16];
-    for (bytes, word) in out.chunks_exact_mut(4).zip(h) {
+    for (bytes, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(h) {
         bytes.copy_from_slice(&word.to_le_bytes());
     }
     out

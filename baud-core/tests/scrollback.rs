@@ -2145,14 +2145,14 @@ fn ea_while_narrow_clears_the_rows_it_erases_to_their_end() {
     assert_bar_from(&whole.1[1], 0, "the control: row 2, a bar grown back");
     assert_bar_from(&whole.1[2][..5], 0, "EA 0, row 3, the X before it");
     assert_default_from(&whole.1[2], 5, "EA 0, row 3, grown");
-    for y in 3..9 {
-        assert_default_from(&whole.1[y], 0, &format!("EA 0, row {}, grown", y + 1));
+    for (y, row) in whole.1.iter().enumerate().take(9).skip(3) {
+        assert_default_from(row, 0, &format!("EA 0, row {}, grown", y + 1));
     }
     in_every_read(BLUE_BAR, ops, &whole);
     let ops = b"\x1b[4;6H\x1b[1O";
     let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
-    for y in 0..3 {
-        assert_default_from(&whole.1[y], 0, &format!("EA 1, row {}, grown", y + 1));
+    for (y, row) in whole.1.iter().enumerate().take(3) {
+        assert_default_from(row, 0, &format!("EA 1, row {}, grown", y + 1));
     }
     assert_bar_from(&whole.1[3], 6, "EA 1, row 4, the bar from column 7");
     assert_bar_from(&whole.1[4], 0, "EA 1, row 5, a bar");

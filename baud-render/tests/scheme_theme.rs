@@ -46,9 +46,9 @@ fn a_whole_scheme_replaces_the_sixteen_the_page_and_the_text() {
     let alpha = t.bg_alpha;
     let unset = t.take_scheme(&s);
     assert_eq!(unset.get_raw(), 0);
-    for i in 0..16 {
+    for (i, entry) in t.palette.iter().enumerate().take(16) {
         assert_eq!(
-            t.palette[i],
+            *entry,
             argb(0x010203 * (1 + u32::try_from(i).unwrap())),
             "entry {i}"
         );

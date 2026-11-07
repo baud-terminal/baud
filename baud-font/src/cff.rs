@@ -1026,7 +1026,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         if !a.len().is_multiple_of(2) {
             return None;
         }
-        for d in a.chunks_exact(2) {
+        for d in a.as_chunks::<2>().0 {
             self.x = self.x + d[0];
             self.y = self.y + d[1];
             self.emit_line();
@@ -1069,7 +1069,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         if !a.len().is_multiple_of(6) {
             return None;
         }
-        for c in a.chunks_exact(6) {
+        for c in a.as_chunks::<6>().0 {
             self.curve(c);
         }
         Some(())
@@ -1081,7 +1081,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
             return None;
         }
         let (curves, line) = a.split_at(a.len() - 2);
-        for c in curves.chunks_exact(6) {
+        for c in curves.as_chunks::<6>().0 {
             self.curve(c);
         }
         self.x = self.x + line[0];
@@ -1096,7 +1096,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
             return None;
         }
         let (lines, curve) = a.split_at(a.len() - 6);
-        for d in lines.chunks_exact(2) {
+        for d in lines.as_chunks::<2>().0 {
             self.x = self.x + d[0];
             self.y = self.y + d[1];
             self.emit_line();
@@ -1115,7 +1115,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         if !a.len().is_multiple_of(4) {
             return None;
         }
-        for c in a.chunks_exact(4) {
+        for c in a.as_chunks::<4>().0 {
             let x1 = self.x + c[0];
             let y1 = self.y;
             let x2 = x1 + c[1];
@@ -1137,7 +1137,7 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         if !a.len().is_multiple_of(4) {
             return None;
         }
-        for c in a.chunks_exact(4) {
+        for c in a.as_chunks::<4>().0 {
             let x1 = self.x;
             let y1 = self.y + c[0];
             let x2 = x1 + c[1];

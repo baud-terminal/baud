@@ -71,16 +71,12 @@ version = "1.0.0-beta"
 edition = "2021"
 authors = ["i-am-logger"]
 description = "A fast terminal emulator with its own built-in font and cursor effects, readable from the first launch. Written in Rust."
-# crates.io's equivalent of GitHub topics. Max five keywords, 20 chars each;
-# categories must come from crates.io's fixed list.
-keywords = ["terminal", "vt100", "ansi", "tty", "vte"]
-categories = ["parser-implementations", "no-std", "text-processing"]
 license = "CC-BY-NC-SA-4.0"
 repository = "https://github.com/baud-terminal/baud"
-# The toolchain the crates are built with is nightly 1.96 (`nix/rust.nix`):
+# The toolchain the crates are built with is nightly 1.101 (`nix/rust.nix`):
 # baud-domain and baud-font use `#![feature]`s, so no stable release builds
-# them, and 1.96 is the release whose nightly does.
-rust-version = "1.96"
+# them, and 1.101 is the release whose nightly does.
+rust-version = "1.101"
 
 # **A path and a version for each crate `baud` is built from.** The path is
 # what the workspace builds against; the version is what a published crate

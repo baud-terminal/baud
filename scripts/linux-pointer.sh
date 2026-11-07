@@ -56,7 +56,7 @@ mkdir -p "$out"
 out=$(cd "$out" && pwd)
 
 toolchain=$(rustc -Vv | sed -n 's/^commit-hash: //p')
-nightly=${BAUD_NIGHTLY:-nightly-2026-04-11}
+nightly=${BAUD_NIGHTLY:-nightly-2026-11-06}
 tag=${BAUD_POINTER_TAG:-baud-linux-pointer}
 docker build -q -t "$tag-build" - >/dev/null <<EOF
 FROM rustlang/rust:nightly-bookworm

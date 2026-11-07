@@ -410,7 +410,7 @@ pub fn read(base: &[u8], stage: &[u8], style: &str) -> Res<Source> {
                         let a = r
                             .base_anchors(bases.offset_data())
                             .iter()
-                            .map(|a| a.map(&anchor).transpose())
+                            .map(|a| a.map(anchor).transpose())
                             .collect::<Res<Vec<_>>>()?;
                         bs.push((g, a));
                     }
@@ -445,7 +445,7 @@ pub fn read(base: &[u8], stage: &[u8], style: &str) -> Res<Source> {
                         let a = r
                             .mark2_anchors(bases.offset_data())
                             .iter()
-                            .map(|a| a.map(&anchor).transpose())
+                            .map(|a| a.map(anchor).transpose())
                             .collect::<Res<Vec<_>>>()?;
                         bs.push((g, a));
                     }

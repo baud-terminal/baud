@@ -236,8 +236,10 @@ impl Shown {
     fn of(states: &[u8]) -> Shown {
         let has = |want: u32| {
             states
-                .chunks_exact(4)
-                .any(|w| w.try_into().ok().map(u32::from_ne_bytes) == Some(want))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|w| u32::from_ne_bytes(*w) == want)
         };
         match (
             has(protocol::xdg_toplevel::state::FULLSCREEN),

@@ -1924,9 +1924,9 @@ impl<'a> View<'a> {
             // half is `proto`'s own codepoint and is replaced per cell.
             let hi = u64::from_ne_bytes(bytes) & 0xffff_ffff_0000_0000;
 
-            let mut d = dst.chunks_exact_mut(8);
-            let mut s = cps.chunks_exact(8);
-            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
+            let (d, d_rest) = dst.as_chunks_mut::<8>();
+            let (s, s_rest) = cps.as_chunks::<8>();
+            for (dc, sc) in d.iter_mut().zip(s) {
                 let c = Simd::<u32, 8>::from_array([
                     sc[0].value(),
                     sc[1].value(),
@@ -1941,9 +1941,9 @@ impl<'a> View<'a> {
                 let cells = (c | Simd::splat(hi)).to_array();
                 let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
                     .expect("eight u64 is sixty-four bytes, which is eight cells");
-                dc.copy_from_slice(&packed);
+                *dc = packed;
             }
-            for (dc, &cp) in d.into_remainder().iter_mut().zip(s.remainder()) {
+            for (dc, &cp) in d_rest.iter_mut().zip(s_rest) {
                 *dc = PackedCell::glyph(cp, proto.style, proto.flags);
             }
         }
@@ -1969,9 +1969,9 @@ impl<'a> View<'a> {
             // `proto` is already the tail, so its low half is `WIDE_TAIL`.
             let tail = Simd::<u64, 4>::splat(word & 0x0000_0000_ffff_ffff);
 
-            let mut d = dst.chunks_exact_mut(8);
-            let mut s = cps.chunks_exact(4);
-            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
+            let (d, d_rest) = dst.as_chunks_mut::<8>();
+            let (s, s_rest) = cps.as_chunks::<4>();
+            for (dc, sc) in d.iter_mut().zip(s) {
                 let c = Simd::<u32, 4>::from_array([
                     sc[0].value(),
                     sc[1].value(),
@@ -1984,15 +1984,15 @@ impl<'a> View<'a> {
                 let cells = (content | Simd::splat(hi)).to_array();
                 let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
                     .expect("eight u64 is sixty-four bytes, which is eight cells");
-                dc.copy_from_slice(&packed);
+                *dc = packed;
             }
-            for (dc, &cp) in d.into_remainder().chunks_exact_mut(2).zip(s.remainder()) {
+            for (dc, &cp) in d_rest.as_chunks_mut::<2>().0.iter_mut().zip(s_rest) {
                 dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
                 dc[1] = proto;
             }
         }
         #[cfg(not(target_endian = "little"))]
-        for (dc, &cp) in dst.chunks_exact_mut(2).zip(cps) {
+        for (dc, &cp) in dst.as_chunks_mut::<2>().0.iter_mut().zip(cps) {
             dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
             dc[1] = proto;
         }
@@ -2040,17 +2040,17 @@ impl<'a> View<'a> {
             bytes.copy_from_slice(proto.as_bytes());
             let hi = u64::from_ne_bytes(bytes) & 0xffff_ffff_0000_0000;
 
-            let mut d = dst.chunks_exact_mut(8);
-            let mut s = src.chunks_exact(8);
-            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
-                let content = Simd::<u8, 8>::from_slice(sc).cast::<u64>();
+            let (d, d_rest) = dst.as_chunks_mut::<8>();
+            let (s, s_rest) = src.as_chunks::<8>();
+            for (dc, sc) in d.iter_mut().zip(s) {
+                let content = Simd::<u8, 8>::from_array(*sc).cast::<u64>();
                 let cells = (content | Simd::splat(hi)).to_array();
                 let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
                     .expect("eight u64 is sixty-four bytes, which is eight cells");
-                dc.copy_from_slice(&packed);
+                *dc = packed;
             }
             // A run averages ~32 bytes, so the tail is not rare and is not free.
-            for (dc, &b) in d.into_remainder().iter_mut().zip(s.remainder()) {
+            for (dc, &b) in d_rest.iter_mut().zip(s_rest) {
                 *dc = proto.with_ascii(StreamByte::from_stream(b));
             }
         }

@@ -116,16 +116,16 @@ struct Hash(u64);
 fn hash(words: &[u32]) -> Hash {
     const PRIME: u64 = 0x0000_0100_0000_01B3;
     let mut lanes = [0xCBF2_9CE4_8422_2325u64; 4];
-    let mut eights = words.chunks_exact(8);
-    for eight in &mut eights {
-        for (lane, pair) in lanes.iter_mut().zip(eight.chunks_exact(2)) {
+    let (eights, rest) = words.as_chunks::<8>();
+    for eight in eights {
+        for (lane, pair) in lanes.iter_mut().zip(eight.as_chunks::<2>().0) {
             let word = u64::from(pair[0]) | u64::from(pair[1]) << 32;
             *lane = (*lane ^ word).wrapping_mul(PRIME);
         }
     }
     let mut h =
         lanes[0] ^ lanes[1].rotate_left(16) ^ lanes[2].rotate_left(32) ^ lanes[3].rotate_left(48);
-    for &w in eights.remainder() {
+    for &w in rest {
         h = (h ^ u64::from(w)).wrapping_mul(PRIME);
     }
     Hash(h)

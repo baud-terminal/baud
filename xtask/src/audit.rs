@@ -413,8 +413,12 @@ pub const ADDRESSES: [(&str, Sites); 4] = [
     ("baud-render", Sites(2)),
 ];
 
-/// The target the other architecture's ISA crate is built for.
-pub const CROSS_TARGET: &str = "x86_64-unknown-none";
+/// The target the other architecture's ISA crate is built for. Not
+/// `x86_64-unknown-none`: that target is soft-float, and rustc refuses
+/// `#[target_feature(enable = "avx2")]` there (`x86_softfloat_sse`,
+/// rust-lang/rust#117938). `nix/rust.nix` fetches this one's standard
+/// library, and the crate is `no_std` without its `std` feature either way.
+pub const CROSS_TARGET: &str = "x86_64-unknown-linux-gnu";
 
 /// **A positive control decides whether the target is usable**, because
 /// asking `rustup` does not: this toolchain is nix-provided and `rustup

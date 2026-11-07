@@ -112,9 +112,8 @@ fn main() {
         "read a 64 MB buffer, 8 bytes at a time",
         || {
             let mut acc = 0u64;
-            for c in src.chunks_exact(8) {
-                let w: [u8; 8] = c.try_into().expect("chunks_exact(8)");
-                acc ^= u64::from_ne_bytes(w);
+            for c in src.as_chunks::<8>().0 {
+                acc ^= u64::from_ne_bytes(*c);
             }
             black_box(acc);
             BUF
@@ -183,9 +182,8 @@ fn main() {
         || {
             for p in 0..passes {
                 let v = Simd::<u64, 8>::splat(p as u64);
-                for chunk in grid.chunks_exact_mut(8) {
-                    let arr: &mut [u64; 8] = chunk.try_into().expect("chunks_exact_mut(8)");
-                    *arr = v.to_array();
+                for chunk in grid.as_chunks_mut::<8>().0 {
+                    *chunk = v.to_array();
                 }
             }
             black_box(&grid[0]);
@@ -203,7 +201,12 @@ fn main() {
         "read a byte, build a cell, eight a store",
         || {
             for _ in 0..passes {
-                for (out, inp) in grid.chunks_exact_mut(8).zip(text.chunks_exact(8)) {
+                for (out, inp) in grid
+                    .as_chunks_mut::<8>()
+                    .0
+                    .iter_mut()
+                    .zip(text.as_chunks::<8>().0)
+                {
                     let mut a = [0u64; 8];
                     for k in 0..8 {
                         // The cell is the codepoint in the low word plus a
@@ -211,8 +214,7 @@ fn main() {
                         a[k] = u64::from(inp[k]) | (0x2020_0000_0000u64);
                     }
                     let v = Simd::<u64, 8>::from_array(a);
-                    let dst: &mut [u64; 8] = out.try_into().expect("chunks_exact_mut(8)");
-                    *dst = v.to_array();
+                    *out = v.to_array();
                 }
             }
             black_box(&grid[0]);

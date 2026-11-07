@@ -1483,13 +1483,13 @@ impl SegHash {
     #[inline(always)]
     pub fn of(seg: &[StreamByte]) -> SegHash {
         let (mut a, mut b) = (Self::SEED_A, Self::SEED_B);
-        let mut c = seg.chunks_exact(16);
-        for q in &mut c {
+        let (quads, rest) = seg.as_chunks::<16>();
+        for q in quads {
             a = (a ^ Self::word(&q[..8])).wrapping_mul(Self::PRIME);
             b = (b ^ Self::word(&q[8..])).wrapping_mul(Self::PRIME);
         }
         let mut tail = [StreamByte::NUL; 16];
-        for (d, x) in tail.iter_mut().zip(c.remainder().iter()) {
+        for (d, x) in tail.iter_mut().zip(rest) {
             *d = *x;
         }
         a = (a ^ Self::word(&tail[..8])).wrapping_mul(Self::PRIME);

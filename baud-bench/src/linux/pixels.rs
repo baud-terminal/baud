@@ -378,7 +378,12 @@ fn over_black(px: &[u8]) -> Res<Vec<u8>> {
         return Err("a frame cut inside a pixel".to_string());
     }
     let mut out = px.to_vec();
-    for (to, from) in out.chunks_exact_mut(4).zip(px.chunks_exact(4)) {
+    for (to, from) in out
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(px.as_chunks::<4>().0)
+    {
         for k in 0..3 {
             to[k] = premultiplied(from[k], from[3]);
         }
@@ -434,7 +439,13 @@ fn diff(a: &Path, b: &Path, out_png: Option<&Path>, out: &mut String) -> Res<i32
     let mut slots = [usize::MAX; 256];
     let (mut left, mut top, mut right, mut bottom) = (wa, ha, -1i128, -1i128);
     let mut mark = vec![0u8; usize::try_from(wa * ha * 4).map_err(|e| e.to_string())?];
-    for (i, (p, q)) in pa.chunks_exact(4).zip(pb.chunks_exact(4)).enumerate() {
+    for (i, (p, q)) in pa
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(pb.as_chunks::<4>().0)
+        .enumerate()
+    {
         let d = (0..4).map(|k| p[k].abs_diff(q[k])).max().unwrap_or(0);
         let to = &mut mark[i * 4..i * 4 + 4];
         if d != 0 {
@@ -492,8 +503,8 @@ fn control_value() -> [u8; 4] {
 fn control(image: &Image) -> &'static str {
     let want = control_value();
     let size = image.w.checked_mul(image.h).map(|n| n * 4);
-    let holds =
-        size == i128::try_from(image.px.len()).ok() && image.px.chunks_exact(4).all(|p| p == want);
+    let holds = size == i128::try_from(image.px.len()).ok()
+        && image.px.as_chunks::<4>().0.iter().all(|p| *p == want);
     if holds { "yes" } else { "no" }
 }
 

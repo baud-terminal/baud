@@ -496,7 +496,7 @@ fn the_line_drawing_table_covers_the_whole_set() {
         );
     }
     // And nothing below the set is touched. Not `_` (0x5F): see above.
-    for byte in [b'A', b'Z', b'0', b'9', b' ', b'^'] {
+    for byte in *b"AZ09 ^" {
         let mut bytes = b"\x1b(0".to_vec();
         bytes.push(byte);
         let (g, _) = run(&bytes);
@@ -731,7 +731,7 @@ fn every_national_replacement_renders_as_its_table_says() {
             designators.push((seq, n));
         }
     }
-    for i in [b'"', b'%', b'&'] {
+    for i in *b"\"%&" {
         for f in 0x20u8..=0x7e {
             let seq = vec![0x1b, b'(', i, f];
             if let Charset::National(n) = charset(&seq) {
@@ -813,7 +813,7 @@ fn after_an_intermediate_the_introducer_bytes_are_finals_at_every_read_size() {
     let want = [u32::from(b'A'), u32::from(b'B'), 0];
     for (enc, pre) in [("UTF-8", b"".as_slice()), ("ISO 8859-1", b"\x1b%@")] {
         for inter in [b"(".as_slice(), b" ", b"#", b"%", b"(%"] {
-            for f in [b'P', b'X', b'[', b']', b'^', b'_'] {
+            for f in *b"PX[]^_" {
                 let prog = [pre, b"\x1b", inter, &[f], b"AB"].concat();
                 let at = format!("{enc}: {}", prog.escape_ascii());
                 let whole = left_by(&[&prog]);

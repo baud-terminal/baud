@@ -188,7 +188,7 @@ fn the_shift_table_is_what_the_wayland_driver_sends() {
         assert_eq!(e.mods.has(Modifiers::CAPS_LOCK), locked != 0, "{line}");
         assert_eq!(
             e.shifted,
-            Some(Codepoint::from_char(typed)).filter(|_| typed != key && held & SHIFT != 0),
+            (typed != key && held & SHIFT != 0).then_some(Codepoint::from_char(typed)),
             "{line}"
         );
         assert_eq!(sent(e, mode), unescape(want), "{line}");

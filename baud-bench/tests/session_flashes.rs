@@ -71,8 +71,8 @@ fn the_readme_session_is_below_the_flash_thresholds() {
     let mut census: Option<(usize, Census)> = None;
     let mut frame = Frame(0);
     while out.read_exact(&mut bytes).is_ok() {
-        for (p, b) in pixels.iter_mut().zip(bytes.chunks_exact(4)) {
-            *p = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+        for (p, b) in pixels.iter_mut().zip(bytes.as_chunks::<4>().0) {
+            *p = u32::from_le_bytes(*b);
         }
         if census.is_none() {
             if let Some(i) = shots.iter().position(|s| s.first == frame) {

@@ -18,10 +18,9 @@
 //! (`nix/demo-container/`), nixpkgs' `dockerTools.streamLayeredImage` at
 //! the flake's pinned nixpkgs -- the revision `devenv.lock` holds, not the
 //! demo's own [`crate::run::NIXPKGS`] -- with the packages for
-//! aarch64-linux from cache.nixos.org, so no Linux builder is needed;
-//! starship and bash come from the flake's `nixpkgs-demo` input, the
-//! revision [`STARSHIP_NIXPKGS`] names, the starship the
-//! demo's own shell runs.
+//! aarch64-linux from cache.nixos.org, so no Linux builder is needed: they
+//! come from the flake's `nixpkgs-demo` input, the revision
+//! [`STARSHIP_NIXPKGS`] names, the starship the demo's own shell runs.
 //! Its files are beside that expression, and this module reads the same
 //! bytes (`include_str!`), so the tests below check what the image holds.
 //!
@@ -78,7 +77,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 
 /// **The image's stream, by SHA-256**, from the flake's pinned nixpkgs for
 /// `aarch64-linux`, the system colima's VM runs on an Apple silicon Mac.
-pub const IMAGE_SHA256: &str = "e247674a9e53a2213769e5f90afff11010f2c9259f2db4ad95ff8a900e92c9de";
+pub const IMAGE_SHA256: &str = "6ddfec1858299137e11eefb39ac153fb08755223c4fca2972609268fe3615fe9";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.
@@ -1036,7 +1035,7 @@ mod tests {
             "ln -s ${bashInteractive}/bin/bash usr/bin/bash".to_string(),
             "ln -s ${starship}/bin/starship usr/bin/starship".to_string(),
             "chown 1000:1000 home/jordan".to_string(),
-            "ln -s ${fastfetchMinimal}/bin/fastfetch usr/bin/fastfetch".to_string(),
+            "ln -s ${fastfetch-unwrapped}/bin/fastfetch usr/bin/fastfetch".to_string(),
             "ln -s ${btop}/bin/btop usr/bin/btop".to_string(),
             "ln -s ${openssh}/bin/sshd usr/sbin/sshd".to_string(),
             "\"/usr/sbin/sshd\"".to_string(),
@@ -1045,8 +1044,9 @@ mod tests {
         }
         assert!(NIX.contains("install -d -m 0755 etc etc/ssh home home/jordan"));
         assert!(!NIX.contains("home/baud"), "the user's home is jordan's");
-        assert!(NIX.contains("inherit (linux) busybox openssh fastfetchMinimal btop;"));
-        assert!(NIX.contains("inherit (prompt) starship bashInteractive;"));
+        assert!(NIX.contains(
+            "inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive;"
+        ));
         let wide = NIX.replace("-m 0600 ${./shadow}", "-m 0644 ${./shadow}");
         assert!(
             !has(&wide, "install -m 0600 ${./shadow} etc/shadow"),
@@ -1055,8 +1055,7 @@ mod tests {
         assert!(FLAKE.contains(&format!(
             "aarch64-darwin.{FLAKE_OUTPUT} = import ./nix/demo-container {{"
         )));
-        assert!(FLAKE.contains("linux = pkgsFor \"aarch64-linux\";"));
-        assert!(FLAKE.contains("prompt = nixpkgs-demo.legacyPackages.aarch64-linux;"));
+        assert!(FLAKE.contains("linux = nixpkgs-demo.legacyPackages.aarch64-linux;"));
         assert_eq!(
             socket(r#"{"arch":"aarch64","docker_socket":"unix:///x/docker.sock","k":1}"#),
             Some("unix:///x/docker.sock".to_string())

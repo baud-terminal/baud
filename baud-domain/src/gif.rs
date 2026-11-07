@@ -403,7 +403,7 @@ impl<'a> Gif<'a> {
             .ok_or(GifError::Buffer)?;
         let (canvas, saved) = work.split_at_mut(w * h * 4);
         let bg = self.background();
-        for px in canvas.chunks_exact_mut(4) {
+        for px in canvas.as_chunks_mut::<4>().0 {
             px.copy_from_slice(&bg);
         }
         let mut lzw = Lzw::NEW;
@@ -461,7 +461,10 @@ impl<'a> Gif<'a> {
                 Disposal::None => {}
                 Disposal::Background => {
                     for y in y0..y1 {
-                        for px in canvas[(y * w + x0) * 4..(y * w + x1) * 4].chunks_exact_mut(4) {
+                        for px in canvas[(y * w + x0) * 4..(y * w + x1) * 4]
+                            .as_chunks_mut::<4>()
+                            .0
+                        {
                             px.copy_from_slice(&bg);
                         }
                     }

@@ -575,8 +575,10 @@ fn buffer_words(file: &std::fs::File, i: usize, w: usize, h: usize) -> Vec<u32> 
     file.read_exact_at(&mut bytes, u64::try_from(i * w * 4 * h).unwrap())
         .unwrap();
     bytes
-        .chunks_exact(4)
-        .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_ne_bytes(*b))
         .collect()
 }
 

@@ -26,7 +26,7 @@ alacritty's cores ([Performance](guide/performance.md)).
 
 There is no release of baud yet, so depend on `baud-core` from a checkout
 of this repository, by path or by git revision. Either way it needs the
-nightly toolchain baud is built with (`nightly-2026-04-11`). Its API
+nightly toolchain baud is built with (`nightly-2026-11-06`). Its API
 follows baud's needs and may change in any revision, so pin the revision
 you build against.
 

@@ -30,7 +30,7 @@ use crate::pyfmt;
 pub fn lines(path: &Path, index: i64, sizes: &[f64]) -> Result<String, String> {
     let lib = ft::Library::new();
     crate::pinned_freetype(&lib);
-    let index = core::ffi::c_long::try_from(index).map_err(|e| e.to_string())?;
+    let index = core::ffi::c_long::try_from(index).map_err(|_| "the index fits no long")?;
     let mut face = lib
         .face_at(path, index)
         .map_err(|e| format!("{}: {}", path.display(), ft::exception(e)))?;

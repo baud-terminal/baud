@@ -79,10 +79,9 @@ impl Keysym {
             }
         } else if let Some(h) = name.strip_prefix("0x") {
             Keysym(hex8(h).filter(|&v| v <= 0x1fff_ffff)?)
-        } else if let Some(rest) = name.strip_prefix("XF86_") {
-            return Keysym::from_xkb_name(&alloc::format!("XF86{rest}"));
         } else {
-            return None;
+            let rest = name.strip_prefix("XF86_")?;
+            return Keysym::from_xkb_name(&alloc::format!("XF86{rest}"));
         };
         (k != Keysym::NO_SYMBOL).then_some(k)
     }

@@ -15,7 +15,9 @@ categories = ["no-std", "hardware-support"]
 # The tests and their fixtures stay in the repository.
 include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 
-[dependencies]
+# The crate is `#![cfg(target_arch = "x86_64")]`, so elsewhere nothing
+# names these.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
 baud-domain = { workspace = true }
 baud-isa = { workspace = true }
 

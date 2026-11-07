@@ -27,7 +27,7 @@ fn every_colour_and_coverage_is_within_one_code() {
 #[test]
 fn every_row_runs_from_zero_to_full() {
     assert_eq!(CURVES.len(), ROWS * 256);
-    for (i, row) in CURVES.chunks_exact(256).enumerate() {
+    for (i, row) in CURVES.as_chunks::<256>().0.iter().enumerate() {
         assert_eq!(row[0], 0, "row {i}: no coverage stays none");
         assert_eq!(row[255], 255, "row {i}: full coverage stays full");
         assert!(row.windows(2).all(|w| w[0] <= w[1]), "row {i}: monotonic");

@@ -78,15 +78,15 @@ fn term_after(bytes: &[u8]) -> (Vec<PackedCell>, usize, usize) {
 #[test]
 fn a_linked_run_carries_its_uri() {
     let s = run(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\plain");
-    for x in 0..4 {
+    for (x, uri) in s.uris.iter().enumerate().take(4) {
         assert_eq!(
-            s.uris[x].as_deref(),
+            uri.as_deref(),
             Some(&b"https://example.com"[..]),
             "column {x} is inside the link"
         );
     }
-    for x in 4..9 {
-        assert_eq!(s.uris[x], None, "column {x} is after the close");
+    for (x, uri) in s.uris.iter().enumerate().take(9).skip(4) {
+        assert_eq!(*uri, None, "column {x} is after the close");
     }
 }
 
