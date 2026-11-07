@@ -8,6 +8,11 @@
 //! both be baud's pid. The wheel's adds `scripts/readme-pointer.swift`'s:
 //! the point must lie in a window of baud's with no other process's
 //! ordinary window in front of it.
+//!
+//! Both look only at layer 0, and a lock screen's shield and a screen saver
+//! sit above it, so neither can see them. [`console`] looks at the session
+//! itself, before the window opens, before every posted event and at the
+//! film's end, and an answer it cannot read refuses.
 
 /// A window as `CGWindowListCopyWindowInfo` describes it.
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +89,183 @@ pub fn wheel(pid: i32, front: &[Window], app: Option<i32>, p: (f64, f64)) -> Res
         "the point {:.0},{:.0} is in no window of baud's pid {pid} in front of every other",
         p.0, p.1
     )))
+}
+
+/// **One thing read from the system.** `Unread` is a read that gave no
+/// answer of the kind it should, and [`console`] refuses it as it refuses
+/// the state it might be hiding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reading {
+    Yes,
+    No,
+    Unread,
+}
+
+/// **The session a posted key would land in**, as `mac::console` reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Console {
+    /// `IOConsoleLocked` on the IORegistry's root. In no SDK header.
+    pub registry_locked: Reading,
+    /// `CGSSessionScreenIsLocked` in the session dictionary. In no SDK
+    /// header, and absent while the screen is unlocked, so absent is `No`
+    /// and only a missing dictionary or a value of another type is `Unread`.
+    pub session_locked: Reading,
+    /// `kCGSessionOnConsoleKey`, a CFBoolean by
+    /// `[[source: macos-sdk-cgsession-h]]`.
+    pub on_console: Reading,
+    /// `IsSecureEventInputEnabled`, by any process
+    /// (`[[source: macos-sdk-carboneventscore-h]]`).
+    pub secure_input: Reading,
+    /// `CGDisplayIsAsleep` of the main display
+    /// (`[[source: macos-sdk-cgdisplayconfiguration-h]]`).
+    pub display_asleep: Reading,
+    /// `CGDisplayIsActive` of the main display, the same header's.
+    pub display_active: Reading,
+    /// Whether a process named `ScreenSaverEngine` exists.
+    pub saver: Reading,
+}
+
+/// **What refuses a key, a window or a film**: each state alone, and each
+/// reading that gave no answer. The sentence names the state; the caller
+/// says what was not done because of it.
+pub fn console(c: &Console) -> Result<(), Refused> {
+    const LOCKED: &str = "the screen is locked, so a key would go to its password field";
+    let states = [
+        (
+            c.registry_locked,
+            Reading::Yes,
+            LOCKED,
+            "IOConsoleLocked could not be read, so the screen may be locked and a key would go \
+             to its password field",
+        ),
+        (
+            c.session_locked,
+            Reading::Yes,
+            LOCKED,
+            "the window server's session could not be read for a lock, so the screen may be \
+             locked and a key would go to its password field",
+        ),
+        (
+            c.on_console,
+            Reading::No,
+            "this session is not on the console, so a key would not reach baud's window",
+            "the window server's session could not be read for the console, so a key might not \
+             reach baud's window",
+        ),
+        (
+            c.secure_input,
+            Reading::Yes,
+            "secure input is on: a password field has the keys, or an application holds it, such \
+             as a password manager or a terminal's secure keyboard entry, and posted keys could \
+             not reach baud's window reliably",
+            "secure input could not be read, so a key might go to a password field",
+        ),
+        (
+            c.display_asleep,
+            Reading::Yes,
+            "the main display is asleep, so the film would be black",
+            "the main display could not be read, so the film might be black",
+        ),
+        (
+            c.display_active,
+            Reading::No,
+            "the main display is not active, so the film would be black",
+            "the main display could not be read, so the film might be black",
+        ),
+        (
+            c.saver,
+            Reading::Yes,
+            "a screen saver is running, so a key would go to it and the film would show it",
+            "the running processes could not be read for a screen saver, so a key might go to it",
+        ),
+    ];
+    for (read, refused, said, unread) in states {
+        if read == Reading::Unread {
+            return Err(Refused(unread.to_string()));
+        }
+        if read == refused {
+            return Err(Refused(said.to_string()));
+        }
+    }
+    Ok(())
+}
+
+/// **The session in a line**, for `--dry`: what [`console`] would act on,
+/// and it refuses nothing here.
+pub fn describe(c: &Console) -> String {
+    let word = |r: Reading, yes: &'static str, no: &'static str, unread: &'static str| match r {
+        Reading::Yes => yes,
+        Reading::No => no,
+        Reading::Unread => unread,
+    };
+    let lock = match (c.registry_locked, c.session_locked) {
+        (Reading::Yes, _) | (_, Reading::Yes) => "locked",
+        (Reading::Unread, _) | (_, Reading::Unread) => "lock unreadable",
+        _ => "not locked",
+    };
+    let display = match (c.display_asleep, c.display_active) {
+        (Reading::Yes, _) => "display asleep",
+        (_, Reading::No) => "display not active",
+        (Reading::Unread, _) | (_, Reading::Unread) => "display unreadable",
+        _ => "display awake",
+    };
+    format!(
+        "{}, {lock}, {}, {display}, {}",
+        word(
+            c.on_console,
+            "on the console",
+            "not on the console",
+            "console unreadable"
+        ),
+        word(
+            c.secure_input,
+            "secure input on",
+            "no secure input",
+            "secure input unreadable"
+        ),
+        word(
+            c.saver,
+            "a screen saver running",
+            "no screen saver",
+            "screen saver unreadable"
+        ),
+    )
+}
+
+/// `type` of a Space that a full-screen window has, as `com.apple.spaces`
+/// writes it: this Mac's three such read 4, each with an `fs_wid`, and its
+/// desktop 0. In no header.
+pub const FULL_SCREEN_SPACE: i64 = 4;
+
+/// A display in `com.apple.spaces`'s `Monitors`: its `Display Identifier`
+/// and its `Current Space`'s `type`, which only a display in use has.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Monitor {
+    pub display: String,
+    pub current: Option<i64>,
+}
+
+/// The main display's current Space's `type`: the monitor identified `Main`.
+pub fn main_space(monitors: &[Monitor]) -> Option<i64> {
+    monitors
+        .iter()
+        .find(|m| m.display == "Main")
+        .and_then(|m| m.current)
+}
+
+/// **A hint, before the VM**: a window opened from a full-screen Space
+/// slides in and [`settle`]'s `Moved` stops the take after the VM started.
+/// The preference may be stale until a Space changes, so `Moved` stays the
+/// real check, and a preference with no answer refuses nothing.
+pub fn space(current: Option<i64>) -> Result<(), Refused> {
+    if current == Some(FULL_SCREEN_SPACE) {
+        return Err(Refused(
+            "the main display is on a full-screen Space, so baud's window would slide in and be \
+             refused for moving after the VM started: start from a normal desktop"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// **`pid`'s largest window on screen**: its terminal window, rather than
@@ -252,6 +434,164 @@ mod tests {
         let mut gone = vec![Some(at(471.0)); 12];
         gone.push(None);
         assert_eq!(settle(&reads(&gone), 0.5), Settle::Waiting);
+    }
+
+    /// The session with nothing wrong in it.
+    const CLEAR: Console = Console {
+        registry_locked: Reading::No,
+        session_locked: Reading::No,
+        on_console: Reading::Yes,
+        secure_input: Reading::No,
+        display_asleep: Reading::No,
+        display_active: Reading::Yes,
+        saver: Reading::No,
+    };
+
+    /// **Each state alone refuses, in a sentence naming it, and all clear
+    /// passes**, the absent lock key among what passes: this table's first
+    /// row is the session as an unlocked Mac reads it. Perturbation: drop a
+    /// row of [`console`]'s and its state passes.
+    #[test]
+    fn each_state_alone_refuses_and_all_clear_passes() {
+        assert_eq!(console(&CLEAR), Ok(()));
+        let rows = [
+            (
+                Console {
+                    registry_locked: Reading::Yes,
+                    ..CLEAR
+                },
+                "the screen is locked",
+            ),
+            (
+                Console {
+                    session_locked: Reading::Yes,
+                    ..CLEAR
+                },
+                "the screen is locked",
+            ),
+            (
+                Console {
+                    on_console: Reading::No,
+                    ..CLEAR
+                },
+                "not on the console",
+            ),
+            (
+                Console {
+                    secure_input: Reading::Yes,
+                    ..CLEAR
+                },
+                "secure input is on",
+            ),
+            (
+                Console {
+                    display_asleep: Reading::Yes,
+                    ..CLEAR
+                },
+                "is asleep",
+            ),
+            (
+                Console {
+                    display_active: Reading::No,
+                    ..CLEAR
+                },
+                "not active",
+            ),
+            (
+                Console {
+                    saver: Reading::Yes,
+                    ..CLEAR
+                },
+                "a screen saver is running",
+            ),
+        ];
+        for (c, says) in rows {
+            let why = console(&c).expect_err(says).0;
+            assert!(why.contains(says), "{why}");
+        }
+    }
+
+    /// **A reading that gave no answer refuses, every one of them**: the
+    /// branch a missing dictionary, an absent `IOConsoleLocked` or a value
+    /// of another type takes. Perturbation: refuse only `Yes`, and all seven
+    /// pass.
+    #[test]
+    fn an_unreadable_state_refuses() {
+        let set: [fn(&mut Console); 7] = [
+            |c| c.registry_locked = Reading::Unread,
+            |c| c.session_locked = Reading::Unread,
+            |c| c.on_console = Reading::Unread,
+            |c| c.secure_input = Reading::Unread,
+            |c| c.display_asleep = Reading::Unread,
+            |c| c.display_active = Reading::Unread,
+            |c| c.saver = Reading::Unread,
+        ];
+        for s in set {
+            let mut c = CLEAR;
+            s(&mut c);
+            assert!(console(&c).is_err(), "{c:?}");
+        }
+    }
+
+    /// **`--dry`'s line says the state**: all clear in the words the record
+    /// gives it, and a locked or unreadable session says so rather than
+    /// reading as clear. Perturbation: read only `registry_locked` for the
+    /// lock and the second case says not locked.
+    #[test]
+    fn the_dry_line_says_the_state() {
+        assert_eq!(
+            describe(&CLEAR),
+            "on the console, not locked, no secure input, display awake, no screen saver"
+        );
+        let locked = Console {
+            session_locked: Reading::Yes,
+            ..CLEAR
+        };
+        assert!(describe(&locked).contains(", locked,"));
+        let unread = Console {
+            registry_locked: Reading::Unread,
+            ..CLEAR
+        };
+        assert!(describe(&unread).contains("lock unreadable"));
+        let asleep = Console {
+            display_asleep: Reading::Yes,
+            display_active: Reading::No,
+            saver: Reading::Yes,
+            secure_input: Reading::Yes,
+            on_console: Reading::No,
+            ..CLEAR
+        };
+        assert_eq!(
+            describe(&asleep),
+            "not on the console, not locked, secure input on, display asleep, \
+             a screen saver running"
+        );
+    }
+
+    /// **The main display's Space, not any display's and not its list**: the
+    /// monitor identified `Main` on a full-screen Space refuses, on a desktop
+    /// passes whatever else exists, and a preference with no answer refuses
+    /// nothing, this being a hint. Perturbation: match any monitor and the
+    /// second case refuses.
+    #[test]
+    fn only_the_main_display_on_a_full_screen_space_refuses() {
+        let m = |d: &str, c| Monitor {
+            display: d.to_string(),
+            current: c,
+        };
+        let full = [m("Main", Some(FULL_SCREEN_SPACE))];
+        assert_eq!(main_space(&full), Some(FULL_SCREEN_SPACE));
+        assert!(
+            space(main_space(&full))
+                .unwrap_err()
+                .0
+                .contains("normal desktop")
+        );
+        let desk = [m("Main", Some(0)), m("OTHER", Some(FULL_SCREEN_SPACE))];
+        assert_eq!(space(main_space(&desk)), Ok(()));
+        assert_eq!(space(main_space(&[m("Main", None)])), Ok(()));
+        assert_eq!(space(main_space(&[m("OTHER", Some(4))])), Ok(()));
+        assert_eq!(space(main_space(&[])), Ok(()));
     }
 
     /// **The centre is the largest of baud's windows on screen**, not its

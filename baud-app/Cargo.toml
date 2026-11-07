@@ -71,14 +71,15 @@ macos-liquid-glass = { version = "1.0.0-beta.8", features = ["drawable"] }
 xtask = { path = "../xtask" }
 
 # The `demo` example's desktop calls: the window list, the frontmost
-# application, the key and wheel events and the Screen Recording check
-# (CGPreflightScreenCaptureAccess, in CGWindow). Each is already in the
+# application, the key and wheel events, the Screen Recording check
+# (CGPreflightScreenCaptureAccess, in CGWindow), the session and the main
+# display it refuses on and the Spaces preference it reads. Each is already in the
 # lock at this version, built with its default features for
 # `macos-liquid-glass`, so these lists add nothing to what is compiled.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSRunningApplication", "NSWorkspace"] }
-objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFDate", "CFDictionary", "CFNumber", "CFRunLoop", "CFString"] }
-objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGWindow"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDate", "CFDictionary", "CFError", "CFNumber", "CFPropertyList", "CFRunLoop", "CFString"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGDirectDisplay", "CGDisplayConfiguration", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGSession", "CGWindow"] }
 
 [features]
 # **A ceiling arm for row 11, off.** `present` returns early when nothing

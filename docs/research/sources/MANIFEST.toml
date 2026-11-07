@@ -38109,6 +38109,77 @@ bytes  = 40681
 status = "external"
 group  = "O"
 
+# The README demo's refusal on the session (baud-app/examples/demo/guard.rs,
+# mac.rs): lines 19-23, CGSessionCopyCurrentDictionary returns "a window
+# server session dictionary, or NULL if the caller is not running within a
+# Quartz GUI session or the window server is disabled"; lines 43-46,
+# kCGSessionOnConsoleKey, "An indication of whether the session is on a
+# console, specified as a CFBoolean value". CGSSessionScreenIsLocked, which
+# the demo also reads, is not in this header.
+[sources.macos-sdk-cgsession-h]
+key    = "macos-sdk-cgsession-h"
+title  = "CGSession.h -- kCGSessionOnConsoleKey: 'An indication of whether the session is on a console'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGSession.h"
+file   = ""
+sha256 = "471b7f3720173a1f638254ce6e3f97c97631d9dcd1aee185aebc48885b10f9b9"
+bytes  = 2059
+status = "external"
+group  = "O"
+
+# Lines 279-282, CGDisplayIsActive, "Return true if the display is connected,
+# awake, and available for drawing"; lines 285-288, CGDisplayIsAsleep, "Return
+# true if the display is asleep (and is therefore not drawable)".
+[sources.macos-sdk-cgdisplayconfiguration-h]
+key    = "macos-sdk-cgdisplayconfiguration-h"
+title  = "CGDisplayConfiguration.h -- CGDisplayIsAsleep: 'Return true if the display is asleep (and is therefore not drawable)'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGDisplayConfiguration.h"
+file   = ""
+sha256 = "24fc3b20cb4815835a632990a43ed28256997acc2cf8d4600159f8e8a4d7e27c"
+bytes  = 16937
+status = "external"
+group  = "O"
+
+# Lines 3044-3064, IsSecureEventInputEnabled, "returns whether secure event
+# input is enabled by any process, not just the current process"; lines
+# 2971-3004 and 3008-3040, its Enable and Disable, a count, and "If your
+# application crashes, secure event input will automatically be disabled if
+# no other application has enabled it".
+[sources.macos-sdk-carboneventscore-h]
+key    = "macos-sdk-carboneventscore-h"
+title  = "CarbonEventsCore.h -- IsSecureEventInputEnabled: 'enabled by any process, not just the current process'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/Headers/CarbonEventsCore.h"
+file   = ""
+sha256 = "dcf2bb524f4577fd7ea7940c57372dc980c911047cece6e8e810de6c213cf81c"
+bytes  = 109345
+status = "external"
+group  = "O"
+
+# Lines 107-112, kIOMainPortDefault; lines 972-980, IORegistryGetRootEntry, "or
+# MACH_PORT_NULL on failure"; lines 1177-1191, IORegistryEntryCreateCFProperty,
+# "The caller should release with CFRelease"; lines 260-268, IOObjectRelease.
+# IOConsoleLocked, the property the demo reads with them, is in no SDK header.
+[sources.macos-sdk-iokitlib-h]
+key    = "macos-sdk-iokitlib-h"
+title  = "IOKitLib.h -- IORegistryEntryCreateCFProperty: 'Create a CF representation of a registry entry's property'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/IOKit.framework/Headers/IOKitLib.h"
+file   = ""
+sha256 = "553869588e8c0b162b232e294dea2579cfd739d83e772a0b8a79e2be91a5816e"
+bytes  = 79847
+status = "external"
+group  = "O"
+
 # ICH and DCH against the four margins, as real DEC terminals did them. Fetched
 # 2026-11-02 for ICH and DCH on a row outside the top and bottom margins, where
 # DEC STD 070's table (p. 5-24) and the VT420 and VT510 manuals disagree.

@@ -1,25 +1,30 @@
 //! **Everything that touches the desktop**, on macOS: the window list,
 //! the frontmost application, the Accessibility check and the events
-//! themselves. Only [`Poster`] posts, and it can be made only once the
-//! process is trusted; `--dry` never makes one.
+//! themselves, and the session those events would land in. Only [`Poster`]
+//! posts, and it can be made only once the process is trusted; `--dry` never
+//! makes one.
 
 use std::cell::Cell;
+use std::ffi::c_void;
 use std::process::{Command, Stdio};
+use std::ptr::{NonNull, null_mut};
 use std::time::Duration;
 
 use objc2_app_kit::NSWorkspace;
 use objc2_core_foundation::{
-    CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFRunLoop, CFString, CFType, CGPoint,
+    CFAllocator, CFArray, CFBoolean, CFData, CFDictionary, CFNumber, CFPropertyListCreateWithData,
+    CFPropertyListMutabilityOptions, CFRetained, CFRunLoop, CFString, CFType, CGPoint, Type,
     kCFRunLoopDefaultMode,
 };
 use objc2_core_graphics::{
-    CGEvent, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGEventType,
-    CGMouseButton, CGScrollEventUnit, CGWindowListCopyWindowInfo, CGWindowListOption,
-    kCGNullWindowID, kCGWindowBounds, kCGWindowIsOnscreen, kCGWindowLayer, kCGWindowOwnerName,
-    kCGWindowOwnerPID,
+    CGDisplayIsActive, CGDisplayIsAsleep, CGEvent, CGEventFlags, CGEventSource,
+    CGEventSourceStateID, CGEventTapLocation, CGEventType, CGMainDisplayID, CGMouseButton,
+    CGScrollEventUnit, CGSessionCopyCurrentDictionary, CGWindowListCopyWindowInfo,
+    CGWindowListOption, kCGNullWindowID, kCGWindowBounds, kCGWindowIsOnscreen, kCGWindowLayer,
+    kCGWindowOwnerName, kCGWindowOwnerPID,
 };
 
-use crate::guard::{self, OnScreen, Rect, Window};
+use crate::guard::{self, Console, Monitor, OnScreen, Reading, Rect, Window};
 use crate::keys::{Held, Key};
 use crate::session::{WHEEL_GAP_MS, WHEEL_SETTLE_MS};
 
@@ -108,6 +113,237 @@ pub fn trusted() -> bool {
 /// recorder `--record` starts from it needs.
 pub fn may_record() -> bool {
     objc2_core_graphics::CGPreflightScreenCaptureAccess()
+}
+
+/// an IOKit registry entry, `mach_port_t` and `IOOptionBits`, each 32 bits;
+/// the probe holds them.
+type IoEntry = u32;
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    /// `const mach_port_t kIOMainPortDefault`
+    /// (`[[source: macos-sdk-iokitlib-h]]`).
+    static kIOMainPortDefault: u32;
+    /// "A handle to the IORegistryEntry root instance, to be released with
+    /// IOObjectRelease by the caller, or MACH_PORT_NULL on failure."
+    fn IORegistryGetRootEntry(main_port: u32) -> IoEntry;
+    /// "A CF container is created and returned the caller on success. The
+    /// caller should release with CFRelease."
+    fn IORegistryEntryCreateCFProperty(
+        entry: IoEntry,
+        key: &CFString,
+        allocator: Option<&CFAllocator>,
+        options: u32,
+    ) -> Option<NonNull<CFType>>;
+    fn IOObjectRelease(object: IoEntry) -> i32;
+}
+
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    /// `extern Boolean IsSecureEventInputEnabled(void)`: "whether secure
+    /// event input is enabled by any process, not just the current process"
+    /// (`[[source: macos-sdk-carboneventscore-h]]`).
+    fn IsSecureEventInputEnabled() -> Boolean;
+}
+
+extern "C" {
+    /// `int proc_listallpids(void *buffer, int buffersize)`
+    /// (`[[source: macos-sdk-libproc-h]]`).
+    fn proc_listallpids(buffer: *mut c_void, buffersize: i32) -> i32;
+    /// `int proc_name(int pid, void *buffer, uint32_t buffersize)`, the
+    /// same header's.
+    fn proc_name(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
+}
+
+/// The registry property the kernel keeps the lock in, on the root. In no SDK
+/// header; `ioreg -n Root -d1` shows it.
+const IO_CONSOLE_LOCKED: &str = "IOConsoleLocked";
+/// The session dictionary's lock, in no SDK header, and absent while the
+/// screen is unlocked.
+const SCREEN_IS_LOCKED: &str = "CGSSessionScreenIsLocked";
+/// `kCGSessionOnConsoleKey`, a `CFSTR` macro in
+/// `[[source: macos-sdk-cgsession-h]]`, so the crate has no constant for it;
+/// the probe holds the spelling to the header.
+const ON_CONSOLE: &str = "kCGSSessionOnConsoleKey";
+/// `ScreenSaverEngine.app`'s executable, whose name is 17 characters.
+const SAVER: &str = "ScreenSaverEngine";
+
+/// A CFBoolean as a reading, and anything else as none.
+fn boolean(v: Option<CFRetained<CFType>>) -> Reading {
+    match v.map(|v| v.downcast::<CFBoolean>()) {
+        Some(Ok(b)) if b.as_bool() => Reading::Yes,
+        Some(Ok(_)) => Reading::No,
+        Some(Err(_)) | None => Reading::Unread,
+    }
+}
+
+/// **`IOConsoleLocked` on the registry's root**, unread when there is no root
+/// or no such property.
+fn registry_locked() -> Reading {
+    let key = CFString::from_static_str(IO_CONSOLE_LOCKED);
+    // SAFETY: the types are the header's, which the probe holds; the root
+    // is released here, as its header says, and the property, returned
+    // created, goes into a `CFRetained` that releases it.
+    unsafe {
+        let root = IORegistryGetRootEntry(kIOMainPortDefault);
+        if root == 0 {
+            return Reading::Unread;
+        }
+        let value =
+            IORegistryEntryCreateCFProperty(root, &key, None, 0).map(|v| CFRetained::from_raw(v));
+        IOObjectRelease(root);
+        boolean(value)
+    }
+}
+
+/// **The window server's session**: whether it says the screen is locked and
+/// whether it is on the console. No dictionary -- "the caller is not running
+/// within a Quartz GUI session or the window server is disabled"
+/// (`[[source: macos-sdk-cgsession-h]]`) -- reads neither. The lock's key is
+/// absent while unlocked, so absent is `No`.
+fn session(d: Option<CFRetained<CFDictionary>>) -> (Reading, Reading) {
+    let Some(d) = d else {
+        return (Reading::Unread, Reading::Unread);
+    };
+    // SAFETY: the header's dictionary is keyed by strings.
+    let d = unsafe { CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(d) };
+    let locked = match d.get(&CFString::from_static_str(SCREEN_IS_LOCKED)) {
+        Some(v) => boolean(Some(v)),
+        None => Reading::No,
+    };
+    (
+        locked,
+        boolean(d.get(&CFString::from_static_str(ON_CONSOLE))),
+    )
+}
+
+/// **Whether a process of exactly this name exists**, in this process and by
+/// no subprocess: `/usr/bin/pgrep` took 20 ms here, against a key held 16. A
+/// list that may have been cut short reads as no answer, and a process that
+/// gives no name is passed over, it having exited or being another user's.
+/// The header calls these "private interfaces", so a list in which no process
+/// gave a name reads as no answer too.
+fn process_named(wanted: &str) -> Reading {
+    let mut pids = vec![0i32; 1 << 14];
+    let room = pids.len();
+    // SAFETY: the buffer and its size in bytes are the vector's own.
+    let n = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), (room * 4) as i32) };
+    let Ok(n) = usize::try_from(n) else {
+        return Reading::Unread;
+    };
+    if n == 0 || n >= room {
+        return Reading::Unread;
+    }
+    // 2 * MAXCOMLEN + 1: `proc_name` gives the long name, not `p_comm`'s 16.
+    let mut name = [0u8; 33];
+    let mut named = false;
+    for &pid in &pids[..n] {
+        // SAFETY: the buffer and its size are the array's own.
+        let len = unsafe { proc_name(pid, name.as_mut_ptr().cast(), name.len() as u32) };
+        if let Ok(len @ 1..) = usize::try_from(len) {
+            named = true;
+            if name.get(..len) == Some(wanted.as_bytes()) {
+                return Reading::Yes;
+            }
+        }
+    }
+    if named { Reading::No } else { Reading::Unread }
+}
+
+/// What a call about display `main` said, and no answer when there is no
+/// main display to ask about (`kCGNullDirectDisplay`, 0).
+fn display(main: u32, is: bool) -> Reading {
+    match (main, is) {
+        (0, _) => Reading::Unread,
+        (_, true) => Reading::Yes,
+        (_, false) => Reading::No,
+    }
+}
+
+/// **The session a posted key would land in, read now**, each state from its
+/// own call and none of them a window's: see [`Console`]'s fields.
+pub fn console() -> Console {
+    let (session_locked, on_console) = session(CGSessionCopyCurrentDictionary());
+    let main = CGMainDisplayID();
+    // SAFETY: it takes nothing and returns a `Boolean`, the type the probe
+    // holds to the header.
+    let secure = unsafe { IsSecureEventInputEnabled() };
+    Console {
+        registry_locked: registry_locked(),
+        session_locked,
+        on_console,
+        secure_input: if secure != 0 {
+            Reading::Yes
+        } else {
+            Reading::No
+        },
+        display_asleep: display(main, CGDisplayIsAsleep(main)),
+        display_active: display(main, CGDisplayIsActive(main)),
+        saver: process_named(SAVER),
+    }
+}
+
+/// **`com.apple.spaces`'s `Monitors`**, from what `defaults export` wrote:
+/// each one's `Display Identifier` and its `Current Space`'s `type`, by
+/// CoreFoundation's own reader of a property list. `None` when it is not of
+/// that shape.
+fn monitors(plist: &[u8]) -> Option<Vec<Monitor>> {
+    type Dict = CFDictionary<CFString, CFType>;
+    fn dict<T: Type + 'static>(v: CFRetained<T>) -> Option<CFRetained<Dict>> {
+        let d = v.downcast::<CFDictionary>().ok()?;
+        // SAFETY: a property list's dictionaries are keyed by strings.
+        Some(unsafe { CFRetained::cast_unchecked::<Dict>(d) })
+    }
+    let child = |d: &Dict, k: &'static str| d.get(&CFString::from_static_str(k));
+    let data = CFData::from_bytes(plist);
+    // SAFETY: the data is alive for the call, and a null format and error
+    // are what the function's documentation allows for what is not wanted.
+    let root = unsafe {
+        CFPropertyListCreateWithData(
+            None,
+            Some(&data),
+            CFPropertyListMutabilityOptions::Immutable.0,
+            null_mut(),
+            null_mut(),
+        )
+    }?;
+    let top = dict(root)?;
+    let config = dict(child(&top, "SpacesDisplayConfiguration")?)?;
+    let data = dict(child(&config, "Management Data")?)?;
+    let list = child(&data, "Monitors")?.downcast::<CFArray>().ok()?;
+    // SAFETY: `Monitors` is a list of dictionaries in the file this reads,
+    // and each is asked of its type below.
+    let list = unsafe { CFRetained::cast_unchecked::<CFArray<CFType>>(list) };
+    list.iter()
+        .map(|m| {
+            let m = dict(m)?;
+            let display = child(&m, "Display Identifier")?
+                .downcast::<CFString>()
+                .ok()?
+                .to_string();
+            let current = child(&m, "Current Space")
+                .and_then(dict)
+                .and_then(|s| child(&s, "type"))
+                .and_then(|t| t.downcast::<CFNumber>().ok())
+                .and_then(|n| n.as_i64());
+            Some(Monitor { display, current })
+        })
+        .collect()
+}
+
+/// **The main display's current Space's `type`**, from
+/// `defaults export com.apple.spaces -`, which only reads; `None` when that
+/// says nothing it can use.
+pub fn main_space() -> Option<i64> {
+    let out = Command::new("/usr/bin/defaults")
+        .args(["export", "com.apple.spaces", "-"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    guard::main_space(&monitors(&out.stdout)?)
 }
 
 /// **The windows the window server lists**, front to back
@@ -211,19 +447,85 @@ pub fn raise(pid: i32) {
         .status();
 }
 
-/// **What posts keys and wheel turns into baud's window**, through the
-/// HID event tap, with the U.S. layout's key codes. Every event is guarded
-/// ([`guard::keys`], [`guard::wheel`]): the first refusal stops the
-/// session having posted nothing more.
-pub struct Poster {
-    pid: i32,
+/// **What [`Poster`] asks and does**: every read of the desktop it decides
+/// on, and every event it posts, so a test can hand it a desktop that changes
+/// between two events.
+pub trait Desk {
+    fn console(&self) -> Console;
+    fn windows(&self) -> Vec<Window>;
+    fn front_app(&self) -> Option<i32>;
+    fn key(&self, k: Key, down: bool) -> Result<(), String>;
+    fn pointer(&self, at: (f64, f64)) -> Result<(), String>;
+    fn wheel(&self, at: (f64, f64), lines: i32) -> Result<(), String>;
+}
+
+/// **This desktop**, through the HID event tap, with the U.S. layout's key
+/// codes.
+pub struct Live {
     source: CFRetained<CGEventSource>,
+}
+
+impl Desk for Live {
+    fn console(&self) -> Console {
+        console()
+    }
+
+    fn windows(&self) -> Vec<Window> {
+        windows(true)
+    }
+
+    fn front_app(&self) -> Option<i32> {
+        front_app()
+    }
+
+    fn key(&self, k: Key, down: bool) -> Result<(), String> {
+        let e = key_event(&self.source, k, down)?;
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+        Ok(())
+    }
+
+    fn pointer(&self, at: (f64, f64)) -> Result<(), String> {
+        let moved = CGEvent::new_mouse_event(
+            Some(&self.source),
+            CGEventType::MouseMoved,
+            CGPoint { x: at.0, y: at.1 },
+            CGMouseButton::Left,
+        )
+        .ok_or("CoreGraphics made no pointer event")?;
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&moved));
+        Ok(())
+    }
+
+    /// One wheel event, through `CGEventCreateScrollWheelEvent2`, the
+    /// fixed-argument form (`[[source: macos-sdk-cgevent-h]]`).
+    fn wheel(&self, at: (f64, f64), lines: i32) -> Result<(), String> {
+        let e = CGEvent::new_scroll_wheel_event2(
+            Some(&self.source),
+            CGScrollEventUnit::Line,
+            1,
+            lines,
+            0,
+            0,
+        )
+        .ok_or("CoreGraphics made no wheel event")?;
+        CGEvent::set_location(Some(&e), CGPoint { x: at.0, y: at.1 });
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+        Ok(())
+    }
+}
+
+/// **What posts keys and wheel turns into baud's window.** Every event is
+/// guarded ([`guard::console`], then [`guard::keys`] or [`guard::wheel`]): the
+/// first refusal stops the session having posted nothing more.
+pub struct Poster<D> {
+    pid: i32,
+    desk: D,
     posted: Cell<usize>,
 }
 
-impl Poster {
+impl Poster<Live> {
     /// A poster for `pid`, only while this process is trusted.
-    pub fn new(pid: i32) -> Result<Poster, String> {
+    pub fn new(pid: i32) -> Result<Poster<Live>, String> {
         if !trusted() {
             return Err("this process is not trusted for Accessibility".to_string());
         }
@@ -231,22 +533,30 @@ impl Poster {
             .ok_or("CoreGraphics made no event source")?;
         Ok(Poster {
             pid,
-            source,
+            desk: Live { source },
             posted: Cell::new(0),
         })
     }
+}
 
+impl<D: Desk> Poster<D> {
     fn refused(&self, why: guard::Refused) -> String {
         format!("REFUSED: {}; posted {} events", why.0, self.posted.get())
+    }
+
+    /// The session first, as nothing the window list says is about it.
+    fn session_ok(&self) -> Result<(), String> {
+        guard::console(&self.desk.console()).map_err(|r| self.refused(r))
     }
 
     /// One key, down and up, held `hold` between them; the guard asked
     /// before each.
     pub fn key(&self, k: Key, hold: Duration) -> Result<(), String> {
         for down in [true, false] {
-            guard::keys(self.pid, &windows(true), front_app()).map_err(|r| self.refused(r))?;
-            let e = key_event(&self.source, k, down)?;
-            CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+            self.session_ok()?;
+            guard::keys(self.pid, &self.desk.windows(), self.desk.front_app())
+                .map_err(|r| self.refused(r))?;
+            self.desk.key(k, down)?;
             if down {
                 std::thread::sleep(hold);
             }
@@ -256,36 +566,19 @@ impl Poster {
     }
 
     /// **The wheel at `at`**: the pointer moved there, then `turns` events
-    /// of `lines` lines, each through `CGEventCreateScrollWheelEvent2`, the
-    /// fixed-argument form (`[[source: macos-sdk-cgevent-h]]`), the guard
-    /// asked before every one.
+    /// of `lines` lines, the guard asked before every one.
     pub fn wheel(&self, at: (f64, f64), turns: i32, lines: i32) -> Result<(), String> {
-        let p = CGPoint { x: at.0, y: at.1 };
-        let check =
-            || guard::wheel(self.pid, &windows(true), front_app(), at).map_err(|r| self.refused(r));
+        let check = || {
+            self.session_ok()?;
+            guard::wheel(self.pid, &self.desk.windows(), self.desk.front_app(), at)
+                .map_err(|r| self.refused(r))
+        };
         check()?;
-        let moved = CGEvent::new_mouse_event(
-            Some(&self.source),
-            CGEventType::MouseMoved,
-            p,
-            CGMouseButton::Left,
-        )
-        .ok_or("CoreGraphics made no pointer event")?;
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&moved));
+        self.desk.pointer(at)?;
         std::thread::sleep(Duration::from_millis(WHEEL_SETTLE_MS));
         for _ in 0..turns.unsigned_abs() {
-            let e = CGEvent::new_scroll_wheel_event2(
-                Some(&self.source),
-                CGScrollEventUnit::Line,
-                1,
-                lines * turns.signum(),
-                0,
-                0,
-            )
-            .ok_or("CoreGraphics made no wheel event")?;
-            CGEvent::set_location(Some(&e), p);
             check()?;
-            CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+            self.desk.wheel(at, lines * turns.signum())?;
             self.posted.set(self.posted.get() + 1);
             std::thread::sleep(Duration::from_millis(WHEEL_GAP_MS));
         }
@@ -404,6 +697,453 @@ mod tests {
         }
         assert_eq!(h[RETURN_NAME], i64::from(RETURN.code));
         assert_eq!(h[ESCAPE_NAME], i64::from(ESCAPE.code));
+    }
+
+    /// **The session's calls and the one key the crate has no constant for
+    /// are the SDK headers' own**: a C probe refuses to compile unless each
+    /// call has the type `mac.rs` declares, and prints
+    /// `kCGSessionOnConsoleKey`'s spelling, `kIOMainPortDefault`'s size and
+    /// `proc_name`'s longest name. The control: the probe printed one value
+    /// a line it was given. Perturbation: spell [`ON_CONSOLE`] without its
+    /// second `S`, and it fails here rather than reading as unread.
+    #[test]
+    fn the_session_calls_are_the_headers_own() {
+        let src = r#"#include <stdio.h>
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <Carbon/Carbon.h>
+#include <CoreGraphics/CoreGraphics.h>
+#include <IOKit/IOKitLib.h>
+#define SAME(f, t) _Static_assert(__builtin_types_compatible_p(__typeof__(f), t), #f)
+SAME(IsSecureEventInputEnabled, Boolean (void));
+SAME(EnableSecureEventInput, OSStatus (void));
+SAME(DisableSecureEventInput, OSStatus (void));
+SAME(IORegistryGetRootEntry, io_registry_entry_t (mach_port_t));
+SAME(IORegistryEntryCreateCFProperty,
+     CFTypeRef (io_registry_entry_t, CFStringRef, CFAllocatorRef, IOOptionBits));
+SAME(IOObjectRelease, kern_return_t (io_object_t));
+SAME(proc_listallpids, int (void *, int));
+SAME(proc_name, int (int, void *, uint32_t));
+int main(void) {
+  char on[64];
+  CFStringGetCString(kCGSessionOnConsoleKey, on, sizeof on, kCFStringEncodingUTF8);
+  printf("on_console=%s\n", on);
+  printf("entry=%d\n", (int)sizeof(io_registry_entry_t));
+  printf("port=%d\n", (int)sizeof(kIOMainPortDefault));
+  printf("options=%d\n", (int)sizeof(IOOptionBits));
+  printf("name=%d\n", 2 * MAXCOMLEN + 1);
+  return 0;
+}
+"#;
+        let dir = std::env::temp_dir().join(format!("baud-demo-session-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let (c, bin) = (dir.join("probe.c"), dir.join("probe"));
+        std::fs::write(&c, src).expect("write the probe");
+        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+        let out = Command::new(&cc)
+            .arg("-framework")
+            .arg("CoreFoundation")
+            .arg("-o")
+            .arg(&bin)
+            .arg(&c)
+            .output()
+            .expect("cc");
+        assert!(
+            out.status.success(),
+            "the probe did not compile:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let run = Command::new(&bin).output().expect("run the probe");
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = String::from_utf8_lossy(&run.stdout).into_owned();
+        let h: std::collections::HashMap<&str, &str> =
+            text.lines().filter_map(|l| l.split_once('=')).collect();
+        assert_eq!(h.len(), 5, "one value a line: {text}");
+        assert_eq!(h["on_console"], ON_CONSOLE);
+        assert_eq!(h["entry"], "4");
+        assert_eq!(h["port"], "4");
+        assert_eq!(h["options"], "4");
+        assert_eq!(h["name"], "33");
+    }
+
+    /// **A desktop whose session can change between two events**, and the
+    /// order things were asked and done in.
+    struct Fake {
+        /// The read from which the screen is locked.
+        locked_from: usize,
+        reads: Cell<usize>,
+        front: i32,
+        did: std::cell::RefCell<Vec<Did>>,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    enum Did {
+        Read,
+        Down,
+        Up,
+        Pointer,
+        Wheel,
+    }
+    use Did::{Down, Pointer, Read, Up, Wheel};
+
+    const BAUD: i32 = 500;
+
+    impl Fake {
+        fn locked_from(read: usize) -> Poster<Fake> {
+            Poster {
+                pid: BAUD,
+                desk: Fake {
+                    locked_from: read,
+                    reads: Cell::new(0),
+                    front: BAUD,
+                    did: Default::default(),
+                },
+                posted: Cell::new(0),
+            }
+        }
+    }
+
+    impl Desk for Fake {
+        fn console(&self) -> Console {
+            let n = self.reads.get();
+            self.reads.set(n + 1);
+            self.did.borrow_mut().push(Read);
+            Console {
+                registry_locked: if n >= self.locked_from {
+                    Reading::Yes
+                } else {
+                    Reading::No
+                },
+                session_locked: Reading::No,
+                on_console: Reading::Yes,
+                secure_input: Reading::No,
+                display_asleep: Reading::No,
+                display_active: Reading::Yes,
+                saver: Reading::No,
+            }
+        }
+
+        fn windows(&self) -> Vec<Window> {
+            vec![Window {
+                owner: self.front,
+                owner_name: "front".to_string(),
+                layer: 0,
+                on_screen: OnScreen::Yes,
+                bounds: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 100.0,
+                    h: 100.0,
+                },
+            }]
+        }
+
+        fn front_app(&self) -> Option<i32> {
+            Some(self.front)
+        }
+
+        fn key(&self, _: Key, down: bool) -> Result<(), String> {
+            self.did.borrow_mut().push(if down { Down } else { Up });
+            Ok(())
+        }
+
+        fn pointer(&self, _: (f64, f64)) -> Result<(), String> {
+            self.did.borrow_mut().push(Pointer);
+            Ok(())
+        }
+
+        fn wheel(&self, _: (f64, f64), _: i32) -> Result<(), String> {
+            self.did.borrow_mut().push(Wheel);
+            Ok(())
+        }
+    }
+
+    const FOREVER: usize = usize::MAX;
+
+    /// **The session is read before a key's down and again before its up**,
+    /// and a screen that locks between them stops the up. Perturbation:
+    /// take the read out of `key`, or read once outside its loop, and the
+    /// order differs.
+    #[test]
+    fn every_key_event_reads_the_session_first() {
+        let r = crate::keys::key_for('R').unwrap();
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.key(r, Duration::ZERO), Ok(()));
+        assert_eq!(*p.desk.did.borrow(), [Read, Down, Read, Up]);
+
+        let p = Fake::locked_from(0);
+        let said = p.key(r, Duration::ZERO).unwrap_err();
+        assert!(said.contains("the screen is locked"), "{said}");
+        assert!(said.contains("posted 0 events"), "{said}");
+        assert_eq!(*p.desk.did.borrow(), [Read], "nothing was posted");
+
+        let p = Fake::locked_from(1);
+        assert!(p.key(r, Duration::ZERO).is_err());
+        assert_eq!(*p.desk.did.borrow(), [Read, Down, Read], "no up");
+    }
+
+    /// **Every wheel event reads the session first**, the pointer's move
+    /// among them, and a screen that locks after the second turn leaves
+    /// exactly two posted. Perturbation: take the read out of `wheel`'s
+    /// check and the order differs.
+    #[test]
+    fn every_wheel_event_reads_the_session_first() {
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.wheel((50.0, 50.0), 3, 1), Ok(()));
+        assert_eq!(
+            *p.desk.did.borrow(),
+            [Read, Pointer, Read, Wheel, Read, Wheel, Read, Wheel]
+        );
+
+        let p = Fake::locked_from(0);
+        assert!(p.wheel((50.0, 50.0), 3, 1).is_err());
+        assert_eq!(*p.desk.did.borrow(), [Read], "the pointer did not move");
+
+        let p = Fake::locked_from(3);
+        let said = p.wheel((50.0, 50.0), 3, 1).unwrap_err();
+        assert!(said.contains("posted 2 events"), "{said}");
+        assert_eq!(
+            *p.desk.did.borrow(),
+            [Read, Pointer, Read, Wheel, Read, Wheel, Read]
+        );
+    }
+
+    /// **The session's read is added to the window's, not put in its place**:
+    /// a session all clear with another application in front still posts
+    /// nothing. Perturbation: drop `guard::keys` from `key`, or `guard::wheel`
+    /// from `wheel`.
+    #[test]
+    fn the_window_guard_still_stands() {
+        let mut p = Fake::locked_from(FOREVER);
+        p.desk.front = 77;
+        let r = crate::keys::key_for('R').unwrap();
+        assert!(p.key(r, Duration::ZERO).unwrap_err().contains("pid 77's"));
+        assert!(
+            p.wheel((50.0, 50.0), 1, 1)
+                .unwrap_err()
+                .contains("pid 77's")
+        );
+        assert_eq!(*p.desk.did.borrow(), [Read, Read]);
+    }
+
+    /// **The process search finds a name past 16 characters, exactly**: this
+    /// test's own binary, `demo-` and a hash, stands in for the 17 characters
+    /// of `ScreenSaverEngine`, which cannot be started here. Cut to 16 it is
+    /// not found, a name no process has is not found. The control is the
+    /// finding. Perturbation: a buffer of 17 for `proc_name` and the first
+    /// assertion fails.
+    #[test]
+    fn the_process_search_finds_a_long_name_exactly() {
+        let exe = std::env::current_exe().expect("this test's path");
+        let own = exe.file_name().expect("a name").to_string_lossy();
+        assert!(own.len() > 16 && own.len() <= 32, "{own}");
+        assert_eq!(process_named(&own), Reading::Yes, "{own}");
+        assert_eq!(process_named(&own[..16]), Reading::No, "{own}");
+        assert_eq!(process_named("baud-demo-no-such-process"), Reading::No);
+    }
+
+    /// **A boolean property reads as itself and anything else as no answer**,
+    /// the branch `IOConsoleLocked` absent, a session's on-console key absent
+    /// or either of another type takes. Perturbation: read `None` as `No`.
+    #[test]
+    fn a_property_that_is_no_boolean_is_no_answer() {
+        assert_eq!(boolean(None), Reading::Unread);
+        let any = |v: &CFType| Some(v.retain());
+        assert_eq!(boolean(any(CFBoolean::new(true))), Reading::Yes);
+        assert_eq!(boolean(any(CFBoolean::new(false))), Reading::No);
+        let text = CFString::from_static_str("true");
+        assert_eq!(boolean(any(&text)), Reading::Unread);
+    }
+
+    /// **The session dictionary: the lock's key absent is not locked, its
+    /// on-console key absent is no answer, and no dictionary at all answers
+    /// neither.** The first row is what an unlocked Mac reads, so reading
+    /// the absent lock as no answer would refuse every take. Perturbation:
+    /// read the absent lock through `boolean` and that row is `Unread`; read
+    /// no dictionary as `No` and the last row passes.
+    #[test]
+    fn the_session_dictionary_reads_as_its_keys_say() {
+        let of = |pairs: &[(&'static str, &CFType)]| {
+            let keys: Vec<CFRetained<CFString>> = pairs
+                .iter()
+                .map(|(k, _)| CFString::from_static_str(k))
+                .collect();
+            let keys: Vec<&CFString> = keys.iter().map(|k| &**k).collect();
+            let values: Vec<&CFType> = pairs.iter().map(|(_, v)| *v).collect();
+            let d = CFDictionary::<CFString, CFType>::from_slices(&keys, &values);
+            // SAFETY: from a dictionary to itself, its types forgotten.
+            session(Some(unsafe {
+                CFRetained::cast_unchecked::<CFDictionary>(d)
+            }))
+        };
+        let (yes, no): (&CFType, &CFType) = (CFBoolean::new(true), CFBoolean::new(false));
+        let text = CFString::from_static_str("true");
+        let (y, n, u) = (Reading::Yes, Reading::No, Reading::Unread);
+        assert_eq!(of(&[(ON_CONSOLE, yes)]), (n, y));
+        assert_eq!(of(&[(ON_CONSOLE, no)]), (n, n));
+        assert_eq!(of(&[(ON_CONSOLE, yes), (SCREEN_IS_LOCKED, yes)]), (y, y));
+        assert_eq!(of(&[(ON_CONSOLE, yes), (SCREEN_IS_LOCKED, no)]), (n, y));
+        assert_eq!(of(&[(ON_CONSOLE, yes), (SCREEN_IS_LOCKED, &text)]), (u, y));
+        assert_eq!(of(&[(ON_CONSOLE, &text)]), (n, u));
+        assert_eq!(of(&[]), (n, u));
+        assert_eq!(session(None), (u, u));
+    }
+
+    /// **No main display is no answer**, whatever the call about it said.
+    /// Perturbation: drop the first arm and display 0 reads asleep or not.
+    #[test]
+    fn no_main_display_is_no_answer() {
+        assert_eq!(display(1, true), Reading::Yes);
+        assert_eq!(display(1, false), Reading::No);
+        assert_eq!(display(0, true), Reading::Unread);
+        assert_eq!(display(0, false), Reading::Unread);
+    }
+
+    /// `com.apple.spaces` in the shape `defaults export` writes it, with
+    /// invented identifiers: the main display's `Current Space` of `type`
+    /// `$CURRENT`, its `Spaces` of 0 and 4, and a display out of use, which
+    /// has only a `Collapsed Space`.
+    const SPACES: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>SpacesDisplayConfiguration</key><dict>
+<key>Management Data</key><dict>
+<key>Management Mode</key><integer>1</integer>
+<key>Monitors</key><array>
+<dict>
+<key>Current Space</key><dict><key>id64</key><integer>1</integer><key>type</key><integer>$CURRENT</integer></dict>
+<key>Display Identifier</key><string>Main</string>
+<key>Spaces</key><array>
+<dict><key>id64</key><integer>1</integer><key>type</key><integer>0</integer></dict>
+<dict><key>id64</key><integer>2</integer><key>type</key><integer>4</integer></dict>
+</array>
+</dict>
+<dict>
+<key>Collapsed Space</key><dict><key>id64</key><integer>3</integer><key>type</key><integer>0</integer></dict>
+<key>Display Identifier</key><string>00000000-0000-0000-0000-000000000000</string>
+</dict>
+</array>
+</dict></dict></dict></plist>
+"#;
+
+    /// **A desktop with full-screen Spaces beside it reads as a desktop, and
+    /// a full-screen current Space as one**: `Current Space` is read and not
+    /// the `Spaces` list. What is no such property list reads as nothing.
+    /// Perturbation: read `Spaces`'s last rather than `Current Space` and
+    /// the first case reads 4.
+    #[test]
+    fn the_spaces_preference_is_read_for_the_current_space() {
+        let read = |current: &str| {
+            let text = SPACES.replace("$CURRENT", current);
+            monitors(text.as_bytes()).expect("the file's shape")
+        };
+        let on_desk = read("0");
+        assert_eq!(on_desk.len(), 2);
+        assert_eq!(on_desk[1].current, None, "a display out of use");
+        assert_eq!(guard::main_space(&on_desk), Some(0));
+        assert_eq!(guard::space(guard::main_space(&on_desk)), Ok(()));
+        let on_full = read("4");
+        assert_eq!(guard::main_space(&on_full), Some(guard::FULL_SCREEN_SPACE));
+        assert!(guard::space(guard::main_space(&on_full)).is_err());
+        assert_eq!(monitors(b"not a property list"), None);
+        assert_eq!(
+            monitors(b"<plist version=\"1.0\"><dict></dict></plist>"),
+            None
+        );
+    }
+
+    /// **What the real calls read on this Mac, and how long**, printed and
+    /// asserted of nothing, for it is whatever this Mac is in: a default test
+    /// that said "not locked" would go red with a password manager open. Run
+    /// by hand: `cargo test -p baud --example demo -- --ignored --nocapture
+    /// the_real_readings`.
+    #[test]
+    #[ignore = "reads this Mac's session and asserts nothing; for a record"]
+    fn the_real_readings() {
+        let c = console();
+        println!("{c:?}");
+        println!("session: {}", guard::describe(&c));
+        println!("main Space type: {:?}", main_space());
+        let mut each: Vec<Duration> = (0..200)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                let _ = console();
+                t.elapsed()
+            })
+            .collect();
+        each.sort();
+        println!(
+            "console(), 200 reads: median {:?}, slowest {:?}",
+            each[100], each[199]
+        );
+    }
+
+    /// The variable that makes [`secure_input_turned_on_is_refused`] the
+    /// child that turns it on.
+    const SECURE_CHILD: &str = "BAUD_DEMO_SECURE_INPUT_CHILD";
+
+    /// **The positive control of the secure-input check**: a child process
+    /// turns secure input on, and through this file's own extern and
+    /// [`console`] and [`guard::console`] it reads on and is refused for it;
+    /// off again, it reads as it did before. Secure input is the whole
+    /// Mac's, so this is never a default test: every run of the suite would
+    /// turn it on for whatever else is running. Run by hand:
+    /// `cargo test -p baud --example demo -- --ignored --exact
+    /// mac::tests::secure_input_turned_on_is_refused`.
+    ///
+    /// It is a child because the state goes when a process does: "If your
+    /// application crashes, secure event input will automatically be
+    /// disabled if no other application has enabled it"
+    /// (`[[source: macos-sdk-carboneventscore-h]]`). A guard turns it off
+    /// on every path that unwinds.
+    #[test]
+    #[ignore = "turns secure input on for the whole Mac, for an instant"]
+    fn secure_input_turned_on_is_refused() {
+        extern "C" {
+            fn EnableSecureEventInput() -> i32;
+            fn DisableSecureEventInput() -> i32;
+        }
+        // SAFETY: each takes nothing and returns an `OSStatus`, the probe's
+        // types, and the extern above takes nothing and returns a `Boolean`.
+        let on = || unsafe { IsSecureEventInputEnabled() != 0 };
+        if std::env::var_os(SECURE_CHILD).is_some() {
+            struct Off;
+            impl Drop for Off {
+                fn drop(&mut self) {
+                    // SAFETY: as above; one disable for the one enable.
+                    unsafe { DisableSecureEventInput() };
+                }
+            }
+            // SAFETY: as above.
+            assert_eq!(unsafe { EnableSecureEventInput() }, 0, "noErr");
+            let off = Off;
+            let seen = on();
+            let read = console();
+            let said = guard::console(&read);
+            drop(off);
+            assert!(seen, "turned on, it reads off");
+            assert_eq!(read.secure_input, Reading::Yes);
+            let why = said.expect_err("refused").0;
+            println!("refused: {why}");
+            assert!(why.contains("secure input is on"), "{why}");
+            return;
+        }
+        let before = on();
+        assert!(
+            !before,
+            "something holds secure input now, so this cannot tell on from off"
+        );
+        let out = Command::new(std::env::current_exe().expect("this test"))
+            .args(["--ignored", "--exact", "--nocapture"])
+            .arg("mac::tests::secure_input_turned_on_is_refused")
+            .env(SECURE_CHILD, "1")
+            .output()
+            .expect("the child");
+        let text = String::from_utf8_lossy(&out.stdout);
+        println!("{text}");
+        assert!(out.status.success(), "{text}");
+        assert!(text.contains("1 passed"), "the child ran it: {text}");
+        assert_eq!(on(), before, "the child's exit left it as it was");
     }
 
     /// **Ctrl-d's event, not posted, carries Control and no text of its

@@ -4494,9 +4494,25 @@ to `~/.colima` with `XDG_CONFIG_HOME` unset or `~/.colima` there, and to
 `$XDG_CONFIG_HOME/colima` otherwise; named and existing, it is used in all four cases. So
 the demo makes the directory first, in `/tmp` for the sockets (a live VM's longest,
 `user-v2_qemu.sock`, was 74 bytes of `sun_path`'s 104), and names it on every colima call.
-The first call is told no `LIMA_HOME`, because colima makes one it is given whichever
-directory it chose, so only then does `_lima` show it chose this one. `colima start` also
-takes `--ssh-config=false`: a real start under a scratch `HOME` with a regular
-`~/.ssh/config` prepended `Include <its directory>/ssh_config` without it and left the file
-unchanged with it, and with its image cache pointed outside that `HOME` wrote nothing else
-there but `.docker/contexts/meta`.
+
+## The demo's refusal on the session
+
+Not timed on a byte path: this is the recorder's guard. `guard::console` reads seven states
+before the VM, before the window, before every key-down, key-up and wheel event and once the
+film has ended. One read took 427 us at the median and 3.3 ms at the slowest of 200, in a
+debug build; `/usr/bin/pgrep` took 20 ms against a key held 16, so the screen saver is looked
+for in process, by `proc_listallpids` and `proc_name`.
+
+On this Mac now, through the real calls: not locked by `IOConsoleLocked` (a CFBoolean, false),
+`CGSSessionScreenIsLocked` absent, on the console, no secure input, display awake and active,
+no `ScreenSaverEngine`, main display's current Space `type` 0. Only `kCGSessionOnConsoleKey`
+is documented, in `CGSession.h`; neither lock key is in any SDK header, so both are read as
+found, an absent `IOConsoleLocked` refusing and an absent `CGSSessionScreenIsLocked` not, as an
+unlocked session has none.
+
+Secure input fired: a child process that called `EnableSecureEventInput` read it on through
+the same extern and `guard::console` refused for it; off again, the state read as before (an
+ignored test, as secure input is the whole Mac's). **Neither lock reader, the sleep readers nor
+the saver search has been seen firing**: this Mac may not be locked, slept or given a screen
+saver for a test. What refuses when they answer is tested on a pure function, and what they
+read is not.

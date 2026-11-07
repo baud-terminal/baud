@@ -20,7 +20,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::film::{self, Crop, Display};
-use crate::guard::Rect;
+use crate::guard::{self, Console, Rect};
 use crate::names;
 use crate::provenance::{self, Facts, Tree};
 use crate::run::{Events, NIXPKGS};
@@ -301,8 +301,14 @@ impl Filming {
     /// **The recorder's end**: it stops [`film::TAIL`] seconds after
     /// `done`, finishes the file and exits; this waits up to `limit` and
     /// returns what it printed, or why it refused the film -- baud not
-    /// frontmost at the stop, the writer incomplete, frames dropped.
-    pub fn finish(mut self, limit: Duration) -> Result<Vec<String>, String> {
+    /// frontmost at the stop, the writer incomplete, frames dropped -- or
+    /// why [`guard::console`] refuses it now: a film that ended on a lock
+    /// screen or a sleeping display shows that, and no GIF is made of it.
+    pub fn finish(
+        mut self,
+        limit: Duration,
+        console: impl Fn() -> Console,
+    ) -> Result<Vec<String>, String> {
         let t = Instant::now();
         let st = loop {
             match self.child.try_wait() {
@@ -321,6 +327,12 @@ impl Filming {
                 self.err().trim()
             ));
         }
+        guard::console(&console()).map_err(|r| {
+            format!(
+                "REFUSED at the end of the film: {}; no GIF was written",
+                r.0
+            )
+        })?;
         Ok(self.said.lock().map(|s| s.clone()).unwrap_or_default())
     }
 }
@@ -736,4 +748,89 @@ pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
     }
     println!("raw:     {}", keep.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::guard::Reading;
+
+    /// A recorder that has already ended, successfully or not, saying one
+    /// line.
+    fn ended(program: &str) -> Filming {
+        let child = Command::new(program)
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("the program");
+        Filming {
+            child,
+            said: Arc::new(Mutex::new(vec!["film 1.000".to_string()])),
+            err: Arc::new(Mutex::new(String::new())),
+            threads: Vec::new(),
+            display: Display {
+                pt: (0.0, 0.0),
+                scale: 0.0,
+                px: (0, 0),
+            },
+        }
+    }
+
+    fn clear() -> Console {
+        Console {
+            registry_locked: Reading::No,
+            session_locked: Reading::No,
+            on_console: Reading::Yes,
+            secure_input: Reading::No,
+            display_asleep: Reading::No,
+            display_active: Reading::Yes,
+            saver: Reading::No,
+        }
+    }
+
+    /// **A film that ends on a locked screen, a sleeping display or a
+    /// session unread gives nothing to encode**: what the recorder said
+    /// comes back only from a clear session, and `live` hands it on to the
+    /// GIF only then. The check is read once the recorder has ended, not
+    /// before. Perturbation: take the check out of `finish`, and the locked
+    /// film returns its lines.
+    #[test]
+    fn a_film_ending_on_a_locked_screen_gives_no_gif() {
+        let limit = Duration::from_secs(10);
+        let said = ended("/usr/bin/true").finish(limit, clear).unwrap();
+        assert_eq!(said, ["film 1.000"]);
+        let locked = ended("/usr/bin/true")
+            .finish(limit, || Console {
+                registry_locked: Reading::Yes,
+                ..clear()
+            })
+            .unwrap_err();
+        assert!(
+            locked.contains("the screen is locked") && locked.contains("no GIF was written"),
+            "{locked}"
+        );
+        let asleep = ended("/usr/bin/true")
+            .finish(limit, || Console {
+                display_asleep: Reading::Yes,
+                ..clear()
+            })
+            .unwrap_err();
+        assert!(asleep.contains("asleep"), "{asleep}");
+        let unread = ended("/usr/bin/true").finish(limit, || Console {
+            session_locked: Reading::Unread,
+            ..clear()
+        });
+        assert!(unread.is_err());
+    }
+
+    /// **The recorder's own refusal comes first**, and asks nothing of the
+    /// session. The control that the check above is not the only way out.
+    #[test]
+    fn a_recorder_that_refused_is_named_for_it() {
+        let said = ended("/usr/bin/false")
+            .finish(Duration::from_secs(10), || {
+                panic!("the session was read for a film the recorder refused")
+            })
+            .unwrap_err();
+        assert!(said.contains("the recorder refused the film"), "{said}");
+    }
 }

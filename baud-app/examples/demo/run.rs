@@ -231,6 +231,12 @@ fn run(args: &Args) -> Result<(), String> {
              Nothing was opened."
         ));
     }
+    // `--dry` only reports, and `--headless` opens no window and posts
+    // nothing, so neither is refused for the state of the session.
+    if !args.dry && args.headless.is_none() {
+        clear_to_open()?;
+        guard::space(mac::main_space()).map_err(|r| format!("{}. Nothing was opened.", r.0))?;
+    }
     let prep = prepare()?;
     let names = machine_names(&prep.at.root)?;
     let profile = Profile::of_this_example()?;
@@ -282,6 +288,20 @@ fn run(args: &Args) -> Result<(), String> {
                 }
             );
         }
+        println!("session: {}", guard::describe(&mac::console()));
+        let space = mac::main_space();
+        println!(
+            "space:   {}",
+            match (space, guard::space(space)) {
+                (_, Err(why)) => format!("{}: the session would stop here", why.0),
+                (Some(_), Ok(())) => "the main display is on a normal desktop, by \
+                                      com.apple.spaces, which may be stale"
+                    .to_string(),
+                (None, Ok(())) => "com.apple.spaces says nothing of the main display, which \
+                                   stops nothing"
+                    .to_string(),
+            }
+        );
         println!(
             "dry:     no window opened, no event posted; the scratch directory is kept at {}",
             prep.at.root.display()
@@ -295,6 +315,10 @@ fn run(args: &Args) -> Result<(), String> {
         }),
         _ => None,
     };
+    // Building and fetching can take minutes, so this is asked again.
+    if args.headless.is_none() {
+        clear_to_open()?;
+    }
     let up = container::up(&prep.image, &prep.keys, prep.port)?;
     if let Some(stills) = &args.headless {
         headless(&profile, &prep, stills, forbidden.as_ref())?;
@@ -310,6 +334,13 @@ fn run(args: &Args) -> Result<(), String> {
     }
     let _ = fs::remove_dir_all(&prep.at.root);
     Ok(())
+}
+
+/// **The session may take a window**: [`guard::console`] of the session as
+/// it is now, in the words of what was not done.
+fn clear_to_open() -> Result<(), String> {
+    guard::console(&mac::console())
+        .map_err(|r| format!("{}; nothing was opened and no event was posted", r.0))
 }
 
 /// **The full screen's reading kept beside the raw film**, in cargo's
@@ -1190,6 +1221,8 @@ fn live(
     kit: Option<&record::Kit>,
     forbidden: Option<&Forbidden>,
 ) -> Result<Option<record::Session>, String> {
+    // The VM can take minutes to start, so this is asked once more.
+    clear_to_open()?;
     let at = &prep.at;
     let log = File::create(at.baud_log()).map_err(|e| format!("baud's log: {e}"))?;
     let err = log.try_clone().map_err(|e| format!("baud's log: {e}"))?;
@@ -1269,7 +1302,7 @@ fn live(
     }
     let last = guard::frame(pid, &mac::windows(true));
     let display = filming.as_ref().map(|f| f.display);
-    let said = filming.map(|f| f.finish(Duration::from_secs(60)));
+    let said = filming.map(|f| f.finish(Duration::from_secs(60), mac::console));
     // The film whole, its window read through a full screen and back.
     if let (Some(_), Some(Ok(_)), Ok(_)) = (kit, &said, &played) {
         if let Err(e) = full_screen(&check) {
@@ -1552,6 +1585,30 @@ mod tests {
             "the control"
         );
         assert_eq!(super::full_screen_name("hero.gif"), "hero.full-screen.json");
+    }
+
+    /// **The session is asked before the VM and before the window**: in
+    /// `run`, at the top and again after everything is built, in `live` before
+    /// the recorder or baud starts. These are the calls of a function this
+    /// file alone wires, and neither `run` nor `live` can run in a test: they
+    /// start a VM and open a window, so the source is what is read. The
+    /// control: the slices hold the calls they are searched for after.
+    /// Perturbation: delete any `clear_to_open()?;`, and it fails.
+    #[test]
+    fn the_session_is_asked_before_the_vm_and_the_window() {
+        let source = include_str!("run.rs");
+        let between = |from: &str, to: &str| {
+            let a = source.find(from).expect(from);
+            let b = a + source[a..].find(to).expect(to);
+            &source[a..b]
+        };
+        const ASK: &str = "clear_to_open()?;";
+        let early = between("fn run(args", "let prep = prepare()?;");
+        assert!(early.contains(ASK), "before anything is built");
+        let late = between("let forbidden = match (&args.forbidden", "container::up(");
+        assert!(late.contains(ASK), "after it is built, before the VM");
+        let window = between("fn live(", "record::start(");
+        assert!(window.contains(ASK), "before the recorder and baud");
     }
 
     /// **Only a starship outside both advisories runs**: 1.27.0 and later

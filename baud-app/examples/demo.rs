@@ -82,6 +82,11 @@
 //! least. Once the programs have run, every character they printed is
 //! checked the same way.
 //!
+//! **Before it starts the VM**: a main display on a full-screen Space, by
+//! `com.apple.spaces`, is refused, as its window would slide in and be refused
+//! for moving. The preference may be stale and is a hint: one it cannot read
+//! refuses nothing.
+//!
 //! **Before it plays**: baud's window must keep one frame for half a
 //! second, the frame it was first seen at, or it stops: the film holds the
 //! launch where the window was first seen. Filmed, the window must also
@@ -99,7 +104,14 @@
 //! before every key-down, key-up and wheel event, baud must own the
 //! frontmost window and be the frontmost application, and a wheel's point
 //! must lie in baud's window, or it stops having posted nothing more and
-//! exits non-zero. At the end the window is closed, the container and its
+//! exits non-zero. Before each of those too, and before the VM starts,
+//! before the window opens and once the film has ended, it refuses a locked
+//! screen, a session off the console, secure input held by anything, a main
+//! display asleep or not active and a running screen saver, and a state it
+//! cannot read as it refuses the state itself: a lock screen sits above the
+//! ordinary windows the first check looks at. `--dry` says the session as a
+//! line and refuses nothing, and `--headless`, which opens no window and
+//! posts nothing, is not asked. At the end the window is closed, the container and its
 //! image removed, and the pty log must name nothing of this machine; with
 //! `--forbidden LIST --controls FILE` it must also hold nothing LIST
 //! forbids (`xtask::forbidden`, a list kept outside the

@@ -266,7 +266,9 @@ session in baud's window, films it and encodes the GIF:
 assets/readme/demo.gif --forbidden LIST --controls FILE`
 (`baud-app/examples/demo.rs`). Start it from a normal desktop and not a
 full-screen Space: a window sliding in from a Space switch likely moves after
-it is first seen, and the recording then stops. LIST is
+it is first seen, and the recording then stops. Leave the screen unlocked
+and awake, with no screen saver and nothing holding secure input: it refuses
+each of them before it starts, before every key and at the film's end. LIST is
 what must never be filmed, in `regex` syntax, kept outside the repository
 because it names what it forbids, and FILE an example of each of its
 patterns. The session's bytes are searched for LIST once every pattern has
