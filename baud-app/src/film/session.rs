@@ -280,7 +280,29 @@ impl<'a> Player<'a> {
                     inputs.push_back((end, Input::Stopped));
                     Some(Doing::Holding { until: end })
                 }
-                (Step::Wheel { .. }, Doing::Holding { until }) => {
+                (Step::Hover { x, y }, Doing::Start) => {
+                    let at = place(self.geometry, (x, y));
+                    inputs.push_back((now, Input::Moved(at.0, at.1)));
+                    let settle = Duration::from_millis(steps::WHEEL_SETTLE_MS);
+                    Some(Doing::Holding {
+                        until: now + settle,
+                    })
+                }
+                (Step::Drag { from, to }, Doing::Start) => {
+                    let g = self.geometry;
+                    let moves = super::Cue::Drag {
+                        from: place(g, from),
+                        to: place(g, to),
+                    }
+                    .inputs(now);
+                    let end = moves.last().map_or(now, |m| m.0);
+                    inputs.extend(moves);
+                    Some(Doing::Holding { until: end })
+                }
+                (
+                    Step::Wheel { .. } | Step::Hover { .. } | Step::Drag { .. },
+                    Doing::Holding { until },
+                ) => {
                     if now >= until {
                         None
                     } else {
@@ -330,6 +352,13 @@ impl<'a> Player<'a> {
             crate::programs::screen(u.term).join("\n")
         );
     }
+}
+
+/// **A place in thousandths of the grid**, `(x, y)`, in the frame's pixels:
+/// 500, 500 is where the wheel turns, as a window's centre is.
+fn place(g: Geometry, (x, y): (u16, u16)) -> (f64, f64) {
+    let at = |p: u16, n: u16| f64::from(p) / 1000.0 * f64::from(n) - 0.5;
+    middle(g, (at(y, g.grid.1), at(x, g.grid.0)))
 }
 
 /// **What the lights showed through a take**: for each, the first moment
@@ -1153,4 +1182,20 @@ fn png(ffmpeg: &std::ffi::OsString, px: &[u32], (w, h): (u32, u32), to: &std::pa
         "ffmpeg failed on {}",
         to.display()
     );
+}
+
+/// **A place in thousandths lands in its cell of the grid**: 500, 500 where
+/// the wheel turns, and the corners at the grid's. Perturbation: swap `x` and
+/// `y` in `place`.
+#[test]
+fn a_place_in_thousandths_is_in_the_grid() {
+    let g = Geometry {
+        pad: (4, 2),
+        cell: (10.0, 20.0),
+        grid: (80, 24),
+        scale: 1.0,
+    };
+    assert_eq!(place(g, (500, 500)), (404.0, 242.0));
+    assert_eq!(place(g, (0, 0)), (4.0, 2.0));
+    assert_eq!(place(g, (1000, 1000)), (804.0, 482.0));
 }

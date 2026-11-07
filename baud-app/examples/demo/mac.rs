@@ -26,7 +26,11 @@ use objc2_core_graphics::{
 
 use crate::guard::{self, Console, Monitor, OnScreen, Reading, Rect, Window};
 use crate::keys::{Held, Key};
-use crate::session::{WHEEL_GAP_MS, WHEEL_SETTLE_MS};
+use crate::session::{DRAG_GAP_MS, DRAG_MOVES, DRAG_PAUSE_MS, WHEEL_GAP_MS, WHEEL_SETTLE_MS};
+use macos_liquid_glass::objc2::rc::Retained;
+use macos_liquid_glass::objc2::runtime::ProtocolObject;
+use macos_liquid_glass::objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardWriting};
+use macos_liquid_glass::objc2_foundation::{NSArray, NSData, NSString};
 
 /// **A key's event, not posted.** A key under Control is given no text of
 /// its own: read back through `NSEvent`, an unposted Ctrl-d with none has
@@ -457,6 +461,10 @@ pub trait Desk {
     fn key(&self, k: Key, down: bool) -> Result<(), String>;
     fn pointer(&self, at: (f64, f64)) -> Result<(), String>;
     fn wheel(&self, at: (f64, f64), lines: i32) -> Result<(), String>;
+    /// The left button at `at`, pressed or let go.
+    fn button(&self, at: (f64, f64), down: bool) -> Result<(), String>;
+    /// The pointer moved to `at` with the left button held.
+    fn dragged(&self, at: (f64, f64)) -> Result<(), String>;
 }
 
 /// **This desktop**, through the HID event tap, with the U.S. layout's key
@@ -485,15 +493,19 @@ impl Desk for Live {
     }
 
     fn pointer(&self, at: (f64, f64)) -> Result<(), String> {
-        let moved = CGEvent::new_mouse_event(
-            Some(&self.source),
-            CGEventType::MouseMoved,
-            CGPoint { x: at.0, y: at.1 },
-            CGMouseButton::Left,
-        )
-        .ok_or("CoreGraphics made no pointer event")?;
-        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&moved));
-        Ok(())
+        self.mouse(CGEventType::MouseMoved, at)
+    }
+
+    fn button(&self, at: (f64, f64), down: bool) -> Result<(), String> {
+        let kind = match down {
+            true => CGEventType::LeftMouseDown,
+            false => CGEventType::LeftMouseUp,
+        };
+        self.mouse(kind, at)
+    }
+
+    fn dragged(&self, at: (f64, f64)) -> Result<(), String> {
+        self.mouse(CGEventType::LeftMouseDragged, at)
     }
 
     /// One wheel event, through `CGEventCreateScrollWheelEvent2`, the
@@ -511,6 +523,171 @@ impl Desk for Live {
         CGEvent::set_location(Some(&e), CGPoint { x: at.0, y: at.1 });
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
         Ok(())
+    }
+}
+
+impl Live {
+    /// One pointer event of `kind` at `at`, through the HID event tap.
+    fn mouse(&self, kind: CGEventType, at: (f64, f64)) -> Result<(), String> {
+        let e = CGEvent::new_mouse_event(
+            Some(&self.source),
+            kind,
+            CGPoint { x: at.0, y: at.1 },
+            CGMouseButton::Left,
+        )
+        .ok_or("CoreGraphics made no pointer event")?;
+        CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
+        Ok(())
+    }
+}
+
+/// **The system's pasteboard, as a take keeps it**: what it holds read and
+/// written back, and the count that says something wrote to it, so a test can
+/// hand [`Kept`] a pasteboard no one else uses.
+pub trait Board {
+    type Saved;
+    /// `changeCount`.
+    fn count(&self) -> isize;
+    /// What it holds, and the names of the types that could not be read.
+    fn save(&self) -> (Self::Saved, Vec<String>);
+    /// `saved` written back, and the names of the types it would not take.
+    fn restore(&self, saved: &Self::Saved) -> Vec<String>;
+}
+
+/// **The general pasteboard**: every item, every type, each as its bytes, a
+/// concealed type's as any other's. It holds them in memory and nowhere else.
+pub struct General;
+
+impl Board for General {
+    type Saved = Vec<Vec<(Retained<NSString>, Retained<NSData>)>>;
+
+    fn count(&self) -> isize {
+        NSPasteboard::generalPasteboard().changeCount()
+    }
+
+    fn save(&self) -> (Self::Saved, Vec<String>) {
+        let mut lost = Vec::new();
+        let items = NSPasteboard::generalPasteboard().pasteboardItems();
+        let saved = items.map_or(Vec::new(), |items| {
+            items
+                .iter()
+                .map(|item| {
+                    let mut kept = Vec::new();
+                    for kind in item.types().iter() {
+                        match item.dataForType(&kind) {
+                            Some(data) => kept.push((kind, data)),
+                            None => lost.push(kind.to_string()),
+                        }
+                    }
+                    kept
+                })
+                .collect()
+        });
+        (saved, lost)
+    }
+
+    fn restore(&self, saved: &Self::Saved) -> Vec<String> {
+        let mut lost = Vec::new();
+        let writers: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = saved
+            .iter()
+            .map(|types| {
+                let item = NSPasteboardItem::new();
+                for (kind, data) in types {
+                    if !item.setData_forType(data, kind) {
+                        lost.push(kind.to_string());
+                    }
+                }
+                ProtocolObject::from_retained(item)
+            })
+            .collect();
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        if !writers.is_empty() && !board.writeObjects(&NSArray::from_retained_slice(&writers)) {
+            lost.push("every type: the pasteboard took no item".to_string());
+        }
+        lost
+    }
+}
+
+/// How long a drag's copy may take to reach the pasteboard after its release.
+const FILM_COPY_WAIT: Duration = Duration::from_millis(300);
+
+/// **The pasteboard as it was before a take, put back when the take ends**,
+/// on every way out, a refusal, an error and a panic included, by `Drop`: and
+/// only if the last write is still the film's own, so anything a person
+/// copied during the take survives (`guard::after_take`). What it holds it
+/// holds in memory, is `Debug` to no one and is written to no log or file;
+/// only the names of types it cannot restore are said.
+pub struct Kept<B: Board> {
+    board: B,
+    saved: B::Saved,
+    before: isize,
+    own: Cell<isize>,
+    unread: Vec<String>,
+}
+
+impl<B: Board> Kept<B> {
+    /// What `board` holds now.
+    pub fn of(board: B) -> Kept<B> {
+        let before = board.count();
+        let (saved, unread) = board.save();
+        Kept {
+            board,
+            saved,
+            before,
+            own: Cell::new(before),
+            unread,
+        }
+    }
+
+    /// The count now, to hand [`Kept::film_copied`] after a gesture.
+    pub fn count(&self) -> isize {
+        self.board.count()
+    }
+
+    /// **A gesture of the film's that may have copied is over**: a count one
+    /// past `before`, itself the film's own, within [`FILM_COPY_WAIT`], is the
+    /// film's. Any other is left unclaimed, so what stands then stays.
+    pub fn film_copied(&self, before: isize) {
+        if before != self.own.get() {
+            return;
+        }
+        let begun = std::time::Instant::now();
+        while begun.elapsed() < FILM_COPY_WAIT {
+            if self.board.count() == before + 1 {
+                self.own.set(before + 1);
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// **The take is over**: what was done, in words that name no contents.
+    fn finish(&self) -> Vec<String> {
+        let now = self.board.count();
+        let mut said = Vec::new();
+        match guard::after_take(self.before, self.own.get(), now) {
+            guard::AfterTake::Untouched => {}
+            guard::AfterTake::Theirs => {
+                said.push("something else copied during the take, so it stays".to_string());
+            }
+            guard::AfterTake::FilmsOwn => {
+                let refused = self.board.restore(&self.saved);
+                said.push("put back as it was before the take".to_string());
+                for kind in self.unread.iter().chain(&refused) {
+                    said.push(format!("{kind} could not be restored and is gone"));
+                }
+            }
+        }
+        said
+    }
+}
+
+impl<B: Board> Drop for Kept<B> {
+    fn drop(&mut self) {
+        for line in self.finish() {
+            println!("pasteboard: {line}");
+        }
     }
 }
 
@@ -568,11 +745,7 @@ impl<D: Desk> Poster<D> {
     /// **The wheel at `at`**: the pointer moved there, then `turns` events
     /// of `lines` lines, the guard asked before every one.
     pub fn wheel(&self, at: (f64, f64), turns: i32, lines: i32) -> Result<(), String> {
-        let check = || {
-            self.session_ok()?;
-            guard::wheel(self.pid, &self.desk.windows(), self.desk.front_app(), at)
-                .map_err(|r| self.refused(r))
-        };
+        let check = || self.pointer_ok(at);
         check()?;
         self.desk.pointer(at)?;
         std::thread::sleep(Duration::from_millis(WHEEL_SETTLE_MS));
@@ -582,6 +755,48 @@ impl<D: Desk> Poster<D> {
             self.posted.set(self.posted.get() + 1);
             std::thread::sleep(Duration::from_millis(WHEEL_GAP_MS));
         }
+        Ok(())
+    }
+
+    /// The session first, then that `at` is in a window of baud's with
+    /// nothing in front of it: what every pointer event asks.
+    fn pointer_ok(&self, at: (f64, f64)) -> Result<(), String> {
+        self.session_ok()?;
+        guard::wheel(self.pid, &self.desk.windows(), self.desk.front_app(), at)
+            .map_err(|r| self.refused(r))
+    }
+
+    /// **The pointer rested at `at`**, the guard asked first.
+    pub fn hover(&self, at: (f64, f64)) -> Result<(), String> {
+        self.pointer_ok(at)?;
+        self.desk.pointer(at)?;
+        self.posted.set(self.posted.get() + 1);
+        std::thread::sleep(Duration::from_millis(WHEEL_SETTLE_MS));
+        Ok(())
+    }
+
+    /// **A drag from `from` to `to`**: the pointer moved there, the button
+    /// pressed, [`DRAG_MOVES`] moves and the button let go, the guard asked
+    /// before every one. A refusal posts nothing more, the release included:
+    /// the press stands, as a refused key's up does, since what refused may
+    /// be another application in front, which a release would land in.
+    pub fn drag(&self, from: (f64, f64), to: (f64, f64)) -> Result<(), String> {
+        self.pointer_ok(from)?;
+        self.desk.pointer(from)?;
+        std::thread::sleep(Duration::from_millis(DRAG_PAUSE_MS));
+        self.pointer_ok(from)?;
+        self.desk.button(from, true)?;
+        for i in 1..=DRAG_MOVES {
+            let p = f64::from(i) / f64::from(DRAG_MOVES);
+            let at = (from.0 + (to.0 - from.0) * p, from.1 + (to.1 - from.1) * p);
+            std::thread::sleep(Duration::from_millis(DRAG_GAP_MS));
+            self.pointer_ok(at)?;
+            self.desk.dragged(at)?;
+        }
+        std::thread::sleep(Duration::from_millis(DRAG_PAUSE_MS));
+        self.pointer_ok(to)?;
+        self.desk.button(to, false)?;
+        self.posted.set(self.posted.get() + 1);
         Ok(())
     }
 }
@@ -783,8 +998,11 @@ int main(void) {
         Up,
         Pointer,
         Wheel,
+        Press,
+        Release,
+        Dragged,
     }
-    use Did::{Down, Pointer, Read, Up, Wheel};
+    use Did::{Down, Dragged, Pointer, Press, Read, Release, Up, Wheel};
 
     const BAUD: i32 = 500;
 
@@ -856,6 +1074,18 @@ int main(void) {
             self.did.borrow_mut().push(Wheel);
             Ok(())
         }
+
+        fn button(&self, _: (f64, f64), down: bool) -> Result<(), String> {
+            self.did
+                .borrow_mut()
+                .push(if down { Press } else { Release });
+            Ok(())
+        }
+
+        fn dragged(&self, _: (f64, f64)) -> Result<(), String> {
+            self.did.borrow_mut().push(Dragged);
+            Ok(())
+        }
     }
 
     const FOREVER: usize = usize::MAX;
@@ -908,10 +1138,168 @@ int main(void) {
         );
     }
 
+    /// **Every hover event reads the session first**, and a locked screen
+    /// posts nothing. Perturbation: take `pointer_ok` out of `hover`.
+    #[test]
+    fn every_hover_event_reads_the_session_first() {
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.hover((50.0, 50.0)), Ok(()));
+        assert_eq!(*p.desk.did.borrow(), [Read, Pointer]);
+
+        let p = Fake::locked_from(0);
+        assert!(p.hover((50.0, 50.0)).is_err());
+        assert_eq!(*p.desk.did.borrow(), [Read], "the pointer did not move");
+    }
+
+    /// **Every drag event reads the session first**, the press, each move
+    /// and the release, and a screen that locks partway posts nothing more,
+    /// the release included. Perturbation: read once outside the moves' loop;
+    /// post the release on a refusal.
+    #[test]
+    fn every_drag_event_reads_the_session_first() {
+        let (from, to) = ((10.0, 10.0), (60.0, 60.0));
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.drag(from, to), Ok(()));
+        let mut want = vec![Read, Pointer, Read, Press];
+        for _ in 0..DRAG_MOVES {
+            want.extend([Read, Dragged]);
+        }
+        want.extend([Read, Release]);
+        assert_eq!(*p.desk.did.borrow(), want);
+
+        let p = Fake::locked_from(1);
+        assert!(p.drag(from, to).is_err());
+        assert_eq!(*p.desk.did.borrow(), [Read, Pointer, Read], "no press");
+
+        let p = Fake::locked_from(3);
+        let said = p.drag(from, to).unwrap_err();
+        assert!(said.contains("posted 0 events"), "{said}");
+        assert_eq!(
+            *p.desk.did.borrow(),
+            [Read, Pointer, Read, Press, Read, Dragged, Read],
+            "no release"
+        );
+    }
+
+    /// **A pasteboard no one else uses**, whose writes a test makes: what it
+    /// holds, its count, and each restore.
+    struct FakeBoard {
+        held: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+        count: std::rc::Rc<Cell<isize>>,
+        refuses: Vec<String>,
+    }
+
+    impl Board for FakeBoard {
+        type Saved = Vec<u8>;
+
+        fn count(&self) -> isize {
+            self.count.get()
+        }
+
+        fn save(&self) -> (Vec<u8>, Vec<String>) {
+            (self.held.borrow().clone(), Vec::new())
+        }
+
+        fn restore(&self, saved: &Vec<u8>) -> Vec<String> {
+            *self.held.borrow_mut() = saved.clone();
+            self.count.set(self.count.get() + 1);
+            self.refuses.clone()
+        }
+    }
+
+    type Shared = (
+        std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+        std::rc::Rc<Cell<isize>>,
+    );
+
+    fn kept(refuses: &[&str]) -> (Kept<FakeBoard>, Shared) {
+        let held = std::rc::Rc::new(std::cell::RefCell::new(b"secret".to_vec()));
+        let count = std::rc::Rc::new(Cell::new(7));
+        let board = FakeBoard {
+            held: held.clone(),
+            count: count.clone(),
+            refuses: refuses.iter().map(|s| (*s).to_string()).collect(),
+        };
+        (Kept::of(board), (held, count))
+    }
+
+    fn write(shared: &Shared, what: &[u8]) {
+        *shared.0.borrow_mut() = what.to_vec();
+        shared.1.set(shared.1.get() + 1);
+    }
+
+    /// **The film's own copy goes back, on every way out**: dropped without a
+    /// word from the take, as a refusal or a panic drops it. Perturbation:
+    /// take the `Drop` away, so an early return leaves the film's copy.
+    #[test]
+    fn the_films_copy_is_put_back_however_the_take_ends() {
+        let (k, shared) = kept(&[]);
+        let before = k.count();
+        write(&shared, b"the film's");
+        k.film_copied(before);
+        drop(k);
+        assert_eq!(*shared.0.borrow(), b"secret");
+        let (k, shared) = kept(&[]);
+        let before = k.count();
+        write(&shared, b"the film's");
+        k.film_copied(before);
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _k = k;
+            panic!("the take went wrong");
+        }));
+        assert!(unwound.is_err());
+        assert_eq!(*shared.0.borrow(), b"secret", "through a panic too");
+    }
+
+    /// **What a person copied survives**, before the film's copy or after,
+    /// and a pasteboard nothing wrote to is not written. Perturbation: restore
+    /// on any change of the count.
+    #[test]
+    fn a_persons_copy_survives_the_take() {
+        let (k, shared) = kept(&[]);
+        write(&shared, b"theirs");
+        assert_eq!(k.finish().len(), 1, "it says so");
+        drop(k);
+        assert_eq!(*shared.0.borrow(), b"theirs", "no film copy at all");
+
+        let (k, shared) = kept(&[]);
+        let before = k.count();
+        write(&shared, b"the film's");
+        k.film_copied(before);
+        write(&shared, b"theirs");
+        drop(k);
+        assert_eq!(*shared.0.borrow(), b"theirs", "after the film's");
+
+        let (k, shared) = kept(&[]);
+        let before = k.count();
+        write(&shared, b"theirs");
+        k.film_copied(before + 1);
+        drop(k);
+        assert_eq!(*shared.0.borrow(), b"theirs", "before a gesture");
+
+        let (k, shared) = kept(&[]);
+        assert!(k.finish().is_empty(), "nothing wrote, nothing said");
+        assert_eq!(shared.1.get(), 7, "and nothing written");
+    }
+
+    /// **A type that cannot go back is said, by name, and no contents are.**
+    /// Perturbation: put the saved bytes in the line.
+    #[test]
+    fn a_type_that_cannot_go_back_is_said_and_no_contents_are() {
+        let (k, shared) = kept(&["public.tiff"]);
+        let before = k.count();
+        write(&shared, b"the film's");
+        k.film_copied(before);
+        let said = k.finish().join("\n");
+        assert!(said.contains("public.tiff"), "{said}");
+        assert!(!said.contains("secret"), "{said}");
+    }
+
     /// **The session's read is added to the window's, not put in its place**:
     /// a session all clear with another application in front still posts
-    /// nothing. Perturbation: drop `guard::keys` from `key`, or `guard::wheel`
-    /// from `wheel`.
+    /// nothing: a key, a wheel, a hover and a drag each read the session
+    /// once and are refused there. Perturbation: drop `guard::keys` from
+    /// `key`, or `guard::wheel` from `pointer_ok`.
     #[test]
     fn the_window_guard_still_stands() {
         let mut p = Fake::locked_from(FOREVER);
@@ -923,7 +1311,13 @@ int main(void) {
                 .unwrap_err()
                 .contains("pid 77's")
         );
-        assert_eq!(*p.desk.did.borrow(), [Read, Read]);
+        assert!(p.hover((50.0, 50.0)).unwrap_err().contains("pid 77's"));
+        assert!(
+            p.drag((10.0, 10.0), (50.0, 50.0))
+                .unwrap_err()
+                .contains("pid 77's")
+        );
+        assert_eq!(*p.desk.did.borrow(), [Read, Read, Read, Read]);
     }
 
     /// **The process search finds a name past 16 characters, exactly**: this

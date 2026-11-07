@@ -314,6 +314,29 @@ pub fn settle(readings: &[(f64, Option<Rect>)], hold: f64) -> Settle {
     }
 }
 
+/// **What becomes of the pasteboard when a take ends.**
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AfterTake {
+    /// Nothing wrote to it, so nothing is owed.
+    Untouched,
+    /// Its last write is one the film made: what it held goes back.
+    FilmsOwn,
+    /// Something other than the film wrote to it last: a person's copy,
+    /// which stays.
+    Theirs,
+}
+
+/// **From `changeCount`**: as it was before the take, the last the film
+/// knows it made, and as it is now. Only a count still the film's own is the
+/// film's to undo.
+pub fn after_take(before: isize, own: isize, now: isize) -> AfterTake {
+    match (now == own, now == before) {
+        (false, _) => AfterTake::Theirs,
+        (true, true) => AfterTake::Untouched,
+        (true, false) => AfterTake::FilmsOwn,
+    }
+}
+
 /// **The centre of [`frame`]**, where the wheel turns.
 pub fn centre(pid: i32, all: &[Window]) -> Option<(f64, f64)> {
     frame(pid, all).map(|b| (b.x + b.w / 2.0, b.y + b.h / 2.0))
@@ -322,6 +345,17 @@ pub fn centre(pid: i32, all: &[Window]) -> Option<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The pasteboard goes back only from the film's own count.** A count
+    /// past it is someone's copy, whether or not the film also wrote.
+    /// Perturbation: restore on any change, and the person's copy is lost.
+    #[test]
+    fn only_the_films_own_count_is_undone() {
+        assert_eq!(after_take(7, 7, 7), AfterTake::Untouched);
+        assert_eq!(after_take(7, 8, 8), AfterTake::FilmsOwn);
+        assert_eq!(after_take(7, 7, 8), AfterTake::Theirs, "no film copy");
+        assert_eq!(after_take(7, 8, 9), AfterTake::Theirs, "after the film's");
+    }
 
     const BAUD: i32 = 500;
     const OTHER: i32 = 77;

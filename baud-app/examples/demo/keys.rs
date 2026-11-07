@@ -187,7 +187,11 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
         Step::Keys(t) => keys_for(t),
         Step::Escape => Ok(vec![ESCAPE]),
         Step::Ctrl(c) => Ok(vec![control_key(c)?]),
-        Step::Prompt | Step::Hold(_) | Step::Wheel { .. } => Ok(Vec::new()),
+        Step::Prompt
+        | Step::Hold(_)
+        | Step::Wheel { .. }
+        | Step::Hover { .. }
+        | Step::Drag { .. } => Ok(Vec::new()),
     }
 }
 

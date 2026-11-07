@@ -36,6 +36,23 @@ pub enum Step {
         expect(dead_code, reason = "no shot of the README take turns the wheel")
     )]
     Wheel { turns: i32, lines: i32 },
+    /// Rest the pointer at a place in baud's window, in thousandths of its
+    /// width and height from the top left ([`within`]), and leave it there.
+    /// No shot of this take hovers.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no shot of the README take hovers")
+    )]
+    Hover { x: u16, y: u16 },
+    /// Press the left button at one place, move to another across
+    /// [`DRAG_MOVES`] moves [`DRAG_GAP_MS`] apart, and let go: a selection,
+    /// with whatever the settings do with one. Places as [`Step::Hover`]'s,
+    /// each `(x, y)`. No shot of this take drags.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no shot of the README take drags")
+    )]
+    Drag { from: (u16, u16), to: (u16, u16) },
 }
 
 #[cfg(test)]
@@ -163,6 +180,22 @@ pub const WHEEL_GAP_MS: u64 = 50;
 /// The pause between moving the pointer to the window's centre and the
 /// first wheel event, in milliseconds.
 pub const WHEEL_SETTLE_MS: u64 = 30;
+
+/// The pause after a drag's first move and before its press, and after its
+/// last move and before its release, in milliseconds; the moves between and
+/// the gap from each to the next, a drag of 0.86 s in all.
+pub const DRAG_PAUSE_MS: u64 = 80;
+pub const DRAG_MOVES: u32 = 20;
+pub const DRAG_GAP_MS: u64 = 35;
+
+/// **A place given in thousandths**, `(x, y)`, within the box at `origin` of
+/// `size`, in the box's own units: 500, 500 is its centre.
+pub fn within(place: (u16, u16), origin: (f64, f64), size: (f64, f64)) -> (f64, f64) {
+    (
+        origin.0 + f64::from(place.0) / 1000.0 * size.0,
+        origin.1 + f64::from(place.1) / 1000.0 * size.1,
+    )
+}
 
 /// **`hello.txt`, baud defined**: one line in each of Hebrew, Arabic,
 /// Chinese, Japanese, Korean and Hindi, each the word for baud in that
@@ -318,6 +351,8 @@ pub fn duration(steps: &[Step]) -> Duration {
             Step::Wheel { turns, .. } => {
                 (WHEEL_SETTLE_MS + u64::from(turns.unsigned_abs()) * WHEEL_GAP_MS) as f64
             }
+            Step::Hover { .. } => WHEEL_SETTLE_MS as f64,
+            Step::Drag { .. } => (2 * DRAG_PAUSE_MS + u64::from(DRAG_MOVES) * DRAG_GAP_MS) as f64,
         })
         .sum();
     Duration::from_secs_f64(ms / 1000.0)
@@ -339,13 +374,19 @@ pub fn describe(step: Step, prompt: usize) -> String {
             turns.unsigned_abs(),
             if turns > 0 { "up" } else { "down" }
         ),
+        Step::Hover { x, y } => format!("rest the pointer at {x},{y} of the window"),
+        Step::Drag { from, to } => format!(
+            "drag from {},{} to {},{} of the window",
+            from.0, from.1, to.0, to.1
+        ),
     }
 }
 
 /// **The events log's line for a step**, one for every step: `prompt N`
 /// once the shell's prompt has come, `keys ...` as typing begins, `key
 /// Escape` and `key Ctrl-d` as each is pressed, `hold N ms` as a hold
-/// begins, `wheel T x L` once the wheel has turned.
+/// begins, `wheel T x L` once the wheel has turned, `hover X,Y` and `drag
+/// X,Y to X,Y` once the pointer has done it.
 pub fn event(step: Step, prompt: usize) -> String {
     match step {
         Prompt => format!("prompt {prompt}"),
@@ -354,6 +395,10 @@ pub fn event(step: Step, prompt: usize) -> String {
         Ctrl(c) => format!("key Ctrl-{c}"),
         Hold(ms) => format!("hold {ms} ms"),
         Step::Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
+        Step::Hover { x, y } => format!("hover {x},{y}"),
+        Step::Drag { from, to } => {
+            format!("drag {},{} to {},{}", from.0, from.1, to.0, to.1)
+        }
     }
 }
 
@@ -587,6 +632,29 @@ mod tests {
     /// take held before it, 1.4 s of keys and 3.2 s of holds that read at a
     /// person's speed. Perturbation: count a wheel's turns signed and the
     /// second wheel takes nothing off, which the total catches.
+    /// **A hover and a drag take their time and say what they did**, and a
+    /// place in thousandths lands in the box. Perturbation: leave a drag's
+    /// pauses out of `duration`; read `within`'s x from its y.
+    #[test]
+    fn a_hover_and_a_drag_are_planned() {
+        let hover = Step::Hover { x: 250, y: 750 };
+        let drag = Step::Drag {
+            from: (100, 200),
+            to: (300, 400),
+        };
+        let d = duration(&[hover, drag]).as_secs_f64();
+        assert!((d - 0.89).abs() < 1e-9, "{d}");
+        assert_eq!(event(hover, 0), "hover 250,750");
+        assert_eq!(event(drag, 0), "drag 100,200 to 300,400");
+        assert!(describe(hover, 0).contains("250,750"));
+        assert!(describe(drag, 0).contains("300,400"));
+        assert_eq!(key_event(hover), None);
+        assert_eq!(
+            within((500, 250), (10.0, 20.0), (100.0, 200.0)),
+            (60.0, 70.0)
+        );
+    }
+
     #[test]
     fn the_plan_adds_its_holds_typing_and_wheel() {
         let steps = [

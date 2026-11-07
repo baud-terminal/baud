@@ -1223,6 +1223,9 @@ fn live(
 ) -> Result<Option<record::Session>, String> {
     // The VM can take minutes to start, so this is asked once more.
     clear_to_open()?;
+    // The pasteboard, kept before anything is filmed and put back on every
+    // way out of this function (`mac::Kept`).
+    let board = mac::Kept::of(mac::General);
     let at = &prep.at;
     let log = File::create(at.baud_log()).map_err(|e| format!("baud's log: {e}"))?;
     let err = log.try_clone().map_err(|e| format!("baud's log: {e}"))?;
@@ -1287,7 +1290,7 @@ fn live(
     let played = pid_files
         .iter()
         .try_for_each(|p| write_pid(p, pid))
-        .and_then(|()| play(&ev, pid, at, fixed));
+        .and_then(|()| play(&ev, pid, at, fixed, &board));
     match &played {
         Ok(_) => ev.line("done"),
         Err(e) => ev.line(&format!("DIE {e}")),
@@ -1310,6 +1313,7 @@ fn live(
         }
     }
     close(&mut child, pid);
+    drop(board);
     let first = played?;
     leaks(&at.pty_log(), &at.root)?;
     check_printed(&prep.faces, &at.pty_log())?;
@@ -1364,7 +1368,13 @@ enum Fixed {
 /// `Fixed`, lie wholly on the display filmed; it is looked at again at
 /// every prompt, and a window that has moved or changed size stops the
 /// session there rather than at its end.
-fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String> {
+fn play(
+    ev: &Events,
+    pid: i32,
+    at: &Layout,
+    fixed: Fixed,
+    board: &mac::Kept<mac::General>,
+) -> Result<Rect, String> {
     let begun = Instant::now();
     let mut seen: Vec<(f64, Option<Rect>)> = Vec::new();
     let look = |seen: &mut Vec<(f64, Option<Rect>)>| {
@@ -1478,6 +1488,22 @@ fn play(ev: &Events, pid: i32, at: &Layout, fixed: Fixed) -> Result<Rect, String
                 let c = guard::centre(pid, &mac::windows(false))
                     .ok_or("baud has no window on screen")?;
                 poster.wheel(c, turns, lines)?;
+                ev.line(&session::event(step, prompt));
+            }
+            Step::Hover { x, y } => {
+                let w = guard::frame(pid, &mac::windows(false))
+                    .ok_or("baud has no window on screen")?;
+                poster.hover(session::within((x, y), (w.x, w.y), (w.w, w.h)))?;
+                ev.line(&session::event(step, prompt));
+            }
+            Step::Drag { from, to } => {
+                let w = guard::frame(pid, &mac::windows(false))
+                    .ok_or("baud has no window on screen")?;
+                let place = |p| session::within(p, (w.x, w.y), (w.w, w.h));
+                let before = board.count();
+                poster.drag(place(from), place(to))?;
+                // What letting go copied is the film's to undo.
+                board.film_copied(before);
                 ev.line(&session::event(step, prompt));
             }
         }
