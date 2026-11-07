@@ -9,8 +9,8 @@
 # revision the flake pins for aarch64-linux, the system colima's VM runs
 # on an Apple silicon Mac, with starship 1.27.0, the first release outside
 # advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp. The image takes
-# only six packages from it,
-# which cache.nixos.org holds, and makes everything else -- its files,
+# only six packages from it, which cache.nixos.org holds, and makes
+# everything else -- its files,
 # its customisation layer, the mark's picture, the prompt's config, the
 # script that streams it -- with `pkgs`, so a Mac with no Linux builder
 # makes it. Its files are written whole, not linked into the store, so

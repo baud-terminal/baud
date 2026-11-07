@@ -64,8 +64,10 @@ pub const USER: &str = "jordan";
 /// commit, for the container's: [`crate::run::NIXPKGS`] carries starship 1.26.0, which
 /// advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp cover, and this
 /// nixpkgs-unstable revision carries 1.27.0, the first release outside
-/// both. Only starship comes from it, so every other program the film
-/// shows stays where it was.
+/// both. The container's six Linux packages come from it too
+/// (`nix/demo-container/default.nix`), because a Mac cannot evaluate the
+/// flake's own nixpkgs for Linux. The programs the demo's own shell runs
+/// still come from [`crate::run::NIXPKGS`].
 pub const STARSHIP_NIXPKGS: &str = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
 
 /// **The image**, by the name and tag `nix/demo-container/default.nix`
@@ -75,8 +77,10 @@ pub const IMAGE: &str = "baud-demo:readme";
 /// The repository flake's output that streams the image.
 pub const FLAKE_OUTPUT: &str = "demo-container";
 
-/// **The image's stream, by SHA-256**, from the flake's pinned nixpkgs for
-/// `aarch64-linux`, the system colima's VM runs on an Apple silicon Mac.
+/// **The image's stream, by SHA-256**: its packages from the flake's
+/// `nixpkgs-demo` for `aarch64-linux`, the system colima's VM runs on an
+/// Apple silicon Mac, and the script that streams them from the flake's
+/// `nixpkgs`.
 pub const IMAGE_SHA256: &str = "6ddfec1858299137e11eefb39ac153fb08755223c4fca2972609268fe3615fe9";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
@@ -1068,7 +1072,7 @@ mod tests {
     /// which it shows in docker, so the prompt there is `~ ❯` and the
     /// session's badge alone names the server; nothing else of
     /// `assets/starship/baud.toml` is changed, the file read whole by
-    /// nix. The starship and bash come from the flake's `nixpkgs-demo`,
+    /// nix. Every package of the image comes from the flake's `nixpkgs-demo`,
     /// locked at the commit the demo's own starship is built from. The
     /// control: a fourth module turned off is caught.
     #[test]

@@ -48,7 +48,7 @@ fn locked(lock: &str) -> Vec<(String, String)> {
 
 /// **The flake locks the dev shell's nixpkgs and rust-overlay at the
 /// shell's revisions**, every input but `nixpkgs-demo`: the README
-/// session's container takes starship from a later nixpkgs of its own
+/// session's container takes its Linux packages from a nixpkgs of its own
 /// (`nix/demo-container/default.nix`), pinned in `flake.nix` by its commit
 /// and locked at it, and builds nothing of baud's with it. The control:
 /// that input's revision is not the shell's.

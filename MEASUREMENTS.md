@@ -4317,7 +4317,7 @@ mark moves; `the_held_splash_is_the_lockup_files` holds the splash to the file.
 The title bar's tight box stays centred on the cell's rows and goes from 184.52
 tall to 168, so the mark stays on the strip's centre line and `mark.rs` changes
 nothing. Marks, icons and the Dock do not move. `baud-github-org.png` was stale
-before this and stays as committed. A redraw would now differ for a second
+before this and stayed as committed until it was redrawn with the updated toolchain. A redraw would now differ for a second
 reason too: its word light is the splash's first pass, whose box moved with the
 cell. `brand --check` fails on it alone, at base and here. `hero.gif` is a
 session captured earlier and still shows the old lockup.
