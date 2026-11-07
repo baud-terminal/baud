@@ -141,7 +141,7 @@ n=${#fr[@]}
 [ "$n" -gt "$FPS" ] || die "only $n frames"
 echo "readme-film: $n frames, $GRID at $POINTS pt"
 if [ "${ONLY-}" = btop ]; then
-  cp "${fr[9*FPS/2]}" "$out/still.png"
+  cp "${fr[9 * FPS / 2]}" "$out/still.png"
   "$magick" "$out/still.png" -resize 776x "$out/still-776.png"
   "$magick" identify -format '%f: %wx%h, %b\n' "$out/still.png" "$out/still-776.png"
   exit 0
@@ -150,7 +150,7 @@ fi
 # The launch settles on the prompt a second in, the splash gone and
 # nothing typed yet; the clip ends on the same screen, so it loops back to
 # the launch.
-ae=$("$magick" compare -metric AE -fuzz 2% "${fr[FPS]}" "${fr[n-1]}" null: 2>&1 | cut -d' ' -f1) || true
+ae=$("$magick" compare -metric AE -fuzz 2% "${fr[FPS]}" "${fr[n - 1]}" null: 2>&1 | cut -d' ' -f1) || true
 [ "${ae%.*}" -lt 100 ] || die "the last frame differs from the settled launch in $ae pixels, so it does not loop"
 # From a second in, every tenth frame: the launch's first frame is the
 # empty page, and btop clears the screen a fifth of a second before its
@@ -159,7 +159,7 @@ ae=$("$magick" compare -metric AE -fuzz 2% "${fr[FPS]}" "${fr[n-1]}" null: 2>&1 
 prev=1000
 for ((i = FPS; i < n; i += 10)); do
   sd=$("$magick" "${fr[i]}" -colorspace gray -format '%[fx:int(standard_deviation*1000)]' info:)
-  [ "$sd" -ge 2 ] || [ "$prev" -ge 2 ] || die "${fr[i-10]} to ${fr[i]} are blank"
+  [ "$sd" -ge 2 ] || [ "$prev" -ge 2 ] || die "${fr[i - 10]} to ${fr[i]} are blank"
   prev=$sd
 done
 echo "readme-film: it loops ($ae pixels apart), and no two tenth frames running are blank"

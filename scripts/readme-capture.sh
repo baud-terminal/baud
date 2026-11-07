@@ -284,7 +284,7 @@ check_loop() {
   local name=$1 dir=$2 ae n i sd
   local fr=("$dir"/*.png)
   n=${#fr[@]}
-  ae=$("$magick" compare -metric AE -fuzz 4% "${fr[0]}" "${fr[n-1]}" null: 2>&1 | cut -d' ' -f1) || true
+  ae=$("$magick" compare -metric AE -fuzz 4% "${fr[0]}" "${fr[n - 1]}" null: 2>&1 | cut -d' ' -f1) || true
   echo "$name: $n frames; first and last differ in $ae pixels"
   [ "${ae%.*}" -lt 200 ] || die "$name: the first and last frames differ, so it does not loop"
   for ((i = 0; i < n; i += 10)); do

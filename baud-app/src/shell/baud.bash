@@ -110,7 +110,7 @@ __baud_marks() {
     # Before the first prompt is marked, every mark in the prompts, in
     # PROMPT_COMMAND and in any function is the user's: their startup files
     # mark the prompt, and theirs stand alone.
-    if ((!__baud_prompted)) && {
+    if ((! __baud_prompted)) && {
       [[ $PS1$PS2$PS0${PROMPT_COMMAND[*]} == *"$__baud_mark"* ]] ||
         [[ $(declare -f) == *"$__baud_mark"* ]]
     }; then
