@@ -7232,7 +7232,7 @@ mod example {
     /// (`each_key_uncommented_alone_reads_as_its_default`), and each of
     /// these does not (`the_marked_examples_are_the_keys_that_differ`), so
     /// the list is exactly the keys that differ.
-    const EXAMPLES: [(&str, &str, Why); 11] = [
+    const EXAMPLES: [(&str, &str, Why); 12] = [
         ("", "fonts", Why::Unset),
         ("palette", "light", Why::Unset),
         ("palette", "dark", Why::Unset),
@@ -7244,6 +7244,7 @@ mod example {
         ("shell", "program", Why::Unset),
         ("font", "alternatives", Why::Unset),
         ("font", "fraktur", Why::Unset),
+        ("link.path", "command", Why::Unset),
     ];
 
     fn keys() -> Vec<Entry> {
@@ -7261,6 +7262,55 @@ mod example {
         match e.section.as_str() {
             "" => format!("{}\n", e.text),
             s => format!("[{s}]\n{}\n", e.text),
+        }
+    }
+
+    /// **The section and key the reader takes `e` by**: a `[link.NAME]`
+    /// rule's keys are read by `rules::read`, the same for every NAME, so
+    /// each section under `link.` but `[link.path]` reads as `link.NAME`.
+    fn read_as(e: &Entry) -> (String, String) {
+        match e.section.strip_prefix("link.") {
+            Some(name) if name != crate::rules::PATH_RULE => {
+                ("link.NAME".to_string(), e.key.clone())
+            }
+            _ => (e.section.clone(), e.key.clone()),
+        }
+    }
+
+    /// **The keys `rules::read` takes**, which no arm of `Config::apply`
+    /// names: `[link.path]`'s, and a `[link.NAME]` rule's as `link.NAME`.
+    fn rule_keys() -> BTreeSet<(String, String)> {
+        let path = crate::rules::PATH_KEYS.map(|k| ("link.path".to_string(), k.to_string()));
+        let rule = crate::rules::RULE_KEYS.map(|k| ("link.NAME".to_string(), k.to_string()));
+        path.into_iter().chain(rule).collect()
+    }
+
+    /// **`e` as the reader is given it**: alone, but for `[link.path]`'s
+    /// `action`, which is `"command"` in the example and refused without a
+    /// command, so it is read with the example's `command` after it.
+    fn read_with(e: &Entry, all: &[Entry]) -> String {
+        let mut text = alone(e);
+        if e.section == "link.path" && e.key == "action" {
+            let command = all
+                .iter()
+                .find(|c| c.section == e.section && c.key == "command");
+            if let Some(c) = command {
+                text.push_str(&c.text);
+                text.push('\n');
+            }
+        }
+        text
+    }
+
+    /// **Whether `e`, read, is compared with the defaults**: not a
+    /// `[link.NAME]` rule's key, since any rule is one the defaults lack,
+    /// and not `[link.path]`'s `action`, which read with its command is a
+    /// command and not the default reveal.
+    fn compared(e: &Entry) -> bool {
+        match e.section.strip_prefix("link.") {
+            Some(name) if name != crate::rules::PATH_RULE => false,
+            Some(_) => e.key != "action",
+            None => true,
         }
     }
 
@@ -7423,10 +7473,11 @@ mod example {
     /// `Config::apply` matches by name, but for those the guide lists under
     /// "Keys baud no longer reads", which the reader matches only to say
     /// what replaced them, so a written file naming one would say it at
-    /// every launch. The positive controls are a first and a last arm on
-    /// both sides, and a retired key the guide's scan must find.
-    /// Perturbation: drop `join_spacing_marks`'s lines from the example, or
-    /// add an arm to `apply`.
+    /// every launch; and the keys `rules::read` takes, which no arm names,
+    /// a `[link.NAME]` rule's as `link.NAME` ([`read_as`]). The positive
+    /// controls are a first and a last arm on both sides, and a retired key
+    /// the guide's scan must find. Perturbation: drop `join_spacing_marks`'s
+    /// lines from the example, or add an arm to `apply`.
     #[test]
     fn the_examples_keys_are_the_readers() {
         let page = std::fs::read_to_string(concat!(
@@ -7442,9 +7493,9 @@ mod example {
         let reader: BTreeSet<(String, String)> = super::guide::reader_keys()
             .difference(&retired)
             .cloned()
+            .chain(rule_keys())
             .collect();
-        let example: BTreeSet<(String, String)> =
-            keys().into_iter().map(|e| (e.section, e.key)).collect();
+        let example: BTreeSet<(String, String)> = keys().iter().map(read_as).collect();
         for side in [&reader, &example] {
             for (s, k) in [("", "font_size"), ("glass", "shadow")] {
                 assert!(
@@ -7473,8 +7524,9 @@ mod example {
     fn each_key_uncommented_alone_reads_as_its_default() {
         let defaults = Config::defaults();
         let mut checked = 0;
-        for e in keys() {
-            let text = alone(&e);
+        let all = keys();
+        for e in &all {
+            let text = alone(e);
             assert_eq!(
                 fields(&text).len(),
                 1,
@@ -7484,7 +7536,7 @@ mod example {
                 e.key
             );
             let mut c = Config::defaults();
-            let said = c.apply(&text);
+            let said = c.apply(&read_with(e, &all));
             assert!(
                 said.is_empty(),
                 "line {}: [{}] {} uncommented says {said:?}",
@@ -7492,7 +7544,7 @@ mod example {
                 e.section,
                 e.key
             );
-            if !marked(&e) {
+            if !marked(e) && compared(e) {
                 assert_eq!(
                     differs(&defaults, &c),
                     Vec::<&str>::new(),
@@ -7544,6 +7596,55 @@ mod example {
         }
         let distinct: BTreeSet<(&str, &str)> = EXAMPLES.iter().map(|(s, k, _)| (*s, *k)).collect();
         assert_eq!(distinct.len(), EXAMPLES.len(), "a key marked twice");
+    }
+
+    /// **The example's `[link.*]` sections pass both gates**: their keys
+    /// are the rules' reader's, every one of `rules::PATH_KEYS` and of
+    /// `rules::RULE_KEYS` (as `link.NAME`) shown and no other; each read
+    /// as the gates read it says nothing; and `[link.path]`'s action, read
+    /// with its command, is a command. Named break: read `[link.path]`'s
+    /// action alone in `read_with`, which `rules::read` refuses for naming
+    /// "command" with no command.
+    #[test]
+    fn the_examples_link_sections_pass_the_writers_gates() {
+        let all = keys();
+        let link: Vec<&Entry> = all
+            .iter()
+            .filter(|e| e.section.starts_with("link."))
+            .collect();
+        let has = |s: &str| link.iter().any(|e| e.section == s);
+        assert!(
+            has("link.path") && has("link.tel"),
+            "the scan stopped finding the [link.*] sections: {link:?}"
+        );
+        let shown: BTreeSet<(String, String)> = link.iter().map(|e| read_as(e)).collect();
+        assert_eq!(
+            shown,
+            rule_keys(),
+            "the [link.*] keys, as the reader takes them"
+        );
+        for e in &link {
+            let mut c = Config::defaults();
+            let said = c.apply(&read_with(e, &all));
+            assert!(
+                said.is_empty(),
+                "line {}: [{}] {} says {said:?}",
+                e.line,
+                e.section,
+                e.key
+            );
+        }
+        let action = link
+            .iter()
+            .find(|e| e.section == "link.path" && e.key == "action")
+            .expect("[link.path] action in the example");
+        let mut c = Config::defaults();
+        let _ = c.apply(&read_with(action, &all));
+        assert!(
+            matches!(c.link.rules.path_act(), crate::rules::PathAct::Command(_)),
+            "read with its command, the action is a command: {:?}",
+            c.link.rules.path_act()
+        );
     }
 
     /// The stop `text` makes, whose sentence names the line it is on.
