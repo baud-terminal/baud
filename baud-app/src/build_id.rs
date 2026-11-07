@@ -14,8 +14,17 @@
 //! (`BAUD_GIT_REV`, which the nix flake sets, since a nix build has no
 //! `.git`); else the commit git names, `.dirty` when a tracked file differs
 //! from it; else `unknown`, a tarball's and a registry's answer.
+//!
+//! **And when that commit was made**, for the About window's age line: what
+//! the packager says (`BAUD_GIT_TIME`, which the flake sets from
+//! `self.lastModified`), else git's committer time of `HEAD`, else nothing.
+//! It is the commit's, not the build's, so two builds of one commit say the
+//! same; on 936f9c19 `nix flake metadata` gave `lastModified` 1794042906 and
+//! `git log -1 --format=%ct` the same number. A build named `unknown` has no
+//! commit and so no time, whatever was set.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 /// The answer with nothing to read: a tarball, a registry, no git.
 pub(crate) const UNKNOWN: &str = "unknown";
@@ -51,11 +60,51 @@ pub(crate) fn told(rev: &str) -> Result<String, String> {
     }
 }
 
+/// **A commit time as git and nix write it**: whole seconds since 1970, in
+/// decimal, or `None` for anything else. Zero is `None` too: it is no
+/// commit's time, and what a source with no history could report.
+pub(crate) fn time_of(s: &str) -> Option<SystemTime> {
+    let secs = Some(s.trim())
+        .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))?
+        .parse()
+        .ok()
+        .filter(|&n| n != 0)?;
+    SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(secs))
+}
+
+/// **`BAUD_GIT_TIME`'s text as a commit time**: empty or `0` is no time, as
+/// the flake writes when nix has none, and anything else not a time is a
+/// packager's mistake, which a build refuses as [`told`] does.
+pub(crate) fn told_time(s: &str) -> Result<Option<SystemTime>, String> {
+    match s.trim() {
+        "" | "0" => Ok(None),
+        t => time_of(t).map(Some).ok_or_else(|| {
+            format!(
+                "BAUD_GIT_TIME={s:?} is not a commit time: whole seconds since 1970, in decimal"
+            )
+        }),
+    }
+}
+
+/// **What the build stamps as its commit's time**: whole seconds since
+/// 1970, or empty with no time or no commit (`id` [`UNKNOWN`]), so the
+/// variable is always set and `env!` compiles on every target.
+pub(crate) fn stamp(id: &str, time: Option<SystemTime>) -> String {
+    let since = time.and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok());
+    match since {
+        Some(since) if id != UNKNOWN => since.as_secs().to_string(),
+        _ => String::new(),
+    }
+}
+
 /// What git said of the tree.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Read {
     /// `<hash>`, or `<hash>.dirty`.
     pub(crate) id: String,
+    /// `HEAD`'s committer time, `%ct`, or `None` when git did not say: the
+    /// age line is left out, and the build's name is unaffected.
+    pub(crate) time: Option<SystemTime>,
     /// What changes when the answer can: a new commit moves `HEAD`, the ref
     /// it names, `packed-refs` or a reftable, staging moves the index, and an
     /// edit of a tracked file moves its entry at the top of the tree. Cargo
@@ -99,6 +148,11 @@ pub(crate) fn read(crate_dir: &Path, git: &dyn Fn(&[&str]) -> Option<String>) ->
         true => hash.to_owned(),
         false => format!("{hash}.dirty"),
     };
+    // `--no-show-signature`: a `log.showSignature` set in a config would
+    // print a signature's lines before the time.
+    let time = git(&["log", "-1", "--no-show-signature", "--format=%ct", "HEAD"])
+        .as_deref()
+        .and_then(time_of);
     let own = git(&["rev-parse", "--path-format=absolute", "--git-dir"])?;
     let common = git(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
     let (own, common) = (Path::new(&own), Path::new(&common));
@@ -116,6 +170,7 @@ pub(crate) fn read(crate_dir: &Path, git: &dyn Fn(&[&str]) -> Option<String>) ->
     watch.extend(tracked.lines().map(|entry| Path::new(&top).join(entry)));
     Some(Read {
         id,
+        time,
         watch,
         common: common.to_owned(),
     })

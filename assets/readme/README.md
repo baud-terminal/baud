@@ -99,6 +99,14 @@ geometry` and `plasma`, does IEEE's own arithmetic and its own `sin`,
 holds it to (`the_logo_generator_calls_no_platform_math`), so its frames
 do not depend on a platform's libm.
 
+`author.jpg` is the author's GitHub profile picture, 400 by 400, as the
+profile serves it, and carries no EXIF or other metadata block. The About
+window shows it round at 96 points beside its lines, a click on it opening
+the profile (`baud-present-macos/src/about.rs`); the app bundle carries it
+beside the two films (`scripts/bundle-macos.sh`) and the app never fetches
+it, so a binary with no bundle shows none. It is under the repository's
+licence, as baud's own files are.
+
 `hero.gif` is a screen recording of a real baud session, its window filmed
 as it ran: a shell, every command typed into it at real speed, glass and
 smooth scrolling as they are, at 110x33 cells and 12 pt, in Dark. It shows

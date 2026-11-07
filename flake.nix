@@ -101,6 +101,10 @@
           # `.git`, so the flake says which commit this is; `dirtyShortRev`
           # is its answer for a tree that differs from the commit.
           env.BAUD_GIT_REV = self.shortRev or self.dirtyShortRev or "unknown";
+          # **And when that commit was made**, the About window's age line's
+          # start: `lastModified`, the commit's time for a git flake; `0`,
+          # which the build reads as no time, where nix has none.
+          env.BAUD_GIT_TIME = toString (self.lastModified or 0);
 
           # The Linux desktop entry is checked against the specification as
           # it is installed; the macOS bundle is signed ad hoc, as a clone's

@@ -1,6 +1,7 @@
 //! **The About window, built and never shown**, and the app menu's item that
 //! opens it: what it says, the logo for each appearance, the film stepped to
-//! a frame and coming round, its pause, the item's action, and the renders for
+//! a frame and coming round, its pause, the author's picture and its click,
+//! the release's age, the window with neither, the item's action, and the renders for
 //! each appearance at 1x and 2x when `BAUD_ABOUT_RENDERS` names a folder, with
 //! the whole film as raw frames for the flash census when `BAUD_ABOUT_FILM`
 //! does.
@@ -44,9 +45,12 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 mod checks {
+    use crate::about::Bundled;
     use baud_domain::FrameNo;
-    use baud_present_macos::about::{About, Clock, Motion, Seen, Shows, add_menu_item, frame_at};
-    use core::cell::Cell;
+    use baud_present_macos::about::{
+        About, Ages, Clock, FACE, GAP, LOGO, Motion, Seen, Shows, add_menu_item, frame_at,
+    };
+    use core::cell::{Cell, RefCell};
     use core::time::Duration;
     use macos_liquid_glass::objc2::rc::Retained;
     use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker, sel};
@@ -55,11 +59,16 @@ mod checks {
         NSBitmapImageRep, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType,
         NSView,
     };
-    use macos_liquid_glass::objc2_foundation::{NSDictionary, NSPoint, NSRect, NSString};
+    use macos_liquid_glass::objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
     use std::path::PathBuf;
     use std::rc::Rc;
+    use std::time::SystemTime;
 
     const BUILD: &str = "1.0.0-beta+0123abc.dirty";
+    /// A commit time as `build.rs` stamps it: 936f9c19's.
+    const STAMP: &str = "1794042906";
+    /// The profile a click on the picture goes to.
+    const PROFILE: &str = "https://github.com/i-am-logger";
     const DARK: &str = "NSAppearanceNameDarkAqua";
     const LIGHT: &str = "NSAppearanceNameAqua";
     /// Nineteen of the film's 250 ms blink phases, which end with the block
@@ -108,10 +117,51 @@ mod checks {
         rep
     }
 
+    /// The author's picture, as the bundle carries it.
+    fn face() -> Option<Retained<macos_liquid_glass::objc2_app_kit::NSImage>> {
+        let bytes =
+            std::fs::read(workspace().join("assets/readme/author.jpg")).expect("the picture");
+        macos_liquid_glass::image_from_bytes(&bytes)
+    }
+
+    /// What an opener was handed, in order.
+    type Got = Rc<RefCell<Vec<String>>>;
+
+    /// An opener, as the About window takes one.
+    type Opener = Rc<dyn Fn(&str)>;
+
+    /// An opener that opens nothing and keeps what it was handed.
+    fn recorder() -> (Got, Opener) {
+        let got = Rc::new(RefCell::new(Vec::new()));
+        let keep = got.clone();
+        (
+            got,
+            Rc::new(move |url: &str| keep.borrow_mut().push(url.to_owned())),
+        )
+    }
+
+    /// What the bundle carries, or nothing.
+    fn bundled(
+        films: Option<(&[u8], &[u8])>,
+        face: Option<Retained<macos_liquid_glass::objc2_app_kit::NSImage>>,
+    ) -> Bundled {
+        let image = |b: &[u8]| macos_liquid_glass::image_from_bytes(b);
+        Bundled {
+            film_dark: films.and_then(|(d, _)| image(d)),
+            film_light: films.and_then(|(_, l)| image(l)),
+            face,
+        }
+    }
+
     /// A left click at `at` in the window, as AppKit makes one, sent to `view`.
     fn click(view: &NSView, at: NSPoint) {
-        let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-            NSEventType::LeftMouseDown,
+        view.mouseDown(&mouse(NSEventType::LeftMouseDown, at));
+    }
+
+    /// A left button's `kind` at `at` in the window, as AppKit makes one.
+    fn mouse(kind: NSEventType, at: NSPoint) -> Retained<NSEvent> {
+        NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+            kind,
             at,
             NSEventModifierFlags::empty(),
             0.0,
@@ -121,8 +171,7 @@ mod checks {
             1,
             1.0,
         )
-        .expect("the event");
-        view.mouseDown(&event);
+        .expect("the event")
     }
 
     /// A key down of `text`, as AppKit makes one, sent to `view`.
@@ -209,9 +258,15 @@ mod checks {
         let (dark, light) = (film("dark"), film("light"));
         let mut shown_to = FrameNo::of(0);
 
-        let image = |b: &[u8]| macos_liquid_glass::image_from_bytes(b);
-        let about =
-            crate::about::build(mtm, BUILD, image(&dark), image(&light)).expect("the window");
+        let (_, opens) = recorder();
+        let about = crate::about::build(
+            mtm,
+            BUILD,
+            "",
+            bundled(Some((dark.as_slice(), light.as_slice())), None),
+            opens.clone(),
+        )
+        .expect("the window");
         let lines = about.lines();
         assert_eq!(lines[0], "Version 1.0.0-beta (0123abc.dirty)");
         assert_eq!(lines[1], "github.com/baud-terminal/baud");
@@ -325,7 +380,8 @@ mod checks {
         // A binary with no bundle shows the same picture, with nothing to
         // play. Perturbation: rest on `film.last()` and the film's last
         // frame, plasma and all, is not the bare window's.
-        let bare = crate::about::build(mtm, BUILD, None, None).expect("the window");
+        let bare = crate::about::build(mtm, BUILD, "", bundled(None, None), opens.clone())
+            .expect("the window");
         assert!(!bare.has_film());
         bare.play(Motion::Plays);
         assert_eq!(bare.shows(), Shows::Still);
@@ -520,6 +576,13 @@ mod checks {
             }
         }
 
+        the_films_move_only_where_the_pause_is(&dark, &light);
+        the_picture_sits_beside_the_lines_round_and_off_the_film(mtm, &dark, &light);
+        the_block_is_centred_for_a_long_and_a_short_version(mtm);
+        a_click_on_the_picture_opens_its_profile(mtm);
+        the_age_is_worked_out_at_each_open_and_only_with_a_commit(mtm);
+        the_bare_window_has_neither_picture_nor_age(&bare);
+
         // **The item**: first in the app menu, a separator under it, its
         // action the hook's, reached the way a click reaches it. The window
         // crate's own menu is what it goes in.
@@ -550,26 +613,406 @@ mod checks {
         assert!(!about.window().is_visible(), "and this test showed nothing");
 
         // The renders, when asked for.
+        // The window as a bundled build shows it: the films, the picture and
+        // an age line, read 3 hours after the commit.
         if let Some(dir) = std::env::var_os("BAUD_ABOUT_RENDERS") {
             let dir = PathBuf::from(dir);
             std::fs::create_dir_all(&dir).expect("the folder");
+            let (_, opens) = recorder();
+            let shown = crate::about::build(
+                mtm,
+                BUILD,
+                STAMP,
+                bundled(Some((dark.as_slice(), light.as_slice())), face()),
+                opens,
+            )
+            .expect("the window");
+            let made = SystemTime::UNIX_EPOCH + Duration::from_secs(1_794_042_906);
+            shown.age_at(made + Duration::from_secs(3 * 3600));
             for (name, look) in [(DARK, "dark"), (LIGHT, "light")] {
-                set_look(&about, name);
-                about.play(Motion::Still);
+                set_look(&shown, name);
+                shown.play(Motion::Still);
                 for scale in [1.0, 2.0] {
-                    let frame = about.window().ns_window().contentView().expect("its view");
+                    let frame = shown.window().ns_window().contentView().expect("its view");
                     let path = dir.join(format!("about-{look}-{}x.png", scale as u32));
                     std::fs::write(&path, png(&picture(&frame, scale))).expect("written");
                     println!("{}", path.display());
                 }
                 // And one moving frame, the plasma in it.
-                about.show_frame(mid);
-                let frame = about.window().content_view().expect("its view");
+                shown.show_frame(mid);
+                let frame = shown.window().content_view().expect("its view");
                 let path = dir.join(format!("about-{look}-2x-mid-film.png"));
                 std::fs::write(&path, png(&picture(&frame, 2.0))).expect("written");
                 println!("{}", path.display());
             }
         }
         println!("{NAME}: ok", NAME = super::NAME);
+    }
+
+    /// A pixel of `shot` at `at`, in the content's points from its lower
+    /// left, at `scale`.
+    fn pixel(shot: &(usize, usize, Vec<u8>), scale: f64, at: NSPoint) -> [u8; 3] {
+        let (w, h, px) = shot;
+        let x = (at.x * scale).floor() as usize;
+        let y = h - 1 - (at.y * scale).floor() as usize;
+        let i = (y * w + x) * 3;
+        [px[i], px[i + 1], px[i + 2]]
+    }
+
+    /// The top of `r`.
+    fn top(r: &NSRect) -> f64 {
+        r.origin.y + r.size.height
+    }
+
+    /// Whether `a` and `b` share any area.
+    fn overlap(a: &NSRect, b: &NSRect) -> bool {
+        a.origin.x < b.origin.x + b.size.width
+            && b.origin.x < a.origin.x + a.size.width
+            && a.origin.y < top(b)
+            && b.origin.y < top(a)
+    }
+
+    /// **The author's picture as option 1 has it, under where the film
+    /// moves**: 96 points and round, the lines 14 or 15 points to its right,
+    /// left-aligned and centred on its middle; the pause and its tooltip
+    /// only where the film moves, `MOVES` in the film's box; the picture's
+    /// top `GAP` under it, the lines under it too and neither on it; the
+    /// window as tall as that and no taller. Perturbation: a pause over the
+    /// film's whole box fails the pause rect and puts the picture on it; the
+    /// band under the box's bottom, as before, fails the height; a square
+    /// picture fails the corner.
+    fn the_picture_sits_beside_the_lines_round_and_off_the_film(
+        mtm: MainThreadMarker,
+        dark: &[u8],
+        light: &[u8],
+    ) {
+        let (_, opens) = recorder();
+        let signed = crate::about::build(
+            mtm,
+            BUILD,
+            STAMP,
+            bundled(Some((dark, light)), face()),
+            opens,
+        )
+        .expect("the window");
+        let l = signed.layout();
+        assert_eq!((FACE, GAP), (96.0, 8.0));
+        let moves = crate::about::MOVES;
+        // 18 of margin, the picture, the gap, and the box from where the
+        // film stops moving to its top: 18 + 96 + 8 + 223.
+        assert_eq!(l.content, NSSize::new(420.0, 345.0), "the window");
+        assert_eq!(
+            l.film,
+            NSRect::new(NSPoint::new(0.0, 55.0), LOGO),
+            "the box"
+        );
+        assert_eq!(
+            l.pause,
+            NSRect::new(NSPoint::new(60.0, 122.0), NSSize::new(308.0, 159.0)),
+            "where the film moves"
+        );
+        assert_eq!(l.pause.size, moves.size);
+        signed.play(Motion::Plays);
+        let (_, over) = signed.pause_tip().expect("the film's tooltip");
+        assert_eq!(over, l.pause, "the tooltip is the pause's");
+        let face = l.face.expect("the picture");
+        assert_eq!(face.size, NSSize::new(FACE, FACE));
+        assert_eq!(face.origin.y, 18.0, "on the margin");
+        assert_eq!(l.pause.origin.y - top(&face), GAP, "the picture's gap");
+        assert_eq!(
+            l.lines.len(),
+            4,
+            "the version, the age, the link and the copyright"
+        );
+        for r in &l.lines {
+            assert_eq!(r.origin.x, l.lines[0].origin.x, "{r:?}: one column");
+            let gap = r.origin.x - (face.origin.x + FACE);
+            assert!(gap == 14.0 || gap == 15.0, "{r:?}: a gap of {gap}");
+            assert!(r.origin.y >= 18.0, "{r:?}: over the margin");
+            assert!(
+                l.pause.origin.y - top(r) >= GAP,
+                "{r:?}: under where the film moves"
+            );
+            assert!(!overlap(r, &l.pause), "{r:?}: on the pause");
+            assert!(!overlap(r, &face), "{r:?}: on the picture");
+        }
+        assert!(!overlap(&face, &l.pause), "the picture on the pause");
+        let middle = (top(&l.lines[0]) + l.lines[3].origin.y) / 2.0;
+        let centre = face.origin.y + FACE / 2.0;
+        assert!(
+            (middle - centre).abs() <= 0.5,
+            "the lines' middle {middle}, the picture's {centre}"
+        );
+        // A click on the film's bare band, beside the picture, is no pause.
+        let content = signed.window().content_view().expect("its view");
+        let band = NSPoint::new(400.0, l.pause.origin.y - 2.0);
+        let before = signed.film_state();
+        click(&content, band);
+        assert_eq!(
+            signed.film_state(),
+            before,
+            "a click under where the film moves"
+        );
+        // Round, and the photo inside: 3 points in from the square's corners
+        // is the page, its middle and 3 points in from its left and right
+        // edges the picture's own pixels (the file's, scaled to 192, are
+        // 7 to 13 levels off the dark page there and far off the light).
+        let (fx, fy) = (face.origin.x, face.origin.y);
+        for name in [DARK, LIGHT] {
+            set_look(&signed, name);
+            signed.play(Motion::Still);
+            let view = signed.window().content_view().expect("its view");
+            let shot = rgb(&picture(&view, 2.0));
+            // The page as this render has it: the content's corner.
+            let page = pixel(&shot, 2.0, NSPoint::new(2.0, 2.0));
+            let near = |a: [u8; 3]| a.iter().zip(&page).all(|(x, y)| x.abs_diff(*y) <= 1);
+            for (x, y) in [(3.0, 3.0), (93.0, 3.0), (3.0, 93.0), (93.0, 93.0)] {
+                let p = pixel(&shot, 2.0, NSPoint::new(fx + x, fy + y));
+                assert!(
+                    near(p),
+                    "{name}: ({x}, {y}) in is {p:?}, not the page: the picture is not round"
+                );
+            }
+            for (x, y) in [(48.0, 48.0), (3.0, 48.0), (93.0, 48.0)] {
+                let p = pixel(&shot, 2.0, NSPoint::new(fx + x, fy + y));
+                assert!(
+                    !near(p),
+                    "{name}: ({x}, {y}) in is the page: the picture is not drawn"
+                );
+            }
+        }
+    }
+
+    /// **The picture and the lines centred as one block, the margins whole
+    /// and equal**: the space left of the picture is exactly the space right
+    /// of the lines' column, which is the longest line's text rounded up to a
+    /// whole point, in both looks, for a long version with an age line and a
+    /// short one without; the gap from the picture is 14 or 15, taking the
+    /// odd point; every line's text fits its frame. (The copyright line, 269
+    /// points at 11, is the longest in both today, so the block is 379 in
+    /// 420: margins 20 and 20, gap 15.) Perturbation: the old rounding of
+    /// the half-point margin gives 21 and 20; the picture back at the
+    /// margin's corner gives 18 and 23.
+    fn the_block_is_centred_for_a_long_and_a_short_version(mtm: MainThreadMarker) {
+        let (_, opens) = recorder();
+        for (build, stamp) in [
+            ("1.0.0-beta.12+0123abc.dirty", STAMP),
+            ("1.0.0+unknown", ""),
+        ] {
+            let about =
+                crate::about::build(mtm, build, stamp, bundled(None, face()), opens.clone())
+                    .expect("the window");
+            for name in [DARK, LIGHT] {
+                set_look(&about, name);
+                let l = about.layout();
+                let face = l.face.expect("the picture");
+                let longest = l.text.iter().copied().fold(0.0, f64::max);
+                let column = &l.lines[0];
+                assert_eq!(column.size.width, longest.ceil(), "{build}: the column");
+                let left = face.origin.x;
+                let right = l.content.width - (column.origin.x + column.size.width);
+                assert_eq!(left, right, "{build} {name}: {left} left, {right} right");
+                assert_eq!(left, left.round(), "{build} {name}: a whole margin");
+                let gap = column.origin.x - (face.origin.x + FACE);
+                assert!(gap == 14.0 || gap == 15.0, "{build} {name}: a gap of {gap}");
+                for (r, w) in l.lines.iter().zip(&l.text) {
+                    assert!(
+                        *w <= r.size.width,
+                        "{build}: a line's text {w} past its frame {r:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// **The films move only where the pause is**: every pixel of every
+    /// frame of both films outside `MOVES` is its page, so the band the
+    /// picture and the lines stand in is bare and nothing covers motion.
+    /// Perturbation: a `MOVES` a point shorter at the bottom fails both.
+    fn the_films_move_only_where_the_pause_is(dark: &[u8], light: &[u8]) {
+        let m = crate::about::MOVES;
+        // In the canvas's pixels from its top left, two to a point.
+        let (x0, x1) = (
+            (m.origin.x * 2.0) as usize,
+            ((m.origin.x + m.size.width) * 2.0) as usize,
+        );
+        let y1 = ((LOGO.height - m.origin.y) * 2.0) as usize;
+        let y0 = ((LOGO.height - m.origin.y - m.size.height) * 2.0) as usize;
+        for (name, gif) in [("dark", dark), ("light", light)] {
+            let decoded = baud_domain::gif::Gif::parse(gif).expect("the GIF");
+            let w = decoded.size().width as usize;
+            let mut scratch = vec![0; decoded.scratch_len()];
+            let (mut frames, mut off) = (0, 0usize);
+            decoded
+                .decode(&mut scratch, |frame: baud_domain::gif::GifFrame<'_>| {
+                    let page = &frame.rgba[..4];
+                    for (y, row) in frame.rgba.chunks_exact(w * 4).enumerate() {
+                        for (x, px) in row.as_chunks::<4>().0.iter().enumerate() {
+                            let inside = (x0..x1).contains(&x) && (y0..y1).contains(&y);
+                            if !inside && px != page {
+                                off += 1;
+                            }
+                        }
+                    }
+                    frames += 1;
+                    true
+                })
+                .expect("every frame");
+            assert_eq!(frames, 320, "{name}: every frame");
+            assert_eq!(
+                off, 0,
+                "{name}: pixels off the page outside where the film moves"
+            );
+        }
+    }
+
+    /// **A click on the picture goes to the opener with the profile**, the
+    /// press and release as AppKit makes them, through a seam that opens
+    /// nothing; a release dragged off it does nothing; VoiceOver has it as
+    /// a button with its label, and its press does what the click does;
+    /// and a click on it does not pause the film. Perturbation: a `mouse_up`
+    /// that opens wherever it is released fails the drag; no `hitTest:`
+    /// reaching the picture fails the first.
+    fn a_click_on_the_picture_opens_its_profile(mtm: MainThreadMarker) {
+        let (got, opens) = recorder();
+        let (dark, light) = (film("dark"), film("light"));
+        let signed = crate::about::build(
+            mtm,
+            BUILD,
+            STAMP,
+            bundled(Some((dark.as_slice(), light.as_slice())), face()),
+            opens,
+        )
+        .expect("the window");
+        let content = signed.window().content_view().expect("its view");
+        let face = signed.face_view().expect("the picture");
+        let at = signed.layout().face.expect("its frame");
+        let middle = NSPoint::new(at.origin.x + FACE / 2.0, at.origin.y + FACE / 2.0);
+        let hit = content.hitTest(middle).expect("a view");
+        assert!(
+            core::ptr::eq(&*hit, &*face),
+            "a click there is the picture's"
+        );
+        signed.play(Motion::Plays);
+        let before = signed.film_state();
+        face.mouseDown(&mouse(NSEventType::LeftMouseDown, middle));
+        face.mouseUp(&mouse(NSEventType::LeftMouseUp, middle));
+        assert_eq!(*got.borrow(), [PROFILE], "the click");
+        assert_eq!(signed.film_state(), before, "and the film plays on");
+        face.mouseDown(&mouse(NSEventType::LeftMouseDown, middle));
+        face.mouseUp(&mouse(NSEventType::LeftMouseUp, NSPoint::new(300.0, 300.0)));
+        assert_eq!(got.borrow().len(), 1, "a release off it opens nothing");
+        assert_eq!(
+            face.accessibilityLabel().map(|s| s.to_string()).as_deref(),
+            Some("i-am-logger on GitHub")
+        );
+        assert_eq!(
+            face.accessibilityRole().map(|s| s.to_string()).as_deref(),
+            Some("AXButton")
+        );
+        assert!(face.isAccessibilityElement());
+        assert!(face.accessibilityPerformPress(), "VoiceOver's press");
+        assert_eq!(*got.borrow(), [PROFILE, PROFILE], "the press");
+        assert_eq!(
+            face.toolTip().map(|s| s.to_string()).as_deref(),
+            Some("github.com/i-am-logger")
+        );
+        // The still: a start invalidates the film's display link first.
+        signed.play(Motion::Still);
+    }
+
+    /// **The age under the version, worked out each time the window opens**,
+    /// in the words the window's own formatter gives, the user's: a window
+    /// kept for the app's run says a later age at a later open. And none at
+    /// all for `+unknown` or with no time, the other lines closing up round
+    /// the picture. Perturbation: words made once in `About::new` and never
+    /// again fail the second open; an age shown for `+unknown` fails the
+    /// third window.
+    fn the_age_is_worked_out_at_each_open_and_only_with_a_commit(mtm: MainThreadMarker) {
+        let (_, opens) = recorder();
+        let signed = crate::about::build(mtm, BUILD, STAMP, bundled(None, face()), opens.clone())
+            .expect("the window");
+        let made = SystemTime::UNIX_EPOCH + Duration::from_secs(1_794_042_906);
+        let user = Ages::of_user();
+        for later in [
+            Duration::from_secs(3 * 3600),
+            Duration::from_secs(5 * 86_400),
+        ] {
+            signed.age_at(made + later);
+            assert_eq!(
+                signed.age_line(),
+                Some(user.words(made, made + later)),
+                "{later:?} on"
+            );
+        }
+        let at = |d| {
+            signed.age_at(made + d);
+            signed.age_line()
+        };
+        assert_ne!(
+            at(Duration::from_secs(3 * 3600)),
+            at(Duration::from_secs(5 * 86_400))
+        );
+        let l = signed.layout();
+        let version = &l.lines[0];
+        let age = &l.lines[1];
+        assert!(
+            age.origin.y + age.size.height <= version.origin.y,
+            "under the version"
+        );
+        assert_eq!(signed.lines()[0], "Version 1.0.0-beta (0123abc.dirty)");
+        for (build, stamp) in [("1.0.0-beta+unknown", STAMP), (BUILD, "")] {
+            let none = crate::about::build(mtm, build, stamp, bundled(None, face()), opens.clone())
+                .expect("the window");
+            none.age_at(made + Duration::from_secs(60));
+            assert_eq!(none.age_line(), None, "{build} {stamp:?}: no age");
+            let l = none.layout();
+            assert_eq!(l.lines.len(), 3, "{build}: three lines");
+            let middle = (top(&l.lines[0]) + l.lines[2].origin.y) / 2.0;
+            let face = l.face.expect("the picture");
+            let centre = face.origin.y + FACE / 2.0;
+            assert!(
+                (middle - centre).abs() <= 0.5,
+                "{build}: centred on the picture, {middle} and {centre}"
+            );
+        }
+    }
+
+    /// **A binary with no bundle: no picture and, with no stamp, no age**:
+    /// the three lines centred across the window, the band under where the
+    /// film moves only their height, `GAP` under it, and nothing drawn
+    /// left of them. Perturbation: a layout that keeps the picture's column
+    /// with no picture fails the lines' `x`; a band kept at the picture's
+    /// 96 fails the gap.
+    fn the_bare_window_has_neither_picture_nor_age(bare: &About) {
+        assert!(bare.face_view().is_none(), "no picture");
+        assert_eq!(bare.age_line(), None, "no age");
+        let l = bare.layout();
+        assert_eq!(l.face, None);
+        let block = top(&l.lines[0]) - l.lines[2].origin.y;
+        assert_eq!(l.lines[2].origin.y, 18.0, "on the margin");
+        assert_eq!(l.pause.origin.y - top(&l.lines[0]), GAP, "the gap");
+        assert_eq!(
+            l.film.origin.y + LOGO.height,
+            l.content.height,
+            "the box at the top"
+        );
+        assert_eq!(l.content.height, 18.0 + block + GAP + 223.0, "the window");
+        assert_eq!(l.lines.len(), 3);
+        for r in &l.lines {
+            assert_eq!(
+                (r.origin.x, r.size.width),
+                (0.0, 420.0),
+                "{r:?}: across the window"
+            );
+        }
+        set_look(bare, DARK);
+        bare.play(Motion::Still);
+        let view = bare.window().content_view().expect("its view");
+        let shot = rgb(&picture(&view, 2.0));
+        let page = pixel(&shot, 2.0, NSPoint::new(2.0, 2.0));
+        for at in [NSPoint::new(40.0, 25.0), NSPoint::new(40.0, 60.0)] {
+            assert_eq!(pixel(&shot, 2.0, at), page, "{at:?}: the page");
+        }
     }
 }

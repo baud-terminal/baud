@@ -8,6 +8,29 @@ use baud_domain::VersionText;
 /// `<package version>+<identifier>`, this build's.
 pub(crate) const BUILD: &str = env!("BAUD_VERSION");
 
+/// **When this build's commit was made**, as `build.rs` stamps it: whole
+/// seconds since 1970, or empty with no commit time to give.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) const RELEASED: &str = env!("BAUD_RELEASED");
+
+/// **What the About window's age line counts from**: `stamp`'s time, unless
+/// `build` names no commit (`+unknown`, or no `+` at all) or the stamp holds no time, and then
+/// no age line at all, rather than an age nothing backs.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn released(build: &str, stamp: &str) -> Option<std::time::SystemTime> {
+    let secs = Some(stamp.trim())
+        .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))?
+        .parse()
+        .ok()
+        .filter(|&n| n != 0)?;
+    match build.rsplit_once('+') {
+        Some((_, "unknown")) | None => None,
+        Some(_) => {
+            std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(secs))
+        }
+    }
+}
+
 /// **The text XTVERSION names**: a build whose name the core would refuse,
 /// past xterm's 80 bytes or with a byte that could end the control string,
 /// fails here at compile time rather than answer with the wrong version.
@@ -109,6 +132,30 @@ mod tests {
         assert!(
             BUILD.starts_with(concat!(env!("CARGO_PKG_VERSION"), "+")),
             "{BUILD}: the package version, then the metadata"
+        );
+    }
+
+    /// **An age line only for a commit with a time**: `+unknown` names no
+    /// commit, so a time stamped beside it is not shown, and an empty, zero
+    /// or broken stamp is no time. Perturbation: drop the `unknown` arm and
+    /// the first `None` fails; read an empty stamp as zero seconds and the
+    /// second does.
+    #[test]
+    fn no_age_without_a_commit_and_its_time() {
+        let at = |secs| std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        assert_eq!(released("1.0.0+unknown", "1794042906"), None);
+        assert_eq!(released("1.0.0-beta+0123abc", ""), None);
+        assert_eq!(released("1.0.0-beta+0123abc", "0"), None);
+        assert_eq!(released("1.0.0-beta+0123abc", "-5"), None);
+        assert_eq!(released("1.0.0-beta+0123abc", "17940x"), None);
+        assert_eq!(released("1.0.0", "1794042906"), None);
+        assert_eq!(
+            released("1.0.0-beta+0123abc", "1794042906"),
+            Some(at(1_794_042_906))
+        );
+        assert_eq!(
+            released("1.0.0-beta+0123abc.dirty", "1794042906"),
+            Some(at(1_794_042_906))
         );
     }
 }

@@ -44,6 +44,34 @@
 //! window is on screen, covered or the app hidden, and goes on from the same
 //! frame; a close ends it. Under Reduce Motion the still is all it shows, and
 //! a binary with no bundle shows it too, as it draws its own Dock icon.
+//!
+//! **Under the film, the author's picture beside the lines, as a signature
+//! sits beside a letter's last lines**: round, [`FACE`] points, with the
+//! lines at its right, left-aligned and centred on its middle, the two
+//! centred across the window as one block, so the space left of the picture
+//! is the space right of the longest line, both whole points. They sit [`GAP`] under where the
+//! film moves ([`Content::moves_at`]), not under its whole box: the film's
+//! frames leave the bottom of their canvas bare, the picture and the lines
+//! stand in that bare band, drawn over the image view, and the pause and
+//! its tooltip cover only where the film moves, so nothing clickable lies
+//! on the film and no click on the lines pauses it. A click on the picture
+//! goes to its address through [`Face::open`], the caller's opener, so this
+//! module opens nothing itself; VoiceOver has it as a button with its
+//! label, and the pointer is AppKit's pointing hand over it. A binary with
+//! no bundle has no picture, and the lines, centred across the window, take
+//! only their own height.
+//!
+//! **The release's age, a line of its own under the version**, in AppKit's
+//! own words (`[[source: sdk27-nsrelativedatetimeformatter-h]]`): "3 hours
+//! ago", "5 days ago", "2 weeks ago", the formatter choosing the unit. It is
+//! worked out each time the window opens, from the commit's time stamped at
+//! build, so it never goes stale in a window kept for the app's run. The
+//! numeric style throughout, because the named style renames one of a unit
+//! ("yesterday", "last week") where the line counts units; except under a
+//! second, where the numeric style has only "in 0 seconds" and the named
+//! style says "now". A commit time ahead of the clock is clamped to the
+//! clock, so it reads "now" and never "in 1 hour". With no time, there is
+//! no line, and the others close up round the picture.
 
 #![allow(unsafe_code)]
 
@@ -58,8 +86,9 @@ use macos_liquid_glass::objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use macos_liquid_glass::objc2_app_kit::{
-    NSAccessibility, NSAccessibilityCustomAction, NSAppearanceCustomization, NSApplication,
-    NSBitmapImageRep, NSColor, NSEvent, NSFont, NSFontAttributeName, NSImage, NSImageCacheMode,
+    NSAccessibility, NSAccessibilityButtonRole, NSAccessibilityCustomAction,
+    NSAppearanceCustomization, NSApplication, NSBezierPath, NSBitmapImageRep, NSColor, NSCursor,
+    NSEvent, NSFont, NSFontAttributeName, NSGraphicsContext, NSImage, NSImageCacheMode,
     NSImageCurrentFrame, NSImageCurrentFrameDuration, NSImageFrameCount, NSImageScaling,
     NSImageView, NSLinkAttributeName, NSMenuItem, NSMutableParagraphStyle,
     NSParagraphStyleAttributeName, NSTextAlignment, NSTextField, NSToolTipTag, NSView,
@@ -67,20 +96,36 @@ use macos_liquid_glass::objc2_app_kit::{
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
-    NSArray, NSMutableAttributedString, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSRange,
-    NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, ns_string,
+    NSArray, NSCalendar, NSDate, NSLocale, NSMutableAttributedString, NSNumber, NSObject,
+    NSObjectProtocol, NSPoint, NSRange, NSRect, NSRelativeDateTimeFormatter,
+    NSRelativeDateTimeFormatterStyle, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString,
+    NSTimeZone, ns_string,
 };
 use macos_liquid_glass::objc2_quartz_core::CADisplayLink;
 use macos_liquid_glass::window::GlassWindow;
+use std::rc::Rc;
+use std::time::SystemTime;
 
 /// **The logo's box, in points**: the README's film at the pixels it was made
 /// at, 840 by 580, at 2x.
 pub const LOGO: NSSize = NSSize::new(420.0, 290.0);
-/// The space under the logo for the three lines, in points.
-const LINES: CGFloat = 76.0;
 /// The bottom margin, and the gap between two lines, in points.
 const MARGIN: CGFloat = 18.0;
 const LINE_GAP: CGFloat = 3.0;
+/// **The author's picture's side, in points**: 96, which the 400-pixel
+/// file fills at 2x four times over, so it stays sharp.
+pub const FACE: CGFloat = 96.0;
+/// **From the picture's right to the lines' left, in points**: 14, or 15
+/// when the window less the block is an odd number of points, so that the
+/// two side margins come out whole and equal; a half-point margin would
+/// put the picture's edge between two pixels on a 1x display.
+const FACE_GAP: CGFloat = 14.0;
+/// **From where the film moves to the picture and the lines, in points**:
+/// AppKit's standard space between two sibling views, the `-` of the
+/// visual format language (`[button]-[textField]`), which
+/// `constraintsWithVisualFormat:` resolves to 8 on this SDK (and to 20 from
+/// a superview's edge), read off AppKit itself; the header gives no number.
+pub const GAP: CGFloat = 8.0;
 /// The version line's size, AppKit's default control text; the other two take
 /// `NSFont.smallSystemFontSize`.
 const VERSION_SIZE: CGFloat = 13.0;
@@ -155,6 +200,10 @@ pub struct Content<'a> {
     /// Where the still goes in the logo's box, in points from its lower
     /// left: where the film draws the lockup.
     pub still_at: NSRect,
+    /// **Where the film moves**, in the logo's box from its lower left: every
+    /// pixel either film draws off its page, on every frame, lies in it. The
+    /// pause and its tooltip are this, and what is under it is bare page.
+    pub moves_at: NSRect,
     /// The page round the film, for the window behind it.
     pub page_dark: Argb,
     pub page_light: Argb,
@@ -164,6 +213,169 @@ pub struct Content<'a> {
     pub link: &'a str,
     pub url: &'a str,
     pub copyright: &'a str,
+    /// The author's picture, when the bundle carries it.
+    pub face: Option<Face<'a>>,
+    /// When the build's commit was made, the age line's start; `None`, no
+    /// age line.
+    pub released: Option<SystemTime>,
+}
+
+/// **The author's picture and where a click on it goes.**
+pub struct Face<'a> {
+    /// Drawn round, filling [`FACE`] points.
+    pub image: Retained<NSImage>,
+    /// Where it goes, handed to `open` as it is.
+    pub url: &'a str,
+    /// What VoiceOver names it.
+    pub label: &'a str,
+    /// Its tooltip: the address, as the link line shows its own.
+    pub tip: &'a str,
+    /// **The opener**, the caller's: the app passes the one its other links
+    /// go through, policy and all, and a test passes one that records.
+    pub open: Rc<dyn Fn(&str)>,
+}
+
+/// **How old the release is, in AppKit's words.**
+pub struct Ages {
+    formatter: Retained<NSRelativeDateTimeFormatter>,
+}
+
+impl Ages {
+    /// **The user's**: the formatter's own defaults, which the header gives
+    /// as the current calendar, updating as it changes, and that calendar's
+    /// locale. What the window uses.
+    pub fn of_user() -> Ages {
+        Ages {
+            formatter: NSRelativeDateTimeFormatter::new(),
+        }
+    }
+
+    /// **Fixed words**: `locale`, and the Gregorian calendar in UTC, so the
+    /// words and the unit boundaries depend on nothing of the machine's.
+    /// `None` when Foundation has no Gregorian calendar to give.
+    pub fn fixed(locale: &str) -> Option<Ages> {
+        let calendar = NSCalendar::calendarWithIdentifier(ns_string!("gregorian"))?;
+        let locale = NSLocale::localeWithLocaleIdentifier(&NSString::from_str(locale));
+        calendar.setTimeZone(&NSTimeZone::timeZoneForSecondsFromGMT(0));
+        calendar.setLocale(Some(&locale));
+        let formatter = NSRelativeDateTimeFormatter::new();
+        formatter.setCalendar(Some(&calendar));
+        formatter.setLocale(Some(&locale));
+        Some(Ages { formatter })
+    }
+
+    /// **The age of a release made at `released`, at `now`**: the numeric
+    /// style, "3 hours ago", the formatter choosing the unit; under a second
+    /// the named style's "now", since the numeric has only "in 0 seconds";
+    /// and a release ahead of the clock taken as made now, so never "in 1
+    /// hour".
+    pub fn words(&self, released: SystemTime, now: SystemTime) -> String {
+        let since = |t: SystemTime| {
+            t.duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64())
+        };
+        let now = since(now);
+        let gone = (now - since(released)).max(0.0);
+        self.formatter.setDateTimeStyle(match gone < 1.0 {
+            true => NSRelativeDateTimeFormatterStyle::Named,
+            false => NSRelativeDateTimeFormatterStyle::Numeric,
+        });
+        let then = NSDate::dateWithTimeIntervalSince1970(now - gone);
+        let at = NSDate::dateWithTimeIntervalSince1970(now);
+        self.formatter
+            .localizedStringForDate_relativeToDate(&then, &at)
+            .to_string()
+    }
+}
+
+/// The picture's state: its image, its address, and the caller's opener.
+struct FaceIvars {
+    image: Retained<NSImage>,
+    url: String,
+    open: Rc<dyn Fn(&str)>,
+}
+
+define_class!(
+    /// **The author's picture**: drawn round, and a click on it opens its
+    /// address through the caller's opener.
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = FaceIvars]
+    struct FaceView;
+
+    impl FaceView {
+        /// The image clipped to the circle its bounds hold, drawn in the
+        /// view's own pass, so a render with no window has it round too.
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            let b = self.bounds();
+            NSGraphicsContext::saveGraphicsState_class();
+            NSBezierPath::bezierPathWithOvalInRect(b).addClip();
+            self.ivars().image.drawInRect(b);
+            NSGraphicsContext::restoreGraphicsState_class();
+        }
+
+        /// The press is taken here so that its release comes to this view;
+        /// what it does waits for the release, as a button's does.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, _event: &NSEvent) {}
+
+        /// **A release over the picture opens it**; one dragged off it does
+        /// nothing, as a button's click is let go of.
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            let at = self.convertPoint_fromView(event.locationInWindow(), None);
+            let b = self.bounds();
+            if (0.0..b.size.width).contains(&at.x) && (0.0..b.size.height).contains(&at.y) {
+                self.press();
+            }
+        }
+
+        /// A click on the picture in a window behind works at once, as on
+        /// a link: it is the click's whole purpose.
+        #[unsafe(method(acceptsFirstMouse:))]
+        fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
+            true
+        }
+
+        #[unsafe(method(resetCursorRects))]
+        fn reset_cursor_rects(&self) {
+            self.addCursorRect_cursor(self.bounds(), &NSCursor::pointingHandCursor());
+        }
+
+        /// VoiceOver's press, the click's twin.
+        #[unsafe(method(accessibilityPerformPress))]
+        fn accessibility_press(&self) -> bool {
+            self.press();
+            true
+        }
+    }
+
+    unsafe impl NSObjectProtocol for FaceView {}
+);
+
+impl FaceView {
+    fn new(mtm: MainThreadMarker, face: &Face<'_>, frame: NSRect) -> Retained<FaceView> {
+        let this = FaceView::alloc(mtm).set_ivars(FaceIvars {
+            image: face.image.clone(),
+            url: face.url.to_owned(),
+            open: face.open.clone(),
+        });
+        // SAFETY: `NSView`'s designated initialiser.
+        let view: Retained<FaceView> = unsafe { msg_send![super(this), initWithFrame: frame] };
+        view.setToolTip(Some(&NSString::from_str(face.tip)));
+        view.setAccessibilityElement(true);
+        // SAFETY: a constant AppKit declares, read and not written.
+        view.setAccessibilityRole(Some(unsafe { NSAccessibilityButtonRole }));
+        view.setAccessibilityLabel(Some(&NSString::from_str(face.label)));
+        view
+    }
+
+    /// The picture's address, to the caller's opener.
+    fn press(&self) {
+        let ivars = self.ivars();
+        (ivars.open)(&ivars.url);
+    }
 }
 
 /// A logo made ready: its still, and its film's frames if it has one.
@@ -283,6 +495,8 @@ struct Shown {
     /// The logo view's frame round the film, and round the still.
     film_at: NSRect,
     still_at: NSRect,
+    /// Where the film moves: the pause, and its tooltip.
+    pause_at: NSRect,
 }
 
 impl Shown {
@@ -430,7 +644,7 @@ impl AboutView {
                 (Shows::Film, Some(a)) => {
                     s.logo.setFrame(s.film_at);
                     s.logo.setImage(Some(&a.image));
-                    self.tip_over(Some(s.film_at));
+                    self.tip_over(Some(s.pause_at));
                     self.offer_pause(&s.logo);
                 }
                 _ => {
@@ -506,12 +720,12 @@ impl AboutView {
         logo.setAccessibilityCustomActions(Some(&NSArray::from_retained_slice(&[action])));
     }
 
-    /// Whether `at`, in this view's points, is on the film.
+    /// Whether `at`, in this view's points, is where the film moves.
     fn on_film(&self, at: NSPoint) -> bool {
         let shows = self.ivars().shows.get() == Shows::Film;
         shows
             && self.ivars().shown.borrow().as_ref().is_some_and(|s| {
-                let r = s.film_at;
+                let r = s.pause_at;
                 let (x, y) = (at.x - r.origin.x, at.y - r.origin.y);
                 (0.0..r.size.width).contains(&x) && (0.0..r.size.height).contains(&y)
             })
@@ -590,11 +804,17 @@ enum Ink {
     Secondary,
 }
 
-/// A centred line of `text`.
-fn line(mtm: MainThreadMarker, text: &str, size: CGFloat, ink: Ink) -> Retained<NSTextField> {
+/// A line of `text`, set as `align` says.
+fn line(
+    mtm: MainThreadMarker,
+    text: &str,
+    size: CGFloat,
+    ink: Ink,
+    align: NSTextAlignment,
+) -> Retained<NSTextField> {
     let f = NSTextField::labelWithString(&NSString::from_str(text), mtm);
     f.setFont(Some(&NSFont::systemFontOfSize(size)));
-    f.setAlignment(NSTextAlignment::Center);
+    f.setAlignment(align);
     let colour = match ink {
         Ink::Label => NSColor::labelColor(),
         Ink::Secondary => NSColor::secondaryLabelColor(),
@@ -604,21 +824,27 @@ fn line(mtm: MainThreadMarker, text: &str, size: CGFloat, ink: Ink) -> Retained<
 }
 
 /// The link line: `text` going to `url`, as AppKit's own label takes one.
-fn link_line(mtm: MainThreadMarker, text: &str, url: &str, size: CGFloat) -> Retained<NSTextField> {
+fn link_line(
+    mtm: MainThreadMarker,
+    text: &str,
+    url: &str,
+    size: CGFloat,
+    align: NSTextAlignment,
+) -> Retained<NSTextField> {
     let s = NSMutableAttributedString::initWithString(
         NSMutableAttributedString::alloc(),
         &NSString::from_str(text),
     );
     let all = NSRange::new(0, s.length());
-    let centred = NSMutableParagraphStyle::new();
-    centred.setAlignment(NSTextAlignment::Center);
+    let paragraph = NSMutableParagraphStyle::new();
+    paragraph.setAlignment(align);
     let font = NSFont::systemFontOfSize(size);
     let to = NSString::from_str(url);
     // SAFETY: the keys AppKit declares, each with the class its header gives.
     unsafe {
         s.addAttribute_value_range(NSLinkAttributeName, &to, all);
         s.addAttribute_value_range(NSFontAttributeName, &font, all);
-        s.addAttribute_value_range(NSParagraphStyleAttributeName, &centred, all);
+        s.addAttribute_value_range(NSParagraphStyleAttributeName, &paragraph, all);
     }
     let f = NSTextField::labelWithAttributedString(&s, mtm);
     // What makes a label's link clickable.
@@ -627,13 +853,38 @@ fn link_line(mtm: MainThreadMarker, text: &str, url: &str, size: CGFloat) -> Ret
     f
 }
 
+/// **Where the window's parts are, in its content's points**: what a test
+/// holds against the layout.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Layout {
+    /// The window's content.
+    pub content: NSSize,
+    /// The film's box, the image view's frame.
+    pub film: NSRect,
+    /// Where the film moves, which a click pauses and the tooltip covers.
+    pub pause: NSRect,
+    /// The author's picture, if there is one.
+    pub face: Option<NSRect>,
+    /// The lines, from the top: the version, the age if there is one, the
+    /// link and the copyright.
+    pub lines: Vec<NSRect>,
+    /// Each line's text's own width, `fittingSize`'s, in the same order.
+    pub text: Vec<CGFloat>,
+}
+
 /// **The About window, built and not shown.**
 pub struct About {
     window: GlassWindow,
     view: Retained<AboutView>,
     version: Retained<NSTextField>,
+    age: Option<Retained<NSTextField>>,
     link: Retained<NSTextField>,
     copyright: Retained<NSTextField>,
+    face: Option<Retained<FaceView>>,
+    released: Option<SystemTime>,
+    ages: Ages,
+    film_at: NSRect,
+    pause_at: NSRect,
     centred: Cell<bool>,
     /// The window's close and its coming and going from the screen, heard
     /// for as long as this lives.
@@ -643,7 +894,42 @@ pub struct About {
 impl About {
     /// Built, and not shown.
     pub fn new(mtm: MainThreadMarker, content: &Content<'_>) -> About {
-        let size = NSSize::new(LOGO.width, LOGO.height + LINES);
+        // The lines first: their sizes set the band under the film, and so
+        // the window's.
+        let align = match &content.face {
+            Some(_) => NSTextAlignment::Left,
+            None => NSTextAlignment::Center,
+        };
+        let small = NSFont::smallSystemFontSize();
+        let version = line(mtm, content.version, VERSION_SIZE, Ink::Label, align);
+        version.setSelectable(true);
+        let ages = Ages::of_user();
+        let age = content.released.map(|released| {
+            let words = ages.words(released, SystemTime::now());
+            line(mtm, &words, small, Ink::Label, align)
+        });
+        let link = link_line(mtm, content.link, content.url, small, align);
+        let copyright = line(mtm, content.copyright, small, Ink::Secondary, align);
+        let fields: Vec<&Retained<NSTextField>> = [Some(&copyright), Some(&link), age.as_ref()]
+            .into_iter()
+            .flatten()
+            .chain([&version])
+            .collect();
+        let fits: Vec<NSSize> = fields.iter().map(|f| f.fittingSize()).collect();
+        let gaps = LINE_GAP * CGFloat::from(u8::try_from(fields.len() - 1).unwrap_or(0));
+        let block = fits.iter().map(|f| f.height).sum::<CGFloat>() + gaps;
+        let widest = fits.iter().map(|f| f.width).fold(0.0, CGFloat::max);
+        // The band under the film: the picture, or the lines alone.
+        let band = match &content.face {
+            Some(_) => FACE.max(block),
+            None => block,
+        };
+        // Where the film moves sits `GAP` over the band; the box's bare
+        // bottom reaches down into it.
+        let moves = &content.moves_at;
+        let film_y = MARGIN + band + GAP - moves.origin.y;
+        let size = NSSize::new(LOGO.width, film_y + LOGO.height);
+
         let on_dark = Picture::of(&content.on_dark, content.page_dark);
         let on_light = Picture::of(&content.on_light, content.page_light);
         let window = GlassWindow::new(mtm, size, "About baud");
@@ -663,28 +949,48 @@ impl About {
         let logo = NSImageView::new(mtm);
         logo.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
         logo.setAnimates(false);
-        let film_at = NSRect::new(NSPoint::new(0.0, LINES), LOGO);
-        let still_at = NSRect::new(
-            NSPoint::new(content.still_at.origin.x, content.still_at.origin.y + LINES),
-            content.still_at.size,
-        );
+        let film_at = NSRect::new(NSPoint::new(0.0, film_y), LOGO);
+        let in_box =
+            |r: &NSRect| NSRect::new(NSPoint::new(r.origin.x, r.origin.y + film_y), r.size);
+        let still_at = in_box(&content.still_at);
+        let pause_at = in_box(moves);
         logo.setFrame(still_at);
+        // First, so that the picture and the lines, in the film's bare band,
+        // draw over it.
         view.addSubview(&logo);
 
-        let small = NSFont::smallSystemFontSize();
-        let version = line(mtm, content.version, VERSION_SIZE, Ink::Label);
-        version.setSelectable(true);
-        let link = link_line(mtm, content.link, content.url, small);
-        let copyright = line(mtm, content.copyright, small, Ink::Secondary);
-        let mut y = MARGIN;
-        for field in [&copyright, &link, &version] {
-            let h = field.fittingSize().height;
+        // The picture and the lines as one block, centred across the
+        // window, the lines left-aligned at the picture's right; without the
+        // picture, each line centred across it.
+        let (x, width, face) = match content.face.as_ref() {
+            Some(f) => {
+                // Whole points throughout: the lines' column a whole number
+                // wide, and the odd point, if any, into the picture's gap.
+                let widest = widest.ceil();
+                let rest = size.width - FACE - FACE_GAP - widest;
+                let odd = rest.rem_euclid(2.0);
+                let left = ((rest - odd) / 2.0).max(MARGIN);
+                let x = left + FACE + FACE_GAP + odd;
+                let width = widest.min(size.width - MARGIN - x);
+                let at = NSRect::new(
+                    NSPoint::new(left, MARGIN + (band - FACE) / 2.0),
+                    NSSize::new(FACE, FACE),
+                );
+                let face = FaceView::new(mtm, f, at);
+                view.addSubview(&face);
+                (x, width, Some(face))
+            }
+            None => (0.0, size.width, None),
+        };
+        // Centred on the band's middle, the picture's.
+        let mut y = MARGIN + (band - block) / 2.0;
+        for (field, fit) in fields.iter().zip(&fits) {
             field.setFrame(NSRect::new(
-                NSPoint::new(0.0, y),
-                NSSize::new(size.width, h),
+                NSPoint::new(x, y),
+                NSSize::new(width, fit.height),
             ));
             view.addSubview(field);
-            y += h + LINE_GAP;
+            y += fit.height + LINE_GAP;
         }
         *view.ivars().shown.borrow_mut() = Some(Shown {
             on_dark,
@@ -692,6 +998,7 @@ impl About {
             logo,
             film_at,
             still_at,
+            pause_at,
         });
         window.set_content_view(&view);
         view.follow();
@@ -713,8 +1020,14 @@ impl About {
             window,
             view,
             version,
+            age,
             link,
             copyright,
+            face,
+            released: content.released,
+            ages,
+            film_at,
+            pause_at,
             centred: Cell::new(false),
             _heard: heard,
         }
@@ -723,6 +1036,7 @@ impl About {
     /// **Shown, and the logo from its start or at rest**; centred the first
     /// time, and where it was left after.
     pub fn open(&self, motion: Motion) {
+        self.age_at(SystemTime::now());
         if !self.centred.replace(true) {
             self.window.center();
         }
@@ -731,6 +1045,46 @@ impl About {
         // Space reaches the view only as the first responder, and nothing
         // else in the window takes keys but a label a click has selected.
         self.window.ns_window().makeFirstResponder(Some(&self.view));
+    }
+
+    /// **The age line as it reads at `now`**: what [`About::open`] does with
+    /// the clock as it opens, and what a test does with a time it fixes.
+    pub fn age_at(&self, now: SystemTime) {
+        if let (Some(field), Some(released)) = (&self.age, self.released) {
+            field.setStringValue(&NSString::from_str(&self.ages.words(released, now)));
+        }
+    }
+
+    /// The age line's text, if the window has one.
+    pub fn age_line(&self) -> Option<String> {
+        self.age.as_ref().map(|f| f.stringValue().to_string())
+    }
+
+    /// The author's picture's view, in which a test finds what is drawn and
+    /// sends it a click.
+    pub fn face_view(&self) -> Option<Retained<NSView>> {
+        self.face.as_ref().map(|f| Retained::into_super(f.clone()))
+    }
+
+    /// Where each part is.
+    pub fn layout(&self) -> Layout {
+        let fields: Vec<&Retained<NSTextField>> = [
+            Some(&self.version),
+            self.age.as_ref(),
+            Some(&self.link),
+            Some(&self.copyright),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Layout {
+            content: self.view.frame().size,
+            film: self.film_at,
+            pause: self.pause_at,
+            face: self.face.as_ref().map(|f| f.frame()),
+            lines: fields.iter().map(|f| f.frame()).collect(),
+            text: fields.iter().map(|f| f.fittingSize().width).collect(),
+        }
     }
 
     /// The window. A test renders and looks at it without showing it.
@@ -912,5 +1266,34 @@ mod tests {
         assert_eq!(at(1050 * 1000 + 50), f(2));
         assert_eq!(frame_at(&[], ms(50)), f(0));
         assert_eq!(frame_at(&[Duration::ZERO, Duration::ZERO], ms(50)), f(0));
+    }
+
+    /// **The age in AppKit's words, the unit the formatter's**, in a fixed
+    /// locale, `en_US_POSIX`, and the Gregorian calendar in UTC, so the words
+    /// and where a unit turns depend on nothing of the machine's; the window
+    /// takes the user's (`Ages::of_user`). A minute, hours, days, weeks and
+    /// months, and "now" for zero, for under a second and for a commit
+    /// ahead of the clock. Perturbation: drop the clamp and the last reads
+    /// "in 1 hour"; drop the named style under a second and zero reads "in
+    /// 0 seconds"; take the named style throughout and a week reads "last
+    /// week".
+    #[test]
+    fn the_age_is_in_appkits_words_and_never_ahead() {
+        let ages = Ages::fixed("en_US_POSIX").expect("a Gregorian calendar");
+        // 2027-01-15 08:00:00 UTC.
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let ago = |gone: Duration| ages.words(now - gone, now);
+        let secs = Duration::from_secs;
+        let days = |n: u64| Duration::from_secs(n * 86_400);
+        assert_eq!(ago(secs(60)), "1 minute ago");
+        assert_eq!(ago(secs(3 * 3600)), "3 hours ago");
+        assert_eq!(ago(days(5)), "5 days ago");
+        assert_eq!(ago(days(7)), "1 week ago");
+        assert_eq!(ago(days(14)), "2 weeks ago");
+        assert_eq!(ago(days(92)), "3 months ago");
+        assert_eq!(ago(secs(1)), "1 second ago");
+        assert_eq!(ago(Duration::ZERO), "now");
+        assert_eq!(ago(Duration::from_millis(400)), "now");
+        assert_eq!(ages.words(now + secs(3600), now), "now");
     }
 }

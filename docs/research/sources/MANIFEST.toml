@@ -39442,3 +39442,17 @@ bytes  = 8008
 status = "external"
 group  = "C"
 # Read for the fixed address a kind of link is asked about: `example.invalid`, a name no application can claim.
+
+[sources.sdk27-nsrelativedatetimeformatter-h]
+key    = "sdk27-nsrelativedatetimeformatter-h"
+title  = "macOS SDK 27.2, Foundation NSRelativeDateTimeFormatter.h -- 'A numeric relative date style (e.g. \"1 day ago\", \"2 days ago\", \"1 week ago\", \"in 1 week\")'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSRelativeDateTimeFormatter.h"
+file   = ""
+sha256 = "65a4faa76657d5628dcba3b82b3eef709fe8182b9b2ca1cb2fc930581642f2cb"
+bytes  = 4753
+status = "external"
+group  = "J"
+# The two styles, numeric and named ("yesterday", "last week"; "Falls back to the numeric style if no name is available"), the calendar and locale defaults, and localizedStringForDate:relativeToDate:. The header gives no wording for zero; "in 0 seconds" (numeric) and "now" (named) were read off the formatter in en_US_POSIX. Hash recorded only, not committed -- a vendor header.

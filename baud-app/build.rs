@@ -20,21 +20,28 @@
 
 //!
 //! **And the build's name**: `BAUD_VERSION`, `<package version>+<identifier>`,
-//! the logic in `src/build_id.rs`. It writes no file; a `rustc-env` is all
-//! the tree sees of it.
+//! the logic in `src/build_id.rs`, and `BAUD_RELEASED`, its commit's time in
+//! seconds since 1970 or empty, which the About window's age line counts
+//! from. It writes no file; a `rustc-env` is all the tree sees of either.
 
 #[path = "src/build_id.rs"]
 mod build_id;
 
 use std::path::Path;
 use std::process::Command;
+use std::time::SystemTime;
 
-/// The build's identifier, and what Cargo should rerun this for.
-fn identifier() -> String {
+/// The build's identifier and its commit's time, and what Cargo should
+/// rerun this for. A packager that names the commit names its time too, or
+/// none: git is not asked for half of the answer.
+fn identifier() -> (String, Option<SystemTime>) {
     println!("cargo:rerun-if-changed=src/build_id.rs");
     println!("cargo:rerun-if-env-changed=BAUD_GIT_REV");
+    println!("cargo:rerun-if-env-changed=BAUD_GIT_TIME");
     if let Some(rev) = std::env::var("BAUD_GIT_REV").ok().filter(|r| !r.is_empty()) {
-        return build_id::told(&rev).unwrap_or_else(|e| panic!("{e}"));
+        let id = build_id::told(&rev).unwrap_or_else(|e| panic!("{e}"));
+        let time = std::env::var("BAUD_GIT_TIME").map_or(Ok(None), |t| build_id::told_time(&t));
+        return (id, time.unwrap_or_else(|e| panic!("{e}")));
     }
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it");
     let crate_dir = std::fs::canonicalize(&manifest).expect("the package's folder");
@@ -69,18 +76,23 @@ fn identifier() -> String {
             for path in build_id::rerun_on(&read, &out, &|p| p.exists(), &entries) {
                 println!("cargo:rerun-if-changed={}", path.display());
             }
-            read.id
+            (read.id, read.time)
         }
-        None => build_id::UNKNOWN.to_owned(),
+        None => (build_id::UNKNOWN.to_owned(), None),
     }
 }
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     let package = std::env::var("CARGO_PKG_VERSION").expect("cargo sets it");
+    let (id, time) = identifier();
     println!(
         "cargo:rustc-env=BAUD_VERSION={}",
-        build_id::full(&package, &identifier())
+        build_id::full(&package, &id)
+    );
+    println!(
+        "cargo:rustc-env=BAUD_RELEASED={}",
+        build_id::stamp(&id, time)
     );
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         // **AppKit has to be named as needed, or the strip takes it too.**

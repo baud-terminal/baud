@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 
 #[path = "../src/build_id.rs"]
 #[allow(dead_code)]
@@ -215,6 +216,14 @@ fn the_bundles_build_number_is_the_committed_counter() {
 const ROOT: &str = "/repo";
 const CRATE: &str = "/repo/baud-app";
 const REV: &str = "0123abcdef0123abcdef0123abcdef0123abcdef";
+/// 936f9c19's committer time, as `git log -1 --format=%ct` prints it and
+/// nix's `lastModified` holds it.
+const TIME: &str = "1794042906";
+
+/// [`TIME`] as a time.
+fn committed() -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(1_794_042_906)
+}
 
 /// A git that answers as `answers` says, each command by its arguments
 /// joined with spaces, and fails every other: no real repository in any of
@@ -233,6 +242,7 @@ fn clean() -> BTreeMap<&'static str, &'static str> {
     BTreeMap::from([
         ("rev-parse --show-toplevel", ROOT),
         ("rev-parse HEAD", REV),
+        ("log -1 --no-show-signature --format=%ct HEAD", TIME),
         (
             "--no-optional-locks status --porcelain --untracked-files=no",
             "",
@@ -479,6 +489,47 @@ fn a_packed_ref_and_a_target_in_the_crate_hold_together() {
     }
 }
 
+/// **The commit's time is git's committer time of `HEAD`**, what nix's
+/// `lastModified` is for a git flake; a git that does not say leaves the
+/// time out and the build's name as it was, and an answer that is not a
+/// time is no time. Perturbation: ask `HEAD`'s time with `?` and the second
+/// case is `None` whole; read the author's time, `%at`, and the fake answers
+/// nothing.
+#[test]
+fn the_commit_time_is_read_from_git() {
+    let read = build_id::read(Path::new(CRATE), &fake(clean())).expect("git has an answer");
+    assert_eq!(read.time, Some(committed()));
+    let mut a = clean();
+    a.remove("log -1 --no-show-signature --format=%ct HEAD");
+    let read = build_id::read(Path::new(CRATE), &fake(a)).expect("the name without the time");
+    assert_eq!((read.id.as_str(), read.time), ("0123abc", None));
+    for bad in ["", "0", "abc", "-1", "1794042906 extra"] {
+        let mut a = clean();
+        a.insert("log -1 --no-show-signature --format=%ct HEAD", bad);
+        let read = build_id::read(Path::new(CRATE), &fake(a)).expect("read");
+        assert_eq!(read.time, None, "{bad:?}");
+    }
+}
+
+/// **The flake's time, `BAUD_GIT_TIME`, read as git's**: seconds since 1970,
+/// `0` or empty no time, anything else refused, as `told` refuses a name;
+/// and the stamp is empty for `unknown` whatever time it was told, so no
+/// age line counts from a commit nobody named. Perturbation: a `stamp`
+/// that ignores the id writes the time beside `unknown`.
+#[test]
+fn the_commit_time_is_told_by_the_flake() {
+    assert_eq!(build_id::told_time(TIME), Ok(Some(committed())));
+    assert_eq!(build_id::told_time("0"), Ok(None));
+    assert_eq!(build_id::told_time(""), Ok(None));
+    for bad in ["abc", "-1", "1.5", "1794042906s"] {
+        assert!(build_id::told_time(bad).is_err(), "{bad:?}");
+    }
+    assert_eq!(build_id::stamp("0123abc", Some(committed())), TIME);
+    assert_eq!(build_id::stamp("0123abc.dirty", Some(committed())), TIME);
+    assert_eq!(build_id::stamp("0123abc", None), "");
+    assert_eq!(build_id::stamp(build_id::UNKNOWN, Some(committed())), "");
+}
+
 /// **What a packager says comes first, read as a clone would say it**: nix's
 /// `dirtyShortRev` ends `-dirty`, and a mistake is refused rather than
 /// printed.
@@ -585,5 +636,9 @@ fn the_flake_says_the_commit() {
     assert!(
         flake.contains(r#"env.BAUD_GIT_REV = self.shortRev or self.dirtyShortRev or "unknown";"#),
         "the flake passes it"
+    );
+    assert!(
+        flake.contains("env.BAUD_GIT_TIME = toString (self.lastModified or 0);"),
+        "and its time"
     );
 }

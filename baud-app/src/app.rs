@@ -4872,6 +4872,32 @@ fn closed(id: crate::windows::WindowId) {
     }
 }
 
+/// **A click on the About window's picture**: its address through the link
+/// policy every link baud opens passes (`crate::link::admit`), then the
+/// OS's opener, as `open_link` hands one on; refused or declined, it is
+/// logged and nothing opens. The address is `https`, which the policy
+/// judges without the machine's name, so none is passed: reading it here
+/// would be a click reading the name, which `open_link` never does.
+fn open_from_about(url: &str) {
+    use crate::link::{Action, Host};
+    use baud_present_macos::link::{self as opener, Opened};
+    match crate::link::admit(url.as_bytes(), Host("")) {
+        Err(why) => crate::warn!("link refused ({why:?}): {url}"),
+        Ok(t) => {
+            let done = match t.action() {
+                Action::Open => opener::open(t.as_str()),
+                Action::Reveal => opener::reveal(t.as_str()),
+                // `admit` reads no `[link.*]` rule: nothing is handed over.
+                Action::Command | Action::Copy => Opened::Declined,
+            };
+            match done {
+                Opened::Taken => crate::info!("link opened ({:?}): {url}", t.scheme()),
+                other => crate::warn!("link refused ({other:?}): {url}"),
+            }
+        }
+    }
+}
+
 /// **File > New Window**, and Command-N, which the menu's key equivalent
 /// takes before the view does: the app delegate's `newWindow:`
 /// (`macos_liquid_glass::app::AppDelegate`). The window of baud's it was
@@ -12870,7 +12896,7 @@ pub fn run() {
     // item's target is weak in AppKit's hands, so it is kept for the process.
     if let Some(target) =
         baud_present_macos::about::add_menu_item(&ns_app, mtm, "About baud", move || {
-            crate::about::open(mtm);
+            crate::about::open(mtm, open_from_about);
         })
     {
         core::mem::forget(target);
@@ -15154,9 +15180,10 @@ impl Driver {
     }
 
     /// Hand a link to the OS, or refuse it and say why. The one call site
-    /// of the opener, for an `OSC 8` link and a URI in the text alike, and
-    /// it holds a `Target` the policy built rather than a string, so a URI
-    /// the policy did not admit cannot reach it.
+    /// of the opener for a window's links, an `OSC 8` link and a URI in the
+    /// text alike (the About window's picture has `open_from_about`, through
+    /// the same policy), and it holds a `Target` the policy built rather
+    /// than a string, so a URI the policy did not admit cannot reach it.
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
         use crate::link::{Action, Host, Under};
         use baud_present_macos::link::{self as opener, Opened};

@@ -159,7 +159,7 @@ pub enum Refused {
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
-/// one, so the opener's one call site cannot be handed a raw string.
+/// one, so the opener's call sites cannot be handed a raw string.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Target<'a> {
     uri: &'a str,

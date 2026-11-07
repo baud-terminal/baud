@@ -96,10 +96,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 plist >"$APP/Contents/Info.plist"
 
 cp "$ROOT/packaging/macos/baud.icns" "$APP/Contents/Resources/baud.icns"
-# The About window's film, the README's logo; `baud-app/src/about.rs` reads
-# it from here, and a binary with no bundle shows the lockup still.
+# The About window's film, the README's logo, and the author's picture;
+# `baud-app/src/about.rs` reads them from here, and a binary with no bundle
+# shows the lockup still and no picture.
 cp "$ROOT/assets/readme/logo-dark.gif" "$ROOT/assets/readme/logo-light.gif" \
-  "$APP/Contents/Resources/"
+  "$ROOT/assets/readme/author.jpg" "$APP/Contents/Resources/"
 
 # The executable.
 cp "$BIN" "$APP/Contents/MacOS/baud"
