@@ -7,7 +7,7 @@
 # one hb-shape on PATH. The shell refuses a version it has no pin for, and
 # asserts the pinned revision's harfbuzz is that version.
 #
-#   14.5.1: nixpkgs 13e53762, the revision flake.lock pins; its harfbuzz
+#   14.5.1: nixpkgs 13e53762; its harfbuzz
 #           is the derivation the script's Devanagari note names.
 #   13.2.1: nixos-26.05 at 7dcdd873, the same tarball, patch and meson
 #           flags as the build that made the 13.2.1 files.

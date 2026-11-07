@@ -7,8 +7,7 @@
 # Its HarfBuzz check phase runs a CoreText shaping test that fails
 # against this host's CoreText, so the check is skipped; the library is
 # built from the same source and configuration either way. libxkbcommon
-# there is 1.13.1; 1.13.2 comes from nixpkgs 13e53762, the revision
-# flake.lock pins.
+# there is 1.13.1; 1.13.2 comes from nixpkgs 13e53762.
 # zlib 1.3.2, which tools/baud-pictures deflates the brand PNGs and
 # inflates the README logo's walls with, is the one Pillow 12.3.0 carried
 # in nixpkgs 7dd199b0, the revision the pictures were first drawn from.

@@ -66,7 +66,7 @@ pub const USER: &str = "jordan";
 /// nixpkgs-unstable revision carries 1.27.0, the first release outside
 /// both. Only starship comes from it, so every other program the film
 /// shows stays where it was.
-pub const STARSHIP_NIXPKGS: &str = "github:NixOS/nixpkgs/13e53762c5afaf384d4614e94527a9ccfafe41d0";
+pub const STARSHIP_NIXPKGS: &str = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
 
 /// **The image**, by the name and tag `nix/demo-container/default.nix`
 /// gives it, which the session removes when it ends.

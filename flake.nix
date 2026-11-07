@@ -24,7 +24,7 @@
     # asked for. The demo takes its own starship from the same commit
     # (`baud-app/examples/demo/container.rs`), and only the container's image
     # reads this input.
-    nixpkgs-demo.url = "github:NixOS/nixpkgs/13e53762c5afaf384d4614e94527a9ccfafe41d0";
+    nixpkgs-demo.url = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
   };
 
   outputs =
