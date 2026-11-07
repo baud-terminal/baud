@@ -112,6 +112,19 @@
 //! whole run retires, `/usr/bin/time -l`, less those of `none`'s, over 500,
 //! are the image's a frame.
 //!
+//! `FRAME_GIF=<path>` prices instead an animated GIF's frames on the clock
+//! -- `assets/readme/logo-dark.gif`, README's logo film, is the case it is
+//! for: over the recording's last screen the GIF shown at the top-left by
+//! iTerm2's `File=inline=1` in `FRAME_GIF_MB` MiB of image memory
+//! (default 95, the app's), then `FRAME_GIF_FRAMES` (default 640, two of
+//! the logo's loops) ticks, each at the next frame's due time and
+//! followed by a full frame, reporting the tick -- where a frame kept as
+//! what changed is composed into its canvas -- and the frame apart, a
+//! frame each. Asserts the picture was placed and every tick moved the
+//! frame. It reads only what a build before frames were kept so has too,
+//! so one file builds both arms of an A/B; give that arm the memory its
+//! whole frames take, 640 for the logo.
+//!
 //! `FRAME_PERCELL=<cols>x<rows>` prices instead a picture placed one cell
 //! at a time, yazi 26.9.1's shape (an `a=p,i,p,x,y,w,h,c=1,r=1,z=-1,C=1`
 //! per cell): over the recording's last screen, a `cols` by `rows` pixel
@@ -782,6 +795,75 @@ fn main() {
         println!(
             "image {keys} over {which}: {us:.1} us/frame, {} placements",
             ri.image_placements().len()
+        );
+        return;
+    }
+    if let Ok(path) = std::env::var("FRAME_GIF") {
+        let gif = std::fs::read(&path).expect("FRAME_GIF names a GIF");
+        let frames: u32 = std::env::var("FRAME_GIF_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(640);
+        let mut ri = fresh();
+        let m = ri.metrics();
+        let cell = |p: baud_font::Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        // `baud-app`'s `host::IMAGE_BUDGET` by default.
+        let mib: usize = std::env::var("FRAME_GIF_MB")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(95);
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(mib << 18));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(cell(m.cell_w), cell(m.cell_h));
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut tail = data.clone();
+        tail.extend_from_slice(b"\x1b[H\x1b]1337;File=inline=1:");
+        for q in gif.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..4 {
+                match k <= q.len() {
+                    true => tail.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap_or(0)]),
+                    false => tail.push(b'='),
+                }
+            }
+        }
+        tail.push(0x07);
+        for c in tail.chunks(4096) {
+            t.write_at(BytePos::ZERO, c);
+            t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+        }
+        let id = t
+            .images()
+            .placements()
+            .next()
+            .map(|(_, p)| p.image)
+            .expect("FRAME_GIF: the picture was placed");
+        let size = t.images().size_of(id).expect("FRAME_GIF: the picture");
+        let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+        let mut now = baud_domain::HostTime::of_nanos(1_000_000_000);
+        let play = baud_domain::ImageMotion::Play;
+        t.animate_images(now, play);
+        ri.render(&mut t, &mut target, Damage::Full);
+        let (mut tick, mut frame) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        for k in 0..frames {
+            now = t.next_image_frame(now).expect("FRAME_GIF: the film runs");
+            let a = std::time::Instant::now();
+            let moved = t.animate_images(now, play);
+            let b = std::time::Instant::now();
+            ri.render(&mut t, &mut target, Damage::Full);
+            frame += b.elapsed();
+            tick += b - a;
+            assert_eq!(moved, baud_domain::Animated::Changed, "FRAME_GIF: tick {k}");
+        }
+        let each = |d: std::time::Duration| d.as_secs_f64() * 1e6 / f64::from(frames);
+        println!(
+            "gif {path} over {which}: tick {:.1} us/frame, frame {:.1} us/frame, {frames} ticks, {}x{} in {mib} MiB",
+            each(tick),
+            each(frame),
+            size.0.raw(),
+            size.1.raw(),
         );
         return;
     }

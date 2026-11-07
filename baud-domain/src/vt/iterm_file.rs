@@ -201,6 +201,11 @@ enum Octets {
 pub struct FileLen(usize);
 
 impl FileLen {
+    /// `n` bytes.
+    pub fn of(n: usize) -> FileLen {
+        FileLen(n)
+    }
+
     pub fn index(self) -> usize {
         self.0
     }
@@ -479,10 +484,11 @@ fn jpeg_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pict
 }
 
 /// **The GIF in the scratch's first `at` bytes**, its frames decoded onto
-/// the canvas in the scratch after it and each stored whole in one image
-/// whose room for them all is reserved first, so an animation the image
-/// memory cannot hold whole is refused whole; an animation set playing as
-/// many times as its loop count says.
+/// the canvas in the scratch after it and each stored as the rectangle in
+/// which it differs from the one before ([`ImageStore::begin_rects`]), in
+/// the largest gap the image memory has, so an animation whose rectangles
+/// that gap cannot hold is refused whole; an animation set playing as many
+/// times as its loop count says.
 fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Picture> {
     let (data, rest) = scratch.split_at_mut(at);
     let gif = Gif::parse(data).ok()?;
@@ -492,31 +498,37 @@ fn gif_of(store: &mut ImageStore, scratch: &mut [u8], at: usize) -> Option<Pictu
         u16::try_from(size.height).ok()?,
     );
     let n = gif.frames();
-    let id = store.store_frames(ImagePx::of(w), ImagePx::of(h), n)?;
-    let mut made = 0u32;
+    let mut frames = store.begin_rects(ImagePx::of(w), ImagePx::of(h), n)?;
+    let stride = usize::from(w);
     let decoded = gif.decode(rest, |f| {
         let wait = match f.wait {
             GifWait::Delay => FrameWait::Gap,
             GifWait::Input => FrameWait::Input,
         };
-        let Some(px) = store.frame_mut(id, made, f.gap_ms, wait) else {
-            return false;
+        let c = f.changed;
+        let rgba = f.rgba;
+        let pixel = |_: &[Pixel], x: usize, y: usize| {
+            let at = (y * stride + x) * 4;
+            match rgba.get(at..at + 4) {
+                Some(&[r, g, b, a]) => Pixel::straight(
+                    Chan::from_u8(a),
+                    Chan::from_u8(r),
+                    Chan::from_u8(g),
+                    Chan::from_u8(b),
+                ),
+                _ => Pixel::CLEAR,
+            }
         };
-        for (p, c) in px.iter_mut().zip(f.rgba.as_chunks::<4>().0) {
-            *p = Pixel::straight(
-                Chan::from_u8(c[3]),
-                Chan::from_u8(c[0]),
-                Chan::from_u8(c[1]),
-                Chan::from_u8(c[2]),
-            );
-        }
-        made += 1;
-        true
+        let within = (c.x0, c.y0, c.x1, c.y1);
+        store
+            .push_rect(&mut frames, f.gap_ms, wait, within, 0..0, pixel)
+            .is_some()
     });
-    if decoded.is_err() || made != n {
-        store.free(id);
+    if decoded.is_err() || frames.made() != n {
+        store.abandon_rects(frames);
         return None;
     }
+    let id = store.end_rects(frames)?;
     if n > 1 {
         store.play_frames(id, gif.plays());
     }

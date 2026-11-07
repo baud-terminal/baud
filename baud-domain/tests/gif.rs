@@ -19,6 +19,10 @@
 //! at every block -- and a positive control requires each to fire.
 
 use baud_domain::gif::{Gif, GifError, GifWait};
+use baud_domain::{
+    Animated, FileLen, FrameNo, HostTime, ImageId, ImageMotion, ImageSlot, ImageStore, Pixel,
+    PlacementId, PlacementSlot, decode_picture,
+};
 use proptest::prelude::*;
 use std::collections::HashMap;
 
@@ -184,6 +188,63 @@ fn frames(g: &[u8]) -> Result<Vec<(Vec<u8>, u32, GifWait)>, GifError> {
     Ok(out)
 }
 
+/// **`g` stored as an inline picture is** ([`decode_picture`]), each frame
+/// the rectangle in which it differs from the one before, and handed to
+/// `f` with the store and its image.
+fn with_stored<R>(g: &[u8], f: impl FnOnce(&mut ImageStore<'_>, ImageId) -> R) -> R {
+    let gif = Gif::parse(g).unwrap();
+    let mut px = vec![Pixel::CLEAR; 1 << 16];
+    let mut slots = [ImageSlot::EMPTY; 4];
+    let mut places = PlacementSlot::zeroed_vec(4);
+    let mut index = PlacementId::zeroed_index(4);
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut index);
+    let mut scratch = g.to_vec();
+    scratch.resize(g.len() + gif.scratch_len(), 0);
+    let (picture, _) = decode_picture(&mut store, &mut scratch, FileLen::of(g.len()));
+    let id = picture.expect("stored").id;
+    f(&mut store, id)
+}
+
+/// The canvas as RGBA bytes.
+fn canvas(store: &ImageStore<'_>, id: ImageId) -> Vec<u8> {
+    let v = store.image(id).expect("shown");
+    v.pixels
+        .iter()
+        .flat_map(|p| {
+            let [a, r, g, b] = p.bits().to_be_bytes();
+            [r, g, b, a]
+        })
+        .collect()
+}
+
+/// **The stored path shows what the decoder makes**: every frame of `g`
+/// made the one to show -- in order, then back from the last, which
+/// replays from the first, and in order again -- composed into the
+/// canvas, which is that frame's decode byte for byte. Fails if the
+/// decoder's changed box left out a disposal's rectangle, or a record
+/// over no frame were applied without its ground.
+fn stored_is_decoded(g: &[u8], name: &str) {
+    let want = frames(g).unwrap();
+    let n = want.len();
+    let order: Vec<usize> = (0..n).chain((0..n).rev()).chain(0..n).collect();
+    with_stored(g, |store, id| {
+        for (step, &k) in order.iter().enumerate() {
+            assert!(store.show_frame(id, FrameNo::of(u32::try_from(k).unwrap() + 1)));
+            store.compose_frames();
+            let v = store.image(id).unwrap();
+            assert_eq!(
+                v.frame,
+                FrameNo::of(u32::try_from(k).unwrap() + 1),
+                "{name}"
+            );
+            assert!(
+                canvas(store, id) == want[k].0,
+                "{name}: frame {k}, step {step}, stored against decoded"
+            );
+        }
+    });
+}
+
 /// RGBA of opaque colours.
 fn rgba(px: &[[u8; 3]]) -> Vec<u8> {
     px.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect()
@@ -279,6 +340,7 @@ fn the_background_colour_shows_where_no_image_covers() {
     assert_eq!(f[0].0, rgba(&[W, R, R, R]), "the screen red round it");
     assert_eq!(f[1].0, rgba(&[R, R, R, G]), "disposal 2 restored red");
     assert_eq!((f[0].1, f[1].1), (500, 500), "50 hundredths");
+    stored_is_decoded(&g, "disposal 2");
     // **Transparent pixels over nothing show the background colour**: the
     // index leaves "the corresponding pixel of the display device ... not
     // modified", and the screen there is the Background Color, so a
@@ -300,6 +362,31 @@ fn the_background_colour_shows_where_no_image_covers() {
     let f = frames(&g).unwrap();
     assert_eq!(f[0].0[..4], [255, 255, 255, 255]);
     assert_eq!(f[0].0[4..], [0; 12], "clear where nothing covers");
+    // **Stored, the clear ground comes back at the wrap**: with no global
+    // table a white pixel on a 2 by 1 screen leaves the other clear, a
+    // later frame paints it red, and the first frame again shows it clear.
+    // Fails if a record over no frame kept the canvas under it instead of
+    // filling it with its ground (the fill in `Shape::apply`): the red
+    // would stay.
+    let mut g = b"GIF89a\x02\x00\x01\x00\x00\x00\x00".to_vec();
+    for (x, colour) in [(0u8, W), (1, R)] {
+        g.extend([0x21, 0xf9, 4, 1 << 2, 10, 0, 0, 0]);
+        g.extend([0x2c, x, 0, 0, 0, 1, 0, 1, 0, 0x80]);
+        g.extend(K);
+        g.extend(colour);
+        g.push(2);
+        g.extend(blocks(&lzw(&[1], 2, Full::Clear)));
+    }
+    g.push(0x3b);
+    let f = frames(&g).unwrap();
+    assert_eq!(f.len(), 2, "the premise: two frames");
+    assert_eq!(
+        f[0].0,
+        [255, 255, 255, 255, 0, 0, 0, 0],
+        "the premise: clear"
+    );
+    assert_eq!(f[1].0, rgba(&[W, R]), "the premise: painted");
+    stored_is_decoded(&g, "no global table");
 }
 
 /// **Disposal 3, "Restore to previous"**, and the transparency index,
@@ -332,6 +419,64 @@ fn disposal_restores_and_transparency_leaves_the_pixel() {
     assert_eq!(f[0].0, rgba(&[G, G, G, G]));
     assert_eq!(f[1].0, rgba(&[G, W, G, G]), "transparent left, white right");
     assert_eq!(f[2].0, rgba(&[G, G, G, R]), "the white restored to green");
+    // **Stored, the same frames**: the white disposal 3 restores comes
+    // back as the next frame's changed pixels, the green that was there,
+    // not the Background Color (black) 23 e would allow.
+    stored_is_decoded(&g, "disposal 3");
+    with_stored(&g, |store, id| {
+        assert!(store.show_frame(id, FrameNo::of(3)));
+        store.compose_frames();
+        assert_eq!(canvas(store, id), rgba(&[G, G, G, R]), "restored, stored");
+    });
+}
+
+/// **A flood of jumps composes once**: making a frame the one to show
+/// composes nothing, so a thousand and one jumps between two draws cost
+/// the one compose the draw's tick runs, to the last of them, and a tick
+/// with nothing moved since composes none. Fails if a jump composed at
+/// once, a thousand composes.
+#[test]
+fn a_flood_of_jumps_composes_once() {
+    let full = Img {
+        rect: [0, 0, 2, 2],
+        px: vec![3, 3, 3, 3],
+        gce: Some((1, 50, None, false)),
+        ..Img::default()
+    };
+    let over = Img {
+        rect: [0, 0, 2, 1],
+        px: vec![1, 1],
+        gce: Some((3, 50, None, false)),
+        ..Img::default()
+    };
+    let last = Img {
+        rect: [1, 1, 1, 1],
+        px: vec![2],
+        gce: Some((1, 50, None, false)),
+        ..Img::default()
+    };
+    let g = gif(2, 2, &[K, W, R, G], 0, Some(0), &[full, over, last]);
+    let want = frames(&g).unwrap();
+    with_stored(&g, |store, id| {
+        assert_eq!(store.frames_composed, 0, "the premise");
+        for i in 0..1001u32 {
+            assert!(store.show_frame(id, FrameNo::of(i % 3 + 1)));
+        }
+        assert_eq!(store.frames_composed, 0, "a jump composes nothing");
+        assert_eq!(store.compose_frames(), 1, "the tick composes once");
+        assert_eq!(store.frames_composed, 1);
+        assert_eq!(canvas(store, id), want[1000 % 3].0, "the last jump's frame");
+        assert_eq!(store.compose_frames(), 0, "nothing moved since");
+        assert_eq!(store.frames_composed, 1);
+        // **A jump the tick composes is a changed frame**, held or not:
+        // `animate` owes the draw whatever it composed. Fails if it
+        // answered for the clock's moves alone.
+        assert!(store.show_frame(id, FrameNo::of(3)));
+        let now = HostTime::of_nanos(1_000_000_000);
+        assert_eq!(store.animate(now, ImageMotion::Hold), Animated::Changed);
+        assert_eq!(canvas(store, id), want[2].0, "the jump's frame");
+        assert_eq!(store.animate(now, ImageMotion::Hold), Animated::Same);
+    });
 }
 
 /// **A local table, an interlaced image and an image past the screen**:
@@ -347,8 +492,15 @@ fn local_tables_interlace_and_clipping() {
         local: Some(vec![K, W, R, B]),
         gce: Some((1, 10, None, false)),
     };
-    let g = gif(2, 9, &[G, G], 0, None, &[tall]);
+    // A second interlaced frame, over the column the first drew, so its
+    // record is the stored path's and not a whole first frame's.
+    let again = Img {
+        px: (0..9u8).map(|y| (y + 1) % 4).collect(),
+        ..tall.clone()
+    };
+    let g = gif(2, 9, &[G, G], 0, None, &[tall, again]);
     let f = frames(&g).unwrap();
+    assert_eq!(f.len(), 2, "the premise: two frames");
     // Rows sent in the order 0, 8, 4, 2, 6, 1, 3, 5, 7.
     let order = [0usize, 8, 4, 2, 6, 1, 3, 5, 7];
     let table = [K, W, R, B];
@@ -365,6 +517,9 @@ fn local_tables_interlace_and_clipping() {
     };
     let f = frames(&gif(2, 2, &[K, W], 0, None, &[off])).unwrap();
     assert_eq!(f[0].0, rgba(&[K, K, K, W]), "one pixel on the screen");
+    // Fails if a record of an interlaced frame were laid in its rows'
+    // order as sent, Appendix E's passes, and not as they land.
+    stored_is_decoded(&g, "interlaced");
 }
 
 /// **"If not 0 ... hundredths of a second to wait"**: an image with delay
@@ -393,6 +548,7 @@ fn a_zero_delay_composites_and_all_zero_is_a_still() {
     assert_eq!(f[0].1, 400);
     assert_eq!(f[1].0, rgba(&[W, R, G]), "the stream ends on its last");
     assert_eq!(f[1].1, 0, "gapless");
+    stored_is_decoded(&g, "composited");
     let g = gif(
         2,
         1,

@@ -6,7 +6,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    Animated, HostTime, ImageBudget, ImageMotion, ImagePx, ItermKey, KittyCounts, Messages, Pixel,
+    Animated, HostTime, ImageBudget, ImageDraw, ImageMotion, ImagePx, ItermKey, KittyCounts,
+    Messages, Pixel,
 };
 
 const WS: WinSize = WinSize {
@@ -222,11 +223,32 @@ struct Graphic {
 /// and each graphic's indices coded as Appendix F allows with a Clear code
 /// before every one, so the code width never grows.
 fn gif(w: u16, h: u16, loops: Option<u16>, graphics: &[Graphic]) -> Vec<u8> {
+    gif_tables(w, h, loops, graphics, Tables::Global)
+}
+
+/// Where a stream this file writes keeps its colours.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tables {
+    /// One global table, its Background Color index 0, opaque black.
+    Global,
+    /// None global, so where no image covers the screen it is clear, and
+    /// the same four colours as each image's local table.
+    Local,
+}
+
+/// [`gif`], its colours kept as `tables` says.
+fn gif_tables(w: u16, h: u16, loops: Option<u16>, graphics: &[Graphic], tables: Tables) -> Vec<u8> {
+    const TABLE: [u8; 12] = [0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 0];
     let mut out = b"GIF89a".to_vec();
     out.extend(w.to_le_bytes());
     out.extend(h.to_le_bytes());
-    out.extend([0xf1, 0, 0]);
-    out.extend([0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 0]);
+    match tables {
+        Tables::Global => {
+            out.extend([0xf1, 0, 0]);
+            out.extend(TABLE);
+        }
+        Tables::Local => out.extend([0, 0, 0]),
+    }
     if let Some(n) = loops {
         out.extend(b"\x21\xff\x0bNETSCAPE2.0\x03\x01");
         out.extend(n.to_le_bytes());
@@ -242,7 +264,14 @@ fn gif(w: u16, h: u16, loops: Option<u16>, graphics: &[Graphic]) -> Vec<u8> {
         for v in g.rect {
             out.extend(v.to_le_bytes());
         }
-        out.extend([0, 2]);
+        match tables {
+            Tables::Global => out.push(0),
+            Tables::Local => {
+                out.push(0x81);
+                out.extend(TABLE);
+            }
+        }
+        out.push(2);
         // Clear (4) then the index, three bits each, packed right to left.
         let mut bits: Vec<bool> = Vec::new();
         let mut code = |c: u8| (0..3).for_each(|k| bits.push(c >> k & 1 == 1));
@@ -551,27 +580,347 @@ fn a_gif_at_another_size_keeps_its_frames() {
     });
 }
 
-/// **An animation the image memory cannot hold whole draws the
-/// placeholder**, counted, as a picture too big for it does.
+/// **An animation the image memory cannot hold draws the placeholder**,
+/// counted, as a picture too big for it does. Each frame is stored as the
+/// rectangle in which it differs from the one before: eight 40 by 40
+/// frames, each of one colour and the next of another, take 1600 words of
+/// canvas, one for the frame it holds, one saying whether its rows have
+/// moved, 800 of row map, one a frame for where its record starts, and a
+/// record each of 7 words of head, a colour and 400 words of indexes --
+/// 5674 words, where the arena holds 4096. The three such frames that
+/// needed 4802 words stored whole, and were refused, take 3629 and play. Fails if a record were written past the gap the
+/// picture claimed instead of refused, or a record's head took more words.
 #[test]
 fn a_gif_too_big_for_the_memory_is_refused_whole() {
-    // Three frames of 40 by 40 need 4802 words; the arena holds 4096.
-    let g = gif(
-        40,
-        40,
-        Some(0),
-        &[
-            flat(40, 40, 1, 10),
-            flat(40, 40, 2, 10),
-            flat(40, 40, 3, 10),
-        ],
-    );
+    let colours = [1, 2, 3, 1, 2, 3, 1, 2].map(|i| flat(40, 40, i, 10));
+    let g = gif(40, 40, Some(0), &colours);
     with(1 << 12, |t| {
         feed(t, &file("inline=1", &g), 4097);
         let (_, w, h, _) = placed(t);
         assert_eq!((w, h), (35, 36), "the placeholder");
         assert_eq!(t.iterm_counts().of(ItermKey::File), ONE);
+        assert_eq!(t.images().images_refused, 1, "the arena's refusal");
     });
+    let g = gif(40, 40, Some(0), &colours[..3]);
+    with(1 << 12, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        let imgs = t.images();
+        let (_, p) = imgs.placements().next().expect("placed");
+        assert_eq!(imgs.stored_words(p.image), Some(3629));
+        assert_eq!(imgs.image(p.image).unwrap().width.raw(), 40, "the picture");
+        assert_eq!(t.iterm_counts().of(ItermKey::File), Messages::NONE);
+    });
+}
+
+/// `baud-app`'s image memory, `host::IMAGE_BUDGET`: 95 MiB of words.
+const APP_IMAGES: usize = 95 << 18;
+
+/// README's logo film `name`, as recorded.
+fn logo(name: &str) -> Vec<u8> {
+    let path = format!("{}/../assets/readme/{name}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+/// **Every frame the decoder makes of `g`**, as the store keeps pixels,
+/// with its gap: the reference, the decoder being held to ImageMagick's
+/// own decode by `imagemagicks_streams_decode_to_its_reference`.
+fn decoded(g: &[u8]) -> Vec<(Vec<u32>, u32)> {
+    let gif = baud_domain::gif::Gif::parse(g).unwrap();
+    let mut scratch = vec![0u8; gif.scratch_len()];
+    let mut out = Vec::new();
+    gif.decode(&mut scratch, |f| {
+        let px = f
+            .rgba
+            .chunks(4)
+            .map(|c| u32::from_be_bytes([c[3], c[0], c[1], c[2]]))
+            .collect();
+        out.push((px, f.gap_ms));
+        true
+    })
+    .unwrap();
+    out
+}
+
+/// **README's logo film plays in the app's image memory**: 320 frames of
+/// 840 by 580, which stored whole needed 594.7 MiB and were refused, are
+/// stored in 32 MiB or less, and on the clock every frame's canvas is the
+/// decoder's whole frame, the loop's wrap back to the first included, one
+/// compose a frame. Fails if the table counted the colours of the box
+/// round the changed pixels, not the changed pixels' -- 319 of the 320
+/// frames then past 255 colours and ARGB, 80.05 MiB measured, where the
+/// register's about 81 MiB is every box as ARGB -- and if a record's
+/// index named its colour off by one.
+#[test]
+fn the_readme_logo_plays_in_the_apps_image_memory() {
+    let ws = WinSize {
+        ws_row: 40,
+        ws_col: 100,
+    };
+    for name in ["logo-dark.gif", "logo-light.gif"] {
+        let g = logo(name);
+        let want = decoded(&g);
+        let n = want.len();
+        assert_eq!(n, 320, "{name}: the premise, its frames");
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(APP_IMAGES));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+        feed(&mut t, &file("inline=1", &g), 1 << 20);
+        assert_eq!(
+            t.iterm_counts().of(ItermKey::File),
+            Messages::NONE,
+            "{name}"
+        );
+        assert_eq!(t.images().images_refused, 0, "{name}: nothing refused");
+        let id = t.images().placements().next().expect("placed").1.image;
+        let v = t.images().image(id).unwrap();
+        assert_eq!((v.width.raw(), v.height.raw()), (840, 580), "{name}: as is");
+        let words = t.images().stored_words(id).unwrap();
+        assert!(words * 4 <= 32 << 20, "{name}: {words} words stored");
+        let shown = |t: &Term<'_>| -> Vec<u32> {
+            let v = t.images().image(id).unwrap();
+            v.pixels.iter().map(|p| p.bits()).collect()
+        };
+        assert!(shown(&t) == want[0].0, "{name}: the first frame");
+        assert_eq!(
+            t.animate_images(gif_at(0), ImageMotion::Play),
+            Animated::Same
+        );
+        let mut ms = 0;
+        for k in (1..n).chain([0]) {
+            ms += u64::from(want[(k + n - 1) % n].1);
+            let composed = t.images().frames_composed;
+            assert_eq!(
+                t.animate_images(gif_at(ms), ImageMotion::Play),
+                Animated::Changed,
+                "{name}: frame {k}"
+            );
+            assert_eq!(
+                t.images().frames_composed,
+                composed + 1,
+                "{name}: one compose for frame {k}"
+            );
+            assert!(shown(&t) == want[k].0, "{name}: frame {k}'s pixels");
+        }
+    }
+}
+
+/// **A picture's frame is composed at the tick, never by bytes**: a
+/// megabyte of text written below an animated GIF composes nothing, and
+/// nor do the writes that reach its frames -- text over one of its cells,
+/// an erase of another, and a scroll under side margins across it -- a
+/// tick before the gap has passed composes nothing, the tick that moves
+/// the frame composes it once and a second tick at that time none.
+/// Fails if the frame were composed as bytes reached it: as the clock
+/// moved it inside a read, or as an erase or a margin scroll changed its
+/// frames.
+#[test]
+fn a_gif_frame_is_composed_at_the_tick_and_never_by_bytes() {
+    let g = gif(40, 40, Some(0), &[flat(40, 40, 1, 10), flat(40, 40, 2, 10)]);
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        let composed = |t: &Term<'_>| t.images().frames_composed;
+        let text = b"\x1b[24;1Hthe quick brown fox jumps over the lazy dog".repeat(22_000);
+        assert!(text.len() > 1 << 20);
+        feed(t, &text, 4096);
+        assert_eq!(composed(t), 0, "bytes compose nothing");
+        // Text on cell 1 of row 1, an erase of cell 0, both over the
+        // picture, then margins at columns 3 to 10 across it and SU 1.
+        let before = placed(t).3;
+        feed(t, b"\x1b[1;2HX\x1b[1;1H\x1b[X", 4097);
+        assert_ne!(placed(t).3, before, "the premise: the writes cleared cells");
+        assert_eq!(composed(t), 0, "text and an erase over it compose nothing");
+        let before = placed(t).3;
+        feed(t, b"\x1b[?69h\x1b[3;10s\x1b[1;10r\x1b[S", 4097);
+        assert_ne!(placed(t).3, before, "the premise: the scroll moved pixels");
+        assert_eq!(composed(t), 0, "a margin scroll across it composes nothing");
+        assert_eq!(
+            t.animate_images(gif_at(0), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(
+            t.animate_images(gif_at(50), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(composed(t), 0, "a tick before the gap composes nothing");
+        assert_eq!(
+            t.animate_images(gif_at(100), ImageMotion::Play),
+            Animated::Changed
+        );
+        assert_eq!(composed(t), 1, "the tick that moves it composes once");
+        // Left of the margin and below the cells written: untouched.
+        assert_eq!(placed(t).3[39 * 40], GIF_COLOURS[2]);
+        assert_eq!(
+            t.animate_images(gif_at(100), ImageMotion::Play),
+            Animated::Same
+        );
+        assert_eq!(composed(t), 1, "nothing moved since");
+    });
+}
+
+/// The four frames of a 10 by 10 GIF whose later frames are rectangles:
+/// white; a red square at (2, 2) put back by disposal 3; a green one at
+/// (5, 5) put back to the background by disposal 2; a red pixel at (0, 0).
+fn rectangles() -> Vec<u8> {
+    let at = |rect: [u16; 4], i: u8, disposal: u8| Graphic {
+        rect,
+        px: vec![i; usize::from(rect[2]) * usize::from(rect[3])],
+        gce: Some((disposal, 10, false)),
+    };
+    gif(
+        10,
+        10,
+        Some(0),
+        &[
+            flat(10, 10, 1, 10),
+            at([2, 2, 4, 4], 2, 3),
+            at([5, 5, 3, 3], 3, 2),
+            at([0, 0, 1, 1], 2, 1),
+        ],
+    )
+}
+
+/// **An animated GIF of rectangles drawn at another size**: each frame
+/// on the clock is the decoder's frame resampled as every drawing path
+/// samples, the source pixel under each drawn pixel's centre -- the
+/// disposals' restored pixels included -- and its timing kept.
+#[test]
+fn a_gif_of_rectangles_at_another_size_resamples_each_frame() {
+    let g = rectangles();
+    let want = decoded(&g);
+    assert_eq!(want.len(), 4, "the premise");
+    with(1 << 16, |t| {
+        feed(t, &file("inline=1;width=2", &g), 4097);
+        let (_, w, h, _) = placed(t);
+        assert_eq!((w, h), (20, 20));
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        for k in 0..6 {
+            if k > 0 {
+                assert_eq!(
+                    t.animate_images(gif_at(100 * k as u64), ImageMotion::Play),
+                    Animated::Changed,
+                    "tick {k}"
+                );
+            }
+            let f = &want[k % 4].0;
+            let near = |d: usize| {
+                usize::try_from(ImageDraw::nearest(u32::try_from(d).unwrap(), 20, 0, 10)).unwrap()
+            };
+            let resampled: Vec<u32> = (0..20 * 20)
+                .map(|i| f[near(i / 20) * 10 + near(i % 20)])
+                .collect();
+            assert!(placed(t).3 == resampled, "frame {}, tick {k}", k % 4);
+        }
+    });
+}
+
+/// **A scroll under side margins moves every frame of a GIF across them**,
+/// in an arena of `arena` words: an animation is not split
+/// (`ImageStore::split_across`), so its pixels over the cells inside the
+/// margins move within it in each frame, the rows left behind cleared. A
+/// 20 by 40 GIF at cell 0 covers cells 0 and 1 of rows 1 and 2; margins
+/// at columns 2 to 10 take its right half, and SU 1 moves that half's rows
+/// up 20 pixels in the frame shown and in every frame after. Text written
+/// on the moved half then clears its cell in every frame too. The GIF has
+/// no global table and its first frame leaves its last ten rows clear,
+/// which its second paints, so the wrap back to the first frame draws
+/// that frame's clear ground under the moved rows. Fails if a record over
+/// no frame, drawn through the moved rows, kept the canvas under it
+/// instead of filling it with its ground (`Shape::apply_moved`).
+fn a_margin_scroll_moves_every_frame(arena: usize) {
+    let stripes: Vec<u8> = (0..20 * 30).map(|i| [1, 2, 3][i / 20 / 7 % 3]).collect();
+    let first = Graphic {
+        rect: [0, 0, 20, 30],
+        px: stripes,
+        gce: Some((1, 10, false)),
+    };
+    let lower = Graphic {
+        rect: [0, 20, 20, 20],
+        px: vec![2; 400],
+        gce: Some((1, 10, false)),
+    };
+    let g = gif_tables(20, 40, Some(0), &[first, lower], Tables::Local);
+    let want = decoded(&g);
+    assert_eq!(want[0].0[39 * 20 + 15], 0, "the premise: clear in frame 0");
+    assert_ne!(
+        want[1].0[39 * 20 + 15],
+        0,
+        "the premise: painted in frame 1"
+    );
+    let moved = |k: usize, erased: bool| -> Vec<u32> {
+        let f = &want[k].0;
+        (0..20 * 40)
+            .map(|i| {
+                let (x, y) = (i % 20, i / 20);
+                match (x >= 10, y + 20 < 40) {
+                    (false, _) => f[i],
+                    (true, _) if erased && y < 20 => 0,
+                    (true, true) => f[(y + 20) * 20 + x],
+                    (true, false) => 0,
+                }
+            })
+            .collect()
+    };
+    with(arena, |t| {
+        feed(t, &file("inline=1", &g), 4097);
+        let id = t.images().placements().next().expect("placed").1.image;
+        let words = t.images().stored_words(id).unwrap();
+        assert!(
+            arena >= 1 << 16 || 2 * words > arena,
+            "{arena}: the premise, no room for a copy of {words} words"
+        );
+        feed(t, b"\x1b[?69h\x1b[2;10s\x1b[1;10r\x1b[S", 4097);
+        assert_eq!(t.images().images_refused, 0, "{arena}: nothing refused");
+        t.animate_images(gif_at(0), ImageMotion::Play);
+        let check = |t: &Term<'_>, k: usize, erased: bool, what: &str| {
+            let (_, w, h, got) = placed(t);
+            assert_eq!((w, h), (20, 40), "{arena}: {what}");
+            assert!(got == moved(k, erased), "{arena}: {what}");
+        };
+        check(t, 0, false, "frame 0 moved");
+        assert_eq!(
+            t.animate_images(gif_at(100), ImageMotion::Play),
+            Animated::Changed
+        );
+        check(t, 1, false, "frame 1 moved");
+        assert_eq!(
+            t.animate_images(gif_at(200), ImageMotion::Play),
+            Animated::Changed
+        );
+        check(
+            t,
+            0,
+            false,
+            "frame 0 again, its clear ground under the moved rows",
+        );
+        feed(t, b"\x1b[1;2HX", 4097);
+        check(t, 0, true, "frame 0 moved, then its cell cleared");
+        for (ms, k) in [(300, 1), (400, 0)] {
+            assert_eq!(
+                t.animate_images(gif_at(ms), ImageMotion::Play),
+                Animated::Changed
+            );
+            check(t, k, true, &format!("frame {k} at {ms} ms"));
+        }
+        assert_eq!(
+            t.images().stored_words(id),
+            Some(words),
+            "{arena}: moved in its own span"
+        );
+    });
+}
+
+#[test]
+fn a_margin_scroll_moves_every_frame_of_a_gif() {
+    a_margin_scroll_moves_every_frame(1 << 16);
+}
+
+/// **The move needs no room beside the picture**: the same GIF and scroll
+/// in an arena of 2048 words, where the picture takes 1472 and a moved
+/// copy of it could not be stored. Fails under a move that copies the
+/// picture, which found no room here and removed the placement.
+#[test]
+fn a_margin_scroll_moves_a_gif_with_no_room_beside_it() {
+    a_margin_scroll_moves_every_frame(1 << 11);
 }
 
 /// **A Plain Text Extension is not drawn, and is counted** in

@@ -35,7 +35,10 @@
 //! image, an image's pixels past its rectangle are dropped and those its
 //! data never reaches keep the canvas, a stream cut short shows what
 //! arrived, and the frames are counted from the file before any is made,
-//! so the caller reserves them once.
+//! so the caller knows how many it stores before the first. Each frame
+//! carries the box it can differ from the one before in
+//! ([`GifFrame::changed`]), so a caller keeping what changed compares
+//! only there.
 
 use crate::png::Size;
 
@@ -56,11 +59,54 @@ pub enum GifWait {
 }
 
 /// One frame of the canvas: its RGBA bytes, the logical screen's size, its
-/// gap in milliseconds and whether it waits for input.
+/// gap in milliseconds, whether it waits for input, and the part of the
+/// screen it can differ from the frame before it in.
 pub struct GifFrame<'a> {
     pub rgba: &'a [u8],
     pub gap_ms: u32,
     pub wait: GifWait,
+    /// **Where it can differ from the frame before**: the bounding box of
+    /// every graphic rendered and every disposal applied since that frame
+    /// was given out, the whole screen for the first. Pixels outside it are
+    /// the frame before's, so a reader comparing the two looks only here.
+    pub changed: GifRect,
+}
+
+/// A rectangle of the logical screen, in pixels: `x0..x1` by `y0..y1`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GifRect {
+    pub x0: usize,
+    pub y0: usize,
+    pub x1: usize,
+    pub y1: usize,
+}
+
+impl GifRect {
+    /// Nothing.
+    const NONE: GifRect = GifRect {
+        x0: usize::MAX,
+        y0: usize::MAX,
+        x1: 0,
+        y1: 0,
+    };
+
+    /// This one and `x0..x1` by `y0..y1`, bounded together.
+    fn with(self, x0: usize, y0: usize, x1: usize, y1: usize) -> GifRect {
+        match x0 < x1 && y0 < y1 {
+            true => GifRect {
+                x0: self.x0.min(x0),
+                y0: self.y0.min(y0),
+                x1: self.x1.max(x1),
+                y1: self.y1.max(y1),
+            },
+            false => self,
+        }
+    }
+
+    /// Empty, a frame the same as the one before.
+    pub fn is_empty(self) -> bool {
+        self.x0 >= self.x1 || self.y0 >= self.y1
+    }
 }
 
 /// A colour table: where its entries start and how many it has.
@@ -409,6 +455,8 @@ impl<'a> Gif<'a> {
         let mut lzw = Lzw::NEW;
         let mut control = Control::NONE;
         let mut graphic = 0u32;
+        // The first frame differs from nothing before it: the whole screen.
+        let mut changed = GifRect::NONE.with(0, 0, w, h);
         let mut pos = self.first;
         while let Some((block, next)) = next_block(self.data, pos) {
             pos = next;
@@ -424,6 +472,7 @@ impl<'a> Gif<'a> {
             // The part of the graphic on the screen.
             let (x0, y0) = (rect.x.min(w), rect.y.min(h));
             let (x1, y1) = ((rect.x + rect.w).min(w), (rect.y + rect.h).min(h));
+            changed = changed.with(x0, y0, x1, y1);
             if c.disposal == Disposal::Previous {
                 for y in y0..y1 {
                     let r = (y * w + x0) * 4..(y * w + x1) * 4;
@@ -452,10 +501,16 @@ impl<'a> Gif<'a> {
                     rgba: canvas,
                     gap_ms: u32::from(c.delay) * 10,
                     wait: c.wait,
+                    changed,
                 };
                 if !emit(frame) {
                     return Ok(());
                 }
+                changed = GifRect::NONE;
+            }
+            // What the disposal restores changes the next frame there.
+            if c.disposal != Disposal::None {
+                changed = changed.with(x0, y0, x1, y1);
             }
             match c.disposal {
                 Disposal::None => {}

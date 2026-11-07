@@ -10,10 +10,20 @@
 //! zero-extra-copy path the register describes: the pixels land where a
 //! renderer will read them rather than in a scratch that is then copied. A
 //! Sixel is moved once, at its terminator, when a gap lower than its claim
-//! holds it, so the store lays images out as `store` would. The storage carries
-//! [`Pixel`]s, straight ARGB, and never palette indices, decided in the
-//! register on the shader-sampling ground -- a palette index in the cell
-//! shader is a second dependent texture fetch.
+//! holds it, so the store lays images out as `store` would. What a renderer
+//! reads is [`Pixel`]s, straight ARGB, and never palette indices, decided in
+//! the register on the shader-sampling ground -- a palette index in the cell
+//! shader is a second dependent texture fetch. **A picture's animation
+//! keeps its frames past the one shown as palette indices** where a
+//! frame's changed pixels have 255 colours or fewer ([`frames`]), and the
+//! ground still holds: they are composed on the CPU into the ARGB canvas
+//! [`ImageStore::image`] returns, once at the tick before a draw, and no
+//! index reaches a texture or a shader. README's logo film, 320 frames of
+//! 840 by 580, takes 22.9 MiB so. As ARGB words, the boxes round the
+//! pixels that differ from the frame before take about 81 MiB of the 95
+//! the app gives images, and the GIF's own frame rectangles 94.3 MiB; the
+//! frames whole take 594.7 MiB. The table is the changed pixels' colours,
+//! at most 251 in a logo frame, and not the rectangle's, which reach 627.
 //!
 //! **Alpha is stored straight**, the colour not multiplied by its opacity:
 //! "The colour values in a pixel are not premultiplied by the alpha value
@@ -1663,6 +1673,10 @@ pub struct ImageStore<'b> {
     /// Whether the user's input arrived since the last tick, for frames
     /// that wait for it ([`frames::FrameWait::Input`]).
     input: frames::InputSeen,
+    /// **Pictures' canvases composed**, one a picture a tick whose frame
+    /// to show moved ([`ImageStore::compose_frames`]): the count that says
+    /// the work is a drawn frame's and not a byte's.
+    pub frames_composed: usize,
     /// **How many live placements are relative** ([`KittyParent`]): the
     /// gate for following a parent that moved and deleting what a parent
     /// leaves, so a store with none pays one compare.
@@ -1756,6 +1770,7 @@ impl<'b> ImageStore<'b> {
             framed: 0,
             held: ImageMotion::Play,
             input: frames::InputSeen::No,
+            frames_composed: 0,
         }
     }
 
@@ -2353,9 +2368,10 @@ impl<'b> ImageStore<'b> {
     /// pixels and cut at the screen's edge -- each pixel the source pixel
     /// under its centre, [`ImageDraw::nearest`], the filter every drawing
     /// path samples with, so a picture resampled here draws as one scaled
-    /// at draw time would. An animation is resampled frame by frame, its
-    /// timing and state with it. Refused and counted as
-    /// [`ImageStore::store`] refuses; `src` is left as it was.
+    /// at draw time would. An animation is resampled frame by frame into a
+    /// picture of rectangles (`ImageStore::rects_from`), its timing and
+    /// state with it. Refused and counted as [`ImageStore::store`] refuses;
+    /// `src` is left as it was.
     pub fn store_resampled(
         &mut self,
         src: ImageId,
@@ -2366,29 +2382,26 @@ impl<'b> ImageStore<'b> {
         let (sw, sh) = self.size_of(src)?;
         let si = src.index()?;
         let s = *self.slots.get(si)?;
-        let frames = s.anim.frame_count();
-        let id = match frames {
-            1 => self.store(w, h, ImageAlpha::OpaqueOrClear)?.0,
-            n => self.store_frames(w, h, n)?,
-        };
-        let ti = id.index()?;
-        let to = self.slots.get(ti)?.start();
         let (sw, sh) = (u32::from(sw.raw()), u32::from(sh.raw()));
-        let (w, h) = (w.index(), h.index());
-        let dh = u32::try_from(h).unwrap_or(u32::MAX);
-        for k in 0..frames as usize {
-            let (from, to) = (s.start() + k * s.area(), to + k * w * h);
-            for y in 0..h {
-                let sy = ImageDraw::nearest(u32::try_from(y).unwrap_or(0), dh, 0, sh) as usize;
-                for x in 0..w {
-                    let sx =
-                        ImageDraw::nearest(u32::try_from(x).unwrap_or(0), full_w, 0, sw) as usize;
-                    self.pixels[to + y * w + x] = self.pixels[from + sy * sw as usize + sx];
-                }
-            }
+        let dh = u32::from(h.raw());
+        let near = |x: usize, y: usize| {
+            let sy = ImageDraw::nearest(u32::try_from(y).unwrap_or(0), dh, 0, sh) as usize;
+            let sx = ImageDraw::nearest(u32::try_from(x).unwrap_or(0), full_w, 0, sw) as usize;
+            sy * sw as usize + sx
+        };
+        if s.anim.animated() {
+            let id = self.rects_from(si, w, h, |from, x, y| from[near(x, y)])?;
+            self.time_as(si, id.index()?);
+            return Some(id);
         }
-        if frames > 1 {
-            self.copy_timing(si, ti);
+        let id = self.store(w, h, ImageAlpha::OpaqueOrClear)?.0;
+        let to = self.slots.get(id.index()?)?.start();
+        let from = s.start();
+        let (w, h) = (w.index(), h.index());
+        for y in 0..h {
+            for x in 0..w {
+                self.pixels[to + y * w + x] = self.pixels[from + near(x, y)];
+            }
         }
         Some(id)
     }
@@ -3138,8 +3151,15 @@ impl<'b> ImageStore<'b> {
         }
         // The frame shown; an animated image's frames change under a
         // renderer that keeps its last blit, so it is repainted under as
-        // a partial one is.
-        let at = s.start() + s.anim.shown_index() * s.area();
+        // a partial one is. A picture's frames are its canvas, which holds
+        // the frame composed last.
+        let (at, frame) = match s.anim.layout() {
+            frames::FrameLayout::Whole => (
+                s.start() + s.anim.shown_index() * s.area(),
+                s.anim.shown_frame(),
+            ),
+            frames::FrameLayout::Rects => (s.start(), self.canvas_frame(&s)),
+        };
         Some(ImageView {
             pixels: &self.pixels[at..at + s.area()],
             width: s.width,
@@ -3149,7 +3169,7 @@ impl<'b> ImageStore<'b> {
                 false => s.alpha,
             },
             ground: s.ground,
-            frame: s.anim.shown_frame(),
+            frame,
         })
     }
 
@@ -3383,6 +3403,9 @@ impl<'b> ImageStore<'b> {
     fn lit_in(&self, s: ImageSlot, (x0, y0, x1, y1): (usize, usize, usize, usize)) -> u32 {
         let (w, h) = (s.width.index(), s.height.index());
         let (x0, x1, y1) = (x0.min(w), x1.min(w), y1.min(h));
+        if s.anim.layout() == frames::FrameLayout::Rects {
+            return self.lit_rects(&s, (x0.min(x1), y0.min(y1), x1, y1));
+        }
         let mut n = 0usize;
         for k in 0..s.anim.frame_count() as usize {
             for y in y0.min(y1)..y1 {
@@ -3547,7 +3570,14 @@ impl<'b> ImageStore<'b> {
         // Every frame of an animation: a cell text clears shows none of
         // the picture whichever frame is shown.
         let mut was_lit = 0u32;
-        for k in 0..s.anim.frame_count() as usize {
+        let frames = match s.anim.layout() {
+            frames::FrameLayout::Whole => s.anim.frame_count() as usize,
+            frames::FrameLayout::Rects => {
+                was_lit = self.clear_rects(&s, (x0, y0, x1, y1));
+                0
+            }
+        };
+        for k in 0..frames {
             let at = s.start() + k * s.area();
             for y in y0..y1 {
                 let span = &mut self.pixels[at + y * w + x0..at + y * w + x1];
@@ -4516,6 +4546,28 @@ impl<'b> ImageStore<'b> {
         }
     }
 
+    /// **A picture's frames' rows `[y0, y1)` of columns `[x0, x1)` moved
+    /// `k` rows `way`**, as [`ImageStore::shift_rows`] moves a whole
+    /// frame's, the rows left behind cleared: in the picture's own span,
+    /// its canvas moved and its row map with it, so every frame after is
+    /// drawn moved and no room beside it is needed (`Shape::shift`). Its
+    /// lit count is made again through the map.
+    fn shift_rects(
+        &mut self,
+        i: usize,
+        cols: (usize, usize),
+        rows: (usize, usize),
+        k: usize,
+        way: BandMove,
+    ) {
+        let s = self.slots[i];
+        self.move_rects(&s, cols, rows, k, way);
+        if s.lit.is_some() {
+            let (w, h) = (s.width.index(), s.height.index());
+            self.slots[i].lit = Some(self.lit_in(s, (0, 0, w, h)));
+        }
+    }
+
     /// Whether placement `s` shows a Sixel or an embedder's image across a
     /// side margin of the columns `[l, r1)` of `cw`-pixel cells: some of its
     /// columns inside and some outside.
@@ -4638,6 +4690,10 @@ impl<'b> ImageStore<'b> {
                     }
                     let since = |x: LineIdx| x.since(s.line).map_or(0, |r| r.index());
                     let (y0, y1) = ((since(lo) * ch).min(h), (since(hi) * ch).min(h));
+                    if img.anim.layout() == frames::FrameLayout::Rects {
+                        self.shift_rects(i, (x0, x1), (y0, y1), n.index() * ch, way);
+                        continue;
+                    }
                     for k in 0..img.anim.frame_count() as usize {
                         let at = img.start() + k * img.area() + x0;
                         self.shift_rows(at, w, pw, (y0, y1), n.index() * ch, way);

@@ -5052,3 +5052,59 @@ unmeasured apart.
 **What is not here.** The instance path on Metal, any discrete GPU, and a
 frozen window with strikes, which no corpus recording reaches at the app's
 provisioning: the tests hold that case at a small table.
+
+## An animated GIF kept as what each frame changed
+
+An iTerm2 inline GIF's frames are stored as the rectangle in which each
+differs from the frame before, as indexes into its changed colours, over one
+canvas the renderer reads; the compose runs at the tick (`frames.rs`).
+
+**Stored size**, README's logo films, 320 frames of 840 by 580. The records
+were measured once by a throwaway program over `decode_picture` in a 95 MiB
+arena, which also composed every frame and six jumps against the decoder's
+frames, 0 pixels wrong; the row map a scroll under side margins moves was
+added after, and its 243,601 words are fixed by the layout.
+
+| film | frames whole | records | with the row map |
+|---|---|---|---|
+| `logo-dark.gif` | 594.7 MiB, refused | 5,765,609 words, 21.99 MiB | 6,009,210 words, 22.92 MiB |
+| `logo-light.gif` | 594.7 MiB, refused | 5,685,592 words, 21.69 MiB | 5,929,193 words, 22.62 MiB |
+
+**The advance.** `frame` with `FRAME_GIF=assets/readme/logo-dark.gif
+FRAME_GIF_MB=640`, over `cat` at 200x50: 640 ticks, each at the next frame's
+due time and followed by a full CPU frame, every arm given 640 MiB so the base
+holds the frames whole. Base 537bb01d, the change and an A/A copy of it, each
+built from `git archive` at one path, every file touched; the change's two
+builds `cmp` equal and differ from base's. Four rounds, the arms rotated, the
+first dropped; load average 2.6 to 2.8 over the kept rounds. Microseconds a
+frame, ranges over rounds 2 to 4:
+
+| arm | the tick | the CPU frame after it |
+|---|---|---|
+| base | 0.0 | 1225.5 - 1229.1 |
+| change | 31.9 - 32.1 | 1225.2 - 1236.1 |
+| A/A | 31.9 - 32.2 | 1225.1 - 1234.9 |
+
+The tick is the compose, about 32 us a frame, where base's advance only
+changes which whole frame is read; the frame's ranges overlap: no result.
+
+**The per-byte path.** `ingest2` is not byte-identical, since it links the
+GIF decoder through OSC 1337, the store's erase through text writes and
+its margin scroll through a scroll under side margins. Their new
+branches run only on a placed picture: text and erases on its cells,
+behind the `local_placed == 0` gate, and a scroll under side margins
+across it, behind the screen's `reach`. The same three builds, four
+rounds rotated, the first dropped, `cells_written` equal on every arm;
+load average 2.7 to 3.6. MB/s, ranges over rounds 2 to 4:
+
+| recording, reps | cells | base | change | A/A |
+|---|---|---|---|---|
+| cat, 2000 | 1,699,524,481 | 1579.4 - 1622.8 | 1594.4 - 1634.5 | 1535.0 - 1594.1 |
+| cat-cjk, 2000 | 768,230,498 | 510.0 - 511.7 | 509.1 - 514.2 | 510.0 - 513.8 |
+| btop, 2000 | 259,685,600 | 853.3 - 858.0 | 853.5 - 855.3 | 852.6 - 857.6 |
+| vim, 4000 | 456,580,491 | 589.2 - 591.2 | 587.3 - 589.8 | 587.2 - 592.5 |
+| less-pager, 400 | 20,748,228 | 1321.8 - 1382.7 | 1334.6 - 1385.5 | 1350.2 - 1382.8 |
+
+Every range overlaps base's: no result on any of the five. No test has been
+run, so nothing above proves the frames right but the throwaway program's
+compare.
