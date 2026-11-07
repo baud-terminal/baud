@@ -209,7 +209,17 @@ in
 
       settings.global.excludes = [
         ".devenv.flake.nix"
-        ".devenv/"
+        # Globs, where `.devenv/` was seen to keep nothing out. In a tree with
+        # no `.git`, with that entry, entering `devenv shell` changed the CLI's
+        # own `.devenv/bootstrap/bootstrapLib.nix`: `deadnix --edit`, run alone
+        # on a copy, deletes the unused `devenv_lock`, and the shell then failed
+        # on "function 'mkDevenvForSystem' called with unexpected argument
+        # 'devenv_lock'". A clone of the same commit changed nothing. With
+        # `.devenv/*` alone, a build then had 17 generated `.rs` files under
+        # `target/` changed. MEASUREMENTS, "`devenv shell` in a new tree".
+        ".devenv/*"
+        ".direnv/*"
+        "target/*"
         # Pinned copies of other projects' sources, hash-locked by
         # `docs/research/sources/MANIFEST.toml`. rustfmt rewrote six of the
         # group J files on its first pass and every one stopped matching its
@@ -464,8 +474,8 @@ in
     # portable one by `cmp -s`. Each is built with `-C target-feature=+avx2`,
     # which `avx2-scan` and the isa crate's tests are cfg'd on.
     #
-    # **It needs any x86_64 Linux whose /proc/cpuinfo lists avx2; yoga is
-    # the default host.** On any other host it refuses and exits non-zero,
+    # **It needs any x86_64 Linux whose /proc/cpuinfo lists avx2.** On any
+    # other host it refuses and exits non-zero,
     # rather than pass having built the portable path in the arm's place.
     # Run by hand there (`devenv tasks run test:x86-avx2`) and not in
     # `enterTest`, where it would refuse every push from an aarch64 Mac. No

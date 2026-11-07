@@ -4560,3 +4560,76 @@ stays: at `674a2028` btop is 1.4.7 and not 1.4.8, and fastfetch has another stor
 
 **Not yet run on this change:** the darwin build, the tests in `baud-app/tests/install.rs`, and any
 Linux build.
+
+## `devenv shell` in a new tree
+
+Not timed: no byte path changed. The question was why `devenv shell` failed with "function
+'mkDevenvForSystem' called with unexpected argument 'devenv_lock'" on a new `.devenv`. Each row
+is a new tree on this Mac, with `env -i`, `HOME` and the XDG folders in scratch, the system
+`PATH`, and the real nix daemon and store. A clone is `git clone --no-local`; an archive is `git
+archive`, which has no `.git`. A result is `devenv shell -- true`, then `devenv shell -- rustc
+--version`. "Base" is the commit before this one; "`.devenv/*`" is this fix with that one glob;
+"fix" is this fix with all three, which ran before the wording of its comments changed.
+
+| CLI | lock's devenv input | commit | tree | result | treefmt on entry |
+|---|---|---|---|---|---|
+| 2.4.0, this Mac | 9655d320 | base | clone | pass, pass | 0 changed |
+| 2.4.0, this Mac | 9655d320 | base | archive | **fail**, fail | 4 changed |
+| 2.4.0, this Mac | v2.4.0, b904dcb5 | base | clone | pass, pass | 0 changed |
+| 2.4.0, this Mac | v2.4.0, b904dcb5 | base | archive | **fail**, fail | 4 changed |
+| 2.4.0, this Mac | 9655d320 | fix | clone | pass, pass | 0 changed |
+| 2.4.0, this Mac | 9655d320 | fix | archive | pass, pass | 0 changed |
+| 2.4.0, nixpkgs-unstable | 9655d320 | base | clone | pass, pass | 0 changed |
+| 2.4.0, nixpkgs-unstable | 9655d320 | base | archive | **fail**, fail | 4 changed |
+| 2.4.0, nixpkgs-unstable | 9655d320 | fix | clone | pass, pass | 0 changed |
+| 2.4.0, nixpkgs-unstable | 9655d320 | fix | archive | pass, pass | 0 changed |
+| 2.3.1 | 9655d320 | base | clone | pass, pass | not read |
+| 2.3.1 | 9655d320 | base | archive | **fail**, fail | 4 changed |
+| 2.3.1 | 9655d320 | `.devenv/*` | archive | pass, pass | 0 changed |
+| 2.2.0 | 9655d320 | base | clone | pass, pass | not read |
+| 2.2.0 | 9655d320 | base | archive | pass, pass | 3 changed |
+| 2.2.0 | 9655d320 | `.devenv/*` | archive | pass, pass | 0 changed |
+| 2.4.1, built at 9655d320 | 9655d320 | any | any | **not run** | |
+
+**So the failure went with the tree, not with a version.** Holding the lock at v2.4.0 changed
+neither result, so this pins nothing and states no minimum CLI. 9655d320 is an untagged commit
+whose `Cargo.toml` says 2.4.1: no v2.4.1 tag exists, and nixpkgs-unstable, nixos-unstable, the
+newest release and devenv's `latest` tag all give 2.4.0. What a reader on the 2.4.1 commit meets
+has no measurement here; its build was stopped before it finished. nixos-25.11 evaluates to
+1.11.1, on which nothing was tried.
+
+**Read at devenv v2.4.0:** in the bootstrap folder, `bootstrapLib.nix` declares `devenv_lock` at
+line 30 and mentions it nowhere else, and `default.nix` forwards all its arguments to
+`mkDevenvForSystem` at line 22. The CLI writes that folder into `.devenv/bootstrap` from its own
+binary, so the lock's devenv input does not supply it. The argument arrived in e19b5d9c, in
+v2.3. 2.2.0 has no such argument to lose, which is why its row passes with 3 files changed.
+
+**Seen in runs:** at base, the archive's `bootstrapLib.nix` had lost `devenv_lock`, and no tracked
+file changed; the clone's three bootstrap files equalled v2.4.0's, byte for byte. Each formatter
+alone on a pristine copy: `deadnix --edit --no-underscore` removes the argument, while
+nixpkgs-fmt and statix change the file and keep it. In one archive, `devenv print-dev-env` passed
+and `devenv shell` failed, with treefmt logged before the failing evaluation. With `.devenv/*`
+alone, entering an archive after `cargo build --release` read `formatted 28 files (17 changed)`,
+17 generated `.rs` files under `target/`; with all three globs it read `formatted 0 files (0
+changed)`, which treefmt's cache may have a part in.
+
+**Inferred, neither treefmt's source nor the CLI's task path read:** that treefmt takes git's file
+list in a clone and walks the filesystem without one, that `.devenv/` fails because excludes match
+file paths, and that `print-dev-env` passes because it runs no tasks. The rows fit all three and
+do not show any of them. `.direnv/*` was added by the same reasoning: no run had a `.direnv`.
+
+**First-run steps, with the fix:** `devenv shell -- cargo build --release` passed in both trees,
+56 s and 55 s on warm caches. With `.devenv/*`, the binaries held `1.0.0-beta+<commit>` and
+`1.0.0-beta+unknown`, read with `strings` and never launched. `devenv test` in an archive stops
+in 4 s at `devenv:git-hooks:run`, "Not in a Git repository". `test:x86-avx2` refuses on this
+arm64 host, as the guide says. `scripts/bundle-macos.sh`, `cargo run`, `nix run` and `nix profile
+add` were not run, as each opens a window or installs. An archive stands in for a GitHub ZIP,
+which was not downloaded.
+
+**The gate, and what has not run on this commit.** `scripts/check-fresh-shell.sh` at base: clone
+passed, archive failed with the message, exit 1; with `.devenv/*`: both passed, exit 0.
+`treefmt_cannot_reach_what_the_dev_shell_evaluates` in `baud-app/tests/install.rs` went red with
+`.devenv/` restored, with the glob dropped and with the script's archive arm removed, each on the
+`.devenv/*` form of the test. On this commit nothing has run: neither the script, those
+perturbations, the build, nor the gates. `devenv test` in a clone has never finished: it stopped
+at 58 s on `test:changelog`, red on a placeholder commit subject, before the unit tests.

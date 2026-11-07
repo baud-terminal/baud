@@ -405,3 +405,51 @@ fn the_nix_package_ships_the_app() {
     assert!(entry.contains("\nIcon=org.baud.terminal\n"), "{entry}");
     assert!(entry.contains("\nExec=baud\n"), "{entry}");
 }
+
+/// The quoted entries of `settings.global.excludes` in `devenv.nix`, with
+/// its comments left out, so an entry a comment only mentions does not count.
+fn treefmt_excludes() -> Vec<String> {
+    let nix = read("devenv.nix");
+    let open = "settings.global.excludes = [";
+    let at = nix.find(open).expect("devenv.nix sets treefmt's excludes") + open.len();
+    let list = &nix[at..at + nix[at..].find("];").expect("the list closes")];
+    list.lines()
+        .map(|line| line.split('#').next().unwrap_or_default())
+        .filter_map(|line| line.trim().trim_end_matches(',').strip_prefix('"'))
+        .filter_map(|entry| entry.strip_suffix('"'))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// **treefmt's excludes hold the globs that were seen to keep it out.** With
+/// `.devenv/` listed, entering `devenv shell` in a tree with no `.git` changed
+/// the CLI's own `.devenv/bootstrap/bootstrapLib.nix`: `deadnix --edit`, run
+/// alone on a copy, deletes the unused `devenv_lock`, and the shell failed on
+/// "called with unexpected argument 'devenv_lock'". With `.devenv/*` alone, a
+/// build then had generated `.rs` files under `target/` changed. The run behind
+/// this is `scripts/check-fresh-shell.sh`, whose clone arm alone is green on
+/// that failure, so its archive arm is held here too.
+#[test]
+fn treefmt_cannot_reach_what_the_dev_shell_evaluates() {
+    let excludes = treefmt_excludes();
+    assert!(
+        excludes.iter().any(|e| e == "docs/research/sources/*"),
+        "the control: the reader finds an exclude known to be there: {excludes:?}"
+    );
+    for glob in [".devenv/*", ".direnv/*", "target/*"] {
+        assert!(
+            excludes.iter().any(|e| e == glob),
+            "`{glob}` is not among treefmt's excludes: {excludes:?}"
+        );
+    }
+    let directories: Vec<_> = excludes.iter().filter(|e| e.ends_with('/')).collect();
+    assert!(
+        directories.is_empty(),
+        "the directory form was seen to keep nothing out: {directories:?}"
+    );
+
+    let script = read("scripts/check-fresh-shell.sh");
+    for arm in ["git clone -q --no-local", "git archive "] {
+        assert!(script.contains(arm), "the fresh-shell check lost {arm:?}");
+    }
+}

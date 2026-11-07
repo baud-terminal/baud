@@ -5,8 +5,8 @@
 # only under `target_feature = "avx2"`, so an aarch64 machine cannot build
 # them and an x86-64 build without `+avx2` builds the portable path in their
 # place, with every test green. This runs where the arm exists: **any x86_64
-# Linux whose /proc/cpuinfo lists avx2**, yoga by default. Anywhere else it
-# refuses and exits non-zero, so it can never pass having checked nothing.
+# Linux whose /proc/cpuinfo lists avx2**. Anywhere else it refuses and exits
+# non-zero, so it can never pass having checked nothing.
 #
 # Three checks, each with `-C target-feature=+avx2`:
 #
@@ -37,7 +37,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 refuse() {
   echo "test:x86-avx2 REFUSES: $1" >&2
-  echo "  it needs an x86_64 Linux whose /proc/cpuinfo lists avx2 (yoga, by default)," >&2
+  echo "  it needs an x86_64 Linux whose /proc/cpuinfo lists avx2," >&2
   echo "  and passes nowhere else, so that it cannot pass having checked nothing" >&2
   exit 1
 }

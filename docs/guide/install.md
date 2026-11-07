@@ -53,11 +53,13 @@ cd baud
 devenv shell -- scripts/bundle-macos.sh
 ```
 
-A ZIP download from GitHub will not build: it has no `.git` folder, and
-the dev shell does not start without one.
-
 This leaves `baud.app` in `target/`. Open it from Finder, or drag it to
 Applications and launch it from there or from the Dock.
+
+Clone rather than download a ZIP from GitHub. A ZIP has no `.git` folder:
+the dev shell starts and `cargo build --release` works, but the build cannot
+name its commit, so `baud --version` ends in `+unknown`, and `devenv test`
+stops at once, as its hooks need a git repository.
 
 To try baud without making the app, run it from the terminal you are in:
 
@@ -103,5 +105,7 @@ has used it on a real screen yet, so it is not ready to use.
 runs it too. Every check runs locally: baud has no hosted CI.
 `devenv tasks run test:x86-avx2` runs the checks of the AVX2 scanner. They
 need an x86_64 Linux whose `/proc/cpuinfo` lists `avx2`, and they refuse to
-run on any other host. [MEASUREMENTS.md](../../MEASUREMENTS.md)
-says how each benchmark is run.
+run on any other host. `scripts/check-fresh-shell.sh` starts the dev shell
+the way a first run does, in a new clone and in a tree with no `.git`; it
+needs the network, so `devenv test` does not run it.
+[MEASUREMENTS.md](../../MEASUREMENTS.md) says how each benchmark is run.
