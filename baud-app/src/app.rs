@@ -565,6 +565,8 @@ struct App {
     hover: crate::link::Hover,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
+    /// What a copy says, and when it ends (`copied.rs`).
+    copied: crate::copied::Signal<HostTime>,
     /// The host a `file:` link is local to, for the preview: read once
     /// when Command goes down and kept while it is held (`preview_host`).
     hover_host: Option<String>,
@@ -949,6 +951,8 @@ struct Boot {
     join_spacing_marks: baud_domain::SpacingMarks,
     /// `[clipboard]`.
     clipboard: crate::config::Clipboard,
+    /// `[message]` and `[message.copy]`.
+    message: crate::config::Message,
     /// What a `BEL` does in a focused window, from `bell`.
     bell: crate::config::BellStyle,
     /// What the window says about the config at launch (`live::Notice`).
@@ -1107,6 +1111,7 @@ impl Boot {
             ambiguous_width: cfg.ambiguous_width,
             join_spacing_marks: cfg.join_spacing_marks,
             clipboard: cfg.clipboard,
+            message: cfg.message,
             bell: cfg.bell,
             notice,
             reload,
@@ -1234,6 +1239,7 @@ impl App {
             ambiguous_width,
             join_spacing_marks,
             clipboard,
+            message,
             bell: bell_style,
             // `run` takes both off `boot` for the driver.
             notice: _,
@@ -1523,6 +1529,7 @@ impl App {
             finding: None,
             hover: crate::link::Hover::default(),
             line_tip: crate::line_tip::LineTip::default(),
+            copied: crate::copied::Signal::new(message),
             hover_host: None,
             pointer_shown: crate::pointer::Shown::Unknown,
             find_left: None,
@@ -2078,6 +2085,16 @@ impl App {
         }
     }
 
+    /// **What a copy said, to VoiceOver** (`copied.rs`), once.
+    fn say_copied(&mut self) {
+        let Some(words) = self.copied.take_saying() else {
+            return;
+        };
+        if let Some(mtm) = MainThreadMarker::new() {
+            baud_present_macos::announce::announce(mtm, &words);
+        }
+    }
+
     fn present(&mut self, screen: &DrawableView, show: Show) {
         // Row 11's ceiling arm: what an idle tick would cost if the
         // preamble below were free. Incorrect by construction -- the
@@ -2168,6 +2185,26 @@ impl App {
             self.pending = Pending::Dirty;
         }
         self.renderer.set_tip(self.line_tip.look().cloned());
+        // What a copy says, over that slot for its moment, and none under the
+        // link preview, which keeps the bar (`copied.rs`). Asked on every
+        // tick, so what it ends owes the frame here too.
+        let seen = {
+            let now = host_now();
+            HostTime::of_secs(self.tick_target).map_or(now, |t| t.max(now))
+        };
+        let (cols, rows) = self.term.geometry();
+        let preview = crate::copied::Preview::of(self.hover.look());
+        let signal = self
+            .copied
+            .frame(seen, preview, highlight.as_ref(), cols, rows);
+        if signal.owes == crate::copied::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
+        if let Some(look) = signal.look {
+            self.renderer.set_tip(Some(look));
+        }
+        self.renderer.set_selection_pulse(signal.pulse);
+        self.say_copied();
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
@@ -3170,13 +3207,17 @@ impl App {
         match shown {
             Presented::Yes => {
                 self.bell.commit(bell);
+                self.copied.presented();
                 // The first frame after the logo says what its frames did.
                 let said = self.launch_log.committed(host_now(), logo, &self.term);
                 for line in said.into_iter().flatten() {
                     startup_note(&line);
                 }
             }
-            Presented::No => self.bell.refused(bell),
+            Presented::No => {
+                self.bell.refused(bell);
+                self.copied.refused(seen_at);
+            }
         }
         // The blink's phase is taken either way: not taking it would owe a
         // frame on every tick for as long as presents keep failing, the
@@ -10328,8 +10369,9 @@ mod motion_tests {
                     answered = Answered::Yes;
                 },
                 |t| {
-                    pasteboard("#,
+                    let copied = pasteboard("#,
             r#"clips.poll(t, osc52));
+                    copies.merge(copied);
                     resized = honour(widths.poll(t, host), t).or(resized);
                     fonts_asked.extend_from_slice(t.font_requests());
                     t.clear_font_requests();
@@ -11354,6 +11396,8 @@ impl Driver {
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
+        // A program's copies this batch, said once after it (`copied.rs`).
+        let mut copies = crate::copied::Batch::default();
         let mut resized = None;
         // AA, for a reply the feed queued: one store a reply, not a byte's.
         let mut answered = Answered::No;
@@ -11387,7 +11431,8 @@ impl Driver {
                 answered = Answered::Yes;
             },
             |t| {
-                pasteboard(clips.poll(t, osc52));
+                let copied = pasteboard(clips.poll(t, osc52));
+                copies.merge(copied);
                 resized = honour(widths.poll(t, host), t).or(resized);
                 fonts_asked.extend_from_slice(t.font_requests());
                 t.clear_font_requests();
@@ -11433,6 +11478,10 @@ impl Driver {
         {
             self.ring_bell(volume);
         }
+        if self.app.copied.program(copies, host_now()) == crate::copied::Owes::Frame {
+            self.app.pending = Pending::Dirty;
+        }
+        self.app.say_copied();
         if answered == Answered::Yes {
             self.app.activity.seen(Led::Aa, host_now());
         }
@@ -11746,23 +11795,27 @@ fn menu_missed(
 }
 
 /// What a polled `OSC 52` write does: the pasteboard written or emptied, or a
-/// refusal's one warning said.
-fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) {
+/// refusal's one warning said. Returns the copy a program made, for the words
+/// that say so (`copied.rs`), where the pasteboard took it.
+fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) -> crate::copied::Batch {
+    let mut copied = crate::copied::Batch::default();
     let Some((decision, warn)) = polled else {
-        return;
+        return copied;
     };
     match decision {
-        crate::clip::Decision::Set(text) => {
-            if clipboard::write_text(text) == clipboard::Written::Refused {
+        crate::clip::Decision::Set(text) => match clipboard::write_text(text) {
+            clipboard::Written::Taken => copied.copied(text),
+            clipboard::Written::Refused => {
                 crate::warn!("clipboard: the pasteboard refused a program's copy");
             }
-        }
+        },
         crate::clip::Decision::Clear => clipboard::clear(),
         crate::clip::Decision::Refused(_) => {}
     }
     if let Some(line) = warn {
         crate::warn!("{line}");
     }
+    copied
 }
 
 impl Responder for Driver {
@@ -11781,6 +11834,10 @@ impl Responder for Driver {
         // A key dismisses the hover text over DEC's line, and still goes
         // on to the program (`line_tip.rs`, WCAG 2.2's 1.4.13).
         if self.app.line_tip.dismiss(&self.app.term) == crate::line_tip::Changed::Yes {
+            self.app.pending = Pending::Dirty;
+        }
+        // And a copy's words, the same way (`copied.rs`).
+        if self.app.copied.dismiss() == crate::copied::Owes::Frame {
             self.app.pending = Pending::Dirty;
         }
         if key.modifiers.command {
@@ -12304,6 +12361,10 @@ impl Responder for Driver {
         // frame's own plan reads the same target (`present`), so it is one
         // frame, not one a tick until the wall clock catches up.
         if HostTime::of_secs(target).is_some_and(|now| self.app.bell.is_due(now)) {
+            self.app.pending = Pending::Dirty;
+        }
+        // A copy's words and pulse end on the same clock (`copied.rs`).
+        if HostTime::of_secs(target).is_some_and(|now| self.app.copied.is_due(now)) {
             self.app.pending = Pending::Dirty;
         }
         // A trail keeps building frames while it sweeps, the way a blink
@@ -14169,6 +14230,11 @@ impl Driver {
                 Part::CopyOnSelect => {
                     self.app.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
+                Part::Message => {
+                    self.app.renderer.set_message_colours(c.message.colours);
+                    self.app.copied.set(c.message);
+                    self.app.pending = Pending::Dirty;
+                }
                 // Put up or taken down at the next tick, and a line of their
                 // own given its pixels now.
                 Part::ActivityLights => {
@@ -15840,8 +15906,35 @@ impl Driver {
         let app = &self.app;
         let (sel, wrap) = (app.selection.as_ref(), app.renderer.word_wrap());
         if let Some(text) = crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap) {
-            clipboard::write_text(&text);
+            let written = clipboard::write_text(&text);
+            if written == clipboard::Written::Taken {
+                self.selection_copied(&text);
+            }
         }
+    }
+
+    /// **A copy of the selection, said** (`copied.rs`): the words, the pulse
+    /// where the settings and the flash budget allow it, and the same words
+    /// to a screen reader.
+    fn selection_copied(&mut self, text: &str) {
+        use crate::access::FlashingLights;
+        let app = &mut self.app;
+        let count = crate::copied::characters(text);
+        let lights = match app.flashing {
+            Flashing::Full => FlashingLights::Full,
+            Flashing::Dimmed => FlashingLights::Dimmed,
+        };
+        let runs = count != crate::copied::Characters(0)
+            && crate::copied::pulse_runs(app.copied.message(), app.motion, lights)
+            && app.bell.pulse(host_now(), crate::copied::PULSE_FOR);
+        let pulse = match runs {
+            true => crate::copied::Pulse::Run,
+            false => crate::copied::Pulse::Skip,
+        };
+        if app.copied.selection(count, pulse) == crate::copied::Owes::Frame {
+            app.pending = Pending::Dirty;
+        }
+        app.say_copied();
     }
 
     /// Cmd-V: the pasteboard's string to the child, bracketed when it

@@ -96,6 +96,25 @@ pub(crate) fn lights_pace(m: crate::config::SystemMotion) -> baud_render::Pace {
     }
 }
 
+/// **Dim Flashing Lights**, macOS's: a video accommodation that dims what
+/// flashes (`baud_present_macos::settings::flashing`). Linux's desktop has no
+/// such setting, so its driver passes [`FlashingLights::Full`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FlashingLights {
+    Full,
+    /// Only macOS has the setting to turn on.
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    Dimmed,
+}
+
+/// **Whether a copy's pulse may run**: not under Reduce Motion, as the bell's
+/// flash does not (`bell::ring`), and not under Dim Flashing Lights, whose
+/// whole ask is less flashing. Nothing takes its place, and the words show as
+/// usual.
+pub(crate) fn pulse_may_run(m: crate::config::SystemMotion, f: FlashingLights) -> bool {
+    m == crate::config::SystemMotion::Full && f == FlashingLights::Full
+}
+
 /// Increase Contrast: "UI should be presented with high contrast such as
 /// utilizing a less subtle color palette or bolder lines"
 /// ([[source: macos-sdk-nsaccessibility-h]] line 93); on Linux the
@@ -160,6 +179,18 @@ mod tests {
         assert_eq!(full.dwell, Duration::from_millis(200));
         assert_eq!(steady.hold, Duration::from_secs(2));
         assert_eq!(steady.dwell, Duration::from_secs(2));
+    }
+
+    /// **The pulse runs only with full motion and no dimmed lights**: all
+    /// four inputs. Perturbation: drop either half of `pulse_may_run`, and
+    /// its row flips.
+    #[test]
+    fn the_pulse_runs_only_with_full_motion_and_lights() {
+        use FlashingLights::{Dimmed, Full};
+        assert!(pulse_may_run(SystemMotion::Full, Full));
+        assert!(!pulse_may_run(SystemMotion::Full, Dimmed));
+        assert!(!pulse_may_run(SystemMotion::Reduced, Full));
+        assert!(!pulse_may_run(SystemMotion::Reduced, Dimmed));
     }
 
     /// **Under `"os"` a kitty animation plays only with full motion and

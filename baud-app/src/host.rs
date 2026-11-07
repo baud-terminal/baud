@@ -210,6 +210,7 @@ pub fn set_up_renderer(
         cfg.activity_lights_colours,
         baud_render::Halo::of(cfg.activity_lights_glow),
     );
+    renderer.set_message_colours(cfg.message.colours);
 }
 
 /// **What the Linux driver tells a new terminal from the config**, before

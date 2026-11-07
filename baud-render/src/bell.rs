@@ -589,6 +589,26 @@ impl ScreenFlash {
         self.pace.owed
     }
 
+    /// **A short flash of less than the whole screen**, a copy's pulse, from
+    /// `now` for `length`: its two changes taken from the same budget, or
+    /// none where the second has no room for both, so a program and a person
+    /// together never pass [`CHANGES`] a second. Counted now, where the
+    /// flash's return completes later, as a tint's fall is.
+    pub fn spend_pair(self, now: Duration, length: Duration) -> Option<ScreenFlash> {
+        let mut pace = self.pace;
+        match pace.fits(now, Need::Two) {
+            Fits::Yes => {
+                pace.record(now);
+                pace.record(now + length);
+                Some(ScreenFlash {
+                    bell: self.bell,
+                    pace,
+                })
+            }
+            Fits::No => None,
+        }
+    }
+
     /// **The frame `plan` was for was dropped**, its present failed: the
     /// screen shows what the last drawn frame drew. A bell's flash on
     /// screen runs on as the frame left it, and one it would have started

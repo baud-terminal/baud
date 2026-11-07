@@ -3162,6 +3162,10 @@ impl Hints {
     pub const SUFFIX: Hints = Hints(16);
     pub const SPELLING_ERROR: Hints = Hints(32);
     pub const COMPOSE_ERROR: Hints = Hints(64);
+    /// **Drawn in baud's message pair** ([`crate::message`]), an opaque box
+    /// and text a program cannot change: not one of `text-input-v3`'s, and
+    /// never carried by an input method's composition.
+    pub const MESSAGE: Hints = Hints(128);
 
     pub fn with(self, h: Hints) -> Hints {
         Hints(self.0 | h.0)
@@ -3201,8 +3205,16 @@ enum Rule {
 #[derive(Clone, Copy, Debug)]
 struct Drawing {
     selected: Selected,
+    pair: Paired,
     adds: Attrs,
     rule: Rule,
+}
+
+/// Whether a cluster is drawn in the message pair ([`Hints::MESSAGE`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Paired {
+    No,
+    Yes,
 }
 
 /// The palette entry an error's curly line takes, `SGR 58:5:1`'s: red.
@@ -3223,6 +3235,10 @@ impl Drawing {
             selected: match h.has(Hints::SELECTION) {
                 true => Selected::Yes,
                 false => Selected::No,
+            },
+            pair: match h.has(Hints::MESSAGE) {
+                true => Paired::Yes,
+                false => Paired::No,
             },
             adds: match h.has(Hints::PREDICTION) {
                 true => Attrs::ITALIC,
@@ -3907,7 +3923,7 @@ pub(crate) fn composition_parts(
         cols,
         pan,
     };
-    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.field_hilite());
     let block_paint = r.block_paint();
     let frame = r.frame_held();
     let base = hinted_base((term, frame.words()), styles, under);
@@ -4396,7 +4412,7 @@ pub(crate) fn composition_parts(
         for x in x0..x0 + n {
             let d = drawn(x);
             let left = i32::try_from(x).unwrap_or(0) * cell_w;
-            if look.selected == Selected::Yes {
+            if look.selected == Selected::Yes || look.pair == Paired::Yes {
                 pages.push(bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg));
             }
             if !d.text.draws() {
@@ -4631,6 +4647,9 @@ impl HintedBase {
     /// The rendition a cluster drawn `look` takes: the table's own where
     /// its hints add nothing to it, else resolved afresh.
     fn of(&self, r: &Renderer<'_, '_>, term: &Term<'_>, look: Drawing) -> Resolved {
+        if look.pair == Paired::Yes {
+            return r.message_rendition(self.resolved);
+        }
         let word = look.word(self.word);
         match word == self.word {
             true => self.resolved,
@@ -4744,7 +4763,7 @@ fn sized_composition(
         bottom: Px::of(u32::try_from(row_top + cell_h).unwrap_or(0)),
     };
     let top = box_top(size, band);
-    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.field_hilite());
     let block_paint = r.block_paint();
     let frame = r.frame_held();
     let base = hinted_base((term, frame.words()), styles, under);

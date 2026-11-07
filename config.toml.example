@@ -544,6 +544,40 @@ body_kb = 256
 # changes neither.
 copy_on_select = "on"
 
+# baud's short messages, such as the words a copy says, are drawn in a box of
+# their own, opaque, in two colours a program cannot change.
+#
+# [message]
+#
+# The box's colour: "baud", amber on dark, on light and under every theme;
+# "#rrggbb"; or "none", the selection's colour, read as each frame is drawn.
+# Keep it quoted: an unquoted # starts a comment. A pair of fixed colours that
+# reads under 4.5:1 is refused and said, and baud's stay; with "none", a pair
+# under 4.5:1 at the moment it is drawn draws in baud's instead.
+# box_color = "baud"
+#
+# The text's colour, the same way.
+# text_color = "baud"
+
+# What baud says when something is copied: "Copied 42 characters", or "A
+# program copied 42 characters" for a program's OSC 52, never the text. It goes
+# after 1.5 seconds or at any key, which still reaches the program.
+#
+# [message.copy]
+#
+# "on" or "off". "off" stops the words, the pulse and VoiceOver's announcement.
+# enable = "on"
+#
+# Where a copy of your selection is said: "tip", the row under it, or above it
+# on the last row; or "bar", the bottom of the window. A program's copy always
+# goes at the bottom. While Cmd (Ctrl on Linux) shows a link's address, the
+# address keeps its place and no words show.
+# place = "tip"
+#
+# "on" draws the selection in the box's colours for 150 ms when it is copied.
+# Never under Reduce Motion or Dim Flashing Lights, or with both colours "none".
+# pulse = "off"
+
 # Whether a program can move, resize, minimise, raise, lower, maximise or
 # full-screen the window (xterm's window operations, CSI 1 t to CSI 10 t, and
 # DECSLPP, which asks for a number of lines). "on" by default, as xterm ships

@@ -331,6 +331,8 @@ struct Driver {
     status_line_lights: baud_render::StatusLineLights,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
+    /// What a copy says, and when it ends (`copied.rs`).
+    copied: crate::copied::Signal<Instant>,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
@@ -684,6 +686,7 @@ pub fn run() {
         badge: cfg.badge,
         status_line_lights: cfg.status_line_lights,
         line_tip: crate::line_tip::LineTip::default(),
+        copied: crate::copied::Signal::new(cfg.message),
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
@@ -725,6 +728,12 @@ pub fn run() {
             .map(|t| t.saturating_duration_since(now));
         let flash = d
             .bell
+            .deadline()
+            .filter(|&t| t > now)
+            .map(|t| t.saturating_duration_since(now));
+        // The end of a copy's words or pulse, the same way (`copied.rs`).
+        let copied = d
+            .copied
             .deadline()
             .filter(|&t| t > now)
             .map(|t| t.saturating_duration_since(now));
@@ -782,8 +791,8 @@ pub fn run() {
         // OH read again in DEC's 80 ms while its line shows the words.
         let words = d.line_lamps_wait(now);
         let timeout = [
-            sync, repeat, flash, caret, decode, paste, delay, effects, frames, expiry, settle,
-            report, lights, words,
+            sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
+            settle, report, lights, words,
         ]
         .into_iter()
         .flatten()
@@ -882,6 +891,9 @@ pub fn run() {
         // plans by its display link's target.
         let at = d.window.next_shown(now);
         if d.bell.is_due(at) {
+            d.pending = Pending::Dirty;
+        }
+        if d.copied.is_due(at) {
             d.pending = Pending::Dirty;
         }
         // Nothing while a synchronised update holds the frame
@@ -1111,6 +1123,8 @@ impl Driver {
             self.clipboard.osc52,
         );
         let mut uncopied = Copied::Set;
+        // A program's copies this read, said once after it (`copied.rs`).
+        let mut copies = crate::copied::Batch::default();
         let mut asked = Vec::new();
         // A program's font changes, performed after the read (`fonts.rs`).
         let mut fonts_asked = Vec::new();
@@ -1139,8 +1153,16 @@ impl Driver {
                     if let Some(line) = warn {
                         crate::warn!("{line}");
                     }
+                    let text = match d {
+                        crate::clip::Decision::Set(text) => Some(text),
+                        _ => None,
+                    };
                     match program_copy(window, conn, t, d) {
-                        Copied::Set => {}
+                        Copied::Set => {
+                            if let Some(text) = text {
+                                copies.copied(text);
+                            }
+                        }
                         Copied::Unavailable => uncopied = Copied::Unavailable,
                         Copied::Unfocused => {
                             if let Some(line) = clips.sent_unfocused() {
@@ -1186,6 +1208,9 @@ impl Driver {
         }
         if uncopied == Copied::Unavailable {
             self.uncopied_once();
+        }
+        if self.copied.program(copies, Instant::now()) == crate::copied::Owes::Frame {
+            self.pending = Pending::Dirty;
         }
         // The selection after the read: renumbered, or dropped where the
         // read wrote over it, switched or reset (`seat.rs`). A switch takes
@@ -1938,6 +1963,11 @@ impl Driver {
                 Part::CopyOnSelect => {
                     self.clipboard.copy_on_select = c.clipboard.copy_on_select;
                 }
+                Part::Message => {
+                    self.renderer.set_message_colours(c.message.colours);
+                    self.copied.set(c.message);
+                    self.pending = Pending::Dirty;
+                }
                 Part::AmbiguousWidth => self.term.set_ambiguous_width(c.ambiguous_width),
                 Part::SpacingMarks => self.term.set_spacing_marks(c.join_spacing_marks),
                 Part::Splash => {
@@ -2220,6 +2250,10 @@ impl Driver {
 
     /// A key event where `pressed.rs` sends it.
     fn route_key(&mut self, route: crate::pressed::Route) {
+        // A key takes a copy's words down, and still goes on (`copied.rs`).
+        if route.typed() && self.copied.dismiss() == crate::copied::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
         let k = match route {
             crate::pressed::Route::Field(k) => {
                 self.find_key(crate::find::field_key(k.code, k.mods, k.text));
@@ -2318,13 +2352,36 @@ impl Driver {
             return;
         };
         match self.window.copy(&mut self.conn.sender(), board, &text) {
-            Copied::Set => {}
+            Copied::Set => self.selection_copied(&text),
             Copied::Unavailable => self.uncopied_once(),
             Copied::Unfocused => {
                 if let Some(line) = self.clips.sent_unfocused() {
                     crate::warn!("{line}");
                 }
             }
+        }
+    }
+
+    /// **A copy of the selection, said** (`copied.rs`): the words, whichever
+    /// selection it went to, and the pulse where the settings and the flash
+    /// budget allow it. Linux's desktop has no Dim Flashing Lights, and baud
+    /// exposes no element to a screen reader on it, so there is nothing to
+    /// announce through.
+    fn selection_copied(&mut self, text: &str) {
+        let count = crate::copied::characters(text);
+        let lights = crate::access::FlashingLights::Full;
+        let runs = count != crate::copied::Characters(0)
+            && crate::copied::pulse_runs(self.copied.message(), self.motion, lights)
+            && self.bell.pulse(
+                self.window.next_shown(Instant::now()),
+                crate::copied::PULSE_FOR,
+            );
+        let pulse = match runs {
+            true => crate::copied::Pulse::Run,
+            false => crate::copied::Pulse::Skip,
+        };
+        if self.copied.selection(count, pulse) == crate::copied::Owes::Frame {
+            self.pending = Pending::Dirty;
         }
     }
 
@@ -2868,7 +2925,8 @@ impl Driver {
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
         // The selection's share of the view, or `?1001`'s region.
-        self.renderer.set_highlight(self.seat.highlight(&self.term));
+        let highlight = self.seat.highlight(&self.term);
+        self.renderer.set_highlight(highlight);
         // iTerm2's cursor guide: what a program set, else `[cursor] guide`,
         // its one point at the scale's pixels.
         let scale = self.scale.factor();
@@ -2909,6 +2967,17 @@ impl Driver {
         }
         self.renderer.set_link(self.seat.hover_look().cloned());
         self.renderer.set_tip(self.line_tip.look().cloned());
+        // What a copy says, over that slot for its moment, and none under the
+        // link preview, which keeps the bar (`copied.rs`).
+        let (cols, rows) = self.term.geometry();
+        let preview = crate::copied::Preview::of(self.seat.hover_look());
+        let signal = self
+            .copied
+            .frame(seen_at, preview, highlight.as_ref(), cols, rows);
+        if let Some(look) = signal.look {
+            self.renderer.set_tip(Some(look));
+        }
+        self.renderer.set_selection_pulse(signal.pulse);
         // The input method's composition at the live cursor, and where
         // its candidate window opens -- at the input method's own cursor
         // in it, as drawn -- sent when it moved; while it hides its

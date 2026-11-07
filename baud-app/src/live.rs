@@ -77,6 +77,9 @@ pub enum Part {
     Notifications,
     /// `[clipboard] copy_on_select`.
     CopyOnSelect,
+    /// `[message]` and `[message.copy]`: the next frame draws in the colours,
+    /// and the next copy is said as they say.
+    Message,
     /// `[window] activity_lights`, `activity_lights_colours` and
     /// `activity_lights_glow`: the lights are put up or taken down, and
     /// drawn in the set and glow, at the next tick.
@@ -144,6 +147,7 @@ impl Part {
             | Part::Emoji
             | Part::Notifications
             | Part::CopyOnSelect
+            | Part::Message
             | Part::ActivityLights
             | Part::StatusLineLights
             | Part::Tearing
@@ -188,6 +192,7 @@ impl Part {
             Part::Emoji => "emoji",
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
+            Part::Message => "[message]",
             Part::ActivityLights => "[window] activity_lights",
             Part::StatusLineLights => "[window] status_line_lights",
             Part::Tearing => "[window] tearing",
@@ -273,6 +278,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         emoji,
         bell,
         clipboard,
+        message,
         config_reload,
         unfocused_cursor,
         badge,
@@ -360,6 +366,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         old.clipboard.copy_on_select != clipboard.copy_on_select,
         Part::CopyOnSelect,
     );
+    part(old.message != *message, Part::Message);
     part(
         old.activity_lights != *activity_lights
             || old.activity_lights_colours != *activity_lights_colours
@@ -584,6 +591,11 @@ mod tests {
                 "[clipboard]\ncopy_on_select = \"off\"\n",
                 Part::CopyOnSelect,
             ),
+            ("[message]\nbox_color = \"none\"\n", Part::Message),
+            ("[message]\ntext_color = \"#000000\"\n", Part::Message),
+            ("[message.copy]\nenable = \"off\"\n", Part::Message),
+            ("[message.copy]\nplace = \"bar\"\n", Part::Message),
+            ("[message.copy]\npulse = \"on\"\n", Part::Message),
             (
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,

@@ -531,6 +531,8 @@ pub struct Config {
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
     pub clipboard: Clipboard,
+    /// `[message]` and `[message.copy]`.
+    pub message: Message,
     /// `config_reload`: whether the running window follows the file.
     pub config_reload: ConfigReload,
 }
@@ -575,6 +577,51 @@ impl Clipboard {
         copy_on_select: CopyOnSelect::On,
         budget: baud_domain::ClipboardBudget::of_body(256 << 10),
     };
+}
+
+/// `[message.copy] enable`: whether a copy is said at all. Off stops the
+/// words, the pulse and the announcement.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CopySignal {
+    #[default]
+    On,
+    Off,
+}
+
+/// `[message.copy] place`: where a copy's words go. A program's copy has no
+/// selection to be placed by, and goes in the bar whichever this says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CopyPlace {
+    /// By the selection.
+    #[default]
+    Tip,
+    /// Where the link preview's bar goes.
+    Bar,
+}
+
+/// `[message.copy] pulse`: whether the selection takes the message pair for
+/// a moment when it is copied.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CopyPulse {
+    #[default]
+    Off,
+    On,
+}
+
+/// `[message.copy]`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct MessageCopy {
+    pub enable: CopySignal,
+    pub place: CopyPlace,
+    pub pulse: CopyPulse,
+}
+
+/// `[message]` and `[message.copy]`: baud's short messages, drawn in a pair
+/// a program cannot change (`baud_render::message`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Message {
+    pub colours: baud_render::MessageColours,
+    pub copy: MessageCopy,
 }
 
 /// The material, and the dimming over it.
@@ -1082,6 +1129,7 @@ impl Config {
             emoji: baud_render::EmojiDefault::Font,
             bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
+            message: Message::default(),
             config_reload: ConfigReload::On,
             source: None,
         }
@@ -2293,6 +2341,61 @@ impl Config {
                         "config: [clipboard] has no key {other:?}; it is ignored"
                     ));
                 }
+                ("message", "box_color") => {
+                    self.message.colours.page = message_paint(&value, "box_color", &mut said)
+                }
+                ("message", "text_color") => {
+                    self.message.colours.text = message_paint(&value, "text_color", &mut said)
+                }
+                ("message", other) => {
+                    said.push(format!(
+                        "config: [message] has no key {other:?}; it is ignored"
+                    ));
+                }
+                ("message.copy", "enable") => {
+                    self.message.copy.enable = match value.trim().trim_matches('"') {
+                        "on" => CopySignal::On,
+                        "off" => CopySignal::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [message.copy] enable {other:?} is not on or off; \
+                                 using the default, on"
+                            ));
+                            CopySignal::On
+                        }
+                    };
+                }
+                ("message.copy", "place") => {
+                    self.message.copy.place = match value.trim().trim_matches('"') {
+                        "tip" => CopyPlace::Tip,
+                        "bar" => CopyPlace::Bar,
+                        other => {
+                            said.push(format!(
+                                "config: [message.copy] place {other:?} is not tip or bar; \
+                                 using the default, tip"
+                            ));
+                            CopyPlace::Tip
+                        }
+                    };
+                }
+                ("message.copy", "pulse") => {
+                    self.message.copy.pulse = match value.trim().trim_matches('"') {
+                        "off" => CopyPulse::Off,
+                        "on" => CopyPulse::On,
+                        other => {
+                            said.push(format!(
+                                "config: [message.copy] pulse {other:?} is not on or off; \
+                                 using the default, off"
+                            ));
+                            CopyPulse::Off
+                        }
+                    };
+                }
+                ("message.copy", other) => {
+                    said.push(format!(
+                        "config: [message.copy] has no key {other:?}; it is ignored"
+                    ));
+                }
                 ("images", other) => {
                     said.push(format!(
                         "config: [images] has no key {other:?}; it is ignored"
@@ -2397,6 +2500,16 @@ impl Config {
                     "config: [{section}] has no key {other:?}; it is ignored"
                 )),
             }
+        }
+        // Two fixed colours that do not read: refused and said, baud's stay.
+        // A `"none"` is measured at draw (`baud_render::message`).
+        if self.message.colours.refused().is_some() {
+            said.push(format!(
+                "config: [message] box_color and text_color read under {}:1 together; \
+                 baud's own stay",
+                baud_render::message::LEAST_CONTRAST
+            ));
+            self.message.colours = baud_render::MessageColours::default();
         }
         if let Some(mut faces) = named {
             // The order: the configured faces, then baud's embedded font,
@@ -2515,6 +2628,28 @@ fn selection_pick(value: &str, key: &str, said: &mut Vec<String>) -> SelectionPi
                 "config: palette {key} {raw:?} is not \"none\" or a colour; the theme's stays"
             ));
             SelectionPick::Theme
+        }
+    }
+}
+
+/// One colour of `[message]`: `"baud"`, the default; `"none"`, the
+/// selection's at draw; or a colour as [`selection_pick`] reads one. Anything
+/// else is said and leaves baud's.
+fn message_paint(value: &str, key: &str, said: &mut Vec<String>) -> baud_render::MessagePaint {
+    use baud_render::MessagePaint;
+    let raw = value.trim().trim_matches('"');
+    match raw {
+        "baud" => return MessagePaint::Baud,
+        "none" => return MessagePaint::Selection,
+        _ => {}
+    }
+    match baud_domain::XColor::parse(raw.as_bytes()) {
+        baud_domain::XColor::Rgb(r, g, b) => MessagePaint::Colour(baud_render::Argb::rgb(r, g, b)),
+        _ => {
+            said.push(format!(
+                "config: [message] {key} {raw:?} is not \"baud\", \"none\" or a colour; baud's stays"
+            ));
+            MessagePaint::Baud
         }
     }
 }
@@ -5391,6 +5526,104 @@ mod reader {
             said.iter().any(|l| l.contains("substitute_mark")),
             "{said:?}"
         );
+    }
+
+    /// **`[message]` and `[message.copy]` read as they document**: the
+    /// defaults, each value, what a bad value says, and two fixed colours under
+    /// 4.5:1 refused and said, baud's staying, where a `"none"` is left to the
+    /// frame. Perturbations: drop the refusal after the keys; read `"none"` as
+    /// baud's; read a dotted section's key under `[message]`.
+    #[test]
+    fn the_message_sections_read_as_they_document() {
+        use baud_render::{Argb, MessageColours, MessagePaint};
+        let rgb = |r, g, b| {
+            use baud_domain::Chan;
+            Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+        };
+        let d = Config::defaults().message;
+        assert_eq!(d.colours, MessageColours::default());
+        assert_eq!(d.colours.page, MessagePaint::Baud);
+        assert_eq!(d.colours.text, MessagePaint::Baud);
+        assert_eq!(d.copy.enable, CopySignal::On);
+        assert_eq!(d.copy.place, CopyPlace::Tip);
+        assert_eq!(d.copy.pulse, CopyPulse::Off);
+        let mut c = Config::defaults();
+        let said = c.apply(
+            "[message]\nbox_color = \"none\"\ntext_color = \"#ffffff\"\n\
+             [message.copy]\nenable = \"off\"\nplace = \"bar\"\npulse = \"on\"\n",
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.message.colours.page, MessagePaint::Selection);
+        assert_eq!(
+            c.message.colours.text,
+            MessagePaint::Colour(rgb(255, 255, 255))
+        );
+        assert_eq!(c.message.copy.enable, CopySignal::Off);
+        assert_eq!(c.message.copy.place, CopyPlace::Bar);
+        assert_eq!(c.message.copy.pulse, CopyPulse::On);
+        for (bad, key) in [
+            ("[message]\nbox_color = \"nope\"\n", "box_color"),
+            ("[message]\ntext_color = \"nope\"\n", "text_color"),
+            ("[message]\nother = 1\n", "other"),
+            ("[message.copy]\nenable = \"yes\"\n", "enable"),
+            ("[message.copy]\nplace = \"top\"\n", "place"),
+            ("[message.copy]\npulse = \"yes\"\n", "pulse"),
+            ("[message.copy]\nother = 1\n", "other"),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(bad);
+            assert_eq!(c.message, d, "{bad}");
+            assert!(
+                said.iter()
+                    .any(|s| s.contains("[message") && s.contains(key)),
+                "{bad}: {said:?}"
+            );
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[message]\nbox_color = \"#000000\"\ntext_color = \"#111111\"\n");
+        assert_eq!(c.message.colours, MessageColours::default(), "baud's stay");
+        assert!(
+            said.iter()
+                .any(|s| s.contains("[message]") && s.contains("4.5")),
+            "{said:?}"
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[message]\nbox_color = \"none\"\ntext_color = \"#111111\"\n");
+        assert!(said.is_empty(), "the frame measures a \"none\": {said:?}");
+        assert_eq!(c.message.colours.page, MessagePaint::Selection);
+    }
+
+    /// **The example's message lines, each written as a comment, read as the
+    /// defaults with nothing said**, uncommented whole; the five keys are all
+    /// there. Perturbation: write another value in a comment in the example.
+    #[test]
+    fn the_examples_message_lines_read_as_the_defaults() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../config.toml.example"
+        ))
+        .expect("config.toml.example");
+        let lines: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("# "))
+            .filter(|l| {
+                [
+                    "[message",
+                    "box_color =",
+                    "text_color =",
+                    "enable =",
+                    "place =",
+                    "pulse =",
+                ]
+                .iter()
+                .any(|p| l.starts_with(p))
+            })
+            .collect();
+        assert_eq!(lines.len(), 7, "two headers and five keys: {lines:?}");
+        let mut c = Config::defaults();
+        let said = c.apply(&lines.join("\n"));
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.message, Config::defaults().message);
     }
 
     /// **`[clipboard] copy_on_select` is on unless it says off** (note

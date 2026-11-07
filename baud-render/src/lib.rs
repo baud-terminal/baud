@@ -55,6 +55,7 @@ pub mod lightning;
 pub mod lights;
 mod linked;
 pub mod liquid;
+pub mod message;
 mod metrics;
 pub mod orb;
 mod overlay;
@@ -134,6 +135,7 @@ pub use lights::{
     line_lamps,
 };
 pub use linked::{LinkLook, LinkSpan};
+pub use message::{MessageColours, MessagePaint, Pair, SelectionPulse};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
     Caret, Composition, CursorDrawn, Hints, Laid, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD,
@@ -163,7 +165,10 @@ pub use stack::{
 };
 pub use status::{Leaving, StatusMarks};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
-pub use tip::{Opens, TIP_COLS, TipArea, TipLook, tip_look, tip_look_opening};
+pub use tip::{
+    MESSAGE_FOR, MessageAt, Opens, TIP_COLS, TipAnchor, TipArea, TipLook, message_look, tip_look,
+    tip_look_opening,
+};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, TAU_SLOW, Trail, TrailLook, coverage as quad_coverage,
 };

@@ -24,6 +24,12 @@
 //! (`[[source: wcag22]]`). Over a line above the main display, the lights'
 //! at the top, the box opens down instead ([`Opens::Down`]), its first
 //! line a row below the main display's first.
+//!
+//! **A message is a tip with an end**: the same box, in baud's fixed pair
+//! ([`crate::message`]), placed by what it is about ([`message_look`]), up
+//! for [`MESSAGE_FOR`] or until a key. WCAG's 1.4.13 is about content a hover
+//! brings, and a message has no hover to outlast. Nothing fades, so the
+//! motion preference changes nothing about it.
 
 use baud_domain::{Codepoint, Col, Cols, Row, Rows};
 
@@ -97,6 +103,117 @@ pub enum Opens {
     Up,
     /// Down from a line above it: the lights' at the top.
     Down,
+}
+
+/// How long a message stays: its start and its end cost a frame each, and
+/// the driver owes the second on a deadline.
+pub const MESSAGE_FOR: core::time::Duration = core::time::Duration::from_millis(1500);
+
+/// **The selected rows a message is placed by**: the first and the last on
+/// the view, and the column the selection starts at on each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TipAnchor {
+    pub first: (Row, Col),
+    pub last: (Row, Col),
+}
+
+impl TipAnchor {
+    /// Where `h` lies on the view; none where it has no cell on it.
+    /// A block starts at its left on every row; a stream at its start on
+    /// its first row, and at the left edge on every row after that.
+    pub fn of(h: &crate::select::Highlight) -> Option<TipAnchor> {
+        let (from, to) = (h.from, h.to);
+        if from.0.index() > to.0.index() {
+            return None;
+        }
+        let (first, last) = match h.region {
+            crate::select::Region::Block => {
+                let left = Col::at_index(from.1.index().min(to.1.index()));
+                (left, left)
+            }
+            crate::select::Region::Stream if from.0 == to.0 => (from.1, from.1),
+            crate::select::Region::Stream => (from.1, Col::ZERO),
+        };
+        Some(TipAnchor {
+            first: (from.0, first),
+            last: (to.0, last),
+        })
+    }
+}
+
+/// **Where a message goes.**
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MessageAt {
+    /// By the selection: the row under its last, or on the main display's
+    /// last row the row above its first, from the selection's left, moved
+    /// in to fit.
+    Tip(TipAnchor),
+    /// Where the link preview's bar goes when no link is under it: the main
+    /// display's last row, from the left edge.
+    Bar,
+}
+
+/// **`text` laid out as a message**, in the message pair, under a main
+/// display `rows` tall and `cols` wide: wrapped as a tip is, each line
+/// padded to the widest with a space either side. With too few rows for
+/// every line it shows the first that fit, and none with no room at all.
+pub fn message_look(text: &str, cols: Cols, rows: Rows, at: MessageAt) -> Option<TipLook> {
+    let (cols, rows) = (cols.index(), rows.index());
+    let measure = TIP_COLS.min(cols.checked_sub(2)?);
+    if measure == 0 || rows == 0 {
+        return None;
+    }
+    let lines = wrap(text, Cols::of_index(measure));
+    let n = lines.len();
+    if n == 0 {
+        return None;
+    }
+    let width = lines.iter().map(Vec::len).max().unwrap_or(0) + 2;
+    let room = cols - width;
+    let (top, left) = match at {
+        MessageAt::Bar => (rows.saturating_sub(n), 0),
+        MessageAt::Tip(a) => {
+            let (first, last) = (a.first.0.index(), a.last.0.index());
+            if last + 1 + n <= rows {
+                (last + 1, a.last.1.index())
+            } else if first >= n {
+                (first - n, a.first.1.index())
+            } else {
+                (rows.saturating_sub(n), a.first.1.index())
+            }
+        }
+    };
+    // A window that shrank since the selection was made may leave the row
+    // it is placed by below the last.
+    let top = top.min(rows.saturating_sub(n));
+    let left = left.min(room);
+    let shown = n.min(rows - top);
+    let fields = lines[..shown]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let mut text: Vec<Codepoint> = Vec::with_capacity(width);
+            text.push(Codepoint::from_char(' '));
+            text.extend(line.iter().map(|&c| Codepoint::from_char(c)));
+            text.resize(width, Codepoint::from_char(' '));
+            Field {
+                row: Row::from_index(top + i),
+                col: Col::at_index(left),
+                hints: vec![Hints::MESSAGE; width],
+                caret: Col::at_index(left + width),
+                text,
+            }
+        })
+        .collect();
+    Some(TipLook {
+        lines: fields,
+        area: TipArea {
+            top: Row::from_index(top),
+            bottom: Row::from_index(top + shown),
+            left: Col::at_index(left),
+            right: Col::at_index(left + width),
+        },
+    })
 }
 
 /// **`text` laid out as a tip above DEC's line**, under a main display

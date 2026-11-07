@@ -38,6 +38,17 @@ pub enum Route {
     Nobody,
 }
 
+impl Route {
+    /// **Whether this is a key typed**, a press or a repeat: a release is the
+    /// end of one, which letting go of Ctrl after a copy's chord would be.
+    pub fn typed(self) -> bool {
+        match self {
+            Route::Program(k) | Route::Field(k) => k.kind != KeyEventKind::Release,
+            Route::Nobody => false,
+        }
+    }
+}
+
 /// The presses the program was sent and not yet told the end of.
 #[derive(Default)]
 pub struct Pressed(Vec<KeyEvent>);

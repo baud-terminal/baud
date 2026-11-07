@@ -4521,6 +4521,27 @@ to `~/.colima` with `XDG_CONFIG_HOME` unset or `~/.colima` there, and to
 the demo makes the directory first, in `/tmp` for the sockets (a live VM's longest,
 `user-v2_qemu.sock`, was 74 bytes of `sun_path`'s 104), and names it on every colima call.
 
+## The copy signal: its numbers are owed
+
+A copy now says so: "Copied N characters" by the selection or in the bar, 1.5
+seconds or any key (`baud-app/src/copied.rs`, `baud_render::tip`), in a fixed
+pair of colours measured at draw (`baud_render::message`), with an optional
+150 ms pulse of the selection under the bell's flash budget, and VoiceOver's
+announcement. **It has been compiled and not run: no test has been executed
+and no figure below is a measurement.**
+
+What the change touches: no cell and no core state. `baud-core` is unchanged,
+so the per-byte path should be the same code; the build round compares the
+machine code of `ingest2` and times it only if that differs. The frame path
+gains one call asked on every macOS tick, which returns at once with nothing up,
+and a field read in each composition. While words are up it allocates a look a
+tick, as the hover tip clones one.
+
+Owed by the build round, with an A/A arm and ranges: `ingest2` on the recordings;
+the `frame` bench with and without a message up; frames drawn by a program
+looping `OSC 52`, which `a_program_looping_copies_cannot_flood_frames_or_announcements`
+bounds in the state and only a real frame loop can count.
+
 ## The demo's refusal on the session
 
 Not timed on a byte path: this is the recorder's guard. `guard::console` reads seven states

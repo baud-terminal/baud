@@ -1151,6 +1151,28 @@ const _: () = assert!(core::mem::size_of::<Resolved>() == Resolved::BYTES);
 impl Resolved {
     pub const BYTES: usize = 36;
 
+    /// **The rendition one fixed pair draws in**: `text` on `page`, both
+    /// opaque and solid whatever the window's dim, each with its own curve
+    /// row, and nothing else of any rendition. No theme, no `?5` and no
+    /// highlight has a part in it, since [`Resolved::drawn`] reads these
+    /// fields alone for a cell not selected ([`crate::message`]).
+    pub(crate) fn fixed(page: Argb, text: Argb) -> Resolved {
+        let (page, page_row) = with_curve(page);
+        let (text, text_row) = with_curve(text);
+        let curves = Curves::of(text_row, page_row);
+        Resolved {
+            fg: text,
+            bg: page,
+            underline: text,
+            shapes: Shapes::OPAQUE_BG,
+            curves,
+            glass: text,
+            glass_curves: curves,
+            line: text,
+            line_curves: curves,
+        }
+    }
+
     /// Whether the cell's own text draws: its glyph, its underline and its
     /// strike. **Hidden text draws its background and nothing of its own**,
     /// which is not the same as drawing the glyph in the background's colour

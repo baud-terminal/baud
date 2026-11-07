@@ -265,6 +265,14 @@ pub fn contrast_over(text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) ->
     Behind::over(page, alpha, backdrop).ratio(Lum::of(text))
 }
 
+/// **The contrast of two opaque colours**: WCAG 2.2's ratio
+/// (`[[source: wcag22]]`), the lighter over the darker, each with 0.05
+/// added. What a box baud draws opaque is measured by: nothing behind it
+/// counts.
+pub fn contrast_of(a: Argb, b: Argb) -> f64 {
+    Lum::of(a).ratio(Lum::of(b))
+}
+
 /// What the window's material can show under a page drawn below full
 /// alpha: every channel of it lies between two greys, in encoded sRGB.
 ///

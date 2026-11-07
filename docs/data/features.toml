@@ -1325,6 +1325,15 @@ chips = ["OSC 52"]
 shipped = ["2026-10-11-osc-52-clipboard-writes-reach-the"]
 
 [[feature]]
+id = "copy-signal"
+area = "input"
+name = "baud says when something is copied"
+does = "A copy says so for a moment beside your selection: \"Copied 42 characters\", or \"A program copied 42 characters\" at the bottom of the window when a program did it, never the text. Any key takes it away and still reaches the program. VoiceOver speaks the same words on a Mac, the colours are yours to set and no program's to change, and you can turn it off."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/copied.rs::the_words_are_the_counts_and_name_no_board", "baud-app/src/copied.rs::words_end_on_their_deadline_and_owe_two_frames", "baud-app/src/copied.rs::a_program_looping_copies_cannot_flood_frames_or_announcements", "baud-render/tests/message_pair.rs::nothing_a_program_sets_reaches_the_pair", "baud-render/tests/message_pair.rs::decrqcra_answers_the_same_with_a_message_up", "baud-present-macos/tests/cells.rs::the_message_pair_holds_on_every_arm"]
+
+[[feature]]
 id = "no-clipboard-read"
 area = "input"
 name = "No program can read your clipboard"

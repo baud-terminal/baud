@@ -2294,6 +2294,10 @@ pub struct Renderer<'f, 'a> {
     /// ([`Term::highlight_colors`]): reverse video until an application sets
     /// `OSC 17` or `19`.
     hilite: Hilite,
+    /// The same with no copy pulse in it, which baud's own fields draw in:
+    /// the pulse is the selection's, and the address and the find field keep
+    /// their colours through it ([`Renderer::set_selection_pulse`]).
+    field_hilite: Hilite,
     /// The colours a reverse-video selection takes while the window is not
     /// key, or none: [`Renderer::set_inactive_selection`].
     inactive: Option<Hilite>,
@@ -2407,6 +2411,10 @@ pub struct Renderer<'f, 'a> {
     /// as under the link preview's bar.
     tip: Option<crate::tip::TipLook>,
     last_tip: Option<crate::tip::TipLook>,
+    /// What a field in the message pair is drawn in, and whether the
+    /// selection takes it for a moment ([`crate::message`]).
+    message_colours: crate::message::MessageColours,
+    selection_pulse: crate::message::SelectionPulse,
     /// The embedder's notice, its own row below the grid and the status
     /// line ([`Renderer::set_notice`]), and the field the last frame drew
     /// it as.
@@ -2900,6 +2908,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             highlight: None,
             last_highlight: None,
             hilite: Hilite::REVERSE,
+            field_hilite: Hilite::REVERSE,
             inactive: None,
             bar: None,
             last_bar: None,
@@ -2947,6 +2956,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_link: None,
             tip: None,
             last_tip: None,
+            message_colours: crate::message::MessageColours::default(),
+            selection_pulse: crate::message::SelectionPulse::Off,
             notice: None,
             last_notice: None,
             link_inst: Vec::new(),
@@ -3906,6 +3917,43 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`crate::Overlay::composed`] after the images, as it draws the bar.
     pub fn set_tip(&mut self, look: Option<crate::tip::TipLook>) {
         self.tip = look;
+    }
+
+    /// **The colours a message is drawn in** ([`crate::message`]), which a
+    /// field whose hints name [`crate::Hints::MESSAGE`] reads at draw.
+    pub fn set_message_colours(&mut self, colours: crate::message::MessageColours) {
+        self.message_colours = colours;
+    }
+
+    /// **The selection drawn in the message pair for the next frames**, or
+    /// its own colours: the copy signal's pulse. Every path reads the
+    /// selection's colours through [`Renderer::hilite`], and a change of
+    /// them repaints every row, so it costs a frame to start and one to
+    /// end. A field of baud's reads [`Renderer::field_hilite`], so the find
+    /// field, the link preview's bar and the notice do not flash with it.
+    pub fn set_selection_pulse(&mut self, pulse: crate::message::SelectionPulse) {
+        self.selection_pulse = pulse;
+    }
+
+    /// The rendition a field in the message pair is drawn in, over `under`,
+    /// the default cell as the frame's table resolved it: the selection's
+    /// colours on it are what `"none"` names, read at draw, so the pair is
+    /// checked against the colours in force.
+    pub(crate) fn message_rendition(&self, under: Resolved) -> Resolved {
+        let selected = under.drawn(Swaps {
+            pictured: crate::picture::Pictured::No,
+            line: Line::No,
+            selected: Selected::Yes,
+            hilite: self.field_hilite,
+            block: BlockCursor::No,
+            blink: BlinkPhases::SHOWN,
+            cursor: Chan::from_u8(0xFF),
+        });
+        let pair = self.message_colours.in_force(crate::message::Pair {
+            page: selected.bg,
+            text: selected.fg,
+        });
+        Resolved::fixed(pair.page, pair.text)
     }
 
     /// The hover tip's lines as the cell path draws them, none while no
@@ -5570,6 +5618,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.hilite
     }
 
+    /// The selection's colours as a field of baud's draws them, a copy's
+    /// pulse aside ([`Renderer::set_selection_pulse`]).
+    pub(crate) fn field_hilite(&self) -> Hilite {
+        self.field_hilite
+    }
+
     /// **The selection's colours while the window is not key**, or `None`
     /// while it is: the macOS app sets AppKit's unemphasized pair here, the
     /// colours AppKit draws a selection in "when the associated
@@ -5698,6 +5752,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let hilite = match self.inactive {
             Some(pair) if hilite == Hilite::REVERSE => pair,
             _ => hilite,
+        };
+        // baud's own fields keep these colours through a pulse.
+        self.field_hilite = hilite;
+        // The copy signal's pulse: the selection in the message pair, the
+        // pair read against the selection's own colours on the page.
+        let hilite = match self.selection_pulse {
+            crate::message::SelectionPulse::Off => hilite,
+            crate::message::SelectionPulse::On => {
+                let (text, page) = hilite.paint(defaults.1, defaults.0);
+                let pair = self
+                    .message_colours
+                    .in_force(crate::message::Pair { page, text });
+                Hilite::of(
+                    Some(CellPaint::Colour(pair.page)),
+                    Some(CellPaint::Colour(pair.text)),
+                )
+            }
         };
         if hilite != self.hilite {
             self.hilite = hilite;

@@ -499,6 +499,24 @@ impl<T: Moment> Bell<T> {
         self.rung = self.rung.next();
     }
 
+    /// **A copy's pulse asks for its two changes**, from `now` for `length`
+    /// (`copied.rs`): true where the budget every change of the whole screen
+    /// shares has room for both, which it then counts, so a person's copies
+    /// and a program's flashes together stay inside WCAG 2.3.1's rate
+    /// (`baud_render::bell`); false, and the pulse does not run.
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
+    pub fn pulse(&mut self, now: T, length: Duration) -> bool {
+        let origin = *self.origin.get_or_insert(now);
+        let at = now.elapsed_since(origin).max(self.drawn);
+        match self.screen.spend_pair(at, length) {
+            Some(screen) => {
+                self.screen = screen;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// When the next frame the bell owes is due, for a loop that waits on
     /// a clock: a flash's end, the moment the budget allows a change it
     /// holds, or while a `BEL`'s tint fades, the last drawn frame's moment
@@ -846,6 +864,26 @@ mod tests {
         let p = b.plan(t, now, update);
         b.commit(p);
         p.flash
+    }
+
+    /// **A copy's pulse shares the flash budget**: two pulses take its four
+    /// changes, the third in that second is refused and spends nothing, and a
+    /// second later a pulse runs again. Perturbation: return true from
+    /// `Bell::pulse` with no check, and the third runs.
+    #[test]
+    fn a_pulse_shares_the_flash_budget() {
+        let mut owned = Owned::new(&WS);
+        let term = Term::new(owned.storage(), &WS);
+        let mut b: Bell<HostTime> = Bell::new(&term, LEN);
+        let len = Duration::from_millis(150);
+        assert!(b.pulse(at(MS), len), "the first");
+        assert!(b.pulse(at(MS * 200), len), "the second");
+        assert!(!b.pulse(at(MS * 400), len), "the third in that second");
+        assert!(
+            !b.pulse(at(MS * 600), len),
+            "and it spent nothing to wait on"
+        );
+        assert!(b.pulse(at(MS * 1500), len), "a second on");
     }
 
     /// **The Linux driver rings as [`ring`] decides, and only so**: its

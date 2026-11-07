@@ -65,6 +65,10 @@ mod caret;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod clip;
 mod config;
+// What a copy says and for how long: pure, so its tests run on every
+// platform; both drivers read it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod copied;
 // Fonts by family name: the installed faces, read once at launch, and the
 // face a family and a style pick among them, for both drivers.
 #[cfg(any(target_os = "macos", target_os = "linux"))]

@@ -14615,6 +14615,114 @@ fn three_arms(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str) -> Vec<u32>
     a
 }
 
+/// **Text enough that the map holds the scene's glyphs**, which
+/// [`Arms::draw`] asks of every frame: a line on row 7, which no message,
+/// address or line check reads, written with the cursor saved and put back,
+/// so a test's cursor is where it left it.
+const ENOUGH_GLYPHS: &[u8] = b"\x1b7\x1b[7;3HThe quick brown fox jumps 0123456789\x1b8";
+
+/// **baud's message pair on every arm**: the instance arm, the cell arm
+/// through `Overlay::composed` and the CPU arm draw one frame, and under
+/// each of a program's `OSC 17`, `19`, `10`, `11`, `4` and `?5`, on dark and
+/// light, its padding is `#F4A32C` in every pixel and its letters reach
+/// `#15171B`; with both colours `"none"` and a program's unreadable pair, the
+/// same pair at draw. Perturbations: read `Hints::MESSAGE` as the selection
+/// in `Drawing::of`, which any program moves on all three; drop the page in
+/// `composition_parts`' `look.pair` arm, which shows the frame through the
+/// box on the instance and cell arms; resolve in `in_force` with no check,
+/// which draws the grey pair.
+#[test]
+fn the_message_pair_holds_on_every_arm() {
+    use baud_render::{MessageAt, MessageColours, MessagePaint, Pair, TipAnchor, message_look};
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let (cols, rows) = (
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    );
+    let fresh = |theme: Theme| {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme,
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .unwrap()
+    };
+    let at = (Row::from_index(3), Col::at_index(5));
+    let look = message_look(
+        "Copied 42 characters",
+        cols,
+        rows,
+        MessageAt::Tip(TipAnchor {
+            first: at,
+            last: at,
+        }),
+    )
+    .expect("room");
+    let (row, left) = (look.lines[0].row.index(), look.lines[0].col.index());
+    let width = look.lines[0].text.len();
+    let none = MessageColours {
+        page: MessagePaint::Selection,
+        text: MessagePaint::Selection,
+    };
+    let programs: [(&str, &[u8], MessageColours); 8] = [
+        ("nothing", b"", MessageColours::default()),
+        (
+            "OSC 17",
+            b"\x1b]17;#102030\x1b\\",
+            MessageColours::default(),
+        ),
+        (
+            "OSC 19",
+            b"\x1b]19;#a0a0a0\x1b\\",
+            MessageColours::default(),
+        ),
+        (
+            "OSC 10",
+            b"\x1b]10;#00ff00\x1b\\",
+            MessageColours::default(),
+        ),
+        (
+            "OSC 11",
+            b"\x1b]11;#ff00ff\x1b\\",
+            MessageColours::default(),
+        ),
+        (
+            "OSC 4",
+            b"\x1b]4;0;#ff0000;7;#0000ff;15;#ffff00\x1b\\",
+            MessageColours::default(),
+        ),
+        ("?5", b"\x1b[?5h", MessageColours::default()),
+        (
+            "\"none\" under 4.5:1",
+            b"\x1b]17;#808080\x1b\\\x1b]19;#909090\x1b\\",
+            none,
+        ),
+    ];
+    for theme in [Theme::dark(), Theme::light()] {
+        for (name, bytes, colours) in programs {
+            arms!(fresh(theme.clone()) => arms, t);
+            feed(&mut t, b"\x1b[?25lsome text under it\r\nand more");
+            feed(&mut t, ENOUGH_GLYPHS);
+            feed(&mut t, bytes);
+            arms.renderer.set_message_colours(colours);
+            arms.tip = Some(look.clone());
+            let frame = three_arms(&mut arms, &mut t, name);
+            for p in crop_cell(&arms, &frame, (row, left)) {
+                assert_eq!(p, Pair::BAUD.page.0, "{name}: the box, whole");
+            }
+            let reached = (left + 1..left + width - 1)
+                .flat_map(|col| crop_cell(&arms, &frame, (row, col)))
+                .any(|p| p == Pair::BAUD.text.0);
+            assert!(reached, "{name}: the text's own colour was drawn");
+        }
+    }
+}
 /// The alaph of `word`, written from column 3 of row 2 after a clear, its
 /// cell's pixels on every arm: a letter, an erased cell and the alaph,
 /// whose logical column is 4 from zero.

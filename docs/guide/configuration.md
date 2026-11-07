@@ -51,6 +51,7 @@ emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width` and `join_spacing_marks`,
 and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
+`[message]` and `[message.copy]`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
 choices, `[pointer]`), and `[images] animation`.
@@ -214,6 +215,25 @@ unless you name a trail here.
 | `osc52` | `"write"`, `"off"` | `"write"` | Whether a program can copy text to your clipboard, which is how Neovim or tmux over ssh reach your Mac's clipboard, or on Linux the clipboard or the primary selection the program names (a copy naming neither, as tmux's does, goes where your own selection goes: the primary selection, unless a program has switched that to the clipboard). Programs can never read your clipboard. With `"write"`, anything printed in the terminal, a file you `cat` included, can replace what you copied. |
 | `body_kb` | number, KiB | `256` | The largest copy a program may make. 256 holds 192 KiB of text. A larger copy is refused whole, never cut short. |
 | `copy_on_select` | `"on"`, `"off"` | `"on"` | Whether letting go of a selection copies it. On a Mac `"on"` puts it on the clipboard, replacing what Cmd-C copied; `"off"` leaves the clipboard to Cmd-C, unless a program has asked for copy-on-select itself. On Linux a selection becomes the primary selection, which a middle click pastes, or the clipboard while a program has asked for that (xterm's ?1041); this key changes neither. |
+
+## [message]
+
+baud's short messages, such as the words a copy says, in a box of their own. A program can't change this box's colours, whatever it sets for its own text or the selection. The two colours are quoted, since an unquoted `#` starts a comment.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `box_color` | `"baud"`, `"#rrggbb"`, `"none"` | `"baud"` | The box's colour. `"baud"` is amber, #F4A32C, on dark, on light and under every theme; `"none"` is the selection's colour, read as each frame is drawn. A pair of fixed colours that reads under 4.5:1 is refused and said, and baud's stay. With `"none"`, a pair that reads under 4.5:1 at the moment it is drawn draws in baud's instead. |
+| `text_color` | `"baud"`, `"#rrggbb"`, `"none"` | `"baud"` | The text's colour. `"baud"` is #15171B, and the rest as for `box_color`. |
+
+## [message.copy]
+
+What baud says when something is copied: "Copied 42 characters", or "A program copied 42 characters" when a program did it (`OSC 52`), never the text itself. It goes after 1.5 seconds or at any key, which still reaches the program. It follows Cmd-C too (Ctrl+Shift+C on Linux), whatever `copy_on_select` says, and on Linux a finished selection, which goes to the primary selection. While Cmd (Ctrl on Linux) shows a link's address, the address keeps its place and no words show. VoiceOver speaks the same words on a Mac.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `enable` | `"on"`, `"off"` | `"on"` | Whether a copy is said at all. `"off"` stops the words, the pulse and VoiceOver's announcement. |
+| `place` | `"tip"`, `"bar"` | `"tip"` | Where a copy of your selection is said: `"tip"` on the row under the selection, above it on the last row, and `"bar"` at the bottom of the window, where a link's address shows. A program's copy has no selection, and always goes at the bottom. |
+| `pulse` | `"off"`, `"on"` | `"off"` | Whether your selection takes the box's colours for 150 ms when it is copied. It does not run under Reduce Motion or Dim Flashing Lights, with both colours `"none"`, or more often than the bell's limit on flashes allows; the words show either way. |
 
 ## [window]
 
