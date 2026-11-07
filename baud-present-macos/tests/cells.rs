@@ -48,6 +48,13 @@ use baud_render::{
 #[path = "../../baud-font/tests/sha256/mod.rs"]
 mod sha256;
 
+// What mpv sent, parsed from its capture with nothing of baud's: the
+// parser `baud-app`'s replay of the capture reads too, which also reads
+// the status lines this file does not look at.
+#[allow(dead_code)]
+#[path = "../../baud-app/src/film/mpv/capture.rs"]
+mod mpv_capture;
+
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
 /// and a scene that never reaches a far column cannot show a path that
 /// stops short of one -- which is what asciiquarium was reported doing,
@@ -1657,15 +1664,19 @@ fn diff_box(
 /// and `$t` in the caller's scope: the terminal whose grid is the GPU's
 /// shared memory, the core writing it and the shader reading it.
 macro_rules! arms {
+    // With image memory: without it a stored Sixel is *refused*, both arms
+    // draw nothing, and the image comparison passes while proving the opposite
+    // -- the `golden.rs` trap this file exists not to fall into.
     ($renderer:expr => $arms:ident, $t:ident) => {
+        arms!($renderer => $arms, $t, ImageBudget::of(64 * 48 + 64))
+    };
+    // A budget of the caller's: what a picture larger than the swirl needs.
+    ($renderer:expr => $arms:ident, $t:ident, $budget:expr) => {
         let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
         // The viewport is the GPU's memory: the core writes it, the shader
         // reads it.
-        // With image memory: without it a stored Sixel is *refused*, both arms
-        // draw nothing, and the image comparison passes while proving the opposite
-        // -- the `golden.rs` trap this file exists not to fall into.
         let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12))
-            .with_images(ImageBudget::of(64 * 48 + 64));
+            .with_images($budget);
         let (grid, cells) = gpu
             .grid(owned.ring(), owned.stride())
             .expect("a shared grid");
@@ -10088,6 +10099,387 @@ fn kitty_animation_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             );
         }
     }
+}
+
+/// **mpv's kitty video draws alike on every arm, and as mpv sent it**:
+/// `tests/recordings/kitty/mpv-logo-40x6.raw`, mpv 0.41.0 `--vo=kitty`
+/// playing the README's logo, fed a read at a time, each picture's decode
+/// run out. At the end of each of its thirteen uploads the instance, cell
+/// and CPU arms draw the same frame, and the instance arm's pixels where
+/// the frames are placed are the RGB of the newest complete upload,
+/// decoded from the capture's chunks by `mpv_capture`, which shares
+/// nothing with the decoder: so the three agree on mpv's picture and not
+/// on a blank. The controls before any comparison: nothing was refused but
+/// the chunks after each cut, a command with no size; the frames pile up,
+/// one placement an upload, every one at the cell mpv put them in and
+/// drawn; and a frame unlike the first is drawn over it. At a cut upload
+/// the frame before stays on top, until the second cut's text scrolls
+/// every frame off the alternate screen. The cell arm reads the window's
+/// copy, as the app's does on the alternate screen.
+///
+/// The budget holds every frame and the one a cut upload reserves, as the
+/// app's does at this size, so the quota deletes none;
+/// `under_a_two_frame_quota_mpvs_video_draws_alike_on_every_arm` holds the
+/// arms where it does.
+///
+/// No pixel brighter than luminance 200 in the source draws at or below
+/// it on the instance arm, checked before the exact RGB: a faint picture
+/// is the symptom it names.
+///
+/// Perturbations, each red here: `f=24` stored with alpha 0 -- the
+/// bright pixels of the first upload draw faint, the page under them; the
+/// draw order reversed -- the oldest frame is on top at the third upload,
+/// the first unlike the first frame.
+#[test]
+fn mpvs_kitty_video_draws_alike_on_every_arm() {
+    let bytes = std::fs::read(mpv_capture::PATH).expect("the capture");
+    let ups = mpv_capture::uploads(&bytes);
+    let (mpv_capture::Pixels(s), mpv_capture::Pixels(v)) = ups[0].size;
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let frames = ups.iter().filter(|u| u.rgb.is_some()).count();
+    // Every frame, and the one a cut upload reserves before it is cancelled.
+    arms!(renderer => arms, t, ImageBudget::of((frames + 1) * s * v + 64));
+    // The glyph map in use before the first frame, whose screen is blank;
+    // and the cell arm reading the window's copy, as the app's does on the
+    // alternate screen, where mpv draws every frame.
+    arms.warm(&mut t);
+    feed(&mut t, b"\x1bc");
+    arms.reads = Reads::Copy;
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let (mut fed, mut complete, mut cuts, mut over_first) = (0usize, 0usize, 0usize, 0usize);
+    let mut bright = 0usize;
+    let mut shown: Option<&[u8]> = None;
+    let mut first: Option<&[u8]> = None;
+    let mut origin: Option<(i16, i16)> = None;
+    for (k, up) in ups.iter().enumerate() {
+        while fed < up.end.0 {
+            let end = (fed + 1024).min(up.end.0);
+            feed(&mut t, &bytes[fed..end]);
+            while t.decode_step(baud_domain::DecodeBudget::MIB) == baud_domain::DecodeProgress::More
+            {
+            }
+            fed = end;
+        }
+        cuts += usize::from(up.cut.is_some());
+        assert_eq!(
+            (t.images().images_refused, t.images().refusals.empty),
+            (cuts, cuts),
+            "upload {k}: refused but the chunks after a cut, a command with no size"
+        );
+        if let Some(rgb) = &up.rgb {
+            complete += 1;
+            if first.is_some_and(|f| f != rgb.as_slice()) {
+                over_first += 1;
+            }
+            first.get_or_insert(rgb.as_slice());
+            shown = Some(rgb.as_slice());
+        }
+        let (a, b) = arms.draw(&mut t);
+        let places = arms.renderer.image_placements().to_vec();
+        let cpu = cpu_frame(&mut arms, &mut t);
+        let placed = t.images().placements().count();
+        assert_eq!(
+            placed + t.images().placements_expired,
+            complete,
+            "upload {k}: one placement an upload, deleted by nothing but the scroll"
+        );
+        assert_eq!(places.len(), placed, "upload {k}: every placement drawn");
+        if let (Some(p), Some(rgb)) = (places.first(), shown) {
+            let at = (p.x, p.y);
+            for q in &places {
+                assert_eq!(
+                    ((q.x, q.y), usize::from(q.w), usize::from(q.h)),
+                    (at, s, v),
+                    "upload {k}: every frame at one cell, whole"
+                );
+            }
+            assert_eq!(
+                *origin.get_or_insert(at),
+                at,
+                "upload {k}: the frames' cell"
+            );
+            let (x0, y0) = (
+                usize::try_from(at.0).unwrap(),
+                usize::try_from(at.1).unwrap(),
+            );
+            let (lit, dim) = mpv_capture::faint(&a, mpv_capture::Pixels(fw), (x0, y0), (s, v), rgb);
+            bright += lit;
+            assert_eq!(
+                dim, 0,
+                "upload {k}: of {lit} bright pixels, the instance arm draws {dim} faint"
+            );
+            let wrong = (0..v)
+                .flat_map(|y| (0..s).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let o = 3 * (y * s + x);
+                    let want = 0xFF00_0000
+                        | u32::from(rgb[o]) << 16
+                        | u32::from(rgb[o + 1]) << 8
+                        | u32::from(rgb[o + 2]);
+                    a[(y0 + y) * fw + x0 + x] != want
+                })
+                .count();
+            assert_eq!(
+                wrong, 0,
+                "upload {k}: the instance arm is not the newest frame's RGB"
+            );
+        }
+        assert_eq!(differing(&a, &b), 0, "upload {k}: the GPU arms disagree");
+        assert_eq!(differing(&a, &cpu), 0, "upload {k}: the CPU arm disagrees");
+    }
+    assert_eq!(complete, frames);
+    assert!(
+        over_first > 0,
+        "the premise: a frame unlike the first is drawn on it"
+    );
+    assert!(origin.is_some(), "the premise: a frame was drawn");
+    assert!(bright > 0, "the premise: the frames have bright pixels");
+    assert_eq!(t.images().images_evicted, 0, "the budget holds every frame");
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
+}
+
+/// **Under a quota of two frames mpv's video draws alike on every arm,
+/// each upload its own frame**: the capture of
+/// `mpvs_kitty_video_draws_alike_on_every_arm` with a budget of two of its
+/// frames, so each new frame from the third deletes the oldest for space
+/// and its placement takes the freed slot. Frames that tie on `z` with no
+/// id draw in the order their images were stored, as kitty's render sort
+/// orders them (`[[source: kitty-graphics-c]]`, `lt`: `z_index`, then
+/// `image_id`, then `ref_id`), on the instance, cell and CPU arms alike,
+/// and the instance arm's region is the newest complete upload's RGB.
+///
+/// The break: today's slot order -- the frame placed into the freed low
+/// slot goes under the one before it, red at the third upload.
+#[test]
+fn under_a_two_frame_quota_mpvs_video_draws_alike_on_every_arm() {
+    let bytes = std::fs::read(mpv_capture::PATH).expect("the capture");
+    let ups = mpv_capture::uploads(&bytes);
+    let (mpv_capture::Pixels(s), mpv_capture::Pixels(v)) = ups[0].size;
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t, ImageBudget::of(2 * s * v + 64));
+    arms.warm(&mut t);
+    feed(&mut t, b"\x1bc");
+    arms.reads = Reads::Copy;
+    let m = arms.renderer.metrics();
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(m.cell_w.value()), px16(m.cell_h.value()));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let (mut fed, mut drawn) = (0usize, 0usize);
+    let mut shown: Option<&[u8]> = None;
+    // The complete uploads whose frame is the one before's, which a wrong
+    // order could not be told from.
+    let mut repeats: Vec<usize> = Vec::new();
+    for (k, up) in ups.iter().enumerate() {
+        while fed < up.end.0 {
+            let end = (fed + 1024).min(up.end.0);
+            feed(&mut t, &bytes[fed..end]);
+            while t.decode_step(baud_domain::DecodeBudget::MIB) == baud_domain::DecodeProgress::More
+            {
+            }
+            fed = end;
+        }
+        if let Some(rgb) = &up.rgb {
+            if shown == Some(rgb.as_slice()) {
+                repeats.push(k);
+            }
+            shown = Some(rgb.as_slice());
+        }
+        let (a, b) = arms.draw(&mut t);
+        let places = arms.renderer.image_placements().to_vec();
+        let cpu = cpu_frame(&mut arms, &mut t);
+        if let (Some(p), Some(rgb)) = (places.first(), shown) {
+            let (x0, y0) = (usize::try_from(p.x).unwrap(), usize::try_from(p.y).unwrap());
+            let wrong = (0..v)
+                .flat_map(|y| (0..s).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let o = 3 * (y * s + x);
+                    let want = 0xFF00_0000
+                        | u32::from(rgb[o]) << 16
+                        | u32::from(rgb[o + 1]) << 8
+                        | u32::from(rgb[o + 2]);
+                    a[(y0 + y) * fw + x0 + x] != want
+                })
+                .count();
+            assert_eq!(
+                wrong, 0,
+                "upload {k}: the instance arm is not the newest frame's RGB"
+            );
+            drawn += 1;
+        }
+        assert_eq!(differing(&a, &b), 0, "upload {k}: the GPU arms disagree");
+        assert_eq!(differing(&a, &cpu), 0, "upload {k}: the CPU arm disagrees");
+    }
+    assert!(
+        t.images().images_evicted >= 8,
+        "the premise: the quota deleted frames, {} of them",
+        t.images().images_evicted
+    );
+    assert_eq!(drawn, 12, "the premise: every upload but the last drawn");
+    assert_eq!(
+        repeats,
+        vec![1],
+        "the premise: every frame differs from the one before but the second"
+    );
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
+}
+
+/// **Placements that tie on `z` stack as the text says, and where it is
+/// silent as kitty does, on every arm and on the CPU path's incremental
+/// frame.** Two cases at one cell, each held on the instance and cell
+/// arms, a whole CPU frame and an incremental CPU frame kept from the frame
+/// before:
+///
+/// - **ids out of the order the images were made**: image 5 stored and
+///   placed first, image 3 after it, draws 5 over 3 -- "If two images with
+///   the same z-index overlap then the image with the lower id is
+///   considered to have the lower z-index" (`[[source: kitty-graphics]]`).
+///   kitty itself orders by the id it makes each image with, and would draw
+///   3 over 5 (`[[source: kitty-graphics-c]]`, `lt`); baud follows the
+///   text. Break: drop the client's id from the sort -- red.
+/// - **a placement deleted and put again** in one frame: image 1's `p=1`,
+///   its left half, under `p=2`, its right half, both at one cell and at
+///   `z=-1`, under the text, where the CPU path blits a picture only in the
+///   rows it repaints; `p=1`
+///   deleted and put back where it was is the newer placement and draws
+///   over `p=2`, as kitty's `ref_id` orders placements of one image. It
+///   takes the slot it left, below `p=2`'s, so by slot it would stay under.
+///   Breaks: drop the placement's serial from the sort -- red on every arm;
+///   leave it and the image's age out of the placement's key -- the
+///   incremental CPU frame finds no placement changed, keeps `p=2` on top,
+///   and is red alone.
+#[test]
+fn placements_that_tie_on_z_stack_alike_on_every_arm() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    arms.warm(&mut t);
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let (fw, fh) = arms.renderer.whole_size();
+    let at = usize::try_from(2 * ch * fw.value() + 4 * cw).unwrap();
+    let mut kept = vec![0u32; usize::try_from(fw.value() * fh.value()).unwrap()];
+    // A CPU frame into `kept`, whole or from the one before.
+    let mut cpu_into = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, damage: Damage| {
+        let mut target = Target::new(&mut kept, fw, fw, fh).expect("target");
+        arms.renderer.render_at(t, arms.back, &mut target, damage);
+        kept.iter()
+            .map(|&p| premultiply(Argb(p)).0)
+            .collect::<Vec<u32>>()
+    };
+    // (name, the state before, the change, the top before, the top after,
+    // the top a wrong order draws).
+    type Case<'c> = (&'c str, fn(&mut Term<'_>), fn(&mut Term<'_>), u32, u32, u32);
+    let cases: [Case<'_>; 2] = [
+        (
+            "ids 5 then 3",
+            |t| {
+                feed(t, b"\x1bc\x1b[?25l");
+                kitty_put(t, 5, kitty_texel, &["C=1"]);
+            },
+            |t| kitty_put(t, 3, kitty_other, &["C=1"]),
+            kitty_texel(0, 0),
+            kitty_texel(0, 0),
+            kitty_other(0, 0),
+        ),
+        (
+            "p=1 put again over p=2",
+            |t| {
+                feed(t, b"\x1bc\x1b[?25l");
+                kitty_put(
+                    t,
+                    1,
+                    kitty_texel,
+                    &[
+                        "p=1,x=0,y=0,w=3,h=4,C=1,z=-1",
+                        "p=2,x=3,y=0,w=3,h=4,C=1,z=-1",
+                    ],
+                );
+            },
+            |t| {
+                feed(t, b"\x1b_Ga=d,d=i,i=1,p=1,q=2\x1b\\");
+                feed(
+                    t,
+                    b"\x1b[3;5H\x1b_Ga=p,i=1,p=1,x=0,y=0,w=3,h=4,C=1,z=-1,q=2\x1b\\",
+                );
+            },
+            kitty_texel(3, 0),
+            kitty_texel(0, 0),
+            kitty_texel(3, 0),
+        ),
+    ];
+    for (name, before, change, first, over, wrong) in cases {
+        assert_ne!(over, wrong, "{name}: the premise, the two draw apart");
+        before(&mut t);
+        let was = cpu_into(&mut arms, &mut t, Damage::Full);
+        assert_eq!(was[at], first, "{name}: the premise, the stack before");
+        change(&mut t);
+        let incremental = cpu_into(&mut arms, &mut t, Damage::Incremental);
+        let (a, b) = arms.draw(&mut t);
+        let cpu = cpu_frame(&mut arms, &mut t);
+        for (arm, got) in [
+            ("instance", &a),
+            ("cell", &b),
+            ("cpu", &cpu),
+            ("incremental cpu", &incremental),
+        ] {
+            assert_eq!(got[at], over, "{name}: the {arm} arm's top");
+        }
+        assert_eq!(differing(&a, &b), 0, "{name}: the GPU arms disagree");
+        assert_eq!(differing(&a, &cpu), 0, "{name}: the CPU arm disagrees");
+        assert_eq!(
+            differing(&cpu, &incremental),
+            0,
+            "{name}: the incremental frame is not the whole one"
+        );
+    }
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
 }
 
 /// **kitty's relative placements on every arm** (`[[source:

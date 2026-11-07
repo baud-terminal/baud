@@ -67,6 +67,8 @@ pub(crate) mod session;
 // The window's title strip, composed over the session's frames.
 #[cfg(target_os = "macos")]
 pub(crate) mod chrome;
+// mpv's kitty video, replayed from its capture and held to what it sent.
+mod mpv;
 
 use crate::gesture::Pressed;
 use crate::programs::{Heard, Scratch, Under};

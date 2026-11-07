@@ -1157,13 +1157,14 @@ fn light_theme_text_on_the_glass_reaches_the_target_where_the_page_is_dimmed() {
 
 /// Every `.raw` recording in `tests/recordings`, held to the directory so a
 /// new one is read too.
-const RECORDINGS: [&str; 13] = [
+const RECORDINGS: [&str; 14] = [
     "ascii/cat-scroll.raw",
     "ascii/git-log.raw",
     "ascii/less-pager.raw",
     "ascii/pipes.raw",
     "kitty/grad-80x24-placeholder.raw",
     "kitty/icat-logo-dark-140.raw",
+    "kitty/mpv-logo-40x6.raw",
     "sixel/swirl.raw",
     "sixel/yazi-walk.raw",
     "utf8/btop.raw",

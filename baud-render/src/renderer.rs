@@ -36,9 +36,9 @@ use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
     Attrs, BidiDirection, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle,
-    FrameNo, GlyphId, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx, ImageScreen,
-    ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial, Row, Rows,
-    Viewport, ZIndex,
+    FrameNo, GlyphId, ImageAge, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx,
+    ImageScreen, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial,
+    Row, Rows, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -2083,6 +2083,25 @@ pub struct ImagePlacement {
     /// image with the lower id is considered to have the lower z-index".
     /// None, ordered first, for a Sixel and a kitty image no id names.
     pub tie: KittyId,
+    /// **When its image was stored** ([`ImageAge`]), which orders two
+    /// placements that tie on `z` and on `tie`, where the text leaves the
+    /// order undefined ("If the images have the same z-index and the same
+    /// id, then the behavior is undefined", `[[source: kitty-graphics]]`):
+    /// the image stored later over the one stored before. kitty orders
+    /// every tie on `z` this way, by `image_id`, the internal id it gives
+    /// each image in the order they are made (`[[source:
+    /// kitty-graphics-c]]`, `lt`); baud follows the text's "lower id" first,
+    /// so ids 5 then 3 draw 5 over 3 where kitty draws 3 over 5, and orders
+    /// by this only where the ids tie -- among images with no id, and
+    /// placements of one image.
+    pub born: ImageAge,
+    /// **When the placement was made** ([`PlaceSerial`]), which orders two
+    /// placements of one image, the later over the earlier, as kitty's
+    /// sort orders them last by `ref_id`. Neither is where the placement
+    /// sits in the store's table: a placement made after another is freed
+    /// takes the lowest free slot, so slot order put a frame mpv sent after
+    /// a deletion under the one before it.
+    pub serial: PlaceSerial,
     /// What it draws: the source rectangle, and the drawn one from its
     /// anchor cell, of which `x`, `y`, `w` and `h` are the visible part.
     pub draw: ImageDraw,
@@ -2098,8 +2117,11 @@ pub struct ImagePlacement {
     pub composite: ImageComposite,
 }
 
-/// Two placements are one when they draw the same: everything but where
-/// this frame's tables happen to sit.
+/// Two placements are one when they draw the same and stack the same:
+/// everything but where this frame's tables happen to sit. The stacking
+/// keys, `born` and `serial`, are in it, so a placement deleted and put
+/// again in one frame, which draws the same and stacks higher, is one the
+/// CPU path's diff finds changed.
 impl PartialEq for ImagePlacement {
     fn eq(&self, o: &ImagePlacement) -> bool {
         self.key() == o.key()
@@ -2123,7 +2145,7 @@ impl ImagePlacement {
         u16,
         ImageAlpha,
         ZIndex,
-        KittyId,
+        (KittyId, ImageAge, PlaceSerial),
         ImageDraw,
         ImageScale,
         (u32, ImageComposite),
@@ -2137,7 +2159,7 @@ impl ImagePlacement {
             self.h,
             self.alpha,
             self.z,
-            self.tie,
+            (self.tie, self.born, self.serial),
             self.draw,
             self.scale,
             (self.ground.bits(), self.composite),
@@ -7490,6 +7512,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 (x0, y0),
                 (i0, i1, j0, j1),
                 p.z,
+                p.serial,
                 snap,
             );
         }
@@ -7552,9 +7575,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.placeholder_bidi = Some(order);
             self.place_under_virtuals(imgs, epoch, origin.screen, snap);
         }
-        // The text's order: by `z`, then by the client's id; stable, so
-        // placement order breaks what is left.
-        self.image_places.sort_by_key(|p| (p.z, p.tie.raw()));
+        // The text's order: by `z`, then by the client's id; then, where the
+        // text leaves it undefined, kitty's: by when the image was stored,
+        // then by when the placement was made (`ImagePlacement::born`).
+        self.image_places
+            .sort_by_key(|p| (p.z, p.tie.raw(), p.born, p.serial));
         self.place_rows.built = Built::Stale;
         // Drop snapshots of images no longer on screen, so an image scrolled off
         // the top does not hold its pixels until the next epoch change -- which
@@ -7688,6 +7713,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // (`[[source: kitty-graphics-c]]` `grman_put_cell_image`),
                 // where the text says nothing; an open fork.
                 v.z.max(ZIndex::of(ImageLayer::BELOW_BACKGROUNDS)),
+                v.serial,
                 snap,
             );
         }
@@ -7747,6 +7773,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 (x0, y0),
                 (i0, i1, j0, j1),
                 p.z,
+                p.serial,
                 snap,
             );
         }
@@ -7769,6 +7796,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (x0, y0): (i64, i64),
         (i0, i1, j0, j1): (i64, i64, i64, i64),
         z: ZIndex,
+        serial: PlaceSerial,
         snap: Snapshots,
     ) {
         if i0 >= i1 || j0 >= j1 {
@@ -7819,6 +7847,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             z,
             layer: ImageLayer::of(z),
             tie: imgs.kitty_names(id).map_or(KittyId::NONE, |(k, _)| k),
+            born: imgs.born(id).unwrap_or(ImageAge::ZERO),
+            serial,
             draw,
             scale,
             map: at,
@@ -13877,6 +13907,8 @@ mod place_diff {
                 z: ZIndex::of(i32::try_from(n % 2).unwrap() - 1),
                 layer,
                 tie: KittyId::of(n % 6),
+                born: ImageAge::ZERO,
+                serial: PlaceSerial::NONE,
                 draw: ImageDraw {
                     src: rect,
                     dest: rect,

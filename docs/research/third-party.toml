@@ -2192,6 +2192,14 @@ upstream = "generated: tests/recordings/README.md"
 status   = "own"
 
 [[tree]]
+what     = "The README's logo, assets/readme/logo-dark.gif, made a video by ffmpeg 9.0.2, and a recording of mpv 0.41.0 playing it with --vo=kitty (tests/recordings/README.md): the kitty graphics commands carrying its frames, and mpv's status line. The frames are the logo's, so under the logo's licence: its letters are JetBrains Mono's, under its OFL, credited to The JetBrains Mono Project Authors"
+paths    = ["tests/recordings/kitty/mpv-logo-40x6.raw", "tests/recordings/kitty/logo-dark-8fps.mp4"]
+licence  = "OFL-1.1"
+notice   = "assets/readme/JetBrainsMono-OFL.txt"
+upstream = "generated: tests/recordings/README.md"
+status   = "kept"
+
+[[tree]]
 what     = "The seven resize recordings: zsh 5.9.2 resized through a pty by the script now baud-bench's capture-resize example in a Linux container on 2026-10-28, with baud's own zsh configuration, prompt and start-up banners in tests/resize/zdotdir/ and the size sequences in the .sizes files (tests/resize/README.md). WezTerm's wezterm.sh was sourced at record time and is not committed; what it sent is its OSC 7 and OSC 133 marks"
 paths    = ["tests/resize/drag.raw", "tests/resize/drag.steps", "tests/resize/drag.sizes", "tests/resize/short.raw", "tests/resize/short.steps", "tests/resize/short.sizes", "tests/resize/zoom.raw", "tests/resize/zoom.steps", "tests/resize/zoom.sizes", "tests/resize/fresh-drag.raw", "tests/resize/fresh-drag.steps", "tests/resize/fresh-drag.sizes", "tests/resize/fresh-zoom.raw", "tests/resize/fresh-zoom.steps", "tests/resize/fresh-zoom.sizes", "tests/resize/fresh-burst.raw", "tests/resize/fresh-burst.steps", "tests/resize/fresh-burst.sizes", "tests/resize/live-drag.raw", "tests/resize/live-drag.steps", "tests/resize/live-drag.sizes", "tests/resize/zdotdir/.zshrc", "tests/resize/zdotdir/banner", "tests/resize/zdotdir/banner-fresh"]
 licence  = "CC-BY-NC-SA-4.0"

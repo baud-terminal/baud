@@ -2130,7 +2130,7 @@ name = "Pictures from image tools"
 does = "Raw, compressed and PNG pictures from kitten icat, yazi and timg, sent in pieces of any size and decoded quickly."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/kitty_graphics.rs::each_image_is_marked_by_its_own_pixels"]
+tests = ["baud-core/tests/kitty_graphics.rs::each_image_is_marked_by_its_own_pixels", "baud-app/src/film/mpv.rs::mpvs_kitty_video_draws_what_mpv_sent", "baud-present-macos/tests/cells.rs::mpvs_kitty_video_draws_alike_on_every_arm"]
 rows = ["vt:`APC G a=t` / `a=T` / `a=q`"]
 chips = ["kitty graphics protocol"]
 shipped = ["2026-10-16-kitty-s-image-protocol-works", "2026-10-16-raw-pixel-kitty-pictures-arrive-ten", "2026-10-16-png-decoding-three-times-faster", "2026-10-16-png-decoding-14-faster", "2026-10-15-interlaced-png-images-now-decode"]
@@ -2143,7 +2143,7 @@ does = "Pictures are placed, cropped, scaled and layered under or over text, beh
 status = "partial"
 gap = "scaled pictures use blocky nearest-pixel sampling for now."
 platform = "both"
-tests = ["baud-render/tests/kitty_draw.rs::a_negative_z_draws_under_the_text", "baud-render/tests/kitty_draw.rs::the_source_rectangle_is_what_is_drawn"]
+tests = ["baud-render/tests/kitty_draw.rs::a_negative_z_draws_under_the_text", "baud-render/tests/kitty_draw.rs::the_source_rectangle_is_what_is_drawn", "baud-present-macos/tests/cells.rs::placements_that_tie_on_z_stack_alike_on_every_arm"]
 rows = ["vt:`APC G a=p`"]
 shipped = ["2026-10-16-kitty-pictures-are-cropped-scaled-and", "2026-10-16-background-pictures-sit-behind-coloured-text", "2026-10-16-background-pictures-show-through-tinted-glass", "2026-10-16-pictures-over-the-see-through-window"]
 
@@ -2197,7 +2197,7 @@ name = "Picture memory under control"
 does = "Pictures use up to 95 MiB by default, adjustable, and nothing until one arrives; the oldest pictures a program stored without showing make room first, then the oldest it showed, but never a Sixel or imgcat picture, one too big is refused whole with a warning, and a deleted one gives its memory back."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/pages.rs::a_deleted_png_gives_its_pages_back", "baud-app/src/host.rs::a_refusal_is_said_by_the_limit_it_hit", "baud-app/src/config.rs::an_images_section_sets_the_arena_and_says_body_kb_is_gone"]
+tests = ["baud-app/src/pages.rs::a_deleted_png_gives_its_pages_back", "baud-app/src/host.rs::a_refusal_is_said_by_the_limit_it_hit", "baud-app/src/config.rs::an_images_section_sets_the_arena_and_says_body_kb_is_gone", "baud-app/src/film/mpv.rs::under_a_two_frame_quota_every_upload_shows_its_own_frame", "baud-present-macos/tests/cells.rs::under_a_two_frame_quota_mpvs_video_draws_alike_on_every_arm"]
 shipped = ["2026-10-16-deleting-a-picture-gives-its-memory", "2026-10-16-even-more-picture-memory-goes-back", "2026-10-16-a-picture-that-can-t-be", "2026-10-16-full-window-pictures-fit-at-no"]
 
 [[feature]]

@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 331 | 68 | redistributable, and its notice is satisfied |
+| kept | 331 | 69 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
-| total | 342 | 77 | |
+| total | 342 | 78 | |
 
 ## Licence texts in LICENSES/
 
@@ -575,6 +575,14 @@ they were built from.
 - **Notice:** in the file
 - **From:** https://zlib.net/fossils/zlib-1.3.1.tar.gz
 - **Files:** [baud-bench/src/capture/deflate.rs](baud-bench/src/capture/deflate.rs)
+
+### The README's logo, assets/readme/logo-dark.gif, made a video by ffmpeg 9.0.2, and a recording of mpv 0.41.0 playing it with --vo=kitty (tests/recordings/README.md): the kitty graphics commands carrying its frames, and mpv's status line. The frames are the logo's, so under the logo's licence: its letters are JetBrains Mono's, under its OFL, credited to The JetBrains Mono Project Authors
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [assets/readme/JetBrainsMono-OFL.txt](assets/readme/JetBrainsMono-OFL.txt)
+- **From:** generated: tests/recordings/README.md
+- **Files:** [tests/recordings/kitty/mpv-logo-40x6.raw](tests/recordings/kitty/mpv-logo-40x6.raw), [tests/recordings/kitty/logo-dark-8fps.mp4](tests/recordings/kitty/logo-dark-8fps.mp4)
 
 ### The README's logo, assets/readme/logo-dark.gif, made 140 pixels wide by ffmpeg 9.0.2, and a recording of kitty 0.50.0's kitten icat showing it (tests/recordings/README.md): the kitty graphics commands carrying its frames. The frames are the logo's, so under the logo's licence: its letters are JetBrains Mono's, under its OFL, credited to The JetBrains Mono Project Authors
 

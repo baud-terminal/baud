@@ -155,6 +155,53 @@ Run again, the command gives these bytes, so the copy is not committed.
 `4451c2eef00c68e4dafbb501418f5d6768343dd6dac33eaf64b7a1c66125117e`), which
 are not committed; `MEASUREMENTS.md` reads its size and its advance.
 
+## `kitty/mpv-logo-40x6.raw`
+
+mpv 0.41.0's video output in the kitty graphics protocol, 691,619
+bytes (sha256
+`a727fb9222cb8ba5fe13a499cdb480a7caf27da85ec204e639af94e8b0a84817`),
+as a pty of 40x6 cells and 280x96 pixels received it -- 7x16 a cell,
+the film harness's terminal at `font_size = 6` (`baud-app/src/film.rs`)
+-- with nothing written back. It was recorded by a harness written
+against that terminal for this capture, which is not in the tree: no
+example records it again, as `capture-yazi-walk` does yazi's. nixpkgs' mpv 0.41.0 (FFmpeg 9.0.2,
+libplacebo 7.360.1) played the file beside it:
+
+    mpv --no-config --vo=kitty --no-audio logo-dark-8fps.mp4
+
+with `--log-file` too. mpv fitted each frame to the window, 138x96, and
+sent eleven of its thirteen whole: `CUP` to row 1, column 10, then
+`a=T,f=24,s=138,v=96,C=1,q=2` and the RGB in base64 chunks, no image
+id and no delete between frames. Twice its status thread wrote
+`ESC [ 1 K CR` and the status line inside a chunk, where the `ESC`
+cancels the upload, so the rest of that chunk prints as text. On quit
+it sends `ESC _ G a=d ;` with no `ST`, cut by the `ESC` of the
+`ESC [ ? 25 h` after it.
+
+`kitty/logo-dark-8fps.mp4` (8,348 bytes, sha256
+`0a66aa1dd93f432231058a8e479f2bee22ebf319d2c71570e894eea547d65d86`) is
+the README's own logo, `assets/readme/logo-dark.gif` (sha256
+`9fbfc879b07ddaa9ccd0d22016556e147e97f30539c14901aef21324604ec326`),
+as nixpkgs' ffmpeg 9.0.2 with libx264 (x264 core 165) made it, twelve
+frames at 280x194:
+
+    ffmpeg -i assets/readme/logo-dark.gif -t 1.5 \
+      -vf "fps=8,scale=280:-2:flags=lanczos,format=yuv420p" \
+      -c:v libx264 -preset veryslow -crf 18 -bitexact -map_metadata -1 \
+      logo-dark-8fps.mp4
+
+The same command run again gives a file of the same size whose decoded
+frames are these -- sha256
+`c2cc2491d28f5664230c08ef4f814eea515b316f2952a65eab2ce837f87f4101` of
+the 977,760 bytes `ffmpeg -i logo-dark-8fps.mp4 -f rawvideo -pix_fmt
+yuv420p -` writes -- but not these bytes, so the file mpv played is
+committed. The capture does not regenerate either: where mpv's status
+thread writes falls by its clock, so another run cuts other chunks, or
+none. `mpvs_kitty_video_draws_what_mpv_sent` (`baud-app/src/film/mpv.rs`)
+and `mpvs_kitty_video_draws_alike_on_every_arm`
+(`baud-present-macos/tests/cells.rs`) replay it, held to the RGB in its
+own chunks.
+
 ## Provenance
 
 The `capture-tui` example (`baud-bench/src/capture/tui.rs`) is how these were

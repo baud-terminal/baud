@@ -369,6 +369,24 @@ impl ImageGen {
     }
 }
 
+/// **Which image stored in a store's life**: every image stored takes the
+/// next, so of two the one stored later has the higher. Its own counter,
+/// and not the [`ImageGen`] epoch that a free, an unplace or a reset bumps
+/// too: an epoch in 32 bits that mpv bumps two or three times a frame wraps
+/// in months at 60 frames a second, and after it a new image would order
+/// under old ones. 64 bits, bumped once a store, do not wrap.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct ImageAge(u64);
+
+impl ImageAge {
+    /// No image stored.
+    pub const ZERO: ImageAge = ImageAge(0);
+
+    fn next(self) -> ImageAge {
+        ImageAge(self.0 + 1)
+    }
+}
+
 /// A handle to a placement. `NONE` is zero, the [`ImageId`] shape.
 ///
 /// **It is also an entry of the placement index**, which finds a kitty
@@ -955,9 +973,10 @@ pub struct ImageSlot {
     owner: ImageOwner,
     /// Whether its pixels are all written.
     state: ImageState,
-    /// The store's epoch when it was stored: which of two images with one
-    /// kitty number is the newer.
-    born: ImageGen,
+    /// When it was stored ([`ImageAge`]): which of two images with one
+    /// kitty number is the newer, which the quota deletes first, and which
+    /// of two placements that tie on `z` and id draws over the other.
+    born: ImageAge,
     /// How many of a Sixel's or an embedder's pixels are not clear, counted
     /// the first time an erase reaches it and lowered by what each erase
     /// clears, so freeing the image once none is left reads no pixel twice
@@ -1034,7 +1053,7 @@ impl ImageSlot {
         placements: Count::ZERO,
         owner: ImageOwner::Local,
         state: ImageState::Ready,
-        born: ImageGen::ZERO,
+        born: ImageAge::ZERO,
         lit: None,
         ground: ImageGround::Clear,
         anim: frames::Frames::ONE,
@@ -1610,6 +1629,8 @@ pub struct ImageStore<'b> {
     /// texture cache keyed on it drops a texture whose image was freed and
     /// its id reused. See [`ImageGen`].
     epoch: ImageGen,
+    /// The age the last image stored took ([`ImageAge`]).
+    stored: ImageAge,
     /// How many placements are live: the O(1) gate so the per-write
     /// overwrite check (does this write land on an image, so free it) costs
     /// one comparison on the common path where no image is on screen.
@@ -1753,6 +1774,7 @@ impl<'b> ImageStore<'b> {
             sixels_filled: 0,
             sixel_grids_fixed: 0,
             epoch: ImageGen::ZERO,
+            stored: ImageAge::ZERO,
             placed: 0,
             live: 0,
             free_from: 0,
@@ -2079,6 +2101,7 @@ impl<'b> ImageStore<'b> {
             return None;
         };
         self.epoch = self.epoch.bumped();
+        self.stored = self.stored.next();
         self.slots[slot] = ImageSlot {
             offset,
             width,
@@ -2087,7 +2110,7 @@ impl<'b> ImageStore<'b> {
             placements: Count::ZERO,
             owner: ImageOwner::Local,
             state: ImageState::Ready,
-            born: self.epoch,
+            born: self.stored,
             lit: None,
             ground: ImageGround::Clear,
             anim: frames::Frames::ONE,
@@ -2338,7 +2361,7 @@ impl<'b> ImageStore<'b> {
     /// the oldest with one -- "existing images without placements will be
     /// preferentially deleted", and "the terminal emulator should delete
     /// older images to make space for the new one" (`[[source:
-    /// kitty-graphics]]`). Oldest by when it was stored ([`ImageGen`]),
+    /// kitty-graphics]]`). Oldest by when it was stored ([`ImageAge`]),
     /// where kitty orders by when it was last added or put
     /// (`apply_storage_quota()`, `atime`, `[[source: kitty-graphics-c]]`),
     /// so an image placed again late goes earlier here than there; and
@@ -2349,7 +2372,7 @@ impl<'b> ImageStore<'b> {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.quota_evictable() && !spared(s))
-            .min_by_key(|(_, s)| (s.placements.index() > 0, s.born.raw()))
+            .min_by_key(|(_, s)| (s.placements.index() > 0, s.born))
             .map(|(i, _)| ImageId::from_index(i))
     }
 
@@ -2446,6 +2469,18 @@ impl<'b> ImageStore<'b> {
         (!s.is_empty()).then_some((s.width, s.height))
     }
 
+    /// **When a live image was stored** ([`ImageAge`]): of two, the one
+    /// stored later has the higher. What orders two placements that tie on
+    /// `z` and on the client's id. kitty orders every tie on `z` by the
+    /// internal id it gives each image in the order they are made
+    /// (`[[source: kitty-graphics-c]]`, the render sort's `lt`); baud orders
+    /// by the client's id first, as the text says, and by this only where
+    /// the ids tie.
+    pub fn born(&self, id: ImageId) -> Option<ImageAge> {
+        let s = *self.slots.get(id.index()?)?;
+        (!s.is_empty()).then_some(s.born)
+    }
+
     /// The live image a kitty id names.
     pub fn kitty_image(&self, id: KittyId) -> Option<ImageId> {
         if id.is_none() {
@@ -2468,7 +2503,7 @@ impl<'b> ImageStore<'b> {
             .filter(|(_, s)| {
                 !s.is_empty() && matches!(s.owner, ImageOwner::Kitty(_, n) if n == number)
             })
-            .max_by_key(|(_, s)| s.born.raw())
+            .max_by_key(|(_, s)| s.born)
             .map(|(i, _)| ImageId::from_index(i))
     }
 
