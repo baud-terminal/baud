@@ -32,9 +32,13 @@
 # the app asked the compositor to show. grim takes the screen with the
 # pointer drawn on it.
 #
-# The window floats at 640x408 at the origin of a 1024x768 output: 80x24
+# The window floats at 640x408 at the origin of a 1024x768 output: 80x23
 # cells of 8x17 px, so a cell's centre is (8c + 4, 17r + 8), and a point
-# past (640, 408) is off the window. Each arm runs again with the output
+# past (640, 408) is off the window. The grid is the window less the
+# activity lights' own line, which the Linux app draws at the window's
+# bottom with the default config (`config::lights_at`) and which these
+# checks keep: the 17 points below row 23 are that line, and the inner
+# script's ROWS is the grid's height. Each arm runs again with the output
 # at scale 2 and at scale 1.5, its mode 2048x1536 and 1536x1152, so the
 # layout is 1024x768 logical pixels at every scale; those runs take the
 # pointer to the grid's edges and read what the app draws its pointer and
@@ -43,9 +47,9 @@
 # does not, and its wl_output says 2, so it draws at 2 and sway scales
 # the window down. The font is 13 points, so the cell is the embedded
 # face's at 13, 19.5 and 26 pixels, 8x17, 12x26 and 16x34 (the pixels
-# bench at PIXELS_SCALE 1, 1.5 and 2): 80x24 cells are 640x408 points at
-# 1 and 2 and 960x624 pixels, 640x416 points, at 1.5, where the window is
-# 640x416 so the grid is 80x24 on both arms. Every check prints "ok" or
+# bench at PIXELS_SCALE 1, 1.5 and 2): 80x23 cells and the lights' line
+# are 640x408 points at 1 and 2 and 960x624 pixels, 640x416 points, at 1.5,
+# where the window is 640x416 so the grid is 80x23 on both arms. Every check prints "ok" or
 # "FAILED" with what was read; the script exits non-zero when one failed
 # or a step could not run.
 set -euo pipefail
@@ -83,10 +87,15 @@ docker run --rm -v "$root":/src:ro \
   -v "$tag-target":/target \
   -v "$tag-registry":/usr/local/cargo/registry \
   "$tag-build" bash -c \
-  'cd /src && export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
+  'set -e
+   cd /src && export CARGO_TARGET_DIR=/target RUSTFLAGS="-D warnings"
    cargo build -q --release -p baud --bin baud
    cargo build -q --release -p baud-bench --example linux-pointer \
      --example linux-pointer-trace --example linux-pixels'
+
+# The build above stops at its first failure (`set -e`), and the script
+# with it: a build that failed is a step that could not run, not every
+# check failed against an app that is not there.
 
 # One arm, as the user baud (sway will not run as root). Results go to
 # /tmp/out, which leaves the container as tar on stdout.
@@ -95,6 +104,9 @@ inner=$(
 set -u
 mkdir -p /tmp/out && D=$(mktemp -d) && cd "$D"
 O=/tmp/out
+# The grid's rows: the window's 24 less the activity lights' own line at
+# its bottom, the default on Linux (the header).
+ROWS=23
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
 W=$(awk "BEGIN { print 1024 * $SCALE }") H=$(awk "BEGIN { print 768 * $SCALE }")
 cat > sway.conf <<C
@@ -137,10 +149,11 @@ check() { # name, file, printf format of the bytes wanted
   fi
 }
 # One session: the child script (with $S its folder), then the pointer
-# script on stdin. The child waits for the window's 80x24 before it writes.
+# script on stdin. The child waits for the window's grid, 80 columns and
+# ROWS rows, before it writes: the pty is spawned at 80x24.
 session() {
   S=$D/$1 && mkdir -p "$S" && : > "$S/got"
-  printf 'until [ "$(stty size)" = "24 80" ]; do sleep 0.05; done\nstty raw -echo\n%s\n' "$2" > "$S/child.sh"
+  printf 'until [ "$(stty size)" = "%s 80" ]; do sleep 0.05; done\nstty raw -echo\n%s\n' "$ROWS" "$2" > "$S/child.sh"
   # Each session starts with the pointer off the window.
   echo "move 900 700" | /target/release/examples/linux-pointer keymap.xkb
   from=$(wc -l < sway.log)
@@ -287,7 +300,7 @@ press left
 move 634 200
 move 634 5
 release left
-sleep 300
+sleep 1600
 sh shot thumb-top plain
 move 20 8
 tick 1000
@@ -300,31 +313,38 @@ move 620 200
 wheel 100
 sleep 300
 wheel -100
-sleep 300
+sleep 1600
 sh shot wheel-top plain
 P
-check "three detents up, the top row" $D/wheel/top 'line 75'
-check "three down again, the top row" $D/wheel/live 'line 78'
-check "a touchpad's 51 px up, three lines of 17, the top row" $D/wheel/swiped 'line 75'
+# 100 lines and the cursor's blank line: the live screen's top is line
+# 102 - ROWS, and three lines back 99 - ROWS.
+check "three detents up, the top row" $D/wheel/top "line $((99 - ROWS))"
+check "three down again, the top row" $D/wheel/live "line $((102 - ROWS))"
+check "a touchpad's 51 px up, three lines of 17, the top row" $D/wheel/swiped "line $((99 - ROWS))"
 check "the thumb dragged to the top, the top row" $D/wheel/thumb 'line 1'
 check "the wheel on the primary screen sends the program nothing" $D/wheel/got ''
-# Rows 3 to 23 three lines back against rows 0 to 20 live, short of the
-# scrollbar's column: 600x357 pixels each.
+# Rows 3 to ROWS - 1 three lines back against rows 0 to ROWS - 4 live,
+# short of the scrollbar's column and above the lights' line: 600 pixels
+# wide and ROWS - 3 rows of 17 tall each.
 px=/target/release/examples/linux-pixels
-$px crop $O/wheel-back.png 0 51 600 357 $D/wheel/back.pam
-$px crop $O/wheel-live.png 0 0 600 357 $D/wheel/live.pam
+h=$(((ROWS - 3) * 17))
+$px crop $O/wheel-back.png 0 51 600 $h $D/wheel/back.pam
+$px crop $O/wheel-live.png 0 0 600 $h $D/wheel/live.pam
 $px diff $D/wheel/back.pam $D/wheel/live.pam | head -1 > $D/wheel/drawn
 check "three lines back, the window draws the history" $D/wheel/drawn \
-  '0 of 214200 pixels differ, largest channel difference 0\n'
+  "0 of $((600 * h)) pixels differ, largest channel difference 0\n"
 # The thumb's frame at the top is the wheel's at the top below the first
 # row, which the triple click between them leaves selected, and not the
-# live screen's rows.
-$px crop $O/thumb-top.png 0 17 600 391 $D/wheel/thumb.pam
-$px crop $O/wheel-top.png 0 17 600 391 $D/wheel/top.pam
+# live screen's rows: the grid's rows 1 to ROWS - 1. Both are taken once
+# the copy's words are gone (`copied.rs`, MESSAGE_FOR), which a copy just
+# before each puts over row 1 for 1.5 s, with a different count in each.
+g=$(((ROWS - 1) * 17))
+$px crop $O/thumb-top.png 0 17 600 $g $D/wheel/thumb.pam
+$px crop $O/wheel-top.png 0 17 600 $g $D/wheel/top.pam
 $px diff $D/wheel/thumb.pam $D/wheel/top.pam | head -1 > $D/wheel/thumb-drawn
 check "the thumb at the top draws what the wheel at the top draws" $D/wheel/thumb-drawn \
-  '0 of 234600 pixels differ, largest channel difference 0\n'
-$px crop $O/thumb-top.png 0 0 600 357 $D/wheel/thumb-rows.pam
+  "0 of $((600 * g)) pixels differ, largest channel difference 0\n"
+$px crop $O/thumb-top.png 0 0 600 $h $D/wheel/thumb-rows.pam
 if $px diff $D/wheel/thumb-rows.pam $D/wheel/live.pam > /dev/null; then
   echo "the live screen" > $D/wheel/thumb-live
 else
@@ -475,7 +495,8 @@ check "the middle button and Shift+Insert paste the primary" $D/paste/got \
 # Links: Ctrl held over an OSC 8 link previews it and shows the pointing
 # hand, a Ctrl click opens it with xdg-open, and a Ctrl click on a URI in
 # the text opens that; over a link that will not open, an ftp one, the
-# preview says why and the hand goes; the pointer leaving takes the
+# preview says why and the arrow takes the hand's place, since nothing
+# about it may look openable (`link::Hover::pointer`); the pointer leaving takes the
 # preview away. Under ?1000 ?1006 the Ctrl click on a link is still the
 # link's, with the hand, and elsewhere the program's.
 session link '
@@ -518,17 +539,18 @@ check "Ctrl clicks run xdg-open with each link" $D/opened \
   'https://example.org/p14\nhttps://example.com/plain\nhttps://example.org/p14\n'
 check "under tracking a Ctrl click on a link is the link's, elsewhere the program's" $D/link/got \
   '\033[<16;38;4M\033[<16;38;4m'
-# The hand while Ctrl is held over a link that opens, under tracking too,
-# and the I-beam again over the refused link, off the window and off the
-# link: on sway 1.10 the shapes by name, on sway 1.7 the app's images.
+# The hand while Ctrl is held over a link that opens, under tracking too;
+# the arrow over the refused link (`link::Hover::pointer`); and the I-beam
+# again off the link: on sway 1.10 the shapes by name, on sway 1.7 the
+# app's images.
 grep -E '^(enter|leave|set_)' $O/trace-link.txt | sed 's/ [0-9]* [0-9]*$//' |
   uniq | tr '\n' ';' > $D/link/seq
 if grep -q wp_cursor_shape_manager_v1 $O/compositor.txt; then
   check "Ctrl over a link that opens: the pointer shape, named" $D/link/seq \
-    'enter;set_shape text;set_shape pointer;set_shape text;leave;enter;set_shape text;set_cursor hidden;set_shape text;set_shape pointer;set_shape text;leave;'
+    'enter;set_shape text;set_shape pointer;set_shape default;leave;enter;set_shape text;set_cursor hidden;set_shape text;set_shape pointer;set_shape text;leave;'
 else
   check "Ctrl over a link that opens: the hand, drawn" $D/link/seq \
-    'enter;set_cursor the I-beam;set_cursor the hand;set_cursor the I-beam;leave;enter;set_cursor the I-beam;set_cursor hidden;set_cursor the I-beam;set_cursor the hand;set_cursor the I-beam;leave;'
+    'enter;set_cursor the I-beam;set_cursor the hand;set_cursor the arrow;leave;enter;set_cursor the I-beam;set_cursor hidden;set_cursor the I-beam;set_cursor the hand;set_cursor the I-beam;leave;'
 fi
 
 # ?2001: a click on the cursor's line moves the shell's point with the
@@ -690,7 +712,8 @@ fi
 # The grid's edges at every scale, under ?1000 ?1006 on the alternate
 # screen, where no history puts the scrollbar's thumb beside the last
 # column: the first cell; the last column and row from the window's last
-# point and from the first point in the last cell; the cell before it; and
+# point, on the lights' line below the grid, and from the first point in
+# the last cell; the cell before it; and
 # the same two from half points, the extent doubled. Then the pixel
 # report, ?1016, from the first and the last point: the frame's pixel each
 # is in, which at a scale of 2 or 1.5 is not the point. The points and the
@@ -729,8 +752,9 @@ tick 1000
 click left
 sleep 300
 P
+l="80;$ROWS" b="79;$((ROWS - 1))"
 check "at scale $SCALE, the edges: 1;1, the last cell three ways, the one before twice, pixels" $D/edges/got \
-  '\033[<0;1;1M\033[<0;1;1m\033[<0;80;24M\033[<0;80;24m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;80;24M\033[<0;80;24m\033[<0;79;23M\033[<0;79;23m\033[<0;1;1M\033[<0;1;1m\033[<0;'"$PIXEL"'M\033[<0;'"$PIXEL"'m'
+  '\033[<0;1;1M\033[<0;1;1m\033[<0;'"$l"'M\033[<0;'"$l"'m\033[<0;'"$l"'M\033[<0;'"$l"'m\033[<0;'"$b"'M\033[<0;'"$b"'m\033[<0;'"$l"'M\033[<0;'"$l"'m\033[<0;'"$b"'M\033[<0;'"$b"'m\033[<0;1;1M\033[<0;1;1m\033[<0;'"$PIXEL"'M\033[<0;'"$PIXEL"'m'
 # What the app drew its surfaces at: the window's buffer, any buffer scale
 # and viewport destination it set, the scales the compositor sent it, and
 # the pointer's image, drawn here on sway 1.7 only, its buffer and scale.
@@ -796,23 +820,27 @@ INNER
 # in the last cell, the one before it, and the last and the one before in
 # half points -- the pixel report at the last point, from one, and the
 # window's buffer. A point is the scale's pixels, the cell the pixel is
-# in, and a pixel past the grid's last is its last:
+# in, and a point on the lights' line below the grid, or a pixel past the
+# grid's last, is the grid's last row. The grid is 80x23 at every scale
+# (the header), its last row 22 counted from 0:
 #
-#   app 1    8x17 cells, 640x408 points: the last cell's first point
-#            (632, 391), the pixel (639, 407) reported 640;408
-#   app 2    16x34 cells; at 640x408 points (639, 407) is the pixel
-#            (1278, 814), 1279;815; at 640x416, (639, 415) is (1278, 830),
-#            past the grid's 816 rows, 1279;816; (632, 391) is (1264, 782)
-#   app 1.5  12x26 cells, 640x416 points: the last cell's first point
-#            (632, 399), (948, 598.5); the one before (631, 398), (946.5,
-#            597); (639, 415) is (958.5, 622.5), 959;623
+#   app 1    8x17 cells, 640x408 points, the grid 391 pixels tall: the
+#            last cell's first point (632, 374); the one before (631,
+#            373); (639, 407) is on the lights' line, reported 640;391
+#   app 2    16x34 cells, the grid 782 pixels tall; (632, 374) is (1264,
+#            748); (639, 407) is (1278, 814) and at 640x416 (639, 415) is
+#            (1278, 830), both past the grid, 1279;782
+#   app 1.5  12x26 cells, 640x416 points, the grid 598 pixels tall: the
+#            last cell's first point (632, 382), (948, 573); the one before
+#            (631, 381), (946.5, 571.5), and (631.5, 381) in half points;
+#            (639, 415) is (958.5, 622.5), past the grid, 959;598
 runs="
-bookworm 1   1   640_408 639_407 632_391 631_390 1279_815 1263_781 640;408  640x408
-trixie   1   1   640_408 639_407 632_391 631_390 1279_815 1263_781 640;408  640x408
-bookworm 2   2   640_408 639_407 632_391 631_390 1279_815 1263_781 1279;815 1280x816
-trixie   2   2   640_408 639_407 632_391 631_390 1279_815 1263_781 1279;815 1280x816
-bookworm 1.5 2   640_416 639_415 632_391 631_390 1279_831 1263_781 1279;816 1280x832
-trixie   1.5 1.5 640_416 639_415 632_399 631_398 1279_831 1263_797 959;623  960x624
+bookworm 1   1   640_408 639_407 632_374 631_373 1279_815 1263_747 640;391  640x408
+trixie   1   1   640_408 639_407 632_374 631_373 1279_815 1263_747 640;391  640x408
+bookworm 2   2   640_408 639_407 632_374 631_373 1279_815 1263_747 1279;782 1280x816
+trixie   2   2   640_408 639_407 632_374 631_373 1279_815 1263_747 1279;782 1280x816
+bookworm 1.5 2   640_416 639_415 632_374 631_373 1279_831 1263_747 1279;782 1280x832
+trixie   1.5 1.5 640_416 639_415 632_382 631_381 1279_831 1263_762 959;598  960x624
 "
 status=0
 while read -r arm scale app win last first before half_last half_before pixel buffer; do

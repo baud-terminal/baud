@@ -68,6 +68,13 @@
 # and wl-copy's text pasted with Ctrl+Shift+V typed by wtype, on the
 # keyboard that typed before and on a second one.
 #
+# The app runs with `[window] activity_lights = "off"` in every arm: the
+# bench draws the grid alone, and the lights' own line, which the Linux app
+# draws at the window's bottom by default (`config::lights_at`), would take
+# a row of the grid the bench has (35 rows of 17 at 800x600 would be 34)
+# and draw pixels the bench has no reference for. The pointer checks
+# (`linux-pointer.sh`) keep the default, lights and all.
+#
 # Every result is printed and kept under <outdir>; the script exits 0
 # whatever the pixels say, and non-zero only when a step could not run.
 set -euo pipefail
@@ -172,7 +179,7 @@ mono=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf
 cp "$mono" /io/faces/
 cp /usr/share/fonts/truetype/dejavu/*.ttf /io/faces/system/
 export XDG_RUNTIME_DIR=/tmp/xdg && mkdir -p -m 0700 $XDG_RUNTIME_DIR
-printf '[launch]\nsplash = "off"\n' > /tmp/baud.toml
+printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n' > /tmp/baud.toml
 printf '[shell]\npanel-position=none\nbackground-color=0xff000000\nlocking=false\nanimation=none\nstartup-animation=none\n' > /tmp/weston.ini
 # The headless backend's width and height are the output's points: at
 # --scale=2 an 800x600 output is 1600x1200 pixels, and its screenshot too.
@@ -237,7 +244,7 @@ export WAYLAND_DISPLAY=wayland-1
 export SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock)
 wl-copy before
 echo "sway control: wl-copy then wl-paste: [$(timeout 5 wl-paste -n 2>&1)]"
-printf '[launch]\nsplash = "off"\n' > baud.toml
+printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n' > baud.toml
 # The child: one key, then a program's OSC 52 write, then whatever
 # arrives -- a paste -- kept in a file.
 cat > child.sh <<C
@@ -307,7 +314,7 @@ set -u
 O=/io/out
 D=$(mktemp -d) && cd "$D"
 export XDG_RUNTIME_DIR=$D/xdg && mkdir -m 0700 "$XDG_RUNTIME_DIR"
-printf '[launch]\nsplash = "off"\n' > baud.toml
+printf '[launch]\nsplash = "off"\n[window]\nactivity_lights = "off"\n' > baud.toml
 # Outputs as sway.conf lines, one per output, each with a black
 # background; the window floats at the layout's origin, 800x608 points.
 # Each sway gets a runtime directory of its own.
