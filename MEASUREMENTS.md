@@ -4414,21 +4414,19 @@ and a strand injected over the block, in the dark film, reads 1,569 pixels on on
 frame. A faint outline of the hidden block shows around frame 185 in both films,
 dark and light, before and after the move, unmeasured.
 
-**The About window cuts to the still.** It plays the same file, which now lasts
-10 s, for 4.75 s: nineteen 250 ms phases, the most that end under WCAG 2.2.2's five
-seconds with the block shown, so the cut moves only the plasma. It rests on the
-tight lockup placed where the film draws the lockup, a point a unit, and Reduce
-Motion and a bare binary show the same picture. At 2x the amber's box is the
-still's 535, 236 to 605, 326 against the film's 536, 235 to 607, 326. The still's
-word is the files' 500 where the film's is the renderer's Bold, so the word thins
-by a pixel or two a side at the cut.
+**The About window repeats the film.** It plays the same 10 s file round and round
+while the window is open, and a click on it or Space pauses it and plays it on from
+there, which is its 2.2.2 mechanism. Its clock pauses while none of the window is on
+screen and ends at a close. Reduce Motion and a bare binary show the tight lockup
+placed where the film draws the lockup, a point a unit. At 2x the amber's box is the
+still's 535, 236 to 605, 326 against the film's 536, 235 to 607, 326. The still's word
+is the files' 500 where the film's is the renderer's Bold.
 
-**The cut is no flash.** `flash_census` over the window's own pictures at 2x, the
-film's 152 frames for their delays then the still for 3 s: dark 7 general and 0
-red, area 381.5, strict 1,420.5; light 7 and 0, 518.2, 2,189. Those are the film's
-own worst, in the same second, 1.54 s in, so the cut adds nothing, and both
-verdicts pass. 11,237 pixels of 614,880 move over 32 levels at the cut in
-dark, 11,021 in light.
+**Flashes.** The file's census above counts the repeat and its join. Through the
+window's own pictures at 2x only the film's first 152 frames have been counted, when
+the window cut to the still at 4.75 s: dark 7 general and 0 red, area 381.5, strict
+1,420.5; light 7 and 0, 518.2, 2,189. All 320 frames through the window, repeating,
+are unmeasured.
 
 ## LICENSE is the Creative Commons text, and the rows name the rest
 

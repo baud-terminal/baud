@@ -21,12 +21,16 @@ use std::ptr::NonNull;
 use block2::RcBlock;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
-use macos_liquid_glass::objc2_app_kit::{NSWindow, NSWindowWillCloseNotification};
-use macos_liquid_glass::objc2_foundation::{NSNotification, NSNotificationCenter};
+use macos_liquid_glass::objc2_app_kit::{
+    NSWindow, NSWindowDidChangeOcclusionStateNotification, NSWindowWillCloseNotification,
+};
+use macos_liquid_glass::objc2_foundation::{
+    NSNotification, NSNotificationCenter, NSNotificationName,
+};
 
-/// The observer of one window's close; dropping it removes the observer,
-/// so a window that has gone is heard no more.
-#[must_use = "dropping it stops hearing the window's close"]
+/// The observer of one of a window's notifications; dropping it removes the
+/// observer, so a window that has gone is heard no more.
+#[must_use = "dropping it stops hearing the window"]
 pub struct Closing {
     token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
 }
@@ -34,20 +38,32 @@ pub struct Closing {
 /// **Calls `then` each time `window` is about to close**, until the
 /// returned [`Closing`] drops.
 pub fn when_closing(window: &NSWindow, then: impl Fn() + 'static) -> Closing {
+    // SAFETY: a framework constant, a valid string for the process's life.
+    hear(window, unsafe { NSWindowWillCloseNotification }, then)
+}
+
+/// **Calls `then` each time how much of `window` is on screen changes**:
+/// covered, uncovered, the app hidden or shown again, until the returned
+/// [`Closing`] drops.
+pub fn when_occlusion_changes(window: &NSWindow, then: impl Fn() + 'static) -> Closing {
+    // SAFETY: a framework constant, a valid string for the process's life.
+    hear(
+        window,
+        unsafe { NSWindowDidChangeOcclusionStateNotification },
+        then,
+    )
+}
+
+fn hear(window: &NSWindow, name: &NSNotificationName, then: impl Fn() + 'static) -> Closing {
     let block = RcBlock::new(move |_: NonNull<NSNotification>| then());
     let center = NSNotificationCenter::defaultCenter();
     let object: &AnyObject = window;
-    // SAFETY: a framework constant, a valid string for the process's life;
-    // the object filter is this window, and no queue, so the block runs on
-    // the posting thread -- the main thread, where a window closes -- which
-    // is what makes a block over main-thread state sound here.
+    // SAFETY: the object filter is this window, and no queue, so the block
+    // runs on the posting thread -- the main thread, where a window closes
+    // and changes -- which is what makes a block over main-thread state
+    // sound here.
     let token = unsafe {
-        center.addObserverForName_object_queue_usingBlock(
-            Some(NSWindowWillCloseNotification),
-            Some(object),
-            None,
-            &block,
-        )
+        center.addObserverForName_object_queue_usingBlock(Some(name), Some(object), None, &block)
     };
     Closing { token }
 }

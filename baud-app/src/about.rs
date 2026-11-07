@@ -1,7 +1,8 @@
 //! **What the About window says, and where its film comes from.**
 //! `baud_present_macos::about` is the window; this is baud's content: the
-//! README's logo film from the app bundle's Resources, the lockup it cuts to
-//! and a bare binary has instead, the version line, the home and the licence.
+//! README's logo film from the app bundle's Resources, the lockup Reduce
+//! Motion and a bare binary have instead, the version line, the home and the
+//! licence.
 //!
 //! The films are not in the binary: the two are 8.9 MB, and the `baud`
 //! crate, 4.4 MiB against crates.io's 10, has no room for what a window

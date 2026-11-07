@@ -31,9 +31,9 @@
 //! no control of its own, so a film that repeats does not meet it on a
 //! README's page, and the README's `<picture>` serves a reader who asked for
 //! reduced motion the still lockup in its place; `tools/baud-pictures`'s
-//! `logo.rs` says the rest. The About window plays the file for under five
-//! seconds and cuts to the still. WCAG 2.3.1 is met, the census counting the
-//! repeat and its join.
+//! `logo.rs` says the rest. The About window repeats the file and a click or
+//! Space pauses it, which meets 2.2.2 there. WCAG 2.3.1 is met, the census
+//! counting the repeat and its join.
 
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking};
 use baud_core::{Owned, Term};

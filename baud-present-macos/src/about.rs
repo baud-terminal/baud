@@ -11,40 +11,64 @@
 //! line is kept word for word; the window is the window crate's and its
 //! contents are AppKit's own image view and labels.
 //!
-//! **The logo is the README's film, for [`PLAYS`], when the bundle carries
-//! it**: a frame at a time on the view's display link, `NSImageCurrentFrame`
-//! of its one bitmap, for the time `NSImageCurrentFrameDuration` says
-//! (`[[source: sdk27-nsbitmapimagerep-h]]`). `NSImageView`'s `animates`
-//! (`[[source: sdk27-nsimageview-h]]`) says nothing of how often it plays,
-//! and that cannot be read off a window never shown. The file repeats and
-//! never rests, and a window with no way to pause it stops by itself inside
-//! WCAG 2.2.2's five seconds (`[[source: wcag22]]`), so it cuts to the
-//! lockup still, placed where the film draws the lockup, and rests there.
-//! Under Reduce Motion the still is all it shows, and a binary with no bundle
-//! shows it too, as it draws its own Dock icon.
+//! **The logo is the README's film, repeating, when the bundle carries it**:
+//! a frame at a time on the view's display link, `NSImageCurrentFrame` of its
+//! one bitmap, for the time `NSImageCurrentFrameDuration` says
+//! (`[[source: sdk27-nsbitmapimagerep-h]]`), the frame after the last being
+//! the first, as the file's own count of zero has it. `NSImageView`'s
+//! `animates` (`[[source: sdk27-nsimageview-h]]`) says nothing of how often
+//! it plays, and that cannot be read off a window never shown.
+//!
+//! **It conforms to WCAG 2.2.2 by a pause.** The film lasts more than five
+//! seconds beside the window's lines, so it needs a way for the user to
+//! pause, stop or hide it (`[[source: wcag22]]`). Closing the window is not
+//! claimed as that way: it takes the lines too, and
+//! `[[source: wcag22-understanding-pause-stop-hide]]` asks for a mechanism
+//! that leaves the rest usable. A click on the film or Space pauses it where
+//! it is and plays it on from there, the film's tooltip says so, and
+//! VoiceOver has it as the logo's action. The window takes keys from its
+//! open, and a pause holds for the app's run, so a window opened again
+//! starts from its first frame, paused. WCAG 2.3.1 is the file's census,
+//! which counts the repeat and its join (`tools/baud-pictures`'s `logo.rs`).
+//!
+//! **The tooltip is a rect on the window's own view, over the film**, and
+//! not the image view's `toolTip`: a point on the film is that view's by
+//! `hitTest:`, and neither `NSView.h` nor Apple's page for `toolTip` says
+//! how AppKit picks among the tooltips of views that overlap, so the film's
+//! point has one tooltip, on the view a click there reaches, and no other.
+//! `addToolTipRect:owner:userData:` holds its owner weakly ("You're
+//! responsible for ensuring that owner remains valid"), so the view keeps
+//! the string for as long as the rect is there.
+//!
+//! **It draws only while it can be seen.** The clock pauses while none of the
+//! window is on screen, covered or the app hidden, and goes on from the same
+//! frame; a close ends it. Under Reduce Motion the still is all it shows, and
+//! a binary with no bundle shows it too, as it draws its own Dock icon.
 
 #![allow(unsafe_code)]
 
+use crate::closing::{Closing, when_closing, when_occlusion_changes};
 use baud_domain::FrameNo;
 use baud_render::Argb;
 use core::cell::{Cell, RefCell};
 use core::time::Duration;
 use macos_liquid_glass::objc2::rc::Retained;
-use macos_liquid_glass::objc2::runtime::AnyObject;
+use macos_liquid_glass::objc2::runtime::{AnyObject, ProtocolObject};
 use macos_liquid_glass::objc2::{
-    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel,
 };
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearanceCustomization, NSApplication, NSBitmapImageRep, NSColor, NSFont,
-    NSFontAttributeName, NSImage, NSImageCacheMode, NSImageCurrentFrame,
-    NSImageCurrentFrameDuration, NSImageFrameCount, NSImageScaling, NSImageView,
-    NSLinkAttributeName, NSMenuItem, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
-    NSTextAlignment, NSTextField, NSView, NSWindowStyleMask,
+    NSAccessibility, NSAccessibilityCustomAction, NSAppearanceCustomization, NSApplication,
+    NSBitmapImageRep, NSColor, NSEvent, NSFont, NSFontAttributeName, NSImage, NSImageCacheMode,
+    NSImageCurrentFrame, NSImageCurrentFrameDuration, NSImageFrameCount, NSImageScaling,
+    NSImageView, NSLinkAttributeName, NSMenuItem, NSMutableParagraphStyle,
+    NSParagraphStyleAttributeName, NSTextAlignment, NSTextField, NSToolTipTag, NSView,
+    NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
-    NSMutableAttributedString, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSRange, NSRect,
-    NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, ns_string,
+    NSArray, NSMutableAttributedString, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSRange,
+    NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, ns_string,
 };
 use macos_liquid_glass::objc2_quartz_core::CADisplayLink;
 use macos_liquid_glass::window::GlassWindow;
@@ -61,35 +85,30 @@ const LINE_GAP: CGFloat = 3.0;
 /// `NSFont.smallSystemFontSize`.
 const VERSION_SIZE: CGFloat = 13.0;
 
-/// **How long the film plays before it cuts to the still**: nineteen of the
-/// film's blink phases at 250 ms, the most that end inside WCAG 2.2.2's five
-/// seconds with the block shown, as the still shows it, so the cut moves
-/// only the plasma. `baud-app/tests/about_window.rs` holds this to the file.
-pub const PLAYS: Duration = Duration::from_millis(4750);
+/// The logo's tooltip while the film shows: what pauses it, which a window
+/// with no control on it has no other way to say.
+const PAUSE_TIP: &str = "Click or press Space to pause or play";
+/// The same, as VoiceOver names the logo's action.
+const PAUSE_ACTION: &str = "Pause or play";
 
-/// **The frame shown `elapsed` in**, of frames lasting `lasts`, and whether
-/// the film is over: at `plays`, or when its frames run out if that is sooner.
-pub fn frame_at(lasts: &[Duration], plays: Duration, elapsed: Duration) -> (FrameNo, Playing) {
-    let mut end = Duration::ZERO;
+/// **The frame shown `elapsed` in**, of frames lasting `lasts`, the film
+/// repeating: past its last frame comes its first, as the file's NETSCAPE2.0
+/// block of count zero has it. A film with no length stays on its first.
+pub fn frame_at(lasts: &[Duration], elapsed: Duration) -> FrameNo {
+    let whole: u128 = lasts.iter().map(Duration::as_nanos).sum();
     let mut frame = FrameNo::of(0);
-    for (i, d) in lasts.iter().enumerate() {
-        end += *d;
-        if elapsed < end.min(plays) {
-            return (frame, Playing::Yes);
-        }
-        if end >= plays || i + 1 == lasts.len() {
+    if whole == 0 {
+        return frame;
+    }
+    let mut left = elapsed.as_nanos() % whole;
+    for d in lasts {
+        if left < d.as_nanos() {
             break;
         }
+        left -= d.as_nanos();
         frame = FrameNo::of(frame.raw() + 1);
     }
-    (frame, Playing::Over)
-}
-
-/// Whether the film has more frames to show.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Playing {
-    Yes,
-    Over,
+    frame
 }
 
 /// Whether the film's clock is running.
@@ -97,6 +116,22 @@ pub enum Playing {
 pub enum Clock {
     Running,
     Stopped,
+}
+
+/// Whether the user has paused the film, WCAG 2.2.2's mechanism.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Hold {
+    #[default]
+    Free,
+    Paused,
+}
+
+/// Whether any of the window is on screen, so that drawing can be seen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Seen {
+    #[default]
+    Yes,
+    No,
 }
 
 /// Whether the logo moves: the system's Reduce Motion, read when it opens.
@@ -107,7 +142,7 @@ pub enum Motion {
 }
 
 /// One appearance's logo: its film, if the bundle carries one, and the
-/// still shown without one, under Reduce Motion, and once the film has cut.
+/// still shown without one and under Reduce Motion.
 pub struct Logo {
     pub film: Option<Retained<NSImage>>,
     pub still: Retained<NSImage>,
@@ -118,7 +153,7 @@ pub struct Content<'a> {
     pub on_dark: Logo,
     pub on_light: Logo,
     /// Where the still goes in the logo's box, in points from its lower
-    /// left: where the film draws the lockup, so the cut moves nothing.
+    /// left: where the film draws the lockup.
     pub still_at: NSRect,
     /// The page round the film, for the window behind it.
     pub page_dark: Argb,
@@ -263,8 +298,17 @@ impl Shown {
 struct Ivars {
     shown: RefCell<Option<Shown>>,
     link: RefCell<Option<Retained<CADisplayLink>>>,
-    started: Cell<Option<f64>>,
+    /// How long the film has played, paused time not counted.
+    played: Cell<Duration>,
+    /// When the clock last ticked; `None` until its first tick after a start
+    /// or a pause, so that a pause counts for nothing.
+    ticked: Cell<Option<f64>>,
     shows: Cell<Shows>,
+    hold: Cell<Hold>,
+    seen: Cell<Seen>,
+    /// The film's tooltip while it shows: its tag, the string it reads, which
+    /// the rect holds weakly, and the rect.
+    tip: RefCell<Option<(NSToolTipTag, Retained<NSString>, NSRect)>>,
 }
 
 define_class!(
@@ -293,7 +337,68 @@ define_class!(
         fn tick(&self, link: &CADisplayLink) {
             self.advance(link);
         }
+
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            true
+        }
+
+        /// A point on the film is this view's, not the image view's above it,
+        /// so a click there reaches [`AboutView::mouse_down`]; `point` is in
+        /// the superview's points, as `NSView`'s header has it.
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+            // The view's bounds are its frame's size at the origin, unscaled.
+            let o = self.frame().origin;
+            let local = NSPoint::new(point.x - o.x, point.y - o.y);
+            if self.on_film(local) {
+                Some(Retained::into_super(self.retain()))
+            } else {
+                // SAFETY: `NSView`'s own, with the point it was sent.
+                unsafe { msg_send![super(self), hitTest: point] }
+            }
+        }
+
+        /// VoiceOver's way to the pause: the logo's one custom action.
+        #[unsafe(method(pauseOrPlayFromAccessibility))]
+        fn pause_from_accessibility(&self) -> bool {
+            self.pause_or_play();
+            true
+        }
+
+        /// A click on the film pauses or plays it; any other goes where a
+        /// click on the page always went.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            let at = self.convertPoint_fromView(event.locationInWindow(), None);
+            if self.on_film(at) {
+                self.pause_or_play();
+                if let Some(window) = self.window() {
+                    window.makeFirstResponder(Some(self));
+                }
+            } else {
+                // SAFETY: `NSResponder`'s own, with the event it was sent.
+                let () = unsafe { msg_send![super(self), mouseDown: event] };
+            }
+        }
+
+        /// Space pauses or plays the film: the click's keyboard twin. Every
+        /// other key, Escape's close among them, goes on up the chain.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            let space = event
+                .charactersIgnoringModifiers()
+                .is_some_and(|c| c.to_string() == " ");
+            if space && self.ivars().shows.get() == Shows::Film {
+                self.pause_or_play();
+            } else {
+                // SAFETY: `NSResponder`'s own, with the event it was sent.
+                let () = unsafe { msg_send![super(self), keyDown: event] };
+            }
+        }
     }
+
+    unsafe impl NSObjectProtocol for AboutView {}
 );
 
 impl AboutView {
@@ -325,10 +430,14 @@ impl AboutView {
                 (Shows::Film, Some(a)) => {
                     s.logo.setFrame(s.film_at);
                     s.logo.setImage(Some(&a.image));
+                    self.tip_over(Some(s.film_at));
+                    self.offer_pause(&s.logo);
                 }
                 _ => {
                     s.logo.setFrame(s.still_at);
                     s.logo.setImage(Some(&p.still));
+                    self.tip_over(None);
+                    s.logo.setAccessibilityCustomActions(None);
                 }
             }
             if let Some(window) = self.window() {
@@ -339,37 +448,100 @@ impl AboutView {
         }
     }
 
-    /// One tick: the frame for the time since the first, and at the film's
-    /// end or once the window is gone, the still with the clock stopped.
+    /// One tick: the film on by the time since the last. A frame not yet
+    /// over draws nothing, so a display faster than the film costs no more.
     fn advance(&self, link: &CADisplayLink) {
         let now = link.timestamp();
-        let started = self.ivars().started.get().unwrap_or(now);
-        self.ivars().started.set(Some(started));
-        let shut = !self.window().is_some_and(|w| w.isVisible());
-        let over = match &*self.ivars().shown.borrow() {
-            Some(s) => match &s.picture(self.look()).film {
-                Some(film) if !shut => {
-                    let since =
-                        Duration::try_from_secs_f64(now - started).unwrap_or(Duration::ZERO);
-                    let (frame, playing) = frame_at(&film.lasts, PLAYS, since);
+        let since = self
+            .ivars()
+            .ticked
+            .replace(Some(now))
+            .map_or(Duration::ZERO, |then| {
+                Duration::try_from_secs_f64(now - then).unwrap_or(Duration::ZERO)
+            });
+        let played = self.ivars().played.get().saturating_add(since);
+        self.ivars().played.set(played);
+        if let Some(s) = &*self.ivars().shown.borrow() {
+            if let Some(film) = &s.picture(self.look()).film {
+                let frame = frame_at(&film.lasts, played);
+                if frame != film.current.get() {
                     film.show(frame);
                     NSView::setNeedsDisplay(&s.logo, true);
-                    playing == Playing::Over
                 }
-                _ => true,
-            },
-            None => true,
-        };
-        if over {
-            self.rest();
+            }
         }
     }
 
-    /// The still, with the clock stopped.
-    fn rest(&self) {
-        self.stop();
-        self.ivars().shows.set(Shows::Still);
-        self.put();
+    /// **The film's tooltip over `rect`, or none**: the one before it taken
+    /// off first, so a flip or a reopen never leaves two.
+    fn tip_over(&self, rect: Option<NSRect>) {
+        if let Some((tag, _, _)) = self.ivars().tip.borrow_mut().take() {
+            self.removeToolTip(tag);
+        }
+        if let Some(rect) = rect {
+            let owner = NSString::from_str(PAUSE_TIP);
+            // SAFETY: an `NSString` is an owner the page allows ("It can
+            // therefore simply be an NSString object"); the view keeps it
+            // until the rect is removed; no user data.
+            let tag =
+                unsafe { self.addToolTipRect_owner_userData(rect, &owner, core::ptr::null_mut()) };
+            *self.ivars().tip.borrow_mut() = Some((tag, owner, rect));
+        }
+    }
+
+    /// The pause as VoiceOver offers it, on the logo while the film shows.
+    fn offer_pause(&self, logo: &NSImageView) {
+        let name = NSString::from_str(PAUSE_ACTION);
+        // SAFETY: the selector is this class's, takes nothing and answers a
+        // `BOOL`, as the header asks; the action holds its target weakly,
+        // and the view outlives the logo it holds.
+        let action = unsafe {
+            NSAccessibilityCustomAction::initWithName_target_selector(
+                NSAccessibilityCustomAction::alloc(),
+                &name,
+                ProtocolObject::from_ref(self),
+                sel!(pauseOrPlayFromAccessibility),
+            )
+        };
+        logo.setAccessibilityCustomActions(Some(&NSArray::from_retained_slice(&[action])));
+    }
+
+    /// Whether `at`, in this view's points, is on the film.
+    fn on_film(&self, at: NSPoint) -> bool {
+        let shows = self.ivars().shows.get() == Shows::Film;
+        shows
+            && self.ivars().shown.borrow().as_ref().is_some_and(|s| {
+                let r = s.film_at;
+                let (x, y) = (at.x - r.origin.x, at.y - r.origin.y);
+                (0.0..r.size.width).contains(&x) && (0.0..r.size.height).contains(&y)
+            })
+    }
+
+    /// The clock runs while the film is neither paused nor out of sight, and
+    /// what it was stopped for counts for nothing when it runs again.
+    fn pace(&self) {
+        let runs = self.ivars().hold.get() == Hold::Free && self.ivars().seen.get() == Seen::Yes;
+        if let Some(link) = &*self.ivars().link.borrow() {
+            link.setPaused(!runs);
+        }
+        self.ivars().ticked.set(None);
+    }
+
+    /// The user's pause, or the film on from where it paused.
+    fn pause_or_play(&self) {
+        if self.ivars().shows.get() == Shows::Film {
+            self.ivars().hold.set(match self.ivars().hold.get() {
+                Hold::Free => Hold::Paused,
+                Hold::Paused => Hold::Free,
+            });
+            self.pace();
+        }
+    }
+
+    /// Whether any of the window is on screen.
+    fn set_seen(&self, seen: Seen) {
+        self.ivars().seen.set(seen);
+        self.pace();
     }
 
     fn stop(&self) {
@@ -381,7 +553,9 @@ impl AboutView {
     /// The film from its start, or the still, by `motion`.
     fn start(&self, motion: Motion) {
         self.stop();
-        self.ivars().started.set(None);
+        self.ivars().played.set(Duration::ZERO);
+        self.ivars().ticked.set(None);
+        self.ivars().seen.set(Seen::Yes);
         let plays = motion == Motion::Plays
             && self.ivars().shown.borrow().as_ref().is_some_and(|s| {
                 for film in [&s.on_dark.film, &s.on_light.film].into_iter().flatten() {
@@ -404,6 +578,8 @@ impl AboutView {
             }
             *self.ivars().link.borrow_mut() = Some(link);
         }
+        // A new link runs, and a pause the user made holds across a reopen.
+        self.pace();
     }
 }
 
@@ -459,6 +635,9 @@ pub struct About {
     link: Retained<NSTextField>,
     copyright: Retained<NSTextField>,
     centred: Cell<bool>,
+    /// The window's close and its coming and going from the screen, heard
+    /// for as long as this lives.
+    _heard: [Closing; 2],
 }
 
 impl About {
@@ -516,6 +695,20 @@ impl About {
         });
         window.set_content_view(&view);
         view.follow();
+        let closes = view.clone();
+        let moves = view.clone();
+        let heard = [
+            when_closing(w, move || closes.stop()),
+            when_occlusion_changes(w, move || {
+                let on = moves
+                    .window()
+                    .is_some_and(|w| w.occlusionState().contains(NSWindowOcclusionState::Visible));
+                moves.set_seen(match on {
+                    true => Seen::Yes,
+                    false => Seen::No,
+                });
+            }),
+        ];
         About {
             window,
             view,
@@ -523,6 +716,7 @@ impl About {
             link,
             copyright,
             centred: Cell::new(false),
+            _heard: heard,
         }
     }
 
@@ -534,6 +728,9 @@ impl About {
         }
         self.window.show();
         self.view.start(motion);
+        // Space reaches the view only as the first responder, and nothing
+        // else in the window takes keys but a label a click has selected.
+        self.window.ns_window().makeFirstResponder(Some(&self.view));
     }
 
     /// The window. A test renders and looks at it without showing it.
@@ -583,11 +780,15 @@ impl About {
         self.view.start(motion);
     }
 
-    /// **The cut**, as a tick makes it at the film's end: the still, with the
-    /// clock stopped. A link made for a window never on screen does not tick,
-    /// so this is the part a test can reach.
-    pub fn cut(&self) {
-        self.view.rest();
+    /// What a click on the film and Space do. A link made for a window never
+    /// on screen does not tick, so its clock's state is what a test can read.
+    pub fn pause_or_play(&self) {
+        self.view.pause_or_play();
+    }
+
+    /// What the window hears when it goes off screen or comes back.
+    pub fn set_seen(&self, seen: Seen) {
+        self.view.set_seen(seen);
     }
 
     /// Which of the two the window shows.
@@ -606,7 +807,8 @@ impl About {
             }),
             Shows::Still => None,
         };
-        let clock = match self.view.ivars().link.borrow().is_some() {
+        let runs = |link: &Retained<CADisplayLink>| !link.isPaused();
+        let clock = match self.view.ivars().link.borrow().as_ref().is_some_and(runs) {
             true => Clock::Running,
             false => Clock::Stopped,
         };
@@ -620,6 +822,13 @@ impl About {
             .as_ref()
             .and_then(|s| s.picture(self.view.look()).film.as_ref())
             .map_or(Vec::new(), |f| f.lasts.clone())
+    }
+
+    /// The film's tooltip, its text and where it is, while one is there.
+    pub fn pause_tip(&self) -> Option<(String, NSRect)> {
+        let tip = self.view.ivars().tip.borrow();
+        tip.as_ref()
+            .map(|(_, text, rect)| (text.to_string(), *rect))
     }
 
     /// The link line's destination.
@@ -682,26 +891,26 @@ pub fn add_menu_item(
 mod tests {
     use super::*;
 
-    /// **The frame at each moment, and the cut**: each frame for its own
-    /// delay, over at `plays` however long the file runs, over when its
-    /// frames run out if that is sooner, and an empty film over at once.
-    /// Perturbation: ignore `plays` and the cases at 50 ms fail.
+    /// **The frame at each moment, repeating**: each frame for its own
+    /// delay, the first again after the last however many times round, and
+    /// a film with no frames or no length on its first. Perturbation: drop
+    /// the `%` and the cases past 1,050 ms stay on the last frame.
     #[test]
-    fn a_frame_lasts_its_delay_and_the_film_ends_at_the_cut() {
+    fn a_frame_lasts_its_delay_and_the_film_comes_round() {
         let ms = Duration::from_millis;
         let d = [ms(20), ms(30), ms(1000)];
         let f = FrameNo::of;
-        let at = |plays, elapsed| frame_at(&d, ms(plays), ms(elapsed));
-        assert_eq!(at(50, 0), (f(0), Playing::Yes));
-        assert_eq!(at(50, 19), (f(0), Playing::Yes));
-        assert_eq!(at(50, 20), (f(1), Playing::Yes));
-        assert_eq!(at(50, 49), (f(1), Playing::Yes));
-        assert_eq!(at(50, 50), (f(1), Playing::Over));
-        assert_eq!(at(50, 9000), (f(1), Playing::Over));
-        assert_eq!(at(900, 899), (f(2), Playing::Yes));
-        assert_eq!(at(900, 900), (f(2), Playing::Over));
-        assert_eq!(at(5000, 1049), (f(2), Playing::Yes));
-        assert_eq!(at(5000, 1050), (f(2), Playing::Over));
-        assert_eq!(frame_at(&[], ms(50), ms(0)), (f(0), Playing::Over));
+        let at = |elapsed| frame_at(&d, ms(elapsed));
+        assert_eq!(at(0), f(0));
+        assert_eq!(at(19), f(0));
+        assert_eq!(at(20), f(1));
+        assert_eq!(at(49), f(1));
+        assert_eq!(at(50), f(2));
+        assert_eq!(at(1049), f(2));
+        assert_eq!(at(1050), f(0));
+        assert_eq!(at(1070), f(1));
+        assert_eq!(at(1050 * 1000 + 50), f(2));
+        assert_eq!(frame_at(&[], ms(50)), f(0));
+        assert_eq!(frame_at(&[Duration::ZERO, Duration::ZERO], ms(50)), f(0));
     }
 }

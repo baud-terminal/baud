@@ -1,9 +1,9 @@
 //! **The About window, built and never shown**, and the app menu's item that
 //! opens it: what it says, the logo for each appearance, the film stepped to
-//! a frame and cut to the still, the item's action, and the renders for each
-//! appearance at 1x and 2x when `BAUD_ABOUT_RENDERS` names a folder, with the
-//! film up to the cut and the still as raw frames for the flash census when
-//! `BAUD_ABOUT_CUT` does.
+//! a frame and coming round, its pause, the item's action, and the renders for
+//! each appearance at 1x and 2x when `BAUD_ABOUT_RENDERS` names a folder, with
+//! the whole film as raw frames for the flash census when `BAUD_ABOUT_FILM`
+//! does.
 //!
 //! `harness = false` because AppKit views are main-thread-only and libtest
 //! runs every test on a thread of its own; this `main` is the process's main
@@ -45,24 +45,26 @@ fn main() {
 #[cfg(target_os = "macos")]
 mod checks {
     use baud_domain::FrameNo;
-    use baud_present_macos::about::{
-        About, Clock, Motion, PLAYS, Playing, Shows, add_menu_item, frame_at,
-    };
+    use baud_present_macos::about::{About, Clock, Motion, Seen, Shows, add_menu_item, frame_at};
     use core::cell::Cell;
     use core::time::Duration;
     use macos_liquid_glass::objc2::rc::Retained;
     use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker, sel};
     use macos_liquid_glass::objc2_app_kit::{
-        NSAppearance, NSApplication, NSBitmapFormat, NSBitmapImageFileType, NSBitmapImageRep,
-        NSDeviceRGBColorSpace, NSView,
+        NSAccessibility, NSAppearance, NSApplication, NSBitmapFormat, NSBitmapImageFileType,
+        NSBitmapImageRep, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSEventType,
+        NSView,
     };
-    use macos_liquid_glass::objc2_foundation::{NSDictionary, NSRect, NSString};
+    use macos_liquid_glass::objc2_foundation::{NSDictionary, NSPoint, NSRect, NSString};
     use std::path::PathBuf;
     use std::rc::Rc;
 
     const BUILD: &str = "1.0.0-beta+0123abc.dirty";
     const DARK: &str = "NSAppearanceNameDarkAqua";
     const LIGHT: &str = "NSAppearanceNameAqua";
+    /// Nineteen of the film's 250 ms blink phases, which end with the block
+    /// shown: the frame before this time has it, and the frame after does not.
+    const BLOCK_SHOWN_TO: u64 = 4750;
 
     fn workspace() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -104,6 +106,42 @@ mod checks {
         rep.setSize(b.size);
         view.cacheDisplayInRect_toBitmapImageRep(b, &rep);
         rep
+    }
+
+    /// A left click at `at` in the window, as AppKit makes one, sent to `view`.
+    fn click(view: &NSView, at: NSPoint) {
+        let event = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+            NSEventType::LeftMouseDown,
+            at,
+            NSEventModifierFlags::empty(),
+            0.0,
+            0,
+            None,
+            0,
+            1,
+            1.0,
+        )
+        .expect("the event");
+        view.mouseDown(&event);
+    }
+
+    /// A key down of `text`, as AppKit makes one, sent to `view`.
+    fn press(view: &NSView, text: &str) {
+        let text = NSString::from_str(text);
+        let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+            NSEventType::KeyDown,
+            NSPoint::new(0.0, 0.0),
+            NSEventModifierFlags::empty(),
+            0.0,
+            0,
+            None,
+            &text,
+            &text,
+            false,
+            0,
+        )
+        .expect("the event");
+        view.keyDown(&event);
     }
 
     /// A bitmap's bytes, as a PNG.
@@ -169,7 +207,7 @@ mod checks {
         let mtm = MainThreadMarker::new().expect("harness = false runs main on the main thread");
         let app = NSApplication::sharedApplication(mtm);
         let (dark, light) = (film("dark"), film("light"));
-        let mut cut = FrameNo::of(0);
+        let mut shown_to = FrameNo::of(0);
 
         let image = |b: &[u8]| macos_liquid_glass::image_from_bytes(b);
         let about =
@@ -200,11 +238,10 @@ mod checks {
 
         // **What each frame lasts is the file's, as baud's own decoder reads
         // it**: AppKit's durations are what a tick steps by, and a clamped
-        // delay would stretch the film past WCAG's five seconds. **The window
-        // plays under five seconds and cuts on a frame's end**: the file
-        // repeats for longer, and a cut inside a frame would show that frame
-        // short. Perturbation: a `PLAYS` of 5 s fails the first, and of
-        // 4.76 s the second.
+        // delay would run the film slower than the file. **After the last
+        // frame comes the first**, as the file's own count of zero has it.
+        // Perturbation: `frame_at` that stops on the last frame fails the
+        // last assert.
         for (name, gif) in [(DARK, &dark), (LIGHT, &light)] {
             set_look(&about, name);
             let lasts = about.film_lasts();
@@ -224,25 +261,20 @@ mod checks {
                 (moving - want).abs() < 1e-3,
                 "{name}: AppKit's film runs {moving} s, the file's {want} s"
             );
-            assert!(
-                PLAYS.as_secs_f64() < 5.0,
-                "{name}: {PLAYS:?}, under WCAG's five"
-            );
-            let (mut end, mut frames) = (0.0, 0);
-            while end + 1e-3 < PLAYS.as_secs_f64() {
-                end += lasts[frames].as_secs_f64();
+            let whole: Duration = lasts.iter().sum();
+            let last = FrameNo::of(u32::try_from(lasts.len() - 1).expect("a frame"));
+            let just = whole - Duration::from_millis(1);
+            assert_eq!(frame_at(&lasts, just), last, "{name}: the last frame");
+            assert_eq!(frame_at(&lasts, whole), FrameNo::of(0), "{name}: round");
+            let phases = Duration::from_millis(BLOCK_SHOWN_TO);
+            // To within a millisecond: AppKit gives each frame's time as a
+            // double, so the frames that end at 4.75 s sum a hair short of it.
+            let (mut end, mut frames) = (Duration::ZERO, 0);
+            while end + Duration::from_millis(1) < phases {
+                end += lasts[frames];
                 frames += 1;
             }
-            assert!(frames < lasts.len(), "{name}: the film ends at the cut");
-            assert!(
-                (end - PLAYS.as_secs_f64()).abs() < 1e-3,
-                "{name}: the cut at {PLAYS:?} is inside a frame, which ends at {end} s"
-            );
-            cut = FrameNo::of(u32::try_from(frames).expect("a frame"));
-            let last = FrameNo::of(cut.raw() - 1);
-            let just = PLAYS - Duration::from_millis(1);
-            assert_eq!(frame_at(&lasts, PLAYS, just), (last, Playing::Yes));
-            assert_eq!(frame_at(&lasts, PLAYS, PLAYS).1, Playing::Over);
+            shown_to = FrameNo::of(u32::try_from(frames).expect("a frame"));
         }
 
         let content = about.window().content_view().expect("its view");
@@ -276,7 +308,7 @@ mod checks {
         // frame draws the same picture for all of them.
         set_look(&about, DARK);
         let logo = about.logo_view();
-        let mid = FrameNo::of(cut.raw() / 2);
+        let mid = FrameNo::of(shown_to.raw() / 2);
         let shot = |frame: FrameNo| {
             about.show_frame(frame);
             png(&picture(&logo, 1.0))
@@ -287,10 +319,9 @@ mod checks {
         assert_eq!(shot(FrameNo::of(0)), first, "and it comes back");
 
         // **Reduce Motion shows the still at once and starts no clock**;
-        // plain, the film goes to its first frame; the cut stops the clock on
-        // the still, whichever appearance it ends in and through a flip after.
-        // A link made for a window never on screen does not tick, so what a
-        // tick does is `frame_at`'s and the cut's.
+        // plain, the film goes to its first frame with its clock running. A
+        // click or Space pauses it and plays it on, it stops drawing out of
+        // sight and goes on when seen again, and a flip keeps it going.
         // A binary with no bundle shows the same picture, with nothing to
         // play. Perturbation: rest on `film.last()` and the film's last
         // frame, plasma and all, is not the bare window's.
@@ -327,23 +358,119 @@ mod checks {
                 still,
                 "{name}: the film shows"
             );
-            about.cut();
-            assert_eq!(about.film_state(), (None, Clock::Stopped), "{name}: cut");
-            assert_eq!(png(&picture(&content, 2.0)), still, "{name}: the still");
+            // **The pause, WCAG 2.2.2's mechanism, and being out of sight**:
+            // each stops the clock and neither frees it alone. Perturbation:
+            // `pace` reading only `hold` fails the last two.
+            let running = (Some(FrameNo::of(0)), Clock::Running);
+            let held = (Some(FrameNo::of(0)), Clock::Stopped);
+            about.pause_or_play();
+            assert_eq!(about.film_state(), held, "{name}: paused");
+            about.pause_or_play();
+            assert_eq!(about.film_state(), running, "{name}: on again");
+            about.set_seen(Seen::No);
+            assert_eq!(about.film_state(), held, "{name}: out of sight");
+            about.pause_or_play();
+            about.set_seen(Seen::Yes);
+            assert_eq!(about.film_state(), held, "{name}: seen, and still paused");
+            about.pause_or_play();
+            assert_eq!(about.film_state(), running, "{name}: seen and free");
+            // **A flip while it plays follows the look**, on the film, with
+            // the clock going. Perturbation: a `follow` that rests on the
+            // still fails the first.
+            let film = png(&picture(&content, 2.0));
+            set_look(&about, other);
+            assert_eq!(about.film_state(), running, "{name}: a flip");
+            assert_ne!(png(&picture(&content, 2.0)), film, "{name}: its look");
+            set_look(&about, name);
+            // **A flip on the still follows the look too**, and comes back.
+            about.play(Motion::Still);
             set_look(&about, other);
             let flipped = png(&picture(&content, 2.0));
-            assert_ne!(flipped, still, "{name}: a flip after the cut");
+            assert_ne!(flipped, still, "{name}: a flip on the still");
             assert_eq!(about.shows(), Shows::Still, "{name}: still the still");
             set_look(&about, name);
             assert_eq!(png(&picture(&content, 2.0)), still, "{name}: and back");
         }
 
-        // **The cut moves only the plasma**: on the film's last frame the
-        // block is shown, and on the next it is hidden, so the cut ends a
-        // phase; and the amber, the ❯'s left to the block's right, is where
-        // the still has it, within a point at 2x. Perturbation: the still
-        // filling the logo's box, as a bare window's used to, is 2.16 times
-        // the film's lockup.
+        // **A click on the film and Space reach the pause**, and a click on
+        // the lines and any other key do not, the events as AppKit makes
+        // them. Perturbation: `on_film` that is always true fails the click
+        // on the lines; a `key_down` that takes every key fails the `a`.
+        set_look(&about, DARK);
+        about.play(Motion::Plays);
+        if about.film_state().1 == Clock::Stopped {
+            about.pause_or_play();
+        }
+        let running = (Some(FrameNo::of(0)), Clock::Running);
+        let held = (Some(FrameNo::of(0)), Clock::Stopped);
+        click(&content, NSPoint::new(5.0, 5.0));
+        assert_eq!(about.film_state(), running, "a click on the lines");
+        press(&content, "a");
+        assert_eq!(about.film_state(), running, "another key");
+        click(&content, NSPoint::new(210.0, 200.0));
+        assert_eq!(about.film_state(), held, "a click on the film");
+        press(&content, " ");
+        assert_eq!(about.film_state(), running, "Space");
+        // Under Reduce Motion neither has anything to pause.
+        about.play(Motion::Still);
+        press(&content, " ");
+        assert_eq!(about.film_state(), (None, Clock::Stopped), "the still");
+
+        // **A point on the film is the view's own**, not the image view's
+        // above it, so a real click reaches the pause; and VoiceOver has the
+        // pause as the logo's action while the film shows, and none on the
+        // still. Perturbation: no `hitTest:` gives the image view.
+        about.play(Motion::Plays);
+        let on_film = NSPoint::new(210.0, 200.0);
+        let hit = content.hitTest(on_film).expect("a view");
+        assert!(
+            core::ptr::eq(&*hit, &*content),
+            "the film's point is the view's"
+        );
+        let actions = |about: &About| {
+            about
+                .logo_view()
+                .accessibilityCustomActions()
+                .map_or(0, |a| a.count())
+        };
+        assert_eq!(actions(&about), 1, "VoiceOver's pause");
+        // **The pause's tooltip is the view's, over the film**, where a click
+        // on the film lands, and the image view has none to compete with it.
+        // Perturbation: the tooltip back on the image view fails the first.
+        assert_eq!(about.logo_view().toolTip(), None, "none on the image view");
+        let (text, over) = about.pause_tip().expect("the film's tooltip");
+        assert_eq!(text, "Click or press Space to pause or play");
+        let middle = NSPoint::new(
+            over.origin.x + over.size.width / 2.0,
+            over.origin.y + over.size.height / 2.0,
+        );
+        let hit = content.hitTest(middle).expect("a view");
+        assert!(
+            core::ptr::eq(&*hit, &*content),
+            "the tooltip's point is the view's"
+        );
+        about.play(Motion::Still);
+        assert_eq!(actions(&about), 0, "none on the still");
+        assert_eq!(about.pause_tip(), None, "no tooltip on the still");
+
+        // **A close ends the clock, and a pause holds for the app's run**:
+        // opened again, the film is on its first frame, paused. Perturbation:
+        // no `when_closing` leaves the clock running after the close; a start
+        // that never paces its new link fails "opened again, paused".
+        about.play(Motion::Plays);
+        about.pause_or_play();
+        about.window().ns_window().close();
+        assert_eq!(about.film_state().1, Clock::Stopped, "closed");
+        about.play(Motion::Plays);
+        assert_eq!(about.film_state(), held, "opened again, paused");
+        about.pause_or_play();
+        assert_eq!(about.film_state(), running, "and on");
+
+        // **The still is where the film draws the lockup**: on a frame with
+        // the block shown the amber, the ❯'s left to the block's right, is
+        // where the still has it, within a point at 2x. Perturbation: the
+        // still filling the logo's box, as a bare window's used to, is 2.16
+        // times the film's lockup.
         for name in [DARK, LIGHT] {
             set_look(&about, name);
             about.play(Motion::Still);
@@ -352,8 +479,8 @@ mod checks {
                 about.show_frame(f);
                 rgb(&picture(&content, 2.0))
             };
-            let last = amber_box(&frame(FrameNo::of(cut.raw() - 1))).expect("the amber");
-            let next = amber_box(&frame(cut)).expect("the ❯");
+            let last = amber_box(&frame(FrameNo::of(shown_to.raw() - 1))).expect("the amber");
+            let next = amber_box(&frame(shown_to)).expect("the ❯");
             println!("{name}: the amber, the still's {still:?}, the film's {last:?}");
             for (a, b) in still.iter().zip(&last) {
                 assert!(
@@ -363,12 +490,12 @@ mod checks {
             }
             assert!(
                 next[2] + 8 < last[2],
-                "{name}: the block is hidden after the cut's frame: {next:?} against {last:?}"
+                "{name}: the block is hidden on the next: {next:?} against {last:?}"
             );
         }
-        // **The film up to the cut and the still, as the flash census reads
-        // them**, when asked for: `flash_census` over one pass, the still held.
-        if let Some(dir) = std::env::var_os("BAUD_ABOUT_CUT") {
+        // **The whole film, as the flash census reads it through the window**,
+        // when asked for: `flash_census` over one pass, which repeats.
+        if let Some(dir) = std::env::var_os("BAUD_ABOUT_FILM") {
             let dir = PathBuf::from(dir);
             std::fs::create_dir_all(&dir).expect("the folder");
             for (name, look) in [(DARK, "dark"), (LIGHT, "light")] {
@@ -377,20 +504,17 @@ mod checks {
                 let mut frames = Vec::new();
                 let mut repeats = String::new();
                 let mut size = (0, 0);
-                for f in 0..cut.raw() {
-                    about.show_frame(FrameNo::of(f));
+                for (f, last) in lasts.iter().enumerate() {
+                    about.show_frame(FrameNo::of(u32::try_from(f).expect("a frame")));
                     let (w, h, px) = rgb(&picture(&content, 2.0));
                     size = (w, h);
                     frames.extend_from_slice(&px);
-                    let cs = (lasts[f as usize].as_secs_f64() * 100.0).round() as u32;
+                    let cs = (last.as_secs_f64() * 100.0).round() as u32;
                     repeats.push_str(&format!("{cs}\n"));
                 }
-                about.play(Motion::Still);
-                frames.extend_from_slice(&rgb(&picture(&content, 2.0)).2);
-                repeats.push_str("1\n");
-                let rgb_at = dir.join(format!("cut-{look}.rgb"));
+                let rgb_at = dir.join(format!("film-{look}.rgb"));
                 std::fs::write(&rgb_at, &frames).expect("written");
-                let at = dir.join(format!("cut-{look}.repeats"));
+                let at = dir.join(format!("film-{look}.repeats"));
                 std::fs::write(&at, repeats).expect("written");
                 println!("{} {} {}", rgb_at.display(), size.0, size.1);
             }

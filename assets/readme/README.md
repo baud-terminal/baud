@@ -29,8 +29,9 @@ own, and GitHub's setting to pause animated images does not reach an image insid
 `<picture>`. So the README's `<picture>` serves a reader who asked for reduced
 motion the still lockup instead, `assets/logo/baud-lockup-dark-tight.svg` or
 `-light-tight.svg`, by `prefers-reduced-motion` on its first two sources, first
-because a browser takes the first that matches. The About window plays the same
-file for 4.75 s and cuts to that still, so there it stops by itself.
+because a browser takes the first that matches. The About window repeats the same
+file too, and there a click on it or Space pauses it, which meets 2.2.2; Reduce
+Motion and a binary with no bundle show that still.
 
 | file | bytes | frames | motion | most flashes at a pixel in a second, general / red | area, strict, of 21,824 | the word's worst contrast |
 |---|---|---|---|---|---|---|
