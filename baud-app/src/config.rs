@@ -656,21 +656,24 @@ pub enum LinkLineKey {
 }
 
 /// `[link]`: how links show, the opening rules being `link.rs`'s, which no key
-/// here loosens.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// here loosens; and `[link.*]`, your own link types and the printed-path
+/// forms (`rules.rs`), which add schemes and never loosen a check.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Link {
     pub urls: LinkUrls,
     pub paths: LinkPaths,
     pub line: LinkLineKey,
     pub hover: baud_render::HoverPaint,
+    /// `[link.NAME]` and `[link.path]`, read whole or refused whole.
+    pub rules: crate::rules::Rules,
 }
 
 impl Link {
     /// What the frame underlines at rest, or none, which skips the scan:
     /// none with nothing to underline, URIs and paths both off or the line
     /// off.
-    pub fn lines(self) -> Option<baud_render::LineStyle> {
-        let any = self.urls == LinkUrls::On || self.paths == LinkPaths::On;
+    pub fn lines(&self) -> Option<baud_render::LineStyle> {
+        let any = self.urls == LinkUrls::On || self.paths_on();
         match (any, self.line) {
             (true, LinkLineKey::Solid) => Some(baud_render::LineStyle::Solid),
             (true, LinkLineKey::Dotted) => Some(baud_render::LineStyle::Dotted),
@@ -678,17 +681,24 @@ impl Link {
         }
     }
 
+    /// **Whether printed paths are on**: `[link] paths`, and `[link.path]
+    /// action = "off"`, which is the same switch spelled in the rule -- two
+    /// keys, one setting, and either turns them off.
+    fn paths_on(&self) -> bool {
+        self.paths == LinkPaths::On && *self.rules.path_act() != crate::rules::PathAct::Off
+    }
+
     /// What the link under the pointer draws with no modifier.
-    pub fn at_rest(self) -> crate::link::AtRest {
-        match (self.urls, self.paths) {
+    pub fn at_rest(&self) -> crate::link::AtRest {
+        match (self.urls, self.paths_on()) {
             (LinkUrls::On, _) => crate::link::AtRest::Look(self.hover),
-            (LinkUrls::Off, LinkPaths::On) => crate::link::AtRest::PathsOnly(self.hover),
-            (LinkUrls::Off, LinkPaths::Off) => crate::link::AtRest::Off,
+            (LinkUrls::Off, true) => crate::link::AtRest::PathsOnly(self.hover),
+            (LinkUrls::Off, false) => crate::link::AtRest::Off,
         }
     }
 
     /// Whether the scan reads URIs.
-    pub fn urls_read(self) -> crate::paths::Turned {
+    pub fn urls_read(&self) -> crate::paths::Turned {
         match self.urls {
             LinkUrls::On => crate::paths::Turned::On,
             LinkUrls::Off => crate::paths::Turned::Off,
@@ -696,11 +706,11 @@ impl Link {
     }
 
     /// Whether printed paths are read, asked about and drawn.
-    pub fn paths_read(self) -> crate::paths::Turned {
-        match (self.paths, self.line) {
+    pub fn paths_read(&self) -> crate::paths::Turned {
+        match (self.paths_on(), self.line) {
             // Nothing to draw: nothing to ask.
-            (LinkPaths::On, LinkLineKey::Off) | (LinkPaths::Off, _) => crate::paths::Turned::Off,
-            (LinkPaths::On, _) => crate::paths::Turned::On,
+            (true, LinkLineKey::Off) | (false, _) => crate::paths::Turned::Off,
+            (true, _) => crate::paths::Turned::On,
         }
     }
 }
@@ -1635,6 +1645,25 @@ impl Config {
         // The stack is settled after the whole file, so `font_fallback`
         // counts wherever it sits relative to `fonts`.
         let mut named: Option<Vec<FaceSpec>> = None;
+        // Each `[link.NAME]` rule, gathered whole before any of it is read,
+        // so a rule with one key baud does not know is refused whole
+        // (`rules.rs`), in the order the file first names each.
+        let mut rule_sections: Vec<crate::rules::Section> = Vec::new();
+        let mut pend = |name: &str, key: &str, value: &str| {
+            let at = match rule_sections.iter().position(|r| r.name == name) {
+                Some(at) => at,
+                None => {
+                    rule_sections.push(crate::rules::Section {
+                        name: name.to_string(),
+                        fields: Vec::new(),
+                    });
+                    rule_sections.len() - 1
+                }
+            };
+            rule_sections[at]
+                .fields
+                .push((key.to_string(), value.to_string()));
+        };
         for (section, key, value) in fields(text) {
             match (section.as_str(), key.as_str()) {
                 ("", "font_size") => match value.trim().parse::<f32>() {
@@ -2537,6 +2566,20 @@ impl Config {
                         "config: [link] has no key {other:?}; it is ignored"
                     ));
                 }
+                // `[link.path]`'s keys, named so the guide's and the
+                // example's gates read them; each is read with the rest of
+                // its section after the loop.
+                ("link.path", "forms") => pend("path", "forms", &value),
+                ("link.path", "line_col") => pend("path", "line_col", &value),
+                ("link.path", "spaces") => pend("path", "spaces", &value),
+                ("link.path", "action") => pend("path", "action", &value),
+                ("link.path", "command") => pend("path", "command", &value),
+                // A `[link.NAME]` rule's keys (`rules::RULE_KEYS`), and any
+                // key of `[link.path]` above it does not name, which refuses
+                // that rule whole.
+                (rule, key) if rule.starts_with("link.") => {
+                    pend(&rule["link.".len()..], key, &value);
+                }
                 ("images", other) => {
                     said.push(format!(
                         "config: [images] has no key {other:?}; it is ignored"
@@ -2641,6 +2684,17 @@ impl Config {
                     "config: [{section}] has no key {other:?}; it is ignored"
                 )),
             }
+        }
+        // The rules, read whole, only from this file's text: a theme file is
+        // read elsewhere and holds none.
+        if !rule_sections.is_empty() {
+            let (rules, refused) = crate::rules::read(
+                &rule_sections,
+                absolute_dir(std::env::var_os("HOME")).as_deref(),
+                std::env::var_os("PATH").as_deref(),
+            );
+            self.link.rules = rules;
+            said.extend(refused);
         }
         // Two fixed colours that do not read: refused and said, baud's stay.
         // A `"none"` is measured at draw (`baud_render::message`).
@@ -5722,6 +5776,116 @@ mod reader {
             assert!(said.iter().any(|s| s.contains(key)), "{bad}: {said:?}");
             assert_eq!(c.link, Link::default(), "{bad}");
         }
+    }
+
+    /// **`[link.*]` reads from the config's text, a rule whole or not at
+    /// all**: a rule after `[link]`'s own keys, the path rule's keys through
+    /// their named arms, a second file read over the first keeping its rules
+    /// when it names none, and a rule with one unknown key refused whole with
+    /// the others kept. What a rule says is logged, never put on the warning
+    /// row. Perturbations: read each key of a rule as it comes, so the
+    /// unknown key is skipped and the rest kept; replace the rules on a read
+    /// that names none.
+    #[test]
+    fn link_rules_read_whole_from_the_config() {
+        use crate::paths::Turned;
+        let text = "[link]\nurls = \"on\"\n\n[link.tel]\nscheme = \"tel\"\naction = \"open\"\n\n\
+                    [link.path]\nforms = [\"/\", \"~/\", \"./\", \"relative\"]\nline_col = \"on\"\n\n\
+                    [link.sip]\nconfirm = \"always\"\n";
+        let mut c = Config::defaults();
+        let said = c.apply(text);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("[link.sip]") && said[0].contains("confirm"),
+            "{said:?}"
+        );
+        let r = &c.link.rules;
+        assert_eq!(r.list().len(), 1);
+        assert_eq!(r.rule_for("tel").map(|(_, x)| x.name()), Some("tel"));
+        assert_eq!(r.rule_for("sip"), None);
+        assert_eq!(
+            (r.forms().bare, r.forms().line_col),
+            (Turned::On, Turned::On)
+        );
+        assert_eq!(r.told().len(), 1, "one line for the log: {:?}", r.told());
+        let kept = c.link.rules.clone();
+        assert!(c.apply("font_size = 14\n").is_empty());
+        assert_eq!(c.link.rules, kept, "a read that names no rule keeps them");
+        assert_eq!(Config::defaults().link.rules, crate::rules::Rules::NONE);
+    }
+
+    /// **The example's `[link.*]` sections read as they say, uncommented**:
+    /// nothing said, `tel:` to the system's handler, `https` to a command,
+    /// the path forms at their defaults and a click on a path to a command.
+    /// Its lines are all comments, so a copy changes nothing until you take
+    /// the `#` off. Perturbation: write a key the rules do not have, or a
+    /// placeholder in `command[0]`, into the example.
+    #[test]
+    fn the_examples_link_rules_read_uncommented() {
+        use crate::rules::{Act, PathAct};
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../config.toml.example"
+        ))
+        .expect("config.toml.example");
+        let from = text.find("# [link.path]").expect("the path rule");
+        let to = from
+            + text[from..]
+                .find("\n\n# Whether")
+                .expect("the section after");
+        let key = |l: &str| {
+            l.split_once(" = ").is_some_and(|(k, _)| {
+                !k.is_empty() && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+            })
+        };
+        let uncommented: String = text[from..to]
+            .lines()
+            .filter_map(|l| l.strip_prefix("# "))
+            .filter(|l| l.starts_with("[link.") || key(l))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        assert!(
+            uncommented.contains("[link.tel]\n"),
+            "the control: {uncommented}"
+        );
+        assert!(fields(&text[from..to]).is_empty(), "nothing in force");
+        let mut c = Config::defaults();
+        let said = c.apply(&uncommented);
+        assert_eq!(said, Vec::<String>::new(), "{uncommented}");
+        let r = &c.link.rules;
+        assert_eq!(r.rule_for("tel").map(|(_, x)| x.act()), Some(&Act::Open));
+        assert!(matches!(
+            r.rule_for("https").map(|(_, x)| x.act()),
+            Some(Act::Command(_))
+        ));
+        assert_eq!(r.rule_for("mailto").map(|(_, x)| x.act()), Some(&Act::Off));
+        assert_eq!(r.forms(), crate::paths::Forms::DEFAULT);
+        assert!(matches!(r.path_act(), PathAct::Command(_)));
+    }
+
+    /// **The guide's "Your own link types" table lists a rule's keys, and no
+    /// other**:
+    /// `rules::RULE_KEYS` both ways, as `[link.path]`'s keys are held by the
+    /// page's own gate through their named arms. Perturbation: add a key to
+    /// `RULE_KEYS` with no row.
+    #[test]
+    fn the_guide_lists_a_link_rules_keys() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/guide/configuration.md"
+        ))
+        .expect("docs/guide/configuration.md");
+        let (_, rest) = page
+            .split_once("\n## Your own link types\n")
+            .expect("the section");
+        let section = rest.split("\n## ").next().unwrap_or(rest);
+        let rows: std::collections::BTreeSet<&str> = section
+            .lines()
+            .filter_map(|l| l.strip_prefix("| `")?.split_once('`').map(|(k, _)| k))
+            .collect();
+        let keys: std::collections::BTreeSet<&str> = crate::rules::RULE_KEYS.into_iter().collect();
+        assert!(rows.contains("scheme"), "the control: {rows:?}");
+        assert_eq!(rows, keys);
     }
 
     /// **`[message]` and `[message.copy]` read as they document**: the

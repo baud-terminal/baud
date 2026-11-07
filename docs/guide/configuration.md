@@ -29,7 +29,10 @@ It does not read a config from the folder it was started in.
   for the next launch: see [When a change shows](#when-a-change-shows).
   `config_reload = "off"` turns this off.
 - **A mistake does not stop baud.** A key it does not know, or a value it
-  cannot use, is skipped with a warning and the default is kept. A line it
+  cannot use, is skipped with a warning and the default is kept. One
+  exception: in a `[link.NAME]` or `[link.path]` section the whole section
+  is ignored with a warning, not just the key (see
+  [Your own link types](#your-own-link-types)). A line it
   cannot read at all, one that is not `key = value` or a list that is never
   closed, is skipped when baud starts; when you save it later, baud keeps
   the settings it had. Either way a row at the bottom of the window says
@@ -237,14 +240,58 @@ What baud says when something is copied: "Copied 42 characters", or "A program c
 
 ## [link]
 
-How links show. Web, mail and file links are underlined as they appear, whether a program marks them with `OSC 8` or prints the address as plain text, even across a line that wraps, and so is a file path printed as plain text once baud has checked that the file is there. What a click opens doesn't change here: Cmd-click (Ctrl-click on Linux) opens a link, a plain click selects and still reaches a program tracking the mouse, and a link to a file is shown in Finder, never launched. No program can read any of this back.
+How links show. Web, mail and file links are underlined as they appear, whether a program marks them with `OSC 8` or prints the address as plain text, even across a line that wraps, and so is a file path printed as plain text once baud has checked that the file is there. What a click opens doesn't change here: Cmd-click (Ctrl-click on Linux) opens a link, a plain click selects and still reaches a program tracking the mouse, and a link to a file is shown in Finder, never launched. No program can read any of this back. `[link.path]` and `[link.NAME]`, below, add kinds of link and change what a click does.
 
 | key | values | default | what it changes |
 |---|---|---|---|
 | `urls` | `"on"`, `"off"` | `"on"` | Whether baud looks for links at all. `"off"` draws no line and no look under the pointer and does no work for either, and Cmd-click (Ctrl-click on Linux) still works. |
-| `paths` | `"on"`, `"off"` | `"on"` | Whether a file path printed as plain text, starting with `/`, `~/` or `./`, is underlined. It is once baud has checked that the file exists on this computer: one thread of its own looks each path up, a folder at a time, and drawing never waits for it. A path on a network or automounted disk is never looked up and gets no line, nor does anything a program run through `ssh` prints. `~/` is your home folder as baud found it at start. `./` needs your shell to report its folder with `OSC 7`, naming this computer, and gets no line in rows printed before your last `cd`, on a full-screen program's screen, or inside tmux, herdr or another multiplexer, whose panes' folders baud can't see; there `/` and `~/` still get a line, meaning the file is on this computer. `../`, paths with no prefix, `:line:col` and spaces are not read. A click checks again first: it shows the file in Finder (the file manager on Linux), never opens or runs it, and says so at the bottom of the window when the file is gone. If a check stops answering, path lines go away in that window. `"off"` checks nothing. |
+| `paths` | `"on"`, `"off"` | `"on"` | Whether a file path printed as plain text, starting with `/`, `~/` or `./`, is underlined. It is once baud has checked that the file exists on this computer: one thread of its own looks each path up, a folder at a time, and drawing never waits for it. A path on a network or automounted disk is never looked up and gets no line, nor does anything a program run through `ssh` prints. `~/` is your home folder as baud found it at start. `./` needs your shell to report its folder with `OSC 7`, naming this computer, and gets no line in rows printed before your last `cd`, on a full-screen program's screen, or inside tmux, herdr or another multiplexer, whose panes' folders baud can't see; there `/` and `~/` still get a line, meaning the file is on this computer. `../`, paths with no prefix, `:line:col` and spaces are read only once `[link.path]` turns them on. A click checks again first: it shows the file in Finder (the file manager on Linux), never opens or runs it, and says so at the bottom of the window when the file is gone. If a check stops answering, path lines go away in that window. `"off"` checks nothing. |
 | `line` | `"solid"`, `"dotted"`, `"off"` | `"solid"` | The line at rest, in the text's own colour. A program's own underline stays as it drew it. An address that may have been cut, or that a click would refuse, gets no line. |
 | `hover` | `"box"`, `"line"`, `"text"` | `"box"` | The link under the pointer, with no key held. `"box"` draws it in the colours of `[message]`; `"line"` draws a line in the box's colour, the text keeping its own; `"text"` draws the text in the box's colour on the cell's own background, where that reads at least 1.5:1, so a program can't hide a link by painting that colour behind it. The check on where a link goes is the address at the bottom of the window, which holding Cmd (Ctrl on Linux) shows. |
+
+## [link.path]
+
+Printed file paths: which kinds are read, and what a click on one does. Every kind gets the same check as `[link] paths` describes: the file must be on this computer, looked up by one thread of its own, nothing on a network or automounted disk and nothing while `ssh` is in front. A key or value baud doesn't know here ignores the whole section, with a warning, and the defaults stay.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `forms` | a list of `"/"`, `"~/"`, `"./"`, `"../"`, `"relative"` | `["/", "~/", "./"]` | Which printed paths are read; one left out of the list is not. `"../"` is read against the parent of your shell's folder and `"relative"`, a path with no prefix and a `/` inside such as `src/app.rs`, against the folder itself: like `./`, both need your shell to report its folder with `OSC 7`, and get no line inside tmux, herdr or another multiplexer. |
+| `line_col` | `"on"`, `"off"` | `"off"` | Whether a `:12` or `:12:3` after a path is read as a line and a column: the file is looked up without it, the line runs under it, and a `command` gets the numbers as `{line}` and `{col}`. |
+| `spaces` | `"on"`, `"off"` | `"off"` | Whether a path inside `"` or `'` quotes may hold spaces, up to the closing quote. |
+| `action` | `"reveal"`, `"command"`, `"copy"`, `"off"` | `"reveal"` | What a click does. `"reveal"` shows the file in Finder (the file manager on Linux), and never opens or runs it. `"command"` hands it to `command`. `"copy"` puts the file's full path on the clipboard, as a copy of a selection is, and opens nothing. `"off"` is `[link] paths = "off"`: no path is read or looked up. A `command` named on its own means `"command"`. |
+| `command` | a list of strings | none | The program a click runs, and its arguments: `{path}` is the file's full path, and `{line}` and `{col}` the numbers printed after it while `line_col` is on, `1` where there are none. For your editor, for example, `["/usr/local/bin/code", "-g", "{path}:{line}:{col}"]`. It runs as the commands in [Your own link types](#your-own-link-types) do, and the same rules hold. A click checks that the file is there again first. |
+
+## Your own link types
+
+A section named `[link.NAME]` is a rule of yours: it adds a kind of link baud doesn't open on its own, such as `tel:` or `ssh://`, or changes what a click on one of its own does. Each rule names one scheme. Its links are underlined and shown as baud's own are, whether a program marks them with `OSC 8` or prints them as plain text, and Cmd-click (Ctrl-click on Linux) opens them.
+
+```toml
+[link.tel]                  # phone numbers, to the app your system has for them
+scheme = "tel"
+action = "open"
+
+[link.https]                # web links in another browser
+command = ["/usr/bin/open", "-a", "Firefox", "{url}"]
+
+[link.mailto]               # mail links off
+action = "off"
+```
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `scheme` | a scheme, such as `"tel"` | the section's NAME | The links the rule takes: those starting with this scheme and `:`. A letter, then letters, digits, `+`, `-` or `.`, and no wildcard. `javascript`, `data`, `vbscript`, `blob` and `about` can't be named, since their links carry code of their own. Naming `http`, `https`, `mailto` or `file` changes only what a click on those does. |
+| `action` | `"open"`, `"command"`, `"copy"`, `"off"` | `"open"`, or `"command"` when a `command` is named | `"open"` hands the link to the app your system has for its scheme. `"command"` runs `command`. `"copy"` puts the link on the clipboard, as a copy of a selection is, and opens nothing; the address at the bottom of the window says so. `"off"` turns the scheme off, one of baud's own too: its links get no line, marked or printed, and a click on one opens nothing, the address saying it is off in your config. A `file` link is never opened by the system: it is shown in Finder unless a `command` of yours takes it. |
+| `command` | a list of strings | none | The program a click runs, then its arguments, `{url}` standing for the whole link: `["/Applications/Ghostty.app/Contents/MacOS/ghostty", "-e", "ssh", "{url}"]`. |
+
+What a rule can and can't do:
+
+- **Rules come only from this file.** No program, theme file or escape sequence can add one, and turning a link type on stays a step you take: when baud reads a rule, its log says what the rule sends where.
+- **What a link says is still checked, whatever the rule.** The address shows at the bottom of the window while you hold Cmd (Ctrl on Linux), in the same box, for every rule. A link stays printable ASCII and within baud's length limit. A link a rule takes is refused if any part of it starts with `-` (its host, its user name, its port, or what follows the `:`), because a program handed the link may read that part as an option: that is how a crafted `ssh://` link once ran any program on the machine. A `file` link must name this computer or none, and a `mailto` may carry only `subject` and `body`, whichever app or command gets them.
+- **A command runs with no shell.** The first string is the program: give it by its full path or under `~/`, or by a name baud looks up on `PATH` when it runs. A baud started from the Dock has the system's short `PATH`, so baud says when it can't find the name, and a click on those links is refused until it can. Each string after it is one argument, the link put in where `{url}` is, and the program's output goes nowhere, so a program that draws in the terminal, such as `nvim`, has nowhere to draw.
+- **The link never goes into a script.** A rule that puts `{url}` in the script a shell or interpreter runs is ignored with a warning: after `sh -c`, `bash -lc`, the script flag of an interpreter baud knows (`-c`, `-C`, `-e`, `-E`, `-m`, `-p` or `-r`, by interpreter, under any version of its name), `osascript -e` or `env -S`; as `awk`'s or `sed`'s program, or `tclsh`'s or `Rscript`'s script; anywhere after `deno` or `bun`; or after an `ssh`, `mosh`, `autossh` or `et` host, where it goes to a shell on the other machine. The link's text would be read as code there, and no check of its bytes can stop that. baud can't know every program that runs its arguments as code, so keep `{url}` out of any such place; to run a script, write it to a file of your own and pass the link to it, where it arrives as `$1`.
+- **Order.** A link a program marks with `OSC 8` is that link, whatever its text says. Otherwise the first rule in the file naming a scheme takes it, then baud's own; a later rule for the same scheme is ignored with a warning. A character belongs to one link: the first that starts at or before it and reaches it. baud reads at most 32 rules.
+- **A rule baud doesn't understand is ignored whole.** One key or value it doesn't know, a key given twice, or a list it can't read ignores the whole rule with a warning, not just that key, so a safeguard a later baud adds can never be dropped by an older one while the rest of the rule runs.
+- **How to write the values.** baud reads strings with no escapes: a `"` can't go inside one, and a backslash stays as written. A list written across several lines ends at the first line holding a `]`, even inside a string, so keep a `command` holding a `]` on one line; baud ignores a rule whose list was cut that way, rather than run it short.
 
 ## [window]
 

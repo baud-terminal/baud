@@ -46,8 +46,10 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, MAX, Unit, admit, class, found_in, may_be_cut, scheme_at, scheme_ends, unit,
+    Class, Edge, Host, MAX, Unit, admit_with, class, found_in, may_be_cut, scheme_at, scheme_ends,
+    unit,
 };
+use crate::rules::{Rules, Tail};
 
 /// **A logical line's text**, as much of it as was read.
 #[derive(Clone, Copy, Debug)]
@@ -70,7 +72,7 @@ pub trait Reader {
     /// Whether the line is worth reading, from `tail`: the last eight ASCII
     /// bytes read, lowered, the newest in the low byte, a byte outside ASCII
     /// a zero. Called for each cell of a changed row, so it answers at once.
-    fn wants(&self, tail: u64) -> bool;
+    fn wants(&self, tail: Tail) -> bool;
 
     /// The links in `text`, as ranges of its units, in order, none
     /// overlapping. Returns how many candidates it looked at.
@@ -92,10 +94,15 @@ pub trait Reader {
 /// on a thread of its own (`Hosts`), and hands it over with [`Uris::set_host`].
 /// Until then a `file://` link naming a host is what `admit` makes of an
 /// unknown host: refused, with no line, and `file:///` and `localhost` open.
+///
+/// **Your `[link.*]` rules are handed to it too** ([`Uris::set_rules`]): a
+/// scheme a rule adds is read and drawn as baud's own are, and admitted by
+/// the same gate a click goes through.
 #[derive(Debug, Default)]
 pub struct Uris {
     host: Option<String>,
     bytes: Vec<u8>,
+    rules: Rules,
 }
 
 impl Uris {
@@ -115,12 +122,23 @@ impl Uris {
     pub fn host(&self) -> &str {
         self.host.as_deref().unwrap_or("")
     }
+
+    /// Your `[link.*]` rules, as a load read them: a line they change is
+    /// read again by the caller's [`Lines::forget`].
+    pub fn set_rules(&mut self, rules: Rules) {
+        self.rules = rules;
+    }
+
+    /// The rules the lines, and so a click, admit with.
+    pub fn rules(&self) -> &Rules {
+        &self.rules
+    }
 }
 
 impl Reader for Uris {
     #[inline]
-    fn wants(&self, tail: u64) -> bool {
-        scheme_ends(tail)
+    fn wants(&self, tail: Tail) -> bool {
+        scheme_ends(tail, &self.rules)
     }
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize {
@@ -146,13 +164,20 @@ impl Reader for Uris {
             let (mut from, mut q) = (lo, lo);
             while q < hi {
                 let starts = (q == 0 || !class(units[q - 1]).has(Class::SCHEME))
-                    && scheme_at(&units[q..hi]).is_some();
+                    && scheme_at(&units[q..hi], &self.rules).is_some();
                 if !starts {
                     q += 1;
                     continue;
                 }
                 candidates += 1;
-                let Some(f) = found_in(units, (lo, hi), from, q, (head, tail)) else {
+                let Some(f) = found_in(
+                    units,
+                    (lo, hi),
+                    crate::link::Ix(from),
+                    crate::link::Ix(q),
+                    (head, tail),
+                    &self.rules,
+                ) else {
                     from = q + 1;
                     q = from;
                     continue;
@@ -180,7 +205,7 @@ impl Reader for Uris {
     }
 
     fn admits(&mut self, uri: &[u8]) -> bool {
-        admit(uri, Host(self.host())).is_ok()
+        admit_with(uri, Host(self.host()), &self.rules).is_ok()
     }
 }
 
@@ -402,7 +427,7 @@ impl Lines {
                     .filter(u8::is_ascii)
                     .map_or(0, |b| b.to_ascii_lowercase());
                 bytes = (bytes << 8) | u64::from(b);
-                wanted |= reader.wants(bytes);
+                wanted |= reader.wants(Tail(bytes));
             }
             if line == last {
                 break;
@@ -582,7 +607,7 @@ fn push_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link::{Hover, find, window};
+    use crate::link::{Hover, admit, find, window};
     use baud_core::{Focus, Owned};
     use baud_domain::{BytePos, ReadLen, WinSize};
 
@@ -815,7 +840,10 @@ mod tests {
             "a click reads no name"
         );
         assert!(
-            src.contains(concat!("admit(uri, Host(self.app.uris.", "host()))")),
+            src.contains(concat!(
+                "admit_with(uri, Host(self.app.uris.",
+                "host()), self.app.uris.rules())"
+            )),
             "a click admits against the name the lines do"
         );
         let unknown = Uris::default();
@@ -1096,11 +1124,147 @@ mod tests {
         ] {
             assert!(admit(uri.as_bytes(), Host("")).is_ok(), "{uri}");
             let units: Vec<Unit> = uri.chars().map(Unit::Char).collect();
-            assert!(scheme_at(&units).is_some(), "{uri}");
+            assert!(scheme_at(&units, &Rules::NONE).is_some(), "{uri}");
         }
-        assert!(scheme_ends(u64::from_be_bytes(*b"\0\0\0http:")));
-        assert!(scheme_ends(u64::from_be_bytes(*b"\0mailto:")));
-        assert!(!scheme_ends(u64::from_be_bytes(*b"\0\0\0\0tel:")));
+        assert!(scheme_ends(
+            Tail(u64::from_be_bytes(*b"\0\0\0http:")),
+            &Rules::NONE
+        ));
+        assert!(scheme_ends(
+            Tail(u64::from_be_bytes(*b"\0mailto:")),
+            &Rules::NONE
+        ));
+        assert!(!scheme_ends(
+            Tail(u64::from_be_bytes(*b"\0\0\0\0tel:")),
+            &Rules::NONE
+        ));
+    }
+
+    /// **A scheme a `[link.*]` rule adds is one list with `admit`'s too**:
+    /// with the rule, `tel:` and `x-github-client://` get a line at rest over
+    /// their cells, admitted by the gate a click goes through, and a
+    /// `javascript:` beside them none; without it, none. An `ssh://` with a
+    /// host that starts with `-` gets none, as a click refuses it.
+    /// Perturbation: read added schemes in `wants` but not in `scheme_at`
+    /// -- no line; or skip `admit_with` in `Uris::admits` -- the `ssh` line
+    /// is drawn.
+    #[test]
+    fn a_scheme_a_rule_adds_gets_a_line_at_rest() {
+        let sections = [
+            crate::rules::Section {
+                name: "tel".into(),
+                fields: Vec::new(),
+            },
+            crate::rules::Section {
+                name: "gh".into(),
+                fields: vec![("scheme".into(), "\"x-github-client\"".into())],
+            },
+            crate::rules::Section {
+                name: "ssh".into(),
+                fields: Vec::new(),
+            },
+        ];
+        // Read as `Config::apply` reads them, by the one function it calls.
+        let (rules, said) = crate::rules::Section::read_all(&sections, None, None);
+        assert_eq!(said, Vec::<String>::new());
+        let bytes = b"tel:+15551234\r\nx-github-client://o/r\r\njavascript:x\r\nssh://-oX=y@h";
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, bytes);
+        let mut l = Lines::default();
+        let mut u = Uris::default();
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [], "the control: no rule, no line");
+        u.set_rules(rules);
+        l.forget();
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(0, 0, 12), (1, 0, 20)]);
+    }
+
+    /// **`off` takes a default's line away, marked or printed**: with
+    /// `[link.mailto] action = "off"` neither a printed `mailto:` nor an
+    /// `OSC 8` one gets a line, and a web link beside them keeps its own.
+    /// Perturbation: admit `OSC 8` targets with `admit` and not the rules --
+    /// the marked one keeps its line.
+    #[test]
+    fn off_takes_a_defaults_line_away_marked_or_printed() {
+        let bytes = b"mailto:a@b.example\r\n\x1b]8;;mailto:c@d.example\x1b\\mail me\x1b]8;;\x1b\\\r\nhttps://e.example";
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, bytes);
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(0, 0, 17), (1, 0, 6), (2, 0, 16)], "the control");
+        let sections = [crate::rules::Section {
+            name: "mailto".into(),
+            fields: vec![("action".into(), "\"off\"".into())],
+        }];
+        let (rules, said) = crate::rules::Section::read_all(&sections, None, None);
+        assert_eq!(said, Vec::<String>::new());
+        u.set_rules(rules);
+        l.forget();
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(2, 0, 16)]);
+    }
+
+    /// **A rule's line at rest is an overlay, and nothing a program asks
+    /// reads it**: `DECRQCRA` over a `tel:` link answers the same with the
+    /// rule's line up as with no rule and no line. Perturbation: mark the
+    /// cells the rule's link covers in the core -- the checksum moves.
+    #[test]
+    fn decrqcra_answers_the_same_with_a_rules_line_up() {
+        let checksum = |t: &mut Term<'_>| {
+            t.clear_reply();
+            feed(t, b"\x1b[7;1;1;1;6;40*y");
+            t.reply().to_vec()
+        };
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?25ltel:+15551234");
+        let before = checksum(&mut t);
+        assert!(!before.is_empty(), "the control: the query answers");
+        let sections = [crate::rules::Section {
+            name: "tel".into(),
+            fields: Vec::new(),
+        }];
+        let (rules, said) = crate::rules::Section::read_all(&sections, None, None);
+        assert_eq!(said, Vec::<String>::new());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        u.set_rules(rules);
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(0, 0, 12)], "the control: the line is up");
+        assert_eq!(checksum(&mut t), before, "the same with the line up");
+        feed(&mut t, b"\x1b[1;1HX");
+        assert_ne!(checksum(&mut t), before, "the control: a cell moves it");
+    }
+
+    /// **Both drivers hand the rules to the lines and to the reads under the
+    /// pointer together**, at start and on a reload, so a click admits with
+    /// what the line drew. Perturbation: drop the paths' `set_rules` from one
+    /// driver's reload arm.
+    #[test]
+    fn both_drivers_hand_both_copies_of_the_rules() {
+        for (name, src, init) in [
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                "link_config.rules.clone()",
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                "cfg.link.rules.clone()",
+            ),
+        ] {
+            let at_start = format!("{}({init})", concat!("set_", "rules"));
+            assert_eq!(src.matches(&at_start).count(), 2, "{name}: at start");
+            for call in [
+                concat!("uris.set_", "rules(c.link.rules.clone())"),
+                concat!("paths.set_", "rules(c.link.rules.clone())"),
+            ] {
+                assert_eq!(src.matches(call).count(), 1, "{name}: {call}");
+            }
+        }
     }
 
     /// **Both drivers set the look and draw the lines.** Perturbation: drop

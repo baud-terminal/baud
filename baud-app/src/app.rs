@@ -571,6 +571,13 @@ struct App {
     paths: crate::paths::Paths,
     probes: crate::probe::Probes<HostTime>,
     link_config: crate::config::Link,
+    /// The commands `[link.*]` rules run on a click (`rules.rs`), started
+    /// with no shell and null streams, and reaped on each tick, never
+    /// waited for.
+    commands: crate::opener::Opener,
+    /// The printed path a click asked about again, and the `:line:col`
+    /// printed after it, for a `[link.path]` command when the answer comes.
+    path_click: Option<(Vec<u8>, crate::paths::LineCol)>,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
     /// What a copy says, and when it ends (`copied.rs`).
@@ -1118,7 +1125,7 @@ impl Boot {
             join_spacing_marks: cfg.join_spacing_marks,
             clipboard: cfg.clipboard,
             message: cfg.message,
-            link_config: cfg.link,
+            link_config: cfg.link.clone(),
             bell: cfg.bell,
             notice,
             reload,
@@ -1541,13 +1548,21 @@ impl App {
                 h
             },
             lines: crate::lined::Lines::default(),
-            uris: crate::lined::Uris::default(),
+            uris: {
+                let mut u = crate::lined::Uris::default();
+                u.set_rules(link_config.rules.clone());
+                for told in link_config.rules.told() {
+                    crate::info!("{told}");
+                }
+                u
+            },
             // `HOME` read once, here: a `~/` is the home this window
             // started with.
             paths: {
                 use std::os::unix::ffi::OsStringExt;
                 let home = std::env::var_os("HOME").map(std::ffi::OsString::into_vec);
-                let mut p = crate::paths::Paths::new(home, crate::paths::Forms::DEFAULT);
+                let mut p = crate::paths::Paths::new(home, link_config.rules.forms());
+                p.set_rules(link_config.rules.clone());
                 p.set(link_config.paths_read());
                 p
             },
@@ -1555,6 +1570,8 @@ impl App {
             // need wake nothing.
             probes: crate::probe::Probes::system(|| {}),
             link_config,
+            commands: crate::opener::Opener::default(),
+            path_click: None,
             line_tip: crate::line_tip::LineTip::default(),
             copied: crate::copied::Signal::new(message),
             pointer_shown: crate::pointer::Shown::Unknown,
@@ -11361,6 +11378,7 @@ impl Driver {
             self.title_check();
             self.link_host_check();
             self.paths_turn();
+            self.app.commands.reap();
             self.notice_turn();
             self.poll_focus();
             self.poll_hover();
@@ -13771,6 +13789,7 @@ impl Driver {
             form: p.form(),
             line: p.line(),
         };
+        app.path_click = Some((p.path().to_vec(), p.line_col().clone()));
         if let Some(done) = app
             .probes
             .click(host_now(), seen, crate::fg::group(master), c)
@@ -13781,15 +13800,51 @@ impl Driver {
 
     /// **What a click on a printed path comes to**: found again, its
     /// `file://` URI through `admit`, unchanged, and revealed in Finder,
-    /// never launched; gone, or not checked, the bar says so and nothing is
-    /// opened. No path is logged.
+    /// never launched -- or, with a `[link.path]` command of yours, handed
+    /// to it with the `:line:col` printed after it; gone, or not checked,
+    /// the bar says so and nothing is opened. No path is logged.
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
         use crate::link::{Action, Host};
         use baud_present_macos::link::{self as opener, Opened};
+        let clicked = self.app.path_click.take();
         let note = match done {
+            crate::probe::Clicked::Exists(path)
+                if *self.app.uris.rules().path_act() == crate::rules::PathAct::Copy =>
+            {
+                let text = String::from_utf8_lossy(&path).into_owned();
+                self.link_copied(&text);
+                None
+            }
             crate::probe::Clicked::Exists(path) => {
                 let uri = crate::paths::file_uri(&path);
+                let lc = clicked
+                    .filter(|(p, _)| *p == path)
+                    .map(|(_, lc)| lc)
+                    .unwrap_or_default();
+                let ran = match crate::link::admit(uri.as_bytes(), Host(self.app.uris.host())) {
+                    Ok(_) => self.app.uris.rules().path_command(&path, &lc.line, &lc.col),
+                    Err(_) => None,
+                };
+                if let Some(built) = ran {
+                    match built.map(|cmd| self.app.commands.start(cmd)) {
+                        Ok(Ok(())) => {
+                            self.app.links.opened.bump();
+                            crate::info!("printed path sent to [link.path]'s command");
+                        }
+                        Ok(Err(e)) => {
+                            self.app.links.refused.bump();
+                            crate::warn!("printed path not sent: [link.path]'s command: {e}");
+                        }
+                        Err(why) => {
+                            self.app.links.refused.bump();
+                            crate::warn!(
+                                "printed path refused for [link.path]'s command ({why:?})"
+                            );
+                        }
+                    }
+                    return;
+                }
                 match crate::link::admit(uri.as_bytes(), Host(self.app.uris.host())) {
                     Ok(t) if t.action() == Action::Reveal => match opener::reveal(t.as_str()) {
                         Opened::Taken => {
@@ -14440,8 +14495,15 @@ impl Driver {
                     self.app.pending = Pending::Dirty;
                 }
                 Part::Link => {
-                    self.app.link_config = c.link;
+                    self.app.link_config = c.link.clone();
                     self.app.hover.set_at_rest(c.link.at_rest());
+                    if self.app.uris.rules() != &c.link.rules {
+                        for told in c.link.rules.told() {
+                            crate::info!("{told}");
+                        }
+                    }
+                    self.app.uris.set_rules(c.link.rules.clone());
+                    self.app.paths.set_rules(c.link.rules.clone());
                     self.app.paths.set(c.link.paths_read());
                     self.app.lines.forget();
                     self.app.pending = Pending::Dirty;
@@ -15072,15 +15134,47 @@ impl Driver {
             },
         };
         let shown = shown(uri);
-        match crate::link::admit(uri, Host(self.app.uris.host())) {
+        match crate::link::admit_with(uri, Host(self.app.uris.host()), self.app.uris.rules()) {
             Err(why) => {
                 self.app.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {shown}");
+            }
+            // A command of yours: no shell, null streams, reaped on a tick.
+            // A rule's `copy`: the link's text to the pasteboard, said as a
+            // copy of a selection is; nothing is opened.
+            Ok(t) if t.action() == Action::Copy => {
+                let text = t.as_str().to_string();
+                self.link_copied(&text);
+            }
+            Ok(t) if t.action() == Action::Command => {
+                let built = t
+                    .rule()
+                    .and_then(|ix| self.app.uris.rules().command(ix, t.as_str()));
+                match built.map(|b| b.map(|cmd| self.app.commands.start(cmd))) {
+                    Some(Ok(Ok(()))) => {
+                        self.app.links.opened.bump();
+                        crate::info!("link handed to a [link.*] command: {shown}");
+                    }
+                    Some(Ok(Err(e))) => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link not sent: [link.*] command: {e}: {shown}");
+                    }
+                    Some(Err(why)) => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link refused ({why:?}): {shown}");
+                    }
+                    None => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link refused (no command): {shown}");
+                    }
+                }
             }
             Ok(t) => {
                 let done = match t.action() {
                     Action::Open => opener::open(t.as_str()),
                     Action::Reveal => opener::reveal(t.as_str()),
+                    // Taken by the arm above: nothing is handed over here.
+                    Action::Command | Action::Copy => Opened::Declined,
                 };
                 match (t.action(), done) {
                     (Action::Open, Opened::Taken) => {
@@ -16143,6 +16237,23 @@ impl Driver {
             let written = clipboard::write_text(&text);
             if written == clipboard::Written::Taken {
                 self.selection_copied(&text);
+            }
+        }
+    }
+
+    /// **A link's text to the pasteboard, for a `[link.*]` rule's `copy`**:
+    /// the same write and the same words as Cmd-C on a selection, and no
+    /// process started.
+    fn link_copied(&mut self, text: &str) {
+        match clipboard::write_text(text) {
+            clipboard::Written::Taken => {
+                self.app.links.opened.bump();
+                crate::info!("link copied by a [link.*] rule");
+                self.selection_copied(text);
+            }
+            clipboard::Written::Refused => {
+                self.app.links.refused.bump();
+                crate::warn!("link not copied: the pasteboard refused it");
             }
         }
     }

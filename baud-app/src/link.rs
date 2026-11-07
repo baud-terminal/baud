@@ -50,6 +50,13 @@
 //!   [`PathsAt`] the driver hands in. A click on one asks again, off the
 //!   frame, and goes through [`admit`] as a `file://` URI, unchanged.
 //!
+//! * Your `[link.*]` rules (`rules.rs`) widen the list and nothing else:
+//!   [`admit_with`] lets a scheme a rule names through, the first rule in the
+//!   file deciding what a click does, after every check above and with no
+//!   part that starts with `-`; [`find_with`] reads its links in the text as
+//!   it reads baud's own four. An `OSC 8` cell is its run's and no plain-text
+//!   rule's ([`unit`] reads it as a gap), so a cell belongs to one link.
+//!
 //! * The line at rest, the scan of the rows a frame changed, is `lined.rs`'s;
 //!   it reads URIs through [`found_in`], [`find`]'s own rules, so every
 //!   refusal above holds at rest as at a click: a URI refused is drawn as no
@@ -67,6 +74,7 @@ use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 #[cfg(test)]
 pub use crate::paths::NoPaths;
 pub use crate::paths::PathsAt;
+use crate::rules::{NO_RULES, Rules};
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
 use baud_render::{
@@ -85,16 +93,24 @@ pub enum Action {
     Open,
     /// Select it in Finder. Never launches.
     Reveal,
+    /// Run the program a `[link.*]` rule of yours names, with no shell
+    /// (`rules.rs`, `Rules::command`).
+    Command,
+    /// Put the link's text on the clipboard, as a copy of a selection is,
+    /// and open nothing: a `[link.*]` rule's `action = "copy"`.
+    Copy,
 }
 
 /// The four schemes the policy knows, whose spellings are [`KNOWN`]'s, the one
-/// list [`admit`] and [`find`] read.
+/// list [`admit`] and [`find`] read; and a scheme a `[link.*]` rule of yours
+/// added, which only [`admit_with`] takes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Scheme {
     Http,
     Https,
     Mailto,
     File,
+    Added,
 }
 
 /// Why a URI was not handed to the OS: the first rule it failed, in the
@@ -109,8 +125,9 @@ pub enum Refused {
     /// byte. RFC 3986 URLs are ASCII, and the parser lets DEL and high
     /// bytes through.
     Byte,
-    /// Not `http`, `https`, `mailto` or `file`. A leading `-` fails here
-    /// too, which is what closes the argv hazard an opener would have had.
+    /// Not `http`, `https`, `mailto` or `file`, nor a scheme a `[link.*]`
+    /// rule of yours names. A leading `-` fails here too, which is what
+    /// closes the argv hazard an opener would have had.
     Scheme,
     /// `http`/`https` with no authority, `mailto` with no address, `file`
     /// on another host or without an absolute path.
@@ -127,6 +144,14 @@ pub enum Refused {
     /// A printed path the worker found gone: never [`admit`]'s, which reads
     /// no file system; a click asks again before it says so.
     NotFound,
+    /// A link a `[link.*]` rule routes with a part that starts with `-`, or
+    /// `%2D`: the host, user or port, or what follows the scheme's `:`
+    /// (`rules::dashless`), which a program handed the link may read as an
+    /// option -- CVE-2017-1000117's shape.
+    Dash,
+    /// A scheme a `[link.*]` rule of yours turns off (`action = "off"`), one
+    /// of baud's own four included.
+    Off,
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
@@ -135,6 +160,8 @@ pub enum Refused {
 pub struct Target<'a> {
     uri: &'a str,
     scheme: Scheme,
+    /// The `[link.*]` rule that took it, by its place, and what it does.
+    rule: Option<(crate::rules::RuleIx, Action)>,
 }
 
 impl<'a> Target<'a> {
@@ -147,10 +174,16 @@ impl<'a> Target<'a> {
     }
 
     pub fn action(&self) -> Action {
-        match self.scheme {
-            Scheme::File => Action::Reveal,
-            Scheme::Http | Scheme::Https | Scheme::Mailto => Action::Open,
+        match (self.rule, self.scheme) {
+            (Some((_, act)), _) => act,
+            (None, Scheme::File) => Action::Reveal,
+            (None, Scheme::Http | Scheme::Https | Scheme::Mailto | Scheme::Added) => Action::Open,
         }
+    }
+
+    /// The `[link.*]` rule that took it, by its place in the rules.
+    pub fn rule(&self) -> Option<crate::rules::RuleIx> {
+        self.rule.map(|(ix, _)| ix)
     }
 }
 
@@ -164,8 +197,20 @@ pub struct Host<'a>(pub &'a str);
 /// core stored whole is never refused for length here.
 pub const MAX: usize = LINK_MAX;
 
-/// Decide whether `uri` may be handed to the OS, and what for.
+/// Decide whether `uri` may be handed to the OS, and what for, by baud's own
+/// list alone.
 pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
+    admit_with(uri, host, &NO_RULES)
+}
+
+/// **[`admit`], with your `[link.*]` rules**: a scheme a rule names is let
+/// through, the first rule in the file naming it deciding what a click
+/// does. Nothing a rule says loosens the rest: the bytes and the length are
+/// checked first; a default scheme keeps its own rules whichever handler
+/// takes it -- `file` names this machine or none, `mailto` carries only
+/// `subject` and `body`; and a link a rule routes has no part that starts
+/// with `-` ([`crate::rules::dashless`]).
+pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
     if uri.is_empty() || uri.len() > MAX {
         return Err(Refused::Length);
     }
@@ -177,12 +222,36 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
     let s = core::str::from_utf8(uri).map_err(|_| Refused::Byte)?;
     let colon = s.find(':').ok_or(Refused::Scheme)?;
     let (name, rest) = (&s[..colon], &s[colon + 1..]);
-    let scheme = KNOWN
-        .iter()
-        .find(|k| name.eq_ignore_ascii_case(k.name))
-        .ok_or(Refused::Scheme)?
-        .scheme;
+    let ruled = match rules.rule_for(name) {
+        Some((_, r)) if *r.act() == crate::rules::Act::Off => return Err(Refused::Off),
+        Some((ix, r)) => Some((
+            ix,
+            match r.act() {
+                crate::rules::Act::Open if r.scheme() == "file" => Action::Reveal,
+                crate::rules::Act::Open | crate::rules::Act::Off => Action::Open,
+                crate::rules::Act::Command(_) => Action::Command,
+                crate::rules::Act::Copy => Action::Copy,
+            },
+        )),
+        None => None,
+    };
+    let scheme = match (
+        KNOWN.iter().find(|k| name.eq_ignore_ascii_case(k.name)),
+        ruled,
+    ) {
+        (Some(k), _) => k.scheme,
+        (None, Some(_)) => Scheme::Added,
+        (None, None) => return Err(Refused::Scheme),
+    };
+    if ruled.is_some() {
+        crate::rules::dashless(rest)?;
+    }
     match scheme {
+        Scheme::Added => {
+            if rest.is_empty() {
+                return Err(Refused::Host);
+            }
+        }
         Scheme::Http | Scheme::Https => {
             let auth = rest.strip_prefix("//").ok_or(Refused::Host)?;
             let end = auth.find(['/', '?', '#']).unwrap_or(auth.len());
@@ -219,7 +288,18 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
             }
         }
     }
-    Ok(Target { uri: s, scheme })
+    Ok(Target {
+        uri: s,
+        scheme,
+        rule: ruled,
+    })
+}
+
+/// Whether `name` is one of the four schemes baud opens by default, which
+/// its own list finds in the text; a rule naming one changes only what a
+/// click does.
+pub(crate) fn known_scheme(name: &str) -> bool {
+    KNOWN.iter().any(|k| name.eq_ignore_ascii_case(k.name))
 }
 
 /// One RFC 3986 character class, a bit of [`CLASSES`]' byte per ASCII code.
@@ -360,8 +440,8 @@ pub(crate) struct Known {
 
 impl Known {
     /// How many characters the name and its marks take.
-    fn prefix_len(&self) -> usize {
-        self.name.len() + self.marks.len()
+    fn prefix_len(&self) -> Width {
+        Width(self.name.len() + self.marks.len())
     }
 
     fn prefix(&self) -> impl Iterator<Item = char> + '_ {
@@ -402,7 +482,10 @@ const KNOWN: [Known; 4] = [
 /// its low byte, ends in a known scheme's name and `:`**: what a line must
 /// hold before it is worth reading for a URI at all, so a scan reads a line
 /// with none as one compare a cell.
-pub(crate) fn scheme_ends(tail: u64) -> bool {
+/// A scheme a rule of yours added is one more compare at a `:`, and none
+/// anywhere else ([`Rules::ends`]).
+pub(crate) fn scheme_ends(tail: crate::rules::Tail, rules: &Rules) -> bool {
+    let crate::rules::Tail(tail) = tail;
     if tail & 0xFF != u64::from(b':') {
         return false;
     }
@@ -410,16 +493,57 @@ pub(crate) fn scheme_ends(tail: u64) -> bool {
         let n = k.name.len();
         let packed = k.name.bytes().fold(0u64, |a, b| (a << 8) | u64::from(b));
         (tail >> 8) & ((1u64 << (8 * n)) - 1) == packed
-    })
+    }) || rules.ends(crate::rules::Tail(tail))
 }
 
-/// The known scheme `rest` starts with, compared without case (§ 3.1).
-pub(crate) fn scheme_at(rest: &[Unit]) -> Option<&'static Known> {
-    KNOWN.iter().find(|k| {
-        k.prefix_len() <= rest.len()
+/// **Where a scheme starts a URI in the text**: how many units its name and
+/// marks take, and whether an authority follows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Start {
+    prefix: Width,
+    authority: Authority,
+}
+
+/// **How many units a scheme's name and marks take** where it starts a URI.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Width(usize);
+
+impl Start {
+    fn of(k: &Known) -> Start {
+        Start {
+            prefix: k.prefix_len(),
+            authority: k.authority,
+        }
+    }
+}
+
+/// The scheme `rest` starts with, compared without case (§ 3.1): one of
+/// baud's own, by its spelling and marks, or one a rule of yours added,
+/// whose `//` after the `:` says an authority follows (§ 3.2).
+pub(crate) fn scheme_at(rest: &[Unit], rules: &Rules) -> Option<Start> {
+    let known = KNOWN.iter().find(|k| {
+        k.prefix_len().0 <= rest.len()
             && k.prefix()
                 .zip(rest)
                 .all(|(c, u)| matches!(u, Unit::Char(x) if x.eq_ignore_ascii_case(&c)))
+    });
+    if let Some(k) = known {
+        return Some(Start::of(k));
+    }
+    let n = rules.added_at(rest)?.scheme().len();
+    let slashes = matches!(
+        rest.get(n + 1..n + 3),
+        Some([Unit::Char('/'), Unit::Char('/')])
+    );
+    Some(match slashes {
+        true => Start {
+            prefix: Width(n + 3),
+            authority: Authority::Yes,
+        },
+        false => Start {
+            prefix: Width(n + 1),
+            authority: Authority::No,
+        },
     })
 }
 
@@ -491,7 +615,7 @@ fn bracket(u: &Unit) -> bool {
 
 /// RFC 3986 on a URI's characters, whole: every `%` begins `pct-encoded`
 /// (§ 2.1), and a bracket stands only around an IP-literal host (§ 3.2.2).
-fn syntax(uri: &[Unit], known: &Known) -> Result<(), Refused> {
+fn syntax(uri: &[Unit], known: Start) -> Result<(), Refused> {
     for (i, u) in uri.iter().enumerate() {
         if *u == Unit::Char('%') {
             let hex = |u: Option<&Unit>| u.is_some_and(|u| class(*u).has(Class::HEX));
@@ -500,7 +624,7 @@ fn syntax(uri: &[Unit], known: &Known) -> Result<(), Refused> {
             }
         }
     }
-    let rest = &uri[known.prefix_len()..];
+    let rest = &uri[known.prefix.0..];
     let after = match known.authority {
         Authority::No => rest,
         Authority::Yes => {
@@ -548,8 +672,15 @@ fn syntax(uri: &[Unit], known: &Known) -> Result<(), Refused> {
 /// `"` and `<>` around one, are not among them and so are never part of
 /// it. Practice decides what the RFC leaves open (the module doc). The
 /// first URI that starts at or before the click and reaches it is the
-/// one: a URI inside another's query is the other's.
+/// one: a URI inside another's query is the other's. The drivers read
+/// through [`find_with`], so only tests call it.
+#[cfg(test)]
 pub fn find(w: &Window) -> Option<Found> {
+    find_with(w, &NO_RULES)
+}
+
+/// [`find`], a scheme a rule of yours added found as baud's own are.
+pub fn find_with(w: &Window, rules: &Rules) -> Option<Found> {
     let text = &w.text[..];
     let at = w.at.0;
     if !class(*text.get(at)?).has(Class::URI) {
@@ -563,7 +694,7 @@ pub fn find(w: &Window) -> Option<Found> {
     while hi < text.len() && class(text[hi]).has(Class::URI) {
         hi += 1;
     }
-    found_in(text, (lo, hi), lo, at, (w.head, w.tail))
+    found_in(text, (lo, hi), Ix(lo), Ix(at), (w.head, w.tail), rules)
 }
 
 /// [`find`] over `text`, the run of URI characters around `at` being `lo..hi`
@@ -573,19 +704,21 @@ pub fn find(w: &Window) -> Option<Found> {
 pub(crate) fn found_in(
     text: &[Unit],
     (lo, hi): (usize, usize),
-    from: usize,
-    at: usize,
+    from: Ix,
+    at: Ix,
     (head, tail): (Edge, Edge),
+    rules: &Rules,
 ) -> Option<Found> {
+    let (Ix(from), Ix(at)) = (from, at);
     let cut = (lo == 0 && head == Edge::Cut) || (hi == text.len() && tail == Edge::Cut);
     for p in from..=at {
         if p > 0 && class(text[p - 1]).has(Class::SCHEME) {
             continue;
         }
-        let Some(known) = scheme_at(&text[p..hi]) else {
+        let Some(known) = scheme_at(&text[p..hi], rules) else {
             continue;
         };
-        let body = p + known.prefix_len();
+        let body = p + known.prefix.0;
         if body >= hi {
             continue;
         }
@@ -706,14 +839,21 @@ impl Bare {
 }
 
 impl Window {
-    /// The URI around the clicked cell, with its cells.
+    /// The URI around the clicked cell, with its cells. The drivers read
+    /// through [`Window::bare_with`], so only tests call it.
+    #[cfg(test)]
     pub fn bare(&self) -> Option<Bare> {
-        self.bare_in(&mut Vec::new())
+        self.bare_in(&mut Vec::new(), &NO_RULES)
+    }
+
+    /// [`Window::bare`], a scheme a rule of yours added read too.
+    pub fn bare_with(&self, rules: &Rules) -> Option<Bare> {
+        self.bare_in(&mut Vec::new(), rules)
     }
 
     /// [`Window::bare`], its bytes in `text`'s buffer, taken only for a URI.
-    fn bare_in(&self, text: &mut Vec<u8>) -> Option<Bare> {
-        let f = find(self)?;
+    fn bare_in(&self, text: &mut Vec<u8>, rules: &Rules) -> Option<Bare> {
+        let f = find_with(self, rules)?;
         let (from, to) = (
             *self.cells.get(f.span.start)?,
             *self.cells.get(f.span.end.checked_sub(1)?)?,
@@ -918,7 +1058,7 @@ pub fn under_with(
     }
     let line = spot.scrolled.line(spot.back, spot.row);
     let w = window(term, spot.scrolled, line, spot.col)?;
-    match w.bare() {
+    match w.bare_with(paths.rules()) {
         Some(b) => Some(Under::Bare(b)),
         None => printed_in(term, &w, paths).map(Under::Path),
     }
@@ -943,6 +1083,7 @@ fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<Printe
         to,
         path: at.path,
         form: at.form,
+        line_col: at.line_col,
         uri,
         verdict,
     })
@@ -957,11 +1098,19 @@ pub struct Printed {
     to: Point,
     path: Vec<u8>,
     form: crate::paths::Form,
+    /// The `:line:col` printed after it, for a command of yours.
+    line_col: crate::paths::LineCol,
     uri: String,
     verdict: Result<(), Refused>,
 }
 
 impl Printed {
+    /// The `:line:col` printed after it, empty where none was or
+    /// `[link.path] line_col` is off.
+    pub fn line_col(&self) -> &crate::paths::LineCol {
+        &self.line_col
+    }
+
     /// The path as resolved, which a click asks the worker about again.
     pub fn path(&self) -> &[u8] {
         &self.path
@@ -1156,6 +1305,8 @@ pub fn refusal_words(why: Refused) -> &'static str {
         Refused::Header => "a mail link with extra headers",
         Refused::Syntax => "not a whole address",
         Refused::NotFound => NOT_FOUND,
+        Refused::Dash => "a part that starts with -",
+        Refused::Off => "off in your config",
     }
 }
 
@@ -1228,12 +1379,34 @@ pub fn shortened(address: &str, room: Cols) -> String {
 /// **What the preview's bar says for a link**: its escaped address, after
 /// what refuses it in words when a click would open nothing, so the user
 /// knows before clicking, shortened to `room` columns. A reason too long
-/// for the room is cut to "Won't open".
+/// for the room is cut to "Won't open". The drivers read through
+/// [`preview_text_with`], so only tests call it.
+#[cfg(test)]
 pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
+    preview_text_with(link, term, host, room, &NO_RULES)
+}
+
+/// [`preview_text`], the link admitted with your rules: a link a rule takes
+/// shows its address as any other does.
+pub fn preview_text_with(
+    link: &Under,
+    term: &Term<'_>,
+    host: Host<'_>,
+    room: Cols,
+    rules: &Rules,
+) -> Option<String> {
     let room = room.index();
-    let (uri, verdict) = verdict(link, term, host)?;
+    let (uri, verdict) = verdict(link, term, host, rules)?;
     let address = escaped(uri);
+    // A click that copies says so: it opens nothing.
+    let copies = match link {
+        Under::Path(_) => *rules.path_act() == crate::rules::PathAct::Copy,
+        Under::Osc8(_) | Under::Bare(_) => {
+            admit_with(uri, host, rules).is_ok_and(|t| t.action() == Action::Copy)
+        }
+    };
     let label = match (verdict, link) {
+        (Ok(()), _) if copies => "Copies  ".to_string(),
         // A path names no machine in its address: the bar says which one it
         // was found on.
         (Ok(()), Under::Path(_)) => format!("On {}  ", crate::paths::MACHINE),
@@ -1260,13 +1433,17 @@ fn verdict<'a>(
     link: &'a Under,
     term: &'a Term<'_>,
     host: Host<'_>,
+    rules: &Rules,
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
     Some(match link {
         Under::Osc8(link) => {
             let uri = link.uri(term)?;
-            (uri, admit(uri, host).map(|_| ()))
+            (uri, admit_with(uri, host, rules).map(|_| ()))
         }
-        Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
+        Under::Bare(b) => (
+            b.text(),
+            b.uri().and_then(|u| admit_with(u, host, rules).map(|_| ())),
+        ),
         Under::Path(p) => (p.uri.as_bytes(), p.verdict),
     })
 }
@@ -1296,7 +1473,7 @@ fn hovered_in(
     }
     let line = spot.scrolled.line(spot.back, spot.row);
     read_window(term, spot.scrolled, line, spot.col, read)?;
-    match read.window.bare_in(&mut read.text) {
+    match read.window.bare_in(&mut read.text, paths.rules()) {
         Some(b) => Some(Under::Bare(b)),
         None => printed_in(term, &read.window, paths).map(Under::Path),
     }
@@ -1412,11 +1589,32 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
 /// and the bar says why -- and the bar with its address, a space either side,
 /// in the message pair ([`baud_render::message`]): an opaque box and text no
 /// program's colours reach, cell-aligned text a program could copy, which
-/// shows only while the chord is held.
+/// shows only while the chord is held. The drivers read through
+/// [`preview_with`], so only tests call it.
+#[cfg(test)]
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
+    preview_with(term, spot, link, host, &NO_RULES)
+}
+
+/// [`preview`], the link admitted with your rules: **every rule's link shows
+/// its address in the same bar**, which no rule turns off, since it is the
+/// check on where a click goes.
+pub fn preview_with(
+    term: &Term<'_>,
+    spot: Spot,
+    link: &Under,
+    host: Host<'_>,
+    rules: &Rules,
+) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
-    let text = preview_text(link, term, host, Cols::of_index(cols.saturating_sub(2)))?;
+    let text = preview_text_with(
+        link,
+        term,
+        host,
+        Cols::of_index(cols.saturating_sub(2)),
+        rules,
+    )?;
     let spans = link_spans(term, spot, link);
     let text: Vec<Codepoint> = format!(" {text} ")
         .chars()
@@ -1429,7 +1627,7 @@ pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Opt
         Rows::of_index(rows),
     );
     let n = text.len();
-    let opens = matches!(verdict(link, term, host), Some((_, Ok(()))));
+    let opens = matches!(verdict(link, term, host, rules), Some((_, Ok(()))));
     Some(LinkLook {
         spans: match opens {
             true => spans,
@@ -1636,7 +1834,8 @@ impl Hover {
                 let s = spot_now(term, scrolled, row, col)?;
                 self.reads.bump();
                 let link = hovered_in(term, s, &mut self.buffers, paths)?;
-                let opens = matches!(verdict(&link, term, host), Some((_, Ok(()))));
+                let rules = paths.rules();
+                let opens = matches!(verdict(&link, term, host, rules), Some((_, Ok(()))));
                 let kind = every || matches!(link, Under::Path(_));
                 let over = paint
                     .filter(|_| kind && opens && drawn_whole(term, s, &link))
@@ -1648,7 +1847,7 @@ impl Hover {
                         }
                     });
                 let look = match previewing {
-                    true => preview(term, s, &link, host),
+                    true => preview_with(term, s, &link, host, rules),
                     false => None,
                 };
                 let opens = match (look.is_some(), opens) {
@@ -3259,5 +3458,173 @@ mod tests {
         assert_eq!(h.pointer(asked), Some(PointerShape::Hand2));
         assert!(h.clear());
         assert_eq!(h.pointer(asked), asked, "cleared");
+    }
+
+    // --- Your `[link.*]` rules ------------------------------------------
+
+    /// What a read under the pointer has with `rules` in force and no
+    /// printed path.
+    struct Ruled(Rules);
+
+    impl PathsAt for Ruled {
+        fn generation(&self) -> crate::paths::Generation {
+            crate::paths::Generation::default()
+        }
+
+        fn at(
+            &self,
+            _: &[Unit],
+            _: Ix,
+            _: (Edge, Edge),
+            _: (AbsLine, AbsLine),
+            _: baud_core::Screen,
+        ) -> Option<crate::paths::PathAt> {
+            None
+        }
+
+        fn rules(&self) -> &Rules {
+            &self.0
+        }
+    }
+
+    /// `[link.NAME]` sections, each with its fields, read.
+    fn ruled(sections: &[(&str, &[(&str, &str)])]) -> Rules {
+        let sections: Vec<_> = sections
+            .iter()
+            .map(|(name, fields)| crate::rules::Section {
+                name: name.to_string(),
+                fields: fields
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            })
+            .collect();
+        // Read as `Config::apply` reads them, by the one function it calls.
+        let (rules, said) = crate::rules::Section::read_all(&sections, None, None);
+        assert_eq!(said.len(), 0, "{said:?}");
+        rules
+    }
+
+    /// **A scheme a rule adds is read in the text as baud's own are**: by
+    /// RFC 3986's characters, its trailing prose cut, with an authority
+    /// where `//` follows, and only where a scheme may start; with no rule,
+    /// nothing. Perturbation: return no added scheme from `scheme_at` --
+    /// every read is none.
+    #[test]
+    fn a_scheme_a_rule_adds_is_read_in_the_text() {
+        let r = ruled(&[("tel", &[]), ("ssh", &[])]);
+        let read = |s: &str| {
+            let w = win(s);
+            find_with(&w, &r).map(|f| {
+                f.verdict.map(|()| {
+                    w.text[f.span]
+                        .iter()
+                        .map(|u| match u {
+                            Unit::Char(c) => *c,
+                            _ => '?',
+                        })
+                        .collect::<String>()
+                })
+            })
+        };
+        assert_eq!(
+            read("call tel:+1‸5551234."),
+            Some(Ok("tel:+15551234".into()))
+        );
+        assert_eq!(read("(ssh://h‸ost/x)"), Some(Ok("ssh://host/x".into())));
+        assert_eq!(read("ssh://[::1]‸:22"), Some(Ok("ssh://[::1]:22".into())));
+        assert_eq!(read("ssh://h]‸x"), Some(Err(Refused::Syntax)));
+        assert_eq!(read("xtel:1‸2"), None, "not where a scheme starts");
+        assert_eq!(read("sip:1‸2"), None, "no rule names it");
+        assert_eq!(
+            read_in(&win("call tel:+1‸555")),
+            None,
+            "the control: no rule"
+        );
+    }
+
+    /// **E13: an `OSC 8` link is its cells', then yours, then baud's**: a cell
+    /// in an `OSC 8` run whose text is itself an address belongs to the run,
+    /// with a rule in force or not, so a click opens the target the program
+    /// declared and never the text; a cell belongs to one link. Perturbation:
+    /// read the text before the cell's `OSC 8` link in `under_with` -- the
+    /// click opens the printed address.
+    #[test]
+    fn an_osc8_link_comes_first_and_a_cell_belongs_to_one_link() {
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(
+            &mut t,
+            b"\x1b]8;;https://declared.example/\x1b\\tel:+1555 https://shown.example/\x1b]8;;\x1b\\",
+        );
+        let r = Ruled(ruled(&[("tel", &[])]));
+        for col in [1, 14] {
+            let s = spot(Scrolled::START, Row::ZERO, Col::at_index(col));
+            let got = under_with(&t, s, Press::Down, Chord::Cmd, Focus::Gained, None, &r);
+            let Some(Under::Osc8(link)) = got else {
+                panic!("column {col}: {got:?}");
+            };
+            assert_eq!(link.uri(&t), Some(&b"https://declared.example/"[..]));
+            let mut buffers = Reading::default();
+            assert!(matches!(
+                hovered_in(&t, s, &mut buffers, &r),
+                Some(Under::Osc8(_))
+            ));
+        }
+        // The control: the same text with no `OSC 8` is the rule's link.
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(&mut t, b"tel:+1555 https://shown.example/");
+        let s = spot(Scrolled::START, Row::ZERO, Col::at_index(1));
+        let got = under_with(&t, s, Press::Down, Chord::Cmd, Focus::Gained, None, &r);
+        let Some(Under::Bare(b)) = got else {
+            panic!("{got:?}");
+        };
+        assert_eq!(b.uri(), Ok(&b"tel:+1555"[..]));
+        let t2 = admit_with(b.uri().unwrap(), NONE, &r.0).expect("admitted");
+        assert_eq!((t2.scheme(), t2.action()), (Scheme::Added, Action::Open));
+    }
+
+    /// **E9: every rule's link shows its address under the modifier, in the
+    /// same bar**: the escaped address, every cell of it in the message pair
+    /// no program's colours reach, and the link underlined because a click
+    /// opens it -- a rule that runs a command included. Perturbation: skip the
+    /// bar for an `Action::Command` link -- the look is none.
+    #[test]
+    fn every_rules_link_shows_its_address_in_the_bar() {
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        feed(&mut t, b"call tel:+15551234 now");
+        let r = Ruled(ruled(&[(
+            "tel",
+            &[("command", "[\"/bin/sh\", \"{url}\"]")],
+        )]));
+        let mut h = Hover::default();
+        let at = Some((Row::ZERO, Col::at_index(8)));
+        h.update_with(&t, at, Scrolled::START, Chord::Cmd, Focus::Gained, NONE, &r);
+        let look = h.look().expect("a look under the modifier");
+        assert!(
+            bar_string(look).contains("tel:+15551234"),
+            "{}",
+            bar_string(look)
+        );
+        assert!(look.bar.hints.iter().all(|x| *x == Hints::MESSAGE));
+        assert!(
+            !look.spans.is_empty(),
+            "a click opens it, so it is underlined"
+        );
+        assert_eq!(h.pointer(None), Some(PointerShape::Hand2));
+        // The control: with no rule there is nothing under the pointer.
+        let mut h = Hover::default();
+        h.update_with(
+            &t,
+            at,
+            Scrolled::START,
+            Chord::Cmd,
+            Focus::Gained,
+            NONE,
+            &NoPaths,
+        );
+        assert_eq!(h.look(), None);
     }
 }

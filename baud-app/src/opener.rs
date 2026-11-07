@@ -8,10 +8,15 @@
 //! xdg-open may run "for a very long time" and may want a terminal, so it
 //! is given none: its standard streams are the null device, and it is
 //! reaped without waiting on each turn of the loop.
+//!
+//! **The reaper is both drivers'**: a `[link.*]` rule's command (`rules.rs`)
+//! is started the same way, on macOS too, with the same null streams, and
+//! reaped the same way on each tick.
 
 use std::process::{Child, Command, Stdio};
 
 /// The command that opens `uri`.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn command(uri: &str) -> Command {
     let mut c = Command::new("xdg-open");
     c.arg(uri)
@@ -29,6 +34,7 @@ pub(crate) fn command(uri: &str) -> Command {
 /// compatibility" the authority may be left out (`[[source: rfc8089]]`
 /// § 2). `ls
 /// --hyperlink` writes the host.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn local(uri: &str) -> String {
     let Some((scheme, rest)) = uri.split_once("://") else {
         return uri.to_owned();

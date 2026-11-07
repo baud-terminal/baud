@@ -344,11 +344,15 @@ struct Driver {
     /// When a read asks which program wrote it (`probe::Sampler`).
     groups: crate::probe::Sampler,
     link_config: crate::config::Link,
+    /// The printed path a click asked about again, and the `:line:col`
+    /// printed after it, for a `[link.path]` command when the answer comes.
+    path_click: Option<(Vec<u8>, crate::paths::LineCol)>,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
-    /// The `xdg-open`s a link started, reaped on each turn, and this
-    /// machine's name for a `file://host/` link.
+    /// The `xdg-open`s a link started, and the commands a `[link.*]` rule
+    /// ran, reaped on each turn, and this machine's name for a
+    /// `file://host/` link.
     opener: crate::opener::Opener,
     host: String,
     /// The notifications programs post, delivered over the session bus
@@ -675,7 +679,8 @@ pub fn run() {
             // `HOME` read once, here, and this machine's one name.
             use std::os::unix::ffi::OsStringExt;
             let home = std::env::var_os("HOME").map(std::ffi::OsString::into_vec);
-            seat.paths = crate::paths::Paths::new(home, crate::paths::Forms::DEFAULT);
+            seat.paths = crate::paths::Paths::new(home, cfg.link.rules.forms());
+            seat.paths.set_rules(cfg.link.rules.clone());
             seat.paths.set(cfg.link.paths_read());
             seat.paths.set_names(vec![crate::opener::host_name()]);
             seat
@@ -719,12 +724,17 @@ pub fn run() {
         uris: {
             let mut u = crate::lined::Uris::default();
             u.set_host(crate::opener::host_name());
+            u.set_rules(cfg.link.rules.clone());
+            for told in cfg.link.rules.told() {
+                crate::info!("{told}");
+            }
             u
         },
         probes,
         woken,
         groups: crate::probe::Sampler::default(),
-        link_config: cfg.link,
+        link_config: cfg.link.clone(),
+        path_click: None,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
@@ -1662,12 +1672,43 @@ impl Driver {
         // bus included, as the macOS app counts a link the system did not
         // take.
         let said = shown(uri);
-        match crate::link::admit(uri, Host(&self.host)) {
+        match crate::link::admit_with(uri, Host(&self.host), self.uris.rules()) {
             Err(why) => {
                 self.report.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {said}");
             }
             Ok(t) => match t.action() {
+                // A rule's `copy`: the link's text to the clipboard, said as
+                // a copy of a selection is; nothing is opened.
+                Action::Copy => {
+                    let text = t.as_str().to_string();
+                    self.link_copied(&text);
+                }
+                // A command of yours: no shell, null streams, reaped on
+                // each turn as `xdg-open` is.
+                Action::Command => {
+                    let built = t
+                        .rule()
+                        .and_then(|ix| self.uris.rules().command(ix, t.as_str()));
+                    match built.map(|b| b.map(|cmd| self.opener.start(cmd))) {
+                        Some(Ok(Ok(()))) => {
+                            self.report.links.opened.bump();
+                            crate::info!("link handed to a [link.*] command: {said}");
+                        }
+                        Some(Ok(Err(e))) => {
+                            self.report.links.refused.bump();
+                            crate::warn!("link not sent: [link.*] command: {e}: {said}");
+                        }
+                        Some(Err(why)) => {
+                            self.report.links.refused.bump();
+                            crate::warn!("link refused ({why:?}): {said}");
+                        }
+                        None => {
+                            self.report.links.refused.bump();
+                            crate::warn!("link refused (no command): {said}");
+                        }
+                    }
+                }
                 Action::Open => match self.opener.start(crate::opener::command(t.as_str())) {
                     Ok(()) => {
                         self.report.links.opened.bump();
@@ -1831,6 +1872,7 @@ impl Driver {
             form: p.form(),
             line: p.line(),
         };
+        self.path_click = Some((p.path().to_vec(), p.line_col().clone()));
         if let Some(done) = self
             .probes
             .click(Instant::now(), seen, crate::fg::group(master), c)
@@ -1846,9 +1888,44 @@ impl Driver {
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
         use crate::link::{Action, Host};
+        let clicked = self.path_click.take();
         let note = match done {
+            crate::probe::Clicked::Exists(path)
+                if *self.uris.rules().path_act() == crate::rules::PathAct::Copy =>
+            {
+                let text = String::from_utf8_lossy(&path).into_owned();
+                self.link_copied(&text);
+                None
+            }
             crate::probe::Clicked::Exists(path) => {
                 let uri = crate::paths::file_uri(&path);
+                let lc = clicked
+                    .filter(|(p, _)| *p == path)
+                    .map(|(_, lc)| lc)
+                    .unwrap_or_default();
+                let ran = match crate::link::admit(uri.as_bytes(), Host(&self.host)) {
+                    Ok(_) => self.uris.rules().path_command(&path, &lc.line, &lc.col),
+                    Err(_) => None,
+                };
+                if let Some(built) = ran {
+                    match built.map(|cmd| self.opener.start(cmd)) {
+                        Ok(Ok(())) => {
+                            self.report.links.opened.bump();
+                            crate::info!("printed path sent to [link.path]'s command");
+                        }
+                        Ok(Err(e)) => {
+                            self.report.links.refused.bump();
+                            crate::warn!("printed path not sent: [link.path]'s command: {e}");
+                        }
+                        Err(why) => {
+                            self.report.links.refused.bump();
+                            crate::warn!(
+                                "printed path refused for [link.path]'s command ({why:?})"
+                            );
+                        }
+                    }
+                    return;
+                }
                 match crate::link::admit(uri.as_bytes(), Host(&self.host)) {
                     Ok(t) if t.action() == Action::Reveal => match self.bus.as_mut() {
                         Some(bus) => {
@@ -2137,8 +2214,15 @@ impl Driver {
                     self.pending = Pending::Dirty;
                 }
                 Part::Link => {
-                    self.link_config = c.link;
+                    self.link_config = c.link.clone();
                     self.seat.set_at_rest(c.link.at_rest());
+                    if self.uris.rules() != &c.link.rules {
+                        for told in c.link.rules.told() {
+                            crate::info!("{told}");
+                        }
+                    }
+                    self.uris.set_rules(c.link.rules.clone());
+                    self.seat.paths.set_rules(c.link.rules.clone());
                     self.seat.paths.set(c.link.paths_read());
                     self.lines.forget();
                     self.pending = Pending::Dirty;
@@ -2528,6 +2612,28 @@ impl Driver {
         };
         match self.window.copy(&mut self.conn.sender(), board, &text) {
             Copied::Set => self.selection_copied(&text),
+            Copied::Unavailable => self.uncopied_once(),
+            Copied::Unfocused => {
+                if let Some(line) = self.clips.sent_unfocused() {
+                    crate::warn!("{line}");
+                }
+            }
+        }
+    }
+
+    /// **A link's text to the clipboard, for a `[link.*]` rule's `copy`**:
+    /// the same write and the same words as a copy of the selection, and no
+    /// process started.
+    fn link_copied(&mut self, text: &str) {
+        match self
+            .window
+            .copy(&mut self.conn.sender(), Board::Clipboard, text)
+        {
+            Copied::Set => {
+                self.report.links.opened.bump();
+                crate::info!("link copied by a [link.*] rule");
+                self.selection_copied(text);
+            }
             Copied::Unavailable => self.uncopied_once(),
             Copied::Unfocused => {
                 if let Some(line) = self.clips.sent_unfocused() {

@@ -148,6 +148,9 @@ mod link;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/paths.rs"]
 mod paths;
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/rules.rs"]
+mod rules;
 
 /// `FRAME_LINKS`: what each frame does about links.
 #[derive(Clone, Copy, PartialEq, Eq)]

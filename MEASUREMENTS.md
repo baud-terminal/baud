@@ -4899,3 +4899,41 @@ unmeasured (`frame_gpu` was not run), and no figure is for a discrete GPU. The
 worker's own cost, and how long a batch takes against a real file system, are
 unmeasured: no bench may ask one. Every rate here was taken under load, and is to
 be measured again on an idle machine.
+
+## Your own link types in the scan: no cost found with no rule
+
+The `frame` bench, CPU path, 200x50, on mains, as the section above. The bench
+reads with no `[link.*]` rule, which is every config that has none: a frame's
+extra work is one compare at a `:` that ends no default scheme, and one at a
+run of URI characters that starts with none (`Rules::ends`, `Rules::added_at`).
+**The tests have not been run: this is the cost of code that has only been
+compiled.** A config with rules is unmeasured.
+
+**Method.** Base, `49926981` (printed paths, the commit before this one), the
+change and an A/A copy of the change, built with `git archive` into one scratch
+path, every file touched. `cmp`: the change's two `frame` builds are
+byte-identical, and `ingest2`'s binary is byte-identical between base and change,
+so nothing was timed on the per-byte path. Five rounds, arms rotated, the first
+dropped, the median with the range over the other four. A round that saw `rustc`
+running was dropped and run again: five of ten were. Rows read, cells,
+candidates, runs added and instances drawn are the same on every arm. The load
+average read 4.5 at the first round and 6.0 at the last, peaking at 9.0, from
+other work, so the ranges are wide.
+
+| recording | base, on | on | base, paths | paths | paths, A/A | scan base / change, paths |
+|---|---:|---:|---:|---:|---:|---:|
+| `cat` | 1117.8 (1088.6-1136.4) | 1111.9 (1087.5-1125.0) | 1101.5 (1097.6-1103.2) | 1119.2 (1089.3-1226.7) | 1136.6 (1088.6-1159.1) | 12.7 / 11.8 |
+| `less-pager` | 1035.4 (1034.4-1036.7) | 1075.7 (1038.5-1217.7) | 1043.8 (1037.6-1054.1) | 1079.3 (1035.7-1104.6) | 1054.4 (1035.8-1063.8) | 17.0 / 16.7 |
+| `links-herdr` | 1330.8 (1277.9-1384.1) | 1343.4 (1291.4-1432.8) | 1306.9 (1273.6-1310.3) | 1320.5 (1292.6-1394.9) | 1341.6 (1249.3-1429.4) | 15.5 / 14.7 |
+| `links-rg` | 2652.3 (2570.9-2772.4) | 2663.8 (2582.2-2769.6) | 2672.2 (2604.2-2681.4) | 2696.3 (2592.2-2749.8) | 2748.0 (2563.1-2749.1) | 92.0 / 92.7 |
+
+**No result on any row**: each change arm's range overlaps its base arm's, `on`
+and `paths` alike, `links-rg`'s 49.5 candidates a frame included. What would
+have shown the change wrong is a change arm past base's range with its A/A arm
+past it too; none was. The scan's own share, which is where the change runs,
+moved by under a microsecond either way. The load makes this a weak result:
+`less-pager`'s `on` arm has one round at 1217.7, and the A/A arm of `paths`
+sits as far from base as the change does on `cat` and `links-rg`. To be taken
+again on an idle machine. All of this is the CPU path; Metal is unmeasured, and
+so is a config with rules, whose cost grows with the number of added schemes,
+32 at most.

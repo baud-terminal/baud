@@ -607,6 +607,74 @@ copy_on_select = "on"
 # where it reads at least 1.5:1 on the cell's own background.
 # hover = "box"
 
+# Printed file paths: which kinds are read, and what a click does. Every kind
+# is checked as paths above: the file must be on this computer. A key or value
+# baud doesn't know here ignores the whole section, with a warning.
+#
+# [link.path]
+#
+# The kinds read: "/", "~/", "./", "../", and "relative", a path with no
+# prefix and a / inside such as src/app.rs. Like ./, "../" and "relative"
+# need your shell to report its folder, and get no line in a multiplexer.
+# forms = ["/", "~/", "./"]
+#
+# "on" reads a :12 or :12:3 after a path as a line and a column, for a
+# command's {line} and {col}.
+# line_col = "off"
+#
+# "on" lets a path inside quotes hold spaces, up to the closing quote.
+# spaces = "off"
+#
+# What a click does. "reveal", the default, shows a clicked file in Finder
+# (the file manager on Linux), and never opens or runs it; "command" hands it
+# to the command below, and is what a command named alone means; "copy" puts
+# its path on the clipboard; "off" is the same as paths = "off" above. Any
+# value but "command" beside a command ignores the section, so this example
+# names "command" with its command.
+# action = "command"
+#
+# The program a click runs, then its arguments: {path} is the file's full
+# path, {line} and {col} the numbers after it with line_col on, else 1. No
+# shell runs it, and its output goes nowhere. A name with no folder is looked
+# up on PATH, which for a baud started from the Dock is the system's short
+# one; a full path always works.
+# command = ["/usr/bin/env", "code", "-g", "{path}:{line}:{col}"]
+
+# Your own link types: a [link.NAME] section adds a kind of link, such as
+# tel: or ssh://, or changes what a click on web, mail or file links does.
+# None is set out of the box. Rules come only from this file, never from a
+# program, and whatever a rule says, the address still shows under Cmd (Ctrl
+# on Linux), a link with a part that starts with - is refused, and a file
+# link must be on this computer. A key or value baud doesn't know ignores the
+# whole rule, with a warning. The guide's "Your own link types" has the rest.
+#
+# [link.tel]
+#
+# The links the rule takes: this scheme and a colon. The section's NAME if
+# left out. javascript, data, vbscript, blob and about can't be named.
+# scheme = "tel"
+#
+# "open" hands the link to the app your system has for it; "command" runs
+# command; "copy" puts the link on the clipboard and opens nothing; "off"
+# turns the scheme off. Left out, it is "command" when a command is named,
+# else "open".
+# action = "open"
+#
+# [link.https]
+#
+# The program a click runs, then its arguments, {url} standing for the whole
+# link. No shell runs it, so {url} is one argument whatever it holds; a rule
+# that puts {url} in a script, after sh -c, osascript -e or the script flag of
+# an interpreter baud knows (-c, -C, -e, -E, -m, -p or -r, by interpreter), is
+# ignored.
+# command = ["/usr/bin/env", "open", "-a", "Firefox", "{url}"]
+#
+# [link.mailto]
+#
+# Turn one of baud's own off: mail links get no line, and a click on one
+# opens nothing, whether a program marks it or prints it.
+# action = "off"
+
 # Whether a program can move, resize, minimise, raise, lower, maximise or
 # full-screen the window (xterm's window operations, CSI 1 t to CSI 10 t, and
 # DECSLPP, which asks for a number of lines). "on" by default, as xterm ships

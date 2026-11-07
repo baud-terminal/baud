@@ -19,6 +19,12 @@ ones the config names, or the system faces behind its embedded font when it
 names none -- and draws with Metal
 on macOS and on the CPU into `wl_shm` on Linux. On macOS it copies a selection
 to the clipboard and pastes from it when you ask, puts a program's `OSC 52` copy on it unless `[clipboard] osc52 = "off"`, and opens the links below.
+**A click on a program's output can run a command your config names**: when
+you Cmd-click (Ctrl-click on Linux) a link that a `[link.*]` rule in your
+config takes, baud runs the program that rule names, with the link as an
+argument and no shell, or hands the link to the system's handler for its
+scheme. Out of the box there are no such rules, and nothing a program prints
+can add one.
 It has no network code: the Linux driver talks only to the local Wayland
 compositor's Unix socket.
 
@@ -98,6 +104,37 @@ printable ASCII is refused, and a `mailto` may carry only `subject` and
 `body`, so `bcc=` cannot add a hidden recipient. An `https` link reaches
 whatever LaunchServices routes it to, universal-link applications included:
 an accepted risk rather than a closed one.
+
+**You can add to that list, or change what a click does, in your own config.
+Nothing a program prints can.** A `[link.NAME]` rule names one scheme and sends its links to
+the system's handler or to a program you name (`baud-app/src/rules.rs`); a
+`[link.path]` rule can send a clicked printed path to one. Rules are read only
+from your config file: not from a theme file, an escape sequence or the
+environment. What a link says is still checked, and no rule can change these:
+
+- A link is printable ASCII and within the core's length limit, and a printed
+  path holds no control or bidirectional control character, checked again
+  where either lands in a command's argument.
+- A link a rule takes is refused if its host, user name or port, or what
+  follows its `:`, starts with `-` or `%2D`, so no part of it can reach a
+  program as an option, the shape of CVE-2017-1000117.
+- A command is an argument list run with no shell, its standard streams the
+  null device, reaped without waiting; its first element is literal, and a
+  rule that puts the link into the script a shell or interpreter runs (after
+  `sh -c`, the script flag of an interpreter baud knows (`-c`, `-C`, `-e`,
+  `-E`, `-m`, `-p` or `-r`, by interpreter), `osascript -e` or `env -S`, as
+  `awk`'s or `sed`'s
+  program, or after an `ssh` or `mosh` host) is refused when it is read. That list cannot be complete, and the guide says
+  so.
+- `javascript`, `data`, `vbscript`, `blob` and `about` cannot be named, a
+  scheme must be one by RFC 3986's grammar, and there is no wildcard.
+- A `file` link still names this computer or none, a `mailto` still carries
+  only `subject` and `body`, and the system never opens a file: only a command
+  of yours can.
+- The address still shows under Cmd (Ctrl on Linux), in the same opaque box,
+  for every rule.
+- A rule with a key or value baud does not know is ignored whole, so an older
+  baud never drops a safeguard a newer one reads and runs the rest.
 
 **A file path a program prints is a link only if the file is on this
 computer, and a click only shows it.** A path printed as plain text, starting
@@ -188,7 +225,10 @@ report them as gaps; if you think one is wrong, the reasoning is in
 - Any unbounded growth driven by remote input.
 - Any query answered with a report of the wrong shape, or a mode reported as
   supported that is not acted on.
-- A link a program prints that baud opens or launches outside the list above.
+- A link a program prints that baud opens or launches outside the list above
+  and the rules in your own config.
+- A config rule that gets past one of the checks above that no rule can
+  change.
 - A printed path baud looks up on a network or automounted file system, or one
   it opens rather than shows.
 - `RUSTSEC` advisories in the dependency tree. `zerocopy` is the only

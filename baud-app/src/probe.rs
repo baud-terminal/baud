@@ -1933,6 +1933,55 @@ mod tests {
         assert_eq!(pr.counts, Counts::default());
     }
 
+    /// **`[link.path] action = "off"` is `[link] paths = "off"`**: the config
+    /// reads it as paths off, and a window set from it reads, asks and
+    /// starts nothing, as `paths_off_starts_no_thread` holds for the key.
+    /// Perturbation: leave `paths_read` on for the rule -- the config
+    /// assertion fails, and the worker starts.
+    #[test]
+    fn off_on_the_path_rule_starts_no_worker() {
+        let mut c = crate::config::Config::defaults();
+        assert!(c.apply("[link.path]\naction = \"off\"\n").is_empty());
+        assert_eq!(c.link.paths_read(), Turned::Off);
+        assert_eq!(
+            crate::config::Config::defaults().link.paths_read(),
+            Turned::On,
+            "the control"
+        );
+        let (mut pr, starts) = probes(Fake::default());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"/etc/hosts\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(12));
+        let mut paths = Paths::new(None, c.link.rules.forms());
+        paths.set_rules(c.link.rules.clone());
+        paths.set(c.link.paths_read());
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let t0 = Instant::now();
+        for k in 0..5u64 {
+            let _ = lines.scan(
+                &t,
+                Scrolled::START,
+                &mut Links {
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                },
+            );
+            let seen = Seen {
+                term: &t,
+                scrolled: Scrolled::START,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.turn(t0 + Duration::from_secs(k * 2), seen, || Some(1));
+        }
+        assert_eq!(*starts.lock().unwrap(), 0);
+        assert_eq!(pr.started().value(), 0);
+    }
+
     /// **A one-shot ssh's rows keep no mark, and its paths are not looked
     /// up, though the shell is in front when the batch goes**: ssh's group
     /// is read at the read that printed `/etc/hosts`, and named before the

@@ -64,6 +64,7 @@ use baud_render::{AbsLine, Scrolled, row_of};
 
 use crate::lined::{Reader, Text, Uris};
 use crate::link::{Edge, Ix, MAX, Unit};
+use crate::rules::{NO_RULES, Rules};
 
 /// What the bar calls this machine.
 #[cfg(target_os = "macos")]
@@ -108,7 +109,7 @@ impl Form {
 }
 
 /// **Which forms are read**: the three printed prefixes by default, and the
-/// rest only once a setting names them. Nothing else changes when one is
+/// rest only once `[link.path]` names them (`rules.rs`). Nothing else changes when one is
 /// turned on: the worker, the mount check and the click are the same for
 /// every form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -587,6 +588,9 @@ pub struct Paths {
     multiplexed_through: Option<AbsLine>,
     key: Vec<u8>,
     tokens: Vec<Token>,
+    /// Your `[link.*]` rules, the forms among them, which a read of the link
+    /// under the pointer goes by ([`PathsAt::rules`]).
+    rules: Rules,
 }
 
 impl Paths {
@@ -613,6 +617,18 @@ impl Paths {
             }
         };
         self.update_reads();
+    }
+
+    /// **Your `[link.*]` rules, as a load read them**: the forms read from
+    /// here on, and what a read of the link under the pointer admits with.
+    /// The answers move, so such a read is made again, and a batch is owed
+    /// for the forms the rows may now hold; the caller reads every row again
+    /// (`Lines::forget`).
+    pub fn set_rules(&mut self, rules: Rules) {
+        self.forms = rules.forms();
+        self.rules = rules;
+        self.generation = self.generation.next();
+        self.changed();
     }
 
     /// Whether anything is read, asked or drawn.
@@ -1002,6 +1018,8 @@ fn blank_between(term: &Term<'_>, scrolled: Scrolled, top: AbsLine, bottom: AbsL
 pub struct PathAt {
     /// Its units in the window's text, the suffix included.
     pub span: Range<usize>,
+    /// The suffix, as digits.
+    pub line_col: LineCol,
     /// The path as resolved, which a click asks about again.
     pub path: Vec<u8>,
     pub form: Form,
@@ -1009,11 +1027,44 @@ pub struct PathAt {
     pub probe: Probe,
 }
 
+/// **The `:line:col` printed after a path**, as its digits, each empty
+/// where none was: what `[link.path]`'s `{line}` and `{col}` take.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct LineCol {
+    pub line: String,
+    pub col: String,
+}
+
+impl LineCol {
+    /// The digits of `suffix`, a path's `:line` or `:line:col`.
+    fn of(suffix: &[Unit]) -> LineCol {
+        let mut parts = suffix.split(|u| *u == Unit::Char(':')).skip(1).map(|p| {
+            p.iter()
+                .filter_map(|u| match u {
+                    Unit::Char(c) if c.is_ascii_digit() => Some(*c),
+                    _ => None,
+                })
+                .collect::<String>()
+        });
+        LineCol {
+            line: parts.next().unwrap_or_default(),
+            col: parts.next().unwrap_or_default(),
+        }
+    }
+}
+
 /// **What a read of the link under the pointer asks of printed paths**: the
 /// seam a driver hands the preview and the click, which only read.
 pub trait PathsAt {
     /// Moved whenever an answer would read otherwise.
     fn generation(&self) -> Generation;
+
+    /// **The `[link.*]` rules the read goes by**: a scheme a rule of yours
+    /// added is read in the text and admitted as baud's own are. Held here
+    /// because the forms a path is read in are among them; none by default.
+    fn rules(&self) -> &Rules {
+        &NO_RULES
+    }
 
     /// The path at unit `at` of a click's window of text, `lines` its first
     /// and last line, on `screen`, if the worker found it or found it gone.
@@ -1053,6 +1104,10 @@ impl PathsAt for NoPaths {
 impl PathsAt for Paths {
     fn generation(&self) -> Generation {
         self.generation
+    }
+
+    fn rules(&self) -> &Rules {
+        &self.rules
     }
 
     fn at(
@@ -1102,6 +1157,7 @@ impl PathsAt for Paths {
             _ => return None,
         };
         Some(PathAt {
+            line_col: LineCol::of(&text[t.path.end..t.span.end]),
             span: t.span,
             path: key,
             form: t.form,
@@ -1122,8 +1178,8 @@ pub struct Links<'a> {
 
 impl Reader for Links<'_> {
     #[inline]
-    fn wants(&self, tail: u64) -> bool {
-        (self.urls == Turned::On && self.uris.wants(tail)) || self.paths.wants(tail.to_be_bytes())
+    fn wants(&self, tail: crate::rules::Tail) -> bool {
+        (self.urls == Turned::On && self.uris.wants(tail)) || self.paths.wants(tail.0.to_be_bytes())
     }
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize {

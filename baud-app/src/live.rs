@@ -605,6 +605,10 @@ mod tests {
             ("[link]\nurls = \"off\"\n", Part::Link),
             ("[link]\nline = \"dotted\"\n", Part::Link),
             ("[link]\nhover = \"text\"\n", Part::Link),
+            // A rule of yours, and the path forms, reach the running window
+            // as the look does: one part, read again whole.
+            ("[link.tel]\nscheme = \"tel\"\n", Part::Link),
+            ("[link.path]\nforms = [\"/\", \"relative\"]\n", Part::Link),
             (
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,

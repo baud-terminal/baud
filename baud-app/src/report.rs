@@ -467,7 +467,13 @@ mod tests {
             "crate::info!(\"linksent",
             "self.report.links.revealed.bump();",
         );
-        assert_eq!(link.matches(".bump()").count(), refusals + 2);
+        // A `[link.*]` command's run is an open, under a word of its own so
+        // a reveal's line is not mistaken for it.
+        said(
+            "crate::info!(\"linkhanded",
+            "self.report.links.opened.bump();",
+        );
+        assert_eq!(link.matches(".bump()").count(), refusals + 3);
     }
 
     /// **The printed paths' line counts what was asked and done, and names

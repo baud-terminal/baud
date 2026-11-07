@@ -177,9 +177,9 @@ mod log;
 // platform shows it: its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod notify;
-// The Linux driver's `xdg-open` for a link: its tests run on every
-// platform.
-#[cfg(any(target_os = "linux", test))]
+// The Linux driver's `xdg-open` for a link, and the reaper both drivers keep
+// for it and for a `[link.*]` command: its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod opener;
 // A file path printed as plain text, underlined only if it exists: the scan's
 // half, pure, so its tests run on every platform; and the one worker thread
@@ -188,6 +188,10 @@ mod opener;
 mod paths;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod probe;
+// `[link.*]`: your own link types and the printed-path forms, read whole or
+// refused whole, pure, so its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod rules;
 // The activity lights on their own line, as the Linux driver feeds them.
 #[cfg(any(target_os = "linux", test))]
 mod own_line;
