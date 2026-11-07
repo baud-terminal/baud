@@ -20,8 +20,8 @@
 //! window for them.
 
 use baud_core::StatusLine;
-use baud_domain::{LineRendition, PackedCell, Row, Stride, Viewport};
-use baud_render::{Leaving, Rejoin, WalkKey};
+use baud_domain::{LineRendition, PackedCell, Row, Stride, StyleId, Viewport};
+use baud_render::{Leaving, Lending, Rejoin, WalkKey};
 
 use crate::journal::{SetIx, Wheel};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -96,6 +96,11 @@ pub struct Screens {
     /// Each row of the last frame taken under [`Compare::Rows`]: whether
     /// it differs from the copy the frame before left.
     changed: Vec<RowChange>,
+    /// **The lending the last frame's copy was drawn under**
+    /// (`baud_render::Lent`): a frame whose screen is the last's is built
+    /// from it only under the same lending, since a lent id means what it
+    /// means only under its lending. The caller's to keep.
+    pub lending: Lending,
 }
 
 impl Default for Screens {
@@ -116,6 +121,7 @@ impl Screens {
             walked: None,
             compare: Compare::Screen,
             changed: Vec::new(),
+            lending: Lending::default(),
         }
     }
 
@@ -137,6 +143,12 @@ impl Screens {
     /// The screen `set`'s copy holds, or none.
     pub fn holds(&self, set: SetIx) -> Option<ScreenGen> {
         self.copied.get(set.0).copied().flatten()
+    }
+
+    /// The set the last frame was built into, whose copy is compared with
+    /// the next frame's screen.
+    pub fn last_set(&self) -> Option<SetIx> {
+        self.last.map(SetIx)
     }
 
     /// **The frame about to be built into `set`**: whether `view` and
@@ -181,6 +193,99 @@ impl Screens {
             (Leaving::None, Some(copy)) => match self.compare {
                 Compare::Screen => self.is_last(copy, view, status, stride),
                 Compare::Rows => self.is_last_by(copy, view, status, stride, |y, _| {
+                    self.changed[y] == RowChange::Same
+                }),
+            },
+            _ => Built::New,
+        };
+        self.built(built, view, status);
+        let (cols, rows, stride) = (view.cols().index(), view.rows().index(), stride.index());
+        let held = self.holds(set);
+        if let (Some(copy), false) = (copies.get_mut(set.0), held == Some(self.now)) {
+            for y in 0..rows {
+                let src = view.row(Row::from_index(y));
+                let at = y * stride;
+                copy[at..at + cols].copy_from_slice(&src[..cols]);
+            }
+            // **The status line's row, after the main display's**, at index
+            // `rows`: the shader draws `rows` and the line's row
+            // (`Renderer::grid`), its backgrounds from here and its glyphs
+            // from the records `Overlay::status` adds. No slide runs while
+            // it is shown, so the leaving row never wants the index.
+            if let Some(line) = status {
+                let at = rows * stride;
+                let n = cols.min(line.cells.len());
+                copy[at..at + n].copy_from_slice(&line.cells[..n]);
+            }
+            if let Some(c) = self.copied.get_mut(set.0) {
+                *c = Some(self.now);
+            }
+        }
+        self.last = Some(set.0);
+        built
+    }
+
+    /// **[`Screens::take`], the last frame's copy read through `undo`**:
+    /// the cells a lending rewrote in it, by row of the copy and column,
+    /// with the id each held (`baud_render::Lent::rewrites`), so a copy
+    /// lent a struck link's slots compares as the screen it was copied
+    /// from. Its own set's, which no frame in flight reads, is put back
+    /// before (`Lent::restore`), and so names none.
+    #[allow(clippy::too_many_arguments)]
+    pub fn take_lent(
+        &mut self,
+        copies: &mut [&mut [PackedCell]],
+        set: SetIx,
+        view: &Viewport<'_>,
+        status: Option<&StatusLine<'_>>,
+        stride: Stride,
+        leaving: Leaving,
+        undo: &[(usize, usize, StyleId)],
+    ) -> Built {
+        // A last copy no lending rewrote is compared as `take` compares it,
+        // by the same code, so a frame with nothing lent pays nothing here.
+        if undo.is_empty() {
+            return self.take(copies, set, view, status, stride, leaving);
+        }
+        let last = self.last.and_then(|ps| copies.get(ps));
+        self.changed.clear();
+        let (cols, at) = (view.cols().index(), stride.index());
+        // Row `y` of the last copy holds row `r` of the screen: as copied,
+        // or once every rewrite on it is undone, the last first.
+        let mut scratch: Vec<PackedCell> = Vec::new();
+        let mut row_same = |copy: &[PackedCell], y: usize, now: Option<&[PackedCell]>| {
+            let kept = copy.get(y * at..y * at + cols);
+            if kept == now {
+                return true;
+            }
+            let (Some(kept), Some(now)) = (kept, now) else {
+                return false;
+            };
+            if !undo.iter().any(|&(ry, _, _)| ry == y) {
+                return false;
+            }
+            scratch.clear();
+            scratch.extend_from_slice(kept);
+            for &(ry, x, was) in undo.iter().rev() {
+                if let (true, Some(c)) = (ry == y, scratch.get_mut(x)) {
+                    c.style = was;
+                }
+            }
+            scratch[..] == now[..]
+        };
+        if self.compare == Compare::Rows || !undo.is_empty() {
+            self.changed.extend((0..view.rows().index()).map(|y| {
+                let now = view.row(Row::from_index(y)).get(..cols);
+                match last.is_some_and(|copy| row_same(copy, y, now)) {
+                    true => RowChange::Same,
+                    false => RowChange::Changed,
+                }
+            }));
+        }
+        let built = match (leaving, last) {
+            (Leaving::None, Some(copy)) => match (self.compare, undo.is_empty()) {
+                (Compare::Screen, true) => self.is_last(copy, view, status, stride),
+                _ => self.is_last_by(copy, view, status, stride, |y, _| {
                     self.changed[y] == RowChange::Same
                 }),
             },

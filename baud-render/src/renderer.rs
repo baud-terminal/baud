@@ -19,7 +19,7 @@ use crate::flash::{self, Strength};
 use crate::frozen::Words;
 use crate::guide::{self, GuideLook};
 use crate::instance::{Instance, Screen};
-use crate::linked::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkLook};
+use crate::linked::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkLook, MissingPaint};
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
 use crate::picture::Pictures;
@@ -2169,6 +2169,17 @@ pub struct ImageUpload {
     pub pixels: Vec<u32>,
 }
 
+/// **The order a copy of the window holds each row's cells in**
+/// ([`Renderer::struck_cells`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CopyOrder {
+    /// As drawn, left to right: the CPU and instance paths' row buffer.
+    Visual,
+    /// As the core stores them: the cell path's copy, which the shader
+    /// reorders through the row's map.
+    Stored,
+}
+
 pub struct Renderer<'f, 'a> {
     stack: Stack<'f, 'a>,
     /// Which face draws each codepoint, per style and presentation
@@ -2528,6 +2539,14 @@ pub struct Renderer<'f, 'a> {
     last_link_lines: Vec<LinkLine>,
     line_style: LineStyle,
     line_inst: Vec<Instance>,
+    /// **A struck link** on this frame and the last: the runs at rest, then
+    /// those the gesture's modifier strikes ([`Renderer::set_link_strikes`]),
+    /// each struck through with the lines' solids and its text drawn grey by
+    /// its own cells, through slots the frame's table lends it
+    /// ([`Renderer::struck_cells`], `crate::frozen`).
+    link_strikes: Vec<LinkLine>,
+    last_link_strikes: Vec<LinkLine>,
+    pub(crate) missing_paint: MissingPaint,
     /// **The link under the pointer** on this frame and the last, and the
     /// fields it is drawn as: `hover = "line"` goes with the lines' solids,
     /// `"box"` and `"text"` with the bar, over the images.
@@ -3089,6 +3108,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_link_lines: Vec::new(),
             line_style: LineStyle::Solid,
             line_inst: Vec::new(),
+            link_strikes: Vec::new(),
+            last_link_strikes: Vec::new(),
+            missing_paint: MissingPaint::Gray,
             link_hover: None,
             last_link_hover: None,
             hover_bars: Vec::new(),
@@ -4056,6 +4078,76 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.line_style = style;
     }
 
+    /// **The struck links for the next frames**: the scan's runs at rest,
+    /// then the ones the gesture's modifier strikes over the link under the
+    /// pointer, each a run of one rendition. Copied only when they changed,
+    /// so a frame with none allocates nothing. Nothing of them reaches a
+    /// cell: a struck link selects and copies as it is written.
+    pub fn set_link_strikes(&mut self, at_rest: &[LinkLine], held: &[LinkLine]) {
+        let same = self.link_strikes.len() == at_rest.len() + held.len()
+            && self.link_strikes.iter().eq(at_rest.iter().chain(held));
+        if !same {
+            self.link_strikes.clear();
+            self.link_strikes.extend_from_slice(at_rest);
+            self.link_strikes.extend_from_slice(held);
+        }
+    }
+
+    /// `[link] missing_color`, read at draw against the colours in force.
+    pub fn set_link_missing(&mut self, paint: MissingPaint) {
+        self.missing_paint = paint;
+    }
+
+    /// **The cells of each of a copy's first `rows` rows a struck link's
+    /// text covers**, as [`Renderer::lend`] takes them: by visual column for
+    /// a copy in drawn order ([`CopyOrder::Visual`], this path's own), by
+    /// stored column for one in the core's ([`CopyOrder::Stored`], the cell
+    /// path's). A selected cell is left out, as it keeps the selection's
+    /// colours, and so is every cell while `missing_color = "none"`, which
+    /// changes no colour. `view` is the window the strikes were read on.
+    pub fn struck_cells(
+        &self,
+        view: &Viewport<'_>,
+        rows: Rows,
+        order: CopyOrder,
+    ) -> Vec<Vec<core::ops::Range<usize>>> {
+        let mut out: Vec<Vec<core::ops::Range<usize>>> = Vec::new();
+        if self.link_strikes.is_empty() || self.missing_paint == MissingPaint::Kept {
+            return out;
+        }
+        out.resize(rows.index(), Vec::new());
+        let orders = self.bidi.orders();
+        for l in &self.link_strikes {
+            for (row, at, n) in orders.stored_runs(l.row, l.from, l.to) {
+                let Some(cols) = out.get_mut(row.index()) else {
+                    continue;
+                };
+                for v in at.index()..at.index() + n.index() {
+                    let logical = orders.logical_col(row, Col::at_index(v));
+                    let content = view
+                        .row(row)
+                        .get(logical.index())
+                        .map_or(baud_domain::Content::EMPTY, |c| c.content);
+                    if self
+                        .highlight
+                        .is_some_and(|h| orders.selects(&h, row, logical, content))
+                    {
+                        continue;
+                    }
+                    let x = match order {
+                        CopyOrder::Visual => v,
+                        CopyOrder::Stored => logical.index(),
+                    };
+                    match cols.last_mut() {
+                        Some(r) if r.end == x => r.end = x + 1,
+                        _ => cols.push(x..x + 1),
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// **The link under the pointer for the next frame**, or none, copied
     /// into the buffer the last one left.
     pub fn set_link_hover(&mut self, hover: Option<&LinkHover>) {
@@ -4118,12 +4210,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             };
             let Some(colour) = colour else { continue };
+            if self.line_style == LineStyle::Off {
+                continue;
+            }
             let mut push = |row: Row, at: Col, n: usize| {
                 let (left, w) = (x(at), u32::try_from(n).unwrap_or(0).saturating_mul(cw));
                 match self.line_style {
                     LineStyle::Solid => {
                         out.push(solid(screen(left), y(self, row), Px::of(w), thick, colour))
                     }
+                    LineStyle::Off => {}
                     LineStyle::Dotted => {
                         let step = thick.value().max(1);
                         let mut dx = 0;
@@ -4154,10 +4250,47 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         self.link_lines = lines;
-        // The link under the pointer.
         let mut bars = core::mem::take(&mut self.hover_bars);
         let mut spare = core::mem::take(&mut self.hover_spare);
         spare.append(&mut bars);
+        // **The struck links**: a strike at the face's strike position over
+        // each run, in the colour its text is drawn in -- `missing_color`
+        // where that reads, through the slot each struck cell is lent
+        // (`crate::frozen`, [`Renderer::struck_cells`]), so the text itself
+        // is drawn by the cells, as any other.
+        if !self.link_strikes.is_empty() {
+            let strike_y = self.metrics.strike.value();
+            let sy = |this: &Self, r: Row| {
+                screen(
+                    i32::try_from(this.band(r).top.value().saturating_add(strike_y))
+                        .unwrap_or(i32::MAX),
+                )
+            };
+            let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
+            for l in &self.link_strikes {
+                let colour = match last {
+                    Some((word, c)) if word == l.word => c,
+                    _ => {
+                        let resolved = self.resolve_slot(term, l.word);
+                        let c = self.drawn_colour(self.missing_rendition(term, resolved));
+                        last = Some((l.word, c));
+                        c
+                    }
+                };
+                let Some(colour) = colour else { continue };
+                for (row, at, n) in self.bidi.orders().stored_runs(l.row, l.from, l.to) {
+                    let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
+                    out.push(solid(
+                        screen(x(at)),
+                        sy(self, row),
+                        Px::of(w),
+                        thick,
+                        colour,
+                    ));
+                }
+            }
+        }
+        // The link under the pointer.
         if let Some(h) = self.link_hover.take() {
             match h.paint {
                 HoverPaint::Line => {
@@ -4204,6 +4337,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// draw.
     fn line_colour(&self, term: &Term<'_>, word: baud_domain::StyleWord) -> Option<Argb> {
         let d = self.resolve_slot(term, word).drawn(Swaps {
+            pictured: crate::picture::Pictured::No,
+            line: Line::No,
+            selected: Selected::No,
+            hilite: self.field_hilite,
+            block: BlockCursor::No,
+            blink: BlinkPhases::SHOWN,
+            cursor: Chan::from_u8(0xFF),
+        });
+        d.text.draws().then(|| d.rule(d.fg))
+    }
+
+    /// The colour `r`'s text is drawn in, as a line over it would be; none
+    /// where its text does not draw.
+    fn drawn_colour(&self, r: Resolved) -> Option<Argb> {
+        let d = r.drawn(Swaps {
             pictured: crate::picture::Pictured::No,
             line: Line::No,
             selected: Selected::No,
@@ -4314,6 +4462,69 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 ..Resolved::fixed(ground, page)
             },
             false => under,
+        }
+    }
+
+    /// **The rendition a struck link's cell of rendition `under` is drawn
+    /// in**: `under` with only its text in `[link] missing_color` -- colour
+    /// 8 through the live palette, so an `OSC 4` that moved it is read here
+    /// -- where that reads [`crate::MISSING_CONTRAST`] against the page the
+    /// cell is drawn on: solid, or at its alpha over the window's material
+    /// as the glass floor reads it. Its page, its shapes and its underline
+    /// are its own, so a struck cell on the glass is as dim as its
+    /// neighbours and a program's `SGR 58` colour stays. Elsewhere, and for
+    /// `"none"`, the cell as it is.
+    pub(crate) fn missing_rendition(&self, term: &Term<'_>, under: Resolved) -> Resolved {
+        let text = match self.missing_paint {
+            MissingPaint::Kept => return under,
+            MissingPaint::Colour(c) => c,
+            MissingPaint::Gray => {
+                let eight = baud_domain::StyleWord::DEFAULT
+                    .with_fg(baud_domain::ColorWord::indexed(Chan::from_u8(8)));
+                self.theme
+                    .resolve(
+                        eight,
+                        Video::Normal,
+                        |ch| term.palette(ch),
+                        |d| term.dynamic_color(d),
+                    )
+                    .0
+            }
+        };
+        let drawn = under.drawn(Swaps {
+            pictured: crate::picture::Pictured::No,
+            line: Line::No,
+            selected: Selected::No,
+            hilite: self.field_hilite,
+            block: BlockCursor::No,
+            blink: BlinkPhases::SHOWN,
+            cursor: Chan::from_u8(0xFF),
+        });
+        // Text that does not draw -- concealed, a blink's off phase -- is
+        // not given a colour to draw in.
+        if !drawn.text.draws() {
+            return under;
+        }
+        let text = text.with_alpha(Chan::from_u8(0xFF));
+        let page = drawn.bg;
+        let reads = crate::color::contrast_over(
+            text,
+            page.with_alpha(Chan::from_u8(0xFF)),
+            page.a(),
+            self.theme.backdrop,
+        );
+        if reads < crate::MISSING_CONTRAST {
+            return under;
+        }
+        let curves = Curves::of(curve_row(text), curve_row(under.bg));
+        Resolved {
+            fg: text,
+            glass: text,
+            line: text,
+            curves,
+            glass_curves: curves,
+            line_curves: curves,
+            ..under
         }
     }
 
@@ -8077,6 +8288,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .row_source(term, back, Row::from_index(r))
             })
             .collect();
+        let struck = self.struck_cells(&term.view(back), self.main, CopyOrder::Visual);
         let (mut styles, mut lent, mut cur) = (
             core::mem::take(&mut self.styles),
             core::mem::take(&mut self.cpu_lent),
@@ -8089,7 +8301,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .enumerate()
                 .map(|(r, c)| (c, sources.get(r).map_or(Words::LIVE, |s| s.words())))
                 .collect();
-            let _ = self.lend_frozen(term, &mut rows, &mut styles, &mut stamp, &mut lent);
+            let _ = self.lend(term, &mut rows, &struck, &mut styles, &mut stamp, &mut lent);
         }
         (self.styles, self.styles_stamp, self.cpu_lent, self.cur) = (styles, stamp, lent, cur);
     }
@@ -8298,8 +8510,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let t0 = Instant::now();
         self.fit(term);
         // The lending the last frame's copy was drawn under, which this one
-        // is compared with below.
+        // is compared with below, and what each slot it lent held.
         let lent_was = self.styles_stamp.lending;
+        let held_was = self.cpu_lent.lent_values(&self.styles);
         self.give_back_cpu();
         let mut styles = core::mem::take(&mut self.styles);
         if styles.len() != term.styles().len() {
@@ -8395,10 +8608,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // frozen cell of this path's copy given a slot of its table no
         // other cell of the frame names, its generation's word resolved
         // there, so every reader below reads one table, as the cell path's
-        // do. The copy is this frame's damage record too, and a lent id
-        // means what it means only under its lending: a frame lent
-        // otherwise than the last repaints every row (`full` below).
-        if self.bidi.orders().window_frozen(term, back) {
+        // do; and after them each struck link's cells, a slot a source
+        // rendition holding its grey. The copy is this frame's damage
+        // record too, and a lent id means what it means only under its
+        // lending: a frame lent otherwise than the last repaints every row
+        // where that moved what an unchanged cell draws (`full` below,
+        // `Lent::moved_from`).
+        if self.bidi.orders().window_frozen(term, back) || !self.link_strikes.is_empty() {
             self.lend_cpu(term, back);
         }
         self.frame_words = self.cpu_lent.held();
@@ -8601,7 +8817,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || self.known == Prev::Unknown
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
-            || self.styles_stamp.lending != lent_was
+            || (self.styles_stamp.lending != lent_was
+                && self.cpu_lent.moved_from(&held_was, &self.styles, &self.cur)
+                    == crate::frozen::Moved::Yes)
             || self.fade != self.last_fade
             || self.bell != self.last_bell
             || clusters != self.last_clusters;
@@ -8609,6 +8827,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let find_changed = self.find != self.last_find;
         let link_changed = self.link != self.last_link;
         let lines_changed = self.link_lines != self.last_link_lines;
+        let strikes_changed = self.link_strikes != self.last_link_strikes;
         let over_changed =
             self.link_hover != self.last_link_hover || self.hover_bars != self.last_hover_bars;
         let tip_changed = self.tip != self.last_tip;
@@ -8755,6 +8974,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let linked = linked
                 || (lines_changed
                     && lines_on(&self.link_lines, row).ne(lines_on(&self.last_link_lines, row)))
+                || (strikes_changed
+                    && lines_on(&self.link_strikes, row)
+                        .ne(lines_on(&self.last_link_strikes, row)))
                 || (over_changed
                     && (hover_on(&self.link_hover, row).ne(hover_on(&self.last_link_hover, row))
                         || bars_on(&self.hover_bars, row).ne(bars_on(&self.last_hover_bars, row))));
@@ -8996,6 +9218,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
         self.last_link_lines.clone_from(&self.link_lines);
+        self.last_link_strikes.clone_from(&self.link_strikes);
         self.last_link_hover.clone_from(&self.link_hover);
         self.last_hover_bars.clone_from(&self.hover_bars);
         self.last_tip.clone_from(&self.tip);
@@ -9609,6 +9832,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The background word of every cell, row-major, `cols` by `rows`.
     pub fn background(&self) -> &[Argb] {
         &self.bg
+    }
+
+    /// The text colour every cell was last drawn in, row-major, `cols` by
+    /// `rows`: what the swaps and the frame's lending left it.
+    pub fn foreground(&self) -> &[Argb] {
+        &self.fg
     }
 
     pub fn atlas(&self) -> &Atlas {

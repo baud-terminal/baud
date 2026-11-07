@@ -125,7 +125,7 @@ pub use flash::{
     Held, Points, Strength, capped, under_threshold, under_threshold_by, under_threshold_over,
     under_threshold_over_by,
 };
-pub use frozen::{Lend, Lent, RowSource, Words};
+pub use frozen::{Lend, Lending, Lent, RowSource, Words};
 pub use guide::{CURSOR_GUIDE, GuideLook};
 pub use instance::{Instance, Screen};
 pub use lights::{
@@ -136,6 +136,7 @@ pub use lights::{
 };
 pub use linked::{
     HoverPaint, LINK_TEXT_CONTRAST, LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan,
+    MISSING_CONTRAST, MissingPaint,
 };
 pub use message::{MessageColours, MessagePaint, Pair, SelectionPulse};
 pub use metrics::{Metrics, PxSize};
@@ -147,7 +148,7 @@ pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use rebreak::{Display, WordWrap};
 pub use redraw::{REDRAW_ROWS, Redraw, RowSet};
 pub use renderer::{
-    Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Decorations, Evicted,
+    Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, CopyOrder, Damage, Decorations, Evicted,
     Exceptions, Frame, GlyphSource, Glyphs, ImageComposite, ImageLayer, ImagePlacement, ImageScale,
     ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp, StyleSync, VideoFlash,
 };

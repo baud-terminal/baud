@@ -577,7 +577,7 @@ struct App {
     commands: crate::opener::Opener,
     /// The printed path a click asked about again, and the `:line:col`
     /// printed after it, for a `[link.path]` command when the answer comes.
-    path_click: Option<(Vec<u8>, crate::paths::LineCol)>,
+    path_click: Option<(Vec<u8>, crate::paths::Asked)>,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
     /// What a copy says, and when it ends (`copied.rs`).
@@ -1564,11 +1564,16 @@ impl App {
                 let mut p = crate::paths::Paths::new(home, link_config.rules.forms());
                 p.set_rules(link_config.rules.clone());
                 p.set(link_config.paths_read());
+                let _ = p.set_missing(link_config.missing_read());
                 p
             },
             // The display link's tick reads the answers, so the worker
             // need wake nothing.
-            probes: crate::probe::Probes::system(|| {}),
+            probes: {
+                let mut p = crate::probe::Probes::system(|| {});
+                p.set_programs(link_config.programs());
+                p
+            },
             link_config,
             commands: crate::opener::Opener::default(),
             path_click: None,
@@ -1958,11 +1963,27 @@ impl App {
                     },
                 );
                 self.renderer.set_link_lines(self.lines.lines(), style);
+                self.renderer
+                    .set_link_strikes(self.lines.struck(), self.hover.struck());
             }
             None => {
                 self.lines.off();
                 self.renderer.set_link_lines(&[], Default::default());
+                self.renderer.set_link_strikes(&[], self.hover.struck());
             }
+        }
+        self.renderer
+            .set_link_missing(self.link_config.missing_color);
+        self.recheck_entered();
+    }
+
+    /// **A link found gone that the pointer came over is asked about again**,
+    /// once: its file at the next batch, or the programs at the next turn.
+    fn recheck_entered(&mut self) {
+        match self.hover.take_entered() {
+            Some(crate::paths::Gone::File(path)) => self.paths.recheck_path(&path),
+            Some(crate::paths::Gone::NoApp(_)) => self.probes.owe_programs(),
+            None => {}
         }
     }
 
@@ -2595,11 +2616,12 @@ impl App {
                     return;
                 };
                 let set = at.0;
-                // Whether this set's copy holds ids an earlier frame lent,
-                // read before they are given back.
-                let lent_before = cell.lent[set].lent().value() > 0;
-                // The slots this set lent its last frame's frozen rows, put
-                // back first: no frame in flight reads this set.
+                // **The ids this set's copy was lent, put back**, and the
+                // slots this set lent its last frame's frozen and struck
+                // cells after them: no frame in flight reads this set, so
+                // its copy is the screen it was copied from again, and a
+                // set that holds the screen need not copy it afresh.
+                cell.lent[set].restore(cell.copies_mem[set], self.term.stride());
                 self.renderer.give_back(
                     &mut cell.styles_mem[set][..],
                     &mut cell.style_stamps[set],
@@ -2688,25 +2710,37 @@ impl App {
                         .as_ref()
                         .is_some_and(|s| !s.words().is_live());
                 // A window that shows a frozen row is copied afresh, its ids
-                // the core's, and so is one whose copy an earlier frame lent
-                // slots: that copy holds ids that named them, put back now.
-                if frozen || lent_before {
+                // the core's. A copy an earlier frame lent was put back
+                // above.
+                if frozen {
                     screens.forget(at);
                 }
-                let built = screens.take(
+                // The last frame's copy, as a compare reads it: through the
+                // ids its lending rewrote, which its set, maybe in flight,
+                // still holds.
+                let undo = screens
+                    .last_set()
+                    .and_then(|l| cell.lent.get(l.0))
+                    .map_or(&[][..], baud_render::Lent::rewrites);
+                let built = screens.take_lent(
                     &mut cell.copies_mem,
                     at,
                     &view,
                     status.as_ref(),
                     self.term.stride(),
                     leaving,
+                    undo,
                 );
-                // **A frozen row of the window drawn in its own renditions**
-                // (`baud_render::Lent`): its copied cells given slots no row
-                // of the frame names, and the walk and the overlay reading the
+                // **A frozen row of the window drawn in its own renditions,
+                // and a struck link's text in grey** (`baud_render::Lent`):
+                // its copied cells given slots no row of the frame names, the
+                // frozen first, and the walk and the overlay reading the
                 // copy, so all three resolve each id in the one table. A
-                // frame with no frozen row asks one test a row.
-                let lend = match frozen {
+                // frame with neither asks one test a row.
+                let struck =
+                    self.renderer
+                        .struck_cells(&view, view.rows(), baud_render::CopyOrder::Stored);
+                let lend = match frozen || struck.iter().any(|r| !r.is_empty()) {
                     false => baud_render::Lend::Nothing,
                     true => {
                         // Each window row through the table each of its cells
@@ -2735,9 +2769,10 @@ impl App {
                             let n = vcols.min(chunk.len());
                             rows.push((&mut chunk[..n], words));
                         }
-                        self.renderer.lend_frozen(
+                        self.renderer.lend(
                             &self.term,
                             &mut rows,
+                            &struck,
                             &mut cell.styles_mem[set][..],
                             &mut cell.style_stamps[set],
                             &mut cell.lent[set],
@@ -2747,12 +2782,23 @@ impl App {
                 // What the walk, the overlay and a sized line read the copy
                 // through: the words its lent slots were given.
                 self.renderer.set_frame_lent(&cell.lent[set]);
-                // A lent copy names other ids than the last frame's copy
-                // did, so no compare of the two says the screen is the same.
-                let built = match lend {
-                    baud_render::Lend::Nothing => built,
-                    _ => Built::New,
+                // A copy lent frozen rows names other ids than the last
+                // frame's copy did, so no compare of the two says the screen
+                // is the same. One lent struck cells alone is the last
+                // frame's under the same lending: its slots were given for
+                // the same renditions, so every id means what it meant, and
+                // the map is not walked again.
+                let lending = cell.lent[set].lending();
+                let built = match (frozen, lend, built) {
+                    (true, baud_render::Lend::Rows | baud_render::Lend::Short, _) => Built::New,
+                    (_, _, Built::Last) if lending == screens.lending => Built::Last,
+                    (_, _, Built::Last) => {
+                        screens.built(Built::New, &view, status.as_ref());
+                        Built::New
+                    }
+                    (_, _, Built::New) => Built::New,
                 };
+                screens.lending = lending;
                 // **The leaving row's map ensured**, over the row as copied
                 // and lent: before the screen's walk below, which clears the
                 // candidates and refills them for the view it walks.
@@ -11373,6 +11419,13 @@ impl Driver {
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             self.derive.moved();
             self.front.moved();
+            // A job that ended may have made what is struck, or installed an
+            // app: asked again at the next batch, and the apps only while
+            // one was found missing, since a build forks on every tick.
+            self.app.paths.recheck();
+            if self.app.paths.programs_missing() {
+                self.app.probes.owe_programs();
+            }
         }
         if let Trigger::Tick = trigger {
             self.title_check();
@@ -13774,6 +13827,20 @@ impl Driver {
     /// frame; the answer comes at a later tick (`paths_turn`), or now when
     /// there is no worker to ask.
     fn check_path(&mut self, p: &crate::link::Printed) {
+        self.app.path_click = Some((
+            p.path().to_vec(),
+            crate::paths::Asked::Printed(p.line_col().clone()),
+        ));
+        self.check_file(crate::paths::Candidate {
+            path: p.path().to_vec(),
+            form: p.form(),
+            line: p.line(),
+        });
+    }
+
+    /// **A click on a file, asked again of the worker**: a printed path, or
+    /// an `OSC 8` `file://` link the worker found gone.
+    fn check_file(&mut self, c: crate::paths::Candidate) {
         let app = &mut self.app;
         let master = app.pty.reads().master;
         let seen = crate::probe::Seen {
@@ -13784,12 +13851,6 @@ impl Driver {
             urls: app.link_config.urls_read(),
             paths: &mut app.paths,
         };
-        let c = crate::paths::Candidate {
-            path: p.path().to_vec(),
-            form: p.form(),
-            line: p.line(),
-        };
-        app.path_click = Some((p.path().to_vec(), p.line_col().clone()));
         if let Some(done) = app
             .probes
             .click(host_now(), seen, crate::fg::group(master), c)
@@ -13806,27 +13867,21 @@ impl Driver {
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
         use crate::link::{Action, Host};
+        use crate::paths::Found;
         use baud_present_macos::link::{self as opener, Opened};
         let clicked = self.app.path_click.take();
         let note = match done {
-            crate::probe::Clicked::Exists(path)
-                if *self.app.uris.rules().path_act() == crate::rules::PathAct::Copy =>
-            {
-                let text = String::from_utf8_lossy(&path).into_owned();
-                self.link_copied(&text);
-                None
-            }
             crate::probe::Clicked::Exists(path) => {
                 let uri = crate::paths::file_uri(&path);
-                let lc = clicked
-                    .filter(|(p, _)| *p == path)
-                    .map(|(_, lc)| lc)
-                    .unwrap_or_default();
-                let ran = match crate::link::admit(uri.as_bytes(), Host(self.app.uris.host())) {
-                    Ok(_) => self.app.uris.rules().path_command(&path, &lc.line, &lc.col),
-                    Err(_) => None,
-                };
-                if let Some(built) = ran {
+                let asked = crate::paths::asked_for(clicked, &path);
+                let host = Host(self.app.uris.host());
+                let does = crate::paths::on_found(&asked, &path, host, self.app.uris.rules());
+                if let Found::Copy = does {
+                    let text = String::from_utf8_lossy(&path).into_owned();
+                    self.link_copied(&text);
+                    return;
+                }
+                if let Found::Command(built) = does {
                     match built.map(|cmd| self.app.commands.start(cmd)) {
                         Ok(Ok(())) => {
                             self.app.links.opened.bump();
@@ -14505,6 +14560,9 @@ impl Driver {
                     self.app.uris.set_rules(c.link.rules.clone());
                     self.app.paths.set_rules(c.link.rules.clone());
                     self.app.paths.set(c.link.paths_read());
+                    let _ = self.app.paths.set_missing(c.link.missing_read());
+                    self.app.probes.set_programs(c.link.programs());
+                    self.app.probes.owe_programs();
                     self.app.lines.forget();
                     self.app.pending = Pending::Dirty;
                 }
@@ -14767,6 +14825,10 @@ impl Driver {
         // Settings while baud was in the background lands here -- and is
         // input, so the cursor comes back shown and the stop starts over.
         if f == baud_core::Focus::Gained {
+            // Back from another app, which may have made a file or
+            // installed an app: what is struck is asked again.
+            self.app.paths.recheck();
+            self.app.probes.owe_programs();
             self.read_caret_system();
             // And the keyboard layouts, which DECHEBM needs a Hebrew one of
             // (`layouts.rs`).
@@ -15085,7 +15147,7 @@ impl Driver {
             }
             Gesture::Open(link) => {
                 self.armed = None;
-                self.open_link(&link);
+                self.open_link(&link, spot.scrolled.line(spot.back, spot.row));
                 Took::Yes
             }
         }
@@ -15095,7 +15157,7 @@ impl Driver {
     /// of the opener, for an `OSC 8` link and a URI in the text alike, and
     /// it holds a `Target` the policy built rather than a string, so a URI
     /// the policy did not admit cannot reach it.
-    fn open_link(&mut self, link: &crate::link::Under) {
+    fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
         use crate::link::{Action, Host, Under};
         use baud_present_macos::link::{self as opener, Opened};
         let shown = |uri: &[u8]| {
@@ -15139,55 +15201,89 @@ impl Driver {
                 self.app.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {shown}");
             }
-            // A command of yours: no shell, null streams, reaped on a tick.
-            // A rule's `copy`: the link's text to the pasteboard, said as a
-            // copy of a selection is; nothing is opened.
-            Ok(t) if t.action() == Action::Copy => {
-                let text = t.as_str().to_string();
-                self.link_copied(&text);
-            }
-            Ok(t) if t.action() == Action::Command => {
-                let built = t
-                    .rule()
-                    .and_then(|ix| self.app.uris.rules().command(ix, t.as_str()));
-                match built.map(|b| b.map(|cmd| self.app.commands.start(cmd))) {
-                    Some(Ok(Ok(()))) => {
-                        self.app.links.opened.bump();
-                        crate::info!("link handed to a [link.*] command: {shown}");
-                    }
-                    Some(Ok(Err(e))) => {
-                        self.app.links.refused.bump();
-                        crate::warn!("link not sent: [link.*] command: {e}: {shown}");
-                    }
-                    Some(Err(why)) => {
-                        self.app.links.refused.bump();
-                        crate::warn!("link refused ({why:?}): {shown}");
-                    }
-                    None => {
-                        self.app.links.refused.bump();
-                        crate::warn!("link refused (no command): {shown}");
-                    }
-                }
-            }
             Ok(t) => {
-                let done = match t.action() {
-                    Action::Open => opener::open(t.as_str()),
-                    Action::Reveal => opener::reveal(t.as_str()),
-                    // Taken by the arm above: nothing is handed over here.
-                    Action::Command | Action::Copy => Opened::Declined,
-                };
-                match (t.action(), done) {
-                    (Action::Open, Opened::Taken) => {
-                        self.app.links.opened.bump();
-                        crate::info!("link opened ({:?}): {shown}", t.scheme());
+                use crate::link::Click;
+                match crate::link::click(&t, &self.app.paths) {
+                    // A rule's `copy`: the link's text to the pasteboard, said
+                    // as a copy of a selection is; nothing is opened.
+                    Click::Copy => {
+                        let text = t.as_str().to_string();
+                        self.link_copied(&text);
                     }
-                    (Action::Reveal, Opened::Taken) => {
-                        self.app.links.revealed.bump();
-                        crate::info!("link revealed: {shown}");
+                    // A command of yours: no shell, null streams, reaped on a
+                    // tick.
+                    Click::Command => {
+                        let built = t
+                            .rule()
+                            .and_then(|ix| self.app.uris.rules().command(ix, t.as_str()));
+                        match built.map(|b| b.map(|cmd| self.app.commands.start(cmd))) {
+                            Some(Ok(Ok(()))) => {
+                                self.app.links.opened.bump();
+                                crate::info!("link handed to a [link.*] command: {shown}");
+                            }
+                            Some(Ok(Err(e))) => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link not sent: [link.*] command: {e}: {shown}");
+                            }
+                            Some(Err(why)) => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused ({why:?}): {shown}");
+                            }
+                            None => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused (no command): {shown}");
+                            }
+                        }
                     }
-                    (_, other) => {
-                        self.app.links.refused.bump();
-                        crate::warn!("link refused ({other:?}): {shown}");
+                    // A file the worker found gone is asked about again, as a
+                    // printed path's click is: revealed if it came back, said
+                    // if not.
+                    Click::Again(path) => {
+                        self.app.path_click = Some((path.clone(), crate::paths::Asked::Link));
+                        self.check_file(crate::paths::Candidate {
+                            path,
+                            form: crate::paths::Form::Absolute,
+                            line,
+                        });
+                    }
+                    Click::Open | Click::Reveal => {
+                        let done = match t.action() {
+                            Action::Open => opener::open(t.as_str()),
+                            Action::Reveal => opener::reveal(t.as_str()),
+                            // Taken by the arms above: nothing is handed over.
+                            Action::Command | Action::Copy => Opened::Declined,
+                        };
+                        match (t.action(), done) {
+                            (Action::Open, Opened::Taken) => {
+                                self.app.links.opened.bump();
+                                crate::info!("link opened ({:?}): {shown}", t.scheme());
+                            }
+                            (Action::Reveal, Opened::Taken) => {
+                                self.app.links.revealed.bump();
+                                crate::info!("link revealed: {shown}");
+                            }
+                            (Action::Open, Opened::Declined) => {
+                                // The click tried; with no app the bar says so, and
+                                // the programs are asked about again.
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused (Declined): {shown}");
+                                self.app.probes.owe_programs();
+                                let struck = crate::lined::Mark::Struck;
+                                if self.app.paths.scheme_mark(t.scheme()) == struck
+                                    && self
+                                        .app
+                                        .copied
+                                        .path(crate::copied::PathNote::NoApp(t.scheme()))
+                                        == crate::copied::Owes::Frame
+                                {
+                                    self.app.pending = Pending::Dirty;
+                                }
+                            }
+                            (_, other) => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused ({other:?}): {shown}");
+                            }
+                        }
                     }
                 }
             }
@@ -20616,12 +20712,17 @@ mod driver_rule_tests {
             .find(concat!("if self.app.focus == f {\n", "            return;"))
             .expect("a poll with no change returns");
         let gained = focus
-            .find(concat!(
-                "if f == baud_core::Focus::",
-                "Gained {\n            self.read_caret_system();"
-            ))
-            .expect("a gain reads the system's caret");
+            .find(concat!("if f == baud_core::Focus::", "Gained {\n"))
+            .expect("a gain has its arm");
         assert!(unchanged < gained, "read only on the change");
+        // The gain's arm, to the brace that closes it at its indent: the
+        // read is in it, wherever among the arm's other work it falls.
+        let arm = &focus[gained..];
+        let arm = &arm[..arm.find("\n        }").expect("the gain's arm closes")];
+        assert!(
+            arm.contains(concat!("\n            self.read_caret_", "system();\n")),
+            "a gain reads the system's caret"
+        );
         let read = body(SRC, concat!("    fn read_caret_", "system(&mut self) {"));
         assert!(
             read.contains(concat!(".read_", "system(cycle, self.app.blink_choice,"))

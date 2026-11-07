@@ -85,9 +85,44 @@ fn main() {
         Wake,
     };
     use baud_render::{
-        Blend, Candidate, CursorPhase, Damage, GlyphMap, Instance, Leaving, Overlay, PxSize,
-        Redraw, Renderer, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey,
+        Blend, Candidate, CopyOrder, CursorPhase, Damage, GlyphMap, Instance, Leaving, Lend, Lent,
+        LinkLine, Overlay, PxSize, Redraw, Renderer, Scene, Stack, StyleStamp, Tally, Target,
+        Theme, WalkKey, Words,
     };
+
+    /// **Every `OSC 8` link on the screen, as runs of one rendition**: what
+    /// `FRAME_STRIKE=osc8` strikes, read from the recording's own links.
+    fn osc8_runs(t: &Term<'_>, view: &baud_domain::Viewport<'_>) -> Vec<LinkLine> {
+        let mut out = Vec::new();
+        for y in 0..view.rows().index() {
+            let row = Row::from_index(y);
+            let cells = view.row(row);
+            let n = cells.len().min(view.cols().index());
+            let mut x = 0;
+            while x < n {
+                let c = cells[x];
+                if c.flags.link().is_none() {
+                    x += 1;
+                    continue;
+                }
+                let (link, word, from) = (c.flags.link(), t.style_of(c), x);
+                while x + 1 < n
+                    && cells[x + 1].flags.link() == link
+                    && t.style_of(cells[x + 1]) == word
+                {
+                    x += 1;
+                }
+                out.push(LinkLine {
+                    row,
+                    from: baud_domain::Col::at_index(from),
+                    to: baud_domain::Col::at_index(x),
+                    word,
+                });
+                x += 1;
+            }
+        }
+        out
+    }
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
@@ -368,6 +403,7 @@ fn main() {
         glow: baud_domain::Chan::from_u8(glow),
         ..CursorPhase::HIDDEN
     };
+    let strike = std::env::var("FRAME_STRIKE").as_deref() == Ok("osc8");
     let caret = std::env::var("FRAME_CARET").ok().map(|k| match k.as_str() {
         "switch" => [CursorPhase::HIDDEN, CursorPhase::SHOWN],
         "plasma" => [phase(0, 128), phase(0, 192)],
@@ -551,6 +587,13 @@ fn main() {
                 let mut map = GlyphMap::over(m.map.take().expect("the map").into_entries());
                 let mut exceptions = Overlay::new();
                 let mut screens = Screens::new();
+                // `FRAME_STRIKE=osc8`: every `OSC 8` link on the screen
+                // struck, its text grey through slots each set's table
+                // lends, as the app lends them (`baud_render::Lent`).
+                let mut lents: Vec<Lent> = (0..Wheel::SETS).map(|_| Lent::default()).collect();
+                let (mut lent_cells, mut lent_used) = (Vec::new(), Vec::new());
+                let (mut walks, mut idle_walks, mut struck_cells) = (0usize, 0usize, 0usize);
+                let (mut windows, mut window_misses) = (Tally::default(), Tally::default());
                 let (mut committed, mut busy, mut copies) = (0usize, 0usize, 0usize);
                 // Each committed frame's CPU, its copy and its bind plus
                 // commit, for medians: the first frame of a round walks a
@@ -567,6 +610,13 @@ fn main() {
                 // cursor's blink phase changed, and their CPU a frame.
                 let (mut idle_left, mut idling, mut shown) = (idle_n, false, false);
                 let mut idle_per: Vec<Duration> = Vec::new();
+                // An idle frame's share of the lending, apart, timed only
+                // under `FRAME_STRIKE`, so the arm with nothing struck runs
+                // the app's path with no clock of the bench's added: the
+                // copy put back with its slots, the compare, the strike's
+                // lending, and the lent copy the walk and the overlay read.
+                let mut idle_parts: Vec<[Duration; 5]> = Vec::new();
+                let mut parts = [Duration::ZERO; 5];
                 let t0 = Instant::now();
                 let mut due = t0;
                 loop {
@@ -619,6 +669,12 @@ fn main() {
                     };
                     dirty = false;
                     let si = set.0;
+                    // The ids this set's copy was lent put back and its slots
+                    // given back, as the app's frame does first.
+                    let tb = strike.then(Instant::now);
+                    lents[si].restore(m.copies_mem[si], t.stride());
+                    r.give_back(&mut styles_mem[si][..], &mut stamps[si], &mut lents[si]);
+                    parts[0] = tb.map_or(Duration::ZERO, |t| t.elapsed());
                     r.sync_styles(&t, &mut styles_mem[si][..], &mut stamps[si]);
                     // The window laid out in the order each row is drawn
                     // in, once a frame, as the app lays it out.
@@ -628,16 +684,93 @@ fn main() {
                     let status = t.status_line();
                     let lined = usize::from(status.is_some());
                     let held = screens.holds(set);
+                    if strike {
+                        r.set_link_strikes(&osc8_runs(&t, &view), &[]);
+                    }
                     let tc = Instant::now();
                     screens.compare = Compare::for_rejoin(rejoin);
-                    let built = screens.take(
+                    let undo = screens
+                        .last_set()
+                        .and_then(|l| lents.get(l.0))
+                        .map_or(&[][..], Lent::rewrites);
+                    let tk = strike.then(Instant::now);
+                    let built = screens.take_lent(
                         &mut m.copies_mem,
                         set,
                         &view,
                         status.as_ref(),
                         t.stride(),
                         Leaving::None,
+                        undo,
                     );
+                    // The struck cells lent their grey, and the frame the
+                    // last's only under the same lending, as the app has it.
+                    let vrows = view.rows().index();
+                    parts[1] = tk.map_or(Duration::ZERO, |t| t.elapsed());
+                    let tl = strike.then(Instant::now);
+                    let struck = r.struck_cells(&view, view.rows(), CopyOrder::Stored);
+                    parts[4] = tl.map_or(Duration::ZERO, |t| t.elapsed());
+                    struck_cells += struck.iter().flatten().map(|c| c.len()).sum::<usize>();
+                    let lend = match struck.iter().any(|c| !c.is_empty()) {
+                        false => Lend::Nothing,
+                        true => {
+                            let st = t.stride().index();
+                            let cols = view.cols().index();
+                            let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = m.copies_mem[si]
+                                .chunks_mut(st)
+                                .take(vrows + lined)
+                                .map(|c| (&mut c[..cols], Words::LIVE))
+                                .collect();
+                            r.lend(
+                                &t,
+                                &mut rows,
+                                &struck,
+                                &mut styles_mem[si][..],
+                                &mut stamps[si],
+                                &mut lents[si],
+                            )
+                        }
+                    };
+                    parts[2] = tl.map_or(Duration::ZERO, |t| t.elapsed());
+                    let tv = strike.then(Instant::now);
+                    let lending = lents[si].lending();
+                    let built = match built {
+                        Built::Last if lending == screens.lending => Built::Last,
+                        Built::Last => {
+                            screens.built(Built::New, &view, status.as_ref());
+                            Built::New
+                        }
+                        Built::New => Built::New,
+                    };
+                    screens.lending = lending;
+                    let view = match lend {
+                        Lend::Nothing => view,
+                        _ => {
+                            let st = t.stride().index();
+                            lent_cells.clear();
+                            lent_cells.extend_from_slice(&m.copies_mem[si][..vrows * st]);
+                            lent_used.clear();
+                            for y in 0..vrows {
+                                let row = Row::from_index(y);
+                                let mut e = baud_domain::RowExtent::of(view.cols().index())
+                                    .with_rendition(view.rendition(row), view.cols());
+                                if view.wrapped(row) == baud_domain::Wrap::Continues {
+                                    e = e.wrapping(view.cols().index());
+                                }
+                                lent_used.push(e);
+                            }
+                            baud_domain::Viewport::new(
+                                &lent_cells,
+                                &lent_used,
+                                t.stride(),
+                                view.cols(),
+                                view.rows(),
+                                view.rows(),
+                                RowRot::NONE,
+                            )
+                        }
+                    };
+                    parts[3] = tv.map_or(Duration::ZERO, |t| t.elapsed());
                     let dc = tc.elapsed();
                     // The kept joins found again where that compare found
                     // a row changed, as the app finds them.
@@ -654,6 +787,8 @@ fn main() {
                         rows: view.rows(),
                     };
                     if built == Built::New || screens.walked != Some(key) {
+                        walks += 1;
+                        idle_walks += usize::from(idling);
                         map.ensure(&t, view, &styles_mem[si][..], &mut r, &mut candidates);
                         screens.walked = Some(WalkKey {
                             map: map.generation(),
@@ -692,6 +827,8 @@ fn main() {
                         &mut m.overlay_mem[si][..],
                         &mut records,
                     );
+                    windows.add(exceptions.stats().windows);
+                    window_misses.add(exceptions.stats().window_misses);
                     let input = CellInput {
                         grid: &m.copies[si],
                         styles: &styles[si],
@@ -727,6 +864,7 @@ fn main() {
                     if fin {
                         if idling {
                             idle_per.push(df);
+                            idle_parts.push(parts);
                         }
                         continue;
                     }
@@ -766,11 +904,32 @@ the first cpu {:.1}, copy {:.2}",
                     let mut v = idle_per.clone();
                     v.sort();
                     println!(
-                        "      idle: {} frames over the last screen; median cpu {:.1} us/frame",
+                        "      idle: {} frames over the last screen; median cpu {:.1} us/frame; {} map walks",
                         v.len(),
                         v.get(v.len() / 2).copied().map_or(f64::NAN, us),
+                        idle_walks,
                     );
+                    let part = |k: usize| {
+                        let mut v: Vec<Duration> = idle_parts.iter().map(|p| p[k]).collect();
+                        v.sort();
+                        v.get(v.len() / 2).copied().map_or(f64::NAN, us)
+                    };
+                    if strike {
+                        println!(
+                            "      idle medians: give back {:.1}, compare {:.1}, lend {:.1} (the struck cells {:.1} of it), lent copy {:.1} us",
+                            part(0),
+                            part(1),
+                            part(2),
+                            part(4),
+                            part(3),
+                        );
+                    }
                 }
+                println!(
+                    "      walks {walks}, windows {} of which miss {}, struck cells {struck_cells} over the frames",
+                    windows.value(),
+                    window_misses.value(),
+                );
                 if hash {
                     // The surface the last frame went to, its rows cut to
                     // the target's width: the presenter's next, one back.

@@ -34,6 +34,16 @@
 //! A cell a program already underlines keeps its own line and gets none of
 //! these, and a concealed cell gets none. A double-size line gets none: no
 //! overlay of a single cell's width lies on its cells.
+//!
+//! **A link baud knows would open nothing is struck, not underlined**
+//! ([`Lines::struck`], [`Mark::Struck`]): what the reader says, from the
+//! worker's answers it was handed, never from a call made here. At rest that
+//! is a link whose kind has no app to open it, and an `OSC 8` `file://` link
+//! naming this machine by name whose file the worker found gone (`paths.rs`
+//! has the rules). A cell a program already strikes with `SGR 9` keeps its
+//! own strike, and a concealed cell and a double-size line get none, as for
+//! the line. Struck or not, the cells are the program's: a struck link
+//! selects and copies as it is written.
 #![forbid(unsafe_code)]
 
 use core::ops::Range;
@@ -46,8 +56,8 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, MAX, Unit, admit_with, class, found_in, may_be_cut, scheme_at, scheme_ends,
-    unit,
+    Class, Edge, Host, MAX, Scheme, Unit, admit_with, class, found_in, may_be_cut, scheme_at,
+    scheme_ends, unit,
 };
 use crate::rules::{Rules, Tail};
 
@@ -66,6 +76,29 @@ pub struct Text<'a> {
     pub screen: Screen,
 }
 
+/// **How a link is drawn at rest**: underlined, as a link a click opens, or
+/// struck, as one baud knows would open nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mark {
+    Line,
+    Struck,
+}
+
+/// **A link a reader found**: its units in the line's text, and its mark.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Run {
+    pub units: Range<usize>,
+    pub mark: Mark,
+}
+
+/// Where an `OSC 8` run is: its line and the screen it is on, which say
+/// whether output there is known to be this machine's (`paths.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct At {
+    pub line: AbsLine,
+    pub screen: Screen,
+}
+
 /// **What finds links in a line's text.** Only ever called with what the
 /// frame path may read: it calls nothing that blocks.
 pub trait Reader {
@@ -74,12 +107,13 @@ pub trait Reader {
     /// a zero. Called for each cell of a changed row, so it answers at once.
     fn wants(&self, tail: Tail) -> bool;
 
-    /// The links in `text`, as ranges of its units, in order, none
-    /// overlapping. Returns how many candidates it looked at.
-    fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize;
+    /// The links in `text`, as ranges of its units with their marks, in
+    /// order, none overlapping. Returns how many candidates it looked at.
+    fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked;
 
-    /// Whether an `OSC 8` link's target would open.
-    fn admits(&mut self, uri: &[u8]) -> bool;
+    /// How an `OSC 8` link's target at `at` is drawn: none for one that
+    /// would not open.
+    fn marked(&mut self, uri: &[u8], at: At) -> Option<Mark>;
 
     /// A scan found a row of the window changed: called once a scan, before
     /// any row is read, so it costs a frame one call however many changed.
@@ -141,7 +175,26 @@ impl Reader for Uris {
         scheme_ends(tail, &self.rules)
     }
 
-    fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize {
+    fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
+        crate::paths::Looked(self.read_marking(text, found, &|_| Mark::Line))
+    }
+
+    fn marked(&mut self, uri: &[u8], _: At) -> Option<Mark> {
+        admit_with(uri, Host(self.host()), &self.rules)
+            .is_ok()
+            .then_some(Mark::Line)
+    }
+}
+
+impl Uris {
+    /// [`Reader::read`], each URI `admit` opens marked as `mark` says of its
+    /// scheme: a reader that knows which kinds have no app strikes those.
+    pub fn read_marking(
+        &mut self,
+        text: Text<'_>,
+        found: &mut Vec<Run>,
+        mark: &dyn Fn(Scheme) -> Mark,
+    ) -> usize {
         let Text {
             units, head, tail, ..
         } = text;
@@ -192,8 +245,11 @@ impl Reader for Uris {
                             Unit::Marked | Unit::Gap => None,
                         }));
                     let bytes = core::mem::take(&mut self.bytes);
-                    if self.admits(&bytes) {
-                        found.push(span);
+                    if let Ok(t) = admit_with(&bytes, Host(self.host()), &self.rules) {
+                        found.push(Run {
+                            units: span,
+                            mark: mark(t.scheme()),
+                        });
                     }
                     self.bytes = bytes;
                 }
@@ -202,10 +258,6 @@ impl Reader for Uris {
             }
         }
         candidates
-    }
-
-    fn admits(&mut self, uri: &[u8]) -> bool {
-        admit_with(uri, Host(self.host()), &self.rules).is_ok()
     }
 }
 
@@ -221,6 +273,8 @@ pub struct Scan {
     pub candidates: usize,
     /// Runs of lines this scan added.
     pub spans: usize,
+    /// Runs struck this scan added.
+    pub struck: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -241,9 +295,10 @@ pub struct Lines {
     /// Which rows this scan reads.
     again: Vec<Read>,
     lines: Vec<LinkLine>,
+    struck: Vec<LinkLine>,
     units: Vec<Unit>,
     points: Vec<Point>,
-    found: Vec<Range<usize>>,
+    found: Vec<Run>,
     groups: Vec<Range<usize>>,
 }
 
@@ -251,6 +306,12 @@ impl Lines {
     /// The runs to underline, by row and column.
     pub fn lines(&self) -> &[LinkLine] {
         &self.lines
+    }
+
+    /// The runs to strike, by row and column: links baud knows would open
+    /// nothing.
+    pub fn struck(&self) -> &[LinkLine] {
+        &self.struck
     }
 
     /// Read every row at the next scan.
@@ -262,6 +323,7 @@ impl Lines {
     /// memory is kept, since a config read again may turn it back on.
     pub fn off(&mut self) {
         self.lines.clear();
+        self.struck.clear();
         self.forget();
     }
 
@@ -283,6 +345,7 @@ impl Lines {
             self.again.clear();
             self.again.resize(rows, Read::Kept);
             self.lines.clear();
+            self.struck.clear();
             self.epochs = None;
         }
         // A slot of the link table or the cluster store freed and taken again
@@ -347,6 +410,7 @@ impl Lines {
         }
         let again = &self.again;
         self.lines.retain(|l| again[l.row.index()] == Read::Kept);
+        self.struck.retain(|l| again[l.row.index()] == Read::Kept);
         let mut found = core::mem::take(&mut self.found);
         for g in &groups {
             let rows = (g.start, g.end - 1);
@@ -355,6 +419,8 @@ impl Lines {
         self.found = found;
         self.groups = groups;
         self.lines
+            .sort_unstable_by_key(|l| (l.row.index(), l.from.index()));
+        self.struck
             .sort_unstable_by_key(|l| (l.row.index(), l.from.index()));
         scan
     }
@@ -369,7 +435,7 @@ impl Lines {
         back: Rows,
         (top, bottom): (usize, usize),
         reader: &mut R,
-        found: &mut Vec<Range<usize>>,
+        found: &mut Vec<Run>,
         scan: &mut Scan,
     ) {
         let (_, rows) = self.size;
@@ -471,18 +537,21 @@ impl Lines {
             shown.0 = shown.1;
         }
         found.clear();
-        scan.candidates += reader.read(
-            Text {
-                units: &self.units,
-                head,
-                tail,
-                shown,
-                lines: (first, last),
-                screen: term.screen(),
-            },
-            found,
-        );
-        for span in found.iter() {
+        scan.candidates += reader
+            .read(
+                Text {
+                    units: &self.units,
+                    head,
+                    tail,
+                    shown,
+                    lines: (first, last),
+                    screen: term.screen(),
+                },
+                found,
+            )
+            .0;
+        for run in found.iter() {
+            let span = &run.units;
             let Some(&end) = span.end.checked_sub(1).and_then(|e| self.points.get(e)) else {
                 continue;
             };
@@ -503,14 +572,17 @@ impl Lines {
                     continue;
                 };
                 let styles = row_styles_of(term, scrolled, p.line);
-                push_cell(
-                    &mut self.lines,
-                    term,
-                    styles,
-                    (y, p.col, cell),
-                    self.sizes[y.index()],
-                    scan,
-                );
+                let size = self.sizes[y.index()];
+                match run.mark {
+                    Mark::Line => {
+                        push_cell(&mut self.lines, term, styles, (y, p.col, cell), size, scan)
+                    }
+                    Mark::Struck => {
+                        if push_struck(&mut self.struck, term, styles, (y, p.col, cell), size) {
+                            scan.struck += 1;
+                        }
+                    }
+                }
             }
         }
     }
@@ -526,7 +598,8 @@ impl Lines {
         reader: &mut R,
         scan: &mut Scan,
     ) {
-        let mut last: Option<(LinkId, bool)> = None;
+        let mut last: Option<(LinkId, Option<Mark>)> = None;
+        let screen = term.screen();
         for y in top..=bottom {
             let r = Row::from_index(y);
             let line: AbsLine = scrolled.line(back, r);
@@ -539,23 +612,27 @@ impl Lines {
                 if id == LinkId::NONE {
                     continue;
                 }
-                let admitted = match last {
-                    Some((l, a)) if l == id => a,
+                let mark = match last {
+                    Some((l, m)) if l == id => m,
                     _ => {
-                        let a = term.link_uri(id).is_some_and(|u| reader.admits(u));
-                        last = Some((id, a));
-                        a
+                        let m = term
+                            .link_uri(id)
+                            .and_then(|u| reader.marked(u, At { line, screen }));
+                        last = Some((id, m));
+                        m
                     }
                 };
-                if admitted {
-                    push_cell(
-                        &mut self.lines,
-                        term,
-                        styles,
-                        (r, Col::at_index(x), cell),
-                        self.sizes[y],
-                        scan,
-                    );
+                let at = (r, Col::at_index(x), cell);
+                match mark {
+                    Some(Mark::Line) => {
+                        push_cell(&mut self.lines, term, styles, at, self.sizes[y], scan);
+                    }
+                    Some(Mark::Struck) => {
+                        if push_struck(&mut self.struck, term, styles, at, self.sizes[y]) {
+                            scan.struck += 1;
+                        }
+                    }
+                    None => {}
                 }
             }
         }
@@ -570,6 +647,39 @@ const OWN_LINES: [Attrs; 5] = [
     Attrs::DOTTED_UNDERLINE,
     Attrs::DASHED_UNDERLINE,
 ];
+
+/// **One cell into the struck runs**, joining the run it continues; none for
+/// a cell a program strikes itself (`SGR 9`), a concealed one or one on a
+/// double-size line. Whether it started a run.
+pub(crate) fn push_struck(
+    struck: &mut Vec<LinkLine>,
+    term: &Term<'_>,
+    styles: RowStyles<'_>,
+    (row, col, cell): (Row, Col, PackedCell),
+    size: LineRendition,
+) -> bool {
+    if size.is_double() {
+        return false;
+    }
+    let word: StyleWord = term.style_in(styles, cell);
+    let attrs = word.attrs();
+    if attrs.has(Attrs::HIDDEN) || attrs.has(Attrs::STRIKE) {
+        return false;
+    }
+    if let Some(l) = struck.last_mut() {
+        if l.row == row && l.word == word && l.to.index() + 1 == col.index() {
+            l.to = col;
+            return false;
+        }
+    }
+    struck.push(LinkLine {
+        row,
+        from: col,
+        to: col,
+        word,
+    });
+    true
+}
 
 /// **One cell into the lines**, joining the run it continues; none for a cell
 /// a program underlines itself, a concealed one or one on a double-size line.
@@ -883,7 +993,7 @@ mod tests {
     /// line; call `scan` before the match in `scan_lines`.
     #[test]
     fn urls_off_scans_nothing() {
-        use crate::config::{Link, LinkLineKey, LinkPaths, LinkUrls};
+        use crate::config::{Link, LinkLineKey, LinkMissing, LinkPaths, LinkUrls};
         let off = Link {
             urls: LinkUrls::Off,
             paths: LinkPaths::Off,
@@ -894,11 +1004,12 @@ mod tests {
         assert_eq!(
             Link {
                 line: LinkLineKey::Off,
+                missing: LinkMissing::Off,
                 ..Link::default()
             }
             .lines(),
             None,
-            "no line to draw, nothing to read for one"
+            "no line to draw and none to strike, nothing to read for one"
         );
         assert!(Link::default().lines().is_some(), "the control");
         let mut owned = Owned::new(&WS);

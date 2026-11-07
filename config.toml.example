@@ -609,6 +609,26 @@ copy_on_select = "on"
 # "line", a line in the box's colour; or "text", the text in the box's colour
 # where it reads at least 1.5:1 on the cell's own background.
 # hover = "box"
+#
+# A link baud knows would open nothing: "strike" draws it struck through, or
+# "off" draws it as any other. Struck at rest: a link to a file on this Mac
+# whose file is gone, when the program marked it and named this computer as
+# its host, and a kind of link no app on this Mac opens. A path printed as
+# plain text, or a file link that names no computer, is struck only while
+# Cmd (Ctrl on Linux) is held over it, and the bar says it is not on this
+# computer. Anything baud can't be sure of is never struck: a file on another
+# computer, over ssh, on a network disk, or one it couldn't check. Struck
+# text still selects and copies as written, and a click on it opens nothing
+# and says why. On Linux no kind of link is struck, since the system falls
+# back to a browser for one it has no app for.
+# missing = "strike"
+#
+# The struck text's colour: "gray", the theme's color 8; "#rrggbb"; or
+# "none", the text's own. It is used only where it reads at least 4.5:1 on
+# the cell's background, in the colours on screen then, so a program can't
+# make a struck link unreadable. Elsewhere the text keeps its colour, and the
+# strike shows either way.
+# missing_color = "gray"
 
 # Printed file paths: which kinds are read, and what a click does. Every kind
 # is checked as paths above: the file must be on this computer. A key or value

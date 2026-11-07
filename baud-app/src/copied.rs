@@ -67,14 +67,18 @@ pub(crate) enum Source {
     Path(PathNote),
 }
 
-/// **Why a click on a printed path opened nothing**, said in the bar where
-/// the copy's words go: the worker asked again and found it gone, could not
-/// ask, or the path is too long for a link (`paths.rs`).
+/// **Why a click on a printed path or a struck link opened nothing**, said
+/// in the bar where the copy's words go: the worker asked again and found it
+/// gone, could not ask, or the path is too long for a link (`paths.rs`); or
+/// the system had no app for the link's kind when the click tried it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PathNote {
     Missing,
     Unchecked,
     TooLong,
+    /// Said only on macOS, the one system asked whether a kind has an app.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    NoApp(crate::link::Scheme),
 }
 
 /// **The words a copy says.**
@@ -92,6 +96,23 @@ pub(crate) fn words(source: Source, count: Characters) -> String {
             format!("Couldn't check this file on {}", crate::paths::MACHINE)
         }
         Source::Path(PathNote::TooLong) => "This path is too long to open".to_string(),
+        Source::Path(PathNote::NoApp(s)) => match scheme_name(s) {
+            Some(name) => format!("No app for {name}:"),
+            None => "No app for this kind of link".to_string(),
+        },
+    }
+}
+
+/// A kind of link's scheme as a link spells it: none for one a rule of
+/// yours added, which has no one name.
+fn scheme_name(s: crate::link::Scheme) -> Option<&'static str> {
+    use crate::link::Scheme;
+    match s {
+        Scheme::Http => Some("http"),
+        Scheme::Https => Some("https"),
+        Scheme::Mailto => Some("mailto"),
+        Scheme::File => Some("file"),
+        Scheme::Added => None,
     }
 }
 

@@ -53,6 +53,32 @@
 //!
 //! **No path is logged.** Paths are private: what the worker does is counted
 //! (`report.rs`), never named.
+//!
+//! **What is struck, and only that** (`[link] missing = "strike"`): a strike
+//! says "this would open nothing", so it comes only from what the worker
+//! found, never from a guess. Three things, and nothing else:
+//!
+//! * an `OSC 8` `file://` link whose host names this machine by name
+//!   ([`Paths::set_names`]), whose file the walk found gone -- `ENOENT` or
+//!   `ENOTDIR` on a local file system ([`Probe::Missing`]) -- on output known
+//!   to be this machine's. `file:///x` and `file://localhost/x` name no
+//!   machine (`[[source: rfc8089]]` § 2 calls both local, and a program on
+//!   another machine can send either, through a multiplexer's pane), so
+//!   they are struck only under the gesture's modifier, where the bar says
+//!   the file is not on this machine;
+//! * a link whose kind has no app ([`Handler::Missing`]), asked by kind at a
+//!   fixed address ([`address`]), never with a program's bytes;
+//! * a command's program not found ([`Program::Command`]), the hook the
+//!   `[link.*]` rules' `command` uses.
+//!
+//! A printed path is struck only under the modifier (`link.rs`), never at
+//! rest: baud cannot see whether a pane under a multiplexer, a container or
+//! an `ssh` printed it. Everything baud cannot tell -- an error other than
+//! those two, a network or automounted file system, a hang, a host it does
+//! not know, an answer not come yet -- leaves no mark. A `file://` link
+//! naming another host is never looked up: `admit` refuses it, and it is
+//! drawn as no link, as before. With `paths = "off"` there is no worker, so
+//! nothing is asked and nothing struck.
 #![forbid(unsafe_code)]
 
 use core::ops::Range;
@@ -62,8 +88,8 @@ use baud_core::{FileHost, Screen, Term};
 use baud_domain::{Cols, Rows};
 use baud_render::{AbsLine, Scrolled, row_of};
 
-use crate::lined::{Reader, Text, Uris};
-use crate::link::{Edge, Ix, MAX, Unit};
+use crate::lined::{At, Mark, Reader, Run, Text, Uris};
+use crate::link::{Edge, Host, Ix, MAX, Scheme, Target, Unit, admit_with};
 use crate::rules::{NO_RULES, Rules};
 
 /// What the bar calls this machine.
@@ -166,6 +192,122 @@ pub enum Probe {
     /// system on the way, a folder it may not read, too many links, an
     /// error. No mark either way.
     Unknown,
+}
+
+/// **What a program for a link is**, as the worker last found it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Handler {
+    /// Not asked yet, or not one baud can tell: never struck.
+    #[default]
+    Unknown,
+    Found,
+    /// None: the system names no app for the kind, or no file of the
+    /// command's name is on its path.
+    Missing,
+}
+
+/// **What the worker is asked to find a program for**: from a fixed list,
+/// the config's and never the program's output -- the schemes `admit`
+/// opens, and the `[link.*]` rules' `command`s.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Program {
+    /// The app the system would open a kind of link with, asked at
+    /// [`address`]'s fixed address.
+    Scheme(Scheme),
+    /// A rule's `command[0]`, as its reader spells it once read, looked up
+    /// as `execvp` would, a component at a time and never past a network or
+    /// automounted file system (`probe::command`). The `[link.*]` rules'
+    /// reader is what makes one; until it reads them, only the tests do.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Command(String),
+}
+
+/// **The fixed address a kind of link is asked about**: its scheme and a
+/// name under `.invalid`, which is for "domain names that are sure to be
+/// invalid" (`[[source: rfc2606]]` § 2), so no app claims it for itself and
+/// no byte a program printed reaches the lookup. None for `file`, which is
+/// revealed in the file manager and asked about nothing, and for a scheme a
+/// `[link.*]` rule added, which no fixed address stands for.
+pub fn address(scheme: Scheme) -> Option<&'static str> {
+    match scheme {
+        Scheme::Http => Some("http://example.invalid/"),
+        Scheme::Https => Some("https://example.invalid/"),
+        Scheme::Mailto => Some("mailto:nobody@example.invalid"),
+        Scheme::File | Scheme::Added => None,
+    }
+}
+
+/// **Why a link `admit` lets through would open nothing**, as the worker
+/// last found: for a struck link's bar and for a click, which asks again.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Gone {
+    /// Its file is gone from this machine: the path, as the click asks it.
+    File(Vec<u8>),
+    /// No app for its kind.
+    NoApp(Scheme),
+}
+
+/// What a `file://` link's host says of where its file is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Named {
+    /// This machine, by one of its names.
+    ThisMachine,
+    /// No machine: empty, or `localhost`.
+    NoMachine,
+}
+
+/// **The file a `file://` URI names on this machine**, percent-decoded,
+/// and whether its host named this machine: none for another host, a query
+/// or a fragment, a `%` without two hex digits, bytes that are not UTF-8,
+/// or a control or bidirectional control in the name -- none of which is
+/// looked up, so none is struck.
+pub fn file_path(uri: &[u8], names: &[String]) -> Option<(Named, Vec<u8>)> {
+    let scheme = uri.get(..7)?;
+    if !scheme.eq_ignore_ascii_case(b"file://") {
+        return None;
+    }
+    let rest = &uri[7..];
+    let slash = rest.iter().position(|&b| b == b'/')?;
+    let (host, path) = rest.split_at(slash);
+    let named = if host.is_empty() || host.eq_ignore_ascii_case(b"localhost") {
+        Named::NoMachine
+    } else if names
+        .iter()
+        .any(|n| !n.is_empty() && host.eq_ignore_ascii_case(n.as_bytes()))
+    {
+        Named::ThisMachine
+    } else {
+        return None;
+    };
+    if path.iter().any(|&b| b == b'?' || b == b'#') {
+        return None;
+    }
+    let hex = |b: u8| {
+        char::from(b)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    let mut out = Vec::with_capacity(path.len());
+    let mut i = 0;
+    while i < path.len() {
+        match path[i] {
+            b'%' => {
+                let hi = hex(*path.get(i + 1)?)?;
+                let lo = hex(*path.get(i + 2)?)?;
+                out.push(hi << 4 | lo);
+                i += 3;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    let text = core::str::from_utf8(&out).ok()?;
+    if text.chars().any(|c| c.is_control() || bidi_control(c)) {
+        return None;
+    }
+    Some((named, out))
 }
 
 /// A path the worker is asked about, as resolved, and the last line it was
@@ -540,6 +682,20 @@ enum State {
     /// In a batch, not answered yet.
     Asked,
     Is(Probe),
+    /// An answer drawn as it is until the next batch asks again: a struck
+    /// link's, when a job ended, the window came to the front or the
+    /// pointer came over it.
+    Stale(Probe),
+}
+
+impl State {
+    /// The answer drawn, if any.
+    fn probe(self) -> Option<Probe> {
+        match self {
+            State::Is(p) | State::Stale(p) => Some(p),
+            State::Asked => None,
+        }
+    }
 }
 
 /// The reported folder, as baud keeps it: the last report's bytes, and the
@@ -561,6 +717,8 @@ struct Dir {
 #[derive(Default, Debug)]
 struct Collect {
     kept: HashMap<Vec<u8>, State>,
+    /// The `OSC 8` `file://` links' answers the screen still shows.
+    marked: HashMap<Vec<u8>, State>,
     queue: Vec<Candidate>,
     over: Over,
 }
@@ -577,6 +735,13 @@ pub struct Paths {
     dir: Dir,
     geometry: Option<(Cols, Rows)>,
     known: HashMap<Vec<u8>, State>,
+    /// `OSC 8` `file://` links' answers, kept apart from printed paths' so
+    /// one found does not make a frame read rows for printed paths.
+    marked: HashMap<Vec<u8>, State>,
+    /// `[link] missing`: whether anything is struck.
+    missing: Turned,
+    /// What the worker last found for each program it was asked about.
+    programs: Vec<(Program, Handler)>,
     generation: Generation,
     owed: Owed,
     collect: Option<Collect>,
@@ -646,6 +811,10 @@ impl Paths {
 
     fn drop_all(&mut self) {
         self.known.clear();
+        self.marked.clear();
+        // What the worker found for a program goes too: with no worker to
+        // ask it again, a kind struck for having no app would stay struck.
+        self.programs.clear();
         self.collect = None;
         self.owed = Owed::No;
         self.generation = self.generation.next();
@@ -655,7 +824,10 @@ impl Paths {
     /// [`Reads`] again, after the marks, the collection or the answers
     /// changed: once a batch, never a frame.
     fn update_reads(&mut self) {
-        let draws = self.known.values().any(|s| *s == State::Is(Probe::Exists));
+        let draws = self
+            .known
+            .values()
+            .any(|s| s.probe() == Some(Probe::Exists));
         self.reads = match self.marks == Marks::On && (self.collect.is_some() || draws) {
             true => Reads::Yes,
             false => Reads::No,
@@ -705,9 +877,106 @@ impl Paths {
     /// was not asked about, or not yet answered.
     #[cfg(test)]
     pub fn result(&self, path: &[u8]) -> Option<Probe> {
-        match self.known.get(path) {
-            Some(State::Is(p)) => Some(*p),
-            Some(State::Asked) | None => None,
+        self.known
+            .get(path)
+            .or_else(|| self.marked.get(path))
+            .and_then(|s| s.probe())
+    }
+
+    /// **`[link] missing`**: off strikes nothing and asks nothing for it.
+    /// Whether it changed, which reads every row again.
+    pub fn set_missing(&mut self, missing: Turned) -> Moved {
+        if self.missing == missing {
+            return Moved::No;
+        }
+        self.missing = missing;
+        self.generation = self.generation.next();
+        Moved::Yes
+    }
+
+    /// **What the worker found for the programs it was asked about**, each
+    /// kept until the next answer: whether a mark moved.
+    pub fn set_programs(&mut self, found: Vec<(Program, Handler)>) -> Moved {
+        let mut moved = Moved::No;
+        for (p, h) in found {
+            match self.programs.iter_mut().find(|(q, _)| *q == p) {
+                Some((_, kept)) if *kept == h => {}
+                Some((_, kept)) => {
+                    *kept = h;
+                    moved = Moved::Yes;
+                }
+                None => {
+                    self.programs.push((p, h));
+                    moved = Moved::Yes;
+                }
+            }
+        }
+        if moved == Moved::Yes {
+            self.generation = self.generation.next();
+        }
+        moved
+    }
+
+    /// Whether the worker found some program missing: what a job ending
+    /// asks about again, since one may have been installed. macOS's driver
+    /// sees the job in front fork and exit; Linux's, its foreground group
+    /// changing at the title's check.
+    pub fn programs_missing(&self) -> bool {
+        self.programs.iter().any(|(_, h)| *h == Handler::Missing)
+    }
+
+    /// What the worker last found for `program`: unknown until it answers.
+    pub fn program(&self, program: &Program) -> Handler {
+        self.programs
+            .iter()
+            .find(|(p, _)| p == program)
+            .map_or(Handler::Unknown, |(_, h)| *h)
+    }
+
+    /// **How a link `admit` opens by `scheme` is drawn**: struck only while
+    /// `missing` is on and the worker found no app for it.
+    pub fn scheme_mark(&self, scheme: Scheme) -> Mark {
+        self.program_mark(&Program::Scheme(scheme))
+    }
+
+    /// **How a link a `[link.*]` rule opens with `program` is drawn**: the
+    /// hook a `command` rule's `command[0]` reads, struck only while
+    /// `missing` is on and the worker found none of that name.
+    pub fn program_mark(&self, program: &Program) -> Mark {
+        match (self.missing, self.program(program)) {
+            (Turned::On, Handler::Missing) => Mark::Struck,
+            _ => Mark::Line,
+        }
+    }
+
+    /// **Ask again about what is struck**, at the next batch, drawing it as
+    /// it is until then: a job ended or the window came to the front, and a
+    /// file may have come back. No timer asks this.
+    pub fn recheck(&mut self) {
+        let mut any = false;
+        for s in self.known.values_mut().chain(self.marked.values_mut()) {
+            if *s == State::Is(Probe::Missing) {
+                *s = State::Stale(Probe::Missing);
+                any = true;
+            }
+        }
+        if any && self.marks == Marks::On {
+            self.owed = Owed::Yes;
+        }
+    }
+
+    /// **Ask again about one path**, at the next batch: the pointer came
+    /// over a link struck for it.
+    pub fn recheck_path(&mut self, path: &[u8]) {
+        for map in [&mut self.known, &mut self.marked] {
+            if let Some(s) = map.get_mut(path) {
+                if let State::Is(p) = *s {
+                    *s = State::Stale(p);
+                }
+            }
+        }
+        if self.marks == Marks::On {
+            self.owed = Owed::Yes;
         }
     }
 
@@ -841,6 +1110,7 @@ impl Paths {
             return Vec::new();
         };
         self.known = c.kept;
+        self.marked = c.marked;
         self.owed = match c.over {
             Over::Yes => Owed::Yes,
             Over::No => Owed::No,
@@ -856,10 +1126,14 @@ impl Paths {
     pub fn merge(&mut self, probes: impl IntoIterator<Item = (Vec<u8>, Probe)>) -> Moved {
         let mut moved = Moved::No;
         for (path, probe) in probes {
-            if let Some(s) = self.known.get_mut(&path) {
-                if *s != State::Is(probe) {
+            for map in [&mut self.known, &mut self.marked] {
+                if let Some(s) = map.get_mut(&path) {
+                    // An answer asked again that came back the same moves
+                    // nothing drawn.
+                    if s.probe() != Some(probe) {
+                        moved = Moved::Yes;
+                    }
                     *s = State::Is(probe);
-                    moved = Moved::Yes;
                 }
             }
         }
@@ -874,7 +1148,11 @@ impl Paths {
     /// read on**, on `screen`: whether any form is, and whether the relative
     /// ones are, against the folder they would be read against.
     fn readable(&self, text: &Text<'_>, form: Form) -> bool {
-        let (first, last) = text.lines;
+        self.readable_on(text.lines, text.screen, form)
+    }
+
+    /// [`Paths::readable`], of the lines `first` to `last` on `screen`.
+    fn readable_on(&self, (first, last): (AbsLine, AbsLine), screen: Screen, form: Form) -> bool {
         if self.marks != Marks::On
             || self.front == Front::Elsewhere
             || self.elsewhere_through.is_some_and(|t| last <= t)
@@ -884,7 +1162,7 @@ impl Paths {
         if !form.relative() {
             return true;
         }
-        text.screen == Screen::Normal
+        screen == Screen::Normal
             && self.front != Front::Multiplexer
             && !self.multiplexed_through.is_some_and(|t| first <= t)
             && self.dir.local.is_some()
@@ -922,7 +1200,7 @@ impl Paths {
     /// drawn where the worker found it, and each it has no answer for owed
     /// or, in a collection, asked. Called only while [`Reads`] is yes. A path over a URI already found is not
     /// one. Returns how many it looked at.
-    fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> Looked {
+    fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> Looked {
         let mut toks = core::mem::take(&mut self.tokens);
         tokens(text.units, (text.head, text.tail), &self.forms, &mut toks);
         let uris = found.len();
@@ -931,7 +1209,7 @@ impl Paths {
             let shown = t.span.start < text.shown.1 && text.shown.0 < t.span.end;
             let over = found[..uris]
                 .iter()
-                .any(|f| f.start < t.span.end && t.span.start < f.end);
+                .any(|f| f.units.start < t.span.end && t.span.start < f.units.end);
             if !shown || over {
                 continue;
             }
@@ -959,29 +1237,99 @@ impl Paths {
                         Some(State::Is(p)) => {
                             c.kept.insert(self.key.clone(), State::Is(p));
                         }
-                        Some(State::Asked) | None if c.queue.len() < BATCH_MAX => {
-                            c.kept.insert(self.key.clone(), State::Asked);
+                        s if c.queue.len() < BATCH_MAX => {
+                            let s = match s {
+                                Some(State::Stale(p)) => State::Stale(p),
+                                _ => State::Asked,
+                            };
+                            c.kept.insert(self.key.clone(), s);
                             c.queue.push(Candidate {
                                 path: self.key.clone(),
                                 form: t.form,
                                 line: text.lines.1,
                             });
                         }
+                        Some(s @ State::Stale(_)) => {
+                            c.kept.insert(self.key.clone(), s);
+                            c.over = Over::Yes;
+                        }
                         Some(State::Asked) | None => c.over = Over::Yes,
                     }
                 }
             }
-            match state {
-                Some(State::Is(Probe::Exists)) if opens_as_uri(&self.key) => {
-                    found.push(t.span.clone());
+            match state.and_then(State::probe) {
+                Some(Probe::Exists) if opens_as_uri(&self.key) => {
+                    found.push(Run {
+                        units: t.span.clone(),
+                        mark: Mark::Line,
+                    });
                 }
-                Some(State::Is(_)) | Some(State::Asked) => {}
-                None if self.collect.is_none() => self.owed = Owed::Yes,
+                Some(_) => {}
+                None if self.collect.is_none() && state.is_none() => self.owed = Owed::Yes,
                 None => {}
             }
         }
         self.tokens = toks;
         Looked(looked)
+    }
+
+    /// **An `OSC 8` `file://` link at `at`, which `admit` opens**: struck
+    /// where its host names this machine by name and the worker found its
+    /// file gone, else a line; in a collection, asked about once a screen,
+    /// and outside one owed when it has no answer. Nothing is asked while
+    /// `missing` is off, for output not known to be this machine's, or for
+    /// a name [`file_path`] refuses.
+    fn file_link(&mut self, uri: &[u8], at: At) -> Mark {
+        if self.marks != Marks::On || self.missing != Turned::On {
+            return Mark::Line;
+        }
+        let Some((named, path)) = file_path(uri, &self.names) else {
+            return Mark::Line;
+        };
+        if !self.readable_on((at.line, at.line), at.screen, Form::Absolute) {
+            if self.front == Front::Elsewhere {
+                self.owed = Owed::Yes;
+            }
+            return Mark::Line;
+        }
+        let state = self.marked.get(path.as_slice()).copied();
+        if let Some(c) = &mut self.collect {
+            if c.marked.get(path.as_slice()) == Some(&State::Asked) {
+                // Linked again lower down: asked at its last line.
+                if let Some(q) = c.queue.iter_mut().find(|q| q.path == path) {
+                    q.line = q.line.max(at.line);
+                }
+            } else if !c.marked.contains_key(path.as_slice()) {
+                match state {
+                    Some(State::Is(p)) => {
+                        c.marked.insert(path.clone(), State::Is(p));
+                    }
+                    s if c.queue.len() < BATCH_MAX => {
+                        let s = match s {
+                            Some(State::Stale(p)) => State::Stale(p),
+                            _ => State::Asked,
+                        };
+                        c.marked.insert(path.clone(), s);
+                        c.queue.push(Candidate {
+                            path: path.clone(),
+                            form: Form::Absolute,
+                            line: at.line,
+                        });
+                    }
+                    Some(s) => {
+                        c.marked.insert(path.clone(), s);
+                        c.over = Over::Yes;
+                    }
+                    None => c.over = Over::Yes,
+                }
+            }
+        } else if state.is_none() {
+            self.owed = Owed::Yes;
+        }
+        match (named, state.and_then(State::probe)) {
+            (Named::ThisMachine, Some(Probe::Missing)) => Mark::Struck,
+            _ => Mark::Line,
+        }
     }
 
     /// Whether a line ending in `tail`, its last eight ASCII bytes, the
@@ -1025,6 +1373,61 @@ pub struct PathAt {
     pub form: Form,
     /// What the worker last said: only a path it found or did not.
     pub probe: Probe,
+}
+
+/// **What a click asked the worker about again**: a printed path, with the
+/// `:line:col` printed after it, or a link whose file the worker had found
+/// gone, which only a link that reveals is (`link::click`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Asked {
+    Printed(LineCol),
+    Link,
+}
+
+/// **The ask the answer for `path` came from**: the click's own, kept in
+/// `slot`, when it asked about `path`, else a link's reveal, which runs
+/// nothing of `[link.path]`'s. The worker answers only the latest click
+/// (`probe::Probes::click`) and with the path it was given, so an answer
+/// is the slot's own whenever the paths match; one that does not is an
+/// earlier ask's, and never takes a later printed path's copy or command.
+pub fn asked_for(slot: Option<(Vec<u8>, Asked)>, path: &[u8]) -> Asked {
+    slot.filter(|(p, _)| p == path)
+        .map_or(Asked::Link, |(_, a)| a)
+}
+
+/// What a click asked again does once its file is found.
+#[derive(Debug)]
+pub enum Found {
+    /// `[link.path] action = "copy"`: the path to the clipboard.
+    Copy,
+    /// `[link.path]`'s command, built for the path.
+    Command(Result<std::process::Command, crate::link::Refused>),
+    /// Shown in the file manager, through `admit` again.
+    Reveal,
+}
+
+/// **What a click asked again does, its file found**: a printed path takes
+/// `[link.path]`'s copy or command, else it is revealed; a link takes its
+/// own action, a reveal (a rule's copy or command runs before any asking,
+/// `link::click`, and the reader refuses a file opened by the system), and
+/// never `[link.path]`'s, which is for printed paths. No found file is
+/// opened by the system. `host` is what `admit` reads a `file://` host
+/// against.
+pub fn on_found(asked: &Asked, path: &[u8], host: crate::link::Host<'_>, rules: &Rules) -> Found {
+    let Asked::Printed(lc) = asked else {
+        return Found::Reveal;
+    };
+    if *rules.path_act() == crate::rules::PathAct::Copy {
+        return Found::Copy;
+    }
+    let uri = file_uri(path);
+    match crate::link::admit(uri.as_bytes(), host)
+        .ok()
+        .and_then(|_| rules.path_command(path, &lc.line, &lc.col))
+    {
+        Some(built) => Found::Command(built),
+        None => Found::Reveal,
+    }
 }
 
 /// **The `:line:col` printed after a path**, as its digits, each empty
@@ -1076,6 +1479,20 @@ pub trait PathsAt {
         lines: (AbsLine, AbsLine),
         screen: Screen,
     ) -> Option<PathAt>;
+
+    /// **Why `target`, which `admit` lets through, would open nothing**, as
+    /// the worker last found: its file gone from this machine, whatever its
+    /// host names it by, or no app for its kind. None where it would open
+    /// or baud cannot tell.
+    fn gone(&self, _target: &Target<'_>) -> Option<Gone> {
+        None
+    }
+
+    /// Whether anything is struck, under the chord as at rest: `[link]
+    /// missing`, with a worker to have asked.
+    fn strikes(&self) -> bool {
+        false
+    }
 }
 
 /// No printed paths: what every read had before them. The drivers read
@@ -1152,8 +1569,8 @@ impl PathsAt for Paths {
                 push_utf8(below_folder(t.form, body), &mut key);
             }
         }
-        let probe = match self.known.get(&key) {
-            Some(State::Is(p @ (Probe::Exists | Probe::Missing))) => *p,
+        let probe = match self.known.get(&key).and_then(|s| s.probe()) {
+            Some(p @ (Probe::Exists | Probe::Missing)) => p,
             _ => return None,
         };
         Some(PathAt {
@@ -1163,6 +1580,29 @@ impl PathsAt for Paths {
             form: t.form,
             probe,
         })
+    }
+
+    fn strikes(&self) -> bool {
+        self.marks == Marks::On && self.missing == Turned::On
+    }
+
+    fn gone(&self, target: &Target<'_>) -> Option<Gone> {
+        if !self.strikes() {
+            return None;
+        }
+        match target.scheme() {
+            Scheme::File => {
+                let (_, path) = file_path(target.as_str().as_bytes(), &self.names)?;
+                match self.marked.get(path.as_slice()).and_then(|s| s.probe()) {
+                    Some(Probe::Missing) => Some(Gone::File(path)),
+                    _ => None,
+                }
+            }
+            s => match self.scheme_mark(s) {
+                Mark::Struck => Some(Gone::NoApp(s)),
+                Mark::Line => None,
+            },
+        }
     }
 }
 
@@ -1182,20 +1622,30 @@ impl Reader for Links<'_> {
         (self.urls == Turned::On && self.uris.wants(tail)) || self.paths.wants(tail.0.to_be_bytes())
     }
 
-    fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize {
+    fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> Looked {
         let mut n = 0;
         if self.urls == Turned::On {
-            n += self.uris.read(text, found);
+            let paths = &*self.paths;
+            n += self
+                .uris
+                .read_marking(text, found, &|s| paths.scheme_mark(s));
         }
         if self.paths.reads == Reads::Yes {
             n += self.paths.read(text, found).0;
-            found.sort_unstable_by_key(|r| r.start);
+            found.sort_unstable_by_key(|r| r.units.start);
         }
-        n
+        Looked(n)
     }
 
-    fn admits(&mut self, uri: &[u8]) -> bool {
-        self.urls == Turned::On && self.uris.admits(uri)
+    fn marked(&mut self, uri: &[u8], at: At) -> Option<Mark> {
+        if self.urls != Turned::On {
+            return None;
+        }
+        let t = admit_with(uri, Host(self.uris.host()), self.uris.rules()).ok()?;
+        Some(match t.scheme() {
+            Scheme::File => self.paths.file_link(uri, at),
+            s => self.paths.scheme_mark(s),
+        })
     }
 
     fn changed(&mut self) {
@@ -1926,6 +2376,739 @@ mod tests {
         assert_eq!(checksum(&mut t), before, "the same with the mark up");
         feed(&mut t, b"\x1b[1;1HX");
         assert_ne!(checksum(&mut t), before, "the control: a cell moves it");
+    }
+
+    /// This machine's name in the strike's tests.
+    const HERE: &str = "here.example";
+
+    fn struck(l: &Lines) -> Vec<(usize, usize, usize)> {
+        l.struck()
+            .iter()
+            .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+            .collect()
+    }
+
+    /// An `OSC 8` link to `uri` over `text`.
+    fn marked(uri: &str, text: &str) -> String {
+        format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\")
+    }
+
+    /// **A window's links with this machine named**, `set` given the paths
+    /// before the scan, the worker's answer for each path asked `answer`'s:
+    /// the lines, the struck runs, the paths asked about and the paths.
+    #[allow(clippy::type_complexity)]
+    fn struck_scan(
+        bytes: &[u8],
+        answer: &dyn Fn(&[u8]) -> Probe,
+        set: &dyn Fn(&mut Paths),
+    ) -> (
+        Vec<(usize, usize, usize)>,
+        Vec<(usize, usize, usize)>,
+        Vec<Vec<u8>>,
+        Paths,
+    ) {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, bytes);
+        let mut p = Paths::new(Some(b"/home/user".to_vec()), Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        set(&mut p);
+        let mut u = Uris::default();
+        u.set_host(HERE.to_string());
+        let mut l = Lines::default();
+        let _ = p.observe(&t, at());
+        p.begin_collect();
+        let mut links = |p: &mut Paths, l: &mut Lines| {
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+        };
+        links(&mut p, &mut l);
+        let asked: Vec<Vec<u8>> = p.end_collect().into_iter().map(|c| c.path).collect();
+        let answers = asked
+            .iter()
+            .map(|a| (a.clone(), answer(a)))
+            .collect::<Vec<_>>();
+        if p.merge(answers) == Moved::Yes {
+            l.forget();
+        }
+        links(&mut p, &mut l);
+        (runs(&l), struck(&l), asked, p)
+    }
+
+    /// **An `OSC 8` `file://` link naming this machine, its file gone, is
+    /// struck at rest and not underlined**; one found is underlined; and with
+    /// `missing = "off"` the gone one is underlined as before and nothing is
+    /// asked for it. Perturbations: strike on `Named::NoMachine` in
+    /// `file_link`; let `file_link` ignore `missing`; push a struck run into
+    /// the lines in `osc8`.
+    #[test]
+    fn a_marked_file_here_and_gone_is_struck_at_rest() {
+        let text = format!(
+            "{} {}",
+            marked("file://here.example/gone", "gone"),
+            marked("file://here.example/etc/hosts", "hosts")
+        );
+        let answer = |p: &[u8]| match p {
+            b"/etc/hosts" => Probe::Exists,
+            _ => Probe::Missing,
+        };
+        let (lines, strikes, asked, p) = struck_scan(text.as_bytes(), &answer, &|_| {});
+        assert_eq!(asked, [b"/gone".to_vec(), b"/etc/hosts".to_vec()]);
+        assert_eq!(strikes, [(0, 0, 3)], "gone: struck");
+        assert_eq!(
+            lines,
+            [(0, 5, 9)],
+            "found: underlined, and the gone one not"
+        );
+        assert_eq!(p.result(b"/gone"), Some(Probe::Missing));
+        let (lines, strikes, asked, _) = struck_scan(text.as_bytes(), &answer, &|p| {
+            let _ = p.set_missing(Turned::Off);
+        });
+        assert!(strikes.is_empty(), "missing off: nothing struck");
+        assert!(
+            asked.is_empty(),
+            "missing off: nothing asked for a marked link"
+        );
+        assert_eq!(lines, [(0, 0, 3), (0, 5, 9)], "both underlined as before");
+    }
+
+    /// What a click on a struck link came to, the re-check answering
+    /// `again`, as both drivers carry it out: `link::click`, then for a
+    /// link asked again `paths::on_found` with `Asked::Link`.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Came {
+        Copy,
+        Command,
+        Open,
+        Reveal,
+        PathCopy,
+        PathCommand,
+        SaidGone,
+    }
+
+    fn click_came(t: &Target<'_>, p: &Paths, again: Probe, rules: &Rules) -> Came {
+        use crate::link::{Click, click};
+        match click(t, p) {
+            Click::Copy => Came::Copy,
+            Click::Command => Came::Command,
+            Click::Open => Came::Open,
+            Click::Reveal => Came::Reveal,
+            Click::Again(path) => match again {
+                Probe::Exists => match on_found(&Asked::Link, &path, Host(HERE), rules) {
+                    Found::Copy => Came::PathCopy,
+                    Found::Command(_) => Came::PathCommand,
+                    Found::Reveal => Came::Reveal,
+                },
+                _ => Came::SaidGone,
+            },
+        }
+    }
+
+    /// **A click on a struck `file://` link runs the link's own action, on
+    /// both drivers, in four cases**: a `[link.file]` copy rule while its
+    /// file is missing and once it reappears, and a command rule the same,
+    /// each with a `[link.path]` command set, which a reappeared link never
+    /// takes. Both drivers dispatch on `link::click` and nothing else, the
+    /// re-check's answer on `paths::on_found`, so one table holds the macOS
+    /// and the Linux click alike; the control is the same link with no rule,
+    /// which is asked again and said gone, or revealed. Named break: in
+    /// `click`, ask `paths.gone` before reading the action, the order the
+    /// Linux driver had, and all four cases are asked again instead.
+    #[test]
+    fn a_struck_file_links_rule_runs_on_both_drivers_missing_or_back() {
+        let text = marked("file://here.example/gone", "gone");
+        let (_, strikes, _, p) = struck_scan(text.as_bytes(), &|_| Probe::Missing, &|_| {});
+        assert_eq!(strikes, [(0, 0, 3)], "the control: struck, found gone");
+        let uri = b"file://here.example/gone";
+        let path = "[link.path]\ncommand = [\"/bin/echo\", \"{path}\"]\n";
+        let rule = |r: &str| {
+            let mut c = crate::config::Config::defaults();
+            let said = c.apply(&format!("{path}{r}"));
+            assert!(said.is_empty(), "{r}: {said:?}");
+            c.link.rules
+        };
+        let copy = rule("[link.file]\naction = \"copy\"\n");
+        let command = rule("[link.file]\ncommand = [\"/bin/echo\", \"{url}\"]\n");
+        let none = rule("");
+        let mut came = Vec::new();
+        for (name, rules) in [("copy", &copy), ("command", &command)] {
+            let t = crate::link::admit_with(uri, Host(HERE), rules).expect("the rule's");
+            for (state, again) in [("missing", Probe::Missing), ("back", Probe::Exists)] {
+                came.push((name, state, click_came(&t, &p, again, rules)));
+            }
+        }
+        assert_eq!(
+            came,
+            [
+                ("copy", "missing", Came::Copy),
+                ("copy", "back", Came::Copy),
+                ("command", "missing", Came::Command),
+                ("command", "back", Came::Command),
+            ],
+            "each case runs its rule"
+        );
+        let plain = crate::link::admit_with(uri, Host(HERE), &none).expect("admitted");
+        assert_eq!(
+            click_came(&plain, &p, Probe::Missing, &none),
+            Came::SaidGone
+        );
+        assert_eq!(click_came(&plain, &p, Probe::Exists, &none), Came::Reveal);
+    }
+
+    /// Every link the worker says is gone, whatever it is: what reaches
+    /// `click`'s asking for a link of any action.
+    struct AllGone;
+
+    impl PathsAt for AllGone {
+        fn generation(&self) -> Generation {
+            Generation::default()
+        }
+
+        fn at(
+            &self,
+            _: &[Unit],
+            _: Ix,
+            _: (Edge, Edge),
+            _: (AbsLine, AbsLine),
+            _: Screen,
+        ) -> Option<PathAt> {
+            None
+        }
+
+        fn gone(&self, _: &Target<'_>) -> Option<Gone> {
+            Some(Gone::File(b"/gone".to_vec()))
+        }
+    }
+
+    /// **No path opens a found file with the system's app**: a link that
+    /// opens is never asked about again, even where its file is said gone,
+    /// only one that reveals is; and an ask, found, is a reveal or a
+    /// printed path's `[link.path]` action, never an open. Named break: in
+    /// `click`, ask about an open link's file again too, as the Open arm
+    /// did, and the `https` link is asked again.
+    #[test]
+    fn no_path_opens_a_found_file() {
+        use crate::link::{Click, click};
+        let opens = admit(b"https://a.example/", Host("")).expect("admitted");
+        assert_eq!(opens.action(), crate::link::Action::Open);
+        assert_eq!(
+            click(&opens, &AllGone),
+            Click::Open,
+            "an open is never asked again"
+        );
+        let reveals = admit(b"file:///gone", Host("")).expect("admitted");
+        assert_eq!(
+            click(&reveals, &AllGone),
+            Click::Again(b"/gone".to_vec()),
+            "the control: a reveal is"
+        );
+        let rules = &Rules::NONE;
+        for asked in [Asked::Link, Asked::Printed(LineCol::default())] {
+            let found = on_found(&asked, b"/etc/hosts", Host(""), rules);
+            assert!(matches!(found, Found::Reveal), "{asked:?}: {found:?}");
+        }
+    }
+
+    /// **Two clicks before one answer: each answer finds its own ask**. A
+    /// gone link clicked, then a printed path before the worker answers:
+    /// the printed path's answer takes its own `:line:col`, and an answer
+    /// for the link's path -- the earlier ask, which the worker drops, so
+    /// only a stale one could come -- is a link's reveal and never the
+    /// printed path's `[link.path]` action. Named break: in `asked_for`, take
+    /// an answer that matches no ask as a printed path with no `:line:col`,
+    /// as both drivers did, and the link's answer gets `[link.path]`'s.
+    #[test]
+    fn two_clicks_before_one_answer_each_get_their_own_action() {
+        let lc = LineCol {
+            line: "12".to_string(),
+            col: "3".to_string(),
+        };
+        let mut slot = Some((b"/gone".to_vec(), Asked::Link));
+        let earlier = slot.replace((b"/x".to_vec(), Asked::Printed(lc.clone())));
+        assert_eq!(
+            earlier.map(|(p, _)| p),
+            Some(b"/gone".to_vec()),
+            "the second click takes the slot, as both drivers keep it"
+        );
+        assert_eq!(
+            asked_for(slot.clone(), b"/x"),
+            Asked::Printed(lc),
+            "its own"
+        );
+        assert_eq!(
+            asked_for(slot, b"/gone"),
+            Asked::Link,
+            "the link's answer is a link's"
+        );
+        let slot = Some((b"/gone".to_vec(), Asked::Link));
+        assert_eq!(asked_for(slot, b"/gone"), Asked::Link, "its own");
+    }
+
+    /// **A link asked again, its file found, is revealed, never handed to
+    /// `[link.path]`'s command**, which a printed path asked again is: both
+    /// drivers decide through `on_found`. Named break: in `on_found`, read a link
+    /// as a printed path with no `:line:col`, and the link gets the command.
+    #[test]
+    fn a_gone_then_found_link_reveals_whatever_link_path_says() {
+        let mut c = crate::config::Config::defaults();
+        let said = c.apply("[link.path]\ncommand = [\"/bin/echo\", \"{path}\"]\n");
+        assert!(said.is_empty(), "{said:?}");
+        let rules = &c.link.rules;
+        let printed = on_found(
+            &Asked::Printed(LineCol::default()),
+            b"/etc/hosts",
+            Host(""),
+            rules,
+        );
+        assert!(
+            matches!(printed, Found::Command(Ok(_))),
+            "the control: a printed path runs [link.path]'s command: {printed:?}"
+        );
+        let link = on_found(&Asked::Link, b"/etc/hosts", Host(""), rules);
+        assert!(matches!(link, Found::Reveal), "a link reveals: {link:?}");
+    }
+
+    /// **A strike comes only from `ENOENT` or `ENOTDIR` on output known to be
+    /// this machine's**: an answer baud cannot stand behind (a refused mount,
+    /// an error other than those two -- `Probe::Unknown` either way), no
+    /// answer yet, `ssh` in front, and a window whose worker hung each leave
+    /// the link underlined and nothing struck. Perturbations: strike on
+    /// `Probe::Unknown`; strike an unanswered link; drop the `readable_on`
+    /// test from `file_link`; keep the marked answers in `drop_all`.
+    #[test]
+    fn only_a_file_found_gone_here_is_struck() {
+        let text = marked("file://here.example/x", "x");
+        let (lines, strikes, _, _) = struck_scan(text.as_bytes(), &|_| Probe::Unknown, &|_| {});
+        assert_eq!(
+            (lines, strikes),
+            (vec![(0, 0, 0)], vec![]),
+            "unknown: no mark"
+        );
+        // No answer yet: a frame owes a batch and strikes nothing.
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, text.as_bytes());
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        let mut u = Uris::default();
+        u.set_host(HERE.to_string());
+        let mut l = Lines::default();
+        let mut scan = |p: &mut Paths, l: &mut Lines| {
+            l.forget();
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+        };
+        scan(&mut p, &mut l);
+        assert_eq!(p.owed(), Owed::Yes, "an unanswered link owes a batch");
+        assert!(l.struck().is_empty(), "and is not struck");
+        // `ssh` in front: nothing asked, nothing struck.
+        p.set_front(
+            Front::Elsewhere,
+            at().line(Rows::ZERO, baud_domain::Row::ZERO),
+        );
+        p.begin_collect();
+        scan(&mut p, &mut l);
+        assert!(p.end_collect().is_empty(), "nothing asked under ssh");
+        assert!(l.struck().is_empty());
+        // The control, and then a hang: the strike goes with the marks.
+        let (_, strikes, _, mut p) = struck_scan(text.as_bytes(), &|_| Probe::Missing, &|_| {});
+        assert_eq!(strikes, [(0, 0, 0)], "the control: gone is struck");
+        p.close();
+        assert_eq!(p.result(b"/x"), None, "a hang drops the answer");
+        let mut l = Lines::default();
+        let _ = l.scan(
+            &t,
+            at(),
+            &mut Links {
+                uris: &mut u,
+                urls: Turned::On,
+                paths: &mut p,
+            },
+        );
+        assert!(l.struck().is_empty(), "closed: nothing struck");
+    }
+
+    /// **`ls --hyperlink` naming another machine is never struck, nor looked
+    /// up.** The bytes are what coreutils 9.10's `ls --hyperlink=always -1`
+    /// writes into a pipe for host `remote.example` and folder `/home/user`
+    /// (`[[source: coreutils-v9-10-ls-c]]`, `src/ls.c`): `quote_name` prints
+    /// the opening link with `printf` at line 4726, `file://`, the host and
+    /// the absolute path, then `ESC \`; each goes through `file_escape`
+    /// (4669-4688), which writes every byte outside `RFC3986`'s unreserved
+    /// set (1306-1312) as a lowercase `%xx`, so the space is `%20`; then the
+    /// name, unquoted off a terminal (2338-2346); then `ESC ] 8 ; ; ESC \`
+    /// (4743). Those lines, compiled and run on these hosts and paths, write
+    /// these bytes exactly. A run here would carry this machine's name. This
+    /// machine is `here.example`, so the host is another's:
+    /// `admit` refuses it, nothing is asked, and nothing is drawn, whatever
+    /// a worker would say. Perturbations: let `file_path` take any host; strike
+    /// a link `admit` refuses.
+    #[test]
+    fn ls_hyperlink_from_another_host_is_never_struck() {
+        let listing =
+            b"\x1b]8;;file://remote.example/home/user/a%20b.md\x1b\\a b.md\x1b]8;;\x1b\\\n\
+            \x1b]8;;file://remote.example/home/user/notes.txt\x1b\\notes.txt\x1b]8;;\x1b\\\n";
+        let (lines, strikes, asked, p) = struck_scan(listing, &|_| Probe::Missing, &|_| {});
+        assert!(asked.is_empty(), "another host's file is not looked up");
+        assert!(strikes.is_empty(), "and not struck");
+        assert!(
+            lines.is_empty(),
+            "and drawn as no link, as admit refuses it"
+        );
+        assert_eq!(p.result(b"/home/user/notes.txt"), None);
+        assert_eq!(
+            file_path(
+                b"file://remote.example/home/user/notes.txt",
+                &[HERE.to_string()]
+            ),
+            None
+        );
+        // The control: the same listing from this machine is asked about,
+        // its space decoded.
+        let here = b"\x1b]8;;file://here.example/home/user/a%20b.md\x1b\\a b.md\x1b]8;;\x1b\\\n";
+        let (_, strikes, asked, _) = struck_scan(here, &|_| Probe::Missing, &|_| {});
+        assert_eq!(asked, [b"/home/user/a b.md".to_vec()]);
+        assert_eq!(strikes, [(0, 0, 5)]);
+    }
+
+    /// **`file:///x` and `file://localhost/x` name no machine, so a gone one
+    /// is never struck at rest**: it keeps its line; under the chord it is
+    /// struck and the bar says it is not on this machine; without the chord
+    /// it is not. Perturbations: strike `Named::NoMachine` at rest; drop the
+    /// gone arm in `Hover::update_with`.
+    #[test]
+    fn a_file_naming_no_machine_is_struck_only_under_the_chord() {
+        use crate::link::{Chord, Hover, Spot, hovered, preview_text_with};
+        use baud_core::Focus;
+        use baud_domain::{Col, Row};
+        for uri in ["file:///gone", "file://localhost/gone"] {
+            let text = marked(uri, "gone");
+            let (lines, strikes, asked, p) =
+                struck_scan(text.as_bytes(), &|_| Probe::Missing, &|_| {});
+            assert_eq!(asked, [b"/gone".to_vec()], "{uri}: asked about");
+            assert!(strikes.is_empty(), "{uri}: never struck at rest");
+            assert_eq!(lines, [(0, 0, 3)], "{uri}: its line stays");
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, text.as_bytes());
+            let mut h = Hover::default();
+            let at_cell = Some((Row::ZERO, Col::at_index(1)));
+            let _ = h.update_with(
+                &t,
+                at_cell,
+                at(),
+                Chord::Other,
+                Focus::Gained,
+                Host(HERE),
+                &p,
+            );
+            assert!(h.struck().is_empty(), "{uri}: no chord, no strike");
+            let _ = h.update_with(&t, at_cell, at(), Chord::Cmd, Focus::Gained, Host(HERE), &p);
+            assert_eq!(h.struck().len(), 1, "{uri}: struck under the chord");
+            assert_eq!(h.take_entered(), Some(Gone::File(b"/gone".to_vec())));
+            let spot = Spot {
+                scrolled: at(),
+                back: Rows::ZERO,
+                row: Row::ZERO,
+                col: Col::at_index(1),
+            };
+            let link = hovered(&t, spot).expect("the link");
+            let bar =
+                preview_text_with(&link, &t, Host(HERE), Cols::of_index(58), &p).expect("a bar");
+            assert!(bar.contains(&format!("no such file on {MACHINE}")), "{bar}");
+            assert!(
+                h.look().is_some_and(|l| l.spans.is_empty()),
+                "nothing drawn as openable"
+            );
+        }
+    }
+
+    /// **A struck link selects and copies as it is written**: the strike is
+    /// the frame's, so the cells under it and the text a selection over them
+    /// copies are what the program wrote, and `DECRQCRA` answers as it did
+    /// before the strike. Perturbations: write the strike into the cells;
+    /// blank them under the strike.
+    #[test]
+    fn a_struck_link_copies_as_written_and_reads_back_the_same() {
+        use baud_render::{Grain, Point as Pt, Selection, Span};
+        let checksum = |t: &mut Term<'_>| {
+            t.clear_reply();
+            feed(t, b"\x1b[7;1;1;1;6;60*y");
+            t.reply().to_vec()
+        };
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let text = format!("\x1b[?25l{}", marked("file://here.example/gone", "gone"));
+        feed(&mut t, text.as_bytes());
+        let before = checksum(&mut t);
+        assert!(!before.is_empty(), "the control: the query answers");
+        let cells = t.view(Rows::ZERO).row(baud_domain::Row::ZERO).to_vec();
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        let mut u = Uris::default();
+        u.set_host(HERE.to_string());
+        let mut l = Lines::default();
+        p.begin_collect();
+        let mut scan = |p: &mut Paths, l: &mut Lines| {
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+        };
+        scan(&mut p, &mut l);
+        let asked = p.end_collect();
+        let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Missing)));
+        l.forget();
+        scan(&mut p, &mut l);
+        assert_eq!(struck(&l), [(0, 0, 3)], "the control: it is struck");
+        assert_eq!(
+            t.view(Rows::ZERO).row(baud_domain::Row::ZERO),
+            &cells[..],
+            "no cell changed"
+        );
+        let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let cell = |c: usize| {
+            let p = Pt::new(line, baud_domain::Col::at_index(c));
+            Span { start: p, end: p }
+        };
+        let mut sel = Selection::at(cell(0), Grain::Cell);
+        sel.extend(cell(3));
+        assert_eq!(sel.text(&t, at()), "gone", "copied as written");
+        assert_eq!(
+            checksum(&mut t),
+            before,
+            "DECRQCRA: the same with it struck"
+        );
+    }
+
+    /// **A link whose kind has no app is struck; one baud cannot tell about,
+    /// or that has one, is underlined**, and with `missing = "off"` nothing is
+    /// struck; a scheme `admit` refuses is no link at all, struck or not, as
+    /// before. The bar says which app is missing. Perturbations: strike on
+    /// `Handler::Unknown`; read `missing` nowhere in `program_mark`.
+    #[test]
+    fn a_kind_with_no_app_is_struck_and_an_unknown_one_is_not() {
+        let text = b"https://a.example/ http://b.example/ tel:+15550100";
+        let none = |p: &mut Paths| {
+            let _ = p.set_programs(vec![
+                (Program::Scheme(Scheme::Https), Handler::Missing),
+                (Program::Scheme(Scheme::Http), Handler::Found),
+            ]);
+        };
+        let (lines, strikes, _, p) = struck_scan(text, &|_| Probe::Missing, &none);
+        assert_eq!(strikes, [(0, 0, 17)], "https: no app, struck");
+        assert_eq!(
+            lines,
+            [(0, 19, 35)],
+            "http: an app, underlined; tel: refused, nothing"
+        );
+        let t = admit(b"https://a.example/", Host("")).unwrap();
+        assert_eq!(PathsAt::gone(&p, &t), Some(Gone::NoApp(Scheme::Https)));
+        assert_eq!(
+            crate::link::refusal_words(crate::link::Refused::NoApp(Scheme::Https)),
+            "no app for https:"
+        );
+        let (lines, strikes, _, _) = struck_scan(text, &|_| Probe::Missing, &|_| {});
+        assert!(strikes.is_empty(), "unknown: nothing struck");
+        assert_eq!(lines.len(), 2, "both underlined");
+        let (_, strikes, _, _) = struck_scan(text, &|_| Probe::Missing, &|p| {
+            none(p);
+            let _ = p.set_missing(Turned::Off);
+        });
+        assert!(strikes.is_empty(), "missing off: nothing struck");
+        // With no worker to ask again, what it found goes with it.
+        let (_, _, _, mut p) = struck_scan(text, &|_| Probe::Missing, &none);
+        assert_eq!(p.scheme_mark(Scheme::Https), Mark::Struck, "the control");
+        p.set(Turned::Off);
+        assert_eq!(p.scheme_mark(Scheme::Https), Mark::Line, "paths off");
+        let (_, _, _, mut p) = struck_scan(text, &|_| Probe::Missing, &none);
+        p.close();
+        assert_eq!(p.scheme_mark(Scheme::Https), Mark::Line, "a hang");
+    }
+
+    /// **`missing = "off"` strikes nothing under the chord either**: a printed
+    /// path found gone keeps the bar's words and gets no strike, and with it
+    /// on it is struck. Perturbation: drop the `strikes` test in
+    /// `Hover::update_with`.
+    #[test]
+    fn missing_off_strikes_nothing_under_the_chord() {
+        use crate::link::{Chord, Hover};
+        use baud_core::Focus;
+        use baud_domain::{Col, Row};
+        let (_, mut p) = scanned(b"x /nope", &[]);
+        assert_eq!(p.result(b"/nope"), Some(Probe::Missing), "the control");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"x /nope");
+        let over = Some((Row::ZERO, Col::at_index(4)));
+        let mut h = Hover::default();
+        let _ = h.update_with(&t, over, at(), Chord::Cmd, Focus::Gained, Host(""), &p);
+        assert_eq!(h.struck().len(), 1, "on: struck under the chord");
+        let _ = p.set_missing(Turned::Off);
+        let _ = h.update_with(&t, over, at(), Chord::Cmd, Focus::Gained, Host(""), &p);
+        assert!(h.struck().is_empty(), "off: not struck");
+        assert!(h.look().is_some(), "and the bar still says why");
+    }
+
+    /// **The hook a `command` rule reads**: its `command[0]` found missing is
+    /// struck, found or unknown is not, and nothing is with `missing = "off"`.
+    /// Perturbation: compare programs by kind only in `program`.
+    #[test]
+    fn a_commands_program_missing_marks_it_struck() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        let gone = Program::Command("/no/such/editor".to_owned());
+        let there = Program::Command("/usr/bin/true".to_owned());
+        assert_eq!(p.program_mark(&gone), Mark::Line, "not asked yet");
+        assert!(!p.programs_missing());
+        assert_eq!(
+            p.set_programs(vec![
+                (gone.clone(), Handler::Missing),
+                (there.clone(), Handler::Found)
+            ]),
+            Moved::Yes
+        );
+        assert_eq!(p.program_mark(&gone), Mark::Struck);
+        assert!(p.programs_missing(), "what a job's end asks about again");
+        assert_eq!(p.program_mark(&there), Mark::Line);
+        assert_eq!(
+            p.program_mark(&Program::Command("/other".to_owned())),
+            Mark::Line,
+            "one never asked about"
+        );
+        assert_eq!(
+            p.set_programs(vec![(gone.clone(), Handler::Missing)]),
+            Moved::No
+        );
+        let _ = p.set_missing(Turned::Off);
+        assert_eq!(p.program_mark(&gone), Mark::Line, "missing off");
+    }
+
+    /// **A strike survives every batch while its link is on the screen, and
+    /// one asked again stays drawn until the answer comes**: two collections
+    /// of the same screen keep it, a batch that answers the same moves no
+    /// generation, and `recheck` owes a batch that asks it again, after which
+    /// an answer of found takes the strike off. Perturbations: leave the marked
+    /// answers out of `end_collect`; drop the `Stale` answer in `recheck`.
+    #[test]
+    fn a_strike_survives_batches_and_a_recheck_keeps_it_till_answered() {
+        let text = marked("file://here.example/gone", "gone");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, text.as_bytes());
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        let mut u = Uris::default();
+        u.set_host(HERE.to_string());
+        let mut l = Lines::default();
+        let scan = |p: &mut Paths, l: &mut Lines, u: &mut Uris| {
+            l.forget();
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+        };
+        let batch = |p: &mut Paths, l: &mut Lines, u: &mut Uris, answer: Probe| {
+            p.begin_collect();
+            scan(p, l, u);
+            let asked = p.end_collect();
+            let n = asked.len();
+            let moved = p.merge(asked.into_iter().map(|c| (c.path, answer)));
+            scan(p, l, u);
+            (n, moved)
+        };
+        assert_eq!(
+            batch(&mut p, &mut l, &mut u, Probe::Missing),
+            (1, Moved::Yes)
+        );
+        assert_eq!(struck(&l), [(0, 0, 3)]);
+        let g = p.generation();
+        assert_eq!(
+            batch(&mut p, &mut l, &mut u, Probe::Missing),
+            (0, Moved::No),
+            "kept, not asked"
+        );
+        assert_eq!(struck(&l), [(0, 0, 3)], "still struck after a second batch");
+        assert_eq!(p.generation(), g);
+        p.recheck();
+        assert_eq!(p.owed(), Owed::Yes, "a recheck owes a batch");
+        scan(&mut p, &mut l, &mut u);
+        assert_eq!(struck(&l), [(0, 0, 3)], "drawn as it was until answered");
+        assert_eq!(
+            batch(&mut p, &mut l, &mut u, Probe::Missing),
+            (1, Moved::No),
+            "asked again, the same"
+        );
+        p.recheck_path(b"/gone");
+        assert_eq!(
+            batch(&mut p, &mut l, &mut u, Probe::Exists),
+            (1, Moved::Yes)
+        );
+        assert!(struck(&l).is_empty(), "back: not struck");
+        assert_eq!(runs(&l), [(0, 0, 3)], "and underlined");
+    }
+
+    /// **A `file://` name is looked up only as a plain path**: decoded, and
+    /// refused with a query or fragment, a bad `%`, bytes not UTF-8, or a
+    /// control or bidirectional control in it. Perturbation: keep `%00`.
+    #[test]
+    fn a_file_name_is_decoded_and_refused_with_a_control() {
+        let here = [HERE.to_string()];
+        let ok = |u: &str| file_path(u.as_bytes(), &here);
+        assert_eq!(
+            ok("file:///a%20b"),
+            Some((Named::NoMachine, b"/a b".to_vec()))
+        );
+        assert_eq!(
+            ok("FILE://Here.Example/x"),
+            Some((Named::ThisMachine, b"/x".to_vec()))
+        );
+        assert_eq!(
+            ok("file://localhost/x"),
+            Some((Named::NoMachine, b"/x".to_vec()))
+        );
+        for bad in [
+            "file:///a?b",
+            "file:///a#b",
+            "file:///a%2",
+            "file:///a%zz",
+            "file:///a%00b",
+            "file:///a%0Ab",
+            "file:///a%C2%85b",
+            "file:///a%E2%80%AEb",
+            "file:///a%FFb",
+            "file://other.example/x",
+            "https://here.example/x",
+        ] {
+            assert_eq!(ok(bad), None, "{bad}");
+        }
     }
 
     /// **The frame's answer is `admit`'s**: for paths short, long, encoded and

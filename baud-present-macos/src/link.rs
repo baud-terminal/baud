@@ -10,7 +10,7 @@
 //! string names. No subprocess, no `open(1)`, no argv: the URL is one
 //! `NSURL`.
 
-use macos_liquid_glass::objc2::rc::Retained;
+use macos_liquid_glass::objc2::rc::{Retained, autoreleasepool};
 use macos_liquid_glass::objc2_app_kit::NSWorkspace;
 use macos_liquid_glass::objc2_foundation::{NSArray, NSProcessInfo, NSString, NSURL};
 
@@ -91,7 +91,26 @@ pub fn host_name() -> String {
 /// The application LaunchServices would open `url` with, without opening
 /// it -- the side-effect-free way to ask whether a scheme has a handler.
 pub fn handler(url: &str) -> Option<String> {
-    let u = parse(url).ok()?;
-    let app = NSWorkspace::sharedWorkspace().URLForApplicationToOpenURL(&u)?;
-    app.absoluteString().map(|s| s.to_string())
+    autoreleasepool(|_| {
+        let u = parse(url).ok()?;
+        let app = NSWorkspace::sharedWorkspace().URLForApplicationToOpenURL(&u)?;
+        app.absoluteString().map(|s| s.to_string())
+    })
+}
+
+/// **Whether an app opens `url`**, asked as [`handler`] asks: none when the
+/// string does not parse as the URL it names. Called off the main thread by
+/// `baud-app`'s link worker with a fixed address, never a program's bytes:
+/// `NSWorkspace` carries no main-actor mark in the SDK's header, and every
+/// object the call makes is released in its own autorelease pool, since that
+/// thread has none of AppKit's.
+pub fn has_handler(url: &str) -> Option<bool> {
+    autoreleasepool(|_| {
+        let u = parse(url).ok()?;
+        Some(
+            NSWorkspace::sharedWorkspace()
+                .URLForApplicationToOpenURL(&u)
+                .is_some(),
+        )
+    })
 }

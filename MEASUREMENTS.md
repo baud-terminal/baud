@@ -4967,3 +4967,90 @@ sits as far from base as the change does on `cat` and `links-rg`. To be taken
 again on an idle machine. All of this is the CPU path; Metal is unmeasured, and
 so is a config with rules, whose cost grows with the number of added schemes,
 32 at most.
+
+## A struck link on the frame path: its grey lent a slot, not drawn over
+
+A struck link's text was first drawn as a field over its cells, and that cost
+about 55 us a run on the CPU path (`links-rg`, 98 runs a frame, +5,444 us): a
+ceiling arm that kept the strike's solids and skipped the field sat on base,
+and `sample` put the field's shaping, outside the run cache, at 24% of the
+frame. The grey is now drawn by the cells themselves, through a slot the
+frame's resolved table lends each struck source rendition after the frozen
+rows' (`baud_render::Lent`). Base is 49926981; the change and an A/A copy were
+built with `git archive` at one path. `cmp`: the change's two builds of
+`frame`, `frame_gpu` and `ingest2` are byte-identical, and `ingest2` is
+byte-identical to base's. Rounds rotated, the first dropped; a round was
+rerun when a `rustc`, `cargo` or the VM's `docker run` was seen at its start or
+end, or the load passed 4. The VM was up and idle (under a fifth of a core)
+through the CPU rounds and the first cell-path rounds; one CPU attempt was
+dropped beside its build. The struck cell-path rows below ran beside other
+lanes' builds at load 5.5, every quiet attempt having failed.
+
+**The cell path with nothing struck** (`frame_gpu`'s `app` arm, the app's
+three sets, 200 idle cursor-blink frames after each replay, idle median us a
+frame, four rounds, VM down): equal to base everywhere, every range
+overlapping. A first set of rounds read +2.4 us on `cat` and +2.6 on
+`links-herdr` past base's range; `sample` put it in the compare, whose
+lent-copy form ran for every frame, and the compare now runs base's own code
+when nothing was lent.
+
+| recording | base | change | A/A |
+|---|---:|---:|---:|
+| `cat-scroll` | 34.2 (32.6-34.5) | 34.3 (33.0-35.2) | 33.0 (32.0-34.4) |
+| `less-pager` | 42.0 (40.5-42.2) | 41.9 (41.2-42.5) | 41.0 (40.4-42.3) |
+| `vim-unicode` | 65.2 (63.9-65.4) | 65.0 (64.7-65.8) | 64.9 (64.6-65.2) |
+| `btop` | 27.2 (25.5-27.7) | 26.1 (25.5-26.7) | 26.9 (25.3-27.7) |
+| `links-herdr` | 28.9 (27.1-29.2) | 29.3 (27.4-29.4) | 29.2 (27.4-39.0) |
+| `links-rg` | 56.0 (55.1-56.3) | 56.1 (54.8-56.5) | 56.4 (55.4-57.5) |
+
+Frames committed and copies made are equal on every row but `links-herdr`
+(15, 14 and 15 frames, the GPU's landing times); map walks and window misses
+are the change's and A/A's alike.
+
+**The CPU path** (`frame`, four rounds), us a frame:
+
+| recording | base, on | on | on, A/A | base, paths | paths | no-app | no-app, A/A | struck runs a rep |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `cat-scroll` | 1075.0 (1062.4-1079.2) | 1074.1 (1060.3-1094.2) | 1073.3 (1065.7-1083.0) | 1075.1 (1067.8-1075.9) | 1081.8 (1069.2-1093.9) | 1078.6 (1059.3-1095.3) | 1075.8 (1065.8-1097.7) | 0 |
+| `less-pager` | 1019.2 (1011.7-1025.7) | 1017.8 (1016.7-1019.0) | 1027.2 (1002.8-1041.3) | 1024.7 (1014.3-1030.4) | 1017.9 (1013.8-1022.7) | 1019.7 (1009.6-1031.4) | 1030.0 (1006.5-1030.8) | 0 |
+| `links-herdr` | 1251.0 (1233.8-1257.1) | 1253.1 (1236.1-1259.0) | 1260.0 (1233.3-1263.6) | 1247.9 (1233.7-1252.6) | 1251.0 (1231.3-1266.5) | 1258.6 (1247.2-1270.9) | 1254.4 (1244.1-1274.6) | 812 |
+| `links-rg` | 2537.9 (2516.0-2560.3) | 2555.3 (2542.1-2568.9) | 2532.3 (2526.6-2540.9) | 2556.4 (2524.1-2565.9) | 2540.2 (2536.7-2542.3) | 2597.0 (2564.5-2605.6) | 2556.1 (2544.5-2584.2) | 8,466 |
+
+* **Nothing struck: no result.** `on` and `paths` overlap base on every row.
+* **Every web link struck:** on `links-herdr`, 2.2 runs a frame, `no-app`
+  overlaps `on`: no result. On `links-rg`, 98 runs a frame, the A/A pair reads
+  +24 us over its `on` (2544.5-2584.2 against 2526.6-2540.9) and the change's
+  overlaps its `on` by 4 us: about 0.2 to 0.4 us a run, against 55 before.
+  Rows dirtied and instances are `on`'s on every row: no frame repaints whole
+  for a lending that moved nothing an unchanged cell draws.
+* **The words copied whole on every struck frame, then let go.** The frame's
+  readers held the lent words when the next frame gave its slots back, so
+  `Rc::make_mut` copied all 65,536 of them (about 1.5 MiB) to put the slots
+  back; `give_back` now drops that hold first. Rebuilt the same way (change
+  and A/A byte-identical), `links-rg` and `links-herdr` with every web link
+  struck, five rounds, all beside other lanes' builds at load 4.6 to 6.6,
+  VM down: no result. On `links-rg`, us a frame, base `on` 2576.2
+  (2563.9-2579.1), the change `on` 2559.7 (2546.4-2772.6), `no-app` before
+  the fix 2618.3 (2604.3-2642.4), after it 2613.2 (2582.0-2703.1), A/A
+  2588.3 (2578.5-2634.5); `links-herdr` overlaps throughout. `sample`, six
+  seconds of `links-rg` `no-app` on each build: the copy's `make_mut` and the
+  `memmove` and large allocation under it were 16 of 4,917 main-thread
+  samples before (0.3%, about 8 us of a 2,600 us frame) and none after. So
+  the copy accounted for about 8 us of the 24 to 42 the A/A pair read; what
+  else they hold is unmeasured.
+
+**The cell path with every `OSC 8` link struck** (`links-rg-osc8`, 23,150
+struck cells over the replay, four rounds beside builds, load 5.5): idle
+frames take no map walk, struck or not, and the walks, windows and misses of
+the replay are within the A/A pair's own spread (3 or 4 walks, 25,960 to
+26,146 windows, 185 to 207 misses). An idle frame costs 52.0 (51.1-52.2) us
+struck against 45.8 (43.5-46.0), and 52.3 (52.0-52.7) against 44.4
+(43.6-45.2) on the A/A copy: +6 to +8 us. Of that, timed apart: the copy put
+back and its slots given back 0.1, the compare 6.0 (the same unstruck), the
+lending 1.5 (the struck cells read 0.4 of it), the lent copy the walk and the
+overlay read 1.2; the rest is the overlay's own walk over the lent copy,
+unmeasured apart.
+
+**What is not here.** The instance path on Metal, any discrete GPU, and a
+frozen window with strikes, which no corpus recording reaches at the app's
+provisioning: the tests hold that case at a small table.

@@ -230,7 +230,8 @@ pub(crate) struct Seat {
     /// (`link::gesture`); whether the window has the keyboard, which a press
     /// must for it to arm.
     armed: Option<crate::link::Armed>,
-    opening: Option<crate::link::Under>,
+    /// And the line it was clicked on, which says which program wrote it.
+    opening: Option<(crate::link::Under, baud_render::AbsLine)>,
     focus: Focus,
     /// The link preview: the link under the pointer while Ctrl is held,
     /// underlined, and its address in a bar (`link::Hover`).
@@ -363,6 +364,18 @@ impl Seat {
         self.hover.look()
     }
 
+    /// The link under the pointer struck while Ctrl shows it gone.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn hover_struck(&self) -> &[baud_render::LinkLine] {
+        self.hover.struck()
+    }
+
+    /// A link found gone the pointer came over, to ask about again once.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn take_entered(&mut self) -> Option<crate::paths::Gone> {
+        self.hover.take_entered()
+    }
+
     /// Who a left press where the pointer rests goes to now, the
     /// scrollbar's strip read by the driver (`bar::left_press`): whether
     /// that changed, which may change the pointer.
@@ -380,8 +393,8 @@ impl Seat {
         self.hover.pointer(asked)
     }
 
-    /// The link a [`Owed::Link`] opens, once.
-    pub(crate) fn take_link(&mut self) -> Option<crate::link::Under> {
+    /// The link a [`Owed::Link`] opens, once, and the line it was clicked on.
+    pub(crate) fn take_link(&mut self) -> Option<(crate::link::Under, baud_render::AbsLine)> {
         self.opening.take()
     }
 
@@ -783,7 +796,7 @@ impl Seat {
             }
             Gesture::Open(link) => {
                 self.armed = None;
-                self.opening = Some(link);
+                self.opening = Some((link, spot.scrolled.line(spot.back, spot.row)));
                 Some(Owed::Link)
             }
         }
@@ -2271,7 +2284,7 @@ mod tests {
             ctrl,
         );
         assert_eq!((owed, sent.as_slice()), (Owed::Link, &b""[..]));
-        assert!(matches!(seat.take_link(), Some(Under::Osc8(_))));
+        assert!(matches!(seat.take_link(), Some((Under::Osc8(_), _))));
         assert_eq!(seat.take_link(), None, "once");
         put(&mut seat, &mut t, Input::Moved(85.0, 5.0), NONE);
         put(
@@ -2287,7 +2300,7 @@ mod tests {
             ctrl,
         );
         assert_eq!(owed, Owed::Link, "a URI in the text");
-        assert!(matches!(seat.take_link(), Some(Under::Bare(_))));
+        assert!(matches!(seat.take_link(), Some((Under::Bare(_), _))));
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
         put(
             &mut seat,

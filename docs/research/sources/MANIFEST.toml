@@ -12581,6 +12581,20 @@ bytes  = 169130
 status = "external"
 group  = "Y"
 
+[sources.coreutils-v9-10-ls-c]
+key    = "coreutils-v9-10-ls-c"
+title  = "coreutils 9.10 (tag v9.10, commit 89b2cd5), src/ls.c -- file_escape and the --hyperlink OSC 8 writer"
+author = "the GNU coreutils contributors; (C) Free Software Foundation"
+year   = 2026
+venue  = "GNU coreutils (GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/coreutils/coreutils/v9.10/src/ls.c"
+file   = ""
+sha256 = "18eae1f73cd97f42bd19ba589d96acc8ddef81feb1903277efdbe6c265ad6ff7"
+bytes  = 166538
+status = "external"
+group  = "Y"
+# Read for the shape `ls --hyperlink` writes: lines 4719-4726 and 4743, escaped by file_escape at 4669-4688 under RFC3986 at 1306-1312.
+
 [sources.coreutils-dircolors-hin]
 key    = "coreutils-dircolors-hin"
 title  = "coreutils ace92d7, src/dircolors.hin -- the LS_COLORS database"
@@ -39400,3 +39414,31 @@ bytes  = 6582
 status = "external"
 group  = "J"
 # Hash recorded only, not committed -- a vendor header.
+
+[sources.sdk27-nsworkspace-h]
+key    = "sdk27-nsworkspace-h"
+title  = "macOS SDK 27.0, AppKit NSWorkspace.h -- '@interface NSWorkspace : NSObject' with no NS_SWIFT_UI_ACTOR in the file, and '- (nullable NSURL *)URLForApplicationToOpenURL:(NSURL *)url'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSWorkspace.h"
+file   = ""
+sha256 = "be46224f91d11b7d0e25a0ed80dda5c1a9e52c404038a5a7ebfc25794befff30"
+bytes  = 45949
+status = "external"
+group  = "J"
+# Read for whether the link worker may ask URLForApplicationToOpenURL off the main thread: the header carries no main-actor mark, where NSResponder.h marks `@interface NSResponder` NS_SWIFT_UI_ACTOR (line 20). The documentation JSON's Swift declaration agrees, `class NSWorkspace`. Hash recorded only, not committed -- a vendor header.
+
+[sources.rfc2606]
+key    = "rfc2606"
+title  = "RFC 2606: Reserved Top Level DNS Names -- '\".invalid\" is intended for use in online construction of domain names that are sure to be invalid'"
+author = "D. Eastlake, A. Panitz"
+year   = 1999
+venue  = "IETF RFC 2606 (BCP 32)"
+url    = "https://www.rfc-editor.org/rfc/rfc2606.txt"
+file   = ""
+sha256 = "b6869c8984701701bc2e6973b6ffc750d497f845cc1a65a106e9301590a13ab0"
+bytes  = 8008
+status = "external"
+group  = "C"
+# Read for the fixed address a kind of link is asked about: `example.invalid`, a name no application can claim.

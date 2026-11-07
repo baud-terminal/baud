@@ -443,7 +443,9 @@ mod tests {
             .expect("the present's arm");
         assert!(taken.contains("self.report.presented();"), "counted");
         let link = src
-            .split_once("fn open_link(&mut self, link: &crate::link::Under) {")
+            .split_once(
+                "fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {",
+            )
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(b, _)| bare(b))
             .expect("the link's activation");

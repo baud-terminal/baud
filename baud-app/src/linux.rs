@@ -346,7 +346,7 @@ struct Driver {
     link_config: crate::config::Link,
     /// The printed path a click asked about again, and the `:line:col`
     /// printed after it, for a `[link.path]` command when the answer comes.
-    path_click: Option<(Vec<u8>, crate::paths::LineCol)>,
+    path_click: Option<(Vec<u8>, crate::paths::Asked)>,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
@@ -609,13 +609,16 @@ pub fn run() {
     // The printed paths' worker writes a byte here after each answer, which
     // the loop's one wait hears (`probe::Woken`); with no pair, an answer is
     // read at the next turn the wait has.
-    let (woken, probes) = match crate::probe::Woken::pair() {
+    let (woken, mut probes) = match crate::probe::Woken::pair() {
         Ok((w, wake)) => (Some(w), crate::probe::Probes::system(wake)),
         Err(e) => {
             crate::warn!("paths: no wake for the file checks ({e}); their answers wait for a turn");
             (None, crate::probe::Probes::system(|| {}))
         }
     };
+    // No kind of link is asked about here (`Link::programs`): the list is
+    // the `[link.*]` rules' commands alone.
+    probes.set_programs(cfg.link.programs());
     let mut d = Driver {
         bell,
         ringer: crate::bell::Ringer::new(&term),
@@ -682,6 +685,7 @@ pub fn run() {
             seat.paths = crate::paths::Paths::new(home, cfg.link.rules.forms());
             seat.paths.set_rules(cfg.link.rules.clone());
             seat.paths.set(cfg.link.paths_read());
+            let _ = seat.paths.set_missing(cfg.link.missing_read());
             seat.paths.set_names(vec![crate::opener::host_name()]);
             seat
         },
@@ -1032,6 +1036,10 @@ pub fn run() {
                         .set_cursor_look(crate::caret::look(f, d.unfocused_cursor));
                     if f == Focus::Gained {
                         d.caret.input(Instant::now());
+                        // Back from another app: what is struck is asked
+                        // again.
+                        d.seat.paths.recheck();
+                        d.probes.owe_programs();
                     } else {
                         // Losing the keyboard shows a pointer a key hid, but
                         // at mode 3, as xterm's `unselectwindow`.
@@ -1560,8 +1568,8 @@ impl Driver {
                 self.window.paste(&mut self.conn.sender(), board);
             }
             Owed::Link => {
-                if let Some(link) = self.seat.take_link() {
-                    self.open_link(&link);
+                if let Some((link, line)) = self.seat.take_link() {
+                    self.open_link(&link, line);
                 }
             }
         }
@@ -1633,8 +1641,8 @@ impl Driver {
     /// one argument and no shell (`opener.rs`), and a `file:` link, which
     /// opening could launch, is revealed by the file manager over the
     /// session bus, or refused where there is no bus.
-    fn open_link(&mut self, link: &crate::link::Under) {
-        use crate::link::{Action, Host, Under};
+    fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
+        use crate::link::{Host, Under};
         let shown = |uri: &[u8]| {
             uri.iter()
                 .take(80)
@@ -1677,60 +1685,74 @@ impl Driver {
                 self.report.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {said}");
             }
-            Ok(t) => match t.action() {
-                // A rule's `copy`: the link's text to the clipboard, said as
-                // a copy of a selection is; nothing is opened.
-                Action::Copy => {
-                    let text = t.as_str().to_string();
-                    self.link_copied(&text);
-                }
-                // A command of yours: no shell, null streams, reaped on
-                // each turn as `xdg-open` is.
-                Action::Command => {
-                    let built = t
-                        .rule()
-                        .and_then(|ix| self.uris.rules().command(ix, t.as_str()));
-                    match built.map(|b| b.map(|cmd| self.opener.start(cmd))) {
-                        Some(Ok(Ok(()))) => {
+            Ok(t) => {
+                use crate::link::Click;
+                match crate::link::click(&t, &self.seat.paths) {
+                    // A file the worker found gone, asked about again as a
+                    // printed path's click is -- after a rule's copy or
+                    // command, which is the link's own action (`link::click`).
+                    Click::Again(path) => {
+                        self.path_click = Some((path.clone(), crate::paths::Asked::Link));
+                        self.check_file(crate::paths::Candidate {
+                            path,
+                            form: crate::paths::Form::Absolute,
+                            line,
+                        });
+                    }
+                    // A rule's `copy`: the link's text to the clipboard, said as
+                    // a copy of a selection is; nothing is opened.
+                    Click::Copy => {
+                        let text = t.as_str().to_string();
+                        self.link_copied(&text);
+                    }
+                    // A command of yours: no shell, null streams, reaped on
+                    // each turn as `xdg-open` is.
+                    Click::Command => {
+                        let built = t
+                            .rule()
+                            .and_then(|ix| self.uris.rules().command(ix, t.as_str()));
+                        match built.map(|b| b.map(|cmd| self.opener.start(cmd))) {
+                            Some(Ok(Ok(()))) => {
+                                self.report.links.opened.bump();
+                                crate::info!("link handed to a [link.*] command: {said}");
+                            }
+                            Some(Ok(Err(e))) => {
+                                self.report.links.refused.bump();
+                                crate::warn!("link not sent: [link.*] command: {e}: {said}");
+                            }
+                            Some(Err(why)) => {
+                                self.report.links.refused.bump();
+                                crate::warn!("link refused ({why:?}): {said}");
+                            }
+                            None => {
+                                self.report.links.refused.bump();
+                                crate::warn!("link refused (no command): {said}");
+                            }
+                        }
+                    }
+                    Click::Open => match self.opener.start(crate::opener::command(t.as_str())) {
+                        Ok(()) => {
                             self.report.links.opened.bump();
-                            crate::info!("link handed to a [link.*] command: {said}");
+                            crate::info!("link opened ({:?}): {said}", t.scheme());
                         }
-                        Some(Ok(Err(e))) => {
+                        Err(e) => {
                             self.report.links.refused.bump();
-                            crate::warn!("link not sent: [link.*] command: {e}: {said}");
+                            crate::warn!("link not opened: xdg-open: {e}: {said}");
                         }
-                        Some(Err(why)) => {
-                            self.report.links.refused.bump();
-                            crate::warn!("link refused ({why:?}): {said}");
+                    },
+                    Click::Reveal => match self.bus.as_mut() {
+                        Some(bus) => {
+                            bus.reveal(&crate::opener::local(t.as_str()));
+                            self.report.links.revealed.bump();
+                            crate::info!("link sent to the file manager: {said}");
                         }
                         None => {
                             self.report.links.refused.bump();
-                            crate::warn!("link refused (no command): {said}");
+                            crate::warn!("link not revealed: no session bus: {said}");
                         }
-                    }
+                    },
                 }
-                Action::Open => match self.opener.start(crate::opener::command(t.as_str())) {
-                    Ok(()) => {
-                        self.report.links.opened.bump();
-                        crate::info!("link opened ({:?}): {said}", t.scheme());
-                    }
-                    Err(e) => {
-                        self.report.links.refused.bump();
-                        crate::warn!("link not opened: xdg-open: {e}: {said}");
-                    }
-                },
-                Action::Reveal => match self.bus.as_mut() {
-                    Some(bus) => {
-                        bus.reveal(&crate::opener::local(t.as_str()));
-                        self.report.links.revealed.bump();
-                        crate::info!("link sent to the file manager: {said}");
-                    }
-                    None => {
-                        self.report.links.refused.bump();
-                        crate::warn!("link not revealed: no session bus: {said}");
-                    }
-                },
-            },
+            }
         }
     }
 
@@ -1858,6 +1880,20 @@ impl Driver {
     /// **A click on a printed path**: asked again of the worker, off the
     /// frame, and answered on a later turn, or now with no worker to ask.
     fn check_path(&mut self, p: &crate::link::Printed) {
+        self.path_click = Some((
+            p.path().to_vec(),
+            crate::paths::Asked::Printed(p.line_col().clone()),
+        ));
+        self.check_file(crate::paths::Candidate {
+            path: p.path().to_vec(),
+            form: p.form(),
+            line: p.line(),
+        });
+    }
+
+    /// **A click on a file, asked again of the worker**: a printed path, or
+    /// an `OSC 8` `file://` link the worker found gone.
+    fn check_file(&mut self, c: crate::paths::Candidate) {
         let master = self.pty.reads().master;
         let seen = crate::probe::Seen {
             term: &self.term,
@@ -1867,12 +1903,6 @@ impl Driver {
             urls: self.link_config.urls_read(),
             paths: &mut self.seat.paths,
         };
-        let c = crate::paths::Candidate {
-            path: p.path().to_vec(),
-            form: p.form(),
-            line: p.line(),
-        };
-        self.path_click = Some((p.path().to_vec(), p.line_col().clone()));
         if let Some(done) = self
             .probes
             .click(Instant::now(), seen, crate::fg::group(master), c)
@@ -1888,26 +1918,20 @@ impl Driver {
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
         use crate::link::{Action, Host};
+        use crate::paths::Found;
         let clicked = self.path_click.take();
         let note = match done {
-            crate::probe::Clicked::Exists(path)
-                if *self.uris.rules().path_act() == crate::rules::PathAct::Copy =>
-            {
-                let text = String::from_utf8_lossy(&path).into_owned();
-                self.link_copied(&text);
-                None
-            }
             crate::probe::Clicked::Exists(path) => {
                 let uri = crate::paths::file_uri(&path);
-                let lc = clicked
-                    .filter(|(p, _)| *p == path)
-                    .map(|(_, lc)| lc)
-                    .unwrap_or_default();
-                let ran = match crate::link::admit(uri.as_bytes(), Host(&self.host)) {
-                    Ok(_) => self.uris.rules().path_command(&path, &lc.line, &lc.col),
-                    Err(_) => None,
-                };
-                if let Some(built) = ran {
+                let asked = crate::paths::asked_for(clicked, &path);
+                let does =
+                    crate::paths::on_found(&asked, &path, Host(&self.host), self.uris.rules());
+                if let Found::Copy = does {
+                    let text = String::from_utf8_lossy(&path).into_owned();
+                    self.link_copied(&text);
+                    return;
+                }
+                if let Found::Command(built) = does {
                     match built.map(|cmd| self.opener.start(cmd)) {
                         Ok(Ok(())) => {
                             self.report.links.opened.bump();
@@ -2224,6 +2248,9 @@ impl Driver {
                     self.uris.set_rules(c.link.rules.clone());
                     self.seat.paths.set_rules(c.link.rules.clone());
                     self.seat.paths.set(c.link.paths_read());
+                    let _ = self.seat.paths.set_missing(c.link.missing_read());
+                    self.probes.set_programs(c.link.programs());
+                    self.probes.owe_programs();
                     self.lines.forget();
                     self.pending = Pending::Dirty;
                 }
@@ -3179,8 +3206,18 @@ impl Driver {
         // display link paces macOS's. Linux has no unprivileged fork
         // event, so a job that prints nothing is seen by the key that
         // started it and the reads around it.
+        let job = self.derive.group();
         if self.derive.check(&self.pty.reads()) == crate::title::Changed::Yes {
             self.send_title();
+            // A job that ended may have made what is struck, or installed
+            // an app: asked again at the next batch, and the apps only
+            // while one was found missing, as on macOS.
+            if self.derive.group() != job {
+                self.seat.paths.recheck();
+                if self.seat.paths.programs_missing() {
+                    self.probes.owe_programs();
+                }
+            }
         }
         // Each hold is timed from the opening that began it (`UpdateClock`).
         let update = self.updates.observe(&self.term, Instant::now());
@@ -3263,11 +3300,22 @@ impl Driver {
                     },
                 );
                 self.renderer.set_link_lines(self.lines.lines(), style);
+                self.renderer
+                    .set_link_strikes(self.lines.struck(), self.seat.hover_struck());
             }
             None => {
                 self.lines.off();
                 self.renderer.set_link_lines(&[], Default::default());
+                self.renderer
+                    .set_link_strikes(&[], self.seat.hover_struck());
             }
+        }
+        self.renderer
+            .set_link_missing(self.link_config.missing_color);
+        match self.seat.take_entered() {
+            Some(crate::paths::Gone::File(path)) => self.seat.paths.recheck_path(&path),
+            Some(crate::paths::Gone::NoApp(_)) => self.probes.owe_programs(),
+            None => {}
         }
         self.renderer.set_link(self.seat.hover_look().cloned());
         self.renderer.set_link_hover(self.seat.hover_over());

@@ -35,6 +35,11 @@ pub struct LinkLook {
 /// driver's scan (`baud-app`'s `lined.rs`) hands these over, and the line is
 /// drawn in the text's own colour, which this word resolves to. Nothing of it
 /// reaches a cell, so no query of the core's can read it back.
+///
+/// **A struck run is the same shape in a list of its own**
+/// ([`crate::Renderer::set_link_strikes`]): struck through at the face's
+/// strike position instead of underlined, and its text drawn in
+/// [`MissingPaint`] where that reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LinkLine {
     pub row: Row,
@@ -50,6 +55,10 @@ pub enum LineStyle {
     Solid,
     /// One thickness on, one off, as `SGR 4:4` draws.
     Dotted,
+    /// `[link] line = "off"`: no line at rest. The scan still runs while
+    /// `missing = "strike"`, for the struck runs, which are drawn whatever
+    /// the line is.
+    Off,
 }
 
 /// `[link] hover`: how the link under the pointer is drawn.
@@ -66,6 +75,30 @@ pub enum HoverPaint {
     /// painting that colour behind it.
     Text,
 }
+
+/// **`[link] missing_color`: what a struck link's text is drawn in**, a
+/// struck link being one baud knows would open nothing -- its file gone on
+/// this machine, or no app for its kind of link (`baud-app`'s `lined.rs`).
+/// The strike is drawn whatever this says; the colour only where it reads
+/// [`MISSING_CONTRAST`] on the cell, in the colours in force at draw, so a
+/// program that moves colour 8 with `OSC 4` or paints the cell's ground
+/// cannot make a struck link unreadable. Elsewhere the cell keeps its text
+/// colour, and a selected cell keeps the selection's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MissingPaint {
+    /// `"gray"`: palette colour 8 as it is at draw.
+    #[default]
+    Gray,
+    /// `"#rrggbb"`.
+    Colour(crate::color::Argb),
+    /// `"none"`: the text keeps its own colour; only the strike shows.
+    Kept,
+}
+
+/// The least a struck link's text reads on its cell for `missing_color`
+/// to recolour it: `[[source: wcag22]]`, SC 1.4.3, Contrast (Minimum), the
+/// floor text this size is asked to meet.
+pub const MISSING_CONTRAST: f64 = 4.5;
 
 /// The least the hovered text reads on its cell for `hover = "text"` to
 /// recolour it. No standard names this floor: it is the one the design

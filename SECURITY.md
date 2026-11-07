@@ -158,6 +158,22 @@ launched. No path is written to a log; the log counts the checks. Paths
 under your Documents, Desktop and Downloads folders are checked the same way;
 whether macOS asks for permission when they are has not yet been tested.
 
+**A link that would open nothing is struck, and a strike never asks with a
+program's bytes.** An `OSC 8` `file://` link that names this computer by name
+is checked by the same thread, the same way, and struck through when its file
+is gone; a click on it checks again before anything is shown. Whether a kind
+of link has an app is asked of LaunchServices on that thread by kind alone, at
+a fixed address under the reserved `.invalid` name (`https://example.invalid/`
+and the like), never with an address a program printed, and the list of kinds
+is baud's own, not the output's. It is asked when a window starts, when its
+config is read again, when it comes to the front, when the pointer comes over a
+struck link and, while one kind was found with no app, when a job ends; never
+on a timer. A click on a link struck
+for having no app still hands it to the system as before, on the list above,
+and says so when the system takes it nowhere. Nothing is struck for a scheme
+on Linux. The strike is drawn over the screen and never written to it, so no
+query a program can send answers differently.
+
 ## Deliberate refusals
 
 These look like missing features and are security decisions. Please do not

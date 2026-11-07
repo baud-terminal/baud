@@ -36,7 +36,10 @@
 //! is answered gone, so none is drawn. `paths-exist` answers each as there,
 //! so they are drawn, and the frames after read their changed rows. No
 //! arm asks the file system: there is no worker here, and the answers are
-//! the bench's own.
+//! the bench's own. `no-app` is `on` with no app answered for `http` and
+//! `https`, so every web link the recording prints is struck, its text
+//! drawn as a field in `missing_color`, the gray: the strike's frame-path
+//! work, the input untouched. Its row's scans count the struck runs.
 //!
 //! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
 //! each frame draws its rows in stored order; the default leaves it set,
@@ -168,6 +171,9 @@ enum Links {
     Paths,
     /// `paths`, with every path answered as there, so they are drawn.
     PathsExist,
+    /// `on`, with no app answered for `http` and `https`: every web link
+    /// struck.
+    NoApp,
 }
 
 /// A switch the environment sets: whether a zoom step paints its frame,
@@ -327,7 +333,10 @@ fn main() {
         Ok("hover") => Links::Hover,
         Ok("paths") => Links::Paths,
         Ok("paths-exist") => Links::PathsExist,
-        Ok(other) => panic!("FRAME_LINKS is on, hover, paths, paths-exist or off, not {other}"),
+        Ok("no-app") => Links::NoApp,
+        Ok(other) => {
+            panic!("FRAME_LINKS is on, hover, paths, paths-exist, no-app or off, not {other}")
+        }
     };
     let fresh = || {
         let mut r = Renderer::new(
@@ -444,6 +453,13 @@ fn main() {
             Links::Paths | Links::PathsExist => paths::Turned::On,
             _ => paths::Turned::Off,
         });
+        if links == Links::NoApp {
+            let none = [link::Scheme::Https, link::Scheme::Http]
+                .into_iter()
+                .map(|s| (paths::Program::Scheme(s), paths::Handler::Missing))
+                .collect();
+            let _ = printed.set_programs(none);
+        }
         let mut hover = link::Hover::default();
         let scrolled = baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40));
         let middle = (
@@ -471,8 +487,9 @@ fn main() {
                 Links::Off => {
                     lines.off();
                     r.set_link_lines(&[], baud_render::LineStyle::Solid);
+                    r.set_link_strikes(&[], &[]);
                 }
-                Links::On | Links::Hover | Links::Paths | Links::PathsExist => {
+                Links::On | Links::Hover | Links::Paths | Links::PathsExist | Links::NoApp => {
                     let s0 = std::time::Instant::now();
                     if printed.observe(&t, scrolled) == paths::Moved::Yes {
                         lines.forget();
@@ -528,10 +545,12 @@ fn main() {
                     }
                     rep.scan_time += s0.elapsed();
                     r.set_link_lines(lines.lines(), baud_render::LineStyle::Solid);
+                    r.set_link_strikes(lines.struck(), &[]);
                     rep.scans.rows += s.rows;
                     rep.scans.cells += s.cells;
                     rep.scans.candidates += s.candidates;
                     rep.scans.spans += s.spans;
+                    rep.scans.struck += s.struck;
                     rep.widest.rows = rep.widest.rows.max(s.rows);
                     rep.widest.cells = rep.widest.cells.max(s.cells);
                     rep.widest.candidates = rep.widest.candidates.max(s.candidates);
@@ -1064,7 +1083,7 @@ fn main() {
     println!("  rebroken {}", rebroken.value());
     if matches!(
         links,
-        Links::On | Links::Hover | Links::Paths | Links::PathsExist
+        Links::On | Links::Hover | Links::Paths | Links::PathsExist | Links::NoApp
     ) {
         let per = |n: usize| n as f64 / frames as f64;
         println!(
@@ -1087,6 +1106,7 @@ fn main() {
                 asked.value()
             );
         }
+        println!("  struck runs added {}", scans.struck);
     }
     let mut sorted = times;
     sorted.sort_unstable();

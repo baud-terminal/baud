@@ -74,6 +74,28 @@
 //!   that is only a placeholder does not fetch it. The call is accepted on
 //!   this Mac; what it prevents is unverified.
 //!
+//! **Whether a program opens a link, asked of the same worker**
+//! ([`Program`], `paths.rs` says what is struck for it): a kind of link's
+//! app by its scheme alone, at a fixed address ([`crate::paths::address`]),
+//! so no byte a program printed reaches LaunchServices; a `[link.*]` rule's
+//! `command[0]` by the walk above, along `PATH`. The list is the driver's,
+//! from the config, never the output's, and it is asked when a window
+//! starts, when its config is read again, when it comes to the front, when
+//! the pointer comes over a link struck for it and, on macOS while one was
+//! found missing, when a job in front ends -- never on a timer. On macOS the app is
+//! `NSWorkspace.URLForApplicationToOpenURL`, which opens nothing; the
+//! class carries no main-actor mark in the SDK's header, where
+//! `NSResponder` carries `NS_SWIFT_UI_ACTOR`
+//! (`[[source: sdk27-nsworkspace-h]]`), and Apple's summary of AppKit's
+//! threading names it in neither its thread-unsafe nor its main-thread-only
+//! list (`[[source: apple-thread-safety-summary]]`), so it is called here,
+//! off the main thread, inside an autorelease pool of its own. That is the
+//! documentation's word: no run has tested it off the main thread. **On
+//! Linux no kind is asked**: `xdg-open` falls back to a browser for a
+//! scheme with no handler of its own, so an empty answer would not mean
+//! nothing opens, and nothing is struck for a scheme there until that is
+//! tested.
+//!
 //! **What is counted, never named**: paths are private, so no path is logged
 //! by this or by anything it answers. The five-second report counts the
 //! paths asked about and the calls made (`report::Links::checks_line`), at
@@ -90,7 +112,9 @@ use baud_render::{AbsLine, Scrolled};
 
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
-use crate::paths::{Candidate, Front, Links, Marks, Owed, Paths, Probe, Turned};
+use crate::paths::{
+    Candidate, Front, Handler, Links, Marks, Moved, Owed, Paths, Probe, Program, Turned,
+};
 use crate::sys::Pid;
 
 /// How long after the program's last output a batch is sent.
@@ -154,6 +178,16 @@ pub trait Fs: Send {
     fn program(&mut self, group: Pid) -> Vec<String>;
     /// Run on the worker's thread before anything else.
     fn prepare(&mut self) {}
+    /// **Whether an app opens `address`**, a fixed address of one kind of
+    /// link ([`crate::paths::address`]), asked without opening anything.
+    /// Unknown where the system cannot be asked: on Linux, by design.
+    fn handler(&mut self, _address: &str) -> Handler {
+        Handler::Unknown
+    }
+    /// `PATH`, which a command's program is looked up along.
+    fn path_var(&mut self) -> Option<std::ffi::OsString> {
+        None
+    }
 }
 
 /// **When the thread taking the reads asks for the foreground group**:
@@ -403,6 +437,60 @@ pub fn walk(
     Probe::Exists
 }
 
+/// **A command's program, looked up along `PATH` as `execvp` looks**, each
+/// candidate by [`walk`]: a name with a `/` is the path it names, if
+/// absolute; a bare name is each folder of `path_var` in turn.
+/// Found at the first file of the name; missing only when every folder's
+/// walk said gone; unknown where any walk could not tell, a folder is not
+/// absolute, or the name is relative. `prog` and `path_var` are what a
+/// `[link.*]` rule's program and its `PATH` are read as.
+pub fn command(
+    fs: &mut dyn Fs,
+    mounts: &Mounts,
+    (prog, path_var): (&str, Option<&std::ffi::OsStr>),
+    calls: &mut u64,
+    beat: &dyn Fn(),
+) -> Handler {
+    use std::os::unix::ffi::OsStrExt;
+    let argv0 = prog.as_bytes();
+    let path = path_var.map(std::ffi::OsStr::as_bytes);
+    let found = |p: Probe| match p {
+        Probe::Exists => Handler::Found,
+        Probe::Missing => Handler::Missing,
+        Probe::Unknown => Handler::Unknown,
+    };
+    if argv0.is_empty() {
+        return Handler::Unknown;
+    }
+    if argv0.contains(&b'/') {
+        return match argv0.first() {
+            Some(b'/') => found(walk(fs, mounts, argv0, calls, beat)),
+            _ => Handler::Unknown,
+        };
+    }
+    let Some(path) = path else {
+        return Handler::Unknown;
+    };
+    let mut answer = Handler::Missing;
+    for dir in path.split(|&b| b == b':') {
+        if dir.first() != Some(&b'/') {
+            answer = Handler::Unknown;
+            continue;
+        }
+        let mut full = dir.to_vec();
+        if full.last() != Some(&b'/') {
+            full.push(b'/');
+        }
+        full.extend_from_slice(argv0);
+        match walk(fs, mounts, &full, calls, beat) {
+            Probe::Exists => return Handler::Found,
+            Probe::Missing => {}
+            Probe::Unknown => answer = Handler::Unknown,
+        }
+    }
+    answer
+}
+
 /// Programs whose output is another machine's: a path they print names a
 /// file there, so nothing is looked up while one is in front.
 pub const ELSEWHERE: [&str; 24] = [
@@ -490,6 +578,8 @@ pub enum Kind {
     Click,
     /// Name a group now, while it may still run; answered by no answer.
     Name,
+    /// The programs a link opens with ([`Program`]).
+    Programs,
 }
 
 /// A batch to the worker.
@@ -506,6 +596,8 @@ pub struct Ask {
     /// written under it, and the last line past [`GROUPS`] of them.
     pub seen: Vec<(Pid, AbsLine)>,
     pub unnamed: Option<AbsLine>,
+    /// For [`Kind::Programs`]: what to find a program for.
+    pub programs: Vec<Program>,
 }
 
 /// The worker's answer to one batch.
@@ -521,6 +613,9 @@ pub struct Answer {
     /// What each group seen since the last batch was, to its last line.
     pub seen: Vec<(Front, AbsLine)>,
     pub probes: Vec<(Vec<u8>, Probe)>,
+    /// For [`Kind::Programs`]: what each was found to be; none for a batch
+    /// left for a newer one.
+    pub programs: Option<Vec<(Program, Handler)>>,
     pub calls: u64,
 }
 
@@ -536,6 +631,7 @@ fn left(ask: &Ask) -> Answer {
         front: None,
         seen: Vec::new(),
         probes: Vec::new(),
+        programs: None,
         calls: 0,
     }
 }
@@ -556,6 +652,14 @@ fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> 
     newer.unnamed = newer.unnamed.max(older.unnamed);
     *slot = Some(newer);
     answers.send(left(&older)).is_ok()
+}
+
+/// A newer programs batch in `newer`'s place, the older answered as left.
+fn replace_programs(slot: &mut Option<Ask>, newer: Ask, answers: &Sender<Answer>) -> bool {
+    match slot.replace(newer) {
+        Some(older) => answers.send(left(&older)).is_ok(),
+        None => true,
+    }
 }
 
 /// A batch's number: a newer one is a greater one.
@@ -608,9 +712,9 @@ impl Worker {
 }
 
 /// The worker's loop: groups to name first, then clicks, in order, then the
-/// newest screen batch, which a newer one replaces before it is taken and
-/// ends between two paths. Every click and screen batch sent gets one
-/// answer, a replaced one included.
+/// newest programs batch, then the newest screen batch, which a newer one
+/// replaces before it is taken and ends between two paths. Every click,
+/// programs and screen batch sent gets one answer, a replaced one included.
 fn run(
     mut fs: Box<dyn Fs>,
     asks: &Receiver<Ask>,
@@ -623,6 +727,7 @@ fn run(
         beats.fetch_add(1, Ordering::Relaxed);
     };
     let mut screen: Option<Ask> = None;
+    let mut programs: Option<Ask> = None;
     let mut clicks: std::collections::VecDeque<Ask> = std::collections::VecDeque::new();
     let mut groups: std::collections::VecDeque<Pid> = std::collections::VecDeque::new();
     let mut named: std::collections::HashMap<Pid, Vec<String>> = std::collections::HashMap::new();
@@ -631,12 +736,22 @@ fn run(
     // Where an ask goes; false once the driver is gone.
     let file = |a: Ask,
                 screen: &mut Option<Ask>,
+                programs: &mut Option<Ask>,
                 clicks: &mut std::collections::VecDeque<Ask>,
                 groups: &mut std::collections::VecDeque<Pid>|
      -> bool {
         match a.kind {
             Kind::Click => clicks.push_back(a),
             Kind::Name => groups.extend(a.group),
+            Kind::Programs => {
+                let answered = programs.is_some();
+                if !replace_programs(programs, a, answers) {
+                    return false;
+                }
+                if answered {
+                    wake();
+                }
+            }
             Kind::Screen => {
                 let answered = screen.is_some();
                 if !replace(screen, a, answers) {
@@ -650,10 +765,10 @@ fn run(
         true
     };
     loop {
-        if screen.is_none() && clicks.is_empty() && groups.is_empty() {
+        if screen.is_none() && programs.is_none() && clicks.is_empty() && groups.is_empty() {
             match asks.recv() {
                 Ok(a) => {
-                    if !file(a, &mut screen, &mut clicks, &mut groups) {
+                    if !file(a, &mut screen, &mut programs, &mut clicks, &mut groups) {
                         return;
                     }
                 }
@@ -663,7 +778,7 @@ fn run(
         loop {
             match asks.try_recv() {
                 Ok(a) => {
-                    if !file(a, &mut screen, &mut clicks, &mut groups) {
+                    if !file(a, &mut screen, &mut programs, &mut clicks, &mut groups) {
                         return;
                     }
                 }
@@ -682,17 +797,21 @@ fn run(
             beat();
             named.insert(g, n);
         }
-        let Some(ask) = clicks.pop_front().or_else(|| screen.take()) else {
+        let Some(ask) = clicks
+            .pop_front()
+            .or_else(|| programs.take())
+            .or_else(|| screen.take())
+        else {
             continue;
         };
         let mut gone = false;
         let mut stop = || loop {
             match asks.try_recv() {
                 Ok(a) if a.kind == Kind::Screen => {
-                    gone |= !file(a, &mut screen, &mut clicks, &mut groups);
+                    gone |= !file(a, &mut screen, &mut programs, &mut clicks, &mut groups);
                     return true;
                 }
-                Ok(a) => gone |= !file(a, &mut screen, &mut clicks, &mut groups),
+                Ok(a) => gone |= !file(a, &mut screen, &mut programs, &mut clicks, &mut groups),
                 Err(_) => return false,
             }
         };
@@ -716,6 +835,15 @@ fn answer(
     stop: &mut dyn FnMut() -> bool,
 ) -> Answer {
     let mut calls = 0;
+    if ask.kind == Kind::Programs {
+        let base = left(&ask);
+        let found = programs(fs, ask.programs, &mut calls, beat);
+        return Answer {
+            programs: Some(found),
+            calls,
+            ..base
+        };
+    }
     // A group the worker named when it was seen, else named now: one gone by
     // then names nothing, which is not local.
     let mut front_of_group = |g: Pid, calls: &mut u64| -> Front {
@@ -776,8 +904,50 @@ fn answer(
         front: Some(front),
         seen,
         probes,
+        programs: None,
         calls,
     }
+}
+
+/// **Each program found or not**: a kind of link at its fixed address, a
+/// command along `PATH`, the mount table read once for the commands.
+fn programs(
+    fs: &mut dyn Fs,
+    asked: Vec<Program>,
+    calls: &mut u64,
+    beat: &dyn Fn(),
+) -> Vec<(Program, Handler)> {
+    let mut mounts: Option<Option<Mounts>> = None;
+    let mut path: Option<Option<std::ffi::OsString>> = None;
+    let mut out = Vec::with_capacity(asked.len());
+    for p in asked {
+        let h = match &p {
+            Program::Scheme(s) => match crate::paths::address(*s) {
+                Some(a) => {
+                    let h = fs.handler(a);
+                    *calls += 1;
+                    beat();
+                    h
+                }
+                None => Handler::Unknown,
+            },
+            Program::Command(prog) => {
+                let m = mounts.get_or_insert_with(|| {
+                    let m = fs.mounts();
+                    *calls += 1;
+                    beat();
+                    m
+                });
+                let v = path.get_or_insert_with(|| fs.path_var());
+                match m {
+                    Some(m) => command(fs, m, (prog, v.as_deref()), calls, beat),
+                    None => Handler::Unknown,
+                }
+            }
+        };
+        out.push((p, h));
+    }
+    out
 }
 
 /// **When the next batch is due**, on the driver's clock.
@@ -917,6 +1087,10 @@ pub struct Probes<T> {
     /// written under it, and the last line written past [`GROUPS`] of them.
     seen: Vec<(Pid, AbsLine)>,
     unnamed: Option<AbsLine>,
+    /// What to find a program for, the driver's list from the config, and
+    /// whether it is owed an ask.
+    programs: Vec<Program>,
+    programs_owed: Owed,
     pub counts: Counts,
 }
 
@@ -935,7 +1109,28 @@ impl<T: Moment> Probes<T> {
             elsewhere: None,
             seen: Vec::new(),
             unnamed: None,
+            programs: Vec::new(),
+            programs_owed: Owed::No,
             counts: Counts::default(),
+        }
+    }
+
+    /// **What to find a program for**, from the config: the kinds of link
+    /// `admit` opens on macOS while `missing = "strike"`, and the `[link.*]`
+    /// rules' `command[0]`s. A list that changed is asked at the next turn.
+    pub fn set_programs(&mut self, programs: Vec<Program>) {
+        if self.programs != programs {
+            self.programs = programs;
+            self.owe_programs();
+        }
+    }
+
+    /// **Ask about the programs again at the next turn**: the window came to
+    /// the front, a job ended, the config was read again, or the pointer came
+    /// over a link struck for one.
+    pub fn owe_programs(&mut self) {
+        if !self.programs.is_empty() {
+            self.programs_owed = Owed::Yes;
         }
     }
 
@@ -996,6 +1191,7 @@ impl<T: Moment> Probes<T> {
                 paths: Vec::new(),
                 seen: Vec::new(),
                 unnamed: None,
+                programs: Vec::new(),
             });
         }
     }
@@ -1015,7 +1211,8 @@ impl<T: Moment> Probes<T> {
             Owed::No => None,
         };
         let hang = self.flight.map(|f| f.at.after(HANG));
-        [due, hang].into_iter().flatten().min()
+        let programs = (self.programs_owed == Owed::Yes).then_some(now);
+        [due, hang, programs].into_iter().flatten().min()
     }
 
     /// **One turn, at `now`**: answers merged, the hang watched, and a batch
@@ -1041,6 +1238,16 @@ impl<T: Moment> Probes<T> {
                 self.answered = self.answered.next();
                 if self.answered == self.sent {
                     self.flight = None;
+                }
+                if a.kind == Kind::Programs {
+                    // A batch left for a newer one answers nothing.
+                    if let Some(found) = a.programs {
+                        if s.paths.set_programs(found) == Moved::Yes {
+                            s.lines.forget();
+                            turn.frame = Owed::Yes;
+                        }
+                    }
+                    continue;
                 }
                 // A batch left for a newer one: its groups went with that.
                 let Some(front) = a.front else {
@@ -1080,6 +1287,23 @@ impl<T: Moment> Probes<T> {
                     self.close(s.paths, s.lines, &mut turn);
                     return turn;
                 }
+            }
+        }
+        if self.programs_owed == Owed::Yes && !matches!(self.slot, Slot::Closed) {
+            self.programs_owed = Owed::No;
+            let ask = Ask {
+                id: self.next_id,
+                kind: Kind::Programs,
+                group: None,
+                cursor: s.scrolled.line(Rows::ZERO, s.term.cursor().0),
+                paths: Vec::new(),
+                seen: Vec::new(),
+                unnamed: None,
+                programs: self.programs.clone(),
+            };
+            self.counts.batches += 1;
+            if !self.send(ask, now, s.paths, s.lines, &mut turn) {
+                return turn;
             }
         }
         if s.paths.owed() == Owed::Yes {
@@ -1133,6 +1357,7 @@ impl<T: Moment> Probes<T> {
             paths: queue,
             seen: core::mem::take(&mut self.seen),
             unnamed: self.unnamed.take(),
+            programs: Vec::new(),
         };
         self.send(ask, now, s.paths, s.lines, &mut turn);
         turn
@@ -1162,6 +1387,7 @@ impl<T: Moment> Probes<T> {
             paths: vec![path],
             seen: self.seen.clone(),
             unnamed: self.unnamed,
+            programs: Vec::new(),
         };
         let mut turn = Turn::default();
         if !self.send(ask, now, s.paths, s.lines, &mut turn) {
@@ -1297,6 +1523,24 @@ impl Fs for System {
             crate::warn!("paths: the worker could not turn cloud file fetches off for itself");
         }
     }
+
+    /// LaunchServices, by the fixed address: found, none, or unknown for an
+    /// address it could not parse.
+    #[cfg(target_os = "macos")]
+    fn handler(&mut self, address: &str) -> Handler {
+        match baud_present_macos::link::has_handler(address) {
+            Some(true) => Handler::Found,
+            Some(false) => Handler::Missing,
+            None => Handler::Unknown,
+        }
+    }
+
+    // Linux takes the trait's answer, unknown: `xdg-open` falls back to a
+    // browser, so no answer here would mean nothing opens.
+
+    fn path_var(&mut self) -> Option<std::ffi::OsString> {
+        std::env::var_os("PATH")
+    }
 }
 
 /// A C string field's bytes, to its first NUL.
@@ -1369,6 +1613,9 @@ mod tests {
         stuck: Option<(Vec<u8>, Gate)>,
         /// Set once the last copy is dropped: the worker's thread has ended.
         ends: Arc<Ends>,
+        /// What the system says opens each address, and every address asked.
+        handlers: HashMap<String, Handler>,
+        asked: Arc<Mutex<Vec<String>>>,
     }
 
     #[derive(Default)]
@@ -1449,6 +1696,14 @@ mod tests {
                 .get(&group)
                 .cloned()
                 .unwrap_or_else(|| self.program.clone())
+        }
+
+        fn handler(&mut self, address: &str) -> Handler {
+            self.asked.lock().unwrap().push(address.to_string());
+            self.handlers
+                .get(address)
+                .copied()
+                .unwrap_or(Handler::Unknown)
         }
     }
 
@@ -1608,6 +1863,7 @@ mod tests {
                     ],
                     seen: Vec::new(),
                     unnamed: None,
+                    programs: Vec::new(),
                 },
                 &mut HashMap::new(),
                 &|| {},
@@ -1894,6 +2150,169 @@ mod tests {
             Some(t0 + SETTLE),
             "timed: the settle"
         );
+    }
+
+    /// **A kind of link is asked about by its fixed address, once a window
+    /// and again only when owed**: a screen of a thousand URLs a program
+    /// printed asks the three addresses once each, none holding a byte of
+    /// the screen's; more turns ask nothing; `owe_programs` asks them once
+    /// more. The answer strikes the kind with no app. Perturbations: ask
+    /// with the URI found in the text; ask on every turn; drop the
+    /// `programs_owed` reset in `turn`.
+    #[test]
+    fn a_kind_of_link_is_asked_at_its_fixed_address_once() {
+        use crate::link::Scheme;
+        let mut f = Fake::with(&[]);
+        f.handlers
+            .insert("https://example.invalid/".into(), Handler::Missing);
+        f.handlers
+            .insert("http://example.invalid/".into(), Handler::Found);
+        let asked = Arc::clone(&f.asked);
+        let (mut pr, _) = probes(f);
+        let kinds = [Scheme::Https, Scheme::Http, Scheme::Mailto];
+        pr.set_programs(kinds.into_iter().map(Program::Scheme).collect());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let flood = "https://evil.example/q?x=1 ".repeat(1000);
+        for c in flood.as_bytes().chunks(4096) {
+            t.write_at(BytePos::ZERO, c);
+            t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+        }
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let turn = |pr: &mut Probes<Instant>,
+                    after: Duration,
+                    paths: &mut Paths,
+                    lines: &mut Lines,
+                    uris: &mut Uris| {
+            let _ = lines.scan(
+                &t,
+                s,
+                &mut Links {
+                    uris: &mut *uris,
+                    urls: Turned::On,
+                    paths: &mut *paths,
+                },
+            );
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines,
+                uris,
+                urls: Turned::On,
+                paths,
+            };
+            pr.turn(t0 + after, seen, || Some(1))
+        };
+        let https = Program::Scheme(Scheme::Https);
+        while paths.program(&https) == Handler::Unknown {
+            let _ = turn(&mut pr, Duration::ZERO, &mut paths, &mut lines, &mut uris);
+            std::thread::yield_now();
+        }
+        let fixed = [
+            "https://example.invalid/",
+            "http://example.invalid/",
+            "mailto:nobody@example.invalid",
+        ];
+        assert_eq!(*asked.lock().unwrap(), fixed, "each fixed address, once");
+        assert!(
+            asked.lock().unwrap().iter().all(|a| !a.contains("evil")),
+            "no byte of the screen asked"
+        );
+        for k in 1..6 {
+            let _ = turn(
+                &mut pr,
+                Duration::from_secs(k * 2),
+                &mut paths,
+                &mut lines,
+                &mut uris,
+            );
+        }
+        assert_eq!(asked.lock().unwrap().len(), 3, "not asked again unowed");
+        pr.owe_programs();
+        while asked.lock().unwrap().len() < 6 {
+            let _ = turn(
+                &mut pr,
+                Duration::from_secs(14),
+                &mut paths,
+                &mut lines,
+                &mut uris,
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(asked.lock().unwrap()[3..], fixed, "owed: asked once more");
+        lines.forget();
+        let _ = lines.scan(
+            &t,
+            s,
+            &mut Links {
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            },
+        );
+        assert!(!lines.struck().is_empty(), "https, no app: struck");
+        assert!(lines.lines().is_empty(), "and none underlined");
+    }
+
+    /// **A command's program is looked up along `PATH` by the walk**: found
+    /// in a later folder, missing only when every folder said gone, unknown
+    /// for a relative folder, no `PATH`, a relative name, an empty one or a
+    /// folder under a refused mount; an absolute name is its own walk.
+    /// Perturbations: answer missing on a relative folder; skip the mount
+    /// table for a command.
+    #[test]
+    fn a_commands_program_is_looked_up_along_path() {
+        let mut f = Fake::with(&[
+            ("/usr", Entry::Dir),
+            ("/usr/bin", Entry::Dir),
+            ("/usr/bin/vi", Entry::File),
+            ("/opt", Entry::Dir),
+        ]);
+        let look = |f: &mut Fake, prog: &str, path: Option<&str>| {
+            let m = f.clone().mounts().unwrap();
+            command(
+                f,
+                &m,
+                (prog, path.map(std::ffi::OsStr::new)),
+                &mut 0,
+                &|| {},
+            )
+        };
+        assert_eq!(look(&mut f, "vi", Some("/opt:/usr/bin")), Handler::Found);
+        assert_eq!(
+            look(&mut f, "nano", Some("/opt:/usr/bin")),
+            Handler::Missing
+        );
+        assert_eq!(look(&mut f, "nano", Some("bin:/usr/bin")), Handler::Unknown);
+        assert_eq!(look(&mut f, "nano", None), Handler::Unknown, "no PATH");
+        assert_eq!(look(&mut f, "./vi", Some("/usr/bin")), Handler::Unknown);
+        assert_eq!(look(&mut f, "", Some("/usr/bin")), Handler::Unknown);
+        assert_eq!(look(&mut f, "/usr/bin/vi", None), Handler::Found);
+        assert_eq!(look(&mut f, "/usr/bin/nano", None), Handler::Missing);
+        f.mounts = vec![b"/opt".to_vec()];
+        assert_eq!(
+            look(&mut f, "nano", Some("/opt:/usr/bin")),
+            Handler::Unknown,
+            "a refused mount on the way: can't tell"
+        );
+        // Asked of the worker with the rest: the mount table read once.
+        let mut f = Fake::with(&[("/usr", Entry::Dir), ("/usr/bin", Entry::Dir)]);
+        let mut calls = 0;
+        let got = programs(
+            &mut f,
+            vec![
+                Program::Command("/usr/bin/nano".to_owned()),
+                Program::Command("/usr/bin/ed".to_owned()),
+            ],
+            &mut calls,
+            &|| {},
+        );
+        assert!(got.iter().all(|(_, h)| *h == Handler::Missing), "{got:?}");
+        assert_eq!(calls, 1 + 3 + 3, "one mount table, three lookups each");
     }
 
     /// **`paths = "off"` starts no thread and asks nothing.** Perturbation:

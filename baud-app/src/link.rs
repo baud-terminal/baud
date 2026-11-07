@@ -73,7 +73,7 @@ use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
 #[cfg(test)]
 pub use crate::paths::NoPaths;
-pub use crate::paths::PathsAt;
+pub use crate::paths::{Gone, PathsAt};
 use crate::rules::{NO_RULES, Rules};
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
@@ -141,8 +141,9 @@ pub enum Refused {
     /// around an IP-literal host (§ 3.2.2), or a letter outside ASCII
     /// running on from it. Opening what is left would open a cut address.
     Syntax,
-    /// A printed path the worker found gone: never [`admit`]'s, which reads
-    /// no file system; a click asks again before it says so.
+    /// A printed path, or a `file://` link, the worker found gone: never
+    /// [`admit`]'s, which reads no file system; a click asks again before
+    /// it says so.
     NotFound,
     /// A link a `[link.*]` rule routes with a part that starts with `-`, or
     /// `%2D`: the host, user or port, or what follows the scheme's `:`
@@ -152,6 +153,9 @@ pub enum Refused {
     /// A scheme a `[link.*]` rule of yours turns off (`action = "off"`), one
     /// of baud's own four included.
     Off,
+    /// No app for the link's kind, as the worker last found: never
+    /// [`admit`]'s either, and a click still tries.
+    NoApp(Scheme),
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
@@ -914,6 +918,7 @@ struct Reading {
     window: Window,
     text: Vec<u8>,
     spans: Vec<LinkSpan>,
+    struck: Vec<baud_render::LinkLine>,
 }
 
 /// [`window`], into `read`'s window.
@@ -1307,6 +1312,11 @@ pub fn refusal_words(why: Refused) -> &'static str {
         Refused::NotFound => NOT_FOUND,
         Refused::Dash => "a part that starts with -",
         Refused::Off => "off in your config",
+        Refused::NoApp(Scheme::Http) => "no app for http:",
+        Refused::NoApp(Scheme::Https) => "no app for https:",
+        Refused::NoApp(Scheme::Mailto) => "no app for mailto:",
+        Refused::NoApp(Scheme::File) => "no app for file:",
+        Refused::NoApp(Scheme::Added) => "no app for it",
     }
 }
 
@@ -1383,20 +1393,22 @@ pub fn shortened(address: &str, room: Cols) -> String {
 /// [`preview_text_with`], so only tests call it.
 #[cfg(test)]
 pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
-    preview_text_with(link, term, host, room, &NO_RULES)
+    preview_text_with(link, term, host, room, &NoPaths)
 }
 
-/// [`preview_text`], the link admitted with your rules: a link a rule takes
+/// [`preview_text`], with what `paths` found gone said as the reason, and
+/// the link admitted with the rules `paths` holds: a link a rule takes
 /// shows its address as any other does.
 pub fn preview_text_with(
     link: &Under,
     term: &Term<'_>,
     host: Host<'_>,
     room: Cols,
-    rules: &Rules,
+    paths: &dyn PathsAt,
 ) -> Option<String> {
     let room = room.index();
-    let (uri, verdict) = verdict(link, term, host, rules)?;
+    let rules = paths.rules();
+    let (uri, verdict) = verdict(link, term, host, paths)?;
     let address = escaped(uri);
     // A click that copies says so: it opens nothing.
     let copies = match link {
@@ -1428,24 +1440,86 @@ pub fn preview_text_with(
 
 /// **The bytes a link shows and whether a click opens it**: an `OSC 8`
 /// link's URI, or the text of a URI read from the cells, and [`admit`]'s
-/// answer for it; none for an `OSC 8` slot whose link is gone.
+/// answer for it, then what `paths` found gone of one it admits; none for
+/// an `OSC 8` slot whose link is gone.
 fn verdict<'a>(
     link: &'a Under,
     term: &'a Term<'_>,
     host: Host<'_>,
-    rules: &Rules,
+    paths: &dyn PathsAt,
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
+    let rules = paths.rules();
+    let admitted = |uri: &[u8]| {
+        let t = admit_with(uri, host, rules)?;
+        match paths.gone(&t) {
+            Some(g) => Err(gone_refusal(&g)),
+            None => Ok(()),
+        }
+    };
     Some(match link {
         Under::Osc8(link) => {
             let uri = link.uri(term)?;
-            (uri, admit_with(uri, host, rules).map(|_| ()))
+            (uri, admitted(uri))
         }
-        Under::Bare(b) => (
-            b.text(),
-            b.uri().and_then(|u| admit_with(u, host, rules).map(|_| ())),
-        ),
+        Under::Bare(b) => (b.text(), b.uri().and_then(admitted)),
         Under::Path(p) => (p.uri.as_bytes(), p.verdict),
     })
+}
+
+/// What a link found gone is refused as, in the bar.
+fn gone_refusal(g: &Gone) -> Refused {
+    match g {
+        Gone::File(_) => Refused::NotFound,
+        Gone::NoApp(s) => Refused::NoApp(*s),
+    }
+}
+
+/// **What the worker found gone of `link`**: a printed path's file, or what
+/// `paths` says of a link `admit` lets through.
+pub fn gone_of(link: &Under, term: &Term<'_>, host: Host<'_>, paths: &dyn PathsAt) -> Option<Gone> {
+    match link {
+        Under::Path(p) => match p.verdict {
+            Err(Refused::NotFound) => Some(Gone::File(p.path.clone())),
+            _ => None,
+        },
+        Under::Osc8(o) => paths.gone(&admit_with(o.uri(term)?, host, paths.rules()).ok()?),
+        Under::Bare(b) => paths.gone(&admit_with(b.uri().ok()?, host, paths.rules()).ok()?),
+    }
+}
+
+/// What a click on a link `admit_with` let through does.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Click {
+    /// A rule's `copy`: the link's text to the clipboard.
+    Copy,
+    /// A rule's command, with the link.
+    Command,
+    /// Its file, which the worker found gone, asked about again, as a
+    /// printed path's click is: revealed if it came back
+    /// (`paths::on_found`), said if not.
+    Again(Vec<u8>),
+    /// The system's app for its kind.
+    Open,
+    /// Shown in the file manager.
+    Reveal,
+}
+
+/// **What a click on `target` does**: a rule's copy or command is the
+/// link's own action and runs whatever the worker found, and so is an
+/// open; a link revealed whose file the worker found gone is asked about
+/// again, and only that, so no found file is opened by the system. Both
+/// drivers dispatch on this alone, so neither puts the asking ahead of a
+/// rule.
+pub fn click(target: &Target<'_>, paths: &dyn PathsAt) -> Click {
+    match target.action() {
+        Action::Copy => Click::Copy,
+        Action::Command => Click::Command,
+        Action::Open => Click::Open,
+        Action::Reveal => match paths.gone(target) {
+            Some(Gone::File(path)) => Click::Again(path),
+            _ => Click::Reveal,
+        },
+    }
 }
 
 /// The link under the pointer while the link gesture's modifier is held:
@@ -1593,10 +1667,11 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
 /// [`preview_with`], so only tests call it.
 #[cfg(test)]
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
-    preview_with(term, spot, link, host, &NO_RULES)
+    preview_with(term, spot, link, host, &NoPaths)
 }
 
-/// [`preview`], the link admitted with your rules: **every rule's link shows
+/// [`preview`], with what `paths` found gone said as the reason, and the
+/// link admitted with the rules `paths` holds: **every rule's link shows
 /// its address in the same bar**, which no rule turns off, since it is the
 /// check on where a click goes.
 pub fn preview_with(
@@ -1604,7 +1679,7 @@ pub fn preview_with(
     spot: Spot,
     link: &Under,
     host: Host<'_>,
-    rules: &Rules,
+    paths: &dyn PathsAt,
 ) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
@@ -1613,7 +1688,7 @@ pub fn preview_with(
         term,
         host,
         Cols::of_index(cols.saturating_sub(2)),
-        rules,
+        paths,
     )?;
     let spans = link_spans(term, spot, link);
     let text: Vec<Codepoint> = format!(" {text} ")
@@ -1627,7 +1702,7 @@ pub fn preview_with(
         Rows::of_index(rows),
     );
     let n = text.len();
-    let opens = matches!(verdict(link, term, host, rules), Some((_, Ok(()))));
+    let opens = matches!(verdict(link, term, host, paths), Some((_, Ok(()))));
     Some(LinkLook {
         spans: match opens {
             true => spans,
@@ -1733,6 +1808,14 @@ pub struct Hover {
     opens: Opens,
     left: LeftPress,
     over: Option<LinkHover>,
+    /// The link under the pointer struck while the chord shows it gone: a
+    /// printed path, or a `file://` link naming no machine, which are not
+    /// struck at rest.
+    struck: Vec<baud_render::LinkLine>,
+    /// The last link found gone under the pointer, and what to ask again
+    /// for it once, when the pointer came over it.
+    gone_link: Option<Under>,
+    entered: Option<Gone>,
     at_rest: AtRest,
     held: Held,
     read: Option<ReadOf>,
@@ -1828,14 +1911,26 @@ impl Hover {
             (AtRest::PathsOnly(paint), Held::No, Focus::Gained) => (Some(paint), false),
             _ => (None, false),
         };
+        let mut struck = core::mem::take(&mut self.buffers.struck);
+        struck.clear();
+        let mut gone_link = None;
         let found = at
             .filter(|_| previewing || paint.is_some())
             .and_then(|(row, col)| {
                 let s = spot_now(term, scrolled, row, col)?;
                 self.reads.bump();
                 let link = hovered_in(term, s, &mut self.buffers, paths)?;
-                let rules = paths.rules();
-                let opens = matches!(verdict(&link, term, host, rules), Some((_, Ok(()))));
+                let opens = matches!(verdict(&link, term, host, paths), Some((_, Ok(()))));
+                // Gone: under the chord its cells are struck, whether or not
+                // they are at rest, and the bar says why; nothing is struck
+                // while `missing` is off.
+                if let Some(g) = gone_of(&link, term, host, paths).filter(|_| paths.strikes()) {
+                    if previewing && drawn_whole(term, s, &link) {
+                        link_spans_into(term, s, &link, &mut self.buffers.spans);
+                        struck_runs(term, s, &self.buffers.spans, &mut struck);
+                    }
+                    gone_link = Some((link.clone(), g));
+                }
                 let kind = every || matches!(link, Under::Path(_));
                 let over = paint
                     .filter(|_| kind && opens && drawn_whole(term, s, &link))
@@ -1847,7 +1942,7 @@ impl Hover {
                         }
                     });
                 let look = match previewing {
-                    true => preview_with(term, s, &link, host, rules),
+                    true => preview_with(term, s, &link, host, paths),
                     false => None,
                 };
                 let opens = match (look.is_some(), opens) {
@@ -1861,9 +1956,20 @@ impl Hover {
                 Some((look, opens, over))
             });
         let (look, opens, over) = found.unwrap_or((None, Opens::No, None));
-        let changed = look != self.look || opens != self.opens || over != self.over;
+        let changed =
+            look != self.look || opens != self.opens || over != self.over || struck != self.struck;
         self.look = look;
         self.opens = opens;
+        self.buffers.struck = core::mem::replace(&mut self.struck, struck);
+        match gone_link {
+            Some((link, g)) => {
+                if self.gone_link.as_ref() != Some(&link) {
+                    self.entered = Some(g);
+                }
+                self.gone_link = Some(link);
+            }
+            None => self.gone_link = None,
+        }
         if let Some(old) = core::mem::replace(&mut self.over, over) {
             self.buffers.spans = old.spans;
         }
@@ -1948,7 +2054,22 @@ impl Hover {
     pub fn clear(&mut self) -> bool {
         self.opens = Opens::No;
         self.read = None;
-        self.look.take().is_some()
+        let struck = !self.struck.is_empty();
+        self.struck.clear();
+        self.look.take().is_some() || struck
+    }
+
+    /// **The link under the pointer struck for the next frame**: only while
+    /// the chord shows it gone.
+    pub fn struck(&self) -> &[baud_render::LinkLine] {
+        &self.struck
+    }
+
+    /// **What to ask again, once, for a link found gone the pointer came
+    /// over** (`paths.rs`): its file, or the programs. A read of the same
+    /// link again, as an answer moves the generation, asks nothing more.
+    pub fn take_entered(&mut self) -> Option<Gone> {
+        self.entered.take()
     }
 
     /// Whether the pointer is over the text, so a frame can change what
@@ -1975,6 +2096,37 @@ impl Hover {
             (Some(_), Opens::Yes, LeftPress::Cells) => Some(PointerShape::Hand2),
             (Some(_), Opens::Refused, LeftPress::Cells) => Some(PointerShape::Arrow),
             _ => asked,
+        }
+    }
+}
+
+/// **The cells of `spans`, struck, a run a rendition**: as the scan strikes
+/// them at rest (`lined::push_struck`), none on a concealed cell, one a
+/// program strikes itself or a double-size line.
+fn struck_runs(
+    term: &Term<'_>,
+    spot: Spot,
+    spans: &[LinkSpan],
+    out: &mut Vec<baud_render::LinkLine>,
+) {
+    let view = term.view(spot.back);
+    for sp in spans {
+        let line = spot.scrolled.line(spot.back, sp.row);
+        let styles = row_styles_of(term, spot.scrolled, line);
+        let row = view.row(sp.row);
+        let size = view.rendition(sp.row);
+        for x in sp.from.index()..=sp.to.index() {
+            let Some(&cell) = row.get(x) else { continue };
+            if cell.content.is_wide_tail() {
+                continue;
+            }
+            let _ = crate::lined::push_struck(
+                out,
+                term,
+                styles,
+                (sp.row, Col::at_index(x), cell),
+                size,
+            );
         }
     }
 }

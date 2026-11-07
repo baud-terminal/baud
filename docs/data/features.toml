@@ -1393,6 +1393,16 @@ tests = ["baud-app/src/rules.rs::an_unknown_key_refuses_the_rule_whole_and_runs_
 chips = ["hyperlinks"]
 
 [[feature]]
+id = "struck-links"
+area = "input"
+name = "Links that can't open, struck"
+does = "A link that would open nothing is drawn struck through, its text gray where gray reads, so you see before clicking that nothing will open: a file link a program marked with this computer's name whose file is gone, and on a Mac a kind of link no app opens. A file path printed as plain text, or a file link naming no computer, is struck only while you hold Cmd (Ctrl on Linux) over it, and the bottom of the window says the file is not on this computer. Nothing baud can't be sure of is struck -- a file on another computer, over ssh, on a network disk, or one it couldn't check -- and struck text still selects and copies as written. A click tries again, and says why when nothing opens. No program can read any of this back. `[link] missing` turns it off and `missing_color` sets the color."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/paths.rs::a_marked_file_here_and_gone_is_struck_at_rest", "baud-app/src/paths.rs::only_a_file_found_gone_here_is_struck", "baud-app/src/paths.rs::ls_hyperlink_from_another_host_is_never_struck", "baud-app/src/paths.rs::a_file_naming_no_machine_is_struck_only_under_the_chord", "baud-app/src/paths.rs::a_struck_link_copies_as_written_and_reads_back_the_same", "baud-app/src/paths.rs::a_kind_with_no_app_is_struck_and_an_unknown_one_is_not", "baud-app/src/paths.rs::missing_off_strikes_nothing_under_the_chord", "baud-app/src/paths.rs::a_commands_program_missing_marks_it_struck", "baud-app/src/paths.rs::a_strike_survives_batches_and_a_recheck_keeps_it_till_answered", "baud-app/src/paths.rs::a_file_name_is_decoded_and_refused_with_a_control", "baud-app/src/probe.rs::a_kind_of_link_is_asked_at_its_fixed_address_once", "baud-app/src/probe.rs::a_commands_program_is_looked_up_along_path", "baud-app/src/config.rs::the_strike_keys_read_as_they_document", "baud-render/tests/link_strike.rs::the_strike_reads_where_gray_reads_and_keeps_the_text_colour_elsewhere", "baud-render/tests/link_strike.rs::decrqcra_answers_the_same_with_a_link_struck", "baud-render/tests/link_strike.rs::a_struck_links_text_is_grey_in_its_cells_and_the_selection_wins", "baud-render/tests/link_strike.rs::on_the_glass_a_struck_cells_ground_is_its_neighbours", "baud-render/tests/link_strike.rs::a_struck_links_sgr_58_underline_keeps_its_colour", "baud-render/tests/link_strike.rs::the_grey_is_weighed_against_the_dimmed_page", "baud-render/tests/strike_lending.rs::a_struck_rendition_is_lent_the_top_free_slot_and_never_a_held_one", "baud-render/tests/strike_lending.rs::frozen_rows_and_strikes_near_the_budget_never_leave_frozen_short", "baud-render/tests/strike_lending.rs::a_frozen_cell_struck_keeps_its_frozen_ground_and_draws_grey"]
+measured = ["A struck link on the frame path: its grey lent a slot, not drawn over"]
+
+[[feature]]
 id = "links-linux"
 area = "input"
 name = "Links open safely on Linux"

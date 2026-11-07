@@ -646,6 +646,15 @@ pub enum LinkPaths {
     Off,
 }
 
+/// `[link] missing`: whether a link baud knows would open nothing is drawn
+/// struck through (`paths.rs` says which). Off asks nothing for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinkMissing {
+    #[default]
+    Strike,
+    Off,
+}
+
 /// `[link] line`: how a link is underlined at rest.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum LinkLineKey {
@@ -666,6 +675,9 @@ pub struct Link {
     pub hover: baud_render::HoverPaint,
     /// `[link.NAME]` and `[link.path]`, read whole or refused whole.
     pub rules: crate::rules::Rules,
+    pub missing: LinkMissing,
+    /// `[link] missing_color`: what a struck link's text is drawn in.
+    pub missing_color: baud_render::MissingPaint,
 }
 
 impl Link {
@@ -674,10 +686,31 @@ impl Link {
     /// off.
     pub fn lines(&self) -> Option<baud_render::LineStyle> {
         let any = self.urls == LinkUrls::On || self.paths_on();
-        match (any, self.line) {
-            (true, LinkLineKey::Solid) => Some(baud_render::LineStyle::Solid),
-            (true, LinkLineKey::Dotted) => Some(baud_render::LineStyle::Dotted),
-            (true, LinkLineKey::Off) | (false, _) => None,
+        match (any, self.line, self.missing) {
+            (true, LinkLineKey::Solid, _) => Some(baud_render::LineStyle::Solid),
+            (true, LinkLineKey::Dotted, _) => Some(baud_render::LineStyle::Dotted),
+            // No line, and still a strike: the scan runs for it alone.
+            (true, LinkLineKey::Off, LinkMissing::Strike) => Some(baud_render::LineStyle::Off),
+            (true, LinkLineKey::Off, LinkMissing::Off) | (false, _, _) => None,
+        }
+    }
+
+    /// Whether a link baud knows would open nothing is struck.
+    pub fn missing_read(&self) -> crate::paths::Turned {
+        match self.missing {
+            LinkMissing::Strike => crate::paths::Turned::On,
+            LinkMissing::Off => crate::paths::Turned::Off,
+        }
+    }
+
+    /// **What the worker is asked to find a program for**: on macOS the
+    /// kinds of link `admit` opens, while `missing = "strike"`; on Linux
+    /// none, since `xdg-open` falls back to a browser for a kind with no
+    /// handler, so no answer would mean nothing opens (`probe.rs`).
+    pub fn programs(&self) -> Vec<crate::paths::Program> {
+        match self.missing {
+            LinkMissing::Off => Vec::new(),
+            LinkMissing::Strike => scheme_programs(),
         }
     }
 
@@ -707,10 +740,10 @@ impl Link {
 
     /// Whether printed paths are read, asked about and drawn.
     pub fn paths_read(&self) -> crate::paths::Turned {
-        match (self.paths_on(), self.line) {
+        match (self.paths_on(), self.line, self.missing) {
             // Nothing to draw: nothing to ask.
-            (true, LinkLineKey::Off) | (false, _) => crate::paths::Turned::Off,
-            (true, _) => crate::paths::Turned::On,
+            (true, LinkLineKey::Off, LinkMissing::Off) | (false, _, _) => crate::paths::Turned::Off,
+            (true, _, _) => crate::paths::Turned::On,
         }
     }
 }
@@ -2561,6 +2594,22 @@ impl Config {
                         }
                     };
                 }
+                ("link", "missing") => {
+                    self.link.missing = match value.trim().trim_matches('"') {
+                        "strike" => LinkMissing::Strike,
+                        "off" => LinkMissing::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [link] missing {other:?} is not strike or off; \
+                                 using the default, strike"
+                            ));
+                            LinkMissing::Strike
+                        }
+                    };
+                }
+                ("link", "missing_color") => {
+                    self.link.missing_color = missing_paint(&value, &mut said);
+                }
                 ("link", other) => {
                     said.push(format!(
                         "config: [link] has no key {other:?}; it is ignored"
@@ -2845,6 +2894,49 @@ fn message_paint(value: &str, key: &str, said: &mut Vec<String>) -> baud_render:
                 "config: [message] {key} {raw:?} is not \"baud\", \"none\" or a colour; baud's stays"
             ));
             MessagePaint::Baud
+        }
+    }
+}
+
+/// The kinds of link asked about for an app: those `admit` opens, but
+/// `file`, which is revealed.
+#[cfg(target_os = "macos")]
+fn scheme_programs() -> Vec<crate::paths::Program> {
+    use crate::link::Scheme;
+    [Scheme::Https, Scheme::Http, Scheme::Mailto]
+        .into_iter()
+        .map(crate::paths::Program::Scheme)
+        .collect()
+}
+
+/// None on Linux, until a run shows what `xdg-open` does with a kind it has
+/// no handler for.
+#[cfg(not(target_os = "macos"))]
+fn scheme_programs() -> Vec<crate::paths::Program> {
+    Vec::new()
+}
+
+/// `[link] missing_color`: `"gray"`, the default, colour 8 as it is at draw;
+/// `"none"`, the text's own; or a colour as [`message_paint`] reads one.
+/// Anything else is said and leaves the default. No contrast is checked
+/// here: the colour is measured against each cell's ground at draw, where a
+/// program's colours are known (`baud_render::MissingPaint`).
+fn missing_paint(value: &str, said: &mut Vec<String>) -> baud_render::MissingPaint {
+    use baud_render::MissingPaint;
+    let raw = value.trim().trim_matches('"');
+    match raw {
+        "gray" => return MissingPaint::Gray,
+        "none" => return MissingPaint::Kept,
+        _ => {}
+    }
+    match baud_domain::XColor::parse(raw.as_bytes()) {
+        baud_domain::XColor::Rgb(r, g, b) => MissingPaint::Colour(baud_render::Argb::rgb(r, g, b)),
+        _ => {
+            said.push(format!(
+                "config: [link] missing_color {raw:?} is not \"gray\", \"none\" or a colour; \
+                 using the default, gray"
+            ));
+            MissingPaint::Gray
         }
     }
 }
@@ -5723,6 +5815,60 @@ mod reader {
         );
     }
 
+    /// **`[link] missing` and `missing_color` read as they document**: strike
+    /// and gray by default, each value, a bad one said and the default kept;
+    /// with the line off the scan still runs for the strike, and stops once
+    /// `missing` is off too; the kinds of link asked about are macOS's three
+    /// while striking, and none on Linux or with it off. Perturbations:
+    /// default `missing` to off; let `lines` stop with the line off alone;
+    /// ask about kinds on Linux.
+    #[test]
+    fn the_strike_keys_read_as_they_document() {
+        use baud_render::{LineStyle, MissingPaint};
+        let d = Config::defaults().link;
+        assert_eq!(d.missing, LinkMissing::Strike);
+        assert_eq!(d.missing_color, MissingPaint::Gray);
+        let mut c = Config::defaults();
+        let said = c.apply("[link]\nmissing = \"off\"\nmissing_color = \"#336699\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.link.missing, LinkMissing::Off);
+        assert_eq!(
+            c.link.missing_color,
+            MissingPaint::Colour(baud_render::Argb(0xFF33_6699))
+        );
+        assert!(c.link.programs().is_empty(), "off: nothing asked");
+        let mut c = Config::defaults();
+        let _ = c.apply("[link]\nmissing_color = \"none\"\n");
+        assert_eq!(c.link.missing_color, MissingPaint::Kept);
+        for (bad, key) in [
+            ("[link]\nmissing = \"gray\"\n", "missing"),
+            ("[link]\nmissing_color = \"nope\"\n", "missing_color"),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(bad);
+            assert_eq!(said.len(), 1, "{bad}: {said:?}");
+            assert!(said[0].contains(key), "{said:?}");
+            assert_eq!(c.link.missing, LinkMissing::Strike);
+            assert_eq!(c.link.missing_color, MissingPaint::Gray);
+        }
+        let mut c = Config::defaults();
+        let _ = c.apply("[link]\nline = \"off\"\n");
+        assert_eq!(
+            c.link.lines(),
+            Some(LineStyle::Off),
+            "no line, still the strike"
+        );
+        assert_eq!(c.link.paths_read(), crate::paths::Turned::On);
+        let mut c = Config::defaults();
+        let _ = c.apply("[link]\nline = \"off\"\nmissing = \"off\"\n");
+        assert_eq!(c.link.lines(), None, "no line and no strike: no scan");
+        assert_eq!(c.link.paths_read(), crate::paths::Turned::Off);
+        #[cfg(target_os = "macos")]
+        assert_eq!(d.programs().len(), 3, "macOS: https, http and mailto");
+        #[cfg(not(target_os = "macos"))]
+        assert!(d.programs().is_empty(), "Linux: no kind asked about");
+    }
+
     /// **`[link]` reads as it documents**: the defaults, each value, and a bad
     /// value's default, said. `urls` and `paths` both `"off"` leave nothing to
     /// scan, and `paths` alone keeps the scan for paths, with the look on
@@ -5757,7 +5903,7 @@ mod reader {
         assert_eq!(c.link.at_rest(), AtRest::Off);
         assert_eq!(c.link.paths_read(), Turned::Off);
         let mut c = Config::defaults();
-        let _ = c.apply("[link]\nline = \"off\"\n");
+        let _ = c.apply("[link]\nline = \"off\"\nmissing = \"off\"\n");
         assert_eq!(c.link.paths_read(), Turned::Off, "no line, nothing asked");
         let mut c = Config::defaults();
         let said = c.apply("[link]\nline = \"dotted\"\nhover = \"line\"\n");
