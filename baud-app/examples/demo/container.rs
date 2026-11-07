@@ -65,9 +65,10 @@ pub const USER: &str = "jordan";
 /// advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp cover, and this
 /// nixpkgs-unstable revision carries 1.27.0, the first release outside
 /// both. The container's six Linux packages come from it too
-/// (`nix/demo-container/default.nix`), because a Mac cannot evaluate the
-/// flake's own nixpkgs for Linux. The programs the demo's own shell runs
-/// still come from [`crate::run::NIXPKGS`].
+/// (`nix/demo-container/default.nix`), because the image's pin names their
+/// store paths and at the flake's own nixpkgs btop and fastfetch have other
+/// ones. The programs the demo's own shell runs still come from
+/// [`crate::run::NIXPKGS`].
 pub const STARSHIP_NIXPKGS: &str = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
 
 /// **The image**, by the name and tag `nix/demo-container/default.nix`

@@ -64,6 +64,9 @@ default = ["neon-scan", "baud-core/default"]
 # Forwarded so `cargo bench -p baud-bench --features diag --bench ingest2` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
+# Every allocation counted in the `frame` bench, for a build taken for those
+# counts and never timed.
+count-allocs = []
 # The grid's row pitch, for `ingest2`'s stride arms. Off, the pitch is what
 # ships: `grid_stride`, from the cache geometry. `stride-live` lays
 # the grid out at the live column count, the layout this core had before and

@@ -184,6 +184,9 @@ pub struct Overlay {
     /// The lines that are not single-width, as the instance path converts
     /// them: kept, so a frame reuses the buffers.
     sized: Vec<(Row, Vec<Instance>)>,
+    /// The hovered link's fields the walk reads as empty ([`Covered`]),
+    /// kept so a frame reuses the buffer.
+    hovered: Vec<(Row, Col, Cols)>,
     /// The leaving row's own walk, made on the first slide
     /// ([`Overlay::leaving`]).
     slide: Option<Box<Slide>>,
@@ -382,23 +385,32 @@ struct Geom {
     pan: Px,
 }
 
-/// The cells a composition draws on the view, its row and the visual
-/// runs it is drawn in, or none: what the walk reads as empty.
-#[derive(Clone)]
-struct Covered(Option<(usize, Vec<(Col, Cols)>)>);
+/// **What the walk reads as empty**: the cells a composition draws on the
+/// view, its row and the visual runs it is drawn in, or none; and the
+/// fields of the link under the pointer ([`crate::HoverPaint`]), each a row
+/// and a visual run, as the instance path blanks their cells. `hovered` is
+/// the overlay's own buffer, lent for the frame, so a frame allocates
+/// nothing for it, and with no link hovered every test is one empty check.
+#[derive(Clone, Default)]
+struct Covered {
+    composition: Option<(usize, Vec<(Col, Cols)>)>,
+    hovered: Vec<(Row, Col, Cols)>,
+}
 
 impl Covered {
     /// The visual cells `c` covers on a screen `cols` wide, laid as
     /// written ([`Laid::AsWritten`]) through the row's order -- one run on
     /// a row drawn in its own order, more where the order splits it -- and
-    /// the letters written beside it that its words take in (`taken`).
+    /// the letters written beside it that its words take in (`taken`);
+    /// with the hovered link's fields, `hovered`.
     fn of(
         c: Option<&Composition>,
         cols: Cols,
         orders: &crate::bidi::Orders,
         taken: &Taken,
+        hovered: Vec<(Row, Col, Cols)>,
     ) -> Covered {
-        Covered(c.and_then(|c| {
+        let composition = c.and_then(|c| {
             let (start, end) = c.columns(cols);
             (end > start).then(|| {
                 let mut runs = orders.runs(c.row, Col::at_index(start), Col::at_index(end - 1));
@@ -412,16 +424,34 @@ impl Covered {
                 );
                 (c.row.index(), runs)
             })
-        }))
+        });
+        Covered {
+            composition,
+            hovered,
+        }
     }
 
     /// Whether it covers a cell of row `y`.
     fn on(&self, y: Row) -> bool {
-        self.0.as_ref().is_some_and(|(row, _)| y.index() == *row)
+        self.composition
+            .as_ref()
+            .is_some_and(|(row, _)| y.index() == *row)
+            || (!self.hovered.is_empty() && self.hovered.iter().any(|&(row, _, _)| row == y))
     }
 
     fn holds(&self, y: Row, x: Col) -> bool {
-        self.0.as_ref().is_some_and(|(row, runs)| {
+        self.composes(y, x)
+            || (!self.hovered.is_empty()
+                && self.hovered.iter().any(|&(row, v, n)| {
+                    row == y && (v.index()..v.index() + n.index()).contains(&x.index())
+                }))
+    }
+
+    /// Whether the composition, and not a hovered field, covers cell `x` of
+    /// row `y`: what a pair's partner is drawn as written from
+    /// (`Renderer::written_cell`).
+    fn composes(&self, y: Row, x: Col) -> bool {
+        self.composition.as_ref().is_some_and(|(row, runs)| {
             y.index() == *row
                 && runs
                     .iter()
@@ -626,6 +656,7 @@ impl Overlay {
             emitted: Vec::new(),
             staged: Vec::new(),
             sized: Vec::new(),
+            hovered: Vec::new(),
             slide: None,
             cursor: CursorDrawn::Shader,
             painted: Vec::new(),
@@ -826,11 +857,20 @@ impl Overlay {
             .map_or_else(Taken::default, |c| {
                 c.taken(term, &orders, c.width_on(&view), view.rendition(c.row))
             });
+        // The hovered link's fields, read as empty too, on the window's walk
+        // alone -- a leaving row walked elsewhere is not their row: in the
+        // overlay's own buffer, given back after the walk.
+        let mut hovered = core::mem::take(&mut self.hovered);
+        hovered.clear();
+        if walked == Walked::This {
+            hovered.extend(r.hover_spans(view.cols()));
+        }
         let covered = Covered::of(
             scene.composition,
             scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
             &orders,
             &taken,
+            hovered,
         );
         // Its words as it lays them, which the row's word after one closes
         // on where that fits at no width: laid here, before the row's.
@@ -1350,6 +1390,7 @@ impl Overlay {
         self.under = Tally::of(records.len());
         records.append(&mut self.over);
         r.set_blink_seen(seen);
+        self.hovered = covered.hovered;
     }
 
     /// **The map's glyphs a record's ink meets that the instance path draws
@@ -1999,7 +2040,7 @@ impl Overlay {
         // arguments the glyphs are found by.
         // **A partner a composition holds** is drawn as written there
         // (`Renderer::shown_cell`), by this cell, whichever end it is.
-        let composed = |o: usize| covered.holds(window_row, Col::at_index(o));
+        let composed = |o: usize| covered.composes(window_row, Col::at_index(o));
         let shown = |r: &Renderer<'_, '_>, o: usize| {
             let cell = row.get(o).copied().unwrap_or(PackedCell::EMPTY);
             match composed(o) {
@@ -3151,7 +3192,7 @@ pub enum Caret {
 /// The preedit hints on one codepoint of a composition: any of
 /// `text-input-v3`'s seven at once, since their extents "may overlap".
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
-pub struct Hints(u8);
+pub struct Hints(u16);
 
 impl Hints {
     pub const NONE: Hints = Hints(0);
@@ -3166,6 +3207,10 @@ impl Hints {
     /// and text a program cannot change: not one of `text-input-v3`'s, and
     /// never carried by an input method's composition.
     pub const MESSAGE: Hints = Hints(128);
+    /// **The link under the pointer as `hover = "text"` draws it**
+    /// ([`crate::HoverPaint::Text`]): its own ground, its text in the message
+    /// pair's box colour where that reads. Not one of `text-input-v3`'s either.
+    pub const LINK_TEXT: Hints = Hints(256);
 
     pub fn with(self, h: Hints) -> Hints {
         Hints(self.0 | h.0)
@@ -3215,6 +3260,8 @@ struct Drawing {
 enum Paired {
     No,
     Yes,
+    /// [`Hints::LINK_TEXT`]: the pair's box colour as the text, no page.
+    Text,
 }
 
 /// The palette entry an error's curly line takes, `SGR 58:5:1`'s: red.
@@ -3236,9 +3283,10 @@ impl Drawing {
                 true => Selected::Yes,
                 false => Selected::No,
             },
-            pair: match h.has(Hints::MESSAGE) {
-                true => Paired::Yes,
-                false => Paired::No,
+            pair: match (h.has(Hints::MESSAGE), h.has(Hints::LINK_TEXT)) {
+                (true, _) => Paired::Yes,
+                (false, true) => Paired::Text,
+                (false, false) => Paired::No,
             },
             adds: match h.has(Hints::PREDICTION) {
                 true => Attrs::ITALIC,
@@ -3455,6 +3503,18 @@ impl Composition {
 
     /// The columns it covers, `start..end`.
     pub fn columns(&self, cols: Cols) -> (usize, usize) {
+        let start = self.col.index();
+        // Printable ASCII is a cluster and a column a character, in every
+        // `Measure`: no clusters are built to count them.
+        if self.text.iter().all(|c| c.is_printable_ascii()) {
+            let room = cols.index().saturating_sub(start);
+            return (start, start + self.text.len().min(room));
+        }
+        self.columns_of_pieces(cols)
+    }
+
+    /// [`Composition::columns`], from its clusters laid out.
+    fn columns_of_pieces(&self, cols: Cols) -> (usize, usize) {
         let start = self.col.index();
         let end = self.pieces(cols).last().map_or(start, |p| {
             p.col.index() + if p.span == CellSpan::Two { 2 } else { 1 }
@@ -4647,8 +4707,10 @@ impl HintedBase {
     /// The rendition a cluster drawn `look` takes: the table's own where
     /// its hints add nothing to it, else resolved afresh.
     fn of(&self, r: &Renderer<'_, '_>, term: &Term<'_>, look: Drawing) -> Resolved {
-        if look.pair == Paired::Yes {
-            return r.message_rendition(self.resolved);
+        match look.pair {
+            Paired::Yes => return r.message_rendition(self.resolved),
+            Paired::Text => return r.link_text_rendition(self.resolved),
+            Paired::No => {}
         }
         let word = look.word(self.word);
         match word == self.word {
@@ -4910,5 +4972,138 @@ fn sized_composition(
         glyphs: glyphs_out,
         rules,
         inks: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod columns_tests {
+    use super::*;
+
+    fn at(col: Col, text: &str, measure: Measure) -> Composition {
+        Composition {
+            row: Row::ZERO,
+            col,
+            text: text.chars().map(Codepoint::from_char).collect(),
+            measure,
+            hints: Vec::new(),
+            caret: Caret::Hidden,
+        }
+    }
+
+    /// **`columns` counts printable ASCII as its clusters would lay it**, under
+    /// every [`Measure`], for text running past the edge and a start past it,
+    /// and the characters either side of the range go by their clusters.
+    /// Perturbations: drop `.min(room)`; take `start + self.text.len()` with no
+    /// `saturating_sub`; widen the range to `0x20..=0x7f`, which `DEL`, a control
+    /// that takes no column, fails; narrow it to `0x21..0x7f`, which the literal
+    /// cases still pass, since the clusters agree, so it costs only the path.
+    #[test]
+    fn printable_ascii_covers_what_its_clusters_cover() {
+        let every: String = (0x20u8..0x7f).map(char::from).collect();
+        let texts = [
+            "",
+            " ",
+            "a",
+            "  two  ",
+            "https://a.example/x",
+            every.as_str(),
+            "a\u{7f}",
+            "a\u{1f}",
+            "\u{7f}",
+            "a\u{e9}",
+            "\u{4e16}a",
+        ];
+        for ambiguous in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+            for widths in [UnicodeWidths::Eight, UnicodeWidths::Current] {
+                for vs16 in [Vs16Width::Two, Vs16Width::One] {
+                    for cells in [
+                        ClusterCells::Legacy,
+                        ClusterCells::LegacyMarksJoined,
+                        ClusterCells::Extended,
+                    ] {
+                        let m = Measure {
+                            ambiguous,
+                            widths,
+                            vs16,
+                            cells,
+                        };
+                        for text in texts {
+                            for cols in [0usize, 1, 5, 19, 20, 40, 200] {
+                                for col in [0, 1, cols.saturating_sub(1), cols, cols + 1, cols + 5]
+                                {
+                                    let c = at(Col::at_index(col), text, m);
+                                    let n = Cols::of_index(cols);
+                                    assert_eq!(
+                                        c.columns(n),
+                                        c.columns_of_pieces(n),
+                                        "{text:?} at {col} of {cols}, {m:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The same answers as numbers, so both ways cannot be wrong together.
+        let m = Measure::default();
+        let of = |col, text, cols| at(Col::at_index(col), text, m).columns(Cols::of_index(cols));
+        assert_eq!(of(3, "ab", 10), (3, 5), "inside");
+        assert_eq!(of(3, "abcdef", 5), (3, 5), "past the edge");
+        assert_eq!(of(5, "abc", 5), (5, 5), "starting at the edge");
+        assert_eq!(of(9, "abc", 5), (9, 9), "starting past it");
+        assert_eq!(of(2, "", 5), (2, 2), "nothing");
+        assert_eq!(
+            of(0, "\u{4e16}", 10),
+            (0, 2),
+            "the control: a wide one's two"
+        );
+    }
+}
+
+#[cfg(test)]
+mod covered_tests {
+    use super::*;
+
+    /// **A hovered field is read as empty and its neighbours are not**: the
+    /// walk draws no record for a cell `Covered` holds, so one under the
+    /// span of `hover = "text"` -- a field with no page of its own -- is
+    /// dropped, and the cells beside it, and the same columns on another
+    /// row, are kept. With nothing hovered and no composition it holds no
+    /// cell. Perturbation: leave the hovered spans out of `holds`, and the
+    /// cell under the span is kept.
+    #[test]
+    fn a_cell_under_a_hovered_field_is_empty_and_one_beside_is_kept() {
+        let orders = crate::bidi::Orders::default();
+        let none = Covered::of(
+            None,
+            Cols::of_index(80),
+            &orders,
+            &Taken::default(),
+            Vec::new(),
+        );
+        assert!(!none.on(Row::ZERO) && !none.holds(Row::ZERO, Col::at_index(6)));
+        let row = Row::from_index(2);
+        let span = (row, Col::at_index(4), Cols::of_index(20));
+        let c = Covered::of(
+            None,
+            Cols::of_index(80),
+            &orders,
+            &Taken::default(),
+            vec![span],
+        );
+        assert!(c.on(row), "the field's row");
+        assert!(!c.on(Row::ZERO), "another row");
+        for x in 4..24 {
+            assert!(c.holds(row, Col::at_index(x)), "under the field at {x}");
+            assert!(!c.composes(row, Col::at_index(x)), "and no composition's");
+        }
+        for x in [3, 24] {
+            assert!(!c.holds(row, Col::at_index(x)), "beside the field at {x}");
+        }
+        assert!(
+            !c.holds(Row::ZERO, Col::at_index(6)),
+            "the columns on another row"
+        );
     }
 }

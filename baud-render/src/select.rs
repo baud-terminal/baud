@@ -120,6 +120,15 @@ impl Scrolled {
         self.top(back).plus(Rows::of_count(y.index()))
     }
 
+    /// **The row of a view `back` lines up that shows `line`**, of its
+    /// `rows`; none off it.
+    pub fn window_row(self, back: Rows, line: AbsLine, rows: Rows) -> Option<Row> {
+        let top = self.top(back);
+        let k = line.0.checked_sub(top.0)?;
+        let y = usize::try_from(k).ok()?;
+        (y < rows.index()).then(|| Row::from_index(y))
+    }
+
     /// The oldest line the ring still holds, with `retained` lines of
     /// history behind the live screen.
     pub fn oldest(self, retained: Rows) -> AbsLine {

@@ -1357,6 +1357,17 @@ shipped = ["F1-03", "F1-04"]
 
 
 [[feature]]
+id = "links-at-rest"
+area = "input"
+name = "Links underlined as they appear"
+does = "A web, mail or file link shows with a line under it the moment it is on screen, whether a program marks it or prints the address as plain text, even one that wraps onto the next line, in the text's own colour, and a program's own underline stays as it drew it. The link under the pointer lights up in an amber box, or a line or its text if you prefer; a plain click still selects, and Cmd-click (Ctrl-click on Linux) opens it. An address that may have been cut, or that a click would refuse, gets no line, and no program can read any of this back. One known limit: a program that wraps its own text short of the last column, such as a pane in a terminal multiplexer, can leave part of a cut address underlined as if it were all of it. `[link]` sets it or turns it off."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/lined.rs::near_misses_get_no_line", "baud-app/src/lined.rs::a_soft_wrap_joins_across_a_changed_neighbour", "baud-app/src/lined.rs::a_cursor_only_frame_scans_nothing", "baud-app/src/lined.rs::urls_off_scans_nothing", "baud-app/src/lined.rs::a_flood_costs_a_bounded_read", "baud-app/src/lined.rs::a_uri_a_program_cut_is_not_drawn_whole", "baud-app/src/lined.rs::the_look_and_the_hand_are_told_apart", "baud-render/tests/message_pair.rs::decrqcra_answers_the_same_with_a_line_up", "baud-render/tests/message_pair.rs::the_address_and_the_notice_take_no_colour_from_a_program", "baud-render/tests/message_pair.rs::a_visible_cursor_cannot_cover_a_message", "baud-app/src/lined.rs::a_wrap_that_ends_reads_the_row_below", "baud-app/src/lined.rs::the_scan_is_given_the_host_and_an_unknown_one_opens_nothing", "baud-app/src/lined.rs::a_marked_link_gets_a_line_where_it_opens", "baud-app/src/lined.rs::a_programs_own_underline_wins", "baud-app/src/lined.rs::a_line_is_what_a_click_opens", "baud-app/src/lined.rs::a_window_looking_back_reads_the_rows_it_shows", "baud-app/src/lined.rs::one_list_of_schemes", "baud-app/src/lined.rs::both_drivers_draw_the_links", "baud-app/src/app.rs::the_links_name_is_the_process_infos", "baud-app/src/config.rs::the_link_section_reads_as_it_documents", "baud-render/src/overlay.rs::printable_ascii_covers_what_its_clusters_cover", "baud-render/tests/message_pair.rs::a_line_at_rest_is_the_texts_colour_and_leaves_no_trace", "baud-present-macos/tests/cells.rs::the_address_and_the_notice_take_no_colour_from_a_program", "baud-present-macos/tests/cells.rs::no_cursor_covers_an_address_on_any_arm", "baud-present-macos/tests/cells.rs::the_lines_and_the_looks_are_one_picture_on_every_arm"]
+rows = ["vt:`OSC 8`"]
+chips = ["hyperlinks"]
+
+[[feature]]
 id = "links-linux"
 area = "input"
 name = "Links open safely on Linux"

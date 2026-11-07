@@ -470,6 +470,12 @@ impl Codepoint {
         self.0 < 0x80
     }
 
+    /// `U+0020..=U+007E`: printable ASCII, a cluster of its own and one
+    /// column in every width table.
+    pub fn is_printable_ascii(self) -> bool {
+        (0x20..0x7f).contains(&self.0)
+    }
+
     /// Is this codepoint a regional indicator, U+1F1E6 to U+1F1FF, two of
     /// which make a flag (UAX #29's GB12 and GB13)?
     #[inline(always)]

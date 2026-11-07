@@ -5,9 +5,13 @@
 //! The driver reads the link, its cells and the address it shows
 //! (`baud-app`'s `link.rs`, which escapes it); this only draws them: the
 //! underline as solids, the bar as a field drawn over its cells in the
-//! selection's colours, the find field's way ([`Field`]).
+//! message pair ([`crate::message`]), the find field's way ([`Field`]), so
+//! nothing a program sets reaches the address.
+//!
+//! It also holds what is drawn with no modifier: a link's line at rest
+//! ([`LinkLine`]) and the look of the link under the pointer ([`LinkHover`]).
 
-use baud_domain::{Col, Row};
+use baud_domain::{Col, Row, StyleWord};
 
 use crate::find::Field;
 
@@ -25,4 +29,69 @@ pub struct LinkSpan {
 pub struct LinkLook {
     pub spans: Vec<LinkSpan>,
     pub bar: Field,
+}
+
+/// **One run of a link's cells underlined at rest**, in one rendition: the
+/// driver's scan (`baud-app`'s `lined.rs`) hands these over, and the line is
+/// drawn in the text's own colour, which this word resolves to. Nothing of it
+/// reaches a cell, so no query of the core's can read it back.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LinkLine {
+    pub row: Row,
+    pub from: Col,
+    pub to: Col,
+    pub word: StyleWord,
+}
+
+/// `[link] line`: how a link is underlined at rest.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LineStyle {
+    #[default]
+    Solid,
+    /// One thickness on, one off, as `SGR 4:4` draws.
+    Dotted,
+}
+
+/// `[link] hover`: how the link under the pointer is drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HoverPaint {
+    /// Its cells in the message pair ([`crate::message`]), opaque.
+    #[default]
+    Box,
+    /// A line in the pair's box colour; the text keeps its own.
+    Line,
+    /// Its text in the pair's box colour, on the cell's own ground, where
+    /// that reads at least [`crate::linked::LINK_TEXT_CONTRAST`]; elsewhere
+    /// the cell keeps its text colour, so a program cannot hide a link by
+    /// painting that colour behind it.
+    Text,
+}
+
+/// The least the hovered text reads on its cell for `hover = "text"` to
+/// recolour it. No standard names this floor: it is the one the design
+/// chose so a light page still shows the look. The check on where a link
+/// goes is the address in the bar, in its own pair.
+pub const LINK_TEXT_CONTRAST: f64 = 1.5;
+
+/// **The link under the pointer as the next frame draws it**: its cells, a
+/// run a row, and how.
+#[derive(PartialEq, Eq, Debug)]
+pub struct LinkHover {
+    pub spans: Vec<LinkSpan>,
+    pub paint: HoverPaint,
+}
+
+impl Clone for LinkHover {
+    fn clone(&self) -> LinkHover {
+        LinkHover {
+            spans: self.spans.clone(),
+            paint: self.paint,
+        }
+    }
+
+    /// In the buffer it has: a frame copies this over last frame's.
+    fn clone_from(&mut self, source: &LinkHover) {
+        self.spans.clone_from(&source.spans);
+        self.paint = source.paint;
+    }
 }

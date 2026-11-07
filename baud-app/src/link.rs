@@ -20,7 +20,8 @@
 //!   above, over RFC 3986's characters, across the rows a soft wrap joined
 //!   and no further, and only when the click asks -- [`under`] runs it on
 //!   an unarmed Cmd press (Ctrl on Linux) and on the release of a press it
-//!   armed, never on a drag, a move or a frame. Where the RFC is silent,
+//!   armed, never on a drag; a move and a frame read it under the pointer
+//!   ([`Hover`]), bounded by `LINK_MAX`. Where the RFC is silent,
 //!   practice decides: trailing `.,;:!?'*` and an unmatched closing bracket
 //!   are prose, not the URI; an opening `(` or `[` just before the scheme
 //!   ends it at the closer that matches nothing inside; a letter outside
@@ -44,15 +45,24 @@
 //!   and with the reason in words when a click will not open it; and the
 //!   pointer a pointing hand while a click would open it ([`Hover::pointer`]).
 //!
+//! * The line at rest, the scan of the rows a frame changed, is `lined.rs`'s;
+//!   it reads URIs through [`found_in`], [`find`]'s own rules, so every
+//!   refusal above holds at rest as at a click: a URI refused is drawn as no
+//!   link. [`Hover::over`] is the look of the link under the pointer.
+//!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break.
+//! across a hard line break is read only up to the break. It gets no line
+//! where that break is at the row's last column and the next row carries on in
+//! a URI's characters ([`may_be_cut`]), the mark of a program wrapping by
+//! itself; a click there still opens what is read, and the bar shows it.
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
 use baud_render::{
-    AbsLine, Field, Hints, LinkLook, LinkSpan, Point, Scrolled, row_of, row_styles_of,
+    AbsLine, Field, Hints, HoverPaint, LinkHover, LinkLook, LinkSpan, Point, Scrolled, row_of,
+    row_styles_of,
 };
 use core::ops::Range;
 
@@ -68,7 +78,8 @@ pub enum Action {
     Reveal,
 }
 
-/// The four schemes the policy knows.
+/// The four schemes the policy knows, whose spellings are [`KNOWN`]'s, the one
+/// list [`admit`] and [`find`] read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Scheme {
     Http,
@@ -154,17 +165,11 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
     let s = core::str::from_utf8(uri).map_err(|_| Refused::Byte)?;
     let colon = s.find(':').ok_or(Refused::Scheme)?;
     let (name, rest) = (&s[..colon], &s[colon + 1..]);
-    let scheme = if name.eq_ignore_ascii_case("http") {
-        Scheme::Http
-    } else if name.eq_ignore_ascii_case("https") {
-        Scheme::Https
-    } else if name.eq_ignore_ascii_case("mailto") {
-        Scheme::Mailto
-    } else if name.eq_ignore_ascii_case("file") {
-        Scheme::File
-    } else {
-        return Err(Refused::Scheme);
-    };
+    let scheme = KNOWN
+        .iter()
+        .find(|k| name.eq_ignore_ascii_case(k.name))
+        .ok_or(Refused::Scheme)?
+        .scheme;
     match scheme {
         Scheme::Http | Scheme::Https => {
             let auth = rest.strip_prefix("//").ok_or(Refused::Host)?;
@@ -207,21 +212,21 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
 
 /// One RFC 3986 character class, a bit of [`CLASSES`]' byte per ASCII code.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct Class(u8);
+pub(crate) struct Class(u8);
 
 impl Class {
     const NONE: Class = Class(0);
     /// unreserved / reserved / `%`: a character a URI may contain (§ 2).
-    const URI: Class = Class(1);
+    pub(crate) const URI: Class = Class(1);
     /// ALPHA / DIGIT / `+` / `-` / `.`: a scheme's (§ 3.1).
-    const SCHEME: Class = Class(2);
+    pub(crate) const SCHEME: Class = Class(2);
     /// HEXDIG, what follows a `%` (§ 2.1).
     const HEX: Class = Class(4);
     /// Prose punctuation the RFC allows inside a URI and practice reads as
     /// the sentence's when it ends one: `.,;:!?'*`.
     const TRAIL: Class = Class(8);
 
-    fn has(self, k: Class) -> bool {
+    pub(crate) fn has(self, k: Class) -> bool {
         self.0 & k.0 == k.0
     }
 }
@@ -300,7 +305,7 @@ pub enum Unit {
     Gap,
 }
 
-fn class(u: Unit) -> Class {
+pub(crate) fn class(u: Unit) -> Class {
     match u {
         Unit::Char(c) => usize::try_from(u32::from(c))
             .ok()
@@ -331,56 +336,97 @@ enum Authority {
 }
 
 /// A scheme `admit` lets through, as it starts a URI in text.
-struct Known {
-    prefix: &'static str,
+pub(crate) struct Known {
+    /// What [`admit`] takes, and how a URI in the text opens with it.
+    scheme: Scheme,
+    name: &'static str,
+    /// What follows the name in the text: a URI with an authority is only
+    /// that URI past `//` (§ 3.2).
+    marks: &'static str,
     authority: Authority,
 }
 
+impl Known {
+    /// How many characters the name and its marks take.
+    fn prefix_len(&self) -> usize {
+        self.name.len() + self.marks.len()
+    }
+
+    fn prefix(&self) -> impl Iterator<Item = char> + '_ {
+        self.name.chars().chain(self.marks.chars())
+    }
+}
+
+/// **The schemes, the one list**: [`admit`] reads the names and [`find`] the
+/// prefixes, so a scheme one knows the other cannot miss.
 const KNOWN: [Known; 4] = [
     Known {
-        prefix: "https://",
+        scheme: Scheme::Https,
+        name: "https",
+        marks: "://",
         authority: Authority::Yes,
     },
     Known {
-        prefix: "http://",
+        scheme: Scheme::Http,
+        name: "http",
+        marks: "://",
         authority: Authority::Yes,
     },
     Known {
-        prefix: "mailto:",
+        scheme: Scheme::Mailto,
+        name: "mailto",
+        marks: ":",
         authority: Authority::No,
     },
     Known {
-        prefix: "file://",
+        scheme: Scheme::File,
+        name: "file",
+        marks: "://",
         authority: Authority::Yes,
     },
 ];
 
+/// **Whether `tail`, the last eight ASCII bytes read, lowered, the newest in
+/// its low byte, ends in a known scheme's name and `:`**: what a line must
+/// hold before it is worth reading for a URI at all, so a scan reads a line
+/// with none as one compare a cell.
+pub(crate) fn scheme_ends(tail: u64) -> bool {
+    if tail & 0xFF != u64::from(b':') {
+        return false;
+    }
+    KNOWN.iter().any(|k| {
+        let n = k.name.len();
+        let packed = k.name.bytes().fold(0u64, |a, b| (a << 8) | u64::from(b));
+        (tail >> 8) & ((1u64 << (8 * n)) - 1) == packed
+    })
+}
+
 /// The known scheme `rest` starts with, compared without case (§ 3.1).
-fn scheme_at(rest: &[Unit]) -> Option<&'static Known> {
+pub(crate) fn scheme_at(rest: &[Unit]) -> Option<&'static Known> {
     KNOWN.iter().find(|k| {
-        k.prefix.len() <= rest.len()
-            && k.prefix
-                .chars()
+        k.prefix_len() <= rest.len()
+            && k.prefix()
                 .zip(rest)
                 .all(|(c, u)| matches!(u, Unit::Char(x) if x.eq_ignore_ascii_case(&c)))
     })
 }
 
 /// A position in a [`Window`]'s text.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Ix(usize);
 
 /// Whether a [`Window`]'s end is the logical line's, or where the walk
 /// stopped because a URI there would be past `LINK_MAX` anyway.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Edge {
+    #[default]
     Line,
     Cut,
 }
 
 /// The text around a clicked cell: the logical line's cells, as far as
 /// `MAX + 1` either side, each with the cell it was read from.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Window {
     text: Vec<Unit>,
     cells: Vec<Point>,
@@ -413,12 +459,18 @@ fn first_unmatched(uri: &[Unit], open: char, close: char) -> Option<Ix> {
     None
 }
 
-/// Whether `uri`'s closers outnumber its openers: a trailing closer then
-/// closes something outside it.
-fn outnumbered(uri: &[Unit], open: char, close: char) -> bool {
-    let opens = uri.iter().filter(|u| **u == Unit::Char(open)).count();
-    let closes = uri.iter().filter(|u| **u == Unit::Char(close)).count();
-    closes > opens
+/// How many more closers than openers `uri` holds: past zero a trailing
+/// closer closes something outside it.
+fn outnumbered(uri: &[Unit], open: char, close: char) -> isize {
+    let (mut opens, mut closes) = (0, 0);
+    for u in uri {
+        if *u == Unit::Char(open) {
+            opens += 1;
+        } else if *u == Unit::Char(close) {
+            closes += 1;
+        }
+    }
+    closes - opens
 }
 
 fn bracket(u: &Unit) -> bool {
@@ -436,7 +488,7 @@ fn syntax(uri: &[Unit], known: &Known) -> Result<(), Refused> {
             }
         }
     }
-    let rest = &uri[known.prefix.len()..];
+    let rest = &uri[known.prefix_len()..];
     let after = match known.authority {
         Authority::No => rest,
         Authority::Yes => {
@@ -499,15 +551,29 @@ pub fn find(w: &Window) -> Option<Found> {
     while hi < text.len() && class(text[hi]).has(Class::URI) {
         hi += 1;
     }
-    let cut = (lo == 0 && w.head == Edge::Cut) || (hi == text.len() && w.tail == Edge::Cut);
-    for p in lo..=at {
+    found_in(text, (lo, hi), lo, at, (w.head, w.tail))
+}
+
+/// [`find`] over `text`, the run of URI characters around `at` being `lo..hi`
+/// and the units before `from` already read: the scan at rest (`lined.rs`)
+/// reads a run from where the last URI ended, one pass, so a run of many
+/// costs what one does.
+pub(crate) fn found_in(
+    text: &[Unit],
+    (lo, hi): (usize, usize),
+    from: usize,
+    at: usize,
+    (head, tail): (Edge, Edge),
+) -> Option<Found> {
+    let cut = (lo == 0 && head == Edge::Cut) || (hi == text.len() && tail == Edge::Cut);
+    for p in from..=at {
         if p > 0 && class(text[p - 1]).has(Class::SCHEME) {
             continue;
         }
         let Some(known) = scheme_at(&text[p..hi]) else {
             continue;
         };
-        let body = p + known.prefix.len();
+        let body = p + known.prefix_len();
         if body >= hi {
             continue;
         }
@@ -520,7 +586,7 @@ pub fn find(w: &Window) -> Option<Found> {
         let before = p.checked_sub(1).map(|q| text[q]);
         let opened = matches!(before, Some(Unit::Char('<' | '"')));
         let blank = |u: &Unit| matches!(u, Unit::Gap | Unit::Char(' '));
-        if opened && w.tail == Edge::Line && text[hi..].iter().all(blank) {
+        if opened && tail == Edge::Line && text[hi..].iter().all(blank) {
             return Some(Found {
                 span: p..hi,
                 verdict: Err(Refused::Length),
@@ -537,11 +603,20 @@ pub fn find(w: &Window) -> Option<Found> {
                 by_run = false;
             }
         }
+        // Counted once and kept as the end moves, so a run of closers costs
+        // one pass and not one a closer.
+        let mut rounds = outnumbered(&text[p..end], '(', ')');
+        let mut squares = outnumbered(&text[p..end], '[', ']');
         while end > body {
             let last = text[end - 1];
-            let unmatched = (last == Unit::Char(')') && outnumbered(&text[p..end], '(', ')'))
-                || (last == Unit::Char(']') && outnumbered(&text[p..end], '[', ']'));
+            let unmatched =
+                (last == Unit::Char(')') && rounds > 0) || (last == Unit::Char(']') && squares > 0);
             if class(last).has(Class::TRAIL) || unmatched {
+                if last == Unit::Char(')') {
+                    rounds -= 1;
+                } else if last == Unit::Char(']') {
+                    squares -= 1;
+                }
                 end -= 1;
             } else {
                 break;
@@ -563,6 +638,38 @@ pub fn find(w: &Window) -> Option<Found> {
     None
 }
 
+impl Found {
+    /// The units it spans, and whether RFC 3986 takes it whole.
+    pub(crate) fn parts(&self) -> (Range<usize>, Result<(), Refused>) {
+        (self.span.clone(), self.verdict)
+    }
+}
+
+/// **Whether a URI ending at `to` may have been cut by the program that wrote
+/// it**: its last cell is the row's last, the row ends there by the writer's
+/// own line break and not a soft wrap, and the next row starts in a URI's
+/// characters. A program that wraps by itself leaves exactly this, and a line
+/// under the first row's part would call a cut address whole; a click still
+/// reads what is written and the bar shows it. What this cannot see, stated: a
+/// program that wraps short of the last column, as a pane inside a
+/// multiplexer does.
+pub(crate) fn may_be_cut(term: &Term<'_>, scrolled: Scrolled, to: Point) -> bool {
+    let Some((cells, wrap)) = row_of(term, scrolled, to.line) else {
+        return false;
+    };
+    if to.col.index() + 1 < cells.len() || wrap == Wrap::Continues {
+        return false;
+    }
+    let below = to.line.below();
+    let Some((next, _)) = row_of(term, scrolled, below) else {
+        return false;
+    };
+    next.first().is_some_and(|&cell| {
+        let styles = row_styles_of(term, scrolled, below);
+        class(unit(term, styles, cell)).has(Class::URI)
+    })
+}
+
 /// A URI read from the text: the cells it spans, both ends inclusive, by
 /// absolute line so a scroll between the press and the release keeps it,
 /// and its bytes, or why it may not be opened.
@@ -570,7 +677,7 @@ pub fn find(w: &Window) -> Option<Found> {
 pub struct Bare {
     from: Point,
     to: Point,
-    text: Box<[u8]>,
+    text: Vec<u8>,
     verdict: Result<(), Refused>,
 }
 
@@ -589,18 +696,25 @@ impl Bare {
 impl Window {
     /// The URI around the clicked cell, with its cells.
     pub fn bare(&self) -> Option<Bare> {
+        self.bare_in(&mut Vec::new())
+    }
+
+    /// [`Window::bare`], its bytes in `text`'s buffer, taken only for a URI.
+    fn bare_in(&self, text: &mut Vec<u8>) -> Option<Bare> {
         let f = find(self)?;
-        let text = self.text[f.span.clone()]
-            .iter()
-            .filter_map(|u| match u {
-                Unit::Char(c) => u8::try_from(*c).ok(),
-                Unit::Marked | Unit::Gap => None,
-            })
-            .collect();
+        let (from, to) = (
+            *self.cells.get(f.span.start)?,
+            *self.cells.get(f.span.end.checked_sub(1)?)?,
+        );
+        text.clear();
+        text.extend(self.text[f.span.clone()].iter().filter_map(|u| match u {
+            Unit::Char(c) => u8::try_from(*c).ok(),
+            Unit::Marked | Unit::Gap => None,
+        }));
         Some(Bare {
-            from: *self.cells.get(f.span.start)?,
-            to: *self.cells.get(f.span.end.checked_sub(1)?)?,
-            text,
+            from,
+            to,
+            text: core::mem::take(text),
             verdict: f.verdict,
         })
     }
@@ -608,7 +722,7 @@ impl Window {
 
 /// What a cell reads as: its character, unless it carries marks, is
 /// empty, is in an `OSC 8` run or is concealed.
-fn unit(term: &Term<'_>, styles: baud_domain::RowStyles<'_>, cell: PackedCell) -> Unit {
+pub(crate) fn unit(term: &Term<'_>, styles: baud_domain::RowStyles<'_>, cell: PackedCell) -> Unit {
     // Through the row's own table: a line the core froze off the screen
     // names its ids in a generation's words (`Term::style_in`).
     if term.link_uri(cell.flags.link()).is_some()
@@ -633,12 +747,44 @@ fn unit(term: &Term<'_>, styles: baud_domain::RowStyles<'_>, cell: PackedCell) -
 /// refused whatever is past it, so a line a megabyte long costs a click
 /// what a short one does.
 pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> Option<Window> {
+    let mut read = Reading::default();
+    read_window(term, scrolled, line, col, &mut read)?;
+    Some(read.window)
+}
+
+/// **The buffers a read of the link under the pointer keeps**, for
+/// [`Hover::update`], which reads again at each new byte with the pointer
+/// still: grown to the longest line read, then allocating nothing.
+#[derive(Default)]
+struct Reading {
+    left: Vec<(Unit, Point)>,
+    right: Vec<(Unit, Point)>,
+    window: Window,
+    text: Vec<u8>,
+    spans: Vec<LinkSpan>,
+}
+
+/// [`window`], into `read`'s window.
+fn read_window(
+    term: &Term<'_>,
+    scrolled: Scrolled,
+    line: AbsLine,
+    col: Col,
+    read: &mut Reading,
+) -> Option<()> {
     let (row, wrap) = row_of(term, scrolled, line)?;
     let mut c = col.index().min(row.len().checked_sub(1)?);
     if c > 0 && row[c].content.is_wide_tail() {
         c -= 1;
     }
-    let mut left = Vec::new();
+    let Reading {
+        left,
+        right,
+        window,
+        ..
+    } = read;
+    left.clear();
+    right.clear();
     let mut head = Edge::Line;
     let (mut l, mut cells, mut i) = (line, row, c);
     'left: loop {
@@ -665,7 +811,6 @@ pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> O
             _ => break,
         }
     }
-    let mut right = Vec::new();
     let mut tail = Edge::Line;
     let (mut l, mut cells, mut wraps, mut i) = (line, row, wrap, c);
     'right: loop {
@@ -692,15 +837,16 @@ pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> O
         };
         (l, cells, wraps, i) = (down, next, w, 0);
     }
-    let at = Ix(left.len());
-    let (text, cells) = left.into_iter().rev().chain(right).unzip();
-    Some(Window {
-        text,
-        cells,
-        at,
-        head,
-        tail,
-    })
+    window.at = Ix(left.len());
+    window.text.clear();
+    window.cells.clear();
+    for &(u, p) in left.iter().rev().chain(right.iter()) {
+        window.text.push(u);
+        window.cells.push(p);
+    }
+    window.head = head;
+    window.tail = tail;
+    Some(())
 }
 
 /// Where a pointer event fell: the view the user sees, `back` lines up the
@@ -1024,8 +1170,14 @@ fn verdict<'a>(
 /// The link under the pointer while the link gesture's modifier is held:
 /// the cell's `OSC 8` link, or the URI the text around it reads as. Read
 /// on every move while the modifier is held, bounded as a click's read is
-/// ([`window`]).
+/// ([`window`]). The drivers read through [`Hover`], so only tests call it.
+#[cfg(test)]
 pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
+    hovered_in(term, spot, &mut Reading::default())
+}
+
+/// [`hovered`], in `read`'s buffers.
+fn hovered_in(term: &Term<'_>, spot: Spot, read: &mut Reading) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
     let link = Osc8::of(term, cell);
@@ -1033,9 +1185,8 @@ pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
         return Some(Under::Osc8(link));
     }
     let line = spot.scrolled.line(spot.back, spot.row);
-    window(term, spot.scrolled, line, spot.col)?
-        .bare()
-        .map(Under::Bare)
+    read_window(term, spot.scrolled, line, spot.col, read)?;
+    read.window.bare_in(&mut read.text).map(Under::Bare)
 }
 
 /// **The link's cells on the view, a run a row.** An `OSC 8` link is every
@@ -1046,9 +1197,16 @@ pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
 /// URI read from the text is its cells from its first to its last, across
 /// the rows a soft wrap joined.
 pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
+    let mut out = Vec::new();
+    link_spans_into(term, spot, link, &mut out);
+    out
+}
+
+/// [`link_spans`], into `out`'s buffer.
+fn link_spans_into(term: &Term<'_>, spot: Spot, link: &Under, out: &mut Vec<LinkSpan>) {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
-    let mut out = Vec::new();
+    out.clear();
     match link {
         // A link whose slot was freed since names none of the cells.
         Under::Osc8(link) if link.uri(term).is_none() => {}
@@ -1102,7 +1260,6 @@ pub fn link_spans(term: &Term<'_>, spot: Spot, link: &Under) -> Vec<LinkSpan> {
             }
         }
     }
-    out
 }
 
 /// **Where the bar goes**: on the bottom row from the left edge, as a
@@ -1127,9 +1284,11 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
     }
 }
 
-/// **What the preview draws for `link` under `spot`**: its cells
-/// underlined and the bar with its address, a space either side, in the
-/// selection's colours, cell-aligned text a program could copy, which
+/// **What the preview draws for `link` under `spot`**: its cells underlined
+/// where a click opens it -- a link [`admit`] refuses is drawn as no link,
+/// and the bar says why -- and the bar with its address, a space either side,
+/// in the message pair ([`baud_render::message`]): an opaque box and text no
+/// program's colours reach, cell-aligned text a program could copy, which
 /// shows only while the chord is held.
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
     let view = term.view(spot.back);
@@ -1147,16 +1306,79 @@ pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Opt
         Rows::of_index(rows),
     );
     let n = text.len();
+    let opens = matches!(verdict(link, term, host), Some((_, Ok(()))));
     Some(LinkLook {
-        spans,
+        spans: match opens {
+            true => spans,
+            false => Vec::new(),
+        },
         bar: Field {
             row,
             col,
-            hints: vec![Hints::SELECTION; n],
+            hints: vec![Hints::MESSAGE; n],
             caret: Col::at_index(col.index() + n),
             text,
         },
     })
+}
+
+/// **The link under the pointer with no modifier**: what [`Hover`] draws
+/// there, once a driver has told it the config (`[link] urls` and `hover`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum AtRest {
+    /// Nothing: only the chord shows a link.
+    #[default]
+    Off,
+    Look(HoverPaint),
+}
+
+/// Whether a mouse button is down: a drag over a link is a selection being
+/// made, and no look is drawn over it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Held {
+    #[default]
+    No,
+    Yes,
+}
+
+/// The core's count of bytes taken: a new one is a read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Taken(pub usize);
+
+/// **All a read of the link under the pointer depends on**: a read with the
+/// same ones answers the same, so a tick over a still screen reads no text.
+/// The bytes the core has taken stand for its grid: nothing moves a cell but
+/// a byte, a resize or the window, each of which is here.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct ReadOf {
+    at: Option<(Row, Col)>,
+    scrolled: Scrolled,
+    back: Rows,
+    geometry: (Cols, Rows),
+    chord: Chord,
+    focus: Focus,
+    bytes: Taken,
+    epoch: LinkEpoch,
+    host: String,
+}
+
+impl ReadOf {
+    fn matches(
+        &self,
+        term: &Term<'_>,
+        (at, scrolled, chord, focus): (Option<(Row, Col)>, Scrolled, Chord, Focus),
+        host: Host<'_>,
+    ) -> bool {
+        self.at == at
+            && self.scrolled == scrolled
+            && self.chord == chord
+            && self.focus == focus
+            && self.back == term.window_back()
+            && self.geometry == term.geometry()
+            && self.bytes == Taken(term.amplification().0)
+            && self.epoch == term.link_epoch()
+            && self.host == host.0
+    }
 }
 
 /// **The link preview's state**: the cell under the pointer, whatever the
@@ -1167,13 +1389,27 @@ pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Opt
 /// keyboard. Every read builds its [`Spot`] from the view shown then, as
 /// a click at the same place would: a window held on its line while
 /// output retires lines, or moved by a wheel, shows other lines under a
-/// pointer that has not moved.
+/// pointer that has not moved. A read repeated over what has not changed
+/// reads no text ([`ReadOf`]), since with [`AtRest::Look`] it runs with no
+/// modifier, at every tick the pointer rests over the text.
+///
+/// **Two looks, kept apart.** [`Hover::look`] is the chord's: the bar and the
+/// hand, which take the copy signal's bar. [`Hover::over`] is the look of the
+/// link under the pointer, with or without the chord, only where a click would
+/// open it and it is drawn whole; it has no bar, and asks nothing of the
+/// pointer's shape.
 #[derive(Default)]
 pub struct Hover {
     at: Option<(Row, Col)>,
     look: Option<LinkLook>,
     opens: Opens,
     left: LeftPress,
+    over: Option<LinkHover>,
+    at_rest: AtRest,
+    held: Held,
+    read: Option<ReadOf>,
+    reads: usize,
+    buffers: Reading,
 }
 
 /// **Who a left press where the pointer rests would go to**: the cells' --
@@ -1192,17 +1428,20 @@ pub enum LeftPress {
 /// refuses opens nothing, and the bar says why.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Opens {
+    /// No preview.
     #[default]
     No,
     Yes,
+    Refused,
 }
 
 impl Hover {
     /// The pointer over screen cell `at` (none off the text), the
     /// driver's count of lines retired `scrolled`, with `chord` held, in a
     /// window with `focus`: the link there previewed while the chord is
-    /// the link gesture's and the window is key, else nothing. Whether
-    /// what the frame draws changed.
+    /// the link gesture's and the window is key, and drawn in the config's
+    /// look ([`AtRest`]) where a click would open it, with or without the
+    /// chord, while no button is down. Whether what the frame draws changed.
     pub fn update(
         &mut self,
         term: &Term<'_>,
@@ -1213,26 +1452,100 @@ impl Hover {
         host: Host<'_>,
     ) -> bool {
         self.at = at;
+        let inputs = (at, scrolled, chord, focus);
+        if self
+            .read
+            .as_ref()
+            .is_some_and(|r| r.matches(term, inputs, host))
+        {
+            return false;
+        }
+        let mut kept = self.read.take().map_or_else(String::new, |r| r.host);
+        kept.clear();
+        kept.push_str(host.0);
+        self.read = Some(ReadOf {
+            at,
+            scrolled,
+            back: term.window_back(),
+            geometry: term.geometry(),
+            chord,
+            focus,
+            bytes: Taken(term.amplification().0),
+            epoch: term.link_epoch(),
+            host: kept,
+        });
+        let previewing = chord == Chord::Cmd && focus == Focus::Gained;
+        let paint = match (self.at_rest, self.held, focus) {
+            (AtRest::Look(paint), Held::No, Focus::Gained) => Some(paint),
+            _ => None,
+        };
         let found = at
-            .filter(|_| chord == Chord::Cmd && focus == Focus::Gained)
+            .filter(|_| previewing || paint.is_some())
             .and_then(|(row, col)| {
                 let s = spot_now(term, scrolled, row, col)?;
-                let link = hovered(term, s)?;
-                let look = preview(term, s, &link, host)?;
-                let opens = match verdict(&link, term, host) {
-                    Some((_, Ok(()))) => Opens::Yes,
-                    _ => Opens::No,
+                self.reads += 1;
+                let link = hovered_in(term, s, &mut self.buffers)?;
+                let opens = matches!(verdict(&link, term, host), Some((_, Ok(()))));
+                let over = paint
+                    .filter(|_| opens && drawn_whole(term, s, &link))
+                    .map(|paint| {
+                        link_spans_into(term, s, &link, &mut self.buffers.spans);
+                        LinkHover {
+                            spans: core::mem::take(&mut self.buffers.spans),
+                            paint,
+                        }
+                    });
+                let look = match previewing {
+                    true => preview(term, s, &link, host),
+                    false => None,
                 };
-                Some((look, opens))
+                let opens = match (look.is_some(), opens) {
+                    (true, true) => Opens::Yes,
+                    (true, false) => Opens::Refused,
+                    (false, _) => Opens::No,
+                };
+                if let Under::Bare(b) = link {
+                    self.buffers.text = b.text;
+                }
+                Some((look, opens, over))
             });
-        let (look, opens) = match found {
-            Some((look, opens)) => (Some(look), opens),
-            None => (None, Opens::No),
-        };
-        let changed = look != self.look || opens != self.opens;
+        let (look, opens, over) = found.unwrap_or((None, Opens::No, None));
+        let changed = look != self.look || opens != self.opens || over != self.over;
         self.look = look;
         self.opens = opens;
+        if let Some(old) = core::mem::replace(&mut self.over, over) {
+            self.buffers.spans = old.spans;
+        }
         changed
+    }
+
+    /// **What the config asks of the link under the pointer**, from the
+    /// config as it is read and read again.
+    pub fn set_at_rest(&mut self, at_rest: AtRest) {
+        if self.at_rest != at_rest {
+            self.at_rest = at_rest;
+            self.read = None;
+        }
+    }
+
+    /// Whether a mouse button is down.
+    pub fn set_held(&mut self, held: Held) {
+        if self.held != held {
+            self.held = held;
+            self.read = None;
+        }
+    }
+
+    /// **The look of the link under the pointer**, or none.
+    pub fn over(&self) -> Option<&LinkHover> {
+        self.over.as_ref()
+    }
+
+    /// How many times this has read the text under the pointer: what a
+    /// repeated read over a still screen must not add to.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn reads(&self) -> usize {
+        self.reads
     }
 
     /// A frame under a pointer that has not moved: the link under it read
@@ -1262,10 +1575,13 @@ impl Hover {
         core::mem::replace(&mut self.left, left) != left
     }
 
-    /// Nothing previewed, until the next update or refresh.
-    /// Whether what the frame draws changed.
+    /// Nothing previewed, until the next update or refresh: the chord's look,
+    /// which a key takes away. The look with no modifier stays under a resting
+    /// pointer, and goes with the keyboard at the next read. Whether what the
+    /// frame draws changed.
     pub fn clear(&mut self) -> bool {
         self.opens = Opens::No;
+        self.read = None;
         self.look.take().is_some()
     }
 
@@ -1282,15 +1598,31 @@ impl Hover {
 
     /// **The pointer's shape over the text**: the pointing hand while the
     /// preview shows a link a click opens -- the platform's link pointer,
-    /// which each driver shows for xterm's "hand2" -- and otherwise the
-    /// program's `OSC 22` shape, `asked`, or none for the driver's own.
-    /// Over the scrollbar's strip while it takes a left press, a click
-    /// scrolls, so the pointer keeps its shape there.
+    /// which each driver shows for xterm's "hand2" -- an arrow while it shows
+    /// one a click would not, since nothing about it may look openable, and
+    /// otherwise the program's `OSC 22` shape, `asked`, or none for the
+    /// driver's own. The look with no modifier asks nothing of it: a click
+    /// there selects. Over the scrollbar's strip while it takes a left press,
+    /// a click scrolls, so the pointer keeps its shape there.
     pub fn pointer(&self, asked: Option<PointerShape>) -> Option<PointerShape> {
         match (&self.look, self.opens, self.left) {
             (Some(_), Opens::Yes, LeftPress::Cells) => Some(PointerShape::Hand2),
+            (Some(_), Opens::Refused, LeftPress::Cells) => Some(PointerShape::Arrow),
             _ => asked,
         }
+    }
+}
+
+/// **Whether a link that opens is drawn as one, whole.** A URI that may have
+/// been cut ([`may_be_cut`]) is not, and neither is a link on a double-size
+/// line, whose cells no overlay of a single cell's width lies on.
+fn drawn_whole(term: &Term<'_>, spot: Spot, link: &Under) -> bool {
+    if term.view(spot.back).rendition(spot.row).is_double() {
+        return false;
+    }
+    match link {
+        Under::Osc8(_) => true,
+        Under::Bare(b) => !may_be_cut(term, spot.scrolled, b.to),
     }
 }
 
@@ -2695,9 +3027,9 @@ mod tests {
     /// `OSC 22` crosshair too, and under its mouse tracking, which a click
     /// on a link never reaches. The program's shape comes back when the
     /// chord is let go, off the link, without the keyboard and when the
-    /// preview is cleared; over a refused link the preview says why and
-    /// the pointer keeps the program's shape, as it does while a left
-    /// press would be the scrollbar's. The control: with no `OSC 22`, the
+    /// preview is cleared; over a refused link the preview says why and the
+    /// pointer is an arrow, as no link; while a left press would be the
+    /// scrollbar's it keeps the program's shape. The control: with no `OSC 22`, the
     /// driver's own pointer, none. Perturbations: the hand for any
     /// previewed link -- the refused case fails; the program's shape over
     /// the hand -- the first assertion fails; the hand whoever takes a
@@ -2744,8 +3076,12 @@ mod tests {
         assert_eq!(h.pointer(asked), asked, "off the link");
         let _ = h.update(&t, ftp, s, Chord::Cmd, key, NONE);
         assert!(h.look().is_some(), "a refused link is previewed");
-        assert_eq!(h.pointer(asked), asked, "and keeps the program's shape");
-        assert_eq!(h.pointer(None), None);
+        assert_eq!(
+            h.pointer(asked),
+            Some(PointerShape::Arrow),
+            "as no link: an arrow, over the program's shape too"
+        );
+        assert_eq!(h.pointer(None), Some(PointerShape::Arrow));
         let _ = h.update(&t, web, s, Chord::Cmd, key, NONE);
         assert_eq!(h.pointer(asked), Some(PointerShape::Hand2));
         assert!(h.set_left_press(LeftPress::Scrollbar), "told");

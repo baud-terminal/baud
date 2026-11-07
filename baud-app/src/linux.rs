@@ -333,6 +333,10 @@ struct Driver {
     line_tip: crate::line_tip::LineTip,
     /// What a copy says, and when it ends (`copied.rs`).
     copied: crate::copied::Signal<Instant>,
+    /// The lines at rest the frame draws, and what reads them (`lined.rs`).
+    lines: crate::lined::Lines,
+    uris: crate::lined::Uris,
+    link_config: crate::config::Link,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
     session: crate::effects::Session,
@@ -650,6 +654,7 @@ pub fn run() {
         seat: {
             let mut seat = crate::seat::Seat::new();
             seat.set_word_wrap(cfg.wrap_words);
+            seat.set_at_rest(cfg.link.at_rest());
             seat
         },
         shape: None,
@@ -687,6 +692,13 @@ pub fn run() {
         status_line_lights: cfg.status_line_lights,
         line_tip: crate::line_tip::LineTip::default(),
         copied: crate::copied::Signal::new(cfg.message),
+        lines: crate::lined::Lines::default(),
+        uris: {
+            let mut u = crate::lined::Uris::default();
+            u.set_host(crate::opener::host_name());
+            u
+        },
+        link_config: cfg.link,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
         host: crate::opener::host_name(),
@@ -1968,6 +1980,12 @@ impl Driver {
                     self.copied.set(c.message);
                     self.pending = Pending::Dirty;
                 }
+                Part::Link => {
+                    self.link_config = c.link;
+                    self.seat.set_at_rest(c.link.at_rest());
+                    self.lines.forget();
+                    self.pending = Pending::Dirty;
+                }
                 Part::AmbiguousWidth => self.term.set_ambiguous_width(c.ambiguous_width),
                 Part::SpacingMarks => self.term.set_spacing_marks(c.join_spacing_marks),
                 Part::Splash => {
@@ -2965,7 +2983,20 @@ impl Driver {
         if self.seat.hover_refresh(&self.term, mods, host) {
             self.show_pointer();
         }
+        // The lines at rest for this frame (`lined.rs`).
+        match self.link_config.lines() {
+            Some(style) => {
+                self.lines
+                    .scan(&self.term, self.seat.scrolled(), &mut self.uris);
+                self.renderer.set_link_lines(self.lines.lines(), style);
+            }
+            None => {
+                self.lines.off();
+                self.renderer.set_link_lines(&[], Default::default());
+            }
+        }
         self.renderer.set_link(self.seat.hover_look().cloned());
+        self.renderer.set_link_hover(self.seat.hover_over());
         self.renderer.set_tip(self.line_tip.look().cloned());
         // What a copy says, over that slot for its moment, and none under the
         // link preview, which keeps the bar (`copied.rs`).

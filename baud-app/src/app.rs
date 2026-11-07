@@ -563,13 +563,14 @@ struct App {
     /// The link preview (`link.rs`, `Hover`): the link under the pointer
     /// while Command is held, underlined, and its address in a bar.
     hover: crate::link::Hover,
+    /// The lines at rest the frame draws, and what reads them (`lined.rs`).
+    lines: crate::lined::Lines,
+    uris: crate::lined::Uris,
+    link_config: crate::config::Link,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
     /// What a copy says, and when it ends (`copied.rs`).
     copied: crate::copied::Signal<HostTime>,
-    /// The host a `file:` link is local to, for the preview: read once
-    /// when Command goes down and kept while it is held (`preview_host`).
-    hover_host: Option<String>,
     /// The pointer the window last showed for a program's `OSC 22` or a
     /// link a click opens (`pointer.rs`), unknown while the pointer is
     /// outside it.
@@ -953,6 +954,7 @@ struct Boot {
     clipboard: crate::config::Clipboard,
     /// `[message]` and `[message.copy]`.
     message: crate::config::Message,
+    link_config: crate::config::Link,
     /// What a `BEL` does in a focused window, from `bell`.
     bell: crate::config::BellStyle,
     /// What the window says about the config at launch (`live::Notice`).
@@ -1112,6 +1114,7 @@ impl Boot {
             join_spacing_marks: cfg.join_spacing_marks,
             clipboard: cfg.clipboard,
             message: cfg.message,
+            link_config: cfg.link,
             bell: cfg.bell,
             notice,
             reload,
@@ -1240,6 +1243,7 @@ impl App {
             join_spacing_marks,
             clipboard,
             message,
+            link_config,
             bell: bell_style,
             // `run` takes both off `boot` for the driver.
             notice: _,
@@ -1527,10 +1531,16 @@ impl App {
             },
             scrolled: Scrolled::START,
             finding: None,
-            hover: crate::link::Hover::default(),
+            hover: {
+                let mut h = crate::link::Hover::default();
+                h.set_at_rest(link_config.at_rest());
+                h
+            },
+            lines: crate::lined::Lines::default(),
+            uris: crate::lined::Uris::default(),
+            link_config,
             line_tip: crate::line_tip::LineTip::default(),
             copied: crate::copied::Signal::new(message),
-            hover_host: None,
             pointer_shown: crate::pointer::Shown::Unknown,
             find_left: None,
             find_written: Vec::new(),
@@ -1822,13 +1832,12 @@ impl App {
         if !self.hover.over_text() {
             return false;
         }
-        let host = self.preview_host(chord);
         let changed = self.hover.refresh(
             &self.term,
             self.scrolled,
             chord,
             self.focus,
-            crate::link::Host(&host),
+            crate::link::Host(self.uris.host()),
         );
         if changed {
             self.reshape_pointer();
@@ -1895,19 +1904,17 @@ impl App {
         }
     }
 
-    /// **The host the preview admits a `file:` link against**,
-    /// `NSProcessInfo.hostName`, read once when Command goes down and kept
-    /// while it is held: the display-link tick reads the preview on every
-    /// frame while Command is held, and the host is asked once a press.
-    fn preview_host(&mut self, chord: crate::link::Chord) -> String {
-        match chord {
-            crate::link::Chord::Cmd => self
-                .hover_host
-                .get_or_insert_with(baud_present_macos::link::host_name)
-                .clone(),
-            crate::link::Chord::Other => {
-                self.hover_host = None;
-                String::new()
+    /// **The lines at rest for this frame** (`lined.rs`), against the machine
+    /// name [`Driver::link_host_check`] handed over, or none yet.
+    fn scan_lines(&mut self) {
+        match self.link_config.lines() {
+            Some(style) => {
+                self.lines.scan(&self.term, self.scrolled, &mut self.uris);
+                self.renderer.set_link_lines(self.lines.lines(), style);
+            }
+            None => {
+                self.lines.off();
+                self.renderer.set_link_lines(&[], Default::default());
             }
         }
     }
@@ -2178,7 +2185,9 @@ impl App {
         if self.read_hover() {
             self.pending = Pending::Dirty;
         }
+        self.scan_lines();
         self.renderer.set_link(self.hover.look().cloned());
+        self.renderer.set_link_hover(self.hover.over());
         // The hover text over DEC's line's words, read again on the line
         // as it is now (`line_tip.rs`).
         if self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes {
@@ -2591,6 +2600,9 @@ impl App {
                     }
                     (c, _) => c,
                 };
+                // No cursor over an address or a message, as the instance and
+                // CPU paths have it in their convert.
+                let cursor_at = self.renderer.clear_of_messages(&self.term, cursor_at);
                 // **Whether this frame's screen is the last frame's**: its
                 // rows, its status line and its line renditions against the
                 // copy that frame left, row for row; never while sliding,
@@ -2780,6 +2792,11 @@ impl App {
                 // row is read for joins before one is drawn: laid out again,
                 // before the records draw the forms. Once a renderer's life.
                 self.renderer.join_after_walk(&self.term, back, joins_seen);
+                // The lines at rest on this frame's layout and the look of
+                // the link under the pointer, placed once the layout is
+                // final and before the walk, which reads the look's fields
+                // as empty, as the instance path blanks their cells.
+                self.renderer.place_links(&self.term, &view);
                 let cursor = cursor_at.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
                 // **The config's notice row, after the status line's**:
                 // blank cells, whose default background the shader draws,
@@ -2892,6 +2909,10 @@ impl App {
                 // own and go over the images, below.
                 cell.records.extend_from_slice(self.renderer.find_solids());
                 cell.records.extend_from_slice(self.renderer.link_solids());
+                // The lines at rest, placed before the walk, moved with the
+                // text under a slide.
+                self.renderer
+                    .link_lines_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.records);
                 // The leaving row: what the map does not draw of it drawn by
                 // records, as on a row of the window, and a line that is not
                 // single-width drawn whole by them, its row of the mask the
@@ -2948,6 +2969,21 @@ impl App {
                 // same way; the thumb; the fade.
                 let chrome_from = cell.records.len();
                 cell.records.extend_from_slice(self.renderer.bell_tint());
+                for (c, under) in self.renderer.hover_bars() {
+                    cell.exceptions.composed(
+                        &mut self.renderer,
+                        &self.term,
+                        (&c, baud_render::Laid::OnScreen),
+                        under,
+                        &cell.styles_mem[set][..],
+                        None,
+                        view.cols(),
+                        baud_domain::LineRendition::Single,
+                        Px::of(0),
+                        &mut cell.overlay_mem[set][..],
+                        &mut cell.records,
+                    );
+                }
                 let tips = self
                     .renderer
                     .tip_bars()
@@ -11291,6 +11327,7 @@ impl Driver {
         }
         if let Trigger::Tick = trigger {
             self.title_check();
+            self.link_host_check();
             self.notice_turn();
             self.poll_focus();
             self.poll_hover();
@@ -13621,6 +13658,22 @@ impl Driver {
         }
     }
 
+    /// **This machine's name reaching the links**, once the thread that reads
+    /// it has ended (`Hosts`), never waited for: every row read again, and
+    /// the preview's next read sees a new host. Until then a `file` link
+    /// naming a host gets no line and no look (`lined::Uris`).
+    fn link_host_check(&mut self) {
+        if self.app.uris.host_known() {
+            return;
+        }
+        let Some(name) = self.hosts.names().and_then(link_host) else {
+            return;
+        };
+        self.app.uris.set_host(name.to_string());
+        self.app.lines.forget();
+        self.app.pending = Pending::Dirty;
+    }
+
     /// Whether this window is the key window, read from AppKit now.
     ///
     /// **The live check found the focus gate dead.** `GlassWindow::show`
@@ -14235,6 +14288,12 @@ impl Driver {
                     self.app.copied.set(c.message);
                     self.app.pending = Pending::Dirty;
                 }
+                Part::Link => {
+                    self.app.link_config = c.link;
+                    self.app.hover.set_at_rest(c.link.at_rest());
+                    self.app.lines.forget();
+                    self.app.pending = Pending::Dirty;
+                }
                 // Put up or taken down at the next tick, and a line of their
                 // own given its pixels now.
                 Part::ActivityLights => {
@@ -14710,6 +14769,12 @@ impl Driver {
             Chord::Other
         };
         let at = (event.kind != ViewMouseKind::Exited).then(|| self.cell_under(event.x, event.y));
+        self.app
+            .hover
+            .set_held(match self.buttons == LocatorButtons::NONE {
+                true => crate::link::Held::No,
+                false => crate::link::Held::Yes,
+            });
         let app = &mut self.app;
         // Over the scrollbar's strip while it takes a left press, a click
         // scrolls and opens nothing (`bar::left_press`); off the window
@@ -14726,10 +14791,14 @@ impl Driver {
         let pressed =
             app.hover
                 .set_left_press(crate::bar::left_press(&app.term, strip, app.bar_ctx()));
-        let host = app.preview_host(chord);
-        let hovered = app
-            .hover
-            .update(&app.term, at, app.scrolled, chord, app.focus, Host(&host));
+        let hovered = app.hover.update(
+            &app.term,
+            at,
+            app.scrolled,
+            chord,
+            app.focus,
+            Host(app.uris.host()),
+        );
         if hovered || pressed {
             app.reshape_pointer();
         }
@@ -14837,8 +14906,7 @@ impl Driver {
             },
         };
         let shown = shown(uri);
-        let host = opener::host_name();
-        match crate::link::admit(uri, Host(&host)) {
+        match crate::link::admit(uri, Host(self.app.uris.host())) {
             Err(why) => {
                 self.app.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {shown}");
@@ -19647,9 +19715,31 @@ fn machine_names() -> Vec<String> {
     names
 }
 
+/// **The name a `file://` link is local to**: `hostName`, which a line and a
+/// click both admit against, so a line promises what a click does. It is the last of
+/// [`machine_names`], which adds it where it differs from `gethostname`'s; a
+/// thread that ended in a panic leaves `gethostname`'s alone.
+fn link_host(names: &[String]) -> Option<&str> {
+    names.last().map(String::as_str)
+}
+
 #[cfg(test)]
 mod host_tests {
-    use super::{Hosts, judged_by, machine_names};
+    use super::{Hosts, judged_by, link_host, machine_names};
+
+    /// **The links' name is `hostName`**, and none when none was read.
+    /// Perturbation: `names.first()` in `link_host`; the pair below fails on
+    /// any Mac.
+    #[test]
+    fn the_links_name_is_the_process_infos() {
+        assert_eq!(link_host(&[]), None);
+        let pair = ["gethostname".to_string(), "hostname.local".to_string()];
+        assert_eq!(link_host(&pair), Some("hostname.local"));
+        let names = machine_names();
+        let name = link_host(&names).expect("the control: this machine has a name");
+        let process = baud_present_macos::link::host_name();
+        assert!(process.is_empty() || name.eq_ignore_ascii_case(&process));
+    }
     use baud_core::{FileHost, WorkingDirectory};
 
     /// **The names are never waited for** (note AJ section 18): the first

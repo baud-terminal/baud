@@ -1,5 +1,6 @@
 //! **baud's short messages: one pair of colours**, drawn the same on every
-//! path, which a program cannot change.
+//! path, which a program cannot change: the words a copy says, a link's
+//! address and the config's notice row.
 //!
 //! A field drawn in the selection's colours takes whatever a program last
 //! set with `OSC 17` and `OSC 19`, reverse video's exchange under `?5`, and

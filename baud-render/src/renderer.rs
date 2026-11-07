@@ -19,7 +19,7 @@ use crate::flash::{self, Strength};
 use crate::frozen::Words;
 use crate::guide::{self, GuideLook};
 use crate::instance::{Instance, Screen};
-use crate::linked::LinkLook;
+use crate::linked::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkLook};
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
 use crate::picture::Pictures;
@@ -650,10 +650,119 @@ fn tip_on(t: &Option<crate::tip::TipLook>, row: Row) -> Option<&crate::find::Fie
         .and_then(|t| t.lines.iter().find(|f| f.row == row))
 }
 
+/// The lines at rest on `row`.
+fn lines_on(l: &[LinkLine], row: Row) -> impl Iterator<Item = &LinkLine> {
+    l.iter().filter(move |s| s.row == row)
+}
+
+/// The runs of the link under the pointer on `row`.
+fn hover_on(h: &Option<LinkHover>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
+    h.iter()
+        .flat_map(move |h| h.spans.iter().filter(move |s| s.row == row))
+}
+
+/// The fields the link under the pointer draws on `row`.
+fn bars_on(b: &[HoverBar], row: Row) -> impl Iterator<Item = &HoverBar> {
+    b.iter().filter(move |b| b.comp.row == row)
+}
+
+/// **A field the link under the pointer is drawn as**, and the cell under
+/// it, whose ground `hover = "text"` keeps ([`crate::HoverPaint`]).
+#[derive(PartialEq, Eq, Debug)]
+pub struct HoverBar {
+    pub comp: Composition,
+    pub under: PackedCell,
+}
+
+impl Clone for HoverBar {
+    fn clone(&self) -> HoverBar {
+        HoverBar {
+            comp: self.comp.clone(),
+            under: self.under,
+        }
+    }
+
+    /// In the buffers it has: a frame copies these over last frame's.
+    fn clone_from(&mut self, source: &HoverBar) {
+        self.comp.row = source.comp.row;
+        self.comp.col = source.comp.col;
+        self.comp.text.clone_from(&source.comp.text);
+        self.comp.measure = source.comp.measure;
+        self.comp.hints.clone_from(&source.comp.hints);
+        self.comp.caret = source.comp.caret;
+        self.under = source.under;
+    }
+}
+
 /// The link preview's underlined runs on `row`.
 fn spans_on(l: &Option<LinkLook>, row: Row) -> impl Iterator<Item = &crate::linked::LinkSpan> {
     l.iter()
         .flat_map(move |l| l.spans.iter().filter(move |s| s.row == row))
+}
+
+/// **Visual run `(row, at, n)` of a hovered link as fields**: its cells'
+/// characters, shown where they are drawn, one field for `"box"`, one per
+/// rendition for `"text"`, whose ground is its cells' own. Each in a bar of
+/// `spare`'s, whose buffers last frame's fields grew.
+fn hover_fields(
+    (term, words): (&Term<'_>, Words<'_>),
+    orders: &crate::bidi::Orders,
+    view: &Viewport<'_>,
+    (row, at, n): (Row, Col, Cols),
+    paint: HoverPaint,
+    under: &impl Fn(Row, Col, Col) -> PackedCell,
+    (out, spare): (&mut Vec<HoverBar>, &mut Vec<HoverBar>),
+) {
+    let hint = match paint {
+        HoverPaint::Text => crate::overlay::Hints::LINK_TEXT,
+        HoverPaint::Box | HoverPaint::Line => crate::overlay::Hints::MESSAGE,
+    };
+    let mut open: Option<HoverBar> = None;
+    for v in at.index()..at.index() + n.index() {
+        let v = Col::at_index(v);
+        let l = orders.logical_col(row, v);
+        let Some(&cell) = view.row(row).get(l.index()) else {
+            continue;
+        };
+        if cell.content.is_wide_tail() {
+            continue;
+        }
+        let ground = under(row, v, l);
+        let parted = paint == HoverPaint::Text
+            && open.as_ref().is_some_and(|b| b.under.style != ground.style);
+        if parted {
+            out.extend(open.take());
+        }
+        let bar = open.get_or_insert_with(|| {
+            let under = match paint {
+                HoverPaint::Text => ground,
+                HoverPaint::Box | HoverPaint::Line => PackedCell::EMPTY,
+            };
+            let mut comp = spare.pop().map_or_else(
+                || Composition {
+                    row,
+                    col: v,
+                    text: Vec::new(),
+                    measure: Default::default(),
+                    hints: Vec::new(),
+                    caret: crate::overlay::Caret::Hidden,
+                },
+                |b| b.comp,
+            );
+            comp.row = row;
+            comp.col = v;
+            comp.text.clear();
+            comp.hints.clear();
+            HoverBar { comp, under }
+        });
+        let before = bar.comp.text.len();
+        cell_cps_into(term, words, cell, &mut bar.comp.text);
+        if bar.comp.text.len() == before {
+            bar.comp.text.push(Codepoint::from_char(' '));
+        }
+        bar.comp.hints.resize(bar.comp.text.len(), hint);
+    }
+    out.extend(open);
 }
 
 /// The palette entry a match is washed in, `SGR 33`'s yellow, which WezTerm
@@ -1285,11 +1394,17 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
 /// A cell's base and the codepoints attached to it, as the shaper takes a
 /// cluster: its marks read as [`drawn_marks`] reads them.
 pub(crate) fn cell_cps(term: &Term<'_>, words: Words<'_>, cell: PackedCell) -> Vec<Codepoint> {
-    let mut cps: Vec<Codepoint> = drawn_base(term, cell).into_iter().collect();
-    if cell.flags.is_marked() {
-        cps.extend(drawn_marks(term, words, cell).filter_map(Codepoint::new));
-    }
+    let mut cps = Vec::new();
+    cell_cps_into(term, words, cell, &mut cps);
     cps
+}
+
+/// [`cell_cps`], after what `out` holds.
+fn cell_cps_into(term: &Term<'_>, words: Words<'_>, cell: PackedCell, out: &mut Vec<Codepoint>) {
+    out.extend(drawn_base(term, cell));
+    if cell.flags.is_marked() {
+        out.extend(drawn_marks(term, words, cell).filter_map(Codepoint::new));
+    }
 }
 
 /// **The text of word `w` of `row`** ([`crate::word::WordText`]): each
@@ -2406,6 +2521,22 @@ pub struct Renderer<'f, 'a> {
     /// under the find field.
     link: Option<LinkLook>,
     last_link: Option<LinkLook>,
+    /// **A link's line at rest** on this frame and the last, how it is
+    /// drawn, and its solids (`Renderer::place_links`): a row whose lines
+    /// changed is dirty.
+    link_lines: Vec<LinkLine>,
+    last_link_lines: Vec<LinkLine>,
+    line_style: LineStyle,
+    line_inst: Vec<Instance>,
+    /// **The link under the pointer** on this frame and the last, and the
+    /// fields it is drawn as: `hover = "line"` goes with the lines' solids,
+    /// `"box"` and `"text"` with the bar, over the images.
+    link_hover: Option<LinkHover>,
+    last_link_hover: Option<LinkHover>,
+    hover_bars: Vec<HoverBar>,
+    last_hover_bars: Vec<HoverBar>,
+    /// Bars no field took, keeping their buffers for the next ([`hover_fields`]).
+    hover_spare: Vec<HoverBar>,
     /// The hover tip on this frame and the last ([`crate::tip`]): its
     /// lines' rows are dirty, and the cells under them converted blank,
     /// as under the link preview's bar.
@@ -2954,6 +3085,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
             find_caret: Vec::new(),
             link: None,
             last_link: None,
+            link_lines: Vec::new(),
+            last_link_lines: Vec::new(),
+            line_style: LineStyle::Solid,
+            line_inst: Vec::new(),
+            link_hover: None,
+            last_link_hover: None,
+            hover_bars: Vec::new(),
+            last_hover_bars: Vec::new(),
+            hover_spare: Vec::new(),
             tip: None,
             last_tip: None,
             message_colours: crate::message::MessageColours::default(),
@@ -3850,8 +3990,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **The link preview for the next frame**, or none: the link's cells
     /// underlined at the face's underline, in the default foreground, and
-    /// its address in a bar drawn over its cells in the selection's
-    /// colours, as the find field is. The instance and CPU paths draw it in
+    /// its address in a bar drawn over its cells in the message pair
+    /// ([`crate::message`]), as the find field is. The instance and CPU paths draw it in
     /// their convert, the bar over the find field and over the images; the
     /// cell path draws the bar through [`crate::Overlay::composed`], after
     /// the images, and appends [`Renderer::link_solids`] to its records
@@ -3902,6 +4042,279 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// text.
     pub fn link_solids(&self) -> &[Instance] {
         &self.link_inst
+    }
+
+    /// **The lines at rest for the next frames**: the scan's runs, whose
+    /// solids [`Renderer::place_links`] builds once the frame's layout is
+    /// known. Copied only when they changed, so a frame that changed nothing
+    /// allocates nothing.
+    pub fn set_link_lines(&mut self, lines: &[LinkLine], style: LineStyle) {
+        if self.link_lines != lines {
+            self.link_lines.clear();
+            self.link_lines.extend_from_slice(lines);
+        }
+        self.line_style = style;
+    }
+
+    /// **The link under the pointer for the next frame**, or none, copied
+    /// into the buffer the last one left.
+    pub fn set_link_hover(&mut self, hover: Option<&LinkHover>) {
+        match (hover, &mut self.link_hover) {
+            (Some(h), Some(mine)) => mine.clone_from(h),
+            (h, mine) => *mine = h.cloned(),
+        }
+    }
+
+    /// **The solids and fields of the frame's links, once its layout is
+    /// known**: each line at the cells the row's order draws it on, in the
+    /// colour its rendition resolves to now, so a palette or a video that
+    /// moved moves it, and the look of the link under the pointer. The
+    /// instance and CPU paths call it from their convert, the cell path
+    /// before its walk, which reads the look's fields as empty; `view` is
+    /// the window as that path's cells name their renditions.
+    pub fn place_links(&mut self, term: &Term<'_>, view: &Viewport<'_>) {
+        self.place_links_with(term, view, |y, _, l| {
+            view.row(y)
+                .get(l.index())
+                .copied()
+                .unwrap_or(PackedCell::EMPTY)
+        });
+    }
+
+    /// [`Renderer::place_links`], `under` naming the cell a field's ground
+    /// is read from: its row, visual column and logical column.
+    fn place_links_with(
+        &mut self,
+        term: &Term<'_>,
+        view: &Viewport<'_>,
+        under: impl Fn(Row, Col, Col) -> PackedCell,
+    ) {
+        let mut out = core::mem::take(&mut self.line_inst);
+        out.clear();
+        let cw = self.metrics.cell_w.value();
+        let thick = self.metrics.thickness;
+        let under_y = self.metrics.underline.value();
+        let x = |c: Col| {
+            i32::try_from(u32::try_from(c.index()).unwrap_or(0).saturating_mul(cw))
+                .unwrap_or(i32::MAX)
+        };
+        let y = |this: &Self, r: Row| {
+            screen(
+                i32::try_from(this.band(r).top.value().saturating_add(under_y)).unwrap_or(i32::MAX),
+            )
+        };
+        // No row reordered and none re-broken: a run is its own cells, and
+        // no list is built for it.
+        let plain = !self.bidi.orders().any() && self.bidi.orders().display().is_none();
+        let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
+        let lines = core::mem::take(&mut self.link_lines);
+        for l in &lines {
+            let colour = match last {
+                Some((word, c)) if word == l.word => c,
+                _ => {
+                    let c = self.line_colour(term, l.word);
+                    last = Some((l.word, c));
+                    c
+                }
+            };
+            let Some(colour) = colour else { continue };
+            let mut push = |row: Row, at: Col, n: usize| {
+                let (left, w) = (x(at), u32::try_from(n).unwrap_or(0).saturating_mul(cw));
+                match self.line_style {
+                    LineStyle::Solid => {
+                        out.push(solid(screen(left), y(self, row), Px::of(w), thick, colour))
+                    }
+                    LineStyle::Dotted => {
+                        let step = thick.value().max(1);
+                        let mut dx = 0;
+                        while dx < w {
+                            out.push(solid(
+                                screen(left.saturating_add(i32::try_from(dx).unwrap_or(i32::MAX))),
+                                y(self, row),
+                                Px::of(step),
+                                thick,
+                                colour,
+                            ));
+                            dx = dx.saturating_add(step.saturating_mul(2));
+                        }
+                    }
+                }
+            };
+            match plain {
+                true => push(
+                    l.row,
+                    l.from,
+                    l.to.index().saturating_sub(l.from.index()) + 1,
+                ),
+                false => {
+                    for (row, at, n) in self.bidi.orders().stored_runs(l.row, l.from, l.to) {
+                        push(row, at, n.index());
+                    }
+                }
+            }
+        }
+        self.link_lines = lines;
+        // The link under the pointer.
+        let mut bars = core::mem::take(&mut self.hover_bars);
+        let mut spare = core::mem::take(&mut self.hover_spare);
+        spare.append(&mut bars);
+        if let Some(h) = self.link_hover.take() {
+            match h.paint {
+                HoverPaint::Line => {
+                    let pair = self.message_rendition(self.resolve_slot(term, Default::default()));
+                    for s in &h.spans {
+                        for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
+                            let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
+                            out.push(solid(
+                                screen(x(at)),
+                                y(self, row),
+                                Px::of(w),
+                                thick,
+                                pair.bg,
+                            ));
+                        }
+                    }
+                }
+                HoverPaint::Box | HoverPaint::Text => {
+                    let words = self.frame_held();
+                    for s in &h.spans {
+                        for (row, at, n) in self.bidi.orders().stored_runs(s.row, s.from, s.to) {
+                            hover_fields(
+                                (term, words.words()),
+                                self.bidi.orders(),
+                                view,
+                                (row, at, n),
+                                h.paint,
+                                &under,
+                                (&mut bars, &mut spare),
+                            );
+                        }
+                    }
+                }
+            }
+            self.link_hover = Some(h);
+        }
+        self.hover_bars = bars;
+        self.hover_spare = spare;
+        self.line_inst = out;
+    }
+
+    /// The colour a line at rest is drawn in over a cell of rendition `word`,
+    /// as an underline of that cell would be; none where its text does not
+    /// draw.
+    fn line_colour(&self, term: &Term<'_>, word: baud_domain::StyleWord) -> Option<Argb> {
+        let d = self.resolve_slot(term, word).drawn(Swaps {
+            pictured: crate::picture::Pictured::No,
+            line: Line::No,
+            selected: Selected::No,
+            hilite: self.field_hilite,
+            block: BlockCursor::No,
+            blink: BlinkPhases::SHOWN,
+            cursor: Chan::from_u8(0xFF),
+        });
+        d.text.draws().then(|| d.rule(d.fg))
+    }
+
+    /// The lines at rest, and `hover = "line"`'s, for a path that draws
+    /// records of its own: with the content, moved by a slide with the text
+    /// they lie under.
+    pub fn link_lines_lowered(&self, pan: Px, out: &mut Vec<Instance>) {
+        let down = i16::try_from(pan.value()).unwrap_or(i16::MAX);
+        out.extend(self.line_inst.iter().map(|g| Instance {
+            y: Screen(g.y.0.saturating_add(down)),
+            ..*g
+        }));
+    }
+
+    /// The fields the link under the pointer is drawn as, for the cell path,
+    /// with the cell each reads its ground from.
+    pub fn hover_bars(&self) -> Vec<(Composition, PackedCell)> {
+        self.hover_bars
+            .iter()
+            .map(|b| (b.comp.clone(), b.under))
+            .collect()
+    }
+
+    /// **The hovered link's fields as the cells they cover**, each its row,
+    /// its first visual column and its width on a screen `cols` wide: what
+    /// the cell path's walk reads as empty (`crate::overlay`), as the
+    /// instance path blanks those cells in its convert, so a record the
+    /// walk would draw under a field with no page of its own -- `"text"`'s
+    /// -- does not show through it.
+    pub(crate) fn hover_spans(&self, cols: Cols) -> impl Iterator<Item = (Row, Col, Cols)> + '_ {
+        self.hover_bars.iter().map(move |b| {
+            let (start, end) = b.comp.columns(cols);
+            (
+                b.comp.row,
+                Col::at_index(start),
+                Cols::of_index(end.saturating_sub(start)),
+            )
+        })
+    }
+
+    /// **`cursor`, unless a message covers its cell.** A block drawn over
+    /// the address would hide a letter of it, and a program chooses both
+    /// where the cursor stands and, with `OSC 12`, what it is filled with, so
+    /// the frame draws no cursor there while the message is up: the address
+    /// is what a person checks before a click. Every path takes its cursor
+    /// through this ([`Renderer::convert`], the cell path's `cursor_at`).
+    pub fn clear_of_messages(
+        &self,
+        term: &Term<'_>,
+        cursor: Option<(Row, Col, CursorStyle)>,
+    ) -> Option<(Row, Col, CursorStyle)> {
+        let (r, c, style) = cursor?;
+        // Past the screen's rows is the status line's cursor: no message lies
+        // there, and no row of the screen answers for it.
+        let screen = term.viewport();
+        let wide = r.index() < screen.rows().index()
+            && screen
+                .row(r)
+                .get(c.index() + 1)
+                .is_some_and(|n| n.content.is_wide_tail());
+        let v = self.bidi.orders().visual_col(r, c).index();
+        let last = v + usize::from(wide);
+        let covers = |f: &crate::find::Field| {
+            f.row == r
+                && f.hints
+                    .iter()
+                    .any(|h| h.has(crate::overlay::Hints::MESSAGE))
+                && f.col.index() <= last
+                && v < f.col.index() + f.text.len()
+        };
+        let bar = self.link.as_ref().is_some_and(|l| covers(&l.bar));
+        let tip = self
+            .tip
+            .as_ref()
+            .is_some_and(|t| t.lines.iter().any(covers));
+        (!bar && !tip).then_some((r, c, style))
+    }
+
+    /// **The rendition `hover = "text"` draws a cell of rendition `under`
+    /// in**: the message pair's box colour as its text on the cell's own
+    /// ground, in the colours in force, where that reads
+    /// [`crate::LINK_TEXT_CONTRAST`]; elsewhere the cell as it is.
+    pub(crate) fn link_text_rendition(&self, under: Resolved) -> Resolved {
+        let ground = under
+            .drawn(Swaps {
+                pictured: crate::picture::Pictured::No,
+                line: Line::No,
+                selected: Selected::No,
+                hilite: self.field_hilite,
+                block: BlockCursor::No,
+                blink: BlinkPhases::SHOWN,
+                cursor: Chan::from_u8(0xFF),
+            })
+            .bg;
+        let page = self.message_rendition(under).bg;
+        let opaque = ground.with_alpha(Chan::from_u8(0xFF));
+        match crate::color::contrast_of(page, opaque) >= crate::LINK_TEXT_CONTRAST {
+            true => Resolved {
+                shapes: under.shapes,
+                ..Resolved::fixed(ground, page)
+            },
+            false => under,
+        }
     }
 
     /// The link preview's bar as the cell path draws it, or none.
@@ -3969,10 +4382,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// config reload says here what a file it read again could not act on.
     /// A row of its own, below the main display and the status line, which
     /// [`Renderer::fit`] adds while one is set -- the embedder gives the
-    /// terminal one row fewer -- and which every path draws as a field in
-    /// the selection's colours across the width: the instance and CPU paths
+    /// terminal one row fewer -- and which every path draws as a field
+    /// across the width: the instance and CPU paths
     /// in their convert, the cell path through [`Renderer::notice_bar`] over
-    /// a blank row of its window copy.
+    /// a blank row of its window copy. In the message pair
+    /// ([`crate::message`]), so a program cannot make it unreadable.
     pub fn set_notice(&mut self, text: Option<Vec<Codepoint>>) {
         self.notice = text;
     }
@@ -3999,7 +4413,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         Some(crate::find::Field {
             row: Row::from_index(row),
             col: Col::ZERO,
-            hints: vec![crate::overlay::Hints::SELECTION; cols],
+            hints: vec![crate::overlay::Hints::MESSAGE; cols],
             caret: Col::at_index(cols),
             text,
         })
@@ -7988,6 +8402,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.lend_cpu(term, back);
         }
         self.frame_words = self.cpu_lent.held();
+        // The frame's links, on this frame's layout, a field's ground read
+        // from this path's copy, whose ids the lending above named.
+        {
+            let cur = core::mem::take(&mut self.cur);
+            self.place_links_with(term, &vp, |y, v, _| {
+                cur.get(y.index() * ncols + v.index())
+                    .copied()
+                    .unwrap_or(PackedCell::EMPTY)
+            });
+            self.cur = cur;
+        }
         // An input method's composition, on the live view: the cells under it
         // converted blank in their own renditions, so their backgrounds stay
         // and their glyphs give way to its records, built below. The cell it
@@ -8067,6 +8492,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 };
             }
         }
+        // The link under the pointer, the same way, its ground kept.
+        for b in &self.hover_bars {
+            if b.comp.row.index() >= main.index() {
+                continue;
+            }
+            let (start, end) = b.comp.columns(cols);
+            let at = b.comp.row.index() * ncols;
+            for cell in &mut self.cur[at + start..at + end] {
+                *cell = PackedCell {
+                    content: baud_domain::Content::EMPTY,
+                    style: cell.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+            }
+        }
         // The hover tip's lines, the same way, over the bar's.
         let tip_bars: Vec<Composition> = self
             .tip
@@ -8134,6 +8574,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .flatten()
                 .map(|(r, c)| (r, c, term.cursor_style())),
         };
+        // No cursor over an address or a message (`Renderer::clear_of_messages`).
+        let live = self.clear_of_messages(term, live);
         self.set_cursor_glow_at(live);
         self.place_grounds(live, Self::cursor_line(term, back));
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
@@ -8166,6 +8608,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let find_changed = self.find != self.last_find;
         let link_changed = self.link != self.last_link;
+        let lines_changed = self.link_lines != self.last_link_lines;
+        let over_changed =
+            self.link_hover != self.last_link_hover || self.hover_bars != self.last_hover_bars;
         let tip_changed = self.tip != self.last_tip;
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
@@ -8219,6 +8664,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     || field_on(&self.last_find, row).is_some()
                     || bar_on(&self.link, row).is_some()
                     || bar_on(&self.last_link, row).is_some()
+                    || bars_on(&self.hover_bars, row).next().is_some()
+                    || bars_on(&self.last_hover_bars, row).next().is_some()
                     || tip_on(&self.tip, row).is_some()
                     || tip_on(&self.last_tip, row).is_some();
                 if how == crate::bidi::Rejoin::Every || full || changed || veiled {
@@ -8303,6 +8750,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let linked = link_changed
                 && (spans_on(&self.link, row).ne(spans_on(&self.last_link, row))
                     || bar_on(&self.link, row) != bar_on(&self.last_link, row));
+            // A line at rest, or the look of the link under the pointer, come,
+            // gone or moved on this row.
+            let linked = linked
+                || (lines_changed
+                    && lines_on(&self.link_lines, row).ne(lines_on(&self.last_link_lines, row)))
+                || (over_changed
+                    && (hover_on(&self.link_hover, row).ne(hover_on(&self.last_link_hover, row))
+                        || bars_on(&self.hover_bars, row).ne(bars_on(&self.last_hover_bars, row))));
             // A tip's line come, gone or changed on this row.
             let tipped = tip_changed && tip_on(&self.tip, row) != tip_on(&self.last_tip, row);
             // The notice come, gone or changed on this row.
@@ -8338,6 +8793,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // it on.
             let fields = field_on(&self.find, row).is_some()
                 || bar_on(&self.link, row).is_some()
+                || bars_on(&self.hover_bars, row).next().is_some()
                 || tip_on(&self.tip, row).is_some()
                 || field_at(&notice, row).is_some()
                 || self.fade.is_some()
@@ -8425,7 +8881,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // go over the images (`chrome_inst`).
         self.compose_inst.extend_from_slice(&self.find_inst);
         self.compose_inst.extend_from_slice(&self.link_inst);
+        self.compose_inst.extend_from_slice(&self.line_inst);
         self.chrome_inst.clear();
+        // The link under the pointer, under baud's fields, over the images.
+        let over = core::mem::take(&mut self.hover_bars);
+        for b in over.iter().filter(|b| b.comp.row.index() < main.index()) {
+            let styles = core::mem::take(&mut self.styles);
+            let mut records = core::mem::take(&mut self.chrome_inst);
+            crate::overlay::composition_records(
+                self,
+                term,
+                (&b.comp, crate::overlay::Laid::OnScreen),
+                b.under,
+                &styles,
+                None,
+                cols,
+                LineRendition::Single,
+                Px::of(0),
+                &mut records,
+            );
+            (self.styles, self.chrome_inst) = (styles, records);
+        }
+        self.hover_bars = over;
         // The find field with its caret, then the link's bar with none.
         let carets = self.find_caret.len();
         let fields = field.iter().map(|c| (c, carets));
@@ -8518,6 +8995,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_composition = composition;
         self.last_find.clone_from(&self.find);
         self.last_link.clone_from(&self.link);
+        self.last_link_lines.clone_from(&self.link_lines);
+        self.last_link_hover.clone_from(&self.link_hover);
+        self.last_hover_bars.clone_from(&self.hover_bars);
         self.last_tip.clone_from(&self.tip);
         self.last_notice = notice;
         // **The first letter that takes a form, shaped this frame with BDSM

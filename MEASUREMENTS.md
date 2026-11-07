@@ -4686,3 +4686,162 @@ pinned gifski 1.34.0 with `GIFSKI`'s settings, make 10.5 MB. The frames are the 
 the title strip is composed, so a filmed window's bytes are unmeasured. GitHub's documentation
 limits an attached GIF to 10 MB and a file in a repository to 100 MiB, warning at 50, and says
 nothing of a limit on a README's image from the repository.
+
+## A link's line at rest: the scan's cost, and a regression on addresses
+
+The scan of the frame's changed rows, the look under the pointer and the line
+(`baud-app/src/lined.rs`, `link::Hover::over`, `Renderer::place_links`), on this
+Mac, on mains, at 200x50 and 14 px, through `frame`'s CPU path. **The tests have
+not been run: this is the cost of code that has only been compiled.**
+
+**Method.** Base and change were built with `git archive` into one scratch path,
+every file touched, and the change built twice, an A/A copy. Base is the commit
+before this one with only `frame`'s harness added: its frame times and its
+allocation count, no link code. Six rounds, the arms rotated each round, the
+first dropped, each row's figure the median with the range over the other five.
+`cmp`: the two builds of the change are byte-identical, so the A/A arm prices
+the run, not a layout. The counters agree on every arm: rows dirtied are the same
+on all, and instances on all but `hover`, which draws fields in place of glyphs.
+The load average read 1.9 to 2.6 throughout, from other work on the machine.
+
+**The per-byte path: no cost, by the binary.** `ingest2`'s release binary is
+byte-identical between base and change (`cmp`), with `baud-core`, `baud-domain`
+and the ISA crates unchanged, and it reads no `[link]`, so there is no on or off
+to compare and nothing was timed. `cat`, `btop`, `vim`, `less-pager` and
+`cat-cjk` all run that one binary.
+
+**The recordings.** New real captures through `capture-tui` at 200x50 under a
+scratch home, `less` and `rg` from this tree's own files, kept in scratch and not
+committed: a `git log` carries names and addresses, and every capture this
+checkout's paths.
+
+| name | what it is | bytes | URLs in it |
+|---|---|---:|---:|
+| `links-rg` | `rg 'https?://'` over `docs/research/sources/MANIFEST.toml`, scrolling | 348,756 | 2,411 |
+| `links-rg-osc8` | the same search with `--hyperlink-format=default` over `docs/guide` too | 353,648 | 2,424 |
+| `links-git-log` | `git --no-pager log -n 3000 --color=always` of this repository | 2,356,712 | 1 |
+| `links-less` | `less -R` on the manifest, 300 Space presses | 736,472 | 860 |
+| `links-herdr` | `herdr` 0.9.5, a `bash --noprofile --norc` pane, `less -R` on the manifest and 200 Space presses: a real full-screen program's repaint | 1,534,808 | 652 |
+
+`git log` of this repository holds almost no URLs, so that row is the
+no-candidate path at a real program's rate. `links-rg` and `links-rg-osc8` are the
+densest output found: an address on nearly every row, on every frame.
+
+**What a frame reads** (`links scan`, `on`, the same counters the bound tests read):
+
+| recording | frames | rows a frame | cells | candidates | runs added | most on screen | frames reading nothing |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `btop` | 113 | 11.9 | 2,372 | 0 | 0 | 0 | 1 |
+| `vim` | 34 | 27.0 | 5,394 | 0 | 0 | 0 | 0 |
+| `cat` | 110 | 49.1 | 9,815 | 0 | 0 | 0 | 0 |
+| `less-pager` | 8 | 50.0 | 10,000 | 0 | 0 | 0 | 0 |
+| `cat-cjk` | 80 | 50.0 | 10,000 | 0 | 0 | 0 | 0 |
+| `links-git-log` | 576 | 50.0 | 10,000 | 0.00 | 0.00 | 1 | 0 |
+| `links-herdr` | 375 | 41.8 | 8,363 | 2.20 | 2.17 | 5 | 0 |
+| `links-less` | 180 | 49.6 | 9,913 | 2.81 | 2.72 | 6 | 0 |
+| `links-rg` | 86 | 50.0 | 10,000 | 49.53 | 98.44 | 108 | 0 |
+| `links-rg-osc8` | 87 | 50.0 | 10,002 | 49.05 | 97.46 | 108 | 0 |
+
+Every frame of these recordings follows a 4 KB read, so no row here is a
+cursor-only frame; `a_cursor_only_frame_scans_nothing` holds that one to zero,
+once it runs, and what the compare alone costs a still frame is unmeasured. A row
+of URLs takes two runs where `rg` colours the match apart.
+
+**Frame time**, microseconds, the median with its range; `scan` is the scan's own
+share of `on`. All of it, and the percentiles after it, were taken before hover's
+buffers were reused (below), so the `hover` column is not this code's:
+
+| recording | base | off | off, A/A | on | on, A/A | hover | scan |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `btop` | 202.2 (201.8-206.1) | 201.8 (200.3-209.0) | 201.1 (199.4-204.4) | 211.1 (208.2-211.9) | 209.9 (207.7-214.3) | 212.5 (209.3-215.9) | 8.0 |
+| `vim` | 549.9 (546.0-561.8) | 544.8 (542.7-546.9) | 548.1 (546.5-550.1) | 554.1 (549.9-554.9) | 555.0 (553.2-556.6) | 558.1 (552.0-560.5) | 8.2 |
+| `less-pager` | 1007.2 (1005.4-1009.3) | 1001.3 (999.4-1009.7) | 1004.5 (996.1-1014.3) | 1007.8 (1006.4-1011.0) | 1012.7 (1005.9-1024.3) | 1015.6 (1011.0-1021.4) | 9.8 |
+| `cat` | 1065.2 (1054.6-1090.2) | 1061.0 (1052.4-1061.0) | 1063.3 (1057.6-1064.0) | 1066.5 (1062.1-1081.9) | 1068.3 (1060.3-1070.9) | 1067.9 (1062.2-1076.3) | 9.8 |
+| `cat-cjk` | 1084.5 (1075.5-1099.1) | 1076.0 (1066.5-1078.9) | 1077.1 (1072.9-1089.0) | 1084.4 (1082.6-1091.6) | 1086.7 (1080.1-1089.8) | 1090.8 (1086.1-1093.0) | 9.3 |
+| `links-git-log` | 1297.0 (1281.9-1325.0) | 1285.1 (1281.7-1299.8) | 1285.2 (1281.1-1298.3) | 1297.1 (1287.6-1302.6) | 1296.7 (1289.8-1315.1) | 1293.6 (1286.9-1314.8) | 9.8 |
+| `links-herdr` | 1242.3 (1237.2-1246.8) | 1224.4 (1215.7-1233.6) | 1228.1 (1217.8-1243.4) | 1255.5 (1228.5-1264.9) | 1235.2 (1229.7-1256.8) | 1246.8 (1240.4-1266.0) | 12.9 |
+| `links-less` | 1238.7 (1233.3-1249.2) | 1227.0 (1223.8-1234.8) | 1233.6 (1226.1-1236.6) | 1250.7 (1245.7-1265.6) | 1250.1 (1239.8-1257.1) | 1257.3 (1255.1-1266.1) | 13.5 |
+| `links-rg` | 2345.3 (2331.1-2358.0) | 2326.9 (2316.2-2334.1) | 2328.5 (2316.8-2376.4) | 2549.6 (2521.3-2569.9) | 2543.4 (2520.2-2561.3) | 2710.0 (2687.3-2734.2) | 84.2 |
+| `links-rg-osc8` | 2350.5 (2342.4-2379.2) | 2325.7 (2319.5-2339.0) | 2323.3 (2305.4-2333.3) | 2528.5 (2511.5-2546.5) | 2538.6 (2509.3-2541.5) | 2666.8 (2659.8-2682.3) | 84.1 |
+
+Percentiles of the best rep, the median over the rounds, `base` then `off` then
+`on` then `hover`, on few frames for `vim` (34) and `less-pager` (8, where p95, p99
+and max are one frame):
+
+| recording | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| `btop` | 200 / 200 / 209 / 209 | 303 / 308 / 316 / 318 | 511 / 505 / 526 / 518 | 558 / 561 / 573 / 561 |
+| `vim` | 672 / 672 / 681 / 686 | 787 / 775 / 772 / 791 | 1229 / 1198 / 1175 / 1208 | 1229 / 1198 / 1175 / 1208 |
+| `less-pager` | 1102 / 1105 / 1109 / 1109 | 1306 / 1354 / 1359 / 1352 | 1306 / 1354 / 1359 / 1352 | 1306 / 1354 / 1359 / 1352 |
+| `cat` | 1067 / 1064 / 1078 / 1075 | 1435 / 1414 / 1427 / 1438 | 1513 / 1504 / 1530 / 1517 | 1690 / 1703 / 1683 / 1684 |
+| `cat-cjk` | 1047 / 1035 / 1043 / 1046 | 1272 / 1276 / 1278 / 1288 | 1398 / 1370 / 1395 / 1375 | 1952 / 1939 / 1969 / 1992 |
+| `links-git-log` | 1286 / 1276 / 1290 / 1286 | 1456 / 1447 / 1457 / 1457 | 1547 / 1531 / 1542 / 1551 | 1674 / 1667 / 1629 / 1853 |
+| `links-herdr` | 1242 / 1219 / 1254 / 1239 | 1524 / 1496 / 1551 / 1539 | 1622 / 1595 / 1641 / 1749 | 1791 / 1811 / 1794 / 1804 |
+| `links-less` | 1183 / 1171 / 1191 / 1203 | 1639 / 1618 / 1652 / 1664 | 2315 / 2251 / 2271 / 2299 | 2362 / 2336 / 2317 / 2318 |
+| `links-rg` | 2353 / 2336 / 2555 / 2739 | 2571 / 2546 / 2796 / 3020 | 2628 / 2619 / 2866 / 3170 | 2663 / 2639 / 2912 / 3199 |
+| `links-rg-osc8` | 2360 / 2341 / 2541 / 2718 | 2574 / 2547 / 2771 / 3009 | 2656 / 2614 / 2867 / 3093 | 2701 / 2627 / 2880 / 3148 |
+
+**Off is not behind base**: on every row `off`'s median is at or under `base`'s, and
+the ranges overlap but on `links-herdr` and `links-rg-osc8`, where `off` is the faster.
+
+**On, against off, on the change's own arm:**
+
+* **Past the ranges, and a regression: `links-rg` +222.7 µs (+9.6%), `links-rg-osc8`
+  +202.8 µs (+8.7%)**, in `on`'s A/A too. Of `links-rg`'s, 84 µs is the scan, 127 µs
+  the CPU compositor's paint of up to 108 runs of underline a frame (1033.1 to
+  1160.3) and 11 µs the convert. `hover`, before its buffers were reused, added
+  160 µs more there, 95 µs of it paint and 62 µs convert.
+* **Past the ranges, about what the scan and its few lines cost: `vim` +9.3 µs (+1.7%,
+  scan 8.2), `cat-cjk` +8.4 µs (+0.8%, scan 9.3), `cat` +5.5 µs (+0.5%, scan 9.8),
+  `links-less` +23.7 µs (+1.9%, scan 13.5).** On `cat` and `cat-cjk` the A/A arm's
+  ranges overlap, so those two are at the edge.
+* **`btop` +9.3 µs (+4.6%, scan 8.0)**: the change's own ranges overlap and its A/A
+  arm's do not, so it is at the edge too. Its frames are the shortest here, so the
+  same scan is the largest share.
+* **Overlapping, no result: `less-pager`, `links-git-log`, `links-herdr`.**
+
+**A regression, accepted, with a switch.** On the two `rg` rows the lines cost
++9.6% and +8.7% of frame time on the CPU path, past the ranges. On `links-rg` that
+is 84 µs of scan, 127 µs of CPU paint of up to 108 lines a frame and 11 µs of
+convert. It is accepted because no other real capture here comes near it, an
+address on nearly every row of every frame, and `[link] urls = "off"` is the
+switch: `off` is not behind `base` on any row. What it costs on Metal is
+unmeasured. The machine was under load throughout, so every rate here is to be
+measured again on an idle machine.
+
+**Allocations**, counted by a build with `count-allocs` that was not timed, in the
+rep's second half, base then on: 2081.02 and 2081.02 on `btop`, 3628.69 and 3628.69
+on `cat`, 3403.76 and 3403.76 on `vim`, 4541.25 and 4541.25 on `less-pager`, 3933.95
+and 3933.95 on `cat-cjk`, 5499.30 and 5499.33 on `links-git-log`, 17664.12 and
+17664.14 on `links-herdr`, 4872.67 and 4872.67 on `links-less`, 12589.60 and 12589.60
+on `links-rg`, 12546.93 and 12547.02 on `links-rg-osc8`: none on seven rows, and +0.02 to
++0.09 on the other three. `off` equals `base` on all ten. `hover` added 14 a frame on
+six rows, 57 on `links-herdr`, 63 on `links-less`, 537 on `links-rg` and 534 on
+`links-rg-osc8`, all before the buffers below were reused.
+
+**Hover's allocations, after reusing its buffers**, counted the same way on the two
+`rg` rows only: `links-rg` 13126.63 to 12927.56, `links-rg-osc8` 13081.02 to
+12882.73, so `hover` adds 338 and 336 where it added 537 and 534. `on` is unchanged
+on both, and `FRAME_HASH=on` reads the same pixels before and after on `on` and
+`hover`, on both. The other rows were not counted again, and the frame times above
+were taken before this change; a rate from this count build is not one to quote.
+
+Reading the link and handing it to the renderer is now 0.78 and 0.75 allocations a
+frame, counted in a scratch harness. What is left is `overlay::composition_parts`,
+which every field runs through at every convert and which the find field and an
+input method's composition share; it is not changed here. On these rows the
+link under the pointer changed on 81 of 86 and 77 of 87 frames, because the screen
+scrolls under a still pointer, so keeping its work until the link changes would
+save them nothing.
+
+**A still pointer is not free of them.** In that harness a frame with no new byte
+and the pointer unmoved makes 576.95 allocations on `links-rg` and 515.99 on
+`links-rg-osc8`, against 50.92 and 50.68 with no pointer. The cost is
+`composition_parts` again, on a frame that something else owes: a pointer resting
+over a still screen owes none itself. The cell path on Metal has the same call and
+was not counted.
+
+**What is not here.** All of this is the CPU path, the Linux driver's on `wl_shm`;
+the cell path on Metal draws the same runs as records and its cost is unmeasured
+(`frame_gpu` was not run). No figure is for a discrete GPU. No test has been run,
+so nothing above proves the lines are right.

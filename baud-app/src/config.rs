@@ -533,6 +533,8 @@ pub struct Config {
     pub clipboard: Clipboard,
     /// `[message]` and `[message.copy]`.
     pub message: Message,
+    /// `[link]`.
+    pub link: Link,
     /// `config_reload`: whether the running window follows the file.
     pub config_reload: ConfigReload,
 }
@@ -622,6 +624,53 @@ pub struct MessageCopy {
 pub struct Message {
     pub colours: baud_render::MessageColours,
     pub copy: MessageCopy,
+}
+
+/// `[link] urls`: whether a link is shown with no modifier. Off skips the scan
+/// of the frame, and only the gesture's modifier shows a link, as a click's read
+/// is unchanged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinkUrls {
+    #[default]
+    On,
+    Off,
+}
+
+/// `[link] line`: how a link is underlined at rest.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinkLineKey {
+    #[default]
+    Solid,
+    Dotted,
+    Off,
+}
+
+/// `[link]`: how links show, the opening rules being `link.rs`'s, which no key
+/// here loosens.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Link {
+    pub urls: LinkUrls,
+    pub line: LinkLineKey,
+    pub hover: baud_render::HoverPaint,
+}
+
+impl Link {
+    /// What the frame underlines at rest, or none, which skips the scan.
+    pub fn lines(self) -> Option<baud_render::LineStyle> {
+        match (self.urls, self.line) {
+            (LinkUrls::On, LinkLineKey::Solid) => Some(baud_render::LineStyle::Solid),
+            (LinkUrls::On, LinkLineKey::Dotted) => Some(baud_render::LineStyle::Dotted),
+            (LinkUrls::On, LinkLineKey::Off) | (LinkUrls::Off, _) => None,
+        }
+    }
+
+    /// What the link under the pointer draws with no modifier.
+    pub fn at_rest(self) -> crate::link::AtRest {
+        match self.urls {
+            LinkUrls::On => crate::link::AtRest::Look(self.hover),
+            LinkUrls::Off => crate::link::AtRest::Off,
+        }
+    }
 }
 
 /// The material, and the dimming over it.
@@ -1130,6 +1179,7 @@ impl Config {
             bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
             message: Message::default(),
+            link: Link::default(),
             config_reload: ConfigReload::On,
             source: None,
         }
@@ -2394,6 +2444,52 @@ impl Config {
                 ("message.copy", other) => {
                     said.push(format!(
                         "config: [message.copy] has no key {other:?}; it is ignored"
+                    ));
+                }
+                ("link", "urls") => {
+                    self.link.urls = match value.trim().trim_matches('"') {
+                        "on" => LinkUrls::On,
+                        "off" => LinkUrls::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [link] urls {other:?} is not on or off; \
+                                 using the default, on"
+                            ));
+                            LinkUrls::On
+                        }
+                    };
+                }
+                ("link", "line") => {
+                    self.link.line = match value.trim().trim_matches('"') {
+                        "solid" => LinkLineKey::Solid,
+                        "dotted" => LinkLineKey::Dotted,
+                        "off" => LinkLineKey::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [link] line {other:?} is not solid, dotted or off; \
+                                 using the default, solid"
+                            ));
+                            LinkLineKey::Solid
+                        }
+                    };
+                }
+                ("link", "hover") => {
+                    self.link.hover = match value.trim().trim_matches('"') {
+                        "box" => baud_render::HoverPaint::Box,
+                        "line" => baud_render::HoverPaint::Line,
+                        "text" => baud_render::HoverPaint::Text,
+                        other => {
+                            said.push(format!(
+                                "config: [link] hover {other:?} is not box, line or text; \
+                                 using the default, box"
+                            ));
+                            baud_render::HoverPaint::Box
+                        }
+                    };
+                }
+                ("link", other) => {
+                    said.push(format!(
+                        "config: [link] has no key {other:?}; it is ignored"
                     ));
                 }
                 ("images", other) => {
@@ -5526,6 +5622,42 @@ mod reader {
             said.iter().any(|l| l.contains("substitute_mark")),
             "{said:?}"
         );
+    }
+
+    /// **`[link]` reads as it documents**: the defaults, each value, and a bad
+    /// value's default, said. `urls = "off"` leaves nothing to scan.
+    /// Perturbations: default `urls` to off; read `line = "off"` as solid.
+    #[test]
+    fn the_link_section_reads_as_it_documents() {
+        use baud_render::{HoverPaint, LineStyle};
+        let d = Config::defaults().link;
+        assert_eq!(d.urls, LinkUrls::On);
+        assert_eq!(d.line, LinkLineKey::Solid);
+        assert_eq!(d.hover, HoverPaint::Box);
+        assert_eq!(d.lines(), Some(LineStyle::Solid));
+        let mut c = Config::defaults();
+        let said = c.apply("[link]\nurls = \"off\"\nline = \"dotted\"\nhover = \"text\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.link.urls, LinkUrls::Off);
+        assert_eq!(c.link.line, LinkLineKey::Dotted);
+        assert_eq!(c.link.hover, HoverPaint::Text);
+        assert_eq!(c.link.lines(), None);
+        let mut c = Config::defaults();
+        let said = c.apply("[link]\nline = \"dotted\"\nhover = \"line\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.link.lines(), Some(LineStyle::Dotted));
+        assert_eq!(c.link.hover, HoverPaint::Line);
+        for (bad, key) in [
+            ("[link]\nurls = \"nope\"\n", "urls"),
+            ("[link]\nline = \"nope\"\n", "line"),
+            ("[link]\nhover = \"nope\"\n", "hover"),
+            ("[link]\nother = 1\n", "other"),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(bad);
+            assert!(said.iter().any(|s| s.contains(key)), "{bad}: {said:?}");
+            assert_eq!(c.link, Link::default(), "{bad}");
+        }
     }
 
     /// **`[message]` and `[message.copy]` read as they document**: the

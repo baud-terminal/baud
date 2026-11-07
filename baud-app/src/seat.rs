@@ -298,6 +298,11 @@ impl Seat {
         host: crate::link::Host<'_>,
     ) -> bool {
         use crate::link::Chord;
+        self.hover
+            .set_held(match self.buttons == LocatorButtons::NONE {
+                true => crate::link::Held::No,
+                false => crate::link::Held::Yes,
+            });
         let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
             true => Chord::Cmd,
             false => Chord::Other,
@@ -328,6 +333,18 @@ impl Seat {
             && self
                 .hover
                 .refresh(term, self.scrolled, chord, self.focus, host)
+    }
+
+    /// What the config asks of the link under the pointer.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn set_at_rest(&mut self, at_rest: crate::link::AtRest) {
+        self.hover.set_at_rest(at_rest);
+    }
+
+    /// The look of the link under the pointer, with no modifier or with.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn hover_over(&self) -> Option<&baud_render::LinkHover> {
+        self.hover.over()
     }
 
     /// What the link preview draws, or none.

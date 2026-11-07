@@ -80,6 +80,8 @@ pub enum Part {
     /// `[message]` and `[message.copy]`: the next frame draws in the colours,
     /// and the next copy is said as they say.
     Message,
+    /// `[link]`: the line at rest and the look under the pointer.
+    Link,
     /// `[window] activity_lights`, `activity_lights_colours` and
     /// `activity_lights_glow`: the lights are put up or taken down, and
     /// drawn in the set and glow, at the next tick.
@@ -148,6 +150,7 @@ impl Part {
             | Part::Notifications
             | Part::CopyOnSelect
             | Part::Message
+            | Part::Link
             | Part::ActivityLights
             | Part::StatusLineLights
             | Part::Tearing
@@ -193,6 +196,7 @@ impl Part {
             Part::Notifications => "[screen] notifications",
             Part::CopyOnSelect => "[clipboard] copy_on_select",
             Part::Message => "[message]",
+            Part::Link => "[link]",
             Part::ActivityLights => "[window] activity_lights",
             Part::StatusLineLights => "[window] status_line_lights",
             Part::Tearing => "[window] tearing",
@@ -279,6 +283,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         bell,
         clipboard,
         message,
+        link,
         config_reload,
         unfocused_cursor,
         badge,
@@ -367,6 +372,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         Part::CopyOnSelect,
     );
     part(old.message != *message, Part::Message);
+    part(old.link != *link, Part::Link);
     part(
         old.activity_lights != *activity_lights
             || old.activity_lights_colours != *activity_lights_colours
@@ -596,6 +602,9 @@ mod tests {
             ("[message.copy]\nenable = \"off\"\n", Part::Message),
             ("[message.copy]\nplace = \"bar\"\n", Part::Message),
             ("[message.copy]\npulse = \"on\"\n", Part::Message),
+            ("[link]\nurls = \"off\"\n", Part::Link),
+            ("[link]\nline = \"dotted\"\n", Part::Link),
+            ("[link]\nhover = \"text\"\n", Part::Link),
             (
                 "[window]\nactivity_lights = \"off\"\n",
                 Part::ActivityLights,

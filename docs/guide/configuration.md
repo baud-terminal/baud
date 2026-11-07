@@ -51,7 +51,7 @@ emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width` and `join_spacing_marks`,
 and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
-`[message]` and `[message.copy]`,
+`[message]` and `[message.copy]`, `[link]`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
 choices, `[pointer]`), and `[images] animation`.
@@ -234,6 +234,16 @@ What baud says when something is copied: "Copied 42 characters", or "A program c
 | `enable` | `"on"`, `"off"` | `"on"` | Whether a copy is said at all. `"off"` stops the words, the pulse and VoiceOver's announcement. |
 | `place` | `"tip"`, `"bar"` | `"tip"` | Where a copy of your selection is said: `"tip"` on the row under the selection, above it on the last row, and `"bar"` at the bottom of the window, where a link's address shows. A program's copy has no selection, and always goes at the bottom. |
 | `pulse` | `"off"`, `"on"` | `"off"` | Whether your selection takes the box's colours for 150 ms when it is copied. It does not run under Reduce Motion or Dim Flashing Lights, with both colours `"none"`, or more often than the bell's limit on flashes allows; the words show either way. |
+
+## [link]
+
+How links show. Web, mail and file links are underlined as they appear, whether a program marks them with `OSC 8` or prints the address as plain text, even across a line that wraps. What a click opens doesn't change here: Cmd-click (Ctrl-click on Linux) opens a link, a plain click selects and still reaches a program tracking the mouse, and a link to a file is shown in Finder, never launched. No program can read any of this back.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `urls` | `"on"`, `"off"` | `"on"` | Whether baud looks for links at all. `"off"` draws no line and no look under the pointer and does no work for either, and Cmd-click (Ctrl-click on Linux) still works. |
+| `line` | `"solid"`, `"dotted"`, `"off"` | `"solid"` | The line at rest, in the text's own colour. A program's own underline stays as it drew it. An address that may have been cut, or that a click would refuse, gets no line. |
+| `hover` | `"box"`, `"line"`, `"text"` | `"box"` | The link under the pointer, with no key held. `"box"` draws it in the colours of `[message]`; `"line"` draws a line in the box's colour, the text keeping its own; `"text"` draws the text in the box's colour on the cell's own background, where that reads at least 1.5:1, so a program can't hide a link by painting that colour behind it. The check on where a link goes is the address at the bottom of the window, which holding Cmd (Ctrl on Linux) shows. |
 
 ## [window]
 

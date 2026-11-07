@@ -578,6 +578,26 @@ copy_on_select = "on"
 # Never under Reduce Motion or Dim Flashing Lights, or with both colours "none".
 # pulse = "off"
 
+# How links show. A web, mail or file link is underlined as it appears, whether
+# a program marks it or prints the address as plain text. Cmd-click (Ctrl-click
+# on Linux) opens it and a plain click selects, whatever these say.
+#
+# [link]
+#
+# "on" or "off". "off" draws no line and no look under the pointer, and does no
+# work for either; Cmd-click (Ctrl-click on Linux) still works.
+# urls = "on"
+#
+# The line at rest, in the text's own colour: "solid", "dotted" or "off". A
+# program's own underline stays, and an address that may have been cut, or that
+# a click would refuse, gets no line.
+# line = "solid"
+#
+# The link under the pointer with no key held: "box", in [message]'s colours;
+# "line", a line in the box's colour; or "text", the text in the box's colour
+# where it reads at least 1.5:1 on the cell's own background.
+# hover = "box"
+
 # Whether a program can move, resize, minimise, raise, lower, maximise or
 # full-screen the window (xterm's window operations, CSI 1 t to CSI 10 t, and
 # DECSLPP, which asks for a number of lines). "on" by default, as xterm ships

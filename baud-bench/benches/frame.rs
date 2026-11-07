@@ -16,6 +16,20 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
+//! Under the row each replay prints the best rep's frame times, `frame p50
+//! p95 p99 max`, each frame's scan and render together. With `--features
+//! count-allocs` it also prints the allocations a frame makes, all of them
+//! and over the rep's second half, where a cold rep has warmed: a counting
+//! allocator slows what it counts, so a timed run leaves the feature off.
+//!
+//! `FRAME_LINKS=on|hover|off` prices a link's line at rest (`baud-app`'s
+//! `lined.rs`, compiled here from its source): `on` scans each frame's changed
+//! rows and draws what it finds, `hover` adds a pointer resting at the middle
+//! of the screen, read every frame and drawn in the box, and `off` is `[link]
+//! urls = "off"`, which reads nothing. Each prints, under its row, what the
+//! best rep's scans read a frame: rows, cells, candidates and runs added.
+//! Without it the replay draws no links, the row of a build before them.
+//!
 //! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
 //! each frame draws its rows in stored order; the default leaves it set,
 //! as a terminal starts, and each frame lays its rows out in the order
@@ -117,12 +131,71 @@ use baud_font::Face;
 use baud_render::{Backdrop, Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/lined.rs"]
+mod lined;
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/link.rs"]
+mod link;
+
+/// `FRAME_LINKS`: what each frame does about links.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Links {
+    /// Not set: nothing, the arm a build before them runs.
+    Untouched,
+    Off,
+    On,
+    Hover,
+}
+
 /// A switch the environment sets: whether a zoom step paints its frame,
 /// whether the replay hashes its frames.
 #[derive(Clone, Copy)]
 enum Switch {
     On,
     Off,
+}
+
+/// **Every allocation counted**, for `count-allocs`: only in a build taken for
+/// these counts, never in a timed one.
+#[cfg(feature = "count-allocs")]
+mod counted {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    pub static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
+
+    struct Counting;
+
+    // SAFETY: every call is passed to the system's allocator as it came.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+            unsafe { System.alloc(l) }
+        }
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+            unsafe { System.dealloc(p, l) }
+        }
+        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+            unsafe { System.realloc(p, l, n) }
+        }
+    }
+
+    #[global_allocator]
+    static COUNTING: Counting = Counting;
+}
+
+/// Allocations so far, none without the counter.
+fn allocations() -> u64 {
+    #[cfg(feature = "count-allocs")]
+    {
+        counted::ALLOCATIONS.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "count-allocs"))]
+    {
+        0
+    }
 }
 
 fn main() {
@@ -225,6 +298,13 @@ fn main() {
         Ok("off") => baud_render::WordWrap::Off,
         _ => baud_render::WordWrap::On,
     };
+    let links = match std::env::var("FRAME_LINKS").as_deref() {
+        Err(_) => Links::Untouched,
+        Ok("off") => Links::Off,
+        Ok("on") => Links::On,
+        Ok("hover") => Links::Hover,
+        Ok(other) => panic!("FRAME_LINKS is on, hover or off, not {other}"),
+    };
     let fresh = || {
         let mut r = Renderer::new(
             Stack::new(&faces).unwrap(),
@@ -276,6 +356,15 @@ fn main() {
         exc: [u64; 7],
         /// Paragraphs the display re-broke, summed over the frames.
         rebroken: baud_render::Tally,
+        /// What the scans read, summed; and the most any frame's did.
+        scans: lined::Scan,
+        widest: lined::Scan,
+        idle_frames: u64,
+        scan_time: Duration,
+        reads: usize,
+        /// Each frame's time, and its allocations.
+        times: Vec<Duration>,
+        allocs: Vec<u64>,
     }
     let mut best: Option<Rep> = None;
     // Each rep's hash of its frames, under `FRAME_HASH=on`.
@@ -311,7 +400,25 @@ fn main() {
             inst: 0,
             exc: [0; 7],
             rebroken: baud_render::Tally::default(),
+            scans: lined::Scan::default(),
+            widest: lined::Scan::default(),
+            idle_frames: 0,
+            scan_time: Duration::ZERO,
+            reads: 0,
+            times: Vec::with_capacity(data.len() / 4096 + 1),
+            allocs: Vec::with_capacity(data.len() / 4096 + 1),
         };
+        let mut lines = lined::Lines::default();
+        let mut uris = lined::Uris::default();
+        let mut hover = link::Hover::default();
+        let scrolled = baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40));
+        let middle = (
+            baud_domain::Row::from_index(usize::from(ws.ws_row) / 2),
+            baud_domain::Col::at_index(usize::from(ws.ws_col) / 2),
+        );
+        if links == Links::Hover {
+            hover.set_at_rest(link::AtRest::Look(baud_render::HoverPaint::Box));
+        }
         let mut at = 0usize;
         let mut hash = PixelHash::START;
         let t0 = std::time::Instant::now();
@@ -321,7 +428,46 @@ fn main() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             at += n;
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+            let (f0, a0) = (std::time::Instant::now(), allocations());
+            match links {
+                Links::Untouched => {}
+                Links::Off => {
+                    lines.off();
+                    r.set_link_lines(&[], baud_render::LineStyle::Solid);
+                }
+                Links::On | Links::Hover => {
+                    let s0 = std::time::Instant::now();
+                    let s = lines.scan(&t, scrolled, &mut uris);
+                    if links == Links::Hover {
+                        let _ = hover.update(
+                            &t,
+                            Some(middle),
+                            scrolled,
+                            link::Chord::Other,
+                            baud_core::Focus::Gained,
+                            link::Host(""),
+                        );
+                        r.set_link_hover(hover.over());
+                        rep.reads = hover.reads();
+                    }
+                    rep.scan_time += s0.elapsed();
+                    r.set_link_lines(lines.lines(), baud_render::LineStyle::Solid);
+                    rep.scans.rows += s.rows;
+                    rep.scans.cells += s.cells;
+                    rep.scans.candidates += s.candidates;
+                    rep.scans.spans += s.spans;
+                    rep.widest.rows = rep.widest.rows.max(s.rows);
+                    rep.widest.cells = rep.widest.cells.max(s.cells);
+                    rep.widest.candidates = rep.widest.candidates.max(s.candidates);
+                    rep.widest.spans = rep.widest.spans.max(lines.lines().len());
+                    if s == lined::Scan::default() {
+                        rep.idle_frames += 1;
+                    }
+                }
+            }
             let f = r.render(&mut t, &mut target, damage);
+            rep.times.push(f0.elapsed());
+            rep.allocs.push(allocations() - a0);
             if let Switch::On = hashing {
                 hash = hash.frame(target.pixels());
             }
@@ -802,6 +948,13 @@ fn main() {
         inst,
         exc,
         rebroken,
+        scans,
+        widest,
+        idle_frames,
+        scan_time,
+        reads,
+        times,
+        allocs,
     } = best.unwrap();
     let a = r.atlas_stats();
     let (raster, coloured, grown) = (a.rasterised.value(), a.coloured.value(), a.grown.value());
@@ -832,6 +985,44 @@ fn main() {
         r.ink_refused().value()
     );
     println!("  rebroken {}", rebroken.value());
+    if matches!(links, Links::On | Links::Hover) {
+        let per = |n: usize| n as f64 / frames as f64;
+        println!(
+            "  links scan {:.1} us/frame; rows {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
+            scan_time.as_secs_f64() * 1e6 / frames as f64,
+            per(scans.rows),
+            per(scans.cells),
+            per(scans.candidates),
+            per(scans.spans),
+            widest.rows,
+            widest.cells,
+            widest.candidates,
+            widest.spans,
+            idle_frames,
+            reads,
+        );
+    }
+    let mut sorted = times;
+    sorted.sort_unstable();
+    let at = |q: f64| {
+        let k = ((sorted.len() as f64 - 1.0) * q).round() as usize;
+        sorted[k].as_secs_f64() * 1e6
+    };
+    println!(
+        "  frame p50 {:.1} p95 {:.1} p99 {:.1} max {:.1} us",
+        at(0.50),
+        at(0.95),
+        at(0.99),
+        at(1.0)
+    );
+    if cfg!(feature = "count-allocs") {
+        let half = &allocs[allocs.len() / 2..];
+        println!(
+            "  allocs/frame {:.2}, second half {:.2}",
+            allocs.iter().sum::<u64>() as f64 / allocs.len() as f64,
+            half.iter().sum::<u64>() as f64 / half.len().max(1) as f64,
+        );
+    }
     if let Some(h) = pixels_hash {
         println!("  pixels {h}");
     }

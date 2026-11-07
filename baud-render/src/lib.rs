@@ -134,7 +134,9 @@ pub use lights::{
     PIXELS_A_POINT, Pace, READ_CEILING, Shown, StatusLineLights, WORD_CELLS, flash_clause,
     line_lamps,
 };
-pub use linked::{LinkLook, LinkSpan};
+pub use linked::{
+    HoverPaint, LINK_TEXT_CONTRAST, LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan,
+};
 pub use message::{MessageColours, MessagePaint, Pair, SelectionPulse};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{

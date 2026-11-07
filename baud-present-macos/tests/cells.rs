@@ -152,6 +152,10 @@ struct Arms<'f, 'a> {
     find: Option<baud_render::FindLook>,
     /// The link preview both arms draw, or none.
     link: Option<baud_render::LinkLook>,
+    /// The lines at rest both arms draw, how, and the link under the pointer.
+    lines: Vec<baud_render::LinkLine>,
+    line_style: baud_render::LineStyle,
+    over: Option<baud_render::LinkHover>,
     /// The hover tip both arms draw, or none.
     tip: Option<baud_render::TipLook>,
     /// How many of the cell arm's records, at the end, are baud's own
@@ -406,6 +410,10 @@ impl Arms<'_, '_> {
         self.renderer.set_composition(self.composition.clone());
         self.renderer.set_find(t, self.find.clone());
         self.renderer.set_link(self.link.clone());
+        let lines = core::mem::take(&mut self.lines);
+        self.renderer.set_link_lines(&lines, self.line_style);
+        self.lines = lines;
+        self.renderer.set_link_hover(self.over.as_ref());
         self.renderer.set_tip(self.tip.clone());
         // The exit-status marks on this window, as the app places them for
         // every path; none while the setting is off.
@@ -461,6 +469,8 @@ impl Arms<'_, '_> {
             (Some((_, _, style)), Some(&(row, col, _))) => Some((row, col.after(), style)),
             (c, _) => c,
         };
+        // No cursor over an address or a message, as the app has it.
+        let shown = self.renderer.clear_of_messages(t, shown);
         // A slide's leaving row, as the shader reads it, walked into the map
         // before the window, as the app walks it.
         if self.slide.is_some() {
@@ -495,6 +505,10 @@ impl Arms<'_, '_> {
         // Laid out again once the walk shaped the renderer's first letter
         // that takes a joining form with BDSM reset, as the app does.
         self.renderer.join_after_walk(t, self.back, joins_seen);
+        // The lines at rest and the look of the link under the pointer, as
+        // the app places them: on the final layout, before the walk, which
+        // reads the look's fields as empty.
+        self.renderer.place_links(t, &view);
         let cursor = shown.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         self.exceptions.ensure(
             &Scene {
@@ -574,6 +588,9 @@ impl Arms<'_, '_> {
         // draws them on the cell path, with the content.
         self.records.extend_from_slice(self.renderer.find_solids());
         self.records.extend_from_slice(self.renderer.link_solids());
+        // The lines at rest, placed before the walk, as the app draws them.
+        self.renderer
+            .link_lines_lowered(self.slide.unwrap_or(Px::of(0)), &mut self.records);
         // The leaving row of a slide as the app draws it: masked after the
         // screen's rows where records draw it. Only where the history holds
         // one.
@@ -624,6 +641,21 @@ impl Arms<'_, '_> {
         // thumb, the fade.
         let chrome_from = self.records.len();
         self.records.extend_from_slice(self.renderer.bell_tint());
+        for (c, under) in self.renderer.hover_bars() {
+            self.exceptions.composed(
+                &mut self.renderer,
+                t,
+                (&c, baud_render::Laid::OnScreen),
+                under,
+                self.styles_mem,
+                None,
+                view.cols(),
+                baud_domain::LineRendition::Single,
+                Px::of(0),
+                self.overlay_mem,
+                &mut self.records,
+            );
+        }
         let tips = self
             .renderer
             .tip_bars()
@@ -1683,6 +1715,9 @@ macro_rules! arms {
             predictions: Vec::new(),
             find: None,
             link: None,
+            lines: Vec::new(),
+            line_style: baud_render::LineStyle::Solid,
+            over: None,
             tip: None,
             chrome: Tally::default(),
             copy,
@@ -3961,7 +3996,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     );
     arms.find = None;
     // **The link preview**: a run of cells underlined on two rows and the
-    // address bar on the bottom row in the selection's colours. The cell
+    // address bar on the bottom row, as a field. The cell
     // arm masks the bar's cells and appends the underline to its records;
     // the instance arm converts the cells blank.
     let text: Vec<_> = " https://example.org/docs "
@@ -14721,6 +14756,281 @@ fn the_message_pair_holds_on_every_arm() {
                 .any(|p| p == Pair::BAUD.text.0);
             assert!(reached, "{name}: the text's own colour was drawn");
         }
+    }
+}
+
+/// A program's colours in every form they take, for the address and the
+/// notice: what each of these moves, the selection's colours among them.
+const COLOURS_A_PROGRAM_SETS: [(&str, &[u8]); 7] = [
+    ("nothing", b""),
+    ("OSC 17", b"\x1b]17;#102030\x1b\\"),
+    ("OSC 19", b"\x1b]19;#102030\x1b\\"),
+    ("OSC 10", b"\x1b]10;#00ff00\x1b\\"),
+    ("OSC 11", b"\x1b]11;#ff00ff\x1b\\"),
+    ("OSC 4", b"\x1b]4;0;#ff0000;7;#0000ff;15;#ffff00\x1b\\"),
+    ("?5", b"\x1b[?5h"),
+];
+
+/// The address bar's look on the bottom row, in the message pair, as
+/// `baud-app`'s `link::preview` builds it.
+fn address_look(address: &str) -> baud_render::LinkLook {
+    let text: Vec<_> = format!(" {address} ")
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    let n = text.len();
+    baud_render::LinkLook {
+        spans: Vec::new(),
+        bar: baud_render::Field {
+            row: Row::from_index(usize::from(WS.ws_row) - 1),
+            col: Col::ZERO,
+            text,
+            hints: vec![baud_render::Hints::MESSAGE; n],
+            caret: Col::at_index(n),
+        },
+    }
+}
+
+/// **The address and the config's notice on every arm, whatever a program
+/// sets**: the deciding test of the bar's colours. Under each of `OSC 17`,
+/// `19`, `10`, `11`, `4` and `?5`, and with the selection's colours made to
+/// match, the instance arm, the cell arm through `Overlay::composed` and the
+/// CPU arm draw one frame: the bar's and the notice's padding cells are
+/// `#F4A32C` in every pixel and their letters reach `#15171B`. Perturbations:
+/// build the bar with `Hints::SELECTION` in `link::preview` (and here); build
+/// the notice with `Hints::SELECTION` in `Renderer::notice_field`; each moves
+/// with the program on all three arms.
+#[test]
+fn the_address_and_the_notice_take_no_colour_from_a_program() {
+    use baud_render::Pair;
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let (cols, rows) = (
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    );
+    let fresh = |theme: Theme| {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme,
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .unwrap()
+    };
+    let look = address_look("https://example.org/docs");
+    let width = look.bar.text.len();
+    let last = usize::from(WS.ws_row) - 1;
+    let notice: Vec<baud_domain::Codepoint> = "baud: a setting was not read"
+        .chars()
+        .map(baud_domain::Codepoint::from_char)
+        .collect();
+    for theme in [Theme::dark(), Theme::light()] {
+        for (name, bytes) in COLOURS_A_PROGRAM_SETS {
+            arms!(fresh(theme.clone()) => arms, t);
+            feed(&mut t, b"\x1b[?25lsome text under it\r\nand more");
+            feed(&mut t, ENOUGH_GLYPHS);
+            feed(&mut t, bytes);
+            arms.link = Some(look.clone());
+            let frame = three_arms(&mut arms, &mut t, name);
+            for p in crop_cell(&arms, &frame, (last, 0)) {
+                assert_eq!(p, Pair::BAUD.page.0, "{name}: the bar's box, whole");
+            }
+            assert!(
+                (1..width - 1)
+                    .flat_map(|col| crop_cell(&arms, &frame, (last, col)))
+                    .any(|p| p == Pair::BAUD.text.0),
+                "{name}: the address's own colour was drawn"
+            );
+            // The notice, the first frame of a renderer of its own, its row the
+            // one the terminal gave up.
+            arms!(fresh(theme.clone()) => arms, t);
+            feed(&mut t, b"\x1b[?25lsome text under it\r\nand more");
+            feed(&mut t, ENOUGH_GLYPHS);
+            feed(&mut t, bytes);
+            let _ = t.resize(&WinSize {
+                ws_col: WS.ws_col,
+                ws_row: WS.ws_row - 1,
+            });
+            arms.renderer.set_notice(Some(notice.clone()));
+            arms.renderer.fit(&t);
+            let frame = three_arms(&mut arms, &mut t, name);
+            let row = usize::from(WS.ws_row) - 1;
+            let blank = notice.len() + 2;
+            for p in crop_cell(&arms, &frame, (row, blank)) {
+                assert_eq!(p, Pair::BAUD.page.0, "{name}: the notice's box, whole");
+            }
+            assert!(
+                (0..notice.len())
+                    .flat_map(|col| crop_cell(&arms, &frame, (row, col)))
+                    .any(|p| p == Pair::BAUD.text.0),
+                "{name}: the notice's own colour was drawn"
+            );
+        }
+    }
+}
+
+/// **No cursor covers an address, on any arm**: a visible block cursor moved
+/// onto a letter of the bar, in `#F4A32C`'s own colour by `OSC 12` or any
+/// other, draws nothing over it, so a program cannot hide a letter of where a
+/// link goes. The control: the same cursor with no bar reaches the pixels.
+/// Perturbations: drop `clear_of_messages` from `convert_with` (the CPU and
+/// instance arms fail) or from the harness's and the app's cell path (the cell
+/// arm disagrees); read it for the tip's lines alone.
+#[test]
+fn no_cursor_covers_an_address_on_any_arm() {
+    use baud_render::Pair;
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let (cols, rows) = (
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    );
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .unwrap()
+    };
+    let look = address_look("https://example.org/docs");
+    let last = usize::from(WS.ws_row) - 1;
+    let put = format!("\x1b[{};4H", last + 1);
+    let programs: [(&str, &[u8]); 4] = [
+        ("a block", b"\x1b[2 q"),
+        ("a bar", b"\x1b[6 q"),
+        ("an underline", b"\x1b[4 q"),
+        (
+            "a block in the box's colour",
+            b"\x1b[2 q\x1b]12;#F4A32C\x1b\\",
+        ),
+    ];
+    for (name, bytes) in programs {
+        arms!(fresh() => arms, t);
+        feed(&mut t, b"some text under it");
+        feed(&mut t, ENOUGH_GLYPHS);
+        feed(&mut t, bytes);
+        feed(&mut t, put.as_bytes());
+        arms.renderer.set_cursor_blink(Blink::Shown);
+        let bare = three_arms(&mut arms, &mut t, name);
+        arms.link = Some(look.clone());
+        let hidden = three_arms(&mut arms, &mut t, name);
+        arms.link = None;
+        feed(&mut t, b"\x1b[?25l");
+        arms.link = Some(look.clone());
+        let none = three_arms(&mut arms, &mut t, name);
+        arms.link = None;
+        assert_eq!(
+            differing(&hidden, &none),
+            0,
+            "{name}: the bar with the cursor on it is the bar with no cursor"
+        );
+        for p in crop_cell(&arms, &hidden, (last, 0)) {
+            assert_eq!(p, Pair::BAUD.page.0, "{name}: the box, whole");
+        }
+        feed(&mut t, b"\x1b[?25h");
+        let plain = three_arms(&mut arms, &mut t, name);
+        assert_eq!(differing(&bare, &plain), 0, "the control's own frame again");
+        feed(&mut t, b"\x1b[?25l");
+        let hid = three_arms(&mut arms, &mut t, name);
+        assert!(
+            differing(&plain, &hid) > 0,
+            "{name}, the control: with no bar the cursor reaches the pixels"
+        );
+    }
+    let source = include_str!("../../baud-app/src/app.rs");
+    assert!(
+        source.contains(concat!(
+            "self.renderer.clear_of_",
+            "messages(&self.term, cursor_at)"
+        )),
+        "the app's cell path takes its cursor through the rule this harness copies"
+    );
+}
+
+/// **The lines at rest and all three looks under the pointer are one picture
+/// on every arm**: a line in the text's colour on two rows, with and without a
+/// program's colours, solid and dotted; the box, the line and the text.
+/// Perturbations: leave `line_inst` out of `compose_inst` (the instance and CPU
+/// arms lose it), or out of the cell path's records (the cell arm does); give
+/// the text look a page; drop a look's fields from the cell path's chrome.
+#[test]
+fn the_lines_and_the_looks_are_one_picture_on_every_arm() {
+    use baud_render::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkSpan};
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let (cols, rows) = (
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    );
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            cols,
+            rows,
+        )
+        .unwrap()
+    };
+    arms!(fresh() => arms, t);
+    feed(
+        &mut t,
+        b"\x1b[?25lsee \x1b[31mhttps://example.org/x\x1b[m and \x1b[44;33mhttps://b.example\x1b[m",
+    );
+    feed(&mut t, ENOUGH_GLYPHS);
+    let bare = three_arms(&mut arms, &mut t, "no lines");
+    let word = |x: usize| {
+        let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
+        t.style_in(baud_domain::RowStyles::Live, c)
+    };
+    arms.lines = vec![
+        LinkLine {
+            row: Row::ZERO,
+            from: Col::at_index(4),
+            to: Col::at_index(24),
+            word: word(4),
+        },
+        LinkLine {
+            row: Row::ZERO,
+            from: Col::at_index(30),
+            to: Col::at_index(46),
+            word: word(30),
+        },
+    ];
+    let solid = three_arms(&mut arms, &mut t, "solid");
+    assert!(differing(&bare, &solid) > 0, "the line reached the pixels");
+    arms.line_style = LineStyle::Dotted;
+    let dotted = three_arms(&mut arms, &mut t, "dotted");
+    assert!(differing(&solid, &dotted) > 0, "dotted is not solid");
+    arms.line_style = LineStyle::Solid;
+    for paint in [HoverPaint::Box, HoverPaint::Line, HoverPaint::Text] {
+        arms.over = Some(LinkHover {
+            spans: vec![LinkSpan {
+                row: Row::ZERO,
+                from: Col::at_index(4),
+                to: Col::at_index(24),
+            }],
+            paint,
+        });
+        let over = three_arms(&mut arms, &mut t, "a look");
+        assert!(differing(&solid, &over) > 0, "{paint:?} reached the pixels");
+        arms.over = None;
+        let gone = three_arms(&mut arms, &mut t, "gone");
+        assert_eq!(differing(&solid, &gone), 0, "{paint:?} leaves nothing");
     }
 }
 /// The alaph of `word`, written from column 3 of row 2 after a clear, its

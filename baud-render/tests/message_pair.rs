@@ -6,11 +6,12 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
+use baud_domain::{BytePos, Chan, Codepoint, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, Damage, Highlight, Hints, MessageAt, MessageColours, MessagePaint, Pair, PxSize,
-    Region, Renderer, SelectionPulse, Stack, Target, Theme, TipAnchor, TipLook, message_look,
+    Argb, Blend, Damage, Field, Highlight, Hints, HoverPaint, LineStyle, LinkHover, LinkLine,
+    LinkLook, LinkSpan, MessageAt, MessageColours, MessagePaint, Pair, PxSize, Region, Renderer,
+    SelectionPulse, Stack, Target, Theme, TipAnchor, TipLook, message_look,
 };
 use support::font;
 
@@ -582,4 +583,270 @@ fn a_pulse_recolours_the_selection_and_no_field() {
         after == before,
         "with the pulse over the frame is as it was"
     );
+}
+
+/// The bar with `address`, on the bottom row in the pair, as `baud-app`'s
+/// `link::preview` builds it.
+fn address(address: &str, hints: Hints) -> LinkLook {
+    let text: Vec<Codepoint> = format!(" {address} ")
+        .chars()
+        .map(Codepoint::from_char)
+        .collect();
+    let n = text.len();
+    LinkLook {
+        spans: Vec::new(),
+        bar: Field {
+            row: Row::from_index(23),
+            col: Col::ZERO,
+            text,
+            hints: vec![hints; n],
+            caret: Col::at_index(n),
+        },
+    }
+}
+
+/// The frame with `set` having set the renderer up, under `program`.
+fn framed(
+    program: &[u8],
+    theme: Theme,
+    set: impl FnOnce(&mut Renderer<'_, '_>, &Term<'_>),
+) -> Drawn {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"some text under it\r\nand more");
+    feed(&mut t, program);
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme,
+        Blend::Native,
+        Cols::of_index(80),
+        Rows::of_index(24),
+    )
+    .unwrap();
+    r.fit(&t);
+    set(&mut r, &t);
+    r.fit(&t);
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let mut px = vec![0u32; n];
+    paint(&mut r, &mut t, &mut px, Damage::Full);
+    let m = r.metrics();
+    Drawn {
+        px,
+        stride: w,
+        cell: (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        ),
+    }
+}
+
+/// **The deciding test of the bar and the notice, on the CPU path**: a program
+/// sets `OSC 17`, `19`, `10`, `11`, `4` and `?5` to match, and what the bar
+/// and the config's notice row draw is the pair in every pixel, an opaque box
+/// and its own text. The control: a bar in the selection's colours moves with
+/// the same sequences, which is what both were before. Perturbations: build
+/// the notice with `Hints::SELECTION` in `Renderer::notice_field`; read
+/// `Hints::MESSAGE` as the selection in `Drawing::of`.
+#[test]
+fn the_address_and_the_notice_take_no_colour_from_a_program() {
+    const MATCH: &[u8] = b"\x1b]17;#101010\x1b\\\x1b]19;#101010\x1b\\\x1b]10;#101010\x1b\\\x1b]11;#101010\x1b\\\x1b]4;0;#101010;15;#101010\x1b\\";
+    let mut programs: Vec<(&str, &[u8])> = PROGRAMS.to_vec();
+    programs.push(("all of them to match", MATCH));
+    let bar = address("https://example.org/docs", Hints::MESSAGE);
+    let width = bar.bar.text.len();
+    let line = TipLook {
+        lines: vec![bar.bar.clone()],
+        ..tip(Hints::MESSAGE)
+    };
+    let notice: Vec<Codepoint> = "baud: a setting was not read"
+        .chars()
+        .map(Codepoint::from_char)
+        .collect();
+    for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+        for (program, bytes) in &programs {
+            let d = framed(bytes, theme.clone(), |r, _| r.set_link(Some(bar.clone())));
+            assert_the_pair(
+                &d,
+                &line,
+                Pair::BAUD,
+                &format!("{name}, {program}, the bar"),
+            );
+            let d = framed(bytes, theme.clone(), |r, _| {
+                r.set_notice(Some(notice.clone()))
+            });
+            let row = 24;
+            assert!(
+                d.cell_px(row, 60).all(|p| p == Pair::BAUD.page.0),
+                "{name}, {program}: the notice's box, whole"
+            );
+            assert!(
+                (0..notice.len())
+                    .flat_map(|c| d.cell_px(row, c).collect::<Vec<_>>())
+                    .any(|p| p == Pair::BAUD.text.0),
+                "{name}, {program}: the notice's text"
+            );
+        }
+    }
+    let plain = address("https://example.org/docs", Hints::SELECTION);
+    let quiet = framed(b"", Theme::dark(), |r, _| r.set_link(Some(plain.clone())));
+    let moved = framed(MATCH, Theme::dark(), |r, _| r.set_link(Some(plain.clone())));
+    assert!(
+        quiet
+            .cell_px(23, width - 1)
+            .ne(moved.cell_px(23, width - 1)),
+        "the control: a program moves the selection's colours"
+    );
+}
+
+/// **A visible cursor cannot cover a message**: a block cursor moved by a
+/// program onto a letter of the bar or of a tip, under its own `OSC 12` in the
+/// box's colour, draws nothing over it: the frame is the one with the cursor
+/// hidden. The control: with no message the same cursor moves the pixels.
+/// Perturbation: drop `clear_of_messages` from `convert_with`.
+#[test]
+fn a_visible_cursor_cannot_cover_a_message() {
+    let bar = address("https://example.org/docs", Hints::MESSAGE);
+    let tipped = tip(Hints::MESSAGE);
+    let (row, col) = (tipped.lines[0].row.index(), tipped.lines[0].col.index() + 2);
+    let onto_tip = format!("\x1b[2 q\x1b]12;#F4A32C\x1b\\\x1b[{};{}H", row + 1, col + 1);
+    let onto_bar = "\x1b[2 q\x1b]12;#F4A32C\x1b\\\x1b[24;4H".to_string();
+    let same = |a: &Drawn, b: &Drawn| a.px == b.px;
+    let hide = |s: &str| format!("{s}\x1b[?25l");
+    let (shown, hidden) = (
+        framed(onto_bar.as_bytes(), Theme::dark(), |r, _| {
+            r.set_link(Some(bar.clone()));
+        }),
+        framed(hide(&onto_bar).as_bytes(), Theme::dark(), |r, _| {
+            r.set_link(Some(bar.clone()));
+        }),
+    );
+    assert!(same(&shown, &hidden), "the bar: as with no cursor");
+    let (shown, hidden) = (
+        framed(onto_tip.as_bytes(), Theme::dark(), |r, _| {
+            r.set_tip(Some(tipped.clone()));
+        }),
+        framed(hide(&onto_tip).as_bytes(), Theme::dark(), |r, _| {
+            r.set_tip(Some(tipped.clone()));
+        }),
+    );
+    assert!(same(&shown, &hidden), "the tip: as with no cursor");
+    let (shown, hidden) = (
+        framed(onto_bar.as_bytes(), Theme::dark(), |_, _| {}),
+        framed(hide(&onto_bar).as_bytes(), Theme::dark(), |_, _| {}),
+    );
+    assert!(!same(&shown, &hidden), "the control: the cursor draws");
+}
+
+/// **A program cannot read a link's line, its look or its bar back**:
+/// `DECRQCRA` answers the same with a line at rest, each look and the bar up,
+/// on the rows they lie on. The control: the same text underlined in the cells
+/// moves the answer. Perturbation: write the line through `SGR 4`.
+#[test]
+fn decrqcra_answers_the_same_with_a_line_up() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25lsee https://example.org/x today");
+    let before = checksum(&mut t);
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(80),
+        Rows::of_index(24),
+    )
+    .unwrap();
+    r.fit(&t);
+    let (w, h) = r.pixel_size();
+    let mut px = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
+    let cell = t.view(Rows::ZERO).row(Row::ZERO)[4];
+    let word = t.style_in(baud_domain::RowStyles::Live, cell);
+    let line = LinkLine {
+        row: Row::ZERO,
+        from: Col::at_index(4),
+        to: Col::at_index(24),
+        word,
+    };
+    r.set_link_lines(&[line], LineStyle::Solid);
+    for paint_kind in [HoverPaint::Box, HoverPaint::Line, HoverPaint::Text] {
+        r.set_link_hover(Some(&LinkHover {
+            spans: vec![LinkSpan {
+                row: Row::ZERO,
+                from: Col::at_index(4),
+                to: Col::at_index(24),
+            }],
+            paint: paint_kind,
+        }));
+        r.set_link(Some(address("https://example.org/x", Hints::MESSAGE)));
+        paint(&mut r, &mut t, &mut px, Damage::Full);
+        assert_eq!(checksum(&mut t), before, "the same with {paint_kind:?} up");
+    }
+    feed(&mut t, b"\x1b[1;5H\x1b[4mhttps\x1b[m");
+    assert_ne!(checksum(&mut t), before, "the control: as cells it moves");
+}
+
+/// **A line at rest is in the text's own colour, and goes without a trace**:
+/// red text has a red line under it, an incremental frame is the full one, and
+/// with none the frame is the plain one. Perturbations: draw it in the default
+/// foreground, as the preview's underline; drop `lines_changed` from the
+/// convert's damage.
+#[test]
+fn a_line_at_rest_is_the_texts_colour_and_leaves_no_trace() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[?25lsee \x1b[38;2;255;0;0mhttps://example.org/x\x1b[m",
+    );
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(80),
+        Rows::of_index(24),
+    )
+    .unwrap();
+    r.fit(&t);
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let mut plain = vec![0u32; n];
+    paint(&mut r, &mut t, &mut plain, Damage::Full);
+    let cell = t.view(Rows::ZERO).row(Row::ZERO)[4];
+    let word = t.style_in(baud_domain::RowStyles::Live, cell);
+    r.set_link_lines(
+        &[LinkLine {
+            row: Row::ZERO,
+            from: Col::at_index(4),
+            to: Col::at_index(24),
+            word,
+        }],
+        LineStyle::Solid,
+    );
+    let mut shown = plain.clone();
+    paint(&mut r, &mut t, &mut shown, Damage::Incremental);
+    let mut full = vec![0u32; n];
+    paint(&mut r, &mut t, &mut full, Damage::Full);
+    assert!(full == shown, "an incremental frame is the full one");
+    let m = r.metrics();
+    let (cw, stride) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(w.value()).unwrap(),
+    );
+    let y = usize::try_from(m.underline.value()).unwrap();
+    assert!(
+        (4 * cw..25 * cw).all(|x| shown[y * stride + x] & 0x00FF_FFFF == 0x00FF_0000),
+        "the line is the text's own red, across its cells"
+    );
+    r.set_link_lines(&[], LineStyle::Solid);
+    paint(&mut r, &mut t, &mut shown, Damage::Incremental);
+    assert!(shown == plain, "nothing of it is left behind");
 }
