@@ -45,6 +45,13 @@ pub fn name(pid: Pid) -> Option<String> {
         .or_else(|| exe(pid).and_then(|p| program(p.as_os_str().as_bytes())))
 }
 
+/// The program `pid` runs, by its executable's file name alone: what a
+/// program that rewrote its arguments -- tmux's client, `tmux: client
+/// (...)` on Linux -- is still known by (`probe::front_of`).
+pub fn exe_name(pid: Pid) -> Option<String> {
+    exe(pid).and_then(|p| program(p.as_os_str().as_bytes()))
+}
+
 /// argv[0]'s last path component, a login shell's leading `-` dropped
 /// (`fork_in` starts the shell as `-zsh`, as `login` does).
 pub fn program(argv0: &[u8]) -> Option<String> {

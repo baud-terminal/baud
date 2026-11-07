@@ -238,6 +238,9 @@ pub(crate) struct Seat {
     /// The order the last frame drew each row in, which a pointer position
     /// is mapped back through (`gesture::logical`).
     orders: baud_render::Orders,
+    /// The printed paths the worker answered for (`paths.rs`), which the
+    /// preview and a click read as links: off until the driver sets them.
+    pub(crate) paths: crate::paths::Paths,
 }
 
 impl Seat {
@@ -259,6 +262,7 @@ impl Seat {
             focus: Focus::Lost,
             hover: crate::link::Hover::default(),
             orders: baud_render::Orders::default(),
+            paths: crate::paths::Paths::default(),
         }
     }
 
@@ -311,8 +315,15 @@ impl Seat {
             let (row, col, _) = self.under(g);
             (row, col)
         });
-        self.hover
-            .update(term, at, self.scrolled, chord, self.focus, host)
+        self.hover.update_with(
+            term,
+            at,
+            self.scrolled,
+            chord,
+            self.focus,
+            host,
+            &self.paths,
+        )
     }
 
     /// The preview read again under the pointer where it rests, after a
@@ -332,7 +343,7 @@ impl Seat {
         self.hover.over_text()
             && self
                 .hover
-                .refresh(term, self.scrolled, chord, self.focus, host)
+                .refresh_with(term, self.scrolled, chord, self.focus, host, &self.paths)
     }
 
     /// What the config asks of the link under the pointer.
@@ -757,7 +768,8 @@ impl Seat {
             col,
         };
         let armed = self.armed.as_ref();
-        let under = crate::link::under(term, spot, press, chord, self.focus, armed);
+        let under =
+            crate::link::under_with(term, spot, press, chord, self.focus, armed, &self.paths);
         match crate::link::gesture(press, chord, clicks, self.focus, armed, under.as_ref()) {
             Gesture::Pass => None,
             Gesture::Arm(a) => {

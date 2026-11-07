@@ -566,6 +566,10 @@ struct App {
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
     uris: crate::lined::Uris,
+    /// The printed paths the lines read (`paths.rs`), and the worker that
+    /// asks whether each exists (`probe.rs`), never waited on.
+    paths: crate::paths::Paths,
+    probes: crate::probe::Probes<HostTime>,
     link_config: crate::config::Link,
     /// The hover text over DEC's line's words (`line_tip.rs`).
     line_tip: crate::line_tip::LineTip,
@@ -1538,6 +1542,18 @@ impl App {
             },
             lines: crate::lined::Lines::default(),
             uris: crate::lined::Uris::default(),
+            // `HOME` read once, here: a `~/` is the home this window
+            // started with.
+            paths: {
+                use std::os::unix::ffi::OsStringExt;
+                let home = std::env::var_os("HOME").map(std::ffi::OsString::into_vec);
+                let mut p = crate::paths::Paths::new(home, crate::paths::Forms::DEFAULT);
+                p.set(link_config.paths_read());
+                p
+            },
+            // The display link's tick reads the answers, so the worker
+            // need wake nothing.
+            probes: crate::probe::Probes::system(|| {}),
             link_config,
             line_tip: crate::line_tip::LineTip::default(),
             copied: crate::copied::Signal::new(message),
@@ -1832,12 +1848,13 @@ impl App {
         if !self.hover.over_text() {
             return false;
         }
-        let changed = self.hover.refresh(
+        let changed = self.hover.refresh_with(
             &self.term,
             self.scrolled,
             chord,
             self.focus,
             crate::link::Host(self.uris.host()),
+            &self.paths,
         );
         if changed {
             self.reshape_pointer();
@@ -1909,7 +1926,20 @@ impl App {
     fn scan_lines(&mut self) {
         match self.link_config.lines() {
             Some(style) => {
-                self.lines.scan(&self.term, self.scrolled, &mut self.uris);
+                // The reported folder, which a `./` is read against, read
+                // before the rows are (`Paths::observe`).
+                if self.paths.observe(&self.term, self.scrolled) == crate::paths::Moved::Yes {
+                    self.lines.forget();
+                }
+                self.lines.scan(
+                    &self.term,
+                    self.scrolled,
+                    &mut crate::paths::Links {
+                        uris: &mut self.uris,
+                        urls: self.link_config.urls_read(),
+                        paths: &mut self.paths,
+                    },
+                );
                 self.renderer.set_link_lines(self.lines.lines(), style);
             }
             None => {
@@ -6612,7 +6642,9 @@ mod alt_window_tests {
         assert!(
             read.contains(concat!("NSEvent::modifier", "Flags_class()"))
                 && read.contains(concat!("self.read_", "hover_as(chord)"))
-                && body(READ_AS).contains(".refresh("),
+                && [".refresh(", ".refresh_with("]
+                    .iter()
+                    .any(|r| body(READ_AS).contains(r)),
             "the read does not refresh with the modifiers held now"
         );
     }
@@ -11328,6 +11360,7 @@ impl Driver {
         if let Trigger::Tick = trigger {
             self.title_check();
             self.link_host_check();
+            self.paths_turn();
             self.notice_turn();
             self.poll_focus();
             self.poll_hover();
@@ -11514,6 +11547,17 @@ impl Driver {
                 .hear(&self.app.term, Instant::now(), self.app.interval)
         {
             self.ring_bell(volume);
+        }
+        // Which program wrote each read, to the line the batch ended on, for
+        // the printed paths (`Probes::read_taken`): after the follow, which
+        // comes straight after the feed, and after the bell, which nothing
+        // between it and the read may delay; numbered after any resize the
+        // read asked for, as the reads after it are.
+        let ended = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
+        for chunk in &drained.chunks {
+            self.app
+                .probes
+                .read_taken(&mut self.app.paths, chunk.group, ended);
         }
         if self.app.copied.program(copies, host_now()) == crate::copied::Owes::Frame {
             self.app.pending = Pending::Dirty;
@@ -13670,8 +13714,115 @@ impl Driver {
             return;
         };
         self.app.uris.set_host(name.to_string());
+        // Every name this machine has, which a `./`'s `OSC 7` must name.
+        let names = self
+            .hosts
+            .names()
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+        self.app.paths.set_names(names);
         self.app.lines.forget();
         self.app.pending = Pending::Dirty;
+    }
+
+    /// **The printed paths' worker, at each tick**: its answers merged, its
+    /// hang watched, and a batch sent once one is due (`probe.rs`). Never
+    /// waits: an answer not yet sent is read at a later tick. A click's
+    /// second look, once answered, opens or says why not here.
+    fn paths_turn(&mut self) {
+        let app = &mut self.app;
+        let master = app.pty.reads().master;
+        let seen = crate::probe::Seen {
+            term: &app.term,
+            scrolled: app.scrolled,
+            lines: &mut app.lines,
+            uris: &mut app.uris,
+            urls: app.link_config.urls_read(),
+            paths: &mut app.paths,
+        };
+        let turn = app
+            .probes
+            .turn(host_now(), seen, || crate::fg::group(master));
+        app.links.checks = app.probes.counts;
+        if turn.frame == crate::paths::Owed::Yes {
+            app.pending = Pending::Dirty;
+        }
+        if let Some(done) = turn.clicked {
+            self.path_checked(done);
+        }
+    }
+
+    /// **A click on a printed path**: asked again of the worker, off the
+    /// frame; the answer comes at a later tick (`paths_turn`), or now when
+    /// there is no worker to ask.
+    fn check_path(&mut self, p: &crate::link::Printed) {
+        let app = &mut self.app;
+        let master = app.pty.reads().master;
+        let seen = crate::probe::Seen {
+            term: &app.term,
+            scrolled: app.scrolled,
+            lines: &mut app.lines,
+            uris: &mut app.uris,
+            urls: app.link_config.urls_read(),
+            paths: &mut app.paths,
+        };
+        let c = crate::paths::Candidate {
+            path: p.path().to_vec(),
+            form: p.form(),
+            line: p.line(),
+        };
+        if let Some(done) = app
+            .probes
+            .click(host_now(), seen, crate::fg::group(master), c)
+        {
+            self.path_checked(done);
+        }
+    }
+
+    /// **What a click on a printed path comes to**: found again, its
+    /// `file://` URI through `admit`, unchanged, and revealed in Finder,
+    /// never launched; gone, or not checked, the bar says so and nothing is
+    /// opened. No path is logged.
+    fn path_checked(&mut self, done: crate::probe::Clicked) {
+        use crate::copied::PathNote;
+        use crate::link::{Action, Host};
+        use baud_present_macos::link::{self as opener, Opened};
+        let note = match done {
+            crate::probe::Clicked::Exists(path) => {
+                let uri = crate::paths::file_uri(&path);
+                match crate::link::admit(uri.as_bytes(), Host(self.app.uris.host())) {
+                    Ok(t) if t.action() == Action::Reveal => match opener::reveal(t.as_str()) {
+                        Opened::Taken => {
+                            self.app.links.revealed.bump();
+                            crate::info!("printed path revealed");
+                            None
+                        }
+                        other => {
+                            self.app.links.refused.bump();
+                            crate::warn!("printed path not revealed ({other:?})");
+                            None
+                        }
+                    },
+                    Ok(_) | Err(_) => {
+                        self.app.links.refused.bump();
+                        Some(PathNote::TooLong)
+                    }
+                }
+            }
+            crate::probe::Clicked::Missing => {
+                self.app.links.refused.bump();
+                Some(PathNote::Missing)
+            }
+            crate::probe::Clicked::Unchecked => {
+                self.app.links.refused.bump();
+                Some(PathNote::Unchecked)
+            }
+        };
+        if let Some(n) = note {
+            if self.app.copied.path(n) == crate::copied::Owes::Frame {
+                self.app.pending = Pending::Dirty;
+            }
+        }
     }
 
     /// Whether this window is the key window, read from AppKit now.
@@ -14291,6 +14442,7 @@ impl Driver {
                 Part::Link => {
                     self.app.link_config = c.link;
                     self.app.hover.set_at_rest(c.link.at_rest());
+                    self.app.paths.set(c.link.paths_read());
                     self.app.lines.forget();
                     self.app.pending = Pending::Dirty;
                 }
@@ -14791,13 +14943,14 @@ impl Driver {
         let pressed =
             app.hover
                 .set_left_press(crate::bar::left_press(&app.term, strip, app.bar_ctx()));
-        let hovered = app.hover.update(
+        let hovered = app.hover.update_with(
             &app.term,
             at,
             app.scrolled,
             chord,
             app.focus,
             Host(app.uris.host()),
+            &app.paths,
         );
         if hovered || pressed {
             app.reshape_pointer();
@@ -14848,7 +15001,15 @@ impl Driver {
             col,
         };
         let armed = self.armed.as_ref();
-        let under = crate::link::under(&self.app.term, spot, press, chord, self.app.focus, armed);
+        let under = crate::link::under_with(
+            &self.app.term,
+            spot,
+            press,
+            chord,
+            self.app.focus,
+            armed,
+            &self.app.paths,
+        );
         match crate::link::gesture(press, chord, clicks, self.app.focus, armed, under.as_ref()) {
             Gesture::Pass => Took::No,
             Gesture::Arm(a) => {
@@ -14884,6 +15045,11 @@ impl Driver {
                 .to_string()
         };
         let uri = match link {
+            // Asked again off the frame, and opened or said at a later tick.
+            Under::Path(p) => {
+                self.check_path(p);
+                return;
+            }
             Under::Osc8(link) => match link.uri(&self.app.term) {
                 Some(uri) => uri,
                 None => {
@@ -20222,9 +20388,13 @@ mod link_pointer_tests {
     fn every_change_of_the_preview_shows_the_pointer_again() {
         const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test's own text is not what it finds.
+        // The printed paths' forms too, `update_with` and `refresh_with`,
+        // which change the preview as the plain ones do.
         let calls = [
             concat!("hover.", "update("),
+            concat!("hover.", "update_with("),
             concat!("hover.", "refresh("),
+            concat!("hover.", "refresh_with("),
             concat!("hover.", "clear()"),
             concat!("hover.", "set_left_press("),
         ];

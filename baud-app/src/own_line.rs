@@ -251,6 +251,24 @@ impl LineLights {
     }
 }
 
+/// **The items of the Linux loop's one wait list**, `let timeout = [..]`,
+/// each with its spaces taken out: what bounds the poll, read by item so
+/// the guards here and in `line_lamps.rs` hold however rustfmt breaks the
+/// list's lines.
+#[cfg(test)]
+pub(crate) fn wait_bounds(src: &str) -> Vec<String> {
+    assert_eq!(src.matches("let timeout = [").count(), 1, "one wait list");
+    src.split_once("let timeout = [")
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .map(|(list, _)| {
+            list.split(',')
+                .map(|b| b.split_whitespace().collect::<String>())
+                .filter(|b| !b.is_empty())
+                .collect()
+        })
+        .expect("the wait's bounds")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,7 +302,6 @@ mod tests {
             "self.lights.wrote(wrote, now);",
             "self.lights.states(front, &self.term, &self.outbox, now);",
             "d.flush_reply();\n        d.tick_lights();\n",
-            "report, lights, words,\n        ]",
             "let lights = d.lights_wait(now);",
             "let rows = (text_h / m.cell_h.value().max(1))",
             ".saturating_sub(self.renderer.lights_height().value());",
@@ -294,6 +311,12 @@ mod tests {
         ] {
             assert_eq!(SRC.matches(want).count(), 1, "{want}");
         }
+        // The lights' deadline among the bounds of the loop's one wait, read
+        // by its items, so a list rustfmt lays out again still counts.
+        assert!(
+            wait_bounds(SRC).iter().any(|b| b == "lights"),
+            "the lights bound the wait"
+        );
     }
 
     /// **The states are sampled at most once a frame**: the first turn

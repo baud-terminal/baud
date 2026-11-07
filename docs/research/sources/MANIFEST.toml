@@ -19567,6 +19567,113 @@ bytes  = 1752
 status = "external"
 group  = "E"
 
+[sources.macos-sdk-sys-mount-h]
+key    = "macos-sdk-sys-mount-h"
+title  = "sys/mount.h -- struct statfs (__DARWIN_STRUCT_STATFS64), MNT_LOCAL 'filesystem is stored locally', MNT_AUTOMOUNTED, MNT_NOWAIT, MFSTYPENAMELEN, getfsstat's declaration"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2"
+url    = "$SDKROOT/usr/include/sys/mount.h"
+file   = ""
+sha256 = "45872741bb916b92bddd2e562d2047b552af1f68269081a0aeb58a3e5a2b8a51"
+bytes  = 20959
+status = "external"
+group  = "E"
+# Hash recorded only, not committed -- a vendor header.
+
+[sources.macos-sdk-sys-cdefs-h]
+key    = "macos-sdk-sys-cdefs-h"
+title  = "sys/cdefs.h -- __DARWIN_INODE64 and __DARWIN_SUF_64_BIT_INO_T: no suffix where only 64-bit inodes exist (arm64), $INODE64 on x86_64"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2"
+url    = "$SDKROOT/usr/include/sys/cdefs.h"
+file   = ""
+sha256 = "ac1a889ee7e6f3025e01be9981d26751489b9e63e926035201cae07ab9e6576f"
+bytes  = 42609
+status = "external"
+group  = "E"
+# Hash recorded only, not committed -- a vendor header.
+
+[sources.macos-man-getfsstat-2]
+key    = "macos-man-getfsstat-2"
+title  = "getfsstat(2) -- MNT_NOWAIT 'will directly return the information retained in the kernel to avoid delays caused by waiting for updated information from a file system that is perhaps temporarily unable to respond'"
+author = "Apple Inc."
+year   = 2008
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2 man page, dated October 28, 2008"
+url    = "$SDKROOT/usr/share/man/man2/getfsstat.2"
+file   = ""
+sha256 = "dec7d3d9b062670ff3a4b2d19f8367041eddcb4189fc4ef627111f5b90fd9c54"
+bytes  = 4324
+status = "external"
+group  = "E"
+
+[sources.macos-man-stat-2]
+key    = "macos-man-stat-2"
+title  = "stat(2), which lstat.2 includes -- 'lstat() is like stat() except in the case where the named file is a symbolic link; lstat() returns information about the link'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2 man page"
+url    = "$SDKROOT/usr/share/man/man2/stat.2"
+file   = ""
+sha256 = "3815623c9262a951b015cf9fe8d7896b96821b5172f97269d89c1feb6362cfc8"
+bytes  = 18536
+status = "external"
+group  = "E"
+
+[sources.linux-man-proc-pid-mountinfo]
+key    = "linux-man-proc-pid-mountinfo"
+title  = "proc_pid_mountinfo(5) -- the eleven fields, the optional ones ended by a single hyphen, the filesystem type after it"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_mountinfo.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "190e9124ac7b358a9f9936fcbd8b2f740217c0ebb3a6ac1343551e7d11b5b38c"
+bytes  = 3705
+status = "external"
+group  = "E"
+
+[sources.linux-man-getmntent-3]
+key    = "linux-man-getmntent-3"
+title  = "getmntent(3) -- 'octal escapes are used to represent the characters space (\\040), tab (\\011), newline (\\012), and backslash' in a mount table's strings"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man3/getmntent.3?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "87cf7916f65d2a00b12eebb2e4ddcecab72ba1bcb3fcd1c8cbaf78e259e708e9"
+bytes  = 5258
+status = "external"
+group  = "E"
+
+[sources.macos-sdk-sys-resource-h]
+key    = "macos-sdk-sys-resource-h"
+title  = "sys/resource.h -- IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES 3, IOPOL_SCOPE_THREAD 1, IOPOL_MATERIALIZE_DATALESS_FILES_OFF 1, and setiopolicy_np's declaration"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2"
+url    = "$SDKROOT/usr/include/sys/resource.h"
+file   = ""
+sha256 = "1067178025c5fd88c9a1b8206a07c2695ef94dd471fe2783f06c512995382961"
+bytes  = 20410
+status = "external"
+group  = "E"
+# Hash recorded only, not committed -- a vendor header.
+
+[sources.macos-man-getiopolicy-np-3]
+key    = "macos-man-getiopolicy-np-3"
+title  = "getiopolicy_np(3), which setiopolicy_np.3 is a copy of -- IOPOL_MATERIALIZE_DATALESS_FILES_OFF 'Disables materialization of dataless files by the current thread or process'"
+author = "Apple Inc."
+year   = 2019
+venue  = "Xcode 27.2 (27B52), MacOSX.sdk 27.2 man page, dated February 11, 2019"
+url    = "$SDKROOT/usr/share/man/man3/getiopolicy_np.3"
+file   = ""
+sha256 = "2ffde535dd7f738db5555ab8d3f4cae5b9e5d3dc6c946f86d53619f0d4c5283e"
+bytes  = 9513
+status = "external"
+group  = "E"
+
 [sources.macos-man-tcgetpgrp]
 key    = "macos-man-tcgetpgrp"
 title  = "tcgetpgrp(3) -- ENOTTY when fildes is not the controlling terminal (rendered text)"

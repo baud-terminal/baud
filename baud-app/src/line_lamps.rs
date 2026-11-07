@@ -308,11 +308,18 @@ mod tests {
         }
         for want in [
             "let words = d.line_lamps_wait(now);",
-            "report, lights, words,\n        ]",
             "crate::own_line::in_front(crate::fg::group(master), shell)",
         ] {
             assert_eq!(LINUX.matches(want).count(), 1, "{want}");
         }
+        // The words' deadline among the bounds of the loop's one wait, read
+        // by its items, so a list rustfmt lays out again still counts.
+        assert!(
+            crate::own_line::wait_bounds(LINUX)
+                .iter()
+                .any(|b| b == "words"),
+            "the words bound the wait"
+        );
     }
 
     /// **The clause is read at the cell in points**: 8 x 17 device pixels

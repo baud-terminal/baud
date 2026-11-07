@@ -1275,6 +1275,137 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+/// **`struct statfs`, as `getfsstat` fills it** on macOS, the 64-bit-inode
+/// layout every arm64 build has and an x86_64 build gets by name
+/// (`[[source: macos-sdk-sys-mount-h]]`, `__DARWIN_STRUCT_STATFS64`; the
+/// suffix from `[[source: macos-sdk-sys-cdefs-h]]`'s
+/// `__DARWIN_SUF_64_BIT_INO_T`). Read for the printed paths' mount check
+/// (`probe.rs`): the flags, the type's name and where it is mounted.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Statfs {
+    pub f_bsize: u32,
+    pub f_iosize: i32,
+    pub f_blocks: u64,
+    pub f_bfree: u64,
+    pub f_bavail: u64,
+    pub f_files: u64,
+    pub f_ffree: u64,
+    pub f_fsid: [i32; 2],
+    pub f_owner: Uid,
+    pub f_type: u32,
+    pub f_flags: u32,
+    pub f_fssubtype: u32,
+    pub f_fstypename: [c_char; MFSTYPENAMELEN],
+    pub f_mntonname: [c_char; MAXPATHLEN],
+    pub f_mntfromname: [c_char; MAXPATHLEN],
+    pub f_flags_ext: u32,
+    pub f_reserved: [u32; 7],
+}
+
+/// `MFSTYPENAMELEN`, the type name's field with its NUL.
+#[cfg(target_os = "macos")]
+pub const MFSTYPENAMELEN: usize = 16;
+
+/// `MNT_LOCAL`: "filesystem is stored locally"
+/// (`[[source: macos-sdk-sys-mount-h]]`).
+#[cfg(target_os = "macos")]
+pub const MNT_LOCAL: u32 = 0x0000_1000;
+
+/// `MNT_NOWAIT`: `getfsstat` "will directly return the information
+/// retained in the kernel to avoid delays caused by waiting for updated
+/// information from a file system that is perhaps temporarily unable to
+/// respond" (`[[source: macos-man-getfsstat-2]]`).
+#[cfg(target_os = "macos")]
+pub const MNT_NOWAIT: c_int = 2;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// `getfsstat(struct statfs *buf, int bufsize, int flags)`: with a null
+    /// `buf` "just the number of mounted file systems", else up to
+    /// `bufsize` bytes of them (`[[source: macos-man-getfsstat-2]]`).
+    #[cfg_attr(target_arch = "x86_64", link_name = "getfsstat$INODE64")]
+    pub fn getfsstat(buf: *mut Statfs, bufsize: c_int, flags: c_int) -> c_int;
+}
+
+/// **The mount table, by `getfsstat` with `MNT_NOWAIT`**: asked once for the
+/// count and once with room for a few more, as a mount may come between the
+/// two; none when either call fails.
+#[cfg(target_os = "macos")]
+pub fn mounted() -> Option<Vec<Statfs>> {
+    // SAFETY: a null buffer: the call writes nothing and answers the count.
+    let n = unsafe { getfsstat(std::ptr::null_mut(), 0, MNT_NOWAIT) };
+    let room = usize::try_from(n).ok()?.checked_add(8)?;
+    let zero = Statfs {
+        f_bsize: 0,
+        f_iosize: 0,
+        f_blocks: 0,
+        f_bfree: 0,
+        f_bavail: 0,
+        f_files: 0,
+        f_ffree: 0,
+        f_fsid: [0; 2],
+        f_owner: 0,
+        f_type: 0,
+        f_flags: 0,
+        f_fssubtype: 0,
+        f_fstypename: [0; MFSTYPENAMELEN],
+        f_mntonname: [0; MAXPATHLEN],
+        f_mntfromname: [0; MAXPATHLEN],
+        f_flags_ext: 0,
+        f_reserved: [0; 7],
+    };
+    let mut buf = vec![zero; room];
+    let bytes = c_int::try_from(room.checked_mul(size_of::<Statfs>())?).ok()?;
+    // SAFETY: a buffer of `bytes` bytes, the size passed beside it.
+    let got = unsafe { getfsstat(buf.as_mut_ptr(), bytes, MNT_NOWAIT) };
+    buf.truncate(usize::try_from(got).ok()?);
+    Some(buf)
+}
+
+/// `IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES`: the policy for "dataless
+/// files accessed by the current thread or process"
+/// (`[[source: macos-man-getiopolicy-np-3]]`; the value from
+/// `[[source: macos-sdk-sys-resource-h]]`).
+#[cfg(target_os = "macos")]
+pub const IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES: c_int = 3;
+
+/// `IOPOL_SCOPE_THREAD`: the calling thread only.
+#[cfg(target_os = "macos")]
+pub const IOPOL_SCOPE_THREAD: c_int = 1;
+
+/// `IOPOL_MATERIALIZE_DATALESS_FILES_OFF`: "Disables materialization of
+/// dataless files by the current thread or process"
+/// (`[[source: macos-man-getiopolicy-np-3]]`).
+#[cfg(target_os = "macos")]
+pub const IOPOL_MATERIALIZE_DATALESS_FILES_OFF: c_int = 1;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// `int setiopolicy_np(int iotype, int scope, int policy)`, 0 or -1
+    /// (`[[source: macos-sdk-sys-resource-h]]`).
+    fn setiopolicy_np(iotype: c_int, scope: c_int, policy: c_int) -> c_int;
+}
+
+/// **No file of a cloud folder fetched by this thread's lookups**: the
+/// printed paths' worker sets it on itself before its first `lstat`, so a
+/// name inside a File Provider folder that is only a placeholder is not
+/// fetched to answer it. Whether the call took, never what it prevented:
+/// that is unverified here.
+#[cfg(target_os = "macos")]
+pub fn no_dataless_fetch() -> bool {
+    // SAFETY: three integers in, one out; it changes only this thread.
+    let r = unsafe {
+        setiopolicy_np(
+            IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+            IOPOL_SCOPE_THREAD,
+            IOPOL_MATERIALIZE_DATALESS_FILES_OFF,
+        )
+    };
+    r == 0
+}
+
 // **The config watch on Linux** (`reload.rs`): "When a directory is
 // monitored, inotify will return events for the directory itself, and for
 // files inside the directory" (`[[source: linux-man-inotify-7]]` 15-16),
@@ -1373,6 +1504,8 @@ mod tests {
 #include <sys/event.h>
 #include <sys/proc_info.h>
 #include <sys/sysctl.h>
+#include <sys/mount.h>
+#include <sys/resource.h>
 #else
 #include <locale.h>
 #include <sys/inotify.h>
@@ -1577,6 +1710,18 @@ int main(void) {
     printf("NOTE_RENAME=%lld\n", (long long)NOTE_RENAME);
     printf("NOTE_REVOKE=%lld\n", (long long)NOTE_REVOKE);
     printf("O_EVTONLY=%lld\n", (long long)O_EVTONLY);
+    printf("statfs.size=%zu\n", sizeof(struct statfs));
+    printf("statfs.owner=%zu\n", offsetof(struct statfs, f_owner));
+    printf("statfs.flags=%zu\n", offsetof(struct statfs, f_flags));
+    printf("statfs.fstypename=%zu\n", offsetof(struct statfs, f_fstypename));
+    printf("statfs.mntonname=%zu\n", offsetof(struct statfs, f_mntonname));
+    printf("statfs.flags_ext=%zu\n", offsetof(struct statfs, f_flags_ext));
+    printf("MFSTYPENAMELEN=%lld\n", (long long)MFSTYPENAMELEN);
+    printf("MNT_LOCAL=%lld\n", (long long)MNT_LOCAL);
+    printf("MNT_NOWAIT=%lld\n", (long long)MNT_NOWAIT);
+    printf("IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES=%lld\n", (long long)IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES);
+    printf("IOPOL_SCOPE_THREAD=%lld\n", (long long)IOPOL_SCOPE_THREAD);
+    printf("IOPOL_MATERIALIZE_DATALESS_FILES_OFF=%lld\n", (long long)IOPOL_MATERIALIZE_DATALESS_FILES_OFF);
 #else
     printf("locale_t.size=%zu\n", sizeof(locale_t));
     printf("LC_ALL_MASK=%lld\n", (long long)LC_ALL_MASK);
@@ -1886,6 +2031,35 @@ int main(void) {
             assert_eq!(h["NOTE_RENAME"], i128::from(NOTE_RENAME));
             assert_eq!(h["NOTE_REVOKE"], i128::from(NOTE_REVOKE));
             assert_eq!(h["O_EVTONLY"], i128::from(O_EVTONLY));
+            // The printed paths' mount check (`probe.rs`): a wrong offset
+            // reads another field as the flags or the mount point.
+            assert_eq!(h["statfs.size"], size_of::<Statfs>() as i128);
+            assert_eq!(h["statfs.owner"], offset_of!(Statfs, f_owner) as i128);
+            assert_eq!(h["statfs.flags"], offset_of!(Statfs, f_flags) as i128);
+            assert_eq!(
+                h["statfs.fstypename"],
+                offset_of!(Statfs, f_fstypename) as i128
+            );
+            assert_eq!(
+                h["statfs.mntonname"],
+                offset_of!(Statfs, f_mntonname) as i128
+            );
+            assert_eq!(
+                h["statfs.flags_ext"],
+                offset_of!(Statfs, f_flags_ext) as i128
+            );
+            assert_eq!(h["MFSTYPENAMELEN"], MFSTYPENAMELEN as i128);
+            assert_eq!(h["MNT_LOCAL"], i128::from(MNT_LOCAL));
+            assert_eq!(h["MNT_NOWAIT"], i128::from(MNT_NOWAIT));
+            assert_eq!(
+                h["IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES"],
+                i128::from(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES)
+            );
+            assert_eq!(h["IOPOL_SCOPE_THREAD"], i128::from(IOPOL_SCOPE_THREAD));
+            assert_eq!(
+                h["IOPOL_MATERIALIZE_DATALESS_FILES_OFF"],
+                i128::from(IOPOL_MATERIALIZE_DATALESS_FILES_OFF)
+            );
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);

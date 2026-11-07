@@ -636,6 +636,16 @@ pub enum LinkUrls {
     Off,
 }
 
+/// `[link] paths`: whether a file path printed as plain text is underlined
+/// when the file exists. Off asks nothing of the file system and starts no
+/// worker (`probe.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinkPaths {
+    #[default]
+    On,
+    Off,
+}
+
 /// `[link] line`: how a link is underlined at rest.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum LinkLineKey {
@@ -650,25 +660,47 @@ pub enum LinkLineKey {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Link {
     pub urls: LinkUrls,
+    pub paths: LinkPaths,
     pub line: LinkLineKey,
     pub hover: baud_render::HoverPaint,
 }
 
 impl Link {
-    /// What the frame underlines at rest, or none, which skips the scan.
+    /// What the frame underlines at rest, or none, which skips the scan:
+    /// none with nothing to underline, URIs and paths both off or the line
+    /// off.
     pub fn lines(self) -> Option<baud_render::LineStyle> {
-        match (self.urls, self.line) {
-            (LinkUrls::On, LinkLineKey::Solid) => Some(baud_render::LineStyle::Solid),
-            (LinkUrls::On, LinkLineKey::Dotted) => Some(baud_render::LineStyle::Dotted),
-            (LinkUrls::On, LinkLineKey::Off) | (LinkUrls::Off, _) => None,
+        let any = self.urls == LinkUrls::On || self.paths == LinkPaths::On;
+        match (any, self.line) {
+            (true, LinkLineKey::Solid) => Some(baud_render::LineStyle::Solid),
+            (true, LinkLineKey::Dotted) => Some(baud_render::LineStyle::Dotted),
+            (true, LinkLineKey::Off) | (false, _) => None,
         }
     }
 
     /// What the link under the pointer draws with no modifier.
     pub fn at_rest(self) -> crate::link::AtRest {
+        match (self.urls, self.paths) {
+            (LinkUrls::On, _) => crate::link::AtRest::Look(self.hover),
+            (LinkUrls::Off, LinkPaths::On) => crate::link::AtRest::PathsOnly(self.hover),
+            (LinkUrls::Off, LinkPaths::Off) => crate::link::AtRest::Off,
+        }
+    }
+
+    /// Whether the scan reads URIs.
+    pub fn urls_read(self) -> crate::paths::Turned {
         match self.urls {
-            LinkUrls::On => crate::link::AtRest::Look(self.hover),
-            LinkUrls::Off => crate::link::AtRest::Off,
+            LinkUrls::On => crate::paths::Turned::On,
+            LinkUrls::Off => crate::paths::Turned::Off,
+        }
+    }
+
+    /// Whether printed paths are read, asked about and drawn.
+    pub fn paths_read(self) -> crate::paths::Turned {
+        match (self.paths, self.line) {
+            // Nothing to draw: nothing to ask.
+            (LinkPaths::On, LinkLineKey::Off) | (LinkPaths::Off, _) => crate::paths::Turned::Off,
+            (LinkPaths::On, _) => crate::paths::Turned::On,
         }
     }
 }
@@ -2456,6 +2488,19 @@ impl Config {
                                  using the default, on"
                             ));
                             LinkUrls::On
+                        }
+                    };
+                }
+                ("link", "paths") => {
+                    self.link.paths = match value.trim().trim_matches('"') {
+                        "on" => LinkPaths::On,
+                        "off" => LinkPaths::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [link] paths {other:?} is not on or off; \
+                                 using the default, on"
+                            ));
+                            LinkPaths::On
                         }
                     };
                 }
@@ -5625,23 +5670,41 @@ mod reader {
     }
 
     /// **`[link]` reads as it documents**: the defaults, each value, and a bad
-    /// value's default, said. `urls = "off"` leaves nothing to scan.
-    /// Perturbations: default `urls` to off; read `line = "off"` as solid.
+    /// value's default, said. `urls` and `paths` both `"off"` leave nothing to
+    /// scan, and `paths` alone keeps the scan for paths, with the look on
+    /// them only. Perturbations: default `urls` or `paths` to off; read
+    /// `line = "off"` as solid; let `paths_read` ask with the line off.
     #[test]
     fn the_link_section_reads_as_it_documents() {
+        use crate::link::AtRest;
+        use crate::paths::Turned;
         use baud_render::{HoverPaint, LineStyle};
         let d = Config::defaults().link;
         assert_eq!(d.urls, LinkUrls::On);
+        assert_eq!(d.paths, LinkPaths::On);
         assert_eq!(d.line, LinkLineKey::Solid);
         assert_eq!(d.hover, HoverPaint::Box);
         assert_eq!(d.lines(), Some(LineStyle::Solid));
+        assert_eq!(d.paths_read(), Turned::On);
         let mut c = Config::defaults();
         let said = c.apply("[link]\nurls = \"off\"\nline = \"dotted\"\nhover = \"text\"\n");
         assert!(said.is_empty(), "{said:?}");
         assert_eq!(c.link.urls, LinkUrls::Off);
         assert_eq!(c.link.line, LinkLineKey::Dotted);
         assert_eq!(c.link.hover, HoverPaint::Text);
+        assert_eq!(c.link.lines(), Some(LineStyle::Dotted), "paths still on");
+        assert_eq!(c.link.at_rest(), AtRest::PathsOnly(HoverPaint::Text));
+        assert_eq!(c.link.urls_read(), Turned::Off);
+        let mut c = Config::defaults();
+        let said = c.apply("[link]\nurls = \"off\"\npaths = \"off\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.link.paths, LinkPaths::Off);
         assert_eq!(c.link.lines(), None);
+        assert_eq!(c.link.at_rest(), AtRest::Off);
+        assert_eq!(c.link.paths_read(), Turned::Off);
+        let mut c = Config::defaults();
+        let _ = c.apply("[link]\nline = \"off\"\n");
+        assert_eq!(c.link.paths_read(), Turned::Off, "no line, nothing asked");
         let mut c = Config::defaults();
         let said = c.apply("[link]\nline = \"dotted\"\nhover = \"line\"\n");
         assert!(said.is_empty(), "{said:?}");
@@ -5649,6 +5712,7 @@ mod reader {
         assert_eq!(c.link.hover, HoverPaint::Line);
         for (bad, key) in [
             ("[link]\nurls = \"nope\"\n", "urls"),
+            ("[link]\npaths = \"nope\"\n", "paths"),
             ("[link]\nline = \"nope\"\n", "line"),
             ("[link]\nhover = \"nope\"\n", "hover"),
             ("[link]\nother = 1\n", "other"),

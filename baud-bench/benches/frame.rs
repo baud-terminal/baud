@@ -22,13 +22,21 @@
 //! and over the rep's second half, where a cold rep has warmed: a counting
 //! allocator slows what it counts, so a timed run leaves the feature off.
 //!
-//! `FRAME_LINKS=on|hover|off` prices a link's line at rest (`baud-app`'s
+//! `FRAME_LINKS=on|hover|paths|paths-exist|off` prices a link's line at rest (`baud-app`'s
 //! `lined.rs`, compiled here from its source): `on` scans each frame's changed
 //! rows and draws what it finds, `hover` adds a pointer resting at the middle
 //! of the screen, read every frame and drawn in the box, and `off` is `[link]
 //! urls = "off"`, which reads nothing. Each prints, under its row, what the
 //! best rep's scans read a frame: rows, cells, candidates and runs added.
 //! Without it the replay draws no links, the row of a build before them.
+//! `paths` reads printed paths as the app does (`paths.rs`): a frame's changed
+//! rows owe a batch, and a collection reads the window's rows for them on the
+//! first frame that owes one and then at most one every 60 frames, a batch a
+//! second at 60 frames a second, the worker's ceiling; every path asked about
+//! is answered gone, so none is drawn. `paths-exist` answers each as there,
+//! so they are drawn, and the frames after read their changed rows. No
+//! arm asks the file system: there is no worker here, and the answers are
+//! the bench's own.
 //!
 //! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
 //! each frame draws its rows in stored order; the default leaves it set,
@@ -137,6 +145,9 @@ mod lined;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/link.rs"]
 mod link;
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/paths.rs"]
+mod paths;
 
 /// `FRAME_LINKS`: what each frame does about links.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -146,6 +157,14 @@ enum Links {
     Off,
     On,
     Hover,
+    /// `on` with printed paths read as the app reads them: a collection on
+    /// the first frame that owes one, then at most one every 60 frames, a
+    /// second a batch at 60 frames a second, the worker's ceiling, with
+    /// every path answered gone -- no file system is asked -- so none is
+    /// drawn.
+    Paths,
+    /// `paths`, with every path answered as there, so they are drawn.
+    PathsExist,
 }
 
 /// A switch the environment sets: whether a zoom step paints its frame,
@@ -303,7 +322,9 @@ fn main() {
         Ok("off") => Links::Off,
         Ok("on") => Links::On,
         Ok("hover") => Links::Hover,
-        Ok(other) => panic!("FRAME_LINKS is on, hover or off, not {other}"),
+        Ok("paths") => Links::Paths,
+        Ok("paths-exist") => Links::PathsExist,
+        Ok(other) => panic!("FRAME_LINKS is on, hover, paths, paths-exist or off, not {other}"),
     };
     let fresh = || {
         let mut r = Renderer::new(
@@ -359,9 +380,11 @@ fn main() {
         /// What the scans read, summed; and the most any frame's did.
         scans: lined::Scan,
         widest: lined::Scan,
-        idle_frames: u64,
+        idle_frames: baud_render::Tally,
         scan_time: Duration,
-        reads: usize,
+        reads: baud_render::Tally,
+        /// Paths a `paths-exist` collection asked about, answered as there.
+        asked: baud_render::Tally,
         /// Each frame's time, and its allocations.
         times: Vec<Duration>,
         allocs: Vec<u64>,
@@ -402,14 +425,22 @@ fn main() {
             rebroken: baud_render::Tally::default(),
             scans: lined::Scan::default(),
             widest: lined::Scan::default(),
-            idle_frames: 0,
+            idle_frames: baud_render::Tally::default(),
             scan_time: Duration::ZERO,
-            reads: 0,
+            reads: baud_render::Tally::default(),
+            asked: baud_render::Tally::default(),
             times: Vec::with_capacity(data.len() / 4096 + 1),
             allocs: Vec::with_capacity(data.len() / 4096 + 1),
         };
         let mut lines = lined::Lines::default();
         let mut uris = lined::Uris::default();
+        // No home, no names: `~/` and `./` resolve to nothing, as they would
+        // before a window knows either; `/` is read as the app reads it.
+        let mut printed = paths::Paths::new(None, paths::Forms::DEFAULT);
+        printed.set(match links {
+            Links::Paths | Links::PathsExist => paths::Turned::On,
+            _ => paths::Turned::Off,
+        });
         let mut hover = link::Hover::default();
         let scrolled = baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40));
         let middle = (
@@ -419,6 +450,9 @@ fn main() {
         if links == Links::Hover {
             hover.set_at_rest(link::AtRest::Look(baud_render::HoverPaint::Box));
         }
+        // The frame of the last collection: a frame that owes one collects
+        // at once the first time and after 60 frames since.
+        let mut collected: Option<usize> = None;
         let mut at = 0usize;
         let mut hash = PixelHash::START;
         let t0 = std::time::Instant::now();
@@ -435,9 +469,48 @@ fn main() {
                     lines.off();
                     r.set_link_lines(&[], baud_render::LineStyle::Solid);
                 }
-                Links::On | Links::Hover => {
+                Links::On | Links::Hover | Links::Paths | Links::PathsExist => {
                     let s0 = std::time::Instant::now();
-                    let s = lines.scan(&t, scrolled, &mut uris);
+                    if printed.observe(&t, scrolled) == paths::Moved::Yes {
+                        lines.forget();
+                    }
+                    let s = lines.scan(
+                        &t,
+                        scrolled,
+                        &mut paths::Links {
+                            uris: &mut uris,
+                            urls: paths::Turned::On,
+                            paths: &mut printed,
+                        },
+                    );
+                    let frame = rep.frames;
+                    if matches!(links, Links::Paths | Links::PathsExist)
+                        && printed.owed() == paths::Owed::Yes
+                        && collected.is_none_or(|c| frame >= c + 60)
+                    {
+                        collected = Some(frame);
+                        printed.begin_collect();
+                        lines.forget();
+                        let _ = lines.scan(
+                            &t,
+                            scrolled,
+                            &mut paths::Links {
+                                uris: &mut uris,
+                                urls: paths::Turned::On,
+                                paths: &mut printed,
+                            },
+                        );
+                        let asked = printed.end_collect();
+                        rep.asked.add(baud_render::Tally::of(asked.len()));
+                        let probe = match links {
+                            Links::PathsExist => paths::Probe::Exists,
+                            _ => paths::Probe::Missing,
+                        };
+                        let answers = asked.into_iter().map(|c| (c.path, probe));
+                        if printed.merge(answers) == paths::Moved::Yes {
+                            lines.forget();
+                        }
+                    }
                     if links == Links::Hover {
                         let _ = hover.update(
                             &t,
@@ -461,7 +534,7 @@ fn main() {
                     rep.widest.candidates = rep.widest.candidates.max(s.candidates);
                     rep.widest.spans = rep.widest.spans.max(lines.lines().len());
                     if s == lined::Scan::default() {
-                        rep.idle_frames += 1;
+                        rep.idle_frames.bump();
                     }
                 }
             }
@@ -953,6 +1026,7 @@ fn main() {
         idle_frames,
         scan_time,
         reads,
+        asked,
         times,
         allocs,
     } = best.unwrap();
@@ -985,7 +1059,10 @@ fn main() {
         r.ink_refused().value()
     );
     println!("  rebroken {}", rebroken.value());
-    if matches!(links, Links::On | Links::Hover) {
+    if matches!(
+        links,
+        Links::On | Links::Hover | Links::Paths | Links::PathsExist
+    ) {
         let per = |n: usize| n as f64 / frames as f64;
         println!(
             "  links scan {:.1} us/frame; rows {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
@@ -998,22 +1075,29 @@ fn main() {
             widest.cells,
             widest.candidates,
             widest.spans,
-            idle_frames,
-            reads,
+            idle_frames.value(),
+            reads.value(),
         );
+        if matches!(links, Links::Paths | Links::PathsExist) {
+            println!(
+                "  paths asked {}, answered by the bench, no file system asked",
+                asked.value()
+            );
+        }
     }
     let mut sorted = times;
     sorted.sort_unstable();
-    let at = |q: f64| {
-        let k = ((sorted.len() as f64 - 1.0) * q).round() as usize;
+    // The frame `per` hundredths of the way through, to the nearest.
+    let at = |per: usize| {
+        let k = ((sorted.len() - 1) * per + 50) / 100;
         sorted[k].as_secs_f64() * 1e6
     };
     println!(
         "  frame p50 {:.1} p95 {:.1} p99 {:.1} max {:.1} us",
-        at(0.50),
-        at(0.95),
-        at(0.99),
-        at(1.0)
+        at(50),
+        at(95),
+        at(99),
+        at(100)
     );
     if cfg!(feature = "count-allocs") {
         let half = &allocs[allocs.len() / 2..];

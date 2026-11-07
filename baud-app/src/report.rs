@@ -104,6 +104,9 @@ pub struct Links {
     pub opened: Tally,
     pub revealed: Tally,
     pub refused: Tally,
+    /// What the printed paths' worker was asked and did (`probe.rs`), as the
+    /// driver last copied it: counts only, never a path.
+    pub checks: crate::probe::Counts,
 }
 
 impl Links {
@@ -116,14 +119,33 @@ impl Links {
         );
         (o + v + r > 0).then(|| format!("links: {o} opened, {v} revealed, {r} refused"))
     }
+
+    /// **The printed paths' line**, once anything was asked: the paths sent
+    /// to be checked, the calls the worker made for them (each `lstat`, each
+    /// link read, the mount table, the program in front), the batches and
+    /// the hangs. No path is named, as none is anywhere.
+    pub fn checks_line(&self) -> Option<String> {
+        let c = self.checks;
+        (c.asked > 0).then(|| {
+            format!(
+                "paths: {} checked, {} calls, {} batches, {} hangs",
+                c.asked, c.calls, c.batches, c.hangs
+            )
+        })
+    }
 }
 
 /// The lines after the first, each once its count has moved: the
 /// clipboard's writes, the page width's requests, the links activated.
 pub fn counts(clips: &Clips, widths: &Widths, links: &Links) -> impl Iterator<Item = String> {
-    [clips.report(), widths.report(), links.line()]
-        .into_iter()
-        .flatten()
+    [
+        clips.report(),
+        widths.report(),
+        links.line(),
+        links.checks_line(),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 /// Whether the log shows the report: `info` or more, read once at launch
@@ -446,5 +468,25 @@ mod tests {
             "self.report.links.revealed.bump();",
         );
         assert_eq!(link.matches(".bump()").count(), refusals + 2);
+    }
+
+    /// **The printed paths' line counts what was asked and done, and names
+    /// nothing**: none before anything is asked, then numbers before their
+    /// names, as the report's lines are parsed. Perturbation: print the line
+    /// with nothing asked.
+    #[test]
+    fn the_paths_line_is_counts_only() {
+        let mut l = Links::default();
+        assert_eq!(l.checks_line(), None);
+        l.checks = crate::probe::Counts {
+            asked: 6,
+            calls: 19,
+            batches: 2,
+            hangs: 0,
+        };
+        assert_eq!(
+            l.checks_line().as_deref(),
+            Some("paths: 6 checked, 19 calls, 2 batches, 0 hangs")
+        );
     }
 }

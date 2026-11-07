@@ -4845,3 +4845,57 @@ was not counted.
 the cell path on Metal draws the same runs as records and its cost is unmeasured
 (`frame_gpu` was not run). No figure is for a discrete GPU. No test has been run,
 so nothing above proves the lines are right.
+
+## Printed paths in the scan: read once a batch, not every frame
+
+The same `frame` bench as the section above, CPU path, 200x50, on mains, through
+`paths::Links`, which reads URIs and printed paths in one scan. **The tests have
+not been run: this is the cost of code that has only been compiled.** No arm asks
+the file system: the bench has no worker. `paths` runs a collection as the app
+does, on the first frame that owes one and then at most one every 60 frames (a
+batch a second at 60 frames a second), and answers every path asked about as
+gone; `paths-exist` answers each as there, so it is drawn.
+
+**What a first build cost, and why.** A first build read paths on every frame's
+changed rows: `less-pager` +27.2 µs a frame (+2.6%) and `cat` +11.8 µs, past the
+ranges, on recordings that hold no path. Both are Rust source, and a doc comment's
+`///` after an indent passes the one compare a cell (a `/` after a space), so each
+such row was built into units (`Lines::read_group`) and tokenised (`tokens`), and
+then refused, the next unit being another `/`. Counting the shapes in the two
+recordings: ` ///` is the most common path start in both.
+
+**What changed.** A frame reads no row for paths unless an answer it would draw is
+kept (`Reads` in `paths.rs`): a changed row only owes a batch, one store a scan
+(`Reader::changed`), and the collection reads every row of the window once the
+output settles, at most one a second. A collection that finds nothing looks
+nothing up.
+
+**Method.** Base (the commit before this one), the change and an A/A copy of the
+change, built with `git archive` into one scratch path, every file touched. `cmp`:
+the change's two `frame` builds are byte-identical, and `ingest2`'s binary is
+byte-identical across all three, so nothing was timed on the per-byte path. Five
+rounds, arms rotated, the first dropped, the median with the range over the other
+four. A round that saw `rustc` running at any run's end was dropped and run again:
+two of seven were. Rows read and instances drawn are the same on every arm. The
+load average read 10.4 at the first round and 4.5 at the last, from other work.
+
+| recording | base | on | on, A/A | paths | paths, A/A | paths-exist | scan base / on / paths |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `cat` | 1075.7 (1066.4-1080.7) | 1079.0 (1070.9-1086.3) | 1075.7 (1067.6-1086.4) | 1077.3 (1071.0-1082.7) | 1081.0 (1077.1-1089.4) | 1080.5 (1064.1-1087.6) | 9.9 / 11.7 / 12.1 |
+| `less-pager` | 1017.7 (1014.6-1018.6) | 1030.3 (1016.0-1031.5) | 1023.4 (1022.0-1026.7) | 1028.5 (1024.0-1029.5) | 1030.5 (1020.4-1044.8) | 1036.7 (1021.1-1048.3) | 9.8 / 11.3 / 16.6 |
+| `links-herdr` | 1259.6 (1252.5-1273.5) | 1261.4 (1233.6-1271.6) | 1259.9 (1240.7-1267.7) | 1259.2 (1243.1-1268.6) | 1252.7 (1229.6-1253.9) | 1264.4 (1244.2-1271.2) | 12.8 / 14.4 / 14.9 |
+| `links-rg` | 2559.9 (2531.1-2570.2) | 2540.4 (2528.6-2579.2) | 2571.7 (2545.4-2591.5) | 2552.7 (2548.1-2554.0) | 2568.7 (2556.5-2592.0) | 2561.8 (2541.9-2630.9) | 85.3 / 85.7 / 88.4 |
+
+* **No result on any row: the change is unmeasured on all four.** On `cat`,
+  `links-herdr` and `links-rg`, `paths` and its A/A arm overlap base, as do `on`
+  and `paths-exist`. `less-pager`: no result; the change's range is past base's,
+  but its A/A arm overlaps the change, so it is neither a cost nor free. What
+  the scan's own timer reads there, 5.3 µs a frame over `on`, is one
+  collection, a full read of the window's 50 rows, over the recording's 8
+  frames: a count of the work, not a frame-time result.
+
+**What is not here.** All of this is the CPU path; the cell path on Metal is
+unmeasured (`frame_gpu` was not run), and no figure is for a discrete GPU. The
+worker's own cost, and how long a batch takes against a real file system, are
+unmeasured: no bench may ask one. Every rate here was taken under load, and is to
+be measured again on an idle machine.

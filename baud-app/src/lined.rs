@@ -22,7 +22,10 @@
 //! drawn as no link, and so is one `find`'s rules refuse (`crate::link`).
 //!
 //! **The seam is [`Reader`]**: what finds links in a line's text. [`Uris`]
-//! finds URIs; printed paths would be another, and nothing here would change.
+//! finds URIs, and `paths::Links` URIs and printed paths in one pass, the
+//! paths drawn from what a worker thread found (`paths.rs`): the text tells
+//! a reader which of its units the window shows, and which lines and screen
+//! they are on, and nothing else here changed for them.
 //!
 //! **An overlay and nothing else.** No filesystem call, no process and no
 //! LaunchServices query happens here, and nothing is written to a cell, so no
@@ -35,7 +38,7 @@
 
 use core::ops::Range;
 
-use baud_core::Term;
+use baud_core::{Screen, Term};
 use baud_domain::{
     Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, PackedCell, Row, RowStyles, Rows,
     StyleWord, Wrap,
@@ -52,6 +55,13 @@ pub struct Text<'a> {
     pub units: &'a [Unit],
     pub head: Edge,
     pub tail: Edge,
+    /// The units on the window's rows, from and to: what is read past the
+    /// window's edges is read for a link that runs onto them, and no more.
+    pub shown: (usize, usize),
+    /// The line's first and last line, as read.
+    pub lines: (AbsLine, AbsLine),
+    /// The screen it is on.
+    pub screen: Screen,
 }
 
 /// **What finds links in a line's text.** Only ever called with what the
@@ -68,6 +78,10 @@ pub trait Reader {
 
     /// Whether an `OSC 8` link's target would open.
     fn admits(&mut self, uri: &[u8]) -> bool;
+
+    /// A scan found a row of the window changed: called once a scan, before
+    /// any row is read, so it costs a frame one call however many changed.
+    fn changed(&mut self) {}
 }
 
 /// **URIs, by `crate::link`'s rules**: `find`'s for what one is and `admit`'s
@@ -110,7 +124,9 @@ impl Reader for Uris {
     }
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Range<usize>>) -> usize {
-        let Text { units, head, tail } = text;
+        let Text {
+            units, head, tail, ..
+        } = text;
         let (n, mut i, mut candidates) = (units.len(), 0, 0);
         while i < n {
             if !class(units[i]).has(Class::URI) {
@@ -281,6 +297,7 @@ impl Lines {
         if !any {
             return scan;
         }
+        reader.changed();
         // A logical line with a changed row is read whole, and so is the one
         // just above one: whether its URI may have been cut reads this row's
         // first cell (`may_be_cut`).
@@ -398,11 +415,17 @@ impl Lines {
         if !wanted {
             return;
         }
-        // The text, with where each unit was read from.
+        // The text, with where each unit was read from, and which of it the
+        // window shows.
         self.units.clear();
         self.points.clear();
+        let mut shown = (usize::MAX, 0);
         let mut line = first;
         while let Some((cells, _)) = row_of(term, scrolled, line) {
+            let on_window = line >= first_row && line <= last_row;
+            if on_window && shown.0 == usize::MAX {
+                shown.0 = self.units.len();
+            }
             let styles = row_styles_of(term, scrolled, line);
             for (x, &c) in cells.iter().enumerate() {
                 if c.content.is_wide_tail() {
@@ -411,10 +434,16 @@ impl Lines {
                 self.units.push(unit(term, styles, c));
                 self.points.push(Point::new(line, Col::at_index(x)));
             }
+            if on_window {
+                shown.1 = self.units.len();
+            }
             if line == last {
                 break;
             }
             line = line.below();
+        }
+        if shown.0 == usize::MAX {
+            shown.0 = shown.1;
         }
         found.clear();
         scan.candidates += reader.read(
@@ -422,6 +451,9 @@ impl Lines {
                 units: &self.units,
                 head,
                 tail,
+                shown,
+                lines: (first, last),
+                screen: term.screen(),
             },
             found,
         );
@@ -816,15 +848,17 @@ mod tests {
         assert_eq!(runs(&l), [(0, 0, 16)], "and the line stays");
     }
 
-    /// **`urls = "off"` scans nothing**: the config names no style, which is
-    /// what a driver's scan is behind, and the lines go at once. Each driver
-    /// goes through that one test. Perturbation: scan and hide the line; call
-    /// `scan` before the match in `scan_lines`.
+    /// **`urls = "off"` with `paths = "off"` scans nothing**: the config names
+    /// no style, which is what a driver's scan is behind, and the lines go at
+    /// once. Each driver goes through that one test. With `paths` on the scan
+    /// stays, for paths only (`paths::tests`). Perturbation: scan and hide the
+    /// line; call `scan` before the match in `scan_lines`.
     #[test]
     fn urls_off_scans_nothing() {
-        use crate::config::{Link, LinkLineKey, LinkUrls};
+        use crate::config::{Link, LinkLineKey, LinkPaths, LinkUrls};
         let off = Link {
             urls: LinkUrls::Off,
+            paths: LinkPaths::Off,
             ..Link::default()
         };
         assert_eq!(off.lines(), None);

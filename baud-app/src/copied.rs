@@ -59,11 +59,22 @@ pub(crate) const PULSE_FOR: Duration = Duration::from_millis(150);
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 pub(crate) const RETRY: Duration = Duration::from_millis(100);
 
-/// Who copied.
+/// Who copied, or what a click on a printed path came to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Source {
     Selection,
     Program,
+    Path(PathNote),
+}
+
+/// **Why a click on a printed path opened nothing**, said in the bar where
+/// the copy's words go: the worker asked again and found it gone, could not
+/// ask, or the path is too long for a link (`paths.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PathNote {
+    Missing,
+    Unchecked,
+    TooLong,
 }
 
 /// **The words a copy says.**
@@ -76,6 +87,11 @@ pub(crate) fn words(source: Source, count: Characters) -> String {
     match source {
         Source::Selection => format!("Copied {count} {noun}"),
         Source::Program => format!("A program copied {count} {noun}"),
+        Source::Path(PathNote::Missing) => format!("No such file on {}", crate::paths::MACHINE),
+        Source::Path(PathNote::Unchecked) => {
+            format!("Couldn't check this file on {}", crate::paths::MACHINE)
+        }
+        Source::Path(PathNote::TooLong) => "This path is too long to open".to_string(),
     }
 }
 
@@ -297,6 +313,21 @@ impl<T: Moment> Signal<T> {
         self.saying = Some(words(Source::Program, count));
     }
 
+    /// **A click on a printed path opened nothing**: why, in the bar, as a
+    /// program's copy is said, whatever `[message.copy]` says, since it is
+    /// no copy.
+    pub(crate) fn path(&mut self, note: PathNote) -> Owes {
+        self.up = Some(Up {
+            source: Source::Path(note),
+            count: Characters(0),
+            place: Place::At(MessageAt::Bar),
+            until: None,
+        });
+        self.held = None;
+        self.saying = Some(words(Source::Path(note), Characters(0)));
+        Owes::Frame
+    }
+
     /// **A key was typed**: the words go, and the key goes on to the program.
     /// A pulse runs out on its own, being over in a moment.
     pub(crate) fn dismiss(&mut self) -> Owes {
@@ -511,6 +542,23 @@ mod tests {
             Characters(5),
             "scalars, not bytes"
         );
+    }
+
+    /// **A click on a printed path that opened nothing says why in the bar,
+    /// with the copy's words off too**, naming this machine and no path.
+    /// Perturbation: gate `path` on `[message.copy] enable`.
+    #[test]
+    fn a_path_click_that_opens_nothing_says_why() {
+        let mut m = Message::default();
+        m.copy.enable = CopySignal::Off;
+        let mut s = signal(m);
+        assert_eq!(s.path(PathNote::Missing), Owes::Frame);
+        let f = drawn(&mut s, zero());
+        let look = f.look.expect("the words");
+        let w = said(&look);
+        assert!(w.contains("No such file on this"), "{w}");
+        assert!(!w.contains('/'), "no path: {w}");
+        assert_eq!(s.take_saying().as_deref(), Some(w.trim()));
     }
 
     /// **Up for 1.5 s from its first drawn frame, one frame to start and one

@@ -588,6 +588,15 @@ copy_on_select = "on"
 # work for either; Cmd-click (Ctrl-click on Linux) still works.
 # urls = "on"
 #
+# "on" or "off". A file path printed as plain text, starting with /, ~/ or
+# ./, is underlined once baud has checked that the file exists on this
+# computer. The check runs on a thread of its own and never holds up drawing,
+# and looks nothing up on a network or automounted disk. A ./ needs your shell
+# to report its folder with OSC 7, naming this computer. A click shows the
+# file in Finder (the file manager on Linux), and never opens or runs it.
+# "off" checks nothing.
+# paths = "on"
+#
 # The line at rest, in the text's own colour: "solid", "dotted" or "off". A
 # program's own underline stays, and an address that may have been cut, or that
 # a click would refuse, gets no line.

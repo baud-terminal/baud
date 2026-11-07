@@ -336,6 +336,13 @@ struct Driver {
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
     uris: crate::lined::Uris,
+    /// The worker that asks whether each printed path exists (`probe.rs`);
+    /// the paths themselves are the seat's, which its pointer reads. The
+    /// worker wakes the loop's wait through `woken` when it answers.
+    probes: crate::probe::Probes<Instant>,
+    woken: Option<crate::probe::Woken>,
+    /// When a read asks which program wrote it (`probe::Sampler`).
+    groups: crate::probe::Sampler,
     link_config: crate::config::Link,
     /// What the badge's variables read of the session that the core does
     /// not keep (`effects::Session`), brought up to date with the title.
@@ -595,6 +602,16 @@ pub fn run() {
     // until the server answers `GetCapabilities`, so with no bus or no
     // server kitty's query goes unanswered.
     let notes = crate::notify::Delivery::new(cfg.notifications, &term, cfg.images);
+    // The printed paths' worker writes a byte here after each answer, which
+    // the loop's one wait hears (`probe::Woken`); with no pair, an answer is
+    // read at the next turn the wait has.
+    let (woken, probes) = match crate::probe::Woken::pair() {
+        Ok((w, wake)) => (Some(w), crate::probe::Probes::system(wake)),
+        Err(e) => {
+            crate::warn!("paths: no wake for the file checks ({e}); their answers wait for a turn");
+            (None, crate::probe::Probes::system(|| {}))
+        }
+    };
     let mut d = Driver {
         bell,
         ringer: crate::bell::Ringer::new(&term),
@@ -655,6 +672,12 @@ pub fn run() {
             let mut seat = crate::seat::Seat::new();
             seat.set_word_wrap(cfg.wrap_words);
             seat.set_at_rest(cfg.link.at_rest());
+            // `HOME` read once, here, and this machine's one name.
+            use std::os::unix::ffi::OsStringExt;
+            let home = std::env::var_os("HOME").map(std::ffi::OsString::into_vec);
+            seat.paths = crate::paths::Paths::new(home, crate::paths::Forms::DEFAULT);
+            seat.paths.set(cfg.link.paths_read());
+            seat.paths.set_names(vec![crate::opener::host_name()]);
             seat
         },
         shape: None,
@@ -698,6 +721,9 @@ pub fn run() {
             u.set_host(crate::opener::host_name());
             u
         },
+        probes,
+        woken,
+        groups: crate::probe::Sampler::default(),
         link_config: cfg.link,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
@@ -802,9 +828,15 @@ pub fn run() {
         let lights = d.lights_wait(now);
         // OH read again in DEC's 80 ms while its line shows the words.
         let words = d.line_lamps_wait(now);
+        // The printed paths' next batch, once one is owed, and the worker's
+        // hang, while a batch is out (`probe::Probes::deadline`).
+        let paths = d
+            .probes
+            .deadline(&d.seat.paths, now)
+            .map(|t| t.saturating_duration_since(now));
         let timeout = [
             sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
-            settle, report, lights, words,
+            settle, report, lights, words, paths,
         ]
         .into_iter()
         .flatten()
@@ -822,6 +854,10 @@ pub fn run() {
                 (fd, i)
             })
             .collect();
+        // The printed paths' worker, which writes when it answers.
+        if let Some(w) = &d.woken {
+            transfers.push((w.as_fd(), crate::pty::Interest::Read));
+        }
         if let Some(bus) = &d.bus {
             transfers.push((bus.as_fd(), crate::pty::Interest::Read));
             if bus.wants_write() {
@@ -869,7 +905,19 @@ pub fn run() {
         if pty == Ready::Readable {
             match d.pty.read_chunk() {
                 Chunk::Closed => break 'run,
-                Chunk::Bytes(bytes) => d.feed(&bytes),
+                Chunk::Bytes(bytes) => {
+                    // Which program wrote it, asked at the read: it may be
+                    // gone by the batch (`Probes::read_taken`).
+                    let master = d.pty.reads().master;
+                    let group = d
+                        .groups
+                        .due(Instant::now())
+                        .then(|| crate::fg::group(master))
+                        .flatten();
+                    d.feed(&bytes);
+                    let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+                    d.probes.read_taken(&mut d.seat.paths, group, ended);
+                }
             }
         }
         // A ReGIS delay's held reads, at its deadline, read or not, and a
@@ -890,6 +938,9 @@ pub fn run() {
         d.pump_bus();
         d.expire_notices();
         d.opener.reap();
+        // The printed paths' answers, never waited for, and their next batch
+        // when it is due.
+        d.paths_turn();
         // After a timeout as much as after readiness: a repeat is due on
         // the clock, not on an event, and so is a flash's end. The
         // transfers move as far as their pipes allow, a paste finished
@@ -1583,6 +1634,11 @@ impl Driver {
                 .to_string()
         };
         let uri = match link {
+            // Asked again off the frame, and revealed or said on a later turn.
+            Under::Path(p) => {
+                self.check_path(p);
+                return;
+            }
             Under::Osc8(link) => match link.uri(&self.term) {
                 Some(uri) => uri,
                 None => {
@@ -1725,6 +1781,106 @@ impl Driver {
         if let Some(bus) = self.bus.as_mut() {
             for (_, id) in due {
                 bus.close_notification(id);
+            }
+        }
+    }
+
+    /// **The printed paths' worker, on each turn of the loop**: what it woke
+    /// the wait with drained, its answers merged, its hang watched and a
+    /// batch sent once one is due (`probe.rs`). A click's second look, once
+    /// answered, reveals or says why not.
+    fn paths_turn(&mut self) {
+        if let Some(w) = &self.woken {
+            w.drain();
+        }
+        let master = self.pty.reads().master;
+        let seen = crate::probe::Seen {
+            term: &self.term,
+            scrolled: self.seat.scrolled(),
+            lines: &mut self.lines,
+            uris: &mut self.uris,
+            urls: self.link_config.urls_read(),
+            paths: &mut self.seat.paths,
+        };
+        let turn = self
+            .probes
+            .turn(Instant::now(), seen, || crate::fg::group(master));
+        self.report.links.checks = self.probes.counts;
+        if turn.frame == crate::paths::Owed::Yes {
+            self.pending = Pending::Dirty;
+        }
+        if let Some(done) = turn.clicked {
+            self.path_checked(done);
+        }
+    }
+
+    /// **A click on a printed path**: asked again of the worker, off the
+    /// frame, and answered on a later turn, or now with no worker to ask.
+    fn check_path(&mut self, p: &crate::link::Printed) {
+        let master = self.pty.reads().master;
+        let seen = crate::probe::Seen {
+            term: &self.term,
+            scrolled: self.seat.scrolled(),
+            lines: &mut self.lines,
+            uris: &mut self.uris,
+            urls: self.link_config.urls_read(),
+            paths: &mut self.seat.paths,
+        };
+        let c = crate::paths::Candidate {
+            path: p.path().to_vec(),
+            form: p.form(),
+            line: p.line(),
+        };
+        if let Some(done) = self
+            .probes
+            .click(Instant::now(), seen, crate::fg::group(master), c)
+        {
+            self.path_checked(done);
+        }
+    }
+
+    /// **What a click on a printed path comes to**: found again, its
+    /// `file://` URI through `admit`, unchanged, and shown by the file
+    /// manager over the session bus, never launched; gone, or not checked,
+    /// the bar says so. No path is logged.
+    fn path_checked(&mut self, done: crate::probe::Clicked) {
+        use crate::copied::PathNote;
+        use crate::link::{Action, Host};
+        let note = match done {
+            crate::probe::Clicked::Exists(path) => {
+                let uri = crate::paths::file_uri(&path);
+                match crate::link::admit(uri.as_bytes(), Host(&self.host)) {
+                    Ok(t) if t.action() == Action::Reveal => match self.bus.as_mut() {
+                        Some(bus) => {
+                            bus.reveal(&crate::opener::local(t.as_str()));
+                            self.report.links.revealed.bump();
+                            crate::info!("printed path sent to the file manager");
+                            None
+                        }
+                        None => {
+                            self.report.links.refused.bump();
+                            crate::warn!("printed path not revealed: no session bus");
+                            None
+                        }
+                    },
+                    Ok(_) | Err(_) => {
+                        self.report.links.refused.bump();
+                        Some(PathNote::TooLong)
+                    }
+                }
+            }
+            crate::probe::Clicked::Missing => {
+                self.report.links.refused.bump();
+                Some(PathNote::Missing)
+            }
+            crate::probe::Clicked::Unchecked => {
+                self.report.links.refused.bump();
+                Some(PathNote::Unchecked)
+            }
+        };
+        if let Some(n) = note {
+            if self.copied.path(n) == crate::copied::Owes::Frame {
+                self.pending = Pending::Dirty;
             }
         }
     }
@@ -1983,6 +2139,7 @@ impl Driver {
                 Part::Link => {
                     self.link_config = c.link;
                     self.seat.set_at_rest(c.link.at_rest());
+                    self.seat.paths.set(c.link.paths_read());
                     self.lines.forget();
                     self.pending = Pending::Dirty;
                 }
@@ -2986,8 +3143,19 @@ impl Driver {
         // The lines at rest for this frame (`lined.rs`).
         match self.link_config.lines() {
             Some(style) => {
-                self.lines
-                    .scan(&self.term, self.seat.scrolled(), &mut self.uris);
+                let scrolled = self.seat.scrolled();
+                if self.seat.paths.observe(&self.term, scrolled) == crate::paths::Moved::Yes {
+                    self.lines.forget();
+                }
+                self.lines.scan(
+                    &self.term,
+                    scrolled,
+                    &mut crate::paths::Links {
+                        uris: &mut self.uris,
+                        urls: self.link_config.urls_read(),
+                        paths: &mut self.seat.paths,
+                    },
+                );
                 self.renderer.set_link_lines(self.lines.lines(), style);
             }
             None => {

@@ -112,6 +112,11 @@ pub enum Stream {
 pub struct Read {
     pub at: HostTime,
     pub bytes: Vec<u8>,
+    /// The foreground process group just after the read, when the reader
+    /// asked (`probe::Sampler`): which program wrote these bytes, for the
+    /// printed paths, read here because the program may be gone by the time
+    /// anything else asks.
+    pub group: Option<crate::sys::Pid>,
 }
 
 /// What a drain found: the chunks that arrived, and whether more can.
@@ -1802,6 +1807,7 @@ impl Reading {
 fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
+    let mut sampler = crate::probe::Sampler::default();
     // Debug tee: with BAUD_PTYLOG set, every byte the child writes is appended
     // to that file, so a scrambled Sixel can be captured as the exact input
     // baud received and replayed through a decoder test.
@@ -1845,6 +1851,10 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
+        let group = sampler
+            .due(std::time::Instant::now())
+            .then(|| crate::fg::group(fd))
+            .flatten();
         if let Some(f) = log.as_mut() {
             use std::io::Write;
             let _ = f.write_all(bytes);
@@ -1853,6 +1863,7 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
             .send(Read {
                 at,
                 bytes: bytes.to_vec(),
+                group,
             })
             .is_err()
         {

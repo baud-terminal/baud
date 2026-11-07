@@ -45,6 +45,11 @@
 //!   and with the reason in words when a click will not open it; and the
 //!   pointer a pointing hand while a click would open it ([`Hover::pointer`]).
 //!
+//! * A file path printed as plain text is a link once the worker found the
+//!   file (`paths.rs`, `probe.rs`): [`Under::Path`], read through a
+//!   [`PathsAt`] the driver hands in. A click on one asks again, off the
+//!   frame, and goes through [`admit`] as a `file://` URI, unchanged.
+//!
 //! * The line at rest, the scan of the rows a frame changed, is `lined.rs`'s;
 //!   it reads URIs through [`found_in`], [`find`]'s own rules, so every
 //!   refusal above holds at rest as at a click: a URI refused is drawn as no
@@ -58,6 +63,10 @@
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
+
+#[cfg(test)]
+pub use crate::paths::NoPaths;
+pub use crate::paths::PathsAt;
 
 use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
 use baud_render::{
@@ -115,6 +124,9 @@ pub enum Refused {
     /// around an IP-literal host (§ 3.2.2), or a letter outside ASCII
     /// running on from it. Opening what is left would open a cut address.
     Syntax,
+    /// A printed path the worker found gone: never [`admit`]'s, which reads
+    /// no file system; a click asks again before it says so.
+    NotFound,
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
@@ -413,7 +425,7 @@ pub(crate) fn scheme_at(rest: &[Unit]) -> Option<&'static Known> {
 
 /// A position in a [`Window`]'s text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct Ix(usize);
+pub struct Ix(pub(crate) usize);
 
 /// Whether a [`Window`]'s end is the logical line's, or where the walk
 /// stopped because a URI there would be past `LINK_MAX` anyway.
@@ -865,6 +877,8 @@ pub struct Spot {
 /// [`find`] reads around it. No other event reads the text for a click;
 /// the preview reads it on a move only while the modifier is held
 /// ([`hovered`]), bounded by `LINK_MAX` as a click's read is ([`window`]).
+/// The drivers read through [`under_with`], so only tests call it.
+#[cfg(test)]
 pub fn under(
     term: &Term<'_>,
     spot: Spot,
@@ -872,6 +886,21 @@ pub fn under(
     chord: Chord,
     focus: Focus,
     armed: Option<&Armed>,
+) -> Option<Under> {
+    under_with(term, spot, press, chord, focus, armed, &NoPaths)
+}
+
+/// [`under`], a printed path read through `paths` where the text holds no
+/// URI: one the worker found, or found gone, which the click asks about
+/// again.
+pub fn under_with(
+    term: &Term<'_>,
+    spot: Spot,
+    press: Press,
+    chord: Chord,
+    focus: Focus,
+    armed: Option<&Armed>,
+    paths: &dyn PathsAt,
 ) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
@@ -881,23 +910,87 @@ pub fn under(
     }
     let read = match (press, armed) {
         (Press::Down, None) => chord == Chord::Cmd && focus == Focus::Gained,
-        (Press::Up, Some(a)) => matches!(a.link, Under::Bare(_)),
+        (Press::Up, Some(a)) => matches!(a.link, Under::Bare(_) | Under::Path(_)),
         _ => false,
     };
     if !read {
         return None;
     }
     let line = spot.scrolled.line(spot.back, spot.row);
-    window(term, spot.scrolled, line, spot.col)?
-        .bare()
-        .map(Under::Bare)
+    let w = window(term, spot.scrolled, line, spot.col)?;
+    match w.bare() {
+        Some(b) => Some(Under::Bare(b)),
+        None => printed_in(term, &w, paths).map(Under::Path),
+    }
 }
 
-/// What a press is over: an `OSC 8` run, or a URI in the text.
+/// **A printed path under a click or the pointer**: the path at the window's
+/// cell that `paths` has an answer for, its cells, and the URI a click hands
+/// [`admit`]. One the worker found gone is refused as [`Refused::NotFound`],
+/// so the bar says so and nothing opens.
+fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<Printed> {
+    let lines = (w.cells.first()?.line, w.cells.last()?.line);
+    let at = paths.at(&w.text, w.at, (w.head, w.tail), lines, term.screen())?;
+    let from = *w.cells.get(at.span.start)?;
+    let to = *w.cells.get(at.span.end.checked_sub(1)?)?;
+    let uri = crate::paths::file_uri(&at.path);
+    let verdict = match at.probe {
+        crate::paths::Probe::Exists => admit(uri.as_bytes(), Host("")).map(|_| ()),
+        crate::paths::Probe::Missing | crate::paths::Probe::Unknown => Err(Refused::NotFound),
+    };
+    Some(Printed {
+        from,
+        to,
+        path: at.path,
+        form: at.form,
+        uri,
+        verdict,
+    })
+}
+
+/// **A file path printed as plain text, as a click or the preview holds it**:
+/// its cells, the path as resolved, and its `file://` URI, which is the
+/// address the bar shows and the one `admit` is handed.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Printed {
+    from: Point,
+    to: Point,
+    path: Vec<u8>,
+    form: crate::paths::Form,
+    uri: String,
+    verdict: Result<(), Refused>,
+}
+
+impl Printed {
+    /// The path as resolved, which a click asks the worker about again.
+    pub fn path(&self) -> &[u8] {
+        &self.path
+    }
+
+    /// How it was printed, which says whether a multiplexer hides it.
+    pub fn form(&self) -> crate::paths::Form {
+        self.form
+    }
+
+    /// The line it ends on, which says which program wrote it.
+    pub fn line(&self) -> AbsLine {
+        self.to.line
+    }
+
+    /// The URI a click hands `admit`, once the worker found the file again.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+}
+
+/// What a press is over: an `OSC 8` run, a URI in the text, or a file path
+/// printed in it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Under {
     Osc8(Osc8),
     Bare(Bare),
+    Path(Printed),
 }
 
 /// **An `OSC 8` link as a gesture holds it**: the cell's index, and the
@@ -1046,6 +1139,12 @@ pub fn escaped(uri: &[u8]) -> String {
     out
 }
 
+/// What the bar says of a printed path the worker found gone.
+#[cfg(target_os = "macos")]
+const NOT_FOUND: &str = "no such file on this Mac";
+#[cfg(not(target_os = "macos"))]
+const NOT_FOUND: &str = "no such file on this computer";
+
 /// What a refusal says in the preview, before a click: the rule it fails,
 /// in words.
 pub fn refusal_words(why: Refused) -> &'static str {
@@ -1056,6 +1155,7 @@ pub fn refusal_words(why: Refused) -> &'static str {
         Refused::Host => "no host, or a file on another computer",
         Refused::Header => "a mail link with extra headers",
         Refused::Syntax => "not a whole address",
+        Refused::NotFound => NOT_FOUND,
     }
 }
 
@@ -1133,9 +1233,12 @@ pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -
     let room = room.index();
     let (uri, verdict) = verdict(link, term, host)?;
     let address = escaped(uri);
-    let label = match verdict {
-        Ok(()) => String::new(),
-        Err(why) => {
+    let label = match (verdict, link) {
+        // A path names no machine in its address: the bar says which one it
+        // was found on.
+        (Ok(()), Under::Path(_)) => format!("On {}  ", crate::paths::MACHINE),
+        (Ok(()), _) => String::new(),
+        (Err(why), _) => {
             let long = format!("Won't open, {}  ", refusal_words(why));
             match long.len() + 12 <= room {
                 true => long,
@@ -1164,6 +1267,7 @@ fn verdict<'a>(
             (uri, admit(uri, host).map(|_| ()))
         }
         Under::Bare(b) => (b.text(), b.uri().and_then(|u| admit(u, host).map(|_| ()))),
+        Under::Path(p) => (p.uri.as_bytes(), p.verdict),
     })
 }
 
@@ -1173,11 +1277,17 @@ fn verdict<'a>(
 /// ([`window`]). The drivers read through [`Hover`], so only tests call it.
 #[cfg(test)]
 pub fn hovered(term: &Term<'_>, spot: Spot) -> Option<Under> {
-    hovered_in(term, spot, &mut Reading::default())
+    hovered_in(term, spot, &mut Reading::default(), &NoPaths)
 }
 
-/// [`hovered`], in `read`'s buffers.
-fn hovered_in(term: &Term<'_>, spot: Spot, read: &mut Reading) -> Option<Under> {
+/// [`hovered`], in `read`'s buffers, a printed path read through `paths`
+/// where the text holds no URI.
+fn hovered_in(
+    term: &Term<'_>,
+    spot: Spot,
+    read: &mut Reading,
+    paths: &dyn PathsAt,
+) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
     let link = Osc8::of(term, cell);
@@ -1186,7 +1296,10 @@ fn hovered_in(term: &Term<'_>, spot: Spot, read: &mut Reading) -> Option<Under> 
     }
     let line = spot.scrolled.line(spot.back, spot.row);
     read_window(term, spot.scrolled, line, spot.col, read)?;
-    read.window.bare_in(&mut read.text).map(Under::Bare)
+    match read.window.bare_in(&mut read.text) {
+        Some(b) => Some(Under::Bare(b)),
+        None => printed_in(term, &read.window, paths).map(Under::Path),
+    }
 }
 
 /// **The link's cells on the view, a run a row.** An `OSC 8` link is every
@@ -1231,19 +1344,29 @@ fn link_spans_into(term: &Term<'_>, spot: Spot, link: &Under, out: &mut Vec<Link
                 }
             }
         }
-        Under::Bare(b) => {
+        Under::Bare(Bare {
+            from: b_from,
+            to: b_to,
+            ..
+        })
+        | Under::Path(Printed {
+            from: b_from,
+            to: b_to,
+            ..
+        }) => {
+            let (b_from, b_to) = (*b_from, *b_to);
             for y in 0..rows {
                 let line = spot.scrolled.line(spot.back, Row::from_index(y));
-                if line < b.from.line || line > b.to.line {
+                if line < b_from.line || line > b_to.line {
                     continue;
                 }
-                let from = if line == b.from.line {
-                    b.from.col.index()
+                let from = if line == b_from.line {
+                    b_from.col.index()
                 } else {
                     0
                 };
-                let to = if line == b.to.line {
-                    b.to.col.index()
+                let to = if line == b_to.line {
+                    b_to.col.index()
                 } else {
                     cols.saturating_sub(1)
                 };
@@ -1330,6 +1453,9 @@ pub enum AtRest {
     #[default]
     Off,
     Look(HoverPaint),
+    /// `[link] urls = "off"` and `paths = "on"`: the look on a printed path
+    /// only.
+    PathsOnly(HoverPaint),
 }
 
 /// Whether a mouse button is down: a drag over a link is a selection being
@@ -1360,6 +1486,8 @@ struct ReadOf {
     bytes: Taken,
     epoch: LinkEpoch,
     host: String,
+    /// The printed paths' answers, which move with no byte.
+    paths: crate::paths::Generation,
 }
 
 impl ReadOf {
@@ -1368,6 +1496,7 @@ impl ReadOf {
         term: &Term<'_>,
         (at, scrolled, chord, focus): (Option<(Row, Col)>, Scrolled, Chord, Focus),
         host: Host<'_>,
+        paths: crate::paths::Generation,
     ) -> bool {
         self.at == at
             && self.scrolled == scrolled
@@ -1378,6 +1507,7 @@ impl ReadOf {
             && self.bytes == Taken(term.amplification().0)
             && self.epoch == term.link_epoch()
             && self.host == host.0
+            && self.paths == paths
     }
 }
 
@@ -1408,7 +1538,7 @@ pub struct Hover {
     at_rest: AtRest,
     held: Held,
     read: Option<ReadOf>,
-    reads: usize,
+    reads: baud_render::Tally,
     buffers: Reading,
 }
 
@@ -1442,6 +1572,8 @@ impl Hover {
     /// the link gesture's and the window is key, and drawn in the config's
     /// look ([`AtRest`]) where a click would open it, with or without the
     /// chord, while no button is down. Whether what the frame draws changed.
+    /// The drivers call [`Hover::update_with`], so only tests call it.
+    #[cfg(test)]
     pub fn update(
         &mut self,
         term: &Term<'_>,
@@ -1451,12 +1583,29 @@ impl Hover {
         focus: Focus,
         host: Host<'_>,
     ) -> bool {
+        self.update_with(term, at, scrolled, chord, focus, host, &NoPaths)
+    }
+
+    /// [`Hover::update`], with the printed paths `paths` has answers for
+    /// read as links: read again when their answers move, with no byte.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_with(
+        &mut self,
+        term: &Term<'_>,
+        at: Option<(Row, Col)>,
+        scrolled: Scrolled,
+        chord: Chord,
+        focus: Focus,
+        host: Host<'_>,
+        paths: &dyn PathsAt,
+    ) -> bool {
         self.at = at;
         let inputs = (at, scrolled, chord, focus);
+        let generation = paths.generation();
         if self
             .read
             .as_ref()
-            .is_some_and(|r| r.matches(term, inputs, host))
+            .is_some_and(|r| r.matches(term, inputs, host, generation))
         {
             return false;
         }
@@ -1473,21 +1622,24 @@ impl Hover {
             bytes: Taken(term.amplification().0),
             epoch: term.link_epoch(),
             host: kept,
+            paths: generation,
         });
         let previewing = chord == Chord::Cmd && focus == Focus::Gained;
-        let paint = match (self.at_rest, self.held, focus) {
-            (AtRest::Look(paint), Held::No, Focus::Gained) => Some(paint),
-            _ => None,
+        let (paint, every) = match (self.at_rest, self.held, focus) {
+            (AtRest::Look(paint), Held::No, Focus::Gained) => (Some(paint), true),
+            (AtRest::PathsOnly(paint), Held::No, Focus::Gained) => (Some(paint), false),
+            _ => (None, false),
         };
         let found = at
             .filter(|_| previewing || paint.is_some())
             .and_then(|(row, col)| {
                 let s = spot_now(term, scrolled, row, col)?;
-                self.reads += 1;
-                let link = hovered_in(term, s, &mut self.buffers)?;
+                self.reads.bump();
+                let link = hovered_in(term, s, &mut self.buffers, paths)?;
                 let opens = matches!(verdict(&link, term, host), Some((_, Ok(()))));
+                let kind = every || matches!(link, Under::Path(_));
                 let over = paint
-                    .filter(|_| opens && drawn_whole(term, s, &link))
+                    .filter(|_| kind && opens && drawn_whole(term, s, &link))
                     .map(|paint| {
                         link_spans_into(term, s, &link, &mut self.buffers.spans);
                         LinkHover {
@@ -1544,7 +1696,7 @@ impl Hover {
     /// How many times this has read the text under the pointer: what a
     /// repeated read over a still screen must not add to.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub fn reads(&self) -> usize {
+    pub fn reads(&self) -> baud_render::Tally {
         self.reads
     }
 
@@ -1552,7 +1704,9 @@ impl Hover {
     /// again on the view shown now, with `chord` the modifiers held now --
     /// a read or a wheel may have changed what is under it, a press of
     /// the modifier no event reported shows the preview, and a release
-    /// takes it away. Whether what the frame draws changed.
+    /// takes it away. Whether what the frame draws changed. The drivers call
+    /// [`Hover::refresh_with`], so only tests call it.
+    #[cfg(test)]
     pub fn refresh(
         &mut self,
         term: &Term<'_>,
@@ -1561,8 +1715,21 @@ impl Hover {
         focus: Focus,
         host: Host<'_>,
     ) -> bool {
+        self.refresh_with(term, scrolled, chord, focus, host, &NoPaths)
+    }
+
+    /// [`Hover::refresh`], with `paths`' printed paths read as links.
+    pub fn refresh_with(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        chord: Chord,
+        focus: Focus,
+        host: Host<'_>,
+        paths: &dyn PathsAt,
+    ) -> bool {
         match self.at {
-            Some(at) => self.update(term, Some(at), scrolled, chord, focus, host),
+            Some(at) => self.update_with(term, Some(at), scrolled, chord, focus, host, paths),
             None => false,
         }
     }
@@ -1623,6 +1790,7 @@ fn drawn_whole(term: &Term<'_>, spot: Spot, link: &Under) -> bool {
     match link {
         Under::Osc8(_) => true,
         Under::Bare(b) => !may_be_cut(term, spot.scrolled, b.to),
+        Under::Path(p) => !may_be_cut(term, spot.scrolled, p.to),
     }
 }
 

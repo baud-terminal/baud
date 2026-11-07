@@ -181,6 +181,13 @@ mod notify;
 // platform.
 #[cfg(any(target_os = "linux", test))]
 mod opener;
+// A file path printed as plain text, underlined only if it exists: the scan's
+// half, pure, so its tests run on every platform; and the one worker thread
+// that asks the file system, which both drivers run.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod paths;
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod probe;
 // The activity lights on their own line, as the Linux driver feeds them.
 #[cfg(any(target_os = "linux", test))]
 mod own_line;
