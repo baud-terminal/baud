@@ -81,8 +81,7 @@
 //! `assets/demo/photo.toml` pins, scaled to its width there, `logo.mp4`,
 //! the plasma logo's film that `baud-pictures logo --mp4` makes into the
 //! scratch directory, and `ufo-logo.gif`, copied from
-//! `session::UFO_LOGO_FROM`, the plasma logo's GIF standing in for the UFO
-//! logo until that is made; and
+//! `session::UFO_LOGO_FROM`, the UFO logo's GIF for the dark page; and
 //! the container's image, streamed by the repository flake's
 //! `demo-container` and pinned by its SHA-256. baud is started with
 //! nothing of this environment but `HOME`, `ZDOTDIR`, `SHELL`, `PATH`,

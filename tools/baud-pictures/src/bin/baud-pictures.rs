@@ -1,17 +1,17 @@
 //! `baud-pictures brand [--check] [--root DIR]`,
-//! `baud-pictures logo [--check | --out DIR [--mp4]] [--keep DIR]`,
+//! `baud-pictures logo [--ufo] [--check | --out DIR [--mp4]] [--keep DIR]`,
 //! `baud-pictures geometry <walls.png> <out dir>` and
 //! `baud-pictures plasma <geometry dir> <dark|light> <on_ms> <off_ms> <out>`:
 //! see the crate's docs.
 
-use baud_pictures::{brand, geometry, logo, plasma, zlib};
+use baud_pictures::{brand, geometry, logo, plasma, ufo, zlib};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
     eprintln!(
         "baud-pictures: usage: baud-pictures brand [--check] [--root DIR]\n\
-         \x20      baud-pictures logo [--check | --out DIR [--mp4]] [--keep DIR]\n\
+         \x20      baud-pictures logo [--ufo] [--check | --out DIR [--mp4]] [--keep DIR]\n\
          \x20          (--mp4 needs --out: the MP4s are not committed, and in the tree they\n\
          \x20           would make the demo's --record refuse it as dirty)\n\
          \x20      baud-pictures geometry <walls.png> <out dir>\n\
@@ -71,7 +71,8 @@ fn brand(args: &[String]) -> ExitCode {
 }
 
 fn logo(args: &[String]) -> ExitCode {
-    let (movie, args) = logo::mp4_asked(args);
+    let (which, args) = ufo::asked(args);
+    let (movie, args) = logo::mp4_asked(&args);
     let (files, keep) = match logo::args(&args) {
         Ok(a) => a,
         Err(msg) => {
@@ -79,7 +80,11 @@ fn logo(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let bad = match logo::main(&logo::root(), &files, keep.as_deref(), movie) {
+    let made = match which {
+        ufo::Which::Plasma => logo::main(&logo::root(), &files, keep.as_deref(), movie),
+        ufo::Which::Ufo => ufo::main(&logo::root(), &files, keep.as_deref(), movie),
+    };
+    let bad = match made {
         Ok(bad) => bad,
         Err(msg) => {
             eprintln!("baud-pictures logo: {msg}");

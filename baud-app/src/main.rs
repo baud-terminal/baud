@@ -233,8 +233,12 @@ mod film;
 // tools/baud-pictures logo: the tests only.
 #[cfg(test)]
 mod logo_film;
+// The UFO logo filmed without a window, for
+// tools/baud-pictures logo --ufo: the tests only.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
+#[cfg(test)]
+mod ufo_film;
 // ReGIS's built-in alphabet, drawn with the embedded face: both drivers
 // lend it the core, and its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

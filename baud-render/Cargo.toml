@@ -55,3 +55,10 @@ exceptions = []
 # it and is priced by neither.
 ceiling-no-window-cache = []
 ceiling-no-windows = []
+# **The ufo trail's saucer posed directly**, off by default:
+# `ufo::Pose::posed`, `ufo::body_at` and `ufo::beam_at`, for a flight that
+# is not a cursor's. Only baud-app's UFO logo film, a test that
+# `tools/baud-pictures logo --ufo` runs, flies one, and it turns this on
+# through baud-app's dev-dependency, so no build of the app or of this
+# crate as published carries them.
+posed-saucer = []

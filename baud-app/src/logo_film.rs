@@ -59,11 +59,11 @@ const PX: f32 = 14.0;
 
 /// The splash's scale the film is drawn at: two pixels a unit, so shown
 /// 420 pixels wide the lockup is its own 300 at 1.4 of the width.
-const SCALE: f32 = 2.0;
+pub(crate) const SCALE: f32 = 2.0;
 
 /// **The film's canvas**, in the lockup's units: its 300 by 130 box with
 /// 60 units to each side, 75 above and 85 below -- 840 by 580 pixels.
-const CANVAS: [f32; 4] = [-60.0, -75.0, 360.0, 215.0];
+pub(crate) const CANVAS: [f32; 4] = [-60.0, -75.0, 360.0, 215.0];
 
 /// GitHub's page colours: its dark theme's canvas and its light one's.
 const PAGE_DARK: Argb = Argb(0xFF0D_1117);
@@ -96,15 +96,15 @@ const RIM: f32 = 0.5;
 
 /// A count of the blink's cycles, each a phase shown and one hidden.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Cycles(u32);
+pub(crate) struct Cycles(pub(crate) u32);
 
 /// A GIF frame's delay, in hundredths of a second.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Hundredths(u16);
+pub(crate) struct Hundredths(pub(crate) u16);
 
 /// **The blink's whole cycles in a film of `end`**, which it has to hold
 /// whole, so the first frame's phase follows the last's across the wrap.
-fn cycles(end: Duration, on: Duration, off: Duration) -> Cycles {
+pub(crate) fn cycles(end: Duration, on: Duration, off: Duration) -> Cycles {
     let cycle = (on + off).as_nanos();
     assert_eq!(
         end.as_nanos() % cycle,
@@ -115,7 +115,7 @@ fn cycles(end: Duration, on: Duration, off: Duration) -> Cycles {
 }
 
 /// `d` in hundredths of a second, which it has to be whole.
-fn hundredths(d: Duration) -> Hundredths {
+pub(crate) fn hundredths(d: Duration) -> Hundredths {
     assert_eq!(
         d.as_nanos() % 10_000_000,
         0,
@@ -125,7 +125,7 @@ fn hundredths(d: Duration) -> Hundredths {
 }
 
 /// The default blink's caret, fresh at `epoch`, and its two phases.
-fn default_caret(epoch: Instant) -> (Caret<Instant>, Duration, Duration) {
+pub(crate) fn default_caret(epoch: Instant) -> (Caret<Instant>, Duration, Duration) {
     let cfg = crate::config::Config::defaults();
     let cycle = Cycle::of_config(cfg.blink_interval);
     let Cycle::Blinks { on, off } = cycle else {
@@ -145,7 +145,7 @@ fn default_caret(epoch: Instant) -> (Caret<Instant>, Duration, Duration) {
 /// at its start and at its last moment: the film draws one picture a
 /// frame, so a blink edge inside one is refused. `caret` is asked in time
 /// order.
-fn phase_over(
+pub(crate) fn phase_over(
     caret: &mut Caret<Instant>,
     epoch: Instant,
     at: Duration,
@@ -161,7 +161,7 @@ fn phase_over(
 }
 
 /// The block's box on the canvas, in pixels, `inset` in from each side.
-fn block_on_canvas(inset: f32) -> [usize; 4] {
+pub(crate) fn block_on_canvas(inset: f32) -> [usize; 4] {
     let b = splash::BLOCK;
     let px = |v: f32, from: f32, k: f32| {
         usize::try_from(((v - from) * SCALE + k).round() as i64).expect("on the canvas")
@@ -175,7 +175,7 @@ fn block_on_canvas(inset: f32) -> [usize; 4] {
 }
 
 /// The canvas's size in pixels.
-fn canvas_size() -> (usize, usize) {
+pub(crate) fn canvas_size() -> (usize, usize) {
     let px = |v: f32| usize::try_from((v * SCALE).round() as i64).expect("a side");
     (px(CANVAS[2] - CANVAS[0]), px(CANVAS[3] - CANVAS[1]))
 }
@@ -431,13 +431,13 @@ fn field(path: &std::path::Path) -> Vec<f32> {
 }
 
 /// The variable `k`, a path.
-fn path_var(k: &str) -> std::path::PathBuf {
+pub(crate) fn path_var(k: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set")))
 }
 
 /// The half `BAUD_LOGO_HALF` names: its name, its theme on its page, the
 /// page, the word's ink and the amber.
-fn half() -> (String, Theme, Argb, Argb, Argb) {
+pub(crate) fn half() -> (String, Theme, Argb, Argb, Argb) {
     let half = std::env::var("BAUD_LOGO_HALF").expect("BAUD_LOGO_HALF is not set");
     let (mut theme, page, c) = match half.as_str() {
         "dark" => (Theme::dark(), PAGE_DARK, splash::DARK),
@@ -451,16 +451,16 @@ fn half() -> (String, Theme, Argb, Argb, Argb) {
 
 /// **A frame of the film being drawn**: the renderer with the splash
 /// held, the term under it, the frame's pixels and the lockup's box.
-struct Frame<'r, 'f, 't> {
-    r: &'r mut Renderer<'f, 'f>,
+pub(crate) struct Frame<'r, 'f, 't> {
+    pub(crate) r: &'r mut Renderer<'f, 'f>,
     term: &'r mut Term<'t>,
     px: Vec<u32>,
-    at: Pt,
+    pub(crate) at: Pt,
 }
 
 impl Frame<'_, '_, '_> {
     /// The canvas as the renderer draws it now.
-    fn draw(&mut self) -> Vec<u8> {
+    pub(crate) fn draw(&mut self) -> Vec<u8> {
         let (w, h) = self.r.pixel_size();
         let mut target = Target::new(&mut self.px, w, w, h).expect("a target");
         self.r.render(self.term, &mut target, Damage::Full);
@@ -471,7 +471,7 @@ impl Frame<'_, '_, '_> {
 /// **`film` run on a frame of `theme`**: the faces the app embeds, its
 /// regular and its bold, at [`PX`] over [`WS`], the lockup held at
 /// [`SCALE`], an effect drawn on as many threads as the machine has.
-fn on_stage<T>(theme: Theme, film: impl FnOnce(&mut Frame<'_, '_, '_>) -> T) -> T {
+pub(crate) fn on_stage<T>(theme: Theme, film: impl FnOnce(&mut Frame<'_, '_, '_>) -> T) -> T {
     let fonts = concat!(env!("CARGO_MANIFEST_DIR"), "/fonts/built/");
     let regular = std::fs::read(format!("{fonts}Regular.ttf")).expect("Regular.ttf");
     let bold = std::fs::read(format!("{fonts}Bold.ttf")).expect("Bold.ttf");
@@ -521,8 +521,9 @@ fn on_stage<T>(theme: Theme, film: impl FnOnce(&mut Frame<'_, '_, '_>) -> T) -> 
 /// **The README's logo, bare, one half**: `BAUD_LOGO_HALF` (`dark` or
 /// `light`) into `BAUD_LOGO_OUT` -- `bare.rgb`, the canvas of the held
 /// lockup with the block shown, RGB, which the geometry is read off, and
-/// `bare.json`, the canvas's size and the default blink's phases, which
-/// the generator builds its frames on.
+/// `bare.json`, the canvas's size, the default blink's phases, which
+/// the generator builds its frames on, and the block's box, which the UFO
+/// logo's flight hovers over.
 #[test]
 #[ignore = "a tool: tools/baud-pictures logo runs it"]
 fn film_the_readme_logo_bare() {
@@ -540,9 +541,10 @@ fn film_the_readme_logo_bare() {
     assert_eq!(bare[..3], [pr, pg, pb], "the canvas's corner is the page");
     std::fs::write(out.join("bare.rgb"), &bare).expect("bare.rgb");
     let (cw, ch) = canvas_size();
+    let [x0, y0, x1, y1] = block_on_canvas(0.0);
     let json = format!(
         "{{\"half\": \"{half}\", \"width\": {cw}, \"height\": {ch}, \"on_ms\": {}, \
-         \"off_ms\": {}}}",
+         \"off_ms\": {}, \"block\": [{x0}, {y0}, {x1}, {y1}]}}",
         on.as_millis(),
         off.as_millis(),
     );

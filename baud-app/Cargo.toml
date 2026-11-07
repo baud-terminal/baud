@@ -69,6 +69,10 @@ macos-liquid-glass = { version = "1.0.0-beta.8", features = ["drawable"] }
 # leaves `examples/` out and a published crate's verify builds no example.
 [dev-dependencies]
 xtask = { path = "../xtask" }
+# The ufo trail's saucer posed directly, for the UFO logo film, a test
+# (`src/ufo_film.rs`): a dev-dependency's feature, so the app as built and
+# published leaves it out.
+baud-render = { workspace = true, features = ["posed-saucer"] }
 
 # The `demo` example's desktop calls: the window list, the frontmost
 # application, the key and wheel events, the Screen Recording check

@@ -16,6 +16,10 @@
 //! written into the tree, where an untracked file makes the demo's
 //! `--record` refuse it as dirty: without `--out`, `--mp4` is refused.
 //!
+//! **`--ufo`** films the UFO logo instead ([`crate::ufo`]): the same
+//! lockup, walls, encoder, checks and census, the saucer threading the
+//! letters in place of the plasma, into `assets/demo/`.
+//!
 //! **What it shows**: the lockup, `baud ❯ █`, as the launch splash holds
 //! it and the logo files draw it, with baud's white plasma moving round
 //! and through it as if each glyph were a solid wall, its block blinking
@@ -332,7 +336,7 @@ impl Off {
 }
 
 /// release's optimisation without LTO, for the film and the census.
-const FAST: [&str; 8] = [
+pub(crate) const FAST: [&str; 8] = [
     "--config",
     "profile.fast.inherits=\"release\"",
     "--config",
@@ -1256,7 +1260,7 @@ pub fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
 
-fn run(cmd: &mut Command, what: &str) -> Result<Vec<u8>, Fail> {
+pub(crate) fn run(cmd: &mut Command, what: &str) -> Result<Vec<u8>, Fail> {
     let out = cmd
         .stderr(Stdio::inherit())
         .output()
@@ -1299,7 +1303,7 @@ pub fn ffmpeg() -> Result<PathBuf, Fail> {
 
 /// **One half's MP4**: every frame held its hundredths at [`MP4_FPS`],
 /// piped to ffmpeg as raw RGB and encoded with [`MP4`] into `d/name`.
-fn mp4(
+pub(crate) fn mp4(
     ff: &Path,
     d: &Path,
     frames: &[Vec<u8>],
@@ -1340,7 +1344,7 @@ fn mp4(
 
 /// **The MP4 holds the film**: as many frames as its hundredths, playing
 /// as long, by ffprobe.
-fn mp4_holds(ff: &Path, half: &str, path: &Path, total: u32) -> Result<String, Fail> {
+pub(crate) fn mp4_holds(ff: &Path, half: &str, path: &Path, total: u32) -> Result<String, Fail> {
     let out = run(
         Command::new(ff.join("ffprobe"))
             .args(["-v", "error", "-select_streams", "v:0", "-count_packets"])
@@ -1415,7 +1419,12 @@ pub fn libraries() -> Result<(), Fail> {
     Ok(())
 }
 
-fn cargo_test(root: &Path, args: &[&str], env: &[(&str, &Path)], what: &str) -> Result<(), Fail> {
+pub(crate) fn cargo_test(
+    root: &Path,
+    args: &[&str],
+    env: &[(&str, &Path)],
+    what: &str,
+) -> Result<(), Fail> {
     let mut cmd = Command::new("cargo");
     cmd.args(["test", "--quiet", "--locked", "-p", "baud", "--bin", "baud"])
         .args(FAST)
@@ -1428,11 +1437,11 @@ fn cargo_test(root: &Path, args: &[&str], env: &[(&str, &Path)], what: &str) -> 
     run(&mut cmd, what).map(|_| ())
 }
 
-fn read(p: &Path) -> Result<Vec<u8>, Fail> {
+pub(crate) fn read(p: &Path) -> Result<Vec<u8>, Fail> {
     std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))
 }
 
-fn json_file(p: &Path) -> Result<Value, Fail> {
+pub(crate) fn json_file(p: &Path) -> Result<Value, Fail> {
     let b = read(p)?;
     json::parse(&String::from_utf8_lossy(&b))
 }
@@ -1493,7 +1502,7 @@ pub fn quick_png(px: &[u8]) -> Vec<u8> {
     out
 }
 
-fn canvas(p: &Path) -> Result<Vec<u8>, Fail> {
+pub(crate) fn canvas(p: &Path) -> Result<Vec<u8>, Fail> {
     let raw = read(p)?;
     if raw.len() != W * H * 3 {
         return Err(format!("{} is not a canvas", p.display()));
@@ -1502,7 +1511,7 @@ fn canvas(p: &Path) -> Result<Vec<u8>, Fail> {
 }
 
 /// The bare logo, the block shown, and the blink's phases.
-fn bare(root: &Path, half: &str, d: &Path) -> Result<(Vec<u8>, Value), Fail> {
+pub(crate) fn bare(root: &Path, half: &str, d: &Path) -> Result<(Vec<u8>, Value), Fail> {
     cargo_test(
         root,
         &[
@@ -1530,7 +1539,11 @@ fn f32s(b: &[u8]) -> Vec<f32> {
 /// Hold today's dark bare logo to the walls the path was chosen against,
 /// by [`lockup_faults`]; the walls' geometry directory, which the path is
 /// chosen from, and today's, which the film's slabs are cut from.
-fn walls_hold(root: &Path, today: &[u8], tmp: &Path) -> Result<(PathBuf, PathBuf), Fail> {
+pub(crate) fn walls_hold(
+    root: &Path,
+    today: &[u8],
+    tmp: &Path,
+) -> Result<(PathBuf, PathBuf), Fail> {
     let data = read(&root.join(WALLS))?;
     walls_pinned(&data)?;
     let walls = png::decode(&data)?;
@@ -1619,7 +1632,7 @@ fn film(root: &Path, half: &str, d: &Path, prims: &Path, geom: &Path) -> Result<
     Ok(m)
 }
 
-fn delays_of(m: &Value) -> Result<Vec<u32>, Fail> {
+pub(crate) fn delays_of(m: &Value) -> Result<Vec<u32>, Fail> {
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -1633,7 +1646,7 @@ fn delays_of(m: &Value) -> Result<Vec<u32>, Fail> {
 }
 
 /// gifski's GIF of the frames, repeating for ever, then [`gif::rewrite`].
-fn encode(
+pub(crate) fn encode(
     gifski: &Path,
     d: &Path,
     delays: &[u32],
@@ -1668,7 +1681,7 @@ fn encode(
 /// The census of `frames`, each held its hundredths at 100 samples a
 /// second and 2 pixels a point, fed twice over, so the frames either side of
 /// the join are counted as the repeat shows them: `flash_census`'s report.
-fn census(
+pub(crate) fn census(
     root: &Path,
     frames: &[Vec<u8>],
     delays: &[u32],

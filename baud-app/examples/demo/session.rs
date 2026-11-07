@@ -7,10 +7,9 @@
 //! 2, built around the tour's address on YouTube, which it refuses to be
 //! built without. [`HELLO`] is the languages file the tour prints.
 //!
-//! **Scene 9's second picture is a stand-in.** The UFO logo film is not
-//! made yet, so [`UFO_LOGO_FROM`] points the file scene 9 draws,
-//! [`UFO_LOGO`], at the plasma logo's GIF; when the UFO logo exists, that
-//! one constant names it instead, and nothing else changes.
+//! **Scene 9's second picture is the UFO logo**, the film `baud-pictures
+//! logo --ufo` makes for the dark page: [`UFO_LOGO_FROM`] names the file
+//! scene 9 draws as [`UFO_LOGO`].
 
 use std::time::Duration;
 
@@ -327,10 +326,8 @@ pub const UFO_LOGO: &str = "ufo-logo.gif";
 pub const UFO_LOGO_ICAT: &str = "kitten icat ufo-logo.gif";
 
 /// **The repository's file [`UFO_LOGO`] is copied from**, from the
-/// repository's root. A stand-in: the plasma logo's GIF for the dark page,
-/// until the UFO logo's GIF exists; naming that file here is the whole
-/// change.
-pub const UFO_LOGO_FROM: &str = "assets/readme/logo-dark.gif";
+/// repository's root: the UFO logo's GIF for the dark page.
+pub const UFO_LOGO_FROM: &str = "assets/demo/ufo-logo-dark.gif";
 
 /// **Scene 10's command**: mpv plays `logo.mp4`, the plasma logo's film
 /// for the dark page, which `baud-pictures logo --mp4` makes into the tour's
@@ -1402,7 +1399,7 @@ mod tests {
     /// line**, each command typed plain -- kitten and the file's bare
     /// name, no path and no transfer mode, as the config's `advertise_sixel`
     /// lets kitten's detection through -- and each held past its prompt;
-    /// the logo's command names the file the stand-in is copied to. The
+    /// the logo's command names the file the UFO logo is copied to. The
     /// control: the step before is the line's prompt. Perturbation: put
     /// `--transfer-mode=stream` back in and the command's check fails.
     #[test]

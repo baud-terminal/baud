@@ -489,6 +489,7 @@ fn the_logo_generator_calls_no_platform_math() {
         ("plasma.rs", include_str!("../src/plasma.rs")),
         ("numpy.rs", include_str!("../src/numpy.rs")),
         ("py.rs", include_str!("../src/py.rs")),
+        ("ufo.rs", include_str!("../src/ufo.rs")),
     ] {
         assert!(src.len() > 1000 && src.starts_with("//!"), "{name} is read");
         assert_eq!(

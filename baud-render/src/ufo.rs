@@ -234,6 +234,50 @@ pub fn pose(fl: &Flight, a: f32) -> Pose {
     }
 }
 
+#[cfg(any(test, feature = "posed-saucer"))]
+impl Pose {
+    /// **The saucer posed directly**, for a flight that is not a cursor's:
+    /// centred at `c`, banked `bank` radians, at `scale`, its rim lights
+    /// `rim_turns` round, fully visible, its beam down and open to its full
+    /// reach. `tools/baud-pictures logo --ufo` flies it through the logo's
+    /// letters ([`body_at`], [`beam_at`]). Behind the `posed-saucer` feature.
+    #[must_use]
+    pub fn posed(c: Pt, bank: f32, scale: f32, rim_turns: f32) -> Pose {
+        let rho = 2.0 * fract(rim_turns) - 1.0;
+        Pose {
+            c,
+            cs: bank.det_cos(),
+            sn: bank.det_sin(),
+            s: scale,
+            vis: 1.0,
+            cr: cospi(rho),
+            sr: sinpi(rho),
+            side: 1.0,
+            gap: 0.0,
+            beam: 1.0,
+            ext: 1.0,
+        }
+    }
+}
+
+/// **The saucer's body at `p`**, posed by `pz`, on cells `c` tall: the hull,
+/// the dome and the rim lights, as the trail draws them. Behind the
+/// `posed-saucer` feature.
+#[cfg(any(test, feature = "posed-saucer"))]
+#[must_use]
+pub fn body_at(p: Pt, pz: &Pose, c: f32) -> f32 {
+    body(p, pz, c)
+}
+
+/// **The tractor beam at `p`** from the saucer posed by `pz` down onto
+/// `hole`, its rings `age` seconds on, before its strength: as the trail
+/// draws it. Behind the `posed-saucer` feature.
+#[cfg(any(test, feature = "posed-saucer"))]
+#[must_use]
+pub fn beam_at(p: Pt, pz: &Pose, hole: Rect, c: f32, age: f32) -> f32 {
+    beam(p, pz, hole, c, age)
+}
+
 fn cov(d: f32) -> f32 {
     (0.5 - d).clamp(0.0, 1.0)
 }
@@ -709,6 +753,43 @@ mod tests {
             plain = plain.min(b);
         }
         assert!(most > plain + 0.1, "lights {most} over {plain}");
+    }
+
+    /// **A saucer posed directly draws as the trail's**: at the hover of a
+    /// flight, its beam fully out and the saucer fully seen, the posed body
+    /// and beam -- its bank and rim read back off the flight's pose -- equal
+    /// the flight's own at every pixel of the saucer and the beam, the beam
+    /// before the flight's strength.
+    #[test]
+    fn a_saucer_posed_directly_draws_as_the_trails() {
+        let (from, to) = (cell(10.0, 8.0), cell(40.0, 7.0));
+        let age = 0.45;
+        let v = vfx(from, to, age);
+        let pz = pose(&Flight::of(&v), age);
+        assert_eq!((pz.vis, pz.s, pz.ext), (1.0, 1.0, 1.0), "{pz:?}");
+        let bank = pz.sn.det_atan2(pz.cs);
+        let rim = 0.5 * (pz.sr.det_atan2(pz.cr) / core::f32::consts::PI + 1.0);
+        let posed = Pose::posed(pz.c, bank, pz.s, rim);
+        let c = CELL.1;
+        let (mut bodies, mut beams) = (0, 0);
+        for y in -20..=60 {
+            for x in -20..=20 {
+                let p = Pt {
+                    x: pz.c.x + x as f32 * 0.05 * c,
+                    y: pz.c.y + y as f32 * 0.05 * c,
+                };
+                let (a, b) = (body(p, &pz, c), body_at(p, &posed, c));
+                assert!((a - b).abs() < 1e-4, "the body at {p:?}: {a} and {b}");
+                bodies += usize::from(a > 0.0);
+                let (a, b) = (beam(p, &pz, to, c, age), beam_at(p, &posed, to, c, age));
+                assert!(
+                    (a - b * pz.beam).abs() < 1e-5,
+                    "the beam at {p:?}: {a} and {b}"
+                );
+                beams += usize::from(a > 0.0);
+            }
+        }
+        assert!(bodies > 50 && beams > 50, "{bodies} {beams}");
     }
 
     /// **A retarget re-flies the saucer without a jump**: the pose 20 us

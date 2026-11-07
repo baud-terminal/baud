@@ -87,7 +87,7 @@ use std::path::Path;
 
 const LOOP: f64 = 10.0;
 /// `LOOP` in hundredths, the film's length.
-const LOOP_CS: i64 = 1000;
+pub const LOOP_CS: i64 = 1000;
 /// A chord every 12.5 ms.
 const STEP: f64 = 0.0125;
 const ZMAX: f64 = 24.0;
@@ -2743,8 +2743,9 @@ fn phase_times_cs(a: i64) -> Vec<i64> {
 }
 
 /// The film's frames over the whole loop: in each 250 ms phase, every 30 ms,
-/// the last 40.
-fn film_times_cs() -> Vec<i64> {
+/// the last 40, in hundredths.
+#[must_use]
+pub fn film_times_cs() -> Vec<i64> {
     (0..LOOP_CS)
         .step_by(25)
         .flat_map(|a| (0..8).map(move |i| a + 3 * i))

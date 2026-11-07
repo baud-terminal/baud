@@ -229,10 +229,14 @@ notices below were read in the tree on 2026-11-07.
 ## baud's own pieces
 
 - The plasma logo film, `assets/readme/logo-dark.gif`, and the MP4 that
-  `baud-pictures logo --mp4` makes from it, which mpv plays in the tour. It
-  also stands in for a second logo film, the UFO one, not yet made. Its
+  `baud-pictures logo --mp4` makes from it, which mpv plays in the tour. Its
   letters are JetBrains Mono's glyphs, under the OFL, as `THIRD_PARTY.md`'s
   row for the README's logo says.
+- The UFO logo film, `assets/demo/ufo-logo-dark.gif` and
+  `ufo-logo-light.gif`, made by `baud-pictures logo --ufo`, which kitten
+  draws in the tour's scene 9: the ufo trail's saucer threading the logo's
+  letters. Its letters are JetBrains Mono's glyphs, under the
+  OFL, in the same `THIRD_PARTY.md` row as the README's logo.
 - The tour itself, which the trailer plays from YouTube through mpv and
   yt-dlp.
 

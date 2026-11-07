@@ -37,7 +37,9 @@
 //! `logo` films and encodes the README's four logo files and `logo
 //! --check` compares them with the committed ones, writing none; `--keep
 //! DIR` films into the empty DIR and leaves the frames, strands and
-//! encodes there.
+//! encodes there. `logo --ufo` does the same for the UFO logo,
+//! `assets/demo/ufo-logo-dark.gif` and `-light.gif` and a provenance file
+//! beside each: the ufo trail's saucer threading the letters ([`ufo`]).
 //! `geometry <walls.png> <out dir>` and `plasma <geometry dir> <dark|light>
 //! <on_ms> <off_ms> <out>` are the film's two steps, run alone.
 
@@ -54,6 +56,7 @@ pub mod png;
 pub mod py;
 pub mod raster;
 pub mod resample;
+pub mod ufo;
 pub mod webp;
 pub mod zip;
 pub mod zlib;
