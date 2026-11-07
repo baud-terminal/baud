@@ -389,14 +389,18 @@ pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrol
 }
 
 /// **What a window resize leaves of the selection, and how the count that
-/// numbers it moves** (note V, V3): on the primary, across a change of
-/// height alone, the selection is kept on its lines and the count moves by
-/// the rows the resize retired into the history or took back from it, as a
+/// numbers it moves** (note V, V3): on the primary the count moves by the
+/// rows the resize retired into the history or took back from it, as a
 /// read's would -- the core counts them by the window's top line
-/// (`Term::history_moved_since`), however many. A change of columns
-/// re-cuts the lines, so the columns a selection names no longer name its
-/// cells and it goes; on the alternate screen the program redraws for the
-/// new size and the screen has no history to number by, so it goes; and it
+/// (`Term::history_moved_since`), however many -- and across a change of
+/// columns too, where the re-cut renumbers that line: the count numbers
+/// the next selection as well, and one left behind by a re-cut numbered the
+/// top of the history short, so a click there highlighted one line and
+/// copied the next. Across a change of height alone the selection is kept
+/// on its lines. A change of columns re-cuts the lines, so the columns a
+/// selection names no longer name its cells and it goes; on the alternate
+/// screen the program redraws for the new size and the screen has no
+/// history to number by, so it goes; and it
 /// goes where it reaches a row the shrink cut below the screen, which may
 /// come back or be blanked when history is pulled instead. A line the ring
 /// recycled is clipped, as after a read. Until 2026-10-20 every change of
@@ -409,7 +413,7 @@ pub(crate) fn kept_across_resize(
     scrolled: Scrolled,
 ) -> (Option<Selection>, Scrolled) {
     let (now_cols, rows) = term.geometry();
-    if now_cols != cols || screen != Screen::Normal || term.screen() != Screen::Normal {
+    if screen != Screen::Normal || term.screen() != Screen::Normal {
         return (None, scrolled);
     }
     let scrolled = match term.history_moved_since(mark) {
@@ -419,6 +423,9 @@ pub(crate) fn kept_across_resize(
             None => return (None, Scrolled::START),
         },
     };
+    if now_cols != cols {
+        return (None, scrolled);
+    }
     let Some(mut sel) = selection else {
         return (None, scrolled);
     };

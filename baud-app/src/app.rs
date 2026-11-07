@@ -15827,7 +15827,8 @@ impl Driver {
             // where it is -- a resize never changes the scroll position,
             // which a zoom that repeated a banner four times broke when the
             // app anchored it (`Term::resize`). `scrolled` is moved by what
-            // the resize retired or took back, when the selection is kept
+            // the resize retired or took back, a re-cut's renumbering
+            // included, whether or not the selection is kept
             // (`kept_across_resize`).
             let was = (
                 self.app.term.history_mark(),

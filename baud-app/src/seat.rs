@@ -2354,6 +2354,70 @@ mod tests {
 
     /// **A touchpad's lift drops the part-line, the pointer's leaving is
     /// known, and a resize that changes the width drops the selection.**
+    /// **After a resize that re-cuts the lines, the copy of the oldest line
+    /// is the line drawn there**: twelve lines on a 20x6 grid, then 25x8
+    /// and 20x5, each a change of width, then the window at the top of the
+    /// history and a triple click on its first row. The count that numbers
+    /// a selection moves with the core's window top across every resize
+    /// (`keep::kept_across_resize`); left where it was across a change of
+    /// width, it numbered the top of the history one line short, and the
+    /// click highlighted "line 1" while the copy read "line 2". The
+    /// control is the same lines with a change of height alone.
+    #[test]
+    fn after_a_re_cut_the_oldest_line_copies_as_drawn() {
+        for sizes in [&[(20u16, 5u16)][..], &[(25, 8), (20, 5)]] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut seat = Seat::new();
+            let before = seat.before_read(&mut t);
+            let lines: String = (1..=12).map(|i| format!("line {i}\r\n")).collect();
+            feed(&mut t, lines.as_bytes());
+            let _ = seat.after_read(&t, before);
+            for &(c, r) in sizes {
+                let was = (t.history_mark(), t.geometry().0, t.screen());
+                let _ = t.resize(&WinSize {
+                    ws_col: c,
+                    ws_row: r,
+                });
+                seat.resized(&t, was);
+            }
+            t.set_window_back(Rows::of_index(usize::MAX));
+            let back = t.window_back();
+            let mut order = baud_render::Reorder::new();
+            order.lay_out(&t, back);
+            seat.drawn(order.orders());
+            let g = Geometry { grid: (20, 5), ..G };
+            seat.input(&mut t, Input::Entered(15.0, 5.0), NONE, g, |_| ());
+            for i in 0..3 {
+                let at = |ms: u32| Ms::of_millis(10 + 20 * i + ms);
+                seat.input(&mut t, down(Pressed::Left, at(0)), NONE, g, |_| ());
+                seat.input(&mut t, up(Pressed::Left, at(5)), NONE, g, |_| ());
+            }
+            let first: String = t
+                .view(back)
+                .row(Row::ZERO)
+                .iter()
+                .filter_map(|c| c.content.as_codepoint())
+                .filter_map(|p| char::from_u32(p.value()))
+                .collect();
+            assert_eq!(
+                first, "line 1",
+                "{sizes:?}: the premise, the top of the history drawn first"
+            );
+            assert_eq!(
+                seat.selected_text(&t).as_deref(),
+                Some("line 1"),
+                "{sizes:?}"
+            );
+            let h = seat.highlight(&t).expect("drawn");
+            assert_eq!(
+                h.from.0,
+                Row::ZERO,
+                "{sizes:?}: highlighted where it was clicked"
+            );
+        }
+    }
+
     #[test]
     fn a_lift_a_leave_and_a_resize() {
         let mut owned = Owned::new(&WS);
