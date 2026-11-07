@@ -322,6 +322,12 @@ fn run_arm(
     if let Some(c) = child_env(args.child, &own_path()) {
         cmd.env("BAUD_CMD", c);
     }
+    // Named a config, so the arm never writes one (`host::guarded`).
+    let env: Vec<_> = std::env::vars_os().collect();
+    let guarded = crate::host::guarded(&env).map_err(|e| format!("a config to name: {e}"))?;
+    if let Some((k, v)) = guarded.into_iter().find(|(k, _)| k == "BAUD_CONFIG") {
+        cmd.env(k, v);
+    }
     let mut app = cmd
         .spawn()
         .map_err(|e| format!("launching {binary}: {e}"))?;

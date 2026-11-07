@@ -1,4 +1,13 @@
-# baud configuration -- copy to ~/.config/baud/config.toml and edit.
+# baud configuration. Every key below is commented out at its default, or,
+# where the default is unset or follows the system, at an example, so this
+# file as it stands changes nothing: take the # off a key's line to change it.
+#
+# When baud finds no config at launch, it writes this file, once, to
+# $XDG_CONFIG_HOME/baud/config.toml, or ~/.config/baud/config.toml when that
+# is unset -- never to the file $BAUD_CONFIG names. It never changes the file
+# after that, so a later baud's new keys are not added to it: remove the file
+# and the next launch writes the current one. An empty file stays as it is
+# and means the defaults.
 #
 # Looked up at $BAUD_CONFIG, then $XDG_CONFIG_HOME/baud/config.toml, then
 # ~/.config/baud/config.toml -- no entry of its own under the directory baud is
@@ -7,8 +16,8 @@
 # A font is named by its family, as "JetBrains Mono" or "Menlo"; a relative
 # font file or theme path below names a file beside this one. A key baud
 # does not know is ignored, and any field left out keeps its built-in default,
-# so a config with only the keys you care about is fine -- or no config at all,
-# which draws with the fonts baud carries inside itself: JetBrains Mono (its
+# so a config with only the keys you care about is fine. With no key set, baud
+# draws with the fonts it carries inside itself: JetBrains Mono (its
 # ligatures, and real Bold, Italic and Bold Italic faces) with baud's own Hebrew
 # in its Regular and Bold, and Symbols Nerd Font Mono (the Nerd Fonts icons),
 # with Menlo, the emoji, symbol and CJK system faces behind it. `fonts` below
@@ -16,12 +25,12 @@
 # behind it for what your faces lack unless `font_fallback = false`.
 
 # Points; pixels are this times the display's backing scale.
-font_size = 13
+# font_size = 13
 
 # The gutter in points around the grid -- left, right and below -- so the window
 # material shows through rather than the cells meeting the window's edge. The titlebar
 # strip is the top gutter. 8 is the default; 0 turns it off.
-padding = 8
+# padding = 8
 
 # The palette. "auto" follows the system appearance (System Settings >
 # Appearance) and changes with it; "dark" and "light" pin it. On Linux "auto"
@@ -36,26 +45,26 @@ padding = 8
 # you set is drawn in its own colours. When the system flips under "auto",
 # colours a program set with OSC 4, 10, 11 or 12 are dropped with the old
 # palette, and a program that asked (mode 2031) is told dark or light.
-theme = "auto"
+# theme = "auto"
 
 # What the surface's bytes mean, converted to each display by the compositor:
 # "srgb", which every colour a terminal receives is specified as, or
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
-colorspace = "srgb"
+# colorspace = "srgb"
 
 # How wide a text-default emoji is when a U+FE0F asks for emoji presentation,
 # such as a heart followed by U+FE0F. "two" cells, which tmux, fish, macOS
 # bash, helix and lipgloss assume; "one" for a session whose programs measure
 # with a legacy wcwidth (zsh prompts outside tmux, readline and ncurses on
 # glibc). DECRQM ?2027 reports it; nothing an application sends changes it.
-vs16_width = "two"
+# vs16_width = "two"
 
 # How a character with no variation selector is drawn. "font": from a text
 # face, whatever its default presentation (a lightning bolt is the font's
 # bolt). "system": a character whose default presentation is emoji is drawn
 # in colour, as macOS draws it. U+FE0F asks for colour and U+FE0E for text
 # under either.
-emoji = "font"
+# emoji = "font"
 
 # What a BEL (Control-G) does while baud's window is focused: "sound" plays
 # the system's alert sound, "flash" shows the screen in the other video for
@@ -70,13 +79,13 @@ emoji = "font"
 # bring the window to you (xdg-activation-v1): it decides whether the
 # window comes forward or is marked as wanting attention. On Linux none of
 # this has run yet, even on a headless compositor.
-bell = "sound"
+# bell = "sound"
 
 # Saved changes to this file, and to the theme and font files it names,
 # show in the open window a moment after the save. A few settings wait
 # for the next launch (docs/guide/configuration.md, "When a change
 # shows"). "off" leaves every change for the next launch.
-config_reload = "on"
+# config_reload = "on"
 
 
 # The fallback stack, first font first: a font supplies the glyphs the fonts
@@ -126,27 +135,26 @@ config_reload = "on"
 # order; false leaves none of baud's faces behind yours. Either way, a character
 # none of them has is drawn from the font your system picks for it.
 # Without `fonts` it changes nothing: the embedded faces are the stack then.
-font_fallback = true
+# font_fallback = true
 
-# For Fira Code with programming ligatures, name it first and keep the emoji
-# and symbol fallbacks -- Fira Code has neither:
-# fonts = [
-#   "Fira Code",
-#   "Apple Color Emoji",
-#   "Apple Symbols",
-# ]
-
+# Two more stacks, each in place of the `fonts` above. For Fira Code with
+# programming ligatures, name it first and keep the emoji and symbol fallbacks
+# -- Fira Code has neither:
+#
+#     fonts = ["Fira Code", "Apple Color Emoji", "Apple Symbols"]
+#
 # For CJK coverage (Japanese, Chinese, Korean), stack a CJK face before the
 # emoji and symbol fallbacks. Hiragino Sans GB covers Japanese kana and Chinese
 # Han; Apple SD Gothic Neo covers Korean. A face earlier in the list wins per
 # cluster, so keep your text face first:
-# fonts = [
-#   "Menlo",
-#   "Hiragino Sans GB",
-#   "Apple SD Gothic Neo",
-#   "Apple Color Emoji",
-#   "Apple Symbols",
-# ]
+#
+#     fonts = [
+#       "Menlo",
+#       "Hiragino Sans GB",
+#       "Apple SD Gothic Neo",
+#       "Apple Color Emoji",
+#       "Apple Symbols",
+#     ]
 
 # How many columns an East Asian Ambiguous character takes -- box drawing,
 # block elements, Greek and Cyrillic letters, the plus-minus sign -- "narrow"
@@ -162,8 +170,16 @@ font_fallback = true
 # The pieces it leaves narrow (U+254C-254F, U+2574-257F, U+2590-2591,
 # U+2596-259F) and DEC Special Graphics lines stay one cell. Read at launch;
 # DECRQM ?1021 reports it.
-[text]
-ambiguous_width = "narrow"
+# [text]
+# ambiguous_width = "narrow"
+#
+# join_spacing_marks: whether a vowel sign written after its letter, such as
+# the ि and ा of Hindi, a visarga, or Thai's and Lao's SARA AM, takes no column
+# of its own. "off", the default, gives it a column, as Linux shells and vim
+# count, so the cursor stays where they expect; "on" suits the Mac's own bash
+# or zsh, or tmux, which count it as none. A program that asks for grapheme
+# cluster mode, such as Neovim, gets a whole syllable in one cell either way.
+# join_spacing_marks = "off"
 
 # The contrast floor: text whose contrast with the colour it is drawn on is
 # below this ratio is darkened or lightened, keeping its hue, until it reads
@@ -227,8 +243,8 @@ ambiguous_width = "narrow"
 # under a block cursor. "baud", the default, is baud's amber, the logo's:
 # #F4A32C on the dark and the light theme and on each reversed, with the logo's
 # near-black #15171B under it. On the light theme it reads at 1.80:1, under the
-# 4.5:1 of text, by choice; for the contrast, set cursor = "#986100" and
-# cursor_text = "#EFEFEF". On a theme file's background or one a program sets,
+# 4.5:1 of text, by choice; for the contrast, set `cursor` to "#986100" and
+# `cursor_text` to "#EFEFEF". On a theme file's background or one a program sets,
 # it is chosen against the background then drawn: darkened until it reads at
 # 4.5:1, with the near-black under it where that reads at 4.5:1 and else the
 # background. "baud" keeps the amber whatever a theme file says; "theme" asks for a theme file's cursor
@@ -239,8 +255,8 @@ ambiguous_width = "narrow"
 # own cursor colour (OSC 12), and its reset (OSC 112) returns to this one; the
 # text under the block keeps its colour, baud's own included, under the
 # program's colour.
-[palette]
-floor = 1.2
+# [palette]
+# floor = 1.2
 # light = "~/.config/baud/themes/day.yaml"
 # dark = "night"
 # selection = "#3f638b"
@@ -316,8 +332,8 @@ floor = 1.2
 # docs/cursor.md shows each, and docs/cursor.html plays them. Under macOS's
 # Reduce Motion, or the Linux desktop's reduced-motion setting once the
 # desktop has reported it, the default is off; a trail named here is kept, so
-# the line below is commented out -- uncomment it only to keep a trail
-# whatever that setting says.
+# take the # off the `trail` line below only to keep a trail whatever that
+# setting says.
 #
 # `trail_scroll`: when output scrolls the whole screen under a trail in
 # flight, "ride", the default, carries the trail up with the text for at most
@@ -342,16 +358,16 @@ floor = 1.2
 # whatever its shape, while another window has the keyboard, so you can
 # tell at a glance which window your typing goes to. "off", the default,
 # draws it as it is drawn in front.
-[cursor]
-shape = "block"
-blink = "auto"
-blink_animation = "none"
+# [cursor]
+# shape = "block"
+# blink = "auto"
+# blink_animation = "none"
 # blink_interval_ms = 250
-stop_blinking_after = 0
-trail_scroll = "ride"
-unfocused_hollow = "off"
+# stop_blinking_after = 0
+# trail_scroll = "ride"
+# unfocused_hollow = "off"
 # trail = "plasma"
-guide = "off"
+# guide = "off"
 
 # transition: whether opening or leaving a full-screen program like vim or
 # less slides its screen in over the one before, in a quarter of a second:
@@ -457,31 +473,31 @@ guide = "off"
 # column and is never copied; a full-screen program's screen and lines a
 # program wrapped at the edge have none, and with padding = 0 there is no
 # room for it. "on" by default.
-[screen]
-transition = "off"
-checksum = "on"
-logging = "on"
-printing = "on"
-notifications = "on"
-print_colour = "off"
-print_rgb = "off"
-print_background = "off"
-print_rotated = "off"
-exit_status = "off"
-badge = "on"
-substitute_mark = "off"
-substitute_character = "\u2426"
-prompt_at_bottom = "off"
-wrap_words = "on"
-wrap_marker = "on"
+# [screen]
+# transition = "off"
+# checksum = "on"
+# logging = "on"
+# printing = "on"
+# notifications = "on"
+# print_colour = "off"
+# print_rgb = "off"
+# print_background = "off"
+# print_rotated = "off"
+# exit_status = "off"
+# badge = "on"
+# substitute_mark = "off"
+# substitute_character = "\u2426"
+# prompt_at_bottom = "off"
+# wrap_words = "on"
+# wrap_marker = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast
 # burst snaps forward rather than accumulating lag, and an idle screen pays
 # nothing, so the added latency is bounded rather than a reason to opt out.
 # Set "normal" for an instant jump with no slide.
-[scroll]
-mode = "smooth"
+# [scroll]
+# mode = "smooth"
 
 # How much memory the image store (Sixel and kitty graphics) is given:
 # pixels_mb bounds the DECODED images (a 1024x1024 picture is 4 MiB whatever
@@ -515,10 +531,10 @@ mode = "smooth"
 # is off in macOS's Accessibility settings (on Linux, unless the desktop's
 # reduced-motion setting is on); "on" always plays it; "off" holds every one
 # at the frame it shows.
-[images]
-pixels_mb = 95
-advertise_sixel = false
-animation = "os"
+# [images]
+# pixels_mb = 95
+# advertise_sixel = false
+# animation = "os"
 
 # Whether a program can put text on the clipboard with OSC 52: remote
 # Neovim, tmux's copy mode or a multiplexer over ssh, which have no other way
@@ -535,9 +551,9 @@ animation = "os"
 # body_kb is the largest copy, in KiB of the base64 the program sends: 256
 # holds 192 KiB of text. A longer copy is refused whole, never cut, and logs
 # a warning naming this key.
-[clipboard]
-osc52 = "write"
-body_kb = 256
+# [clipboard]
+# osc52 = "write"
+# body_kb = 256
 # Whether finishing a selection with the mouse copies it. "on" by default:
 # on macOS the selection goes to the clipboard as you let go; "off" leaves
 # the clipboard to Cmd-C, unless a program asks for copy-on-select itself
@@ -545,7 +561,7 @@ body_kb = 256
 # selection, which the middle button pastes, as Linux terminals do, or the
 # clipboard while a program has asked for that with ?1041; this key
 # changes neither.
-copy_on_select = "on"
+# copy_on_select = "on"
 
 # baud's short messages, such as the words a copy says, are drawn in a box of
 # their own, opaque, in two colours a program cannot change.
@@ -705,8 +721,8 @@ copy_on_select = "on"
 # connection, or a file you cat, can otherwise move the window off the
 # screen, shrink it or hide it; "off" stops that. Programs can still ask
 # where the window is and how big it is either way.
-[window]
-operations = "on"
+# [window]
+# operations = "on"
 # Nine small lights, as on a modem's front panel: HS (High Speed) while
 # the program's output floods in, AA (Auto Answer) when baud answers the
 # program on its own, CD (Carrier Detect) while the program in front is
@@ -730,7 +746,7 @@ operations = "on"
 #   "on"           your system's place: the title bar on macOS, the
 #                  bottom line on Linux
 #   "off"          nowhere, and nothing is read for them
-activity_lights = "on"
+# activity_lights = "on"
 # Which of your theme's sixteen colours each light is lit in:
 #   "meaning"  baud's own: one colour for each kind of thing, CS green
 #              for a clear line; on a dark theme HS 10, AA 11, CD 4,
@@ -741,11 +757,11 @@ activity_lights = "on"
 #              rest white 7
 #   "modem"    every light red 1, as the modems' front-panel lamps were
 # An unlit light is a dot half the size, colour 8 in every set.
-activity_lights_colours = "meaning"
+# activity_lights_colours = "meaning"
 # How strongly a lit light glows, 0 (none) to 1 (the strongest): a soft
 # halo of its own colour a point off the dot. A value outside 0..1 is held
 # to it. Dim Flashing Lights (macOS) always draws none.
-activity_lights_glow = 0.4
+# activity_lights_glow = 0.4
 # Whether DEC's indicator status line, when a program shows it, also
 # carries five of the lights as words in its free columns, after the
 # printer: CD, OH, CS, FAX and SYN, each there while what it shows holds,
@@ -761,13 +777,13 @@ activity_lights_glow = 0.4
 # any key you type hides it. "off" by default, the lights then only where
 # activity_lights puts them; "states" adds the words. Both macOS and
 # Linux.
-status_line_lights = "off"
+# status_line_lights = "off"
 # Whether the desktop may show a frame the moment it is drawn, even partway
 # through the screen's refresh: the least delay, at the price of a moving
 # picture sometimes cut along a line. "off" by default, so every frame
 # waits for the refresh; "on" asks the desktop, where it offers that, and
 # the desktop still decides. Linux only: on macOS frames always wait.
-tearing = "off"
+# tearing = "off"
 
 # baud's colour logo in the middle of each window as it opens, the first
 # and every one you open after it: it comes out of a burst of plasma from
@@ -781,8 +797,8 @@ tearing = "off"
 # window opens, if it draws nothing).
 # "on" by default; "off" turns it off. Saving "off" while it shows takes
 # it down at once.
-[launch]
-splash = "on"
+# [launch]
+# splash = "on"
 
 # Whether baud marks your shell's prompts for it (shell integration), so
 # the output above the prompt you are at counts as finished: it wraps at
@@ -829,10 +845,12 @@ splash = "on"
 # which can be another shell than the one your other terminals run. A
 # path that is not absolute, or names no file you may run, shows a notice
 # and the window starts the default shell. A change shows in the next
-# window.
-[shell]
-integration = "on"
-# program = "/run/current-system/sw/bin/zsh"
+# window. The line below names /bin/sh only because every system has it at
+# that path, and a bare name is not looked up; sh gets no prompt marks, so
+# name your zsh, bash or fish by its own full path.
+# [shell]
+# integration = "on"
+# program = "/bin/sh"
 
 # How keys behave before a program asks otherwise, the four keyboard modes a
 # DEC terminal lets you set in its Set-Up screen. A program can still change
@@ -854,19 +872,19 @@ integration = "on"
 #   with DECKPAM (ESC O p for 0) rather than its digits. As on the VT420 and
 #   VT510, it is not kept: changing it here switches the open windows'
 #   keypad, and a new window or a reset starts with digits. "off" by default.
-[keyboard]
-auto_repeat = "on"
-application_cursor_keys = "off"
-new_line = "off"
-application_keypad = "off"
+# [keyboard]
+# auto_repeat = "on"
+# application_cursor_keys = "off"
+# new_line = "off"
+# application_keypad = "off"
 
 # Whether a key you type hides the mouse pointer until the mouse moves, as
 # xterm does. "on" by default: it hides unless a program is using the mouse
 # (vim with mouse support, htop, tmux), when the pointer stays so you can
 # click. "off" never hides it. A program can choose differently for itself
 # (xterm's XTSMPOINTER); a reset returns to this.
-[pointer]
-hide_while_typing = "on"
+# [pointer]
+# hide_while_typing = "on"
 
 # Whether a program can change the font (xterm's OSC 50): name one of the
 # faces baud has loaded -- the embedded font or a font this file lists
@@ -877,8 +895,8 @@ hide_while_typing = "on"
 # step and the bounds are in pixels of the configured size). "on" by
 # default; "off" refuses every change. A program can ask which font is in
 # use either way, and gets back the name it set.
-[font]
-changes = "on"
+# [font]
+# changes = "on"
 
 # The fonts a program can switch its text to: SGR 11 to SGR 19 ask for
 # the first to the ninth alternative font, and SGR 10 for your ordinary
@@ -909,7 +927,7 @@ changes = "on"
 # pins it. On Linux the dim follows the half of the palette drawn, which
 # "theme" and the desktop's light or dark setting decide, and the style,
 # tint, hue, saturation and shadow keys have no counterpart at all.
-[glass]
+# [glass]
 
 # Which material. "standard", the default, is macOS's standard see-through
 # window material, the one Apple's guidelines put behind an app's content:
@@ -917,10 +935,10 @@ changes = "on"
 # another window is in front. "regular" is Liquid Glass, frosted, and
 # "clear" the thinner, more see-through Liquid Glass, which Apple keeps
 # for controls over photos and video.
-style = "standard"
+# style = "standard"
 
-# The body dim: the opacity EVERY background is painted at, 0 clear to 1
-# opaque, so the desktop shows through it. Not just the default background --
+# The body dim, `dim_dark` and `dim_light`: the opacity EVERY background is
+# painted at, 0 clear to 1 opaque, so the desktop shows through it. Not just the default background --
 # a colour an application sets is translucent too, so btop and anything else
 # that paints its own panels is see-through rather than a slab. The defaults keep the
 # default text at 4.5:1 or more over a white desktop and over a black one; turn them down to see more of the desktop, at the cost of text over a bright
@@ -933,14 +951,14 @@ style = "standard"
 # the dark palette's 0.70 already reads. While Accessibility's
 # Reduce Transparency is on, every background and the margin are drawn
 # opaque, whatever these say.
-dim_dark = 0.70
-dim_light = 0.60
+# dim_dark = 0.70
+# dim_light = 0.60
 
 # Whether a background an application sets is dimmed with the default one.
 # "dim" draws it at the body dim, so btop's panels are see-through. "opaque" draws
 # every background an application sets as it chose it, and leaves only the
 # default background see-through, so btop's panels are solid.
-app_backgrounds = "dim"
+# app_backgrounds = "dim"
 
 # Under "dim" above, whether a picture drawn in text keeps its backgrounds
 # solid. A file manager's photo preview (chafa, when there is no Sixel) is a
@@ -949,31 +967,31 @@ app_backgrounds = "dim"
 # pictures -- a connected block of set backgrounds with sixteen or more
 # colours, which a photo has and no measured TUI panel does (the busiest,
 # vim's diff mode, has 8) -- and draws only those solid. "dim" dims them too.
-pictures = "opaque"
+# pictures = "opaque"
 
 # How a Sixel image's solid background draws on the see-through window
 # (an image that asks for one, P2 0 or 2). "opaque", the default, draws it
 # solid, as on an opaque window. "dim" draws it see-through at the body dim
 # over the text, which shows through it, faded. "clear" clears what is
 # under it to the see-through background, as erased cells look.
-sixel_backgrounds = "opaque"
+# sixel_backgrounds = "opaque"
 
-# The glass darkening, applied to the material itself rather than as a
-# layer over it, so the titlebar strip and the body are one surface. 0 turns
+# The glass darkening, `tint_dark` and `tint_light`, applied to the material
+# itself rather than as a layer over it, so the titlebar strip and the body are one surface. 0 turns
 # it off. It and the hue and saturation below darken Liquid Glass only;
 # the standard material has no tint.
-tint_dark = 0.54
-tint_light = 0.14
+# tint_dark = 0.54
+# tint_light = 0.14
 
 # The darkening's hue and saturation, 0 to 1 each. Not black: black scales
 # every channel equally, so it cannot shift the material's hue, only scale the
 # colour down -- the harder it darkens, the less colour survives. 0.60 is a
 # blue.
-hue = 0.60
-saturation = 0.80
+# hue = 0.60
+# saturation = 0.80
 
 # Whether the window casts a shadow: "auto", "always" or "never". "auto" casts
 # one only under a dark appearance -- over a light material a window shadow
 # draws as a hard black outline, which none of the system's own light glass
 # surfaces have.
-shadow = "auto"
+# shadow = "auto"

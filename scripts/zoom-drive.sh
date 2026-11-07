@@ -17,6 +17,8 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# No run writes a config into the caller's home.
+. "$ROOT/scripts/baud-config-guard.sh"
 OUT=${1:-/tmp/zoom.log}
 N=${N:-8}
 

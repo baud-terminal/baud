@@ -81,6 +81,7 @@ fn launchd_env(env: &Env, extra: Option<(&str, &str)>, out: &str) -> Vec<(OsStri
 type Seen = (Option<String>, Vec<(String, String)>);
 
 fn launch(binary: &str, env: Vec<(OsString, OsString)>, out: &Path) -> Result<Seen, String> {
+    let env = super::guarded(&env).map_err(|e| format!("{binary}: a config to name: {e}"))?;
     let mut child = Command::new(binary)
         .env_clear()
         .envs(env)

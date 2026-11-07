@@ -23,9 +23,21 @@
 //! the logic in `src/build_id.rs`, and `BAUD_RELEASED`, its commit's time in
 //! seconds since 1970 or empty, which the About window's age line counts
 //! from. It writes no file; a `rustc-env` is all the tree sees of either.
+//!
+//! **And the example config, held to its shape**: `config.toml.example` is
+//! the file baud writes when it finds no config (`src/default_config.rs`),
+//! so a line in force, a key with no comment above it, a key or section
+//! given twice, or a section out of place stops the build here
+//! (`src/config_example.rs`), as a pinned table that does not parse stops
+//! `baud-tablegen`.
 
 #[path = "src/build_id.rs"]
 mod build_id;
+// The build asks only whether the example is the right shape; the
+// entries themselves are for the crate's tests (`config.rs`, `mod example`).
+#[allow(dead_code)]
+#[path = "src/config_example.rs"]
+mod config_example;
 
 use std::path::Path;
 use std::process::Command;
@@ -82,8 +94,21 @@ fn identifier() -> (String, Option<SystemTime>) {
     }
 }
 
+/// The example config, read as the file baud writes, or the build stops.
+fn example() {
+    println!("cargo:rerun-if-changed=config.toml.example");
+    println!("cargo:rerun-if-changed=src/config_example.rs");
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it");
+    let path = Path::new(&manifest).join("config.toml.example");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    if let Err(stop) = config_example::entries(&text) {
+        panic!("config.toml.example {}", stop.said());
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    example();
     let package = std::env::var("CARGO_PKG_VERSION").expect("cargo sets it");
     let (id, time) = identifier();
     println!(

@@ -9,9 +9,25 @@ parts have run there.
 
 ## Where the file goes
 
-Copy [config.toml.example](../../config.toml.example) to
-`~/.config/baud/config.toml` and delete every line you do not want to
-change. The example explains each key in more detail than this page.
+When baud starts and finds no config file in any of the places below, it
+writes one, before it opens its first window, to
+`$XDG_CONFIG_HOME/baud/config.toml`, or to `~/.config/baud/config.toml`
+when `XDG_CONFIG_HOME` is not set. The file is
+[config.toml.example](../../config.toml.example) under two lines naming the
+version that wrote it: every key commented out at its default, or at an
+example where the default is unset or follows your system, so it changes
+nothing until you take the `#` off a line. It explains each key in more
+detail than this page.
+
+- **baud writes it once and never changes it.** A later baud's new keys
+  are not added; remove the file and the next launch writes the current
+  one. An empty file stays as it is and means the defaults.
+- **It writes nothing when `BAUD_CONFIG` is set**, or when anything is at
+  one of the places below, a link that points nowhere included, so a
+  home-manager link is never replaced. Nor does it write over a file that
+  appears while it writes.
+- **If it cannot write** (a read-only home, or no `HOME`), it starts with
+  the defaults and says so once on the terminal baud was started from.
 
 baud looks in three places and reads the first file it finds:
 
@@ -402,7 +418,7 @@ and prints a warning for each. Three of them do nothing now, and
 
 | variable | what it does |
 |---|---|
-| `BAUD_CONFIG` | A config file to read instead of the usual places. |
+| `BAUD_CONFIG` | A config file to read instead of the usual places. With it set, baud writes no config of its own. |
 | `XDG_CONFIG_HOME` | Where to look for `baud/config.toml` before `~/.config`. |
 | `BAUD_LOG` | How much baud says: `err`, `warn` (the default), `info`, `debug` or `verbose`. |
 

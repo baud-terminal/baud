@@ -22,7 +22,10 @@
 //! `$XDG_CONFIG_HOME/baud/ config.toml`, then `~/.config/baud/config.toml`,
 //! and in the working directory only as far as a relative `$BAUD_CONFIG`
 //! names a file under it; a relative font or theme path in it names a file
-//! beside it ([`config_paths`]). When none is found or a field is absent,
+//! beside it ([`config_paths`]). A launch that finds none, with no
+//! `$BAUD_CONFIG`, first writes the commented example to the first of the
+//! other two, every key in it commented out (`default_config.rs`), so what
+//! it reads is still the defaults. When none is found or a field is absent,
 //! the defaults are the stack that starts with baud's embedded font --
 //! JetBrains Mono, with baud's Hebrew in its Regular and Bold -- and its
 //! Nerd Fonts icon face, with the embedded Bold, Italic and Bold Italic as
@@ -6099,39 +6102,6 @@ mod reader {
         assert_eq!(c.message.colours.page, MessagePaint::Selection);
     }
 
-    /// **The example's message lines, each written as a comment, read as the
-    /// defaults with nothing said**, uncommented whole; the five keys are all
-    /// there. Perturbation: write another value in a comment in the example.
-    #[test]
-    fn the_examples_message_lines_read_as_the_defaults() {
-        let text = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../config.toml.example"
-        ))
-        .expect("config.toml.example");
-        let lines: Vec<&str> = text
-            .lines()
-            .filter_map(|l| l.strip_prefix("# "))
-            .filter(|l| {
-                [
-                    "[message",
-                    "box_color =",
-                    "text_color =",
-                    "enable =",
-                    "place =",
-                    "pulse =",
-                ]
-                .iter()
-                .any(|p| l.starts_with(p))
-            })
-            .collect();
-        assert_eq!(lines.len(), 7, "two headers and five keys: {lines:?}");
-        let mut c = Config::defaults();
-        let said = c.apply(&lines.join("\n"));
-        assert!(said.is_empty(), "{said:?}");
-        assert_eq!(c.message, Config::defaults().message);
-    }
-
     /// **`[clipboard] copy_on_select` is on unless it says off** (note
     /// V, V13): `on` and `off` read, and anything else keeps on and
     /// says so.
@@ -6903,51 +6873,16 @@ shadow     = "never"
         assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
     }
 
-    /// **The committed example must parse to what it documents**, and
-    /// the first draft of it did not: `fonts` sat after the `[glass]`
-    /// header, so the namespace this change introduces swallowed the font
-    /// stack and the example silently ran the built-in one. A file whose
-    /// keys are in the wrong order is the same defect as a key in the
-    /// wrong section, and nothing but reading it catches either.
+    /// **What the example's prose calls the cursor's defaults, they are**:
+    /// it calls the trail the reader runs by default the default, and its
+    /// commented `trail` and `blink_interval_ms` lines name that trail and
+    /// the interval baud blinks at when the system sets none. Both lines
+    /// are examples rather than defaults (`mod example`, `EXAMPLES`): a
+    /// trail named is kept under Reduce Motion, and an interval set wins
+    /// over the system's. Perturbation: call another trail the default.
     #[test]
-    fn the_committed_example_parses_to_what_it_documents() {
-        let text = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../config.toml.example"
-        ))
-        .expect("config.toml.example");
-        // No line a reload would refuse, so a copy of it shows no notice.
-        assert_eq!(super::syntax(&text), None);
-        let c = read(&text);
-        assert_eq!(c.font_size, 13.0);
-        assert_eq!(c.padding, 8.0);
-        assert_eq!(c.config_reload, ConfigReload::On);
-        assert_eq!(c.theme, ThemeChoice::Auto);
-        assert_eq!(c.colorspace, Space::Srgb);
-        // Its `[glass]` section is written at the defaults it describes.
-        assert_eq!(c.glass, Glass::defaults());
-        // Its `fonts` examples are commented out -- an uncommented one would
-        // make a copied example replace the embedded default -- so the
-        // stack is the built-in one, embedded face first.
-        assert_eq!(c.faces.len(), Config::defaults().faces.len());
-        assert!(
-            is(&c.faces[0], crate::embedded::REGULAR),
-            "{}",
-            c.faces[0].path
-        );
-        assert_eq!(c.font_fallback, FontFallback::Embedded);
-        // `bell` is written at its default, so the line is checked as well
-        // as what it reads to.
-        assert!(text.contains("\nbell = \"sound\"\n"), "the bell line");
-        assert_eq!(c.bell, BellStyle::Sound);
-        // The `[cursor]` section lands; that a section header cannot
-        // swallow a top-level list is `a_list_across_lines_survives_a_section_header`.
-        // The example's `trail` line is commented out -- naming a trail keeps
-        // it under Reduce Motion -- so the section's landing is the shape and
-        // blink below, which are named.
-        assert_eq!(c.cursor_trail, TrailPick::Default);
-        // What it says the default is, it is: the prose and the commented
-        // line both name the trail the reader runs by default.
+    fn the_examples_cursor_prose_names_the_defaults() {
+        let text = crate::default_config::EXAMPLE;
         let default = trail_name(CursorTrail::default());
         assert!(
             text.contains(&format!("\"{default}\", the default,")),
@@ -6957,161 +6892,12 @@ shadow     = "never"
             text.contains(&format!("\n# trail = \"{default}\"\n")),
             "config.toml.example's commented trail is not the default"
         );
-        assert_eq!(
-            (c.blink_animation, c.blink_interval),
-            (BlinkAnimation::default(), BlinkInterval::Default),
-            "the example's blink animation is the default and its interval unset"
-        );
-        assert!(
-            text.contains("\nblink_animation = \"none\"\n"),
-            "the animation line"
-        );
         assert!(
             text.contains(&format!(
                 "\n# blink_interval_ms = {}\n",
                 crate::caret::EVEN.as_millis()
             )),
             "the interval line names the default"
-        );
-        assert_eq!(
-            (
-                c.cursor_shape,
-                c.cursor_blink,
-                c.cursor_stop,
-                c.trail_scroll,
-                c.unfocused_cursor
-            ),
-            (
-                CursorShape::Block,
-                BlinkChoice::Auto,
-                StopAfter::Never,
-                TrailScroll::Ride,
-                baud_render::CursorLook::Shaped
-            )
-        );
-        assert_eq!(
-            c.screen_transition,
-            ScreenTransition::Off,
-            "the [screen] section did not land"
-        );
-        assert!(
-            text.contains(
-                "\n[screen]\ntransition = \"off\"\nchecksum = \"on\"\nlogging = \"on\"\nprinting = \"on\"\n"
-            ),
-            "the [screen] checksum, logging and printing"
-        );
-        assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
-        assert!(
-            text.contains("\nsubstitute_mark = \"off\"\nsubstitute_character = \"\\u2426\"\n"),
-            "the [screen] substitute lines"
-        );
-        assert_eq!(
-            c.substitute,
-            Substitute::DEFAULT,
-            "the example's mark is the default"
-        );
-        assert!(
-            text.contains("\nprompt_at_bottom = \"off\"\n"),
-            "the [screen] prompt_at_bottom line"
-        );
-        assert_eq!(c.prompt_at_bottom, baud_domain::PromptAtBottom::Off);
-        assert_eq!(c.logging, baud_domain::Logging::On);
-        assert_eq!(c.printing, Printing::On);
-        assert!(
-            text.contains("\nnotifications = \"on\"\n"),
-            "the [screen] notifications"
-        );
-        assert_eq!(c.notifications, Notifications::On);
-        assert!(
-            text.contains("\nexit_status = \"off\"\n"),
-            "the [screen] exit_status"
-        );
-        assert_eq!(c.exit_status, baud_render::StatusMarks::Off);
-        assert!(
-            text.contains("\n[window]\noperations = \"on\"\n"),
-            "the [window] operations"
-        );
-        assert_eq!(c.window_ops, baud_domain::WindowOps::On);
-        let window = text.split_once("\n[window]\n").map_or("", |(_, w)| w);
-        let window = window.split_once("\n[").map_or(window, |(w, _)| w);
-        assert!(
-            window.contains("\nactivity_lights = \"on\"\n"),
-            "the [window] activity_lights"
-        );
-        assert_eq!(
-            c.activity_lights,
-            lights_at(LightsSetting::System, Os::HERE).0
-        );
-        assert!(
-            window.contains("\nstatus_line_lights = \"off\"\n"),
-            "the [window] status_line_lights"
-        );
-        assert_eq!(c.status_line_lights, baud_render::StatusLineLights::Off);
-        assert!(
-            text.contains("\n[pointer]\nhide_while_typing = \"on\"\n"),
-            "the [pointer] hide_while_typing"
-        );
-        assert_eq!(c.pointer_mode, baud_domain::PointerMode::UnlessTracking);
-        assert!(
-            text.contains("\n[font]\nchanges = \"on\"\n"),
-            "the [font] changes"
-        );
-        assert_eq!(c.font_changes, baud_domain::FontChanges::On);
-        assert_eq!(
-            c.scroll,
-            ScrollMode::Smooth,
-            "the [scroll] section did not land"
-        );
-        assert!(
-            text.contains("\n[text]\nambiguous_width = \"narrow\"\n"),
-            "the [text] section"
-        );
-        assert_eq!(c.ambiguous_width, baud_domain::AmbiguousWidth::Narrow);
-        // The values above are all defaults, so they read the same whether
-        // a line landed or was swallowed by the section above it. What
-        // separates the two is the reader's own account: every key the
-        // example writes reached an arm that acts on it, in the section it
-        // sits in, and no value fell back.
-        let said = Config::defaults().apply(&text);
-        assert!(
-            said.is_empty(),
-            "the example writes what the reader ignores: {said:?}"
-        );
-        // And the reader saw every key line. A line swallowed into an
-        // unclosed list, or dropped by the tokenizer, is nothing said; this
-        // counts them a second way, as a key at the start of a line.
-        let written = text
-            .lines()
-            .filter(|l| {
-                l.split_once(" =").is_some_and(|(k, _)| {
-                    !k.is_empty()
-                        && k.bytes()
-                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                })
-            })
-            .count();
-        assert!(
-            written > 10,
-            "the key count found {written} lines; the probe is broken"
-        );
-        assert_eq!(
-            fields(&text).len(),
-            written,
-            "a key line did not reach the reader"
-        );
-        assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");
-        // The `[images]` section lands too, and it sits after `fonts` for
-        // the reason `[cursor]` does -- a section before the stack would
-        // swallow it, which the face assert above would catch.
-        assert_eq!(
-            c.images,
-            crate::host::IMAGE_BUDGET,
-            "the [images] section did not land"
-        );
-        assert_eq!(
-            c.clipboard,
-            Clipboard::DEFAULT,
-            "the [clipboard] section did not land"
         );
     }
 
@@ -7410,6 +7196,447 @@ mod lookup {
     }
 }
 
+/// **`config.toml.example`, the file a launch with no config writes
+/// (`default_config.rs`), held to the reader.** The build holds its shape
+/// (`build.rs`, `config_example.rs`); these hold what it says: the keys the
+/// reader knows, each at its default, and the file as written changing
+/// nothing.
+#[cfg(test)]
+mod example {
+    use super::*;
+    use crate::config_example::{Entry, LineNo, Stop, entries};
+    use std::collections::BTreeSet;
+
+    /// Why a key's commented line is an example and not its default.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Why {
+        /// Unset by default, and no value spells unset.
+        Unset,
+        /// The default follows the system, which no value spells.
+        System,
+    }
+
+    /// **The keys whose commented line is not the default**, and why. Every
+    /// other key, uncommented alone, reads as [`Config::defaults`]
+    /// (`each_key_uncommented_alone_reads_as_its_default`), and each of
+    /// these does not (`the_marked_examples_are_the_keys_that_differ`), so
+    /// the list is exactly the keys that differ.
+    const EXAMPLES: [(&str, &str, Why); 11] = [
+        ("", "fonts", Why::Unset),
+        ("palette", "light", Why::Unset),
+        ("palette", "dark", Why::Unset),
+        ("palette", "selection", Why::Unset),
+        ("palette", "selection_text", Why::Unset),
+        ("palette", "cursor_text", Why::Unset),
+        ("cursor", "blink_interval_ms", Why::System),
+        ("cursor", "trail", Why::System),
+        ("shell", "program", Why::Unset),
+        ("font", "alternatives", Why::Unset),
+        ("font", "fraktur", Why::Unset),
+    ];
+
+    fn keys() -> Vec<Entry> {
+        entries(crate::default_config::EXAMPLE).expect("the build read it")
+    }
+
+    fn marked(e: &Entry) -> bool {
+        EXAMPLES
+            .iter()
+            .any(|(s, k, _)| *s == e.section && *k == e.key)
+    }
+
+    /// `e` uncommented, alone, under its section's header.
+    fn alone(e: &Entry) -> String {
+        match e.section.as_str() {
+            "" => format!("{}\n", e.text),
+            s => format!("[{s}]\n{}\n", e.text),
+        }
+    }
+
+    /// **The fields of `b` that are not `a`'s**, by name. It names every
+    /// field, so a field added to [`Config`] does not compile here until it
+    /// is compared; faces compare as `live::between` compares them.
+    fn differs(a: &Config, b: &Config) -> Vec<&'static str> {
+        let Config {
+            source,
+            faces,
+            stack,
+            font_slots,
+            font_fallback,
+            font_size,
+            padding,
+            colorspace,
+            theme,
+            floor,
+            palette_light,
+            palette_dark,
+            selection,
+            cursor,
+            cursor_trail,
+            cursor_shape,
+            cursor_blink,
+            cursor_stop,
+            blink_animation,
+            blink_interval,
+            cursor_guide,
+            unfocused_cursor,
+            screen_transition,
+            exit_status,
+            badge,
+            wrap_words,
+            wrap_marker,
+            shell_integration,
+            shell_program,
+            set_up,
+            checksum,
+            substitute,
+            prompt_at_bottom,
+            logging,
+            printing,
+            notifications,
+            graphics_print,
+            window_ops,
+            activity_lights,
+            status_line_lights,
+            activity_lights_colours,
+            activity_lights_glow,
+            tearing,
+            launch_splash,
+            pointer_mode,
+            font_changes,
+            scroll,
+            trail_scroll,
+            glass,
+            images,
+            sixel,
+            image_animation,
+            vs16_width,
+            ambiguous_width,
+            join_spacing_marks,
+            emoji,
+            bell,
+            clipboard,
+            message,
+            link,
+            config_reload,
+        } = b;
+        let same = |x: &[FaceSpec], y: &[FaceSpec]| {
+            x.len() == y.len()
+                && x.iter().zip(y).all(|(p, q)| {
+                    p.path == q.path
+                        && p.index == q.index
+                        && p.from == q.from
+                        && p.role == q.role
+                        && p.variations == q.variations
+                })
+        };
+        let mut out = Vec::new();
+        if !same(&a.faces, faces) {
+            out.push("faces");
+        }
+        if !same(&a.font_slots, font_slots) {
+            out.push("font_slots");
+        }
+        macro_rules! compare {
+            ($($f:ident),* $(,)?) => {
+                $(if a.$f != *$f {
+                    out.push(stringify!($f));
+                })*
+            };
+        }
+        compare!(
+            source,
+            stack,
+            font_fallback,
+            font_size,
+            padding,
+            colorspace,
+            theme,
+            floor,
+            palette_light,
+            palette_dark,
+            selection,
+            cursor,
+            cursor_trail,
+            cursor_shape,
+            cursor_blink,
+            cursor_stop,
+            blink_animation,
+            blink_interval,
+            cursor_guide,
+            unfocused_cursor,
+            screen_transition,
+            exit_status,
+            badge,
+            wrap_words,
+            wrap_marker,
+            shell_integration,
+            shell_program,
+            set_up,
+            checksum,
+            substitute,
+            prompt_at_bottom,
+            logging,
+            printing,
+            notifications,
+            graphics_print,
+            window_ops,
+            activity_lights,
+            status_line_lights,
+            activity_lights_colours,
+            activity_lights_glow,
+            tearing,
+            launch_splash,
+            pointer_mode,
+            font_changes,
+            scroll,
+            trail_scroll,
+            glass,
+            images,
+            sixel,
+            image_animation,
+            vs16_width,
+            ambiguous_width,
+            join_spacing_marks,
+            emoji,
+            bell,
+            clipboard,
+            message,
+            link,
+            config_reload,
+        );
+        out
+    }
+
+    /// **The example's keys are the reader's, both ways**: every key
+    /// `Config::apply` matches by name, but for those the guide lists under
+    /// "Keys baud no longer reads", which the reader matches only to say
+    /// what replaced them, so a written file naming one would say it at
+    /// every launch. The positive controls are a first and a last arm on
+    /// both sides, and a retired key the guide's scan must find.
+    /// Perturbation: drop `join_spacing_marks`'s lines from the example, or
+    /// add an arm to `apply`.
+    #[test]
+    fn the_examples_keys_are_the_readers() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/guide/configuration.md"
+        ))
+        .expect("docs/guide/configuration.md");
+        let (_, retired) = super::guide::listed(&page);
+        assert!(
+            retired.contains(&(String::new(), "font_smoothing".to_string())),
+            "the guide's retired keys stopped matching: {retired:?}"
+        );
+        let reader: BTreeSet<(String, String)> = super::guide::reader_keys()
+            .difference(&retired)
+            .cloned()
+            .collect();
+        let example: BTreeSet<(String, String)> =
+            keys().into_iter().map(|e| (e.section, e.key)).collect();
+        for side in [&reader, &example] {
+            for (s, k) in [("", "font_size"), ("glass", "shadow")] {
+                assert!(
+                    side.contains(&(s.to_string(), k.to_string())),
+                    "a scan stopped matching: no [{s}] {k} in {side:?}"
+                );
+            }
+        }
+        let missing: Vec<_> = reader.difference(&example).collect();
+        let invented: Vec<_> = example.difference(&reader).collect();
+        assert!(
+            missing.is_empty() && invented.is_empty(),
+            "config.toml.example is out of step with Config::apply:\n  \
+             read but not in the example: {missing:?}\n  in the example but never read: {invented:?}"
+        );
+    }
+
+    /// **Each key, uncommented alone, reads as its default with nothing
+    /// said**, but for [`EXAMPLES`]: the check that catches a wrong value
+    /// in a comment, or prose that has drifted from the reader. Each one
+    /// reaches the reader as one key, so a list that swallowed the lines
+    /// after it, or a key under the wrong section, cannot pass quietly.
+    /// Perturbation: write `# font_size = 14`, or move a key under another
+    /// section.
+    #[test]
+    fn each_key_uncommented_alone_reads_as_its_default() {
+        let defaults = Config::defaults();
+        let mut checked = 0;
+        for e in keys() {
+            let text = alone(&e);
+            assert_eq!(
+                fields(&text).len(),
+                1,
+                "line {}: [{}] {} is not one key: {text:?}",
+                e.line,
+                e.section,
+                e.key
+            );
+            let mut c = Config::defaults();
+            let said = c.apply(&text);
+            assert!(
+                said.is_empty(),
+                "line {}: [{}] {} uncommented says {said:?}",
+                e.line,
+                e.section,
+                e.key
+            );
+            if !marked(&e) {
+                assert_eq!(
+                    differs(&defaults, &c),
+                    Vec::<&str>::new(),
+                    "line {}: [{}] {} is not written at its default",
+                    e.line,
+                    e.section,
+                    e.key
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 60, "the probe reached {checked} keys");
+    }
+
+    /// **The file as written changes nothing**: no line a reload refuses,
+    /// no key in force, nothing said, and the defaults. Perturbation: a
+    /// key line in force in `default_config::WRITTEN`'s header, which
+    /// `build.rs` does not read.
+    #[test]
+    fn the_written_file_reads_as_the_defaults() {
+        let text = crate::default_config::WRITTEN;
+        assert_eq!(super::syntax(text), None);
+        assert!(fields(text).is_empty(), "in force: {:?}", fields(text));
+        let mut c = Config::defaults();
+        let said = c.apply(text);
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(differs(&Config::defaults(), &c), Vec::<&str>::new());
+    }
+
+    /// **The marked examples are the keys that differ**: each is in the
+    /// example, reads with nothing said, and reads as something other than
+    /// the default, so an entry the example no longer needs fails here
+    /// rather than excusing a key. Perturbation: mark `font_size`.
+    #[test]
+    fn the_marked_examples_are_the_keys_that_differ() {
+        let all = keys();
+        for (s, k, why) in EXAMPLES {
+            let e = all
+                .iter()
+                .find(|e| e.section == s && e.key == k)
+                .unwrap_or_else(|| panic!("[{s}] {k} is marked {why:?} and not in the example"));
+            let mut c = Config::defaults();
+            let said = c.apply(&alone(e));
+            assert!(said.is_empty(), "[{s}] {k}: {said:?}");
+            assert!(
+                !differs(&Config::defaults(), &c).is_empty(),
+                "[{s}] {k} is marked {why:?} but reads as the default: unmark it"
+            );
+        }
+        let distinct: BTreeSet<(&str, &str)> = EXAMPLES.iter().map(|(s, k, _)| (*s, *k)).collect();
+        assert_eq!(distinct.len(), EXAMPLES.len(), "a key marked twice");
+    }
+
+    /// The stop `text` makes, whose sentence names the line it is on.
+    fn stop(text: &str) -> Stop {
+        let s = entries(text).expect_err("a malformed example");
+        let line = match &s {
+            Stop::Active { line }
+            | Stop::Unexplained { line, .. }
+            | Stop::Twice { line, .. }
+            | Stop::Again { line, .. }
+            | Stop::Orphan { line, .. }
+            | Stop::Unclosed { line, .. } => *line,
+        };
+        assert!(
+            s.said().starts_with(&format!("line {line}")),
+            "{}",
+            s.said()
+        );
+        s
+    }
+
+    /// **The build stops on each malformed shape**, through the same
+    /// reader `build.rs` runs: a line in force, a key with no comment
+    /// above it, a key or a section given twice, a section within one it
+    /// does not follow, and a list never closed. The control is the example
+    /// as committed, which reads, and with a `[link.NAME]` section of the
+    /// shape a link type of the user's own would take, which reads too.
+    /// Perturbation: drop any one stop from `config_example::entries`.
+    #[test]
+    fn the_build_stops_on_a_malformed_example() {
+        let good = crate::default_config::EXAMPLE;
+        assert!(entries(good).is_ok(), "the control");
+        let at = |needle: &str| good.lines().position(|l| l == needle).expect(needle) + 1;
+        let line = LineNo(at("# font_size = 13"));
+        assert_eq!(
+            stop(&good.replacen("\n# font_size = 13\n", "\nfont_size = 13\n", 1)),
+            Stop::Active { line }
+        );
+        assert_eq!(
+            stop(&good.replacen(
+                "# Points; pixels are this times the display's backing scale.\n",
+                "",
+                1
+            )),
+            Stop::Unexplained {
+                line: LineNo(line.0 - 1),
+                key: "font_size".into()
+            }
+        );
+        assert_eq!(
+            stop("# One.\n# a = 1\n\n# The same, again.\n# a = 2\n"),
+            Stop::Twice {
+                line: LineNo(5),
+                section: String::new(),
+                key: "a".into(),
+                first: LineNo(2)
+            }
+        );
+        assert_eq!(
+            stop("# S.\n# [s]\n\n# T.\n# [t]\n\n# S again.\n# [s]\n"),
+            Stop::Again {
+                line: LineNo(8),
+                section: "s".into(),
+                first: LineNo(2)
+            }
+        );
+        assert_eq!(
+            stop("# S.\n# [s]\n\n# Within t.\n# [t.u]\n"),
+            Stop::Orphan {
+                line: LineNo(5),
+                section: "t.u".into(),
+                parent: "t".into()
+            }
+        );
+        assert_eq!(
+            stop("# A list.\n# a = [\n#   \"x\",\n\n"),
+            Stop::Unclosed {
+                line: LineNo(2),
+                key: "a".into()
+            }
+        );
+        // A name the example has no section of, or the injection is a
+        // section given twice and stops for that.
+        assert!(
+            !good.contains("# [link.sip]"),
+            "the example has no [link.sip]"
+        );
+        let own = good.replacen(
+            "# hover = \"box\"\n",
+            "# hover = \"box\"\n#\n# A link type of your own: scheme, the scheme it matches, and\n\
+             # action, what a click does.\n# [link.sip]\n# scheme = \"sip\"\n# action = \"open\"\n",
+            1,
+        );
+        assert_ne!(own, good, "the anchor is there");
+        let read = entries(&own).expect("a link type of the user's own reads");
+        assert!(
+            read.iter()
+                .any(|e| e.section == "link.sip" && e.key == "action"),
+            "{:?}",
+            read.last()
+        );
+    }
+}
+
 /// The user guide's configuration page, held to the reader.
 #[cfg(test)]
 mod guide {
@@ -7419,7 +7646,7 @@ mod guide {
     /// `Config::apply`'s own arms: a line in that function that opens with
     /// `("` and holds `") =>`. The catch-all arms bind a name rather than a
     /// literal, so they are not read as keys.
-    fn reader_keys() -> BTreeSet<(String, String)> {
+    pub(super) fn reader_keys() -> BTreeSet<(String, String)> {
         let src = include_str!("config.rs");
         let start = src.find("fn apply(").expect("Config::apply");
         let body = &src[start..];
@@ -7444,6 +7671,17 @@ mod guide {
     /// and under `## Keys baud no longer reads` a backticked key that may
     /// carry its `[section]` in front.
     fn documented_keys(page: &str) -> BTreeSet<(String, String)> {
+        let (live, gone) = listed(page);
+        live.union(&gone).cloned().collect()
+    }
+
+    /// Keys by `(section, key)`, the top level's section empty.
+    pub(super) type Keys = BTreeSet<(String, String)>;
+
+    /// [`documented_keys`], split: the keys listed under a section, and
+    /// those under `## Keys baud no longer reads`, which the reader still
+    /// matches only to say what replaced them.
+    pub(super) fn listed(page: &str) -> (Keys, Keys) {
         enum In {
             Section(String),
             Gone,
@@ -7451,6 +7689,7 @@ mod guide {
         }
         let mut at = In::Elsewhere;
         let mut keys = BTreeSet::new();
+        let mut gone = BTreeSet::new();
         for line in page.lines() {
             if let Some(h) = line.strip_prefix("## ") {
                 at = if h == "Top level" {
@@ -7480,18 +7719,18 @@ mod guide {
                         Some((s, k)) => (s.to_string(), k.to_string()),
                         None => (String::new(), cell.to_string()),
                     };
-                    keys.insert((s, k));
+                    gone.insert((s, k));
                 }
                 In::Elsewhere => {}
             }
         }
-        keys
+        (keys, gone)
     }
 
     /// **docs/guide/configuration.md lists every key the reader acts on, and
-    /// no other.** The example file is held to the reader in one direction
-    /// (`the_committed_example_parses_to_what_it_documents`: every key it
-    /// writes reaches an arm); this holds the user's page in both, so a key
+    /// no other.** The example file is held to the reader too
+    /// (`example::the_examples_keys_are_the_readers`, both ways, with the
+    /// retired keys left out); this holds the user's page in both, so a key
     /// added to `apply` fails here until the page has its row, and a row for
     /// a key the reader never matches fails as an invented one. The positive
     /// controls are a first and a last arm and a retired key, which the scan

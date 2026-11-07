@@ -306,9 +306,10 @@ fn sample(
     env: &[(OsString, OsString)],
     host: &mut dyn Host,
 ) -> Result<f64, String> {
+    let env = super::guarded(env).map_err(|e| format!("{binary}: a config to name: {e}"))?;
     let mut child = Command::new(binary)
         .env_clear()
-        .envs(env.iter().map(|(k, v)| (k, v)))
+        .envs(env)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

@@ -19,6 +19,8 @@ rounds="$2"
 reps="$3"
 shift 3
 here=$(cd "$(dirname "$0")/.." && pwd)
+# No run writes a config into the caller's home.
+. "$here/scripts/baud-config-guard.sh"
 child="$here/scripts/vt-child.sh"
 : "${ALACRITTY:=alacritty}" "${KITTY:=kitty}" "${GHOSTTY:=ghostty}" "${WEZTERM:=wezterm}"
 : "${BAUD:=$here/target/release/baud}"

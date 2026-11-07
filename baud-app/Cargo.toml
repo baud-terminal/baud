@@ -20,7 +20,7 @@ categories = ["command-line-utilities"]
 # What crates.io gets: the source, what the build reads, the licence and
 # the notices its third-party files need (`cargo xtask publish`).
 # The tests and their fixtures stay in the repository.
-include = ["/src/", "/build.rs", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/", "/terminfo/", "/assets/", "/fonts/built/", "/fonts/stix-two-math/", "/fonts/symbols-nerd-font/"]
+include = ["/src/", "/build.rs", "/config.toml.example", "/README.md", "/LICENSE", "/NOTICE", "/LICENSES/", "/terminfo/", "/assets/", "/fonts/built/", "/fonts/stix-two-math/", "/fonts/symbols-nerd-font/"]
 # `cargo run` at the workspace root runs `baud`, the one binary; the rest is
 # part of the tests. The root manifest's `default-members` makes it build
 # what the bundle ships; this names the binary should the package grow a

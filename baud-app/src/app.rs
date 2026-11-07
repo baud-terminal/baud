@@ -12966,6 +12966,11 @@ pub fn run() {
     if let Some(message) = refusal(Glass::of_system()) {
         refuse(message);
     }
+    // **The default config, before any window reads one**: written once
+    // when none is anywhere baud looks (`default_config.rs`), so the first
+    // window's watch takes it as the file in force. Here and not in
+    // `Boot::prepare`, which every Cmd-N window runs again.
+    crate::default_config::at_launch();
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
     let size = WINDOW_SIZE;
     // What the grid needs before a window exists: the display's scale, and

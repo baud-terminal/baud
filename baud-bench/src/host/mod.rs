@@ -230,11 +230,11 @@ pub struct Launch {
 }
 
 impl Launch {
-    /// Starts `binary` with exactly `env`.
+    /// Starts `binary` with exactly `env`, named a config ([`guarded`]).
     pub fn start(binary: &str, env: &Env) -> io::Result<Launch> {
         let mut child = Command::new(binary)
             .env_clear()
-            .envs(env.iter().map(|(k, v)| (k, v)))
+            .envs(guarded(env)?)
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
             .spawn()?;
@@ -255,6 +255,43 @@ impl Launch {
     pub fn stop(mut self) {
         stop(&mut self.child, Duration::from_secs(5));
     }
+}
+
+/// **`env` as a launch of the app is given it, named a config so the
+/// launch never writes one.** baud writes its commented default config when
+/// it finds none and `BAUD_CONFIG` is unset (`baud-app/src/default_config.rs`),
+/// which under the caller's `HOME` would leave a file in their home. So with
+/// `BAUD_CONFIG` unset or empty in `env`, it is set to the file baud's lookup
+/// would read -- `$XDG_CONFIG_HOME/baud/config.toml` for an absolute
+/// `XDG_CONFIG_HOME`, then `~/.config/baud/config.toml` -- and, with neither
+/// there, to an empty file of this process's own under `TMPDIR`, which is the
+/// defaults. What the launch reads is unchanged either way. Every launch of
+/// the app binary in this crate goes through it.
+pub fn guarded(env: &Env) -> io::Result<Vec<(OsString, OsString)>> {
+    let mut out = env.to_vec();
+    if var(env, "BAUD_CONFIG").is_some_and(|v| !v.is_empty()) {
+        return Ok(out);
+    }
+    out.retain(|(k, _)| k != OsStr::new("BAUD_CONFIG"));
+    let dir = |k: &str| var(env, k).map(PathBuf::from).filter(|p| p.is_absolute());
+    let found = [
+        dir("XDG_CONFIG_HOME").map(|x| x.join("baud/config.toml")),
+        dir("HOME").map(|h| h.join(".config/baud/config.toml")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|p| p.exists());
+    let config = match found {
+        Some(p) => p,
+        None => {
+            let base = var(env, "TMPDIR").unwrap_or_else(|| "/tmp".to_string());
+            let p = Path::new(&base).join(format!("baud-bench-config-{}.toml", std::process::id()));
+            fs::write(&p, "")?;
+            p
+        }
+    };
+    out.push(("BAUD_CONFIG".into(), config.into_os_string()));
+    Ok(out)
 }
 
 /// A new directory for one run, under `TMPDIR` as `env` has it.

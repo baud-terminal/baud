@@ -2310,7 +2310,7 @@ name = "An example file that does what it says"
 does = "The example settings file is checked by a test to do what its comments say."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/config.rs::the_committed_example_parses_to_what_it_documents"]
+tests = ["baud-app/src/config.rs::each_key_uncommented_alone_reads_as_its_default"]
 
 [[feature]]
 id = "logging"

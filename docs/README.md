@@ -17,7 +17,7 @@ them.
 | [guide/performance.md](guide/performance.md) | how fast baud is, what was measured, and what was not |
 | [cursor.md](cursor.md) | the cursor trails, a still of each; [cursor.html](cursor.html) plays them side by side from a checkout |
 | [guide/licensing.md](guide/licensing.md) | what the licence allows, a commercial licence, and sponsoring |
-| [../config.toml.example](../config.toml.example) | the config file to copy, with every key explained |
+| [../config.toml.example](../config.toml.example) | the config file baud writes when it finds none, every key commented out at its default and explained |
 | [../SECURITY.md](../SECURITY.md) | what baud trusts, what it refuses, and how to report a vulnerability |
 
 ## Embed the core
@@ -148,7 +148,7 @@ the build instead:
 | `xtask/tests/no_python.rs` | `cargo xtask no-python`: no tracked file is Python or runs it, in a script, a shebang, a nix attribute, a `Command::new` or a recipe in a document; each form is planted and red, and the repository itself passes |
 | `xtask/tests/features.rs` | `guide/features.md` and `roadmap.md` are what `cargo xtask features` writes from `docs/data/`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; every shipped roadmap item is claimed by a feature |
 | `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
-| `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` writes only keys the reader acts on; `docs/cursor.md` and `docs/cursor.html` show every trail |
+| `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` names every key the reader acts on and no retired one, each commented out and, uncommented alone, read as its default but for a marked list of examples, and the file baud writes from it reads as the defaults with nothing said (`baud-app/build.rs` stops on a line in force, a key with no comment, a key or section given twice or a section out of place); `docs/cursor.md` and `docs/cursor.html` show every trail |
 
 Each was written after the corresponding claim turned out to be false. The
 coverage document spent most of this project's life naming `tests/coverage.rs`

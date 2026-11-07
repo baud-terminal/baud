@@ -38,9 +38,10 @@ nix run github:baud-terminal/baud            # or: nix profile add github:baud-t
 [Installing](docs/guide/install.md) has the details, including the app for
 Applications and the Dock, and building baud in your own nixpkgs.
 
-baud needs no configuration. To change the font, colours, cursor or window,
-copy [config.toml.example](config.toml.example) to
-`~/.config/baud/config.toml` and keep only the keys you change;
+baud needs no configuration. The first time it starts and finds none, it
+writes `~/.config/baud/config.toml` (under `$XDG_CONFIG_HOME` when that is
+set) with every setting commented out and explained; take the `#` off a
+line to change it.
 [Configuration](docs/guide/configuration.md) lists every key.
 
 ## Proved, not promised

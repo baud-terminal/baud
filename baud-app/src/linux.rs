@@ -442,6 +442,11 @@ pub fn run() {
     crate::warn!(
         "baud on Wayland: run only on headless compositors, where its pixels, keys, pointer and clipboard are checked; no screen has shown it"
     );
+    // **The default config, before the config is read**: written once when
+    // none is anywhere baud looks (`default_config.rs`), so the watch below
+    // takes it as the file in force. A new window is a new baud, which
+    // finds it there.
+    crate::default_config::at_launch();
     // **The watch before the read** (`reload::Watch::around`), so an edit
     // that lands while the config is read is heard; the themes and fonts
     // it names are read below, under it.

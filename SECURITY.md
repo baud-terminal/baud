@@ -13,7 +13,12 @@ in your home directory when baud's parent is launchd (`open`, and so,
 inferred, the Dock and Finder), where baud was started otherwise. It reads
 its configuration (`$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/`, then
 `~/.config/baud/`; no entry of its own under the directory it starts in,
-though a relative `$BAUD_CONFIG` is read against it), maps font files
+though a relative `$BAUD_CONFIG` is read against it), and when it finds
+none there and `$BAUD_CONFIG` is unset, writes one file, once: the commented
+default config, to `$XDG_CONFIG_HOME/baud/config.toml` or
+`~/.config/baud/config.toml`, making the folders it needs (mode 0700): a
+temporary file beside it, linked to the name, which never replaces anything
+already there, then removed. It never rewrites that file. It maps font files
 read-only -- the
 ones the config names, or the system faces behind its embedded font when it
 names none -- and draws with Metal
