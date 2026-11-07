@@ -20,8 +20,13 @@
 //! feature and started with `BAUD_TAKE`,
 //! journals what it showed on the host clock, the recorder says where the
 //! film starts on that clock, and the demo adds each typed command; the
-//! timeline is refused if it names this machine. An MP4 has no provenance
-//! file: `--verify` and the provenance record are the GIF's.
+//! timeline is refused if it names this machine. Beside both,
+//! `NAME.mp4.provenance.toml` (`provenance::tour_document`): the commit
+//! filmed, its tree, the features baud was built with, the command, the
+//! MP4's and the timeline's SHA-256, every step with its time, and the
+//! video's description -- an end card naming the commit and the feature,
+//! and the credit line of `assets/demo/LICENSES.md`. `--verify` is the
+//! GIF's: the MP4 itself is uploaded, not kept in the repository.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -753,7 +758,18 @@ pub struct Session {
 /// from; the raw film kept in cargo's target directory; the provenance
 /// file checked for this machine's names; then the GIF and its file
 /// written beside each other and `--verify` run on them.
-pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> Result<(), String> {
+///
+/// `gate` judges the encoded GIF where it was made, in the scratch
+/// directory, before anything is copied out of it: a GIF it refuses never
+/// reaches `kit.out` ([`keep_gif`]).
+pub fn finish(
+    kit: &Kit,
+    at: &Layout,
+    run: &Run,
+    target: &Path,
+    s: Session,
+    gate: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<(), String> {
     if kit.form == Form::Mp4 {
         return finish_mp4(kit, at, run, target, s);
     }
@@ -807,9 +823,7 @@ pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
     )?;
     let text = text(&f, run.names)?;
     fs::copy(&raw, &keep).map_err(|e| format!("{}: {e}", keep.display()))?;
-    fs::copy(&gif, &kit.out).map_err(|e| format!("{}: {e}", kit.out.display()))?;
-    let prov = provenance::path_of(&kit.out);
-    fs::write(&prov, &text).map_err(|e| format!("{}: {e}", prov.display()))?;
+    let prov = keep_gif(&gif, &kit.out, &text, gate)?;
     let said = provenance::verify(&kit.out, run.root)?;
     println!(
         "gif:     {}, {} bytes, {} frames, {:.3} s, the film's {:.3} s",
@@ -825,6 +839,23 @@ pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
     }
     println!("raw:     {}", keep.display());
     Ok(())
+}
+
+/// **The GIF kept, once `gate` has passed it where it was made**: `gif`
+/// copied to `out` and `text` written beside it as its provenance file,
+/// only after `gate` returns, so a refusal, an error or an interruption in
+/// the gate leaves nothing at `out`. Returns the provenance file's path.
+pub fn keep_gif(
+    gif: &Path,
+    out: &Path,
+    text: &str,
+    gate: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<PathBuf, String> {
+    gate(gif)?;
+    fs::copy(gif, out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let prov = provenance::path_of(out);
+    fs::write(&prov, text).map_err(|e| format!("{}: {e}", prov.display()))?;
+    Ok(prov)
 }
 
 /// What the MP4 made: its frames, how long the film and it play.
@@ -916,8 +947,8 @@ fn timeline_text(s: &Session, names: &[String]) -> Result<String, String> {
 /// **The MP4 and its timeline made, checked and written**: the film
 /// cropped and encoded ([`encode_mp4`]), playing to the stop; the
 /// repository still at the commit it was built from; the raw film kept in
-/// cargo's target directory; then the MP4 and `NAME.timeline.tsv` written
-/// beside each other.
+/// cargo's target directory; then the MP4, `NAME.timeline.tsv` and
+/// `NAME.mp4.provenance.toml` written beside each other.
 fn finish_mp4(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> Result<(), String> {
     let raw = at.root.join("raw.mp4");
     let c = film::crop(&s.frame, &s.display)?;
@@ -945,6 +976,37 @@ fn finish_mp4(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
     fs::copy(&mp4, &kit.out).map_err(|e| format!("{}: {e}", kit.out.display()))?;
     let tsv = kit.out.with_file_name(format!("{stem}.timeline.tsv"));
     fs::write(&tsv, &text).map_err(|e| format!("{}: {e}", tsv.display()))?;
+    let mut tools = run.tools.to_vec();
+    tools.extend(kit.tools.iter().cloned());
+    let tour = provenance::Tour {
+        mp4: kit.gif.clone(),
+        timeline: format!("{stem}.timeline.tsv"),
+        command: run.command.clone(),
+        from: run.from.clone(),
+        tree: run.tree.clone(),
+        macos: macos()?,
+        mp4_sha256: provenance::sha256(&kit.out)?,
+        mp4_bytes: bytes_of(&kit.out)?,
+        frames: m.frames,
+        fps: film::MP4_FPS,
+        seconds: m.mp4,
+        timeline_sha256: provenance::sha256(&tsv)?,
+        nixpkgs: NIXPKGS.rsplit('/').next().unwrap_or(NIXPKGS).to_string(),
+        tools,
+        pins: run.pins.to_vec(),
+        events: s.events.iter().map(|l| scrub(l, at)).collect(),
+    };
+    let credits = provenance::credit_line(provenance::LICENSES)?;
+    let header = provenance::tour_header(&kit.gif);
+    let header: Vec<&str> = header.iter().map(String::as_str).collect();
+    let record = provenance::tour_document(&tour, credits).text(&header);
+    let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    let hit = names::named_outside(record.as_bytes(), run.names, &[&public]);
+    if !hit.is_empty() {
+        return Err(format!("the MP4's record would name this machine: {hit:?}"));
+    }
+    let prov = provenance::path_of(&kit.out);
+    fs::write(&prov, &record).map_err(|e| format!("{}: {e}", prov.display()))?;
     println!(
         "mp4:     {}, {} bytes, {} frames at {}, {:.3} s, the film's {:.3} s",
         kit.out.display(),
@@ -959,6 +1021,8 @@ fn finish_mp4(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
         tsv.display(),
         text.lines().count().saturating_sub(1)
     );
+    println!("         its record beside it, {}", prov.display());
+    println!("video:   {}", provenance::end_card(&tour.tree));
     println!("raw:     {}", keep.display());
     Ok(())
 }
@@ -1046,5 +1110,35 @@ mod tests {
             })
             .unwrap_err();
         assert!(said.contains("the recorder refused the film"), "{said}");
+    }
+
+    /// **A GIF the gate refuses leaves nothing in the output's directory**,
+    /// and one it passes is kept with its provenance file; the gate is
+    /// handed the GIF where it was made. Perturbation: copy the GIF before
+    /// asking the gate and the refusal's assertion fails.
+    #[test]
+    fn a_refused_gif_leaves_nothing_behind() {
+        let dir = std::env::temp_dir().join(format!("demo-keep-gif-{}", std::process::id()));
+        let (made, kept) = (dir.join("made"), dir.join("kept"));
+        fs::create_dir_all(&made).unwrap();
+        fs::create_dir_all(&kept).unwrap();
+        let gif = made.join("trailer.gif");
+        fs::write(&gif, b"GIF89a").unwrap();
+        let out = kept.join("trailer.gif");
+        let refuse = |g: &Path| -> Result<(), String> {
+            assert_eq!(
+                g,
+                gif.as_path(),
+                "the gate judges the GIF where it was made"
+            );
+            Err("flashes".to_string())
+        };
+        assert!(keep_gif(&gif, &out, "x", &refuse).is_err());
+        assert_eq!(fs::read_dir(&kept).unwrap().count(), 0, "nothing kept");
+        let pass = |_: &Path| Ok(());
+        let prov = keep_gif(&gif, &out, "x", &pass).unwrap();
+        assert_eq!(fs::read(&out).unwrap(), b"GIF89a");
+        assert_eq!(fs::read_to_string(&prov).unwrap(), "x");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

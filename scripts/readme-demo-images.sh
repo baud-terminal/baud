@@ -17,7 +17,7 @@ prompt
 wait_for "$go"
 sleep 0.2
 
-# --transfer-mode=stream, as in scripts/readme-demo-hero.sh.
+# --transfer-mode=stream: kitten's detection timed out in baud.
 type_cmd 'kitten icat --transfer-mode=stream --place 56x18@2x2 canazei.jpg'
 "$README_KITTEN" icat --transfer-mode=stream --place 56x18@2x2 "$README_PHOTO" </dev/tty
 csi '21;1H'

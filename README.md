@@ -11,8 +11,6 @@
 
 [Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
 
-<img src="assets/readme/hero.gif" width="776" alt="A real baud session: the logo, helix changing the cursor trail to liquid and searching this README, six languages, a photo, then ssh, fastfetch, btop and fireworks">
-
 </div>
 
 A baud is one symbol a second down a line, named for Émile Baudot, whose

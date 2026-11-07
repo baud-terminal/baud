@@ -107,6 +107,7 @@ their entries' titles:
 | WN | more than one window: a new window, a window's close, the last window closed, and the Dock's reopen (`baud-app/src/windows.rs` cites them) |
 | GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`tools/baud-pictures` and `assets/logo/README.md` cite them) |
 | SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (`baud-app/tests/starship_preset.rs` cites it) |
+| FM | the tour film's pieces: the wallpaper photograph's licence, CC0, with CC0's legal code, and the licences of the Noto emoji, CJK and other fonts the demo fetches to draw its scenes (`assets/demo/LICENSES.md` cites them) |
 
 The table is held to the manifest by `every_source_group_is_in_the_index`
 (`baud-core/tests/docs.rs`), which fails when a group has no row.

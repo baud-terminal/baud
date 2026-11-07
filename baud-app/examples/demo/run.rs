@@ -1,6 +1,7 @@
 //! **The session, run**: the programs and faces resolved and checked, the
-//! scratch home written, baud built and launched, and every step of
-//! [`SESSION`] played into its window.
+//! scratch home written, baud built and launched, and every step of the
+//! take played into its window: the tour, [`SESSION`], or with `--trailer`
+//! the trailer, [`session::trailer`].
 
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -49,10 +50,17 @@ fn starship_new_enough(version: &str) -> bool {
 }
 
 /// The programs the session runs on this Mac: nixpkgs attribute, binary.
-/// helix edits baud's config, and OpenSSH's client ssh's into the
-/// container (`container.rs`), its manual pages left out; fastfetch and
-/// btop run in the container, from its image.
-const PROGRAMS: [(&str, &str); 3] = [("helix", "hx"), ("openssh^out", "ssh"), ("kitty", "kitten")];
+/// helix edits baud's config, OpenSSH's client ssh's into the container
+/// (`container.rs`), its manual pages left out, kitten draws the pictures,
+/// mpv plays the logo's film and, in the trailer, the tour, whose stream
+/// yt-dlp finds; fastfetch and btop run in the container, from its image.
+const PROGRAMS: [(&str, &str); 5] = [
+    ("helix", "hx"),
+    ("openssh^out", "ssh"),
+    ("kitty", "kitten"),
+    ("mpv", "mpv"),
+    ("yt-dlp", "yt-dlp"),
+];
 
 /// **The headless film's frame period**, in milliseconds: 100 frames a
 /// second, the rate the README logo's flashes are counted at
@@ -62,6 +70,10 @@ const CENSUS_PERIOD_MS: u32 = 10;
 /// How long a prompt may take to come, and an echo.
 const PROMPT_LIMIT: Duration = Duration::from_secs(15);
 const ECHO_LIMIT: Duration = Duration::from_secs(3);
+
+/// **How long a program may take to show its first picture**: the trailer's
+/// mpv waits on yt-dlp finding the tour's stream over the network.
+const PICTURE_LIMIT: Duration = Duration::from_secs(60);
 
 /// How long baud's window must keep one frame before the session plays,
 /// and how long it may take to.
@@ -73,8 +85,11 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(5);
 const DONE_TAIL: Duration = Duration::from_millis(1500);
 
 const USAGE: &str = "usage: cargo run --release --example demo -- [--dry] \
-                     [--record OUT.gif|OUT.mp4 [--allow-dirty]] [--forbidden LIST --controls FILE] \
+                     [--record OUT.mp4 [--allow-dirty]] [--forbidden LIST --controls FILE] \
                      [--pid-file PATH] [--events PATH] [--done PATH]\n       \
+                     cargo run --release --example demo -- --trailer --tour URL --start T --end T \
+                     [--dry] \
+                     [--record OUT.gif [--allow-dirty]] [--forbidden LIST --controls FILE]\n       \
                      cargo run --release --example demo -- --headless DIR \
                      [--forbidden LIST --controls FILE]\n       \
                      cargo run --example demo -- --verify GIF";
@@ -90,6 +105,12 @@ struct Args {
     record: Option<PathBuf>,
     allow_dirty: bool,
     verify: Option<PathBuf>,
+    /// Take 2, the trailer, the tour's address on YouTube it plays, and
+    /// the stretch of it, from `start` to `end`.
+    trailer: bool,
+    tour: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
 }
 
 fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
@@ -104,6 +125,10 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
         record: None,
         allow_dirty: false,
         verify: None,
+        trailer: false,
+        tour: None,
+        start: None,
+        end: None,
     };
     while let Some(arg) = it.next() {
         let mut path = || {
@@ -122,6 +147,10 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "--record" => a.record = Some(path()?),
             "--allow-dirty" => a.allow_dirty = true,
             "--verify" => a.verify = Some(path()?),
+            "--trailer" => a.trailer = true,
+            "--tour" => a.tour = Some(it.next().ok_or("--tour takes the tour's address")?),
+            "--start" => a.start = Some(it.next().ok_or("--start takes a time in the tour")?),
+            "--end" => a.end = Some(it.next().ok_or("--end takes a time in the tour")?),
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("{other} is not an option")),
         }
@@ -140,13 +169,41 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     if a.headless.is_some() && (a.dry || a.record.is_some()) {
         return Err("--headless opens no window, so it neither records nor stops dry".to_string());
     }
+    // Take 2 plays a stretch of the tour from YouTube, so it is refused
+    // without the tour's address and the stretch, and they without take 2.
+    if a.trailer {
+        session::trailer(a.tour.as_deref(), a.start.as_deref(), a.end.as_deref())?;
+        if a.headless.is_some() {
+            return Err("--headless plays the tour; the trailer needs the window".to_string());
+        }
+    } else if a.tour.is_some() || a.start.is_some() || a.end.is_some() {
+        return Err(
+            "--tour, --start and --end are what the trailer plays: they go with --trailer"
+                .to_string(),
+        );
+    }
+    // The tour is filmed as an MP4 for YouTube, with its timeline for the
+    // sound, and the trailer as the README's GIF.
+    if let Some(out) = &a.record {
+        let name = out.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        match (a.trailer, record::Form::of(name)) {
+            (true, Some(record::Form::Gif)) | (false, Some(record::Form::Mp4)) => {}
+            (true, _) => {
+                return Err("--trailer records the README's GIF: --record OUT.gif".to_string());
+            }
+            (false, _) => {
+                return Err("the tour records an MP4 for YouTube: --record OUT.mp4".to_string());
+            }
+        }
+    }
     let others = a.dry
         || a.headless.is_some()
         || a.forbidden.is_some()
         || a.record.is_some()
         || a.pid_file.is_some()
         || a.events.is_some()
-        || a.done.is_some();
+        || a.done.is_some()
+        || a.trailer;
     if a.verify.is_some() && others {
         return Err("--verify takes nothing else".to_string());
     }
@@ -237,9 +294,25 @@ fn run(args: &Args) -> Result<(), String> {
         clear_to_open()?;
         guard::space(mac::main_space()).map_err(|r| format!("{}. Nothing was opened.", r.0))?;
     }
-    let prep = prepare()?;
+    let take = match args.trailer {
+        true => Take::Trailer,
+        false => Take::Tour,
+    };
+    let steps: Vec<Step> = match take {
+        Take::Trailer => session::trailer(
+            args.tour.as_deref(),
+            args.start.as_deref(),
+            args.end.as_deref(),
+        )?,
+        Take::Tour => SESSION.to_vec(),
+    };
+    let mut prep = prepare(&steps, take)?;
     let names = machine_names(&prep.at.root)?;
     let profile = Profile::of_this_example()?;
+    if take == Take::Tour {
+        let pins = pictures(&profile, &prep.at, &root)?;
+        prep.pins.extend(pins);
+    }
     let command = profile.command(kept_out(std::env::args().skip(1)));
     let kit = match &args.record {
         Some(out) => {
@@ -325,17 +398,28 @@ fn run(args: &Args) -> Result<(), String> {
     if args.headless.is_none() {
         clear_to_open()?;
     }
-    let up = container::up(&prep.image, &prep.keys, prep.port)?;
+    // The trailer plays the tour from YouTube and goes nowhere over ssh, so
+    // it starts no VM.
+    let up = match take {
+        Take::Tour => Some(container::up(&prep.image, &prep.keys, prep.port)?),
+        Take::Trailer => None,
+    };
     if let Some(stills) = &args.headless {
         headless(&profile, &prep, stills, forbidden.as_ref())?;
         drop(up);
         let _ = fs::remove_dir_all(&prep.at.root);
         return Ok(());
     }
-    let session = live(args, &prep, &baud, kit.as_ref(), forbidden.as_ref());
+    let session = live(args, &prep, &baud, kit.as_ref(), forbidden.as_ref(), &steps);
     drop(up);
     if let (Some(k), Some(r), Some(s)) = (&kit, &run, session?) {
-        record::finish(k, &prep.at, r, &built.target, s)?;
+        // The trailer's GIF is censused for flashes where it was made,
+        // before it is copied anywhere.
+        let gate = |gif: &Path| match take {
+            Take::Trailer => flash_gate(&profile, gif),
+            Take::Tour => Ok(()),
+        };
+        record::finish(k, &prep.at, r, &built.target, s, &gate)?;
         keep_full_screen(&prep.at.root, &built.target, &k.gif)?;
     }
     let _ = fs::remove_dir_all(&prep.at.root);
@@ -491,6 +575,113 @@ impl Forbidden {
     }
 }
 
+/// **The trailer GIF's flash gate** (WCAG 2.3.1): baud-bench's census of
+/// the GIF where the take made it, in the scratch directory, before
+/// anything is copied out (`record::keep_gif`), run by the cargo that ran
+/// this in its profile (`baud-bench/tests/trailer_flashes.rs`). The path is
+/// absolute, as the test runs in `baud-bench/`, and the gate passes only
+/// when that one test ran and passed.
+fn flash_gate(p: &Profile, gif: &Path) -> Result<(), String> {
+    let mut cmd = gate_command(p, gif)?;
+    let out = cmd.output().map_err(|e| format!("cargo: {e}"))?;
+    let said = String::from_utf8_lossy(&out.stdout);
+    print!("{said}");
+    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    if out.status.success() && ran_one(&said) {
+        println!("flashes: {} passes WCAG 2.3.1's census", gif.display());
+        return Ok(());
+    }
+    Err(format!(
+        "{} fails WCAG 2.3.1's flash census, or the census did not run: nothing is kept",
+        gif.display()
+    ))
+}
+
+/// **The gate's command**, refused for a path that is not absolute: the
+/// census runs with its working directory in `baud-bench/`, where a
+/// relative path names another file.
+fn gate_command(p: &Profile, gif: &Path) -> Result<Command, String> {
+    if !gif.is_absolute() {
+        return Err(format!(
+            "the flash census reads {} from baud-bench/, so it is given an absolute path",
+            gif.display()
+        ));
+    }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut cmd = Command::new(cargo);
+    cmd.args(["test", "-p", "baud-bench", "--test", "trailer_flashes"])
+        .arg("--manifest-path")
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-bench/Cargo.toml"
+        ))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags())
+        .args(["--", "the_trailer_is_below_the_flash_thresholds"])
+        .args(["--ignored", "--exact", "--nocapture"])
+        .env("BAUD_TRAILER_GIF", gif);
+    Ok(cmd)
+}
+
+/// **Whether libtest's output says one test ran and passed**: under
+/// `--exact`, a test renamed away matches nothing and passes with none run.
+fn ran_one(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .any(|l| l.trim_start().starts_with("test result: ok. 1 passed;"))
+}
+
+/// **Which take**: take 1, the tour, or take 2, the trailer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Take {
+    Tour,
+    Trailer,
+}
+
+/// **The two pictures the tour draws that the repository makes**, into
+/// its working directory: [`session::LOGO_MP4`], scene 10's film, the dark
+/// half of `baud-pictures logo --mp4 --out DIR` -- made into the scratch
+/// directory, never into the tree, by `tools/baud-pictures` in
+/// `tools/shell.nix`, which pins the C it links -- and
+/// [`session::UFO_LOGO`], scene 9's second picture, copied from
+/// [`session::UFO_LOGO_FROM`]. Returns each file's name and SHA-256, for
+/// the provenance file.
+fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String)>, String> {
+    let out = at.root.join("logo");
+    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let quote = |s: &std::ffi::OsStr| format!("'{}'", s.to_string_lossy().replace('\'', "'\\''"));
+    let line = format!(
+        "{} run --release --manifest-path {} --target-dir {} --bin baud-pictures -- logo --mp4 \
+         --out {}",
+        quote(&cargo),
+        quote(root.join("tools/Cargo.toml").as_os_str()),
+        quote(p.target.join("tools").as_os_str()),
+        quote(out.as_os_str()),
+    );
+    let made = Command::new("nix-shell")
+        .arg(root.join("tools/shell.nix"))
+        .args(["--run", &line])
+        .status()
+        .map_err(|e| format!("nix-shell: {e}"))?;
+    if !made.success() {
+        return Err("baud-pictures logo --mp4 could not make the logo's film".to_string());
+    }
+    let work = at.work();
+    let mut pins = Vec::new();
+    for (from, to) in [
+        (out.join("logo-dark.mp4"), session::LOGO_MP4),
+        (root.join(session::UFO_LOGO_FROM), session::UFO_LOGO),
+    ] {
+        let dest = work.join(to);
+        fs::copy(&from, &dest).map_err(|e| format!("{}: {e}", from.display()))?;
+        pins.push((to.to_string(), provenance::sha256(&dest)?));
+        println!("{:<13}{to}, from {}", "picture", from.display());
+    }
+    Ok(pins)
+}
+
 /// What the session needs, made and checked: the scratch home, baud's
 /// environment, and for the provenance file each nixpkgs attribute's store
 /// path and each pinned file's SHA-256.
@@ -506,8 +697,19 @@ struct Prep {
     faces: Vec<PathBuf>,
 }
 
-fn prepare() -> Result<Prep, String> {
-    session::readme_scene(scratch::README)?;
+fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
+    if take == Take::Tour {
+        session::readme_scene(scratch::README)?;
+        // The storyline's must-shows, each found in the steps.
+        let shown = session::shows(steps);
+        let missing: Vec<session::Show> = session::Show::ALL
+            .into_iter()
+            .filter(|s| !shown.contains(s))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!("the tour no longer shows {missing:?}"));
+        }
+    }
     let mut bins = Vec::new();
     let mut tools = Vec::new();
     // starship, from its own revision, refused unless it is outside both
@@ -578,27 +780,25 @@ fn prepare() -> Result<Prep, String> {
         fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
     }
     // The photo kitten draws, from the cache at the width it is shown at,
-    // scaled by the pinned ffmpeg.
-    let photo = fetch(&scratch::PHOTO, &cache)?;
-    let ffmpeg = store("ffmpeg-headless.bin")?.join("bin/ffmpeg");
-    let shown = at.root.join(scratch::PHOTO_AT);
-    let scaled = Command::new(&ffmpeg)
-        .args(["-v", "error", "-y", "-i"])
-        .arg(&photo)
-        .args(["-vf", &format!("scale={}:-2", scratch::PHOTO_WIDTH)])
-        .args(["-q:v", "2"])
-        .arg(&shown)
-        .status()
-        .map_err(|e| format!("ffmpeg: {e}"))?;
-    if !scaled.success() {
-        return Err(format!("ffmpeg could not scale {}", photo.display()));
+    // scaled by the pinned ffmpeg; the trailer shows none.
+    let (pin, width) = scratch::photo()?;
+    if take == Take::Tour {
+        let photo = fetch(&pin, &cache)?;
+        let ffmpeg = store("ffmpeg-headless.bin")?.join("bin/ffmpeg");
+        let shown = at.root.join(scratch::PHOTO_AT);
+        let scaled = Command::new(&ffmpeg)
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&photo)
+            .args(["-vf", &format!("scale={width}:-2")])
+            .args(["-q:v", "2"])
+            .arg(&shown)
+            .status()
+            .map_err(|e| format!("ffmpeg: {e}"))?;
+        if !scaled.success() {
+            return Err(format!("ffmpeg could not scale {}", photo.display()));
+        }
+        println!("{:<13}{} ({})", "photo", pin.name, pin.draws);
     }
-    println!(
-        "{:<13}{} ({})",
-        "photo",
-        scratch::PHOTO.name,
-        scratch::PHOTO.draws
-    );
     // The container: its image, built by the repository's flake and its
     // stream checked against its pin, and the session's keys, the scratch
     // home's ssh files among what is checked.
@@ -623,16 +823,19 @@ fn prepare() -> Result<Prep, String> {
     // without a window (`--headless`).
     let lines: String = env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
     fs::write(at.root.join("env"), lines).map_err(|e| format!("env: {e}"))?;
-    let pins: Vec<(String, String)> = PINNED
+    let shown_pins: Vec<&fonts::Pinned> = match take {
+        Take::Tour => PINNED.iter().chain([&pin]).collect(),
+        Take::Trailer => PINNED.iter().collect(),
+    };
+    let pins: Vec<(String, String)> = shown_pins
         .iter()
-        .chain([&scratch::PHOTO])
         .map(|p| (p.file().to_string(), p.sha256.to_string()))
         .collect();
 
     let config = scratch::config(&files);
-    check_fonts(&faces, &config)?;
+    check_fonts(&faces, &config, steps)?;
     check_names(&at, &written, &env)?;
-    print_plan();
+    print_plan(steps);
     Ok(Prep {
         at,
         env,
@@ -793,27 +996,33 @@ fn covered(stack: &[(&str, &[u8])], what: &str, text: &str) -> Result<(), String
 }
 
 /// **No character the session shows from what it controls needs a system
-/// face**: `hello.txt`, the config and the README helix shows, both prompts
-/// and the fireworks' request, through the stack baud builds from the scratch
-/// config and baud-render's table. Then the control: without the CJK face,
-/// 波 is a gap, so the check can fail. What the programs print is checked
-/// once they have printed it ([`check_printed`]).
-fn check_fonts(faces: &[PathBuf], config: &str) -> Result<(), String> {
+/// face**: `hello.txt`, the config and the README helix shows, `links.txt`,
+/// both prompts and everything the take types -- the narration, the
+/// commands, the fireworks' request -- through the stack baud builds from
+/// the scratch config and baud-render's table. Then the control: without
+/// the CJK face, 波 is a gap, so the check can fail. What the programs
+/// print is checked once they have printed it ([`check_printed`]).
+fn check_fonts(faces: &[PathBuf], config: &str, steps: &[Step]) -> Result<(), String> {
     let bytes = read_faces(faces)?;
     let stack = stack(&bytes);
+    let typed: String = steps
+        .iter()
+        .filter_map(|s| match s {
+            Step::Run(t) | Step::Keys(t) | Step::Line(t) => Some(*t),
+            _ => None,
+        })
+        .collect();
     let text = format!(
-        "{}{config}{}{}{}{}{}",
+        "{}{config}{}{}{}{}{typed}",
         session::HELLO,
         scratch::README,
+        scratch::LINKS,
         session::PROMPT_SHOWN,
         session::REMOTE_PROMPT,
-        session::ICAT,
-        session::FIREWORKS
     );
     covered(
         &stack,
-        "hello.txt, the config, the README, both prompts, kitten's command and the fireworks' \
-         request",
+        "hello.txt, the config, the README, links.txt, both prompts and what the take types",
         &text,
     )?;
     let without: Vec<(&str, &[u8])> = stack
@@ -887,8 +1096,8 @@ fn check_names(
 }
 
 /// This machine's names: [`names::machine_names`] over this process's
-/// environment and temporary directory, the host name and the computer's
-/// two names; and the temporary directory and the scratch root in every
+/// environment and temporary directory, the host name, the computer's
+/// two names and the chip's model; and the temporary directory and the scratch root in every
 /// spelling ([`names::scratch_names`]), which the pty log must not name.
 fn machine_names(root: &Path) -> Result<Vec<String>, String> {
     let env: Vec<(String, String)> = std::env::vars().collect();
@@ -899,10 +1108,14 @@ fn machine_names(root: &Path) -> Result<Vec<String>, String> {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default()
     };
+    // The chip's model too: the container's btop is told a name of its own
+    // for it (`nix/demo-container/btop.conf`), and fastfetch's card names
+    // the VM's processor, which must not be this Mac's model.
     let hosts = [
         say("/bin/hostname", &[]),
         say("/usr/sbin/scutil", &["--get", "ComputerName"]),
         say("/usr/sbin/scutil", &["--get", "LocalHostName"]),
+        say("/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"]),
     ];
     if hosts[0].is_empty() {
         return Err("hostname said nothing, so the names check would miss the host".to_string());
@@ -915,19 +1128,26 @@ fn machine_names(root: &Path) -> Result<Vec<String>, String> {
     Ok(n)
 }
 
-fn print_plan() {
-    let d = session::duration(SESSION);
+fn print_plan(steps: &[Step]) {
+    let d = session::duration(steps);
     println!(
         "plan:    {} steps, {} prompts, at least {:.1} s plus each program's start, \
          {} at {} pt",
-        SESSION.len(),
-        session::prompts(SESSION),
+        steps.len(),
+        session::prompts(steps),
         d.as_secs_f64(),
         scratch::GRID,
         scratch::POINTS
     );
+    for (n, says, at) in session::scenes(steps) {
+        println!(
+            "         scene {n:>2} from step {:>3}: {}",
+            at.start + 1,
+            says.unwrap_or("(no line)")
+        );
+    }
     let mut prompt = 0;
-    for (i, step) in SESSION.iter().enumerate() {
+    for (i, step) in steps.iter().enumerate() {
         if *step == Step::Prompt {
             prompt += 1;
         }
@@ -1240,6 +1460,7 @@ fn live(
     baud: &Path,
     kit: Option<&record::Kit>,
     forbidden: Option<&Forbidden>,
+    steps: &[Step],
 ) -> Result<Option<record::Session>, String> {
     // The VM can take minutes to start, so this is asked once more.
     clear_to_open()?;
@@ -1316,7 +1537,7 @@ fn live(
     let played = pid_files
         .iter()
         .try_for_each(|p| write_pid(p, pid))
-        .and_then(|()| play(&ev, pid, at, fixed, &board, &mut scenes));
+        .and_then(|()| play(&ev, pid, at, fixed, &board, &mut scenes, steps));
     match &played {
         Ok(_) => ev.line("done"),
         Err(e) => ev.line(&format!("DIE {e}")),
@@ -1405,6 +1626,7 @@ fn play(
     fixed: Fixed,
     board: &mac::Kept<mac::General>,
     scenes: &mut Vec<(Instant, String)>,
+    steps: &[Step],
 ) -> Result<Rect, String> {
     let begun = Instant::now();
     let mut seen: Vec<(f64, Option<Rect>)> = Vec::new();
@@ -1471,9 +1693,13 @@ fn play(
         counted: 0,
     };
     let mut prompt = 0;
-    for &step in SESSION {
+    // Where in the pty log the last typing began, which a picture is
+    // looked for after.
+    let mut typed_from = 0;
+    for &step in steps {
         container::interrupted(&container::INTERRUPTED)?;
         match step {
+            Step::Scene(_) => ev.line(&session::event(step, prompt)),
             Step::Prompt => {
                 prompt += 1;
                 log.wait(PROMPT_LIMIT, &format!("prompt {prompt}"), |l| {
@@ -1500,6 +1726,7 @@ fn play(
                 let mut gaps = Gaps::new(seed, ks.len() + 1);
                 log.refresh();
                 let from = log.bytes.len();
+                typed_from = from;
                 type_keys(&ks, &mut gaps)?;
                 let what = format!("the echo of `{t}` (are the keys arriving?)");
                 log.wait(ECHO_LIMIT, &what, |l| session::echoed(&l.bytes, from, t))?;
@@ -1507,10 +1734,35 @@ fn play(
                 std::thread::sleep(Duration::from_secs_f64(g.max(0.0) / 1000.0));
                 type_keys(&[RETURN], &mut gaps)?;
             }
-            Step::Keys(_) | Step::Line(_) | Step::Escape | Step::Ctrl(_) => {
+            Step::Keys(_)
+            | Step::Line(_)
+            | Step::Escape
+            | Step::Ctrl(_)
+            | Step::Arrow(_)
+            | Step::Paste => {
                 ev.line(&session::event(step, prompt));
+                log.refresh();
+                typed_from = log.bytes.len();
                 let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
                 type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;
+            }
+            Step::Copy(_) => {
+                ev.line(&session::event(step, prompt));
+                let ks = keys::presses(step).map_err(|c| format!("no key types {c:?}"))?;
+                let before = board.count();
+                type_keys(&ks, &mut Gaps::new(seed, ks.len()))?;
+                // What the copy wrote is the film's to undo.
+                board.film_copied(before);
+            }
+            Step::Peek(ms) => {
+                ev.line(&session::event(step, prompt));
+                poster.key(keys::COMMAND, Duration::from_millis(u64::from(ms)))?;
+            }
+            Step::Picture => {
+                log.wait(PICTURE_LIMIT, "the program's first picture", |l| {
+                    session::pictured(&l.bytes, typed_from)
+                })?;
+                ev.line(&session::event(step, prompt));
             }
             Step::Hold(ms) => {
                 ev.line(&session::event(step, prompt));
@@ -1522,18 +1774,20 @@ fn play(
                 poster.wheel(c, turns, lines)?;
                 ev.line(&session::event(step, prompt));
             }
-            Step::Hover { x, y } => {
+            Step::Hover(cell) => {
                 let w = guard::frame(pid, &mac::windows(false))
                     .ok_or("baud has no window on screen")?;
-                poster.hover(session::within((x, y), (w.x, w.y), (w.w, w.h)))?;
+                let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
+                poster.hover(at)?;
                 ev.line(&session::event(step, prompt));
             }
             Step::Drag { from, to } => {
                 let w = guard::frame(pid, &mac::windows(false))
                     .ok_or("baud has no window on screen")?;
-                let place = |p| session::within(p, (w.x, w.y), (w.w, w.h));
+                let place = |c, within| session::in_window(c, within, (w.x, w.y), (w.w, w.h));
+                let (press, release) = session::drag_ends();
                 let before = board.count();
-                poster.drag(place(from), place(to))?;
+                poster.drag(place(from, press), place(to, release))?;
                 // What letting go copied is the film's to undo.
                 board.film_copied(before);
                 ev.line(&session::event(step, prompt));
@@ -1642,7 +1896,10 @@ mod tests {
             !app.contains("pub(crate) const ENV: &str = \"BAUD_FULLSCREEN\";"),
             "the control"
         );
-        assert_eq!(super::full_screen_name("hero.gif"), "hero.full-screen.json");
+        assert_eq!(
+            super::full_screen_name("trailer.gif"),
+            "trailer.full-screen.json"
+        );
         assert_eq!(super::full_screen_name("tour.mp4"), "tour.full-screen.json");
         let take = include_str!("../../src/take.rs");
         let line = format!("pub(crate) const ENV: &str = \"{}\";", super::TAKE_ENV);
@@ -1704,7 +1961,7 @@ mod tests {
     fn the_recorded_command_keeps_the_list_out() {
         let args = [
             "--record",
-            "assets/readme/hero.gif",
+            "assets/demo/trailer.gif",
             "--forbidden",
             "lists/forbidden.txt",
             "--controls",
@@ -1715,12 +1972,92 @@ mod tests {
             got,
             [
                 "--record",
-                "assets/readme/hero.gif",
+                "assets/demo/trailer.gif",
                 "--forbidden",
                 "LIST",
                 "--controls",
                 "FILE"
             ]
         );
+    }
+    /// **Take 2 is refused without the tour's address and its stretch**:
+    /// `--trailer` with no `--tour`, an address that is not a YouTube
+    /// video's, or no `--start` or `--end`, is refused before anything is
+    /// fetched, built or opened, and `--tour`, `--start` or `--end` without
+    /// `--trailer` too; with all three it records the README's GIF and
+    /// nothing else, and the tour an MP4 and nothing else. The control: the
+    /// same command with all three passes. Perturbation: drop the
+    /// `session::trailer` check from `parse` and the first assertion fails.
+    #[test]
+    fn take_2_refuses_without_the_tours_address() {
+        let parse = |a: &[&str]| super::parse(a.iter().map(|s| (*s).to_string())).map(|_| ());
+        let list = ["--forbidden", "lists/f.txt", "--controls", "lists/c.txt"];
+        let with = |a: &[&'static str]| -> Vec<&'static str> { [a, &list[..]].concat() };
+        let gif = ["--trailer", "--record", "assets/demo/trailer.gif"];
+        let span = ["--start", "1:23.5", "--end", "1:33"];
+        let url = ["--tour", "https://youtu.be/abcdefghijk"];
+        let err = parse(&with(&[&gif[..], &span[..]].concat())).unwrap_err();
+        assert!(err.contains("--tour"), "{err}");
+        let other = ["--tour", "https://example.com/v"];
+        let err = parse(&with(&[&gif[..], &other[..], &span[..]].concat())).unwrap_err();
+        assert!(err.contains("not a YouTube address"), "{err}");
+        for half in [&span[..2], &span[2..], &[][..]] {
+            let err = parse(&with(&[&gif[..], &url[..], half].concat())).unwrap_err();
+            assert!(err.contains("--start") && err.contains("--end"), "{err}");
+        }
+        let all = [&gif[..], &url[..], &span[..]].concat();
+        assert_eq!(parse(&with(&all)), Ok(()), "the control");
+        assert!(
+            parse(&["--trailer", "--dry"]).is_err(),
+            "dry, still refused"
+        );
+        assert!(parse(&url).is_err(), "--tour without --trailer");
+        assert!(parse(&span).is_err(), "--start and --end without --trailer");
+        let mp4 = ["--trailer", "--record", "assets/demo/trailer.mp4"];
+        let mp4 = [&mp4[..], &url[..], &span[..]].concat();
+        assert!(parse(&with(&mp4)).is_err(), "the trailer is a GIF");
+        let tour_gif = ["--record", "assets/demo/tour.gif"];
+        assert!(parse(&with(&tour_gif)).is_err(), "the tour is an MP4");
+        assert_eq!(
+            parse(&with(&["--record", "assets/demo/tour.mp4"])),
+            Ok(()),
+            "the tour's take"
+        );
+    }
+
+    /// **The flash gate is given an absolute path and counts that its one
+    /// test ran**: a relative path is refused before anything runs, as the
+    /// census reads it from `baud-bench/`; an absolute one is passed on as
+    /// it is; and only libtest's `1 passed` passes, not a run of none.
+    /// Perturbation: drop the relative path's refusal and its assertion
+    /// fails.
+    #[test]
+    fn the_flash_gate_reads_an_absolute_path_and_one_test() {
+        let p = super::Profile {
+            dir: std::path::PathBuf::from("/t/release"),
+            name: "release".to_string(),
+            target: std::path::PathBuf::from("/t"),
+            triple: None,
+        };
+        let relative = std::path::Path::new("assets/demo/trailer.gif");
+        let err = super::gate_command(&p, relative).map(|_| ()).unwrap_err();
+        assert!(err.contains("absolute"), "{err}");
+        let absolute = std::path::Path::new("/s/baud-demo-1-0/trailer.gif");
+        let cmd = super::gate_command(&p, absolute).unwrap();
+        let env: Vec<_> = cmd.get_envs().collect();
+        assert!(
+            env.contains(&(
+                std::ffi::OsStr::new("BAUD_TRAILER_GIF"),
+                Some(absolute.as_os_str())
+            )),
+            "{env:?}"
+        );
+        assert!(super::ran_one(
+            "running 1 test\ntest result: ok. 1 passed; 0 failed; 0 ignored\n"
+        ));
+        assert!(!super::ran_one(
+            "running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored\n"
+        ));
+        assert!(!super::ran_one("test result: FAILED. 0 passed; 1 failed\n"));
     }
 }

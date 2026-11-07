@@ -1,0 +1,11 @@
+# The photo scene 9 of the tour draws with kitten icat. It is not stored in
+# this repository: the demo fetches it from `url` into its cache, refuses it
+# unless it hashes to `sha256`, and scales it to `width` pixels for the
+# grid. elementary's debian/copyright lists it among the Unsplash photos
+# published before June 8, 2017, which it gives as CC0 (LICENSES.md here).
+
+name    = "Canazei Granite Ridges"
+url     = "https://raw.githubusercontent.com/elementary/wallpapers/8.0.0/backgrounds/Canazei%20Granite%20Ridges.jpg"
+sha256  = "0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c"
+width   = 850
+licence = "CC0-1.0"

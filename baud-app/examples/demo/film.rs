@@ -456,11 +456,11 @@ mod tests {
     /// at 30 and does nothing else.
     #[test]
     fn the_encoder_is_told_exactly_the_settings() {
-        let g = gifski_args("<scratch>/hero.gif");
+        let g = gifski_args("<scratch>/trailer.gif");
         assert_eq!(
             g.join(" "),
             "--quality 80 --lossy-quality 100 --motion-quality 100 --fps 30 --width 1164 \
-             -o <scratch>/hero.gif"
+             -o <scratch>/trailer.gif"
         );
         let c = Crop {
             w: 320,

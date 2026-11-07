@@ -22,9 +22,9 @@ advice; where a file's status is a choice still open, this file says so and deci
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 331 | 69 | redistributable, and its notice is satisfied |
+| kept | 335 | 68 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
-| total | 342 | 78 | |
+| total | 346 | 77 | |
 
 ## Licence texts in LICENSES/
 
@@ -560,14 +560,6 @@ they were built from.
 - **From:** https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/VT100/VT100Terminal.m
 - **Files:** [baud-domain/data/iterm2-osc1337-doc-keys.txt](baud-domain/data/iterm2-osc1337-doc-keys.txt), [baud-domain/data/iterm2-osc1337-source-keys.txt](baud-domain/data/iterm2-osc1337-source-keys.txt)
 
-### The README's hero.gif carries the elementary OS wallpaper 'Canazei Granite Ridges', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')
-
-- **Status:** kept -- redistributable, and its notice is satisfied
-- **Licence:** CC0-1.0
-- **Notice:** none needed
-- **From:** https://github.com/elementary/wallpapers
-- **Files:** [assets/readme/hero.gif](assets/readme/hero.gif)
-
 ### A Rust port of zlib 1.3.1's deflate at levels 6 and 9 (deflate.c and trees.c), so baud-bench's gen-yazi-files and linux-pixels write the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -866,6 +858,17 @@ notice is, and the URL each file was copied from.
 | [contour-color-palette-update-notifications.md](docs/research/sources/contour-color-palette-update-notifications.md) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/color-palette-update-notifications.md |
 | [contour-synchronized-output.md](docs/research/sources/contour-synchronized-output.md) | https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/synchronized-output.md |
 
+### Creative Commons CC0 1.0 Universal, its legal code, which Creative Commons makes available under CC0 (manifest `cc-policies`)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** CC0-1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
+- **Notice:** none needed
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [cc0-1.0-legalcode.txt](docs/research/sources/cc0-1.0-legalcode.txt) | https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt |
+
 ### CSS Color Module Level 4, editor's draft sample code (W3C); the file carries no notice, so the W3C short notice is at the head of the licence text
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -1015,6 +1018,17 @@ notice is, and the URL each file was copied from.
 | [ghostty-d9840f3-shaders.metal](docs/research/sources/ghostty-d9840f3-shaders.metal) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal |
 | [ghostty-osc-rxvt-extension.zig](docs/research/sources/ghostty-osc-rxvt-extension.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/rxvt_extension.zig |
 | [ghostty-osc9.zig](docs/research/sources/ghostty-osc9.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/osc/parsers/osc9.zig |
+
+### googlefonts/noto-emoji at v2.051, fonts/LICENSE: the licence of the emoji fonts (manifest `noto-emoji-fonts-license`; the README that says it covers the fonts, `noto-emoji-readme-v2-051`)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [docs/research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt](docs/research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [noto-emoji-fonts-LICENSE-8998f5d.txt](docs/research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt) | https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/LICENSE |
 
 ### hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340
 
@@ -1319,6 +1333,28 @@ notice is, and the URL each file was copied from.
 |---|---|
 | [neovim-tui-input.c](docs/research/sources/neovim-tui-input.c) | https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/input.c |
 | [neovim-tui.c](docs/research/sources/neovim-tui.c) | https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/tui.c |
+
+### notofonts/noto-cjk at Sans2.004 (Adobe and Google), its LICENSE
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [docs/research/sources/noto-cjk-LICENSE-523d033.txt](docs/research/sources/noto-cjk-LICENSE-523d033.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [noto-cjk-LICENSE-523d033.txt](docs/research/sources/noto-cjk-LICENSE-523d033.txt) | https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/LICENSE |
+
+### notofonts/notofonts.github.io at noto-monthly-release-2026.10.01 (The Noto Project Authors), fonts/LICENSE: the licence of the fonts directory
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [docs/research/sources/notofonts-fonts-LICENSE-0259702.txt](docs/research/sources/notofonts-fonts-LICENSE-0259702.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [notofonts-fonts-LICENSE-0259702.txt](docs/research/sources/notofonts-fonts-LICENSE-0259702.txt) | https://raw.githubusercontent.com/notofonts/notofonts.github.io/025970232f4f8ff349310d9785431e87d20ed27c/fonts/LICENSE |
 
 ### OpenType Sanitizer
 

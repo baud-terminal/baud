@@ -51,3 +51,9 @@ rustc-ice-*.txt
 # variable that reaches the filesystem unexpanded is the bug, and naming
 # it keeps the next one visible rather than silently ignored.
 $S/
+
+# The tour's MP4 and its timeline, which `--record assets/demo/tour.mp4`
+# writes beside its committed record: the MP4 is uploaded, not kept here,
+# and an untracked file would make the next take's tree dirty.
+/assets/demo/tour.mp4
+/assets/demo/tour.timeline.tsv

@@ -667,10 +667,136 @@ pub fn document(f: &Facts) -> Doc {
 /// The comment the file opens with.
 pub fn header(gif: &str) -> Vec<String> {
     vec![
-        format!("How {gif} was made: the README session played in baud's window, filmed"),
+        format!("How {gif} was made: the demo's session played in baud's window, filmed"),
         "and encoded by the one command below. Every value is the run's own.".to_string(),
         String::new(),
         format!("Check it: cargo run --example demo -- --verify <path to {gif}>"),
+    ]
+}
+
+/// **The features the tour's MP4 is filmed with**: `take`, whose journal
+/// of what baud showed the MP4's timeline is made from
+/// (`baud-app/src/take.rs`); every other take builds baud as it ships.
+pub const TAKE_FEATURES: [&str; 1] = ["take"];
+
+/// **The films' licences, for the reviewer**, whose last section holds the
+/// credit line for the video's description.
+pub const LICENSES: &str = include_str!("../../../assets/demo/LICENSES.md");
+
+/// The heading of [`LICENSES`]'s credit line.
+pub const CREDIT_HEADING: &str = "## The credit line for the video's description";
+
+/// **The credit line**, the one fenced block under [`CREDIT_HEADING`] in
+/// `licences`, without its fences.
+pub fn credit_line(licences: &str) -> Result<&str, String> {
+    let at = licences
+        .find(CREDIT_HEADING)
+        .ok_or("assets/demo/LICENSES.md has no credit line's section")?;
+    let rest = &licences[at + CREDIT_HEADING.len()..];
+    let open = rest
+        .find("```text\n")
+        .ok_or("the credit line's section has no ```text block")?;
+    let body = &rest[open + "```text\n".len()..];
+    let close = body
+        .find("\n```")
+        .ok_or("the credit line's block is not closed")?;
+    let line = body[..close].trim();
+    if line.is_empty() || body[close + 4..].contains("```") {
+        return Err("the credit line's section must hold one block, and it not empty".to_string());
+    }
+    Ok(line)
+}
+
+/// **What the tour's MP4 record holds**, every value from the take that
+/// made it.
+pub struct Tour {
+    /// The MP4's file name, and its timeline's.
+    pub mp4: String,
+    pub timeline: String,
+    pub command: String,
+    pub from: String,
+    pub tree: Tree,
+    pub macos: String,
+    pub mp4_sha256: String,
+    pub mp4_bytes: u64,
+    pub frames: usize,
+    pub fps: u32,
+    pub seconds: f64,
+    pub timeline_sha256: String,
+    pub nixpkgs: String,
+    pub tools: Vec<(String, String)>,
+    pub pins: Vec<(String, String)>,
+    pub events: Vec<String>,
+}
+
+/// **The end card**: which baud the video shows, in words for the video's
+/// description -- the commit filmed, whether its tree was clean, and the
+/// features it was built with.
+pub fn end_card(tree: &Tree) -> String {
+    let short: String = tree.commit.chars().take(12).collect();
+    let state = match tree.dirty.is_empty() {
+        true => "its tree clean",
+        false => "its tree dirty, filmed with --allow-dirty",
+    };
+    format!(
+        "Filmed from baud at commit {short}, {state}, built with --features {}.",
+        TAKE_FEATURES.join(",")
+    )
+}
+
+/// **`NAME.mp4.provenance.toml`'s document**: the commit, its tree, the
+/// features, the command, the MP4's and its timeline's SHA-256, the tools
+/// and pins, every step with its time, and the video's description -- the
+/// end card and the credit line ([`credit_line`]).
+pub fn tour_document(f: &Tour, credits: &str) -> Doc {
+    let mut d = Doc::default();
+    d.str("", "made", &f.command);
+    d.str("", "from", &f.from);
+    d.str("baud", "commit", &f.tree.commit);
+    d.str(
+        "baud",
+        "tree",
+        if f.tree.dirty.is_empty() {
+            "clean"
+        } else {
+            "dirty, recorded with --allow-dirty"
+        },
+    );
+    d.list("baud", "dirty", &f.tree.dirty);
+    let features: Vec<String> = TAKE_FEATURES.iter().map(|s| s.to_string()).collect();
+    d.list("baud", "features", &features);
+    d.str("baud", "macos", &f.macos);
+    d.str("mp4", "file", &f.mp4);
+    d.str("mp4", "sha256", &f.mp4_sha256);
+    d.num("mp4", "bytes", f.mp4_bytes);
+    d.num("mp4", "frames", f.frames);
+    d.num("mp4", "fps", f.fps);
+    d.num("mp4", "seconds", format!("{:.3}", f.seconds));
+    d.str("timeline", "file", &f.timeline);
+    d.str("timeline", "sha256", &f.timeline_sha256);
+    d.str("video", "end_card", end_card(&f.tree));
+    d.str(
+        "video",
+        "description",
+        format!("{}\n\n{credits}", end_card(&f.tree)),
+    );
+    d.str("nixpkgs", "revision", &f.nixpkgs);
+    for (attr, path) in &f.tools {
+        d.str("tools", attr, path);
+    }
+    for (file, sha) in &f.pins {
+        d.str("sha256", file, sha);
+    }
+    d.list("session", "events", &f.events);
+    d
+}
+
+/// The comment the tour's record opens with.
+pub fn tour_header(mp4: &str) -> Vec<String> {
+    vec![
+        format!("How {mp4} was made: the tour played in baud's window, filmed and"),
+        "encoded by the one command below; the MP4 itself is uploaded, not kept".to_string(),
+        "here. Every value is the take's own.".to_string(),
     ]
 }
 
@@ -753,8 +879,8 @@ mod tests {
     fn facts() -> Facts {
         let s = |v: &str| v.to_string();
         Facts {
-            gif: s("hero.gif"),
-            command: s("cargo run --release --example demo -- --record assets/readme/hero.gif"),
+            gif: s("trailer.gif"),
+            command: s("cargo run --release --example demo -- --record assets/demo/trailer.gif"),
             from: s("."),
             tree: Tree {
                 commit: s("0123456789abcdef0123456789abcdef01234567"),
@@ -768,7 +894,7 @@ mod tests {
             raw_sha256: s("cd"),
             raw_bytes: 99,
             raw_seconds: 26.01,
-            raw_kept: s("in cargo's target directory, demo/hero.raw.mp4"),
+            raw_kept: s("in cargo's target directory, demo/trailer.raw.mp4"),
             display: s("display 1728x1117 pt at 2.0x: 3456x2234 px, 30 applications left out"),
             window: s("471,161 786x572 pt"),
             crop: s("crop=1572:1144:942:322"),
@@ -800,14 +926,14 @@ mod tests {
     fn the_provenance_names_nothing_of_the_machine() {
         let n = qz();
         let f = facts();
-        let text = document(&f).text(&["How hero.gif was made"]);
+        let text = document(&f).text(&["How trailer.gif was made"]);
         assert_eq!(named(text.as_bytes(), &n), Vec::<String>::new(), "{text}");
         let back = read(&text).unwrap();
         assert_eq!(back.text_of("baud", "commit"), Some(f.tree.commit.as_str()));
         assert_eq!(back.text_of("baud", "tree"), Some("clean"));
         assert_eq!(back.text_of("gif", "bytes"), Some("17"));
         let leaky = Facts {
-            command: "cargo run --example demo -- --record /Users/me/hero.gif".to_string(),
+            command: "cargo run --example demo -- --record /Users/me/trailer.gif".to_string(),
             ..facts()
         };
         assert!(!named(document(&leaky).text(&[]).as_bytes(), &n).is_empty());
@@ -913,7 +1039,7 @@ mod tests {
     #[test]
     fn verify_takes_the_gif_it_describes_and_nothing_else() {
         let (dir, head) = repo("verify");
-        let gif = dir.join("hero.gif");
+        let gif = dir.join("trailer.gif");
         fs::write(&gif, b"GIF89a not really a GIF\n").unwrap();
         let sha = "874773806b0ff68997016c684f2b176828a47c32c01c9e6195752059e5099465";
         assert_eq!(sha256(&gif).unwrap(), sha);
@@ -926,7 +1052,7 @@ mod tests {
             d.num("gif", "bytes", 24);
             fs::write(path_of(&gif), d.text(&[])).unwrap();
         };
-        write("hero.gif", &head);
+        write("trailer.gif", &head);
         let said = verify(&gif, &dir).unwrap();
         assert!(said[0].contains("as recorded"), "{said:?}");
         assert!(said[1].contains("HEAD descends from it"), "{said:?}");
@@ -938,7 +1064,7 @@ mod tests {
         bytes[10] ^= 1;
         fs::write(&gif, &bytes).unwrap();
         assert!(verify(&gif, &dir).is_ok(), "restored, it passes again");
-        write("hero.gif", "0123456789abcdef0123456789abcdef01234567");
+        write("trailer.gif", "0123456789abcdef0123456789abcdef01234567");
         assert!(
             verify(&gif, &dir)
                 .unwrap_err()
@@ -951,5 +1077,56 @@ mod tests {
                 .contains("describes other.gif")
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+    /// **The tour's record names the commit, the feature and the credits**:
+    /// the commit and `features = ["take"]` under `[baud]`, the end card in
+    /// the description, then the credit line, which is the one block under
+    /// LICENSES.md's heading; and the file reads back. The controls: a
+    /// section with two blocks, or none, is refused. Perturbation: leave the
+    /// feature out of the end card and its assertion fails.
+    #[test]
+    fn the_tour_record_names_the_commit_the_feature_and_the_credits() {
+        let credits = credit_line(LICENSES).expect("the credit line");
+        assert!(credits.contains("Canazei"), "{credits}");
+        let tree = Tree {
+            commit: "0123456789abcdef0123456789abcdef01234567".to_string(),
+            dirty: Vec::new(),
+        };
+        let f = Tour {
+            mp4: "tour.mp4".to_string(),
+            timeline: "tour.timeline.tsv".to_string(),
+            command: "cargo run --release --example demo -- --record assets/demo/tour.mp4"
+                .to_string(),
+            from: ".".to_string(),
+            tree: tree.clone(),
+            macos: "27.0".to_string(),
+            mp4_sha256: "ab".repeat(32),
+            mp4_bytes: 10,
+            frames: 600,
+            fps: 60,
+            seconds: 10.0,
+            timeline_sha256: "cd".repeat(32),
+            nixpkgs: "rev".to_string(),
+            tools: Vec::new(),
+            pins: Vec::new(),
+            events: vec!["0.000 scene 1".to_string()],
+        };
+        let text = tour_document(&f, credits).text(&["x"]);
+        let back = read(&text).expect("it reads back");
+        assert_eq!(back.text_of("baud", "commit"), Some(tree.commit.as_str()));
+        assert_eq!(
+            back.get("baud", "features"),
+            Some(&Value::List(vec!["take".to_string()]))
+        );
+        let card = end_card(&tree);
+        assert!(
+            card.contains("0123456789ab") && card.contains("--features take"),
+            "{card}"
+        );
+        let description = back.text_of("video", "description").unwrap();
+        assert!(description.starts_with(&card) && description.ends_with(credits));
+        let two = format!("{CREDIT_HEADING}\n\n```text\na\n```\n\n```text\nb\n```\n");
+        assert!(credit_line(&two).is_err(), "the control: two blocks");
+        assert!(credit_line(CREDIT_HEADING).is_err(), "the control: none");
     }
 }

@@ -107,26 +107,14 @@ beside the two films (`scripts/bundle-macos.sh`) and the app never fetches
 it, so a binary with no bundle shows none. It is under the repository's
 licence, as baud's own files are.
 
-`hero.gif` is a screen recording of a real baud session, its window filmed
-as it ran: a shell, every command typed into it at real speed, glass and
-smooth scrolling as they are, at 110x33 cells and 12 pt, in Dark. It shows
-the launch logo carried off by the plasma, btop (refreshing every 100 ms,
-its process and network boxes hidden), `cat README.md` and a scroll back
-through it, helix finding the tagline and jumping to the end and back with
-the plasma trail, a photo drawn by `kitten icat`, neo, asciiquarium, and
-`clear` sending the cursor to the top with the trail. The shell's prompt is
-a plain `baud ❯`, naming no user or host, but btop's two boxes, about 1 to
-4 s in, name the machine: the chip over the core list, the memory's size
-and the GPU's memory in use of it, the disks with their sizes and volume
-names, the uptime and the load average, with the battery's charge, the time
-and each core's load and temperature. asciiquarium's fish and sea are Joan
-Stark's art (`[[source: asciiquarium-1-1]]`), which she gives "for personal
-use only" (`[[source: jgs-guidelines]]`), and neo's katakana are drawn by
-the macOS system font baud falls back to. Encoded with gifski at 1164 px
-wide (16.9 MB), with no frame carrying traces of another, so it loops
-clean. It is to be filmed again, as the take below.
+The README's earlier film, a screen recording of a real baud session, is
+removed: btop on the Mac it was filmed on named the machine, and it showed
+art and glyphs with no grant to publish them. The README shows no film
+until the trailer's take makes `assets/demo/trailer.gif`.
 
-The next take is about 23 seconds before its waits, at 80x24 cells and 14 pt
+The tour and the trailer that replace it, scene by scene, and the command
+that makes each, are in `assets/demo/README.md`. The take before them was
+about 23 seconds before its waits, at 80x24 cells and 14 pt, as the tour is
 (`baud-app/examples/demo/session.rs`). The README shows the GIF 776 px
 wide whatever the window's size, so its text's size there is set by the
 columns: about 776 / (0.6 x 80), 16 px, GitHub's body size, where 110
@@ -270,9 +258,10 @@ fireworks burst at the cursor; back home, clear sends the cursor to the top
 in the liquid trail.
 
 A recording for the README is made by one command, which plays the
-session in baud's window, films it and encodes the GIF:
-`devenv shell -- cargo run --release --example demo -- --record
-assets/readme/demo.gif --forbidden LIST --controls FILE`
+trailer in baud's window, films it and encodes the GIF:
+`devenv shell -- cargo run --release --example demo -- --trailer --tour URL
+--start T --end T --record assets/demo/trailer.gif --forbidden LIST
+--controls FILE`
 (`baud-app/examples/demo.rs`). Start it from a normal desktop and not a
 full-screen Space: a window sliding in from a Space switch likely moves after
 it is first seen, and the recording then stops. Leave the screen unlocked
@@ -282,14 +271,12 @@ what must never be filmed, in `regex` syntax, kept outside the repository
 because it names what it forbids, and FILE an example of each of its
 patterns. The session's bytes are searched for LIST once every pattern has
 been found in its example, and a hit fails the recording. It writes a file named
-demo.gif.provenance.toml beside the GIF: the commit of baud that was
+trailer.gif.provenance.toml beside the GIF: the commit of baud that was
 built and filmed and whether its tree was clean, every step with its
 time since the launch, each tool's nixpkgs store path, the encoder's
 settings and the SHA-256 of the GIF, the raw film and every pinned file.
 Anyone can check that the GIF is the one it describes with
-`cargo run --example demo -- --verify assets/readme/demo.gif`. The
-`hero.gif` here was recorded before that command existed, and has no
-provenance file yet.
+`cargo run --example demo -- --verify assets/demo/trailer.gif`.
 
 `social.png` is a 1280x640 card for the repository's social preview,
 which GitHub takes only as an upload in the repository's settings, never
@@ -307,8 +294,8 @@ ANSI X3.18 gives for one-inch tape ([[source: ansi-x3-18-1967]]).
 from JetBrains Mono's outlines (`JetBrainsMono-OFL.txt` beside them), the
 PNG the SVG drawn by its pinned resvg, and reads the tape back off the PNG
 before it writes. Nothing in it comes from
-a machine or a recording. The card before it was cut from a frame of the
-hero's btop and showed the machine's chip, memory and disks;
+a machine or a recording. The card before it was cut from a frame of an
+earlier take's btop and showed the machine's chip, memory and disks;
 `scripts/readme-capture.sh` no longer makes it.
 
 The photo is an elementary OS wallpaper, pinned by nixpkgs revision and

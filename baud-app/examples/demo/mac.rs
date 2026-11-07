@@ -37,16 +37,22 @@ use macos_liquid_glass::objc2_foundation::{NSArray, NSData, NSString};
 /// `characters` U+0004 and `charactersIgnoringModifiers` `d`, as a real
 /// press has, while one given U+0004 has U+0004 for both, which loses the
 /// key the app's `chord` names it by, and one given `d` sends `d` as text.
+/// Command itself ([`crate::keys::COMMAND`]) is a modifier's key: its press
+/// carries Command, its release nothing, and neither any text.
 fn key_event(source: &CGEventSource, k: Key, down: bool) -> Result<CFRetained<CGEvent>, String> {
     let e = CGEvent::new_keyboard_event(Some(source), k.code, down)
         .ok_or("CoreGraphics made no key event")?;
+    let modifier = k == crate::keys::COMMAND;
     let flags = match k.held {
         Held::Nothing => CGEventFlags::empty(),
         Held::Shift => CGEventFlags::MaskShift,
         Held::Control => CGEventFlags::MaskControl,
+        Held::Command if modifier && !down => CGEventFlags::empty(),
+        Held::Command => CGEventFlags::MaskCommand,
+        Held::Arrow => CGEventFlags::MaskNumericPad | CGEventFlags::MaskSecondaryFn,
     };
     CGEvent::set_flags(Some(&e), flags);
-    if k.held != Held::Control {
+    if k.held != Held::Control && !modifier {
         let mut units = [0u16; 2];
         let text: &[u16] = k.text.encode_utf16(&mut units);
         // SAFETY: the pointer and the length are the slice's own, alive
@@ -804,7 +810,10 @@ impl<D: Desk> Poster<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keys::{ESCAPE, ESCAPE_NAME, RETURN, RETURN_NAME, US};
+    use crate::keys::{
+        COMMAND, COMMAND_NAME, DOWN, DOWN_NAME, ESCAPE, ESCAPE_NAME, RETURN, RETURN_NAME, UP,
+        UP_NAME, US,
+    };
 
     /// **Ctrl-C, a closed terminal and `SIGTERM` set the flag and the process
     /// lives**: the handler installed, each real signal raised against this
@@ -875,7 +884,7 @@ mod tests {
         let names: Vec<&str> = US
             .iter()
             .map(|(_, n, _)| *n)
-            .chain([RETURN_NAME, ESCAPE_NAME])
+            .chain([RETURN_NAME, ESCAPE_NAME, UP_NAME, DOWN_NAME, COMMAND_NAME])
             .collect();
         for n in &names {
             src.push_str(&format!("  printf(\"{n}=%d\\n\", (int){n});\n"));
@@ -912,6 +921,9 @@ mod tests {
         }
         assert_eq!(h[RETURN_NAME], i64::from(RETURN.code));
         assert_eq!(h[ESCAPE_NAME], i64::from(ESCAPE.code));
+        assert_eq!(h[UP_NAME], i64::from(UP.code));
+        assert_eq!(h[DOWN_NAME], i64::from(DOWN.code));
+        assert_eq!(h[COMMAND_NAME], i64::from(COMMAND.code));
     }
 
     /// **The session's calls and the one key the crate has no constant for

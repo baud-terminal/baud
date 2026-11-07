@@ -1,24 +1,42 @@
-//! **The README's session, played in baud's window**: a real interactive
-//! zsh and real programs at real speed, every command typed into the
-//! window key by key -- baud's own config edited in helix, its plasma
-//! trail changed to liquid by one word saved and baud's live reload, and the
-//! repository's README read in that helix in the liquid trail; baud
-//! defined in six languages and a line of emoji in `cat hello.txt`; a photo drawn by
-//! `kitten icat`; ssh into a container
-//! on this Mac, its system card there with baud's mark drawn as a picture,
+//! **The tour and the trailer, played in baud's window**: a real
+//! interactive zsh and real programs at real speed, every command typed
+//! into the window key by key. The tour, take 1, is seventeen scenes, each
+//! narrated by a `#` line typed at the prompt as a shell comment: baud's
+//! own config opened in helix and the arrow keys' plasma trail, the trail
+//! changed to liquid by one word saved and baud's live reload, the
+//! repository's README read in that helix; baud defined in six languages
+//! and a line of emoji in `cat hello.txt`; a word selected, copied and
+//! pasted; a file of links, the pointer over one; a photo and a logo drawn
+//! by `kitten icat`; the plasma logo played by mpv; ssh into a container on
+//! this Mac, its system card there with baud's mark drawn as a picture,
 //! btop, and iTerm2's fireworks asked for by a `printf` typed in full;
-//! `exit`, and `clear`. With `--record` the same run films it and encodes
-//! the README's GIF, and writes beside the GIF where it came from, so the
-//! GIF is shown to be the session as it ran.
+//! `exit`; the trail turned to the saucer by a `sed` and `clear`; and the
+//! repository's address. The trailer, take 2, plays the tour from YouTube
+//! in the window with mpv (`session::trailer`). With `--record` the same
+//! run films it: the tour as an MP4 for YouTube, the trailer as the
+//! README's GIF, each with a file beside it saying where it came from.
 //!
 //! ```text
-//! cargo run --release --example demo              # the session
+//! cargo run --release --example demo              # the tour
 //! cargo run --release --example demo -- --dry     # all but the window
 //! cargo run --release --example demo -- --headless DIR   # no window
 //! devenv shell -- cargo run --release --example demo -- \
-//!     --record assets/readme/demo.gif --forbidden LIST --controls FILE
-//! cargo run --example demo -- --verify assets/readme/demo.gif
+//!     --record assets/demo/tour.mp4 --forbidden LIST --controls FILE
+//! devenv shell -- cargo run --release --example demo -- --trailer \
+//!     --tour URL --start T --end T --record assets/demo/trailer.gif \
+//!     --forbidden LIST --controls FILE
+//! cargo run --example demo -- --verify assets/demo/trailer.gif
 //! ```
+//!
+//! **`--trailer --tour URL --start T --end T`**: take 2, the tour's address
+//! on YouTube and the stretch of it to play at its own speed, from the
+//! README's jumps to the dial-up's lights, read off a take of the tour.
+//! Refused without any of them, or with an address that is not a YouTube
+//! video's or a stretch that is not one, before anything is fetched or
+//! built: nothing stands in for them. It starts no VM, and needs the
+//! network for yt-dlp. With `--record` it makes a GIF, which must pass
+//! baud-bench's WCAG 2.3.1 census (`baud-bench/tests/trailer_flashes.rs`)
+//! or is removed, and the tour an MP4; each refuses the other's form.
 //!
 //! Either from the repository's root or from `baud-app/`. macOS only but
 //! for `--verify`; on any other system the rest says so and exits
@@ -56,9 +74,15 @@
 //! the screen transition on, the window solid (opaque under either
 //! appearance, its font and its size not a program's to change), the
 //! cursor still with the plasma trail -- and the pinned faces beside it,
-//! and the shell's working directory, `~/baud`, holding `hello.txt`, the
-//! repository's `README.md` unchanged and `canazei.jpg`, the pinned photo
-//! scaled to 850 pixels wide; and
+//! mpv's config at `~/.config/mpv/mpv.conf` (`scratch::MPV_CONF`), and
+//! the shell's working directory, `~/baud`, holding `hello.txt`, the
+//! repository's `README.md` unchanged, `links.txt`
+//! (`assets/demo/links.txt`), `canazei.jpg`, the photo
+//! `assets/demo/photo.toml` pins, scaled to its width there, `logo.mp4`,
+//! the plasma logo's film that `baud-pictures logo --mp4` makes into the
+//! scratch directory, and `ufo-logo.gif`, copied from
+//! `session::UFO_LOGO_FROM`, the plasma logo's GIF standing in for the UFO
+//! logo until that is made; and
 //! the container's image, streamed by the repository flake's
 //! `demo-container` and pinned by its SHA-256. baud is started with
 //! nothing of this environment but `HOME`, `ZDOTDIR`, `SHELL`, `PATH`,
@@ -135,8 +159,11 @@
 //! pinned one. `BAUD_SESSION_POINTS` draws at another size and
 //! `BAUD_SESSION_WITHOUT` takes a command out, for a perturbation.
 //!
-//! **`--record OUT.gif`**: the README's GIF from one command, filmed as it
-//! is made, `--forbidden` and `--controls` required. It refuses a
+//! **`--record OUT.gif`**, with `--trailer`: the README's GIF from one
+//! command, filmed as it is made, `--forbidden` and `--controls` required.
+//! **`--record OUT.mp4`**, the tour's: the same film as an MP4, with its
+//! timeline and its record beside it (`demo/record.rs`), baud built with
+//! `--features take`. It refuses a
 //! repository whose tree differs from its commit, unless `--allow-dirty`,
 //! which the provenance file then records. The recorder,
 //! `scripts/trail-record.swift` compiled by Xcode's `swiftc`, films the

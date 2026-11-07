@@ -2,7 +2,7 @@
 //! the Mac's virtual key code of the key that types it, with Shift where
 //! the U.S. layout needs it -- what System Events' `keystroke` posts.
 
-use crate::session::Step;
+use crate::session::{Arrow, Step};
 
 /// The modifier held for a key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -10,6 +10,12 @@ pub enum Held {
     Nothing,
     Shift,
     Control,
+    /// Command: a menu's key equivalent, Copy and Paste.
+    Command,
+    /// What the system sets on an arrow key's own press, the numeric pad's
+    /// and the function key's flags (`NSEventModifierFlagNumericPad`, which
+    /// AppKit sets on the arrow keys as well, and `...Function`).
+    Arrow,
 }
 
 /// One key press: the virtual key code, the modifier held, and the
@@ -129,6 +135,53 @@ pub const ESCAPE: Key = Key {
 #[cfg(test)]
 pub const ESCAPE_NAME: &str = "kVK_Escape";
 
+/// **The arrow keys**, `kVK_UpArrow` and `kVK_DownArrow`, whose text is
+/// what AppKit gives an arrow's press, `NSUpArrowFunctionKey` U+F700 and
+/// `NSDownArrowFunctionKey` U+F701 (`NSEvent.h`). baud names the key by its
+/// code (`special` in `baud-app/src/app.rs`) and encodes it as the program
+/// on screen asked.
+pub const UP: Key = Key {
+    code: 0x7E,
+    held: Held::Arrow,
+    text: '\u{F700}',
+};
+pub const DOWN: Key = Key {
+    code: 0x7D,
+    held: Held::Arrow,
+    text: '\u{F701}',
+};
+
+/// The `kVK_` names of [`UP`]'s and [`DOWN`]'s codes, for the header probe.
+#[cfg(test)]
+pub const UP_NAME: &str = "kVK_UpArrow";
+#[cfg(test)]
+pub const DOWN_NAME: &str = "kVK_DownArrow";
+
+/// **Command, the key itself**, `kVK_Command`: held down while the pointer
+/// rests on a link, the window's bar shows where it goes. It types nothing.
+pub const COMMAND: Key = Key {
+    code: 0x37,
+    held: Held::Command,
+    text: '\0',
+};
+
+/// The `kVK_` name of [`COMMAND`]'s code, for the header probe.
+#[cfg(test)]
+pub const COMMAND_NAME: &str = "kVK_Command";
+
+/// **Command and a letter's key**, `c` for Copy and `v` for Paste: the
+/// letter's own key with Command held, its text the letter, as a real
+/// Command-C's `characters` is and as the app finds the copy by
+/// (`menu_missed` in `baud-app/src/app.rs`).
+pub fn command_key(c: char) -> Result<Key, char> {
+    let code = code_of(c).filter(|_| c.is_ascii_lowercase()).ok_or(c)?;
+    Ok(Key {
+        code,
+        held: Held::Command,
+        text: c,
+    })
+}
+
 fn code_of(c: char) -> Option<u16> {
     US.iter()
         .find(|(k, _, _)| *k == c)
@@ -176,7 +229,8 @@ pub fn keys_for(text: &str) -> Result<Vec<Key>, char> {
 }
 
 /// **Every key a step presses, Return included**, or the first character
-/// no key types. A step that types nothing presses nothing.
+/// no key types. A step that types nothing presses nothing; a peek presses
+/// Command alone, held as long as it says.
 pub fn presses(step: Step) -> Result<Vec<Key>, char> {
     match step {
         Step::Run(t) | Step::Line(t) => {
@@ -187,10 +241,17 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
         Step::Keys(t) => keys_for(t),
         Step::Escape => Ok(vec![ESCAPE]),
         Step::Ctrl(c) => Ok(vec![control_key(c)?]),
-        Step::Prompt
+        Step::Arrow(Arrow::Up) => Ok(vec![UP]),
+        Step::Arrow(Arrow::Down) => Ok(vec![DOWN]),
+        Step::Copy(_) => Ok(vec![command_key('c')?]),
+        Step::Paste => Ok(vec![command_key('v')?]),
+        Step::Peek(_) => Ok(vec![COMMAND]),
+        Step::Scene(_)
+        | Step::Prompt
         | Step::Hold(_)
+        | Step::Picture
         | Step::Wheel { .. }
-        | Step::Hover { .. }
+        | Step::Hover(_)
         | Step::Drag { .. } => Ok(Vec::new()),
     }
 }
@@ -308,6 +369,22 @@ mod tests {
         assert_eq!(key_for('\u{4}'), None);
         assert_eq!(control_key('D'), Err('D'));
         assert_eq!(control_key('\u{e9}'), Err('\u{e9}'));
+    }
+
+    /// **Copy and Paste are the `c` and `v` keys with Command, an arrow its
+    /// own key, a peek Command alone**, and none of them gets a Return.
+    /// Perturbation: give Copy the `v` key and the first assertion fails.
+    #[test]
+    fn copy_paste_and_the_arrows_are_their_keys() {
+        assert_eq!(
+            presses(Step::Copy("copy")).unwrap(),
+            [k(0x08, Held::Command, 'c')]
+        );
+        assert_eq!(presses(Step::Paste).unwrap(), [k(0x09, Held::Command, 'v')]);
+        assert_eq!(presses(Step::Arrow(Arrow::Down)).unwrap(), [DOWN]);
+        assert_eq!(presses(Step::Arrow(Arrow::Up)).unwrap(), [UP]);
+        assert_eq!(presses(Step::Peek(10)).unwrap(), [COMMAND]);
+        assert_eq!(command_key('C'), Err('C'));
     }
 
     /// **Every character the README session types has a U.S. key**, and a

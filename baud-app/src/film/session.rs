@@ -1,4 +1,4 @@
-//! **The README session without a window, and the lights it lights**: the
+//! **The tour without a window, and the lights it lights**: the
 //! steps the `demo` example types into baud's window
 //! (`baud-app/examples/demo/session.rs`, included here as it is), typed
 //! instead into baud's own login shell on a pty against the real core, as
@@ -50,9 +50,11 @@ mod steps;
 
 pub(crate) use steps::{SESSION, Step};
 
-/// How long a prompt, an echo and the container's prompt may take.
+/// How long a prompt, an echo and the container's prompt may take, and a
+/// program's first picture.
 const PROMPT_LIMIT: Duration = Duration::from_secs(15);
 const ECHO_LIMIT: Duration = Duration::from_secs(3);
+const PICTURE_LIMIT: Duration = Duration::from_secs(60);
 
 /// Whether the session is still playing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -94,7 +96,11 @@ enum Then {
 /// once its echo has come back, Escape and Ctrl-d encoded by the core as
 /// the program on screen asked (`Term::key`), as the window's key goes, a
 /// prompt counted by `OSC 133 ; A` marks, baud's shell's and the
-/// container's, and the wheel at the grid's centre.
+/// container's, and the wheel at the grid's centre. Command-C takes the
+/// seat's selection, which must read as the step says, and Command-V sends
+/// it as the app's paste does (`paste::bytes`), bracketed when the program
+/// asked; a peek's Command is held over nothing here, as the film draws no
+/// address bar, and is a hold.
 pub(crate) struct Player<'a> {
     steps: &'a [Step],
     at: StepAt,
@@ -107,6 +113,8 @@ pub(crate) struct Player<'a> {
     counted: BytePos,
     typed_from: BytePos,
     geometry: Geometry,
+    /// What the last Command-C copied.
+    copied: Option<String>,
 }
 
 /// A step of the session, by its place in the list.
@@ -128,6 +136,7 @@ impl<'a> Player<'a> {
             counted: BytePos::ZERO,
             typed_from: BytePos::ZERO,
             geometry,
+            copied: None,
         }
     }
 
@@ -240,17 +249,50 @@ impl<'a> Player<'a> {
                         Some(Doing::Echo { since })
                     }
                 }
-                (Step::Escape | Step::Ctrl(_), Doing::Start) => {
+                (Step::Scene(_), Doing::Start) => None,
+                (Step::Escape | Step::Ctrl(_) | Step::Arrow(_), Doing::Start) => {
                     let key = steps::key_event(step).expect("a step that presses a key");
                     let mut out = Vec::new();
                     crate::reads::input(u.term, |t| t.key(key), |b| out.extend_from_slice(b));
                     self.press(u, log, epoch, &out);
                     None
                 }
-                (Step::Hold(ms), Doing::Start) => Some(Doing::Holding {
+                (Step::Copy(want), Doing::Start) => {
+                    let got = u.seat.selected_text(u.term);
+                    assert_eq!(
+                        got.as_deref(),
+                        Some(want),
+                        "step {}: Command-C copied {got:?}, not `{want}`; the screen:\n{}",
+                        self.at.0,
+                        crate::programs::screen(u.term).join("\n")
+                    );
+                    self.copied = got;
+                    None
+                }
+                (Step::Paste, Doing::Start) => {
+                    let text = self.copied.clone().expect("a paste after a copy");
+                    let form = crate::paste::form(
+                        u.term,
+                        || crate::readline::Quote::LNEXT,
+                        crate::paste::Specials::default,
+                    );
+                    self.typed_from = BytePos::from_index(heard.len());
+                    self.press(u, log, epoch, &crate::paste::bytes(&text, form));
+                    None
+                }
+                (Step::Picture, Doing::Start) => Some(Doing::Waiting { since: now }),
+                (Step::Picture, Doing::Waiting { since }) => {
+                    if steps::pictured(heard, self.typed_from.index()) {
+                        None
+                    } else {
+                        self.limit(now, since, PICTURE_LIMIT, u, "the program's first picture");
+                        Some(Doing::Waiting { since })
+                    }
+                }
+                (Step::Hold(ms) | Step::Peek(ms), Doing::Start) => Some(Doing::Holding {
                     until: now + Duration::from_millis(u64::from(ms)),
                 }),
-                (Step::Hold(_), Doing::Holding { until }) => {
+                (Step::Hold(_) | Step::Peek(_), Doing::Holding { until }) => {
                     if now >= until {
                         None
                     } else {
@@ -280,8 +322,8 @@ impl<'a> Player<'a> {
                     inputs.push_back((end, Input::Stopped));
                     Some(Doing::Holding { until: end })
                 }
-                (Step::Hover { x, y }, Doing::Start) => {
-                    let at = place(self.geometry, (x, y));
+                (Step::Hover(cell), Doing::Start) => {
+                    let at = place(self.geometry, cell, steps::MIDDLE);
                     inputs.push_back((now, Input::Moved(at.0, at.1)));
                     let settle = Duration::from_millis(steps::WHEEL_SETTLE_MS);
                     Some(Doing::Holding {
@@ -290,9 +332,10 @@ impl<'a> Player<'a> {
                 }
                 (Step::Drag { from, to }, Doing::Start) => {
                     let g = self.geometry;
+                    let (press, release) = steps::drag_ends();
                     let moves = super::Cue::Drag {
-                        from: place(g, from),
-                        to: place(g, to),
+                        from: place(g, from, press),
+                        to: place(g, to, release),
                     }
                     .inputs(now);
                     let end = moves.last().map_or(now, |m| m.0);
@@ -300,7 +343,7 @@ impl<'a> Player<'a> {
                     Some(Doing::Holding { until: end })
                 }
                 (
-                    Step::Wheel { .. } | Step::Hover { .. } | Step::Drag { .. },
+                    Step::Wheel { .. } | Step::Hover(_) | Step::Drag { .. },
                     Doing::Holding { until },
                 ) => {
                     if now >= until {
@@ -354,11 +397,16 @@ impl<'a> Player<'a> {
     }
 }
 
-/// **A place in thousandths of the grid**, `(x, y)`, in the frame's pixels:
-/// 500, 500 is where the wheel turns, as a window's centre is.
-fn place(g: Geometry, (x, y): (u16, u16)) -> (f64, f64) {
-    let at = |p: u16, n: u16| f64::from(p) / 1000.0 * f64::from(n) - 0.5;
-    middle(g, (at(y, g.grid.1), at(x, g.grid.0)))
+/// **A point inside a cell of the grid**, `within` of the cell from its
+/// top left (`steps::MIDDLE` its middle), in the frame's pixels.
+fn place(g: Geometry, cell: steps::Cell, within: (f64, f64)) -> (f64, f64) {
+    middle(
+        g,
+        (
+            f64::from(cell.row) + within.1 - 0.5,
+            f64::from(cell.col) + within.0 - 0.5,
+        ),
+    )
 }
 
 /// **What the lights showed through a take**: for each, the first moment
@@ -720,7 +768,7 @@ fn without_takes_a_command_out_whole() {
     assert!(ff.contains(&Step::Run("btop")));
 }
 
-/// **The README session lights every light**, played without a
+/// **The tour lights every light**, played without a
 /// window by `cargo run --example demo -- --headless DIR`, which makes the
 /// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
 /// runs this: the session's steps (`SESSION`) typed into baud's own login
@@ -1037,6 +1085,7 @@ fn the_readme_session_lights_every_light() {
         hold_after(Step::Run("fastfetch")),
         hold_after(Step::Run(steps::FIREWORKS)),
         hold_after(Step::Run("clear")),
+        hold_after(Step::Run(steps::CLOSING)),
     ];
     for i in prompts.into_iter().flatten() {
         assert!(
@@ -1060,6 +1109,33 @@ fn the_readme_session_lights_every_light() {
                 steps[i]
             );
         }
+    }
+    // **Each arrow in the config's helix lights a plasma of its own**, in
+    // its step or the hold after it, the trail plasma then: each hold is
+    // past `REIGNITE`.
+    if let (Some(hx), Some(edit)) = (
+        at(Step::Run("hx ~/.config/baud/config.toml")),
+        at(Step::Keys("cliquid")),
+    ) {
+        for i in (hx..edit).filter(|&i| matches!(steps[i], Step::Arrow(_))) {
+            let lit = take.ignitions.iter().any(|(s, t, _)| {
+                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma
+            });
+            assert!(lit, "no plasma ignition at step {i} {:?}", steps[i]);
+        }
+    }
+    // **The finale's `sed` turns the trail to the saucer before `clear`**,
+    // by baud's reading of the file again, and `clear` lights it.
+    if let Some(clear) = at(Step::Run("clear")) {
+        assert_eq!(
+            trail_as(&take.trails, StepAt(clear)),
+            CursorTrail::Ufo,
+            "at the finale's `clear`"
+        );
+        let flew = take.ignitions.iter().any(|(s, t, _)| {
+            s.is_some_and(|s| (clear..clear + 3).contains(&s)) && *t == CursorTrail::Ufo
+        });
+        assert!(flew, "no saucer at the finale's `clear`");
     }
     // The photo lights FAX: first in its shot, kitten typed to the hold
     // after its prompt, before fastfetch's picture.
@@ -1091,9 +1167,10 @@ fn trail_as(
 }
 
 /// **The shots the flash census counts**, by their frames: the trails'
-/// (helix opened to the prompt after it), the photo's (kitten typed to
-/// the `ssh` after it), the fireworks' (their request typed to the `exit`
-/// after it) and the clear's (to the end), a `name first last` line each
+/// (helix opened to the prompt after it), the pictures' (kitten typed to
+/// mpv), the video's (mpv typed to the `ssh` after it), the fireworks'
+/// (their request typed to the `exit` after it) and the clear's, the
+/// saucer's flight among it (to the end), a `name first last` line each
 /// after the film's `size W H` and `rate R`.
 fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: Duration) -> String {
     let at = |want: Step| steps.iter().position(|s| *s == want);
@@ -1104,8 +1181,13 @@ fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: D
             at(Step::Run("cat hello.txt")),
         ),
         (
-            "photo",
+            "pictures",
             at(Step::Run(steps::ICAT)),
+            at(Step::Run(steps::MPV)),
+        ),
+        (
+            "video",
+            at(Step::Run(steps::MPV)),
             at(Step::Run("ssh demo")),
         ),
         (
@@ -1184,18 +1266,41 @@ fn png(ffmpeg: &std::ffi::OsString, px: &[u32], (w, h): (u32, u32), to: &std::pa
     );
 }
 
-/// **A place in thousandths lands in its cell of the grid**: 500, 500 where
-/// the wheel turns, and the corners at the grid's. Perturbation: swap `x` and
-/// `y` in `place`.
+/// **A cell lands in its place in the grid**: its middle, and its corners
+/// at its edges. Perturbation: swap the row and the column in `place`.
 #[test]
-fn a_place_in_thousandths_is_in_the_grid() {
+fn a_cell_is_in_its_place_in_the_grid() {
+    use steps::Cell;
     let g = Geometry {
         pad: (4, 2),
         cell: (10.0, 20.0),
         grid: (80, 24),
         scale: 1.0,
     };
-    assert_eq!(place(g, (500, 500)), (404.0, 242.0));
-    assert_eq!(place(g, (0, 0)), (4.0, 2.0));
-    assert_eq!(place(g, (1000, 1000)), (804.0, 482.0));
+    assert_eq!(
+        place(g, Cell { row: 0, col: 0 }, steps::MIDDLE),
+        (9.0, 12.0)
+    );
+    assert_eq!(place(g, Cell { row: 0, col: 0 }, (0.0, 0.0)), (4.0, 2.0));
+    assert_eq!(
+        place(g, Cell { row: 23, col: 79 }, (1.0, 1.0)),
+        (804.0, 482.0)
+    );
+    assert_eq!(
+        place(g, Cell { row: 1, col: 3 }, steps::MIDDLE),
+        (39.0, 32.0)
+    );
+}
+
+/// **The demo's window around its grid is the app's**: the title strip's
+/// height is `chrome::INSET` and the padding the config's default, which
+/// the demo's live take places the pointer by (`steps::in_window`).
+/// Perturbation: change `steps::TITLE_PT` and the first assertion fails.
+#[test]
+fn the_window_geometry_is_the_apps() {
+    assert_eq!(steps::TITLE_PT, super::chrome::INSET);
+    assert_eq!(
+        steps::PAD_PT,
+        f64::from(crate::config::Config::defaults().padding)
+    );
 }

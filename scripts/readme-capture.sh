@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Remakes the README's pictures in assets/readme/, every one of them filmed
-# from baud itself. Since 2026-11-01 the README shows one picture, a
-# hero.gif that is a screen recording of a real session (assets/readme/
-# README.md); the takes below are kept for ONLY= runs and none is in the
-# README. The default makes text.png. macOS only: it records baud's window through
+# from baud itself. The README's film is assets/demo/trailer.gif, which the
+# demo example's trailer take makes (assets/demo/README.md); the takes
+# below are kept for ONLY= runs and none is in the README. The default makes text.png. macOS only: it records baud's window through
 # ScreenCaptureKit (scripts/trail-record.swift), so the terminal running it
 # needs Screen Recording, and it raises the window and drives the pointer
 # through System Events, which needs Accessibility.
 #
 #   cargo build --release -p baud && scripts/readme-capture.sh
 #
-# ONLY names a subset, e.g. ONLY="hero tools"; BAUD names another binary.
+# ONLY names a subset, e.g. ONLY="images tools"; BAUD names another binary.
 #
 # What it makes, each at the same window -- BAUD_GRID=80x24 at 16 pt, the
 # 776x548 pt window scripts/trail-clips.sh films -- in the system's
@@ -24,8 +23,6 @@
 #               drawn from open faces only: baud's embedded Regular and icon
 #               face, Noto Color Emoji and Noto Sans CJK SC (OFL-1.1 all),
 #               so no Apple glyph is published
-#   hero.gif    scripts/readme-demo-hero.sh: btop, a git log scrolling,
-#               a photo through kitten icat, the cursor trail
 #   images.gif  scripts/readme-demo-images.sh: a photo, then a smaller one
 #               beside text
 #   tools.gif   scripts/readme-demo-tools.sh, driven from here by
@@ -404,12 +401,6 @@ for what in $only; do
     sd=$("$magick" "$out/text.png" -colorspace gray -format '%[fx:int(standard_deviation*1000)]' info:)
     [ "$sd" -ge 5 ] || die "text: the still is blank (stddev $sd/1000)"
     "$magick" identify -format 'text.png: %wx%h\n' "$out/text.png"
-    ;;
-  hero)
-    film hero 200 80x24 "$root/scripts/readme-demo-hero.sh"
-    frames "$tmp/hero.mp4" "$tmp/hero"
-    check_loop hero "$tmp/hero"
-    gif hero "$tmp/hero"
     ;;
   images)
     film images 30 80x24 "$root/scripts/readme-demo-images.sh"

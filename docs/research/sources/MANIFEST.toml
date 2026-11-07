@@ -83,6 +83,7 @@
 #   WN  more than one window: a new window, a window's close, the last window closed, the Dock's reopen (baud-app/src/windows.rs)
 #   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (tools/baud-pictures and assets/logo/README.md)
 #   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
+#   FM  the films' pieces: the licences of the photo and the fonts the demo's takes show (assets/demo/LICENSES.md)
 #
 # Selection, resize and reflow, Sixel and images have no group of their own:
 # their sources are filed under C, and the images' also under J.
@@ -39038,7 +39039,10 @@ group  = "C"
 # "Custom cpu model name, empty string to disable"; 182 show_disks; 213:
 # show_battery, "Show battery stats in top right if battery is present";
 # 221: save_config_on_exit, default true (338). show_gpu_info's default is
-# "Auto" (276). The keys the demo sets are 1.4.7's too (btop-config-147).
+# "Auto" (276). 143: check_temp, "Show cpu temperature", and 147:
+# show_coretemp, "Show temperatures for cpu cores also if check_temp is True
+# and sensors has been found", both default true (301, 302). The keys the
+# demo sets are 1.4.7's too (btop-config-147).
 [sources.fastfetch-2-60-0-image-c]
 key    = "fastfetch-2-60-0-image-c"
 title  = "fastfetch 2.60.0, src/logo/image/image.c -- the iterm logo: the file sent whole in OSC 1337 File, and the screen cleared unless both a width and a height are set"
@@ -39456,3 +39460,182 @@ bytes  = 4753
 status = "external"
 group  = "J"
 # The two styles, numeric and named ("yesterday", "last week"; "Falls back to the numeric style if no name is available"), the calendar and locale defaults, and localizedStringForDate:relativeToDate:. The header gives no wording for zero; "in 0 seconds" (numeric) and "now" (named) were read off the formatter in en_US_POSIX. Hash recorded only, not committed -- a vendor header.
+
+[sources.elementary-wallpapers-debian-copyright]
+key    = "elementary-wallpapers-debian-copyright"
+title  = "elementary/wallpapers debian/copyright -- 'Unsplash photos published before June 8, 2017 are CC0 (public domain)', Canazei Granite Ridges among them"
+author = "elementary, Inc."
+year   = 2024
+venue  = "elementary/wallpapers, deb-packaging branch at ba8b274 ('Release 8.0.0')"
+url    = "https://raw.githubusercontent.com/elementary/wallpapers/ba8b274cbb0afeda198a62007480ce89d00052f1/debian/copyright"
+file   = ""
+sha256 = "93e1c301cb1885f4dec7322f88e525a87668870233cbc9390b8ce5dac56b0cbf"
+bytes  = 1599
+status = "external"
+group  = "FM"
+# Not in the repository: the file grants nothing, so keeping a copy would be
+# redistributing it with no grant. It was read as
+# elementary-wallpapers-debian-copyright-ba8b274.txt, and the digest is of
+# that copy.
+# Read 2026-11-07 for assets/demo/LICENSES.md; the branch's head resolved
+# through the GitHub API that day. "Unsplash photos published before June 8,
+# 2017 are CC0 (public domain):" heads a list holding "Canazei Granite Ridges
+# <https://unsplash.com/photos/yrwpJwDNSHE>". The repository names no licence
+# for the file itself (elementary-wallpapers-license-md).
+
+[sources.elementary-wallpapers-license-md]
+key    = "elementary-wallpapers-license-md"
+title  = "elementary/wallpapers LICENSE.md at tag 8.0.0 -- a pointer to debian/copyright"
+author = "elementary, Inc."
+year   = 2024
+venue  = "elementary/wallpapers at 2ae7f02 (tag 8.0.0)"
+url    = "https://raw.githubusercontent.com/elementary/wallpapers/2ae7f028a7d807864bdc6b28947d5eb3f36add61/LICENSE.md"
+file   = ""
+sha256 = "6395c64956fb1d0beea899c3af2425bd9b5cc0d7f5f6076f05a651379ae1efff"
+bytes  = 130
+status = "external"
+group  = "FM"
+# Read 2026-11-07. The whole file: "For individual wallpaper licensing
+# information, see: https://github.com/elementary/wallpapers/blob/deb-packaging/debian/copyright".
+# The GitHub API's licence for the repository is "Other" (NOASSERTION).
+
+[sources.cc0-1-0-legalcode]
+key    = "cc0-1-0-legalcode"
+title  = "Creative Commons CC0 1.0 Universal, legal code (plain text) -- section 2, the waiver"
+author = "Creative Commons"
+venue  = "creativecommons.org"
+url    = "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt"
+file   = "cc0-1.0-legalcode.txt"
+sha256 = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+bytes  = 7048
+status = "retrieved"
+group  = "FM"
+# Read 2026-11-07 for assets/demo/LICENSES.md (served with last-modified
+# 2023-09-11). Section 2 waives the rights "for any purpose whatsoever,
+# including without limitation commercial, advertising or promotional
+# purposes". Kept under CC0 itself (cc-policies).
+
+[sources.cc-policies]
+key    = "cc-policies"
+title  = "Creative Commons, Policies -- 'Legal text (we call this legal code) and Commons deeds'"
+author = "Creative Commons"
+year   = 2026
+venue  = "creativecommons.org"
+url    = "https://creativecommons.org/policies/"
+file   = ""
+sha256 = "9dfa5bebe2795b42264b7b8bd52b4126393d033c01d1fa7a8157b573f86343fd"
+bytes  = 59172
+status = "external"
+group  = "FM"
+# Read 2026-11-07: "Creative Commons makes the legal code of its licenses and
+# the CC0 Public Domain Dedication available under the CC0 Public Domain
+# Dedication". The page's bytes are the record of that day.
+
+[sources.noto-emoji-fonts-license]
+key    = "noto-emoji-fonts-license"
+title  = "googlefonts/noto-emoji fonts/LICENSE at v2.051 -- SIL Open Font License 1.1, the licence of the fonts directory"
+author = "Google, the Noto Emoji authors"
+year   = 2025
+venue  = "googlefonts/noto-emoji at 8998f5d (tag v2.051)"
+url    = "https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/fonts/LICENSE"
+file   = "noto-emoji-fonts-LICENSE-8998f5d.txt"
+sha256 = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+bytes  = 4301
+status = "retrieved"
+group  = "FM"
+# Read 2026-11-07 for assets/demo/LICENSES.md. It sits beside
+# fonts/NotoColorEmoji.ttf, and the README names it for the fonts
+# (noto-emoji-readme-v2-051). The repository's root LICENSE at the same
+# commit is the OFL 1.1 too, with "Copyright 2013 Google LLC"; it hashes to
+# 500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b, the
+# copy at baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt.
+
+[sources.noto-emoji-readme-v2-051]
+key    = "noto-emoji-readme-v2-051"
+title  = "googlefonts/noto-emoji README.md at v2.051 -- its License section"
+author = "Google, the Noto Emoji authors"
+year   = 2025
+venue  = "googlefonts/noto-emoji at 8998f5d (tag v2.051)"
+url    = "https://raw.githubusercontent.com/googlefonts/noto-emoji/8998f5dd683424a73e2314a8c1f1e359c19e8742/README.md"
+file   = ""
+sha256 = "51ac190ddc677d3bebe232bd93765072f90ea7aed2300f81fc73560295c2d395"
+bytes  = 2489
+status = "external"
+group  = "FM"
+# Read 2026-11-07: "Emoji fonts (under the fonts subdirectory) are under the
+# [SIL Open Font License, version 1.1](fonts/LICENSE)." and "Tools and most
+# image resources are under the [Apache license, version 2.0](./LICENSE)."
+# The root LICENSE the second sentence links is the OFL 1.1 at this commit.
+
+[sources.noto-cjk-license]
+key    = "noto-cjk-license"
+title  = "notofonts/noto-cjk LICENSE at Sans2.004 -- SIL Open Font License 1.1"
+author = "Adobe and Google, the Noto CJK authors"
+year   = 2022
+venue  = "notofonts/noto-cjk at 523d033 (tag Sans2.004)"
+url    = "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/LICENSE"
+file   = "noto-cjk-LICENSE-523d033.txt"
+sha256 = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+bytes  = 4301
+status = "retrieved"
+group  = "FM"
+# Read 2026-11-07 for assets/demo/LICENSES.md. Byte for byte the same text as
+# noto-emoji-fonts-license; it carries no copyright line. Sans/ has no
+# LICENSE of its own (404 that day); Sans/README-third_party.md names this one
+# (noto-cjk-sans-readme-third-party).
+
+[sources.noto-cjk-sans-readme-third-party]
+key    = "noto-cjk-sans-readme-third-party"
+title  = "notofonts/noto-cjk Sans/README-third_party.md at Sans2.004"
+author = "Adobe and Google, the Noto CJK authors"
+year   = 2022
+venue  = "notofonts/noto-cjk at 523d033 (tag Sans2.004)"
+url    = "https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/README-third_party.md"
+file   = ""
+sha256 = "aa229a2136c426e3deca957c305727e02415198116138d8c1721222b12e22131"
+bytes  = 888
+status = "external"
+group  = "FM"
+# Read 2026-11-07: "License: SIL Open Font License v1.1", "License File:
+# LICENSE", and "prior releases of the CJK fonts were issued under the Apache
+# 2 license. This was changed to the SIL OFL v1.1 starting with Version
+# 1.002." Its description still says "released as open source under the
+# Apache license version 2.0", and "The copyright is held by Adobe, while the
+# trademarks on the names are held by Google."
+
+[sources.notofonts-fonts-license]
+key    = "notofonts-fonts-license"
+title  = "notofonts/notofonts.github.io fonts/LICENSE at noto-monthly-release-2026.10.01 -- SIL Open Font License 1.1"
+author = "The Noto Project Authors"
+year   = 2026
+venue  = "notofonts/notofonts.github.io at 0259702 (tag noto-monthly-release-2026.10.01)"
+url    = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/025970232f4f8ff349310d9785431e87d20ed27c/fonts/LICENSE"
+file   = "notofonts-fonts-LICENSE-0259702.txt"
+sha256 = "f2095b08bed08b23a6fe26112fcd679a2bee3f002eef077eb05d215ed1051bd8"
+bytes  = 4374
+status = "retrieved"
+group  = "FM"
+# Read 2026-11-07 for assets/demo/LICENSES.md: "Copyright 2022 The Noto
+# Project Authors (https://github.com/notofonts/)", then the OFL 1.1. The
+# commit's git tree, listed whole through the GitHub API that day, has no
+# licence file anywhere under the directories of Noto Naskh Arabic, Noto Sans
+# Devanagari and Noto Sans Symbols 2 under fonts/; the repository's root
+# LICENSE is the Apache License 2.0, which its README gives the tooling
+# (notofonts-readme).
+
+[sources.notofonts-readme]
+key    = "notofonts-readme"
+title  = "notofonts/notofonts.github.io README.md at noto-monthly-release-2026.10.01 -- its Licensing section"
+author = "The Noto Project Authors"
+year   = 2026
+venue  = "notofonts/notofonts.github.io at 0259702 (tag noto-monthly-release-2026.10.01)"
+url    = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/025970232f4f8ff349310d9785431e87d20ed27c/README.md"
+file   = ""
+sha256 = "2ea6d22ffbb2b322d92bf121650ec8a16c37618d285bbe89a9824368a0cadb7b"
+bytes  = 6815
+status = "external"
+group  = "FM"
+# Read 2026-11-07: "All Noto fonts (in the `fonts/` directory) are licensed
+# under the [SIL Open Font License](fonts/LICENSE). This documentation and all
+# tooling in this repository is licensed under the [Apache 2.0
+# License](LICENSE)."

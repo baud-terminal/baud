@@ -1459,6 +1459,42 @@ files   = [
   "ecfr-37-cfr-202.1.xml",
 ]
 
+[upstream.cc0-legalcode]
+name    = "Creative Commons CC0 1.0 Universal, its legal code, which Creative Commons makes available under CC0 (manifest `cc-policies`)"
+licence = "CC0-1.0"
+notice  = "none needed"
+status  = "kept"
+files   = [
+  "cc0-1.0-legalcode.txt",
+]
+
+[upstream.noto-emoji-fonts]
+name    = "googlefonts/noto-emoji at v2.051, fonts/LICENSE: the licence of the emoji fonts (manifest `noto-emoji-fonts-license`; the README that says it covers the fonts, `noto-emoji-readme-v2-051`)"
+licence = "OFL-1.1"
+notice  = "docs/research/sources/noto-emoji-fonts-LICENSE-8998f5d.txt"
+status  = "kept"
+files   = [
+  "noto-emoji-fonts-LICENSE-8998f5d.txt",
+]
+
+[upstream.noto-cjk]
+name    = "notofonts/noto-cjk at Sans2.004 (Adobe and Google), its LICENSE"
+licence = "OFL-1.1"
+notice  = "docs/research/sources/noto-cjk-LICENSE-523d033.txt"
+status  = "kept"
+files   = [
+  "noto-cjk-LICENSE-523d033.txt",
+]
+
+[upstream.notofonts]
+name    = "notofonts/notofonts.github.io at noto-monthly-release-2026.10.01 (The Noto Project Authors), fonts/LICENSE: the licence of the fonts directory"
+licence = "OFL-1.1"
+notice  = "docs/research/sources/notofonts-fonts-LICENSE-0259702.txt"
+status  = "kept"
+files   = [
+  "notofonts-fonts-LICENSE-0259702.txt",
+]
+
 [upstream.owner-observations]
 name    = "The project's own probe outputs and captures"
 licence = "CC-BY-NC-SA-4.0"
@@ -2158,14 +2194,6 @@ upstream = "https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b
 status   = "kept"
 public   = "iTerm2's OSC 1337 key names the build compiles, the words an application sends to iTerm2's protocol: 39 that its documentation names and 54 that its VT100Terminal.m compares, kept as the protocol's interface data. No prose or code of iTerm2's is kept"
 holder   = "George Nachman (iTerm2)"
-
-[[tree]]
-what     = "The README's hero.gif carries the elementary OS wallpaper 'Canazei Granite Ridges', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')"
-paths    = ["assets/readme/hero.gif"]
-licence  = "CC0-1.0"
-notice   = "none needed"
-upstream = "https://github.com/elementary/wallpapers"
-status   = "kept"
 
 [[tree]]
 what     = "A Rust port of zlib 1.3.1's deflate at levels 6 and 9 (deflate.c and trees.c), so baud-bench's gen-yazi-files and linux-pixels write the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered"

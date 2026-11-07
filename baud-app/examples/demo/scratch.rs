@@ -96,13 +96,36 @@ const HELIX: &str = "# helix's defaults but soft wrap, for the README session\n\
 /// (`container::STARSHIP_NIXPKGS`), drawn from baud's preset as the scratch
 /// home holds it ([`STARSHIP`]), its cache in the scratch home too. Its
 /// `ssh` reads the scratch home's ssh config (`container::ZSH_SSH`).
+/// `interactive_comments` is set, so the tour's narration, each a line
+/// beginning `#` typed at the prompt, is a comment the shell skips: zsh has
+/// the option off in an interactive shell, where `# are you ready for
+/// this?` would be run as a command named `#` and its `?` read as a
+/// pattern.
 fn zshrc(path: &str) -> String {
     format!(
-        "export PATH={path}\nexport STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
+        "export PATH={path}\nsetopt interactive_comments\n\
+         export STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
          export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n{}",
         crate::container::ZSH_SSH
     )
 }
+
+/// **mpv's config in the scratch home**, `~/.config/mpv/mpv.conf`, so the
+/// tour's `mpv logo.mp4` and the trailer's `mpv URL` are typed with no
+/// option: its video in kitty's graphics protocol, each frame sent in the
+/// stream itself (`vo-kitty-use-shm=no`, mpv's default, written out:
+/// nixpkgs' mpv 0.41 names its shared memory without the leading `/` the
+/// protocol asks for, which baud refuses, as kitty does), no audio, which
+/// the takes do not film, and no status line, whose writes from its own
+/// thread land inside a frame's chunks and cut them
+/// (`tests/recordings/README.md`, `kitty/mpv-logo-40x6.raw`).
+pub const MPV_CONF: &str = "# mpv for the tour and the trailer: video in kitty's protocol, in the stream\n\
+                            vo=kitty\nvo-kitty-use-shm=no\naudio=no\nreally-quiet\n";
+
+/// **What scene 8 prints**, `assets/demo/links.txt`: a web address and a
+/// file's, each a URI baud underlines at rest (`baud-app/src/link.rs`), the
+/// file's a path that names nothing of this machine.
+pub const LINKS: &str = include_str!("../../../assets/demo/links.txt");
 
 /// Where the scratch home holds baud's starship preset, the repository's
 /// `assets/starship/baud.toml` byte for byte ([`PRESET`]).
@@ -116,17 +139,23 @@ pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 /// bare.
 pub const README: &str = include_str!("../../../README.md");
 
-/// **baud's config**, as the session shows it in helix: 22 lines, no more
-/// than the rows helix gives a file in a 24-row window, so the session's
+/// **baud's config**, as the tour shows it in helix: 22 lines, no more
+/// than the rows helix gives a file in a 24-row window, so the tour's
 /// jumps between its first line and its last cross most of the screen;
 /// `trail = "plasma"` the last line, and the word nowhere else, so `ge`
-/// lands on it and `/plasma` selects it.
+/// lands on it and `/plasma` selects it, and once it is `liquid`, the
+/// finale's `sed` finds that word nowhere else either.
 ///
 /// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
-///   fonts one a line: baud's own by family name, `Proto Hebrew Mono C`
-///   and `Symbols Nerd Font Mono`, then the pinned open faces by paths
-///   beside this file, `fonts/<file>`, so no path of the machine is on
-///   screen.
+///   fonts: baud's own by family name on the list's first line, `Proto
+///   Hebrew Mono C` and `Symbols Nerd Font Mono`, then the pinned open
+///   faces one a line, by paths beside this file, `fonts/<file>`, so no
+///   path of the machine is on screen.
+/// - `[images] advertise_sixel = true`, so the tour's `kitten icat` is
+///   typed plain: kitten's detection asks the terminal what it is, gives
+///   up on baud's default answer after ten seconds, and passes once baud
+///   says it draws Sixel, which it does (`docs/guide/configuration.md`).
+///   Shown when helix opens the file, as the storyline asks.
 /// - `[screen] transition = "on"`: a full-screen program slides in and
 ///   out, as btop does.
 /// - The window solid, each by its own key
@@ -147,40 +176,63 @@ pub const README: &str = include_str!("../../../README.md");
 /// The title strip above the grid stays the window's material: no key
 /// makes it solid (`accessible` in `baud-app/src/app.rs`).
 pub fn config(faces: &[&str]) -> String {
-    let mut fonts = vec![
-        "\"Proto Hebrew Mono C\"".to_string(),
-        "\"Symbols Nerd Font Mono\"".to_string(),
-    ];
-    fonts.extend(faces.iter().map(|f| format!("\"fonts/{f}\"")));
-    let list: String = fonts.iter().map(|f| format!("  {f},\n")).collect();
-    format!("font_size = {POINTS}\nfonts = [\n{list}]\n{TABLES}")
+    let list: String = faces
+        .iter()
+        .map(|f| format!("  \"fonts/{f}\",\n"))
+        .collect();
+    format!(
+        "font_size = {POINTS}\nfonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\",\n\
+         {list}]\n{TABLES}"
+    )
 }
 
 /// [`config`]'s tables: the transition, the window solid and its size and
-/// font fixed, and the cursor, its trail last.
+/// font fixed, Sixel said, and the cursor, its trail last.
 const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\
                       [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n\
+                      [images]\nadvertise_sixel = true\n\
                       [cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n";
 
-/// **The photo the picture shot draws**: the elementary OS wallpaper
-/// "Canazei Granite Ridges", an Unsplash photograph published before 8 June
-/// 2017 and so CC0, as elementary's `debian/copyright` records
-/// (`THIRD_PARTY.md`), fetched once by its URL at the wallpapers' tag
-/// `8.0.0` into the faces' cache and refused unless it hashes to the pin
-/// `scripts/readme-capture.sh` checks it by.
-pub const PHOTO: crate::fonts::Pinned = crate::fonts::Pinned {
-    name: "Canazei Granite Ridges",
-    url: "https://raw.githubusercontent.com/elementary/wallpapers/8.0.0/backgrounds/Canazei%20Granite%20Ridges.jpg",
-    sha256: "0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c",
-    draws: "the picture shot",
-};
+/// **The photo's pin**, `assets/demo/photo.toml`: the elementary OS
+/// wallpaper "Canazei Granite Ridges", an Unsplash photograph published
+/// before 8 June 2017 and so CC0, as elementary's `debian/copyright`
+/// records (`assets/demo/LICENSES.md`), fetched once by its URL at the
+/// wallpapers' tag `8.0.0` into the faces' cache and refused unless it
+/// hashes to the pin.
+pub const PHOTO_TOML: &str = include_str!("../../../assets/demo/photo.toml");
 
-/// **The photo's width as the session's working directory holds it**, in
-/// pixels: 50 of the film's 17-pixel columns at 14 points, the width the
-/// earlier take's `--place` gave it, which kitten draws a pixel a pixel.
-/// Its 5472-pixel original took kitten a second to decode
-/// (`scripts/readme-capture.sh`).
-pub const PHOTO_WIDTH: u32 = 850;
+/// **The photo scene 9 draws, read from its pin**, with the width the
+/// working directory holds it at: 850 pixels, 50 of the film's 17-pixel
+/// columns at 14 points, the width an earlier take's `--place` gave it,
+/// which kitten draws a pixel a pixel. Its 5472-pixel original took kitten
+/// a second to decode (`scripts/readme-capture.sh`). The file's strings
+/// are kept for the process's life, as a pin's fields are `'static`.
+pub fn photo() -> Result<(crate::fonts::Pinned, u32), String> {
+    let doc =
+        crate::provenance::read(PHOTO_TOML).map_err(|e| format!("assets/demo/photo.toml: {e}"))?;
+    let field = |k: &str| -> Result<&'static str, String> {
+        let v = doc
+            .text_of("", k)
+            .ok_or_else(|| format!("assets/demo/photo.toml has no {k}"))?;
+        Ok(Box::leak(v.to_string().into_boxed_str()))
+    };
+    let width = field("width")?
+        .parse::<u32>()
+        .map_err(|_| "assets/demo/photo.toml's width is not a number of pixels".to_string())?;
+    let sha256 = field("sha256")?;
+    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("assets/demo/photo.toml's sha256 is not 64 hex digits".to_string());
+    }
+    Ok((
+        crate::fonts::Pinned {
+            name: field("name")?,
+            url: field("url")?,
+            sha256,
+            draws: "the photo, scene 9",
+        },
+        width,
+    ))
+}
 
 /// Where the photo is, under the scratch root: the shell's working
 /// directory, so the command names it bare.
@@ -204,6 +256,11 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
         (
             "home/baud/README.md".to_string(),
             README.as_bytes().to_vec(),
+        ),
+        ("home/baud/links.txt".to_string(), LINKS.as_bytes().to_vec()),
+        (
+            "home/.config/mpv/mpv.conf".to_string(),
+            MPV_CONF.as_bytes().to_vec(),
         ),
         (format!("home/{CONFIG}"), config(faces).into_bytes()),
     ]
@@ -324,14 +381,16 @@ mod tests {
     }
 
     /// **The config lists baud's own faces by name and the pinned ones by
-    /// paths beside it, one a line**, at 14 points, the transition on, the
-    /// window solid and the cursor blinking with its plasma trail last, in 22
+    /// paths beside it**, at 14 points, the transition on, the window solid,
+    /// Sixel said, and the cursor blinking with its plasma trail last, in 22
     /// lines -- the rows helix gives a file in 24 -- with "plasma" on the
-    /// last alone; the zsh file sets the `PATH`, starship's prompt from the
-    /// preset in the scratch home, and ssh's config; and baud's
-    /// environment is its list, no `XDG_*` among it.
-    /// Perturbation: a blank line after the fonts makes 23 lines, and a
-    /// `trail_scroll` after the trail ends the file on another line.
+    /// last alone, and the line the finale's `sed` changes once the word is
+    /// liquid the only one with "liquid" in it; the zsh file sets the
+    /// `PATH`, comments at the prompt, starship's prompt from the preset in
+    /// the scratch home, and ssh's config; and baud's environment is its
+    /// list, no `XDG_*` among it. Perturbation: a blank line after the
+    /// fonts makes 23 lines, and a `trail_scroll` after the trail ends the
+    /// file on another line.
     #[test]
     fn the_config_and_the_shell_say_what_the_session_needs() {
         let faces = [
@@ -342,13 +401,22 @@ mod tests {
             "NotoSansSymbols2-Regular.ttf",
         ];
         let c = config(&faces);
-        assert!(c.starts_with("font_size = 14\nfonts = [\n"), "{c}");
-        assert!(c.contains(
-            "  \"Proto Hebrew Mono C\",\n  \"Symbols Nerd Font Mono\",\n  \"fonts/NotoColorEmoji.ttf\",\n"
-        ));
+        assert!(
+            c.starts_with(
+                "font_size = 14\nfonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\",\n  \
+                 \"fonts/NotoColorEmoji.ttf\",\n"
+            ),
+            "{c}"
+        );
         assert_eq!(c.lines().count(), 22, "{c}");
         assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
         assert_eq!(c.matches("plasma").count(), 1, "the word once");
+        let liquid = c.replace("plasma", "liquid");
+        assert_eq!(
+            liquid.matches("liquid").count(),
+            1,
+            "the finale's word once"
+        );
         assert!(
             c.lines().all(|l| l.chars().count() < 60),
             "no line runs off"
@@ -360,6 +428,7 @@ mod tests {
             "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n",
             "[font]\nchanges = \"off\"\n",
             "[window]\noperations = \"off\"\n",
+            "[images]\nadvertise_sixel = true\n",
             "[cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n",
         ] {
             assert!(c.contains(table), "{table}:\n{c}");
@@ -368,6 +437,7 @@ mod tests {
         assert_eq!(
             z,
             "export PATH=/a/bin:/usr/bin\n\
+             setopt interactive_comments\n\
              export STARSHIP_CONFIG=\"$HOME/.config/starship.toml\"\n\
              export STARSHIP_CACHE=\"$HOME/.cache/starship\"\n\
              eval \"$(starship init zsh)\"\n\
@@ -550,6 +620,10 @@ mod tests {
     ///   disable"; empty, btop titles the core list with the chip's name.
     /// - `show_gpu_info = "Off"`, `show_uptime`, `show_cpu_freq`,
     ///   `show_disks` and `show_battery` false, and no clock.
+    /// - `check_temp` and `show_coretemp` false: "Show cpu temperature"
+    ///   and "Show temperatures for cpu cores also if check_temp is True
+    ///   and sensors has been found", so no temperature is drawn whether or
+    ///   not the VM has a sensor.
     ///
     /// On the terminal's background, and drawn every 100 ms so its graphs
     /// fill in the seconds it is on screen.
@@ -566,6 +640,8 @@ mod tests {
     fn the_container_s_btop_draws_no_battery_and_no_clock() {
         for line in [
             "show_battery = false",
+            "check_temp = false",
+            "show_coretemp = false",
             "clock_format = \"\"",
             "save_config_on_exit = false",
         ] {
