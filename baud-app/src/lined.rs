@@ -56,7 +56,7 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, MAX, Scheme, Unit, admit_with, class, found_in, may_be_cut, scheme_at,
+    Class, Edge, Host, MAX, Target, Unit, admit_with, class, found_in, may_be_cut, scheme_at,
     scheme_ends, unit,
 };
 use crate::rules::{Rules, Tail};
@@ -188,12 +188,13 @@ impl Reader for Uris {
 
 impl Uris {
     /// [`Reader::read`], each URI `admit` opens marked as `mark` says of its
-    /// scheme: a reader that knows which kinds have no app strikes those.
+    /// target: a reader that knows which kinds have no app, or which rules'
+    /// commands are missing, strikes those.
     pub fn read_marking(
         &mut self,
         text: Text<'_>,
         found: &mut Vec<Run>,
-        mark: &dyn Fn(Scheme) -> Mark,
+        mark: &dyn Fn(&Target<'_>) -> Mark,
     ) -> usize {
         let Text {
             units, head, tail, ..
@@ -248,7 +249,7 @@ impl Uris {
                     if let Ok(t) = admit_with(&bytes, Host(self.host()), &self.rules) {
                         found.push(Run {
                             units: span,
-                            mark: mark(t.scheme()),
+                            mark: mark(&t),
                         });
                     }
                     self.bytes = bytes;

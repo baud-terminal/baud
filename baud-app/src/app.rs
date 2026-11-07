@@ -1986,7 +1986,9 @@ impl App {
     fn recheck_entered(&mut self) {
         match self.hover.take_entered() {
             Some(crate::paths::Gone::File(path)) => self.paths.recheck_path(&path),
-            Some(crate::paths::Gone::NoApp(_)) => self.probes.owe_programs(),
+            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
+                self.probes.owe_programs()
+            }
             None => {}
         }
     }

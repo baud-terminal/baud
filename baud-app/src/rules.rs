@@ -475,6 +475,16 @@ impl Rules {
         })
     }
 
+    /// **The programs your `[link.NAME]` rules run**: each `command` rule's
+    /// `command[0]`, as [`Argv::program`] spells it, in file order, for the
+    /// worker to look up. `[link.path]`'s is not among them.
+    pub fn command_programs(&self) -> impl Iterator<Item = &str> {
+        self.list.iter().filter_map(|r| match r.act() {
+            Act::Command(argv) => Some(argv.program()),
+            Act::Open | Act::Off | Act::Copy => None,
+        })
+    }
+
     /// **The program a click on scheme `name`'s links would run, and whether
     /// it is there** -- none where no rule of yours runs a command for it.
     /// The strike's question: a metadata call, so never on the frame path,

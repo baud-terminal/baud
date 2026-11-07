@@ -216,9 +216,8 @@ pub enum Program {
     Scheme(Scheme),
     /// A rule's `command[0]`, as its reader spells it once read, looked up
     /// as `execvp` would, a component at a time and never past a network or
-    /// automounted file system (`probe::command`). The `[link.*]` rules'
-    /// reader is what makes one; until it reads them, only the tests do.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// automounted file system (`probe::command`), for each `[link.NAME]`
+    /// rule that runs a command (`config::Link::programs`).
     Command(String),
 }
 
@@ -245,6 +244,8 @@ pub enum Gone {
     File(Vec<u8>),
     /// No app for its kind.
     NoApp(Scheme),
+    /// No program for the command its `[link.NAME]` rule runs.
+    NoCommand,
 }
 
 /// What a `file://` link's host says of where its file is.
@@ -939,6 +940,28 @@ impl Paths {
         self.program_mark(&Program::Scheme(scheme))
     }
 
+    /// **How a link `admit` let through as `target` is drawn**: one a `[link.NAME]`
+    /// rule takes and runs a command for by that command's program, else by
+    /// its kind ([`Paths::scheme_mark`]).
+    /// A rule's copy is never struck: a click copies, whatever opens the kind.
+    pub fn target_mark(&self, target: &Target<'_>) -> Mark {
+        match self.rule_act(target) {
+            Some(crate::rules::Act::Command(argv)) => {
+                self.program_mark(&Program::Command(argv.program().to_owned()))
+            }
+            Some(crate::rules::Act::Copy) => Mark::Line,
+            _ => self.scheme_mark(target.scheme()),
+        }
+    }
+
+    /// What the `[link.NAME]` rule that let `target` through does, if one did.
+    fn rule_act(&self, target: &Target<'_>) -> Option<&crate::rules::Act> {
+        target
+            .rule()
+            .and_then(|ix| self.rules.at(ix))
+            .map(|r| r.act())
+    }
+
     /// **How a link a `[link.*]` rule opens with `program` is drawn**: the
     /// hook a `command` rule's `command[0]` reads, struck only while
     /// `missing` is on and the worker found none of that name.
@@ -1598,9 +1621,10 @@ impl PathsAt for Paths {
                     _ => None,
                 }
             }
-            s => match self.scheme_mark(s) {
-                Mark::Struck => Some(Gone::NoApp(s)),
-                Mark::Line => None,
+            s => match (self.rule_act(target), self.target_mark(target)) {
+                (_, Mark::Line) => None,
+                (Some(crate::rules::Act::Command(_)), Mark::Struck) => Some(Gone::NoCommand),
+                (_, Mark::Struck) => Some(Gone::NoApp(s)),
             },
         }
     }
@@ -1628,7 +1652,7 @@ impl Reader for Links<'_> {
             let paths = &*self.paths;
             n += self
                 .uris
-                .read_marking(text, found, &|s| paths.scheme_mark(s));
+                .read_marking(text, found, &|t| paths.target_mark(t));
         }
         if self.paths.reads == Reads::Yes {
             n += self.paths.read(text, found).0;
@@ -1644,7 +1668,7 @@ impl Reader for Links<'_> {
         let t = admit_with(uri, Host(self.uris.host()), self.uris.rules()).ok()?;
         Some(match t.scheme() {
             Scheme::File => self.paths.file_link(uri, at),
-            s => self.paths.scheme_mark(s),
+            _ => self.paths.target_mark(&t),
         })
     }
 
@@ -3003,6 +3027,145 @@ mod tests {
         );
         let _ = p.set_missing(Turned::Off);
         assert_eq!(p.program_mark(&gone), Mark::Line, "missing off");
+    }
+
+    /// **A `[link.NAME]` rule whose `command[0]` is missing is struck at
+    /// rest, and one whose program is there is not**: the config's rules feed
+    /// the worker's list (`config::Link::programs`), each program is looked
+    /// up as the worker does (`probe::command`, on this machine's file
+    /// system), and the scan marks a rule's links by its program
+    /// (`Paths::target_mark`). The missing program is a name in a fresh,
+    /// empty folder; the one there is `/bin/sh`. Named break: in
+    /// `target_mark`, mark every target by its scheme
+    /// (`self.scheme_mark(target.scheme())`), and `tel:` is underlined, not
+    /// struck.
+    #[test]
+    fn a_rules_missing_command_is_struck_at_rest_and_a_found_one_is_not() {
+        use crate::probe::{Fs, System};
+        let dir = std::env::temp_dir().join(format!("baud-strike-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a fresh folder");
+        let gone = dir.join("no-such-program");
+        let gone = gone.to_str().expect("a UTF-8 temp path");
+        let mut c = crate::config::Config::defaults();
+        let _ = c.apply(&format!(
+            "[link.tel]\ncommand = [\"{gone}\", \"{{url}}\"]\n\n\
+             [link.sip]\ncommand = [\"/bin/sh\", \"-c\", \"true\", \"{{url}}\"]\n"
+        ));
+        let asked = c.link.programs();
+        let (missing, there) = (
+            Program::Command(gone.to_owned()),
+            Program::Command("/bin/sh".to_owned()),
+        );
+        assert!(asked.contains(&missing), "tel's command asked: {asked:?}");
+        assert!(asked.contains(&there), "sip's command asked: {asked:?}");
+        let mut fs = System;
+        let mounts = fs.mounts().expect("the mount table");
+        let found = |prog: &str, fs: &mut System| {
+            crate::probe::command(fs, &mounts, (prog, None), &mut 0, &|| {})
+        };
+        assert_eq!(found(gone, &mut fs), Handler::Missing, "the control: gone");
+        assert_eq!(
+            found("/bin/sh", &mut fs),
+            Handler::Found,
+            "the control: there"
+        );
+        let answers = asked
+            .iter()
+            .filter_map(|p| match p {
+                Program::Command(prog) => Some((p.clone(), found(prog, &mut fs))),
+                Program::Scheme(_) => None,
+            })
+            .collect();
+        let _ = std::fs::remove_dir(&dir);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"tel:+15550100 sip:alice@b.example");
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_rules(c.link.rules.clone());
+        let _ = p.set_programs(answers);
+        let mut u = Uris::default();
+        u.set_rules(c.link.rules.clone());
+        let mut l = Lines::default();
+        let _ = l.scan(
+            &t,
+            at(),
+            &mut Links {
+                uris: &mut u,
+                urls: Turned::On,
+                paths: &mut p,
+            },
+        );
+        assert_eq!(struck(&l), [(0, 0, 12)], "tel: its program missing, struck");
+        assert_eq!(
+            runs(&l),
+            [(0, 14, 32)],
+            "sip: its program there, underlined"
+        );
+    }
+
+    /// **A `copy` rule's link is never struck**: a click copies, so an
+    /// `https` link a `[link.https] action = "copy"` rule takes is drawn
+    /// with a line where no browser was found, and is not gone under the
+    /// chord; the same link with no rule is struck. Named break: in
+    /// `target_mark`, drop the `Act::Copy` arm, and the copy rule's link is
+    /// struck.
+    #[test]
+    fn a_copy_rule_is_never_struck_for_a_missing_app() {
+        let mut c = crate::config::Config::defaults();
+        let said = c.apply("[link.https]\naction = \"copy\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_rules(c.link.rules.clone());
+        let _ = p.set_programs(vec![(Program::Scheme(Scheme::Https), Handler::Missing)]);
+        let uri = b"https://a.example/";
+        let plain = admit(uri, Host("")).expect("admitted");
+        assert_eq!(
+            p.target_mark(&plain),
+            Mark::Struck,
+            "the control: no browser, struck"
+        );
+        let copied = crate::link::admit_with(uri, Host(""), &c.link.rules).expect("the rule's");
+        assert_eq!(copied.action(), crate::link::Action::Copy);
+        assert_eq!(p.target_mark(&copied), Mark::Line, "a copy: a line");
+        assert_eq!(
+            PathsAt::gone(&p, &copied),
+            None,
+            "and not gone under the chord"
+        );
+    }
+
+    /// **Under the chord, a command rule's link whose program is missing
+    /// says why**: `gone` names the missing command, which the bar reads as
+    /// "no app for its command"; found, it is not gone. Named break: in
+    /// `gone`, take a command rule's strike as `Gone::NoApp`, which names
+    /// no command.
+    #[test]
+    fn a_missing_command_says_why_under_the_chord() {
+        let mut c = crate::config::Config::defaults();
+        let said = c.apply("[link.tel]\ncommand = [\"/no/such/dialer\", \"{url}\"]\n");
+        assert!(
+            !said.is_empty(),
+            "the reader says the program is not there: {said:?}"
+        );
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_rules(c.link.rules.clone());
+        let gone = Program::Command("/no/such/dialer".to_owned());
+        let t =
+            crate::link::admit_with(b"tel:+15550100", Host(""), &c.link.rules).expect("the rule's");
+        assert_eq!(PathsAt::gone(&p, &t), None, "the control: not asked yet");
+        let _ = p.set_programs(vec![(gone.clone(), Handler::Missing)]);
+        let g = PathsAt::gone(&p, &t).expect("gone");
+        assert_eq!(g, Gone::NoCommand);
+        let words = crate::link::refusal_words(match g {
+            Gone::NoCommand => crate::link::Refused::NoCommand,
+            other => panic!("{other:?}"),
+        });
+        assert_eq!(words, "no app for its command");
+        let _ = p.set_programs(vec![(gone, Handler::Found)]);
+        assert_eq!(PathsAt::gone(&p, &t), None, "found: not gone");
     }
 
     /// **A strike survives every batch while its link is on the screen, and

@@ -3319,7 +3319,9 @@ impl Driver {
             .set_link_missing(self.link_config.missing_color);
         match self.seat.take_entered() {
             Some(crate::paths::Gone::File(path)) => self.seat.paths.recheck_path(&path),
-            Some(crate::paths::Gone::NoApp(_)) => self.probes.owe_programs(),
+            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
+                self.probes.owe_programs()
+            }
             None => {}
         }
         self.renderer.set_link(self.seat.hover_look().cloned());

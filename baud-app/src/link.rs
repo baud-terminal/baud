@@ -156,6 +156,9 @@ pub enum Refused {
     /// No app for the link's kind, as the worker last found: never
     /// [`admit`]'s either, and a click still tries.
     NoApp(Scheme),
+    /// No program for the command a `[link.NAME]` rule runs, as the worker
+    /// last found: a click still tries.
+    NoCommand,
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
@@ -1317,6 +1320,7 @@ pub fn refusal_words(why: Refused) -> &'static str {
         Refused::NoApp(Scheme::Mailto) => "no app for mailto:",
         Refused::NoApp(Scheme::File) => "no app for file:",
         Refused::NoApp(Scheme::Added) => "no app for it",
+        Refused::NoCommand => "no app for its command",
     }
 }
 
@@ -1471,6 +1475,7 @@ fn gone_refusal(g: &Gone) -> Refused {
     match g {
         Gone::File(_) => Refused::NotFound,
         Gone::NoApp(s) => Refused::NoApp(*s),
+        Gone::NoCommand => Refused::NoCommand,
     }
 }
 

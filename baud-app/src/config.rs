@@ -706,14 +706,25 @@ impl Link {
         }
     }
 
-    /// **What the worker is asked to find a program for**: on macOS the
-    /// kinds of link `admit` opens, while `missing = "strike"`; on Linux
-    /// none, since `xdg-open` falls back to a browser for a kind with no
-    /// handler, so no answer would mean nothing opens (`probe.rs`).
+    /// **What the worker is asked to find a program for**, while `missing =
+    /// "strike"`: on macOS the kinds of link `admit` opens, on Linux none,
+    /// since `xdg-open` falls back to a browser for a kind with no handler,
+    /// so no answer would mean nothing opens (`probe.rs`); and on both each
+    /// `[link.NAME]` rule's `command[0]`, once, which a click runs with no
+    /// handler between.
     pub fn programs(&self) -> Vec<crate::paths::Program> {
         match self.missing {
             LinkMissing::Off => Vec::new(),
-            LinkMissing::Strike => scheme_programs(),
+            LinkMissing::Strike => {
+                let mut asked = scheme_programs();
+                for prog in self.rules.command_programs() {
+                    let p = crate::paths::Program::Command(prog.to_owned());
+                    if !asked.contains(&p) {
+                        asked.push(p);
+                    }
+                }
+                asked
+            }
         }
     }
 
