@@ -62,7 +62,7 @@ mod frames;
 use crate::style::Chan;
 pub use frames::{
     AnimState, Animated, FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth,
-    FrameLoad, FrameNo, FrameRefusal, FrameWait, ImageMotion,
+    FrameLoad, FrameNo, FrameRefusal, FrameWait, ImageMotion, RowMap,
 };
 use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 

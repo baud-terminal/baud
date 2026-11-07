@@ -2216,6 +2216,14 @@ upstream = "generated: magick -size 96x72 gradient:red-blue -swirl 60 -rotate 0,
 status   = "own"
 
 [[tree]]
+what     = "The README's logo, assets/readme/logo-dark.gif, made 140 pixels wide by ffmpeg 9.0.2, and a recording of kitty 0.50.0's kitten icat showing it (tests/recordings/README.md): the kitty graphics commands carrying its frames. The frames are the logo's, so under the logo's licence: its letters are JetBrains Mono's, under its OFL, credited to The JetBrains Mono Project Authors"
+paths    = ["tests/recordings/kitty/icat-logo-dark-140.raw"]
+licence  = "OFL-1.1"
+notice   = "assets/readme/JetBrainsMono-OFL.txt"
+upstream = "generated: tests/recordings/README.md"
+status   = "kept"
+
+[[tree]]
 what     = "The Independent JPEG Group's test images from release 6b, unmodified: testorig.jpg, testprog.jpg and testimg.ppm, the reference decode of both"
 paths    = ["baud-domain/tests/ijg/testorig.jpg", "baud-domain/tests/ijg/testprog.jpg", "baud-domain/tests/ijg/testimg.ppm"]
 licence  = "IJG"

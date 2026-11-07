@@ -8,16 +8,21 @@
 //! that is all there is, older images with no placement deleted to make
 //! the room as for a new image ("delete older images to make space"), the
 //! animation's own never. The old span is live while it moves and the
-//! incoming frame's data needs room too, so an animation holds fewer than
-//! half the arena's frames: measured, a 32x32 animation in an arena of 12
-//! frames and 64 words takes 5 frames and the sixth is ENOSPC, and so
-//! does a 1920x1080 one in the app's 95 MiB; kitty keeps frames on disk under a quota of five
+//! incoming frame's data needs room too, so kept whole an animation holds
+//! fewer than half the arena's frames: measured before frames were kept as
+//! records, a 32x32 animation in an arena of 12 frames and 64 words took 5
+//! frames and the sixth was ENOSPC, and so did a 1920x1080 one in the
+//! app's 95 MiB. A frame no gap holds whole makes the animation records
+//! instead (`records`); kitty keeps frames on disk under a quota of five
 //! times its image quota ("Image persistence and storage quotas"), its
 //! practice and not followed.
 //!
-//! **Every kitty frame is stored whole**, a snapshot coalesced when it is
-//! made, and a frame's pixels here are what a renderer draws, as every
-//! image's are. The text says only that frames are "created by composing
+//! **Every kitty frame is a snapshot coalesced when it is made**, stored
+//! whole while a gap holds the animation's frames whole, and past that as
+//! what each frame changed, the layout a picture's frames take (`records`,
+//! the module below, and the paragraph after this one); a frame's pixels
+//! whole are what a renderer draws, as every image's are, and a frame kept
+//! so is drawn from its canvas. The text says only that frames are "created by composing
 //! the transmitted data onto a background canvas". kitty keeps a frame
 //! as its data over its base frame and coalesces when it shows it
 //! (`[[source: kitty-graphics-c]]` `get_coalesced_frame_data()`, a long
@@ -73,7 +78,19 @@ use crate::style::Chan;
 use crate::time::HostTime;
 use core::ops::Range;
 use core::time::Duration;
+use records::frame_bound;
 use zerocopy::IntoBytes;
+
+mod records;
+
+/// **Whether finding room for a frame may delete other images**: kitty's
+/// "delete older images to make space", which a frame kept as records is
+/// tried before.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Evict {
+    No,
+    Yes,
+}
 
 /// **A frame by its 1-based number**, as the keys name frames: `1` the
 /// root frame, the image as transmitted.
@@ -278,13 +295,15 @@ pub(crate) enum InputSeen {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum FrameLayout {
     /// Each frame whole, one after another, with a word for each one's
-    /// gap and depth after the last there is room for: a still image's
-    /// and a kitty animation's.
+    /// gap and depth after the last there is room for: a still image's,
+    /// and a kitty animation's while a gap holds its frames so.
     Whole,
     /// **A picture's frames as what changed** ([`Shape`]): the canvas,
     /// the frame it holds, where each frame's record starts, and the
-    /// records, each a rectangle over the frame before it. Never fewer
-    /// than two frames: a picture of one is [`FrameLayout::Whole`].
+    /// records, each a rectangle over the frame before it -- or, a kitty
+    /// animation's, over the frame it was made on. Never fewer than two
+    /// frames: a picture of one is [`FrameLayout::Whole`], and a kitty
+    /// animation left one goes back to it.
     Rects,
 }
 
@@ -317,6 +336,12 @@ pub(crate) struct Frames {
     /// How many frames wait for the user's input ([`FrameWait::Input`]).
     waits: u32,
     layout: FrameLayout,
+    /// [`FrameLayout::Rects`]: the frames the offset words have room
+    /// for, the count for a picture's, which never gains one.
+    table: u32,
+    /// [`FrameLayout::Rects`]: where the records end in the span, the
+    /// next one's start.
+    used: u32,
 }
 
 impl Frames {
@@ -334,6 +359,8 @@ impl Frames {
         duration: 0,
         waits: 0,
         layout: FrameLayout::Whole,
+        table: 0,
+        used: 0,
     };
 
     /// The words a span of frames `area` pixels each takes.
@@ -552,8 +579,15 @@ impl<'b> ImageStore<'b> {
     /// **Room in slot `i` for `need` frames**: the span moved, its frames
     /// and their words with it, to a gap twice its frames or `need` where
     /// that is all there is, kitty images but `spare` deleted until one is
-    /// free, the oldest with no placement first.
-    fn frame_room(&mut self, i: usize, need: u32, spare: ImageId) -> Result<(), FrameRefusal> {
+    /// free, the oldest with no placement first -- with [`Evict::No`],
+    /// none deleted.
+    fn frame_room(
+        &mut self,
+        i: usize,
+        need: u32,
+        spare: ImageId,
+        evict: Evict,
+    ) -> Result<(), FrameRefusal> {
         let s = self.slots[i];
         if need <= s.anim.cap {
             return Ok(());
@@ -563,7 +597,13 @@ impl<'b> ImageStore<'b> {
         let me = ImageId::from_index(i);
         let at = [need.saturating_mul(2).max(need), need]
             .into_iter()
-            .find_map(|cap| self.gap_evicting(len(cap), [me, spare]).map(|at| (at, cap)));
+            .find_map(|cap| {
+                match evict {
+                    Evict::No => self.lowest_gap(len(cap)),
+                    Evict::Yes => self.gap_evicting(len(cap), [me, spare]),
+                }
+                .map(|at| (at, cap))
+            });
         let Some((to, cap)) = at else {
             return Err(FrameRefusal::NoSpace);
         };
@@ -642,9 +682,24 @@ impl<'b> ImageStore<'b> {
         if fresh && load.base > count {
             return Err(FrameRefusal::NoBase);
         }
+        if s.anim.layout == FrameLayout::Rects {
+            return match fresh {
+                true => self.record_frame(i, j, load),
+                false => self.record_edit(i, load.edit as usize - 1, j, load),
+            };
+        }
         let k = match fresh {
             true => {
-                self.frame_room(i, count + 1, data)?;
+                // Whole while a gap holds the frames whole; as records
+                // where one does not, before any image is deleted for the
+                // room; whole again, deleting, where records do not fit.
+                if self.frame_room(i, count + 1, data, Evict::No).is_err() {
+                    let extra = frame_bound(&s, &d, &load);
+                    if self.whole_to_records(i, extra).is_some() {
+                        return self.record_frame(i, j, load);
+                    }
+                    self.frame_room(i, count + 1, data, Evict::Yes)?;
+                }
                 count as usize
             }
             false => load.edit as usize - 1,
@@ -778,6 +833,11 @@ impl<'b> ImageStore<'b> {
         if c.source == c.dest && sx.max(dx) < sx.min(dx) + w && sy.max(dy) < sy.min(dy) + h {
             return Err(FrameRefusal::Overlap);
         }
+        if s.anim.layout == FrameLayout::Rects {
+            let (w, h) = (w as usize, h as usize);
+            let (sx, sy, dx, dy) = (sx as usize, sy as usize, dx as usize, dy as usize);
+            return self.record_compose(i, c, (sx, sy), (dx, dy, w, h));
+        }
         let (src_k, dst_k) = (c.source as usize - 1, c.dest as usize - 1);
         let (_, sd) = self.frame_word(&s, src_k);
         let (_, dd) = self.frame_word(&s, dst_k);
@@ -819,11 +879,14 @@ impl<'b> ImageStore<'b> {
         };
         let s = self.slots[i];
         let count = s.anim.count;
-        if s.anim.layout == FrameLayout::Rects {
+        if s.anim.layout == FrameLayout::Rects && !matches!(s.owner, ImageOwner::Kitty(..)) {
             return FrameDeleted::Nothing;
         }
         if count == 1 {
             return upper;
+        }
+        if s.anim.layout == FrameLayout::Rects {
+            return self.record_delete(i, number.clamp(1, count) as usize - 1);
         }
         let k = number.clamp(1, count) as usize - 1;
         let area = s.area();
@@ -1018,9 +1081,17 @@ impl<'b> ImageStore<'b> {
     /// last loop played -- and is not due, so a loop that waits on this
     /// never spins. A frame waiting for input is due at `now` once input
     /// has arrived, else at its gap's end, or never with no gap. None while
-    /// held or nothing runs.
+    /// held or nothing runs -- but for a canvas owed its compose, a jump's
+    /// or a frame command's, which is due at `now`, held or not, stopped or
+    /// running, as the jump shows at once on frames kept whole.
     pub fn next_frame(&self, now: HostTime) -> Option<HostTime> {
-        if self.framed == 0 || self.held == ImageMotion::Hold {
+        if self.framed == 0 {
+            return None;
+        }
+        if self.compose_owed() {
+            return Some(now);
+        }
+        if self.held == ImageMotion::Hold {
             return None;
         }
         self.slots
@@ -1080,8 +1151,8 @@ impl<'b> ImageStore<'b> {
     }
 
     /// **Frame `n`'s pixels, where they are kept whole**: any frame of a
-    /// kitty animation, and of a picture's, kept as rectangles, the one its
-    /// canvas holds alone.
+    /// kitty animation kept whole, and of one kept as rectangles, a
+    /// picture's or a kitty animation's, the one its canvas holds alone.
     pub fn frame_pixels(&self, id: ImageId, n: FrameNo) -> Option<&[Pixel]> {
         let s = *self.slots.get(id.index()?)?;
         if s.is_empty() || n.0 == 0 || n.0 > s.anim.count {
@@ -1164,19 +1235,55 @@ const MOST_COLOURS: usize = 255;
 /// moved each whole frame, in place, so a picture moves within its own
 /// span whatever room the arena has. A scroll moves pixels up or down a
 /// column only, so the map keeps a pixel's column and holds its row.
+///
+/// **A kitty image's span has a second canvas** ([`Build`]) after the row
+/// map, and room in its offset words for more frames than it has
+/// (`table`): its frames arrive one at a time, each made over the frame
+/// before as it is sent, and that canvas holds the last one made, the base
+/// of the next, while the first holds the frame shown. One canvas for both
+/// replays the records from the first frame twice a frame received while
+/// the frame shown lags the frames received, as it does while icat sends
+/// a film: `compose` walks a frame's bases back, never forward.
 #[derive(Clone, Copy)]
 pub(crate) struct Shape {
     w: usize,
     h: usize,
+    /// The frames stored.
     frames: usize,
+    /// The frames the offset words have room for.
+    table: usize,
+    build: Build,
 }
+
+/// **Whether a span has a canvas of its own for making frames**: a kitty
+/// image's, whose frames arrive one at a time.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Build {
+    None,
+    Canvas,
+}
+
+/// **Which of a span's canvases**: the frame shown, which a renderer
+/// reads, or a kitty image's canvas for making frames ([`Build`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Canvas {
+    Shown,
+    Build,
+}
+
+/// The frame a canvas holds when it holds none known: a canvas just laid,
+/// or one an erase or a scroll changed under its records. No frame is
+/// this, so a compose to any replays from its first record.
+const UNKNOWN: u32 = u32::MAX;
 
 /// **Whether a picture's rows have been moved** by a scroll under side
 /// margins: until then the row map is not read, nor written, and every
-/// pixel shows where it was stored.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RowMap {
+/// pixel shows where it was stored ([`ImageStore::row_map`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RowMap {
+    /// Every pixel shows where it was stored.
     Same,
+    /// A scroll moved some of its rows: every frame is drawn through the map.
     Moved,
 }
 
@@ -1232,6 +1339,45 @@ impl Shape {
             w: s.width.index(),
             h: s.height.index(),
             frames: s.anim.count as usize,
+            table: s.anim.table as usize,
+            build: match s.owner {
+                ImageOwner::Kitty(..) => Build::Canvas,
+                _ => Build::None,
+            },
+        }
+    }
+
+    /// Where canvas `c` starts.
+    fn canvas_at(self, c: Canvas) -> usize {
+        match c {
+            Canvas::Shown => 0,
+            Canvas::Build => self.rows().end,
+        }
+    }
+
+    /// Where the word saying which frame canvas `c` holds is.
+    fn held_at(self, c: Canvas) -> usize {
+        self.canvas_at(c) + self.area()
+    }
+
+    /// The frame canvas `c` holds, from zero, or [`UNKNOWN`].
+    fn holds(self, px: &[Pixel], c: Canvas) -> u32 {
+        px[self.held_at(c)].0
+    }
+
+    /// Where the offset words start.
+    fn table_at(self) -> usize {
+        match self.build {
+            Build::None => self.rows().end,
+            Build::Canvas => self.rows().end + self.area() + 1,
+        }
+    }
+
+    /// The build canvas marked as holding no frame known, where it has
+    /// one: its pixels no longer what its records make.
+    fn forget_build(self, px: &mut [Pixel]) {
+        if self.build == Build::Canvas {
+            px[self.held_at(Canvas::Build)] = Pixel(UNKNOWN);
         }
     }
 
@@ -1275,12 +1421,12 @@ impl Shape {
 
     /// Where frame `k`'s record starts.
     fn record(self, px: &[Pixel], k: usize) -> usize {
-        px[self.rows().end + k].0 as usize
+        px[self.table_at() + k].0 as usize
     }
 
     /// Where the first record starts.
     fn first_record(self) -> usize {
-        self.rows().end + self.frames
+        self.table_at() + self.table
     }
 
     fn head(self, px: &[Pixel], k: usize) -> Head {
@@ -1317,17 +1463,25 @@ impl Shape {
     /// none, then its rectangle, each pixel its data's -- replaced, or
     /// blended with kitty's straight-alpha over -- and an index of
     /// [`KEEP`] leaving the pixel as it is.
-    fn apply(self, px: &mut [Pixel], k: usize) {
+    fn apply(self, px: &mut [Pixel], k: usize, c: Canvas) {
         if self.row_map(px) == RowMap::Moved {
-            return self.apply_moved(px, k);
+            return self.apply_moved(px, k, c);
         }
+        self.apply_stored(px, k, c)
+    }
+
+    /// [`Shape::apply`] where the record puts its pixels, the row map not
+    /// read.
+    fn apply_stored(self, px: &mut [Pixel], k: usize, c: Canvas) {
         let r = self.head(px, k);
-        let area = self.area();
-        let (canvas, rest) = px.split_at_mut(area);
+        let at = self.canvas_at(c);
+        let cut = at + self.area();
+        let (lo, rest) = px.split_at_mut(cut);
+        let canvas = &mut lo[at..];
         if r.base == 0 {
             canvas.fill(r.ground);
         }
-        let from = r.at - area;
+        let from = r.at - cut;
         let data = &rest[from..from + r.data_len()];
         let put = |dst: Pixel, src: Pixel| match r.blend {
             FrameBlend::Replace => src,
@@ -1371,16 +1525,23 @@ impl Shape {
     /// cleared, as base cleared it in every frame.
     #[cold]
     #[inline(never)]
-    fn apply_moved(self, px: &mut [Pixel], k: usize) {
+    fn apply_moved(self, px: &mut [Pixel], k: usize, c: Canvas) {
         let r = self.head(px, k);
-        let (area, w) = (self.area(), self.w);
-        let (canvas, rest) = px.split_at_mut(area);
+        let w = self.w;
+        let at = self.canvas_at(c);
+        let cut = at + self.area();
+        let (lo, rest) = px.split_at_mut(cut);
+        let (before, canvas) = lo.split_at_mut(at);
         if r.base == 0 {
             canvas.fill(r.ground);
         }
         let rows = self.rows();
-        let map = rest[rows.start - area..rows.end - area].as_bytes();
-        let from = r.at - area;
+        // The map is after the shown canvas and before the build canvas.
+        let map = match c {
+            Canvas::Shown => rest[rows.start - cut..rows.end - cut].as_bytes(),
+            Canvas::Build => before[rows].as_bytes(),
+        };
+        let from = r.at - cut;
         let data = &rest[from..from + r.data_len()];
         let (table, indexes) = data.split_at(r.colours);
         let bytes = indexes.as_bytes();
@@ -1426,6 +1587,7 @@ impl Shape {
     ) {
         let (w, h) = (self.w, self.h);
         let (x1, y1) = (x1.min(w), y1.min(h));
+        self.forget_build(px);
         if self.row_map(px) == RowMap::Same {
             for q in 0..self.area() {
                 self.set_row(px, q, u16::try_from(q / w).unwrap_or(GONE));
@@ -1473,7 +1635,12 @@ impl Shape {
     /// frame it holds, or from the last over the ground, to `t`, each
     /// over the one before. How many were applied; none if it held `t`.
     fn compose(self, px: &mut [Pixel], t: usize) -> usize {
-        let held = self.composed(px);
+        self.compose_on(px, t, Canvas::Shown)
+    }
+
+    /// [`Shape::compose`] on canvas `c`.
+    fn compose_on(self, px: &mut [Pixel], t: usize, c: Canvas) -> usize {
+        let held = self.holds(px, c) as usize;
         if held == t {
             return 0;
         }
@@ -1492,35 +1659,45 @@ impl Shape {
             for _ in 0..i {
                 g = self.parent(px, g).unwrap_or(g);
             }
-            self.apply(px, g);
+            self.apply(px, g, c);
         }
-        px[self.area()] = Pixel(u32::try_from(t).unwrap_or(u32::MAX));
+        px[self.held_at(c)] = Pixel(u32::try_from(t).unwrap_or(u32::MAX));
         len
     }
 
     /// **Frame `k`'s record written at `at`**, its pixels `sample`'s, its
-    /// word `word`, over frame `k - 1` -- the first over a clear ground
-    /// -- and the canvas made it: the rectangle the pixels that differ
-    /// from the canvas bound, looked for in `within` alone, outside which
-    /// none differs; its table the colours of those pixels, or ARGB words
-    /// if they have more than [`MOST_COLOURS`]. Where the record ends, or
-    /// `None` if the span holds no room for it.
+    /// word `word`, over frame `base` from zero -- none, a clear ground, as
+    /// the first frame always is -- which canvas `c` holds, and the canvas
+    /// made it: the rectangle the pixels that differ from the canvas
+    /// bound, looked for in `within` alone, outside which none differs;
+    /// its table the colours of those pixels, or ARGB words if they have
+    /// more than [`MOST_COLOURS`]. `sample` is handed each position and the
+    /// canvas's pixel there, the base's. Where the record ends, or `None`
+    /// if the span holds no room for it.
+    #[allow(clippy::too_many_arguments)]
     fn push(
         self,
         px: &mut [Pixel],
         k: usize,
         at: usize,
         word: u32,
+        base: Option<usize>,
+        c: Canvas,
         (x0, y0, x1, y1): (usize, usize, usize, usize),
-        sample: impl Fn(usize, usize) -> Pixel,
+        sample: impl Fn(usize, usize, Pixel) -> Pixel,
     ) -> Option<usize> {
         let (area, w) = (self.area(), self.w);
         let len = px.len();
-        if k >= self.frames || at < self.first_record() {
+        if k >= self.table || at < self.first_record() {
             return None;
         }
-        let (canvas, rest) = px.split_at_mut(area);
         if k == 0 {
+            px[self.map_word()] = Pixel(0);
+        }
+        let cut = self.canvas_at(c) + area;
+        let (lo, rest) = px.split_at_mut(cut);
+        let canvas = &mut lo[cut - area..];
+        if base.is_none() {
             canvas.fill(Pixel::CLEAR);
         }
         let (x1, y1) = (x1.min(w), y1.min(self.h));
@@ -1528,8 +1705,9 @@ impl Shape {
         let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0, 0);
         for y in y0..y1 {
             for x in x0..x1 {
-                let p = sample(x, y);
-                if p != canvas[y * w + x] {
+                let under = canvas[y * w + x];
+                let p = sample(x, y, under);
+                if p != under {
                     bx0 = bx0.min(x);
                     by0 = by0.min(y);
                     bx1 = bx1.max(x + 1);
@@ -1547,13 +1725,13 @@ impl Shape {
         if end > len {
             return None;
         }
-        let r = at - area;
+        let r = at - cut;
         let word32 = |v: usize| Pixel(u32::try_from(v).unwrap_or(u32::MAX));
         rest[r + REC_WORD] = Pixel(word);
         rest[r + REC_AT] = word32(bx | by << 16);
         rest[r + REC_SIZE] = word32(bw | bh << 16);
         rest[r + REC_COLOURS] = word32(colours);
-        rest[r + REC_BASE] = word32(k);
+        rest[r + REC_BASE] = word32(base.map_or(0, |b| b + 1));
         rest[r + REC_GROUND] = Pixel::CLEAR;
         rest[r + REC_BLEND] = Pixel(0);
         let d = r + REC_HEAD;
@@ -1562,9 +1740,10 @@ impl Shape {
                 let mut j = d;
                 for y in by..by + bh {
                     for x in bx..bx + bw {
-                        let p = sample(x, y);
+                        let i = y * w + x;
+                        let p = sample(x, y, canvas[i]);
                         rest[j] = p;
-                        canvas[y * w + x] = p;
+                        canvas[i] = p;
                         j += 1;
                     }
                 }
@@ -1577,7 +1756,7 @@ impl Shape {
                 for y in by..by + bh {
                     for x in bx..bx + bw {
                         let i = y * w + x;
-                        let p = sample(x, y);
+                        let p = sample(x, y, canvas[i]);
                         quad[j % 4] = match p == canvas[i] {
                             true => KEEP,
                             false => pal.index(p),
@@ -1595,11 +1774,8 @@ impl Shape {
                 }
             }
         }
-        rest[self.rows().end - area + k] = word32(at);
+        rest[self.table_at() + k - cut] = word32(at);
         rest[0] = word32(k);
-        if k == 0 {
-            rest[1] = Pixel(0);
-        }
         Some(end)
     }
 
@@ -1609,6 +1785,7 @@ impl Shape {
     /// each after it keeps what the one before shows. How many pixels of
     /// the records were lit there before ([`Shape::lit`]).
     fn clear(self, px: &mut [Pixel], region: (usize, usize, usize, usize)) -> u32 {
+        self.forget_build(px);
         if self.row_map(px) == RowMap::Moved {
             return self.clear_moved(px, region);
         }
@@ -1920,6 +2097,15 @@ impl<'b> ImageStore<'b> {
         (!s.is_empty()).then(|| s.span_len())
     }
 
+    /// **Whether image `id`'s rows have been moved within it** by a scroll
+    /// under side margins, where its frames are kept as records; `None`
+    /// for an image kept whole, or none.
+    pub fn row_map(&self, id: ImageId) -> Option<RowMap> {
+        let s = self.slots.get(id.index()?)?;
+        (!s.is_empty() && s.anim.layout == FrameLayout::Rects)
+            .then(|| Shape::of(s).row_map(&self.pixels[s.start()..s.end()]))
+    }
+
     /// **Begin storing a `width` x `height` picture of `frames` frames as
     /// rectangles**, in the largest gap the arena has, since the room its
     /// records take is known only once they are made; what they leave of
@@ -1937,6 +2123,8 @@ impl<'b> ImageStore<'b> {
             w: width.index(),
             h: height.index(),
             frames: frames as usize,
+            table: frames as usize,
+            build: Build::None,
         };
         let least = shape.first_record().checked_add(REC_HEAD)?;
         let (at, len) = self.largest_gap();
@@ -1947,6 +2135,7 @@ impl<'b> ImageStore<'b> {
         a.layout = FrameLayout::Rects;
         a.cap = u32::try_from(len).unwrap_or(u32::MAX);
         a.count = 0;
+        a.table = frames;
         Some(RectFrames {
             id,
             frames,
@@ -1976,6 +2165,7 @@ impl<'b> ImageStore<'b> {
         }
         let shape = Shape {
             frames: b.frames as usize,
+            table: b.frames as usize,
             ..Shape::of(&s)
         };
         let gap = gap.min(PICTURE_GAP_MASK);
@@ -1986,7 +2176,17 @@ impl<'b> ImageStore<'b> {
             };
         let (from, span) = lend(self.pixels, src, s.start()..s.end());
         let k = b.made as usize;
-        let Some(end) = shape.push(span, k, b.at, word, within, |x, y| sample(from, x, y)) else {
+        let base = k.checked_sub(1);
+        let Some(end) = shape.push(
+            span,
+            k,
+            b.at,
+            word,
+            base,
+            Canvas::Shown,
+            within,
+            |x, y, _| sample(from, x, y),
+        ) else {
             self.refuse(ImageRefusal::Arena(s.width, s.height));
             return None;
         };

@@ -5108,3 +5108,81 @@ load average 2.7 to 3.6. MB/s, ranges over rounds 2 to 4:
 Every range overlaps base's: no result on any of the five. No test has been
 run, so nothing above proves the frames right but the throwaway program's
 compare.
+
+## A kitty animation no gap holds whole, kept as what each frame changed
+
+A kitty animation's frames stay whole while a gap holds them so; past that
+they are kept as an `OSC 1337` GIF's are, records over two canvases, the
+frame shown and the last frame made (`frames/records.rs`).
+
+**Stored size**, kitten icat's stream of README's dark logo film, 320 frames
+of 840 by 580: `kitten icat --transfer-mode=stream logo-dark.gif` made as
+`tests/recordings/README.md` says its 140-pixel copy's capture was, 7,873,589
+bytes (sha256 `4451c2eef00c68e4dafbb501418f5d6768343dd6dac33eaf64b7a1c66125117e`),
+not committed; read from the `frame` bench below:
+
+| arm | image memory | frames stored | words | MiB |
+|---|---|---|---|---|
+| base 01cb5f7d | 95 MiB | 22, 298 refused | not read | |
+| base 01cb5f7d | 1280 MiB | 320, whole | 188,059,585 | 717.4 |
+| change | 95 MiB | 320, records | 7,750,517 | 29.57 |
+
+The 22 are counted on a headless baud at 1f93d9bf, whose frames are
+stored as base stores them, with the stream fed by `kitten icat` itself:
+323 commands, 298 refused, one image. The change's words are its
+records, both canvases and the row map, and the room spare after the
+records, at most an eighth of them and one frame's.
+
+The committed capture, `kitty/icat-logo-dark-140.raw`, the film 140 by 97,
+read once by the same two `frame` builds in 4 MiB, a size and no timing:
+base 50 frames whole in 679,049 words, the change all 320 in 246,780, where
+whole they take 4,345,600.
+
+**The advance.** `frame` with `FRAME_ICAT=<the capture>`, over `cat` at
+200x50: the stream fed in reads of 1024 bytes, then 640 ticks, each at the
+next frame's due time and followed by a full CPU frame. Base in 1280 MiB, so
+it holds the frames whole; the change and an A/A copy of it in 95 MiB. Each
+built from `git archive` at one path, every file touched, the bench file the
+change's in all three; the change's two builds `cmp` equal and differ from
+base's. Four rounds, the arms rotated, the first dropped; load average 3.6
+to 4.0 over the kept rounds. Microseconds a frame, ranges over rounds 2 to
+4:
+
+| arm | the tick | the CPU frame after it |
+|---|---|---|
+| base | 0.1 | 1521.4 - 1746.6 |
+| change | 32.4 - 33.2 | 1508.8 - 1601.9 |
+| A/A | 32.5 - 32.8 | 1515.1 - 1524.9 |
+
+The tick is the compose, about 33 us a frame, where base's advance only
+changes which whole frame is read; the frame's ranges overlap: no result.
+Builds of other trees were not logged during these rounds.
+
+**The per-byte path.** `ingest2` is not byte-identical: 14 functions change
+size and 15 are new, the records' and the frame paths' through `APC G`,
+`Paint::file_finish` and `ingest2`'s `main`. `main`, which holds the timed
+loop, differs only in an allocation of 3,328 bytes, 3,584 in the change --
+by its size the image slots', 32 of them each eight bytes wider for the two
+words a slot's frames gained -- its filling, and three `nop`s of alignment
+at its end; the loop is instruction for instruction the same.
+The same three builds, four rounds rotated, the first dropped,
+`cells_written` equal on every arm; load average 2.8 to 4.4, a build of
+another tree running at the start of the first round and not looked for
+after. MB/s, ranges over rounds 2 to 4:
+
+| recording, reps | cells | base | change | A/A |
+|---|---|---|---|---|
+| cat, 2000 | 1,699,524,481 | 1567.8 - 1637.9 | 1585.7 - 1636.8 | 1515.3 - 1603.6 |
+| cat-cjk, 2000 | 768,230,498 | 505.4 - 514.0 | 498.0 - 508.1 | 509.8 - 512.6 |
+| btop, 2000 | 259,685,600 | 852.8 - 855.0 | 854.3 - 862.5 | 851.9 - 859.0 |
+| vim, 4000 | 456,580,491 | 585.2 - 592.8 | 592.7 - 595.9 | 587.9 - 594.0 |
+| less-pager, 400 | 20,748,228 | 1352.9 - 1388.3 | 1360.9 - 1377.2 | 1363.6 - 1391.1 |
+
+Every range overlaps base's: no result on any of the five. Run again on the
+first four with `pgrep -x rustc` taken before each run, builds of other trees
+ran in rounds 1, 2 and 4, up to 17 compilers; in round 3, with none, base,
+change and A/A read cat 1562.1, 1552.2 and 1493.4, cat-cjk 508.0, 510.5 and
+508.7, btop 849.0, 859.7 and 859.4, and vim 587.6, 591.8 and 586.0 MB/s, one
+round each and so no range: no result. No test has been run, so nothing
+above proves the frames right; the bench asserts only that every tick moved
+the frame.

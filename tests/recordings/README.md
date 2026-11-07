@@ -117,6 +117,44 @@ macOS file where it differs. Its `detect-*` sessions answer
 kitten's queries as baud would and name a random temp file in a query, so
 they have no fixed sha256.
 
+## `kitty/icat-logo-dark-140.raw`
+
+kitty 0.50.0's `kitten icat` (nixpkgs
+`4fe25e12eb9f4c744966dd3de5a05246cf098601`) showing a copy of README's logo
+film made 140 pixels wide, 612,266 bytes (sha256
+`55c6aa70a8e112ef6b0796b81e255736e22c6257a0cc0c1086e04408946ce551`), as a pty
+of 120x40 cells and 1680x1280 pixels received it, a 14x32 cell, the film
+harness's terminal at `font_size = 12` (`baud-app/src/film.rs`), recorded
+by a harness written against that terminal for this capture and not in the
+tree. kitten ran from a directory holding only the copy:
+
+    kitten icat --transfer-mode=stream logo-dark-140.gif
+
+Nothing was written back: the `a=T` and every `a=f` carry `q=2`, and `a=a`
+answers only an error. kitten sends the first frame as `a=T,f=24,o=z`,
+140x97 RGB, then each of the other 319 as an `a=f,o=z` over the frame
+before (`c=` the previous number), RGBA, of the rectangle the GIF's graphic
+covers at `x`, `y`, its alpha 0 or 255, gaps of 30 and 40 ms, and `a=a` with
+`v=1`, then `s=2`, then after the last frame `s=3`. The image number `I` is
+random: run again, the stream is the same but for it.
+
+The copy, `logo-dark-140.gif` (244,014 bytes, sha256
+`4cd8e634f526f901ad2b55671b8c2ced7a59d2e841182f3a71103ccc0290cd9c`), is
+`assets/readme/logo-dark.gif` (sha256
+`9fbfc879b07ddaa9ccd0d22016556e147e97f30539c14901aef21324604ec326`) as the
+same nixpkgs' ffmpeg 9.0.2 made it, its 320 frames:
+
+    ffmpeg -i assets/readme/logo-dark.gif \
+      -vf "scale=140:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=diff_mode=rectangle" \
+      -bitexact -map_metadata -1 logo-dark-140.gif
+
+Run again, the command gives these bytes, so the copy is not committed.
+`baud-core/tests/kitty_records.rs` replays the capture in 1 KiB reads.
+`kitten icat --transfer-mode=stream logo-dark.gif`, the film itself at
+840x580, sent 7,873,589 bytes the same way (sha256
+`4451c2eef00c68e4dafbb501418f5d6768343dd6dac33eaf64b7a1c66125117e`), which
+are not committed; `MEASUREMENTS.md` reads its size and its advance.
+
 ## Provenance
 
 The `capture-tui` example (`baud-bench/src/capture/tui.rs`) is how these were

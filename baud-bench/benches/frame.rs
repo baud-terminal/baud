@@ -125,6 +125,20 @@
 //! so one file builds both arms of an A/B; give that arm the memory its
 //! whole frames take, 640 for the logo.
 //!
+//! `FRAME_ICAT=<path>` prices instead a kitty animation's frames on the
+//! clock -- kitten icat's stream of the same logo film, made as
+//! `tests/recordings/README.md` says `kitty/icat-logo-dark-140.raw` was but
+//! of the film itself and not committed, is the case it is for: over the
+//! recording's last screen the stream fed from the top-left in reads of
+//! 1024 bytes, each followed by every decode step, in `FRAME_ICAT_MB` MiB
+//! of image memory (default 95, the app's), then `FRAME_ICAT_FRAMES`
+//! (default 640) ticks, each at the next frame's due time and followed by
+//! a full frame, reporting the tick and the frame apart, a frame each, and
+//! the frames stored and the words they take. Asserts the animation was
+//! placed and every tick moved the frame. It reads only what a build before
+//! kitty frames were kept as records has too, so one file builds both
+//! arms; give that arm the memory its whole frames take, 1280 for the logo.
+//!
 //! `FRAME_PERCELL=<cols>x<rows>` prices instead a picture placed one cell
 //! at a time, yazi 26.9.1's shape (an `a=p,i,p,x,y,w,h,c=1,r=1,z=-1,C=1`
 //! per cell): over the recording's last screen, a `cols` by `rows` pixel
@@ -860,6 +874,72 @@ fn main() {
         let each = |d: std::time::Duration| d.as_secs_f64() * 1e6 / f64::from(frames);
         println!(
             "gif {path} over {which}: tick {:.1} us/frame, frame {:.1} us/frame, {frames} ticks, {}x{} in {mib} MiB",
+            each(tick),
+            each(frame),
+            size.0.raw(),
+            size.1.raw(),
+        );
+        return;
+    }
+    if let Ok(path) = std::env::var("FRAME_ICAT") {
+        let stream = std::fs::read(&path).expect("FRAME_ICAT names a capture");
+        let frames: u32 = std::env::var("FRAME_ICAT_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(640);
+        let mut ri = fresh();
+        let m = ri.metrics();
+        let cell = |p: baud_font::Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let mib: usize = std::env::var("FRAME_ICAT_MB")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(95);
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(mib << 18));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(cell(m.cell_w), cell(m.cell_h));
+        let mut tail = data.clone();
+        tail.extend_from_slice(b"\x1b[H");
+        tail.extend_from_slice(&stream);
+        for c in tail.chunks(1024) {
+            t.write_at(BytePos::ZERO, c);
+            t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+            while t.decode_step(baud_domain::DecodeBudget::ALL) == baud_domain::DecodeProgress::More
+            {
+            }
+            t.clear_reply();
+        }
+        let id = t
+            .images()
+            .placements()
+            .next()
+            .map(|(_, p)| p.image)
+            .expect("FRAME_ICAT: the animation was placed");
+        let size = t.images().size_of(id).expect("FRAME_ICAT: the animation");
+        let (stored, _, _) = t.images().kitty_frames(id).expect("FRAME_ICAT: its frames");
+        let words = t.images().stored_words(id).unwrap_or(0);
+        let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+        let mut now = baud_domain::HostTime::of_nanos(1_000_000_000);
+        let play = baud_domain::ImageMotion::Play;
+        t.animate_images(now, play);
+        ri.render(&mut t, &mut target, Damage::Full);
+        let (mut tick, mut frame) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        for k in 0..frames {
+            now = t.next_image_frame(now).expect("FRAME_ICAT: the film runs");
+            let a = std::time::Instant::now();
+            let moved = t.animate_images(now, play);
+            let b = std::time::Instant::now();
+            ri.render(&mut t, &mut target, Damage::Full);
+            frame += b.elapsed();
+            tick += b - a;
+            assert_eq!(
+                moved,
+                baud_domain::Animated::Changed,
+                "FRAME_ICAT: tick {k}"
+            );
+        }
+        let each = |d: std::time::Duration| d.as_secs_f64() * 1e6 / f64::from(frames);
+        println!(
+            "icat {path} over {which}: tick {:.1} us/frame, frame {:.1} us/frame, {frames} ticks, {}x{}, {stored} frames in {words} words, {mib} MiB",
             each(tick),
             each(frame),
             size.0.raw(),
