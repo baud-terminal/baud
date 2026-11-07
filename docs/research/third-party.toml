@@ -387,6 +387,13 @@ licence = "IJG"
 from    = "README.ijg in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz (sha256 3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c), unaltered as its condition (1) requires"
 how     = "fetched"
 sha256  = "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6"
+needs   = ["LICENSES/libjpeg-turbo-LICENSE.txt"]
+
+[text."libjpeg-turbo-LICENSE.txt"]
+licence = "BSD-3-Clause"
+from    = "LICENSE.md in https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1.4.tar.gz (sha256 3a581ad5a3060cee69487aae0bc71a1f3be94b89f92215e32b43742ec4a5055c), unaltered: which of its code each of its licences covers, and the text of its Modified (3-clause) BSD License"
+how     = "fetched"
+sha256  = "e10114e6e40f3d0311c401ca25245ac5ef459a43c20f976fd63f03e816f5741f"
 
 [text."libwebp-BSD-3-Clause.txt"]
 licence = "BSD-3-Clause"
@@ -1542,6 +1549,13 @@ status   = "kept"
 public   = "baud's app icon and title bar logo, whose glyphs are JetBrains Mono 2.304's own outlines, under the SIL Open Font License 1.1"
 holder   = "The JetBrains Mono Project Authors"
 
+[tree.credit]
+title     = "baud's logo, drawn with JetBrains Mono 2.304's glyphs"
+used      = "The logo in the title bar, the About window's logo when it shows it still, and the Dock icon: their prompt, block and word are JetBrains Mono's own outlines."
+changes   = "The glyphs' outlines are traced into the logo's drawings, placed and coloured; nothing else of the font is included."
+copyright = ["Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)"]
+licence   = "OFL-1.1"
+
 [[tree]]
 what     = "The letters of the repository's link picture, of the README's logo and of the UFO logo: JetBrains Mono 2.304 Regular's, Medium's and Bold's own outlines, traced by tools/baud-pictures for the picture, and the app's built Bold, drawn by baud's renderer for the logo and the walls its plasma's path was chosen against (tools/baud-pictures logo) and for the UFO logo (tools/baud-pictures logo --ufo). The glyphs are the font's, so under its OFL, credited to The JetBrains Mono Project Authors; the layout, the tape, the plasma and the saucer are baud's own"
 paths    = ["assets/readme/social.svg", "assets/readme/social.png", "assets/readme/logo-dark.gif", "assets/readme/logo-light.gif", "assets/readme/logo-dark.svg", "assets/readme/logo-light.svg", "assets/readme/logo-walls.png", "assets/demo/ufo-logo-dark.gif", "assets/demo/ufo-logo-light.gif", "assets/readme/JetBrainsMono-OFL.txt"]
@@ -1559,6 +1573,13 @@ upstream = "https://github.com/stipub/stixfonts/tree/v2.13b171"
 status   = "kept"
 public   = "STIX Two Math 2.13 b171, a math font embedded in the app, unmodified"
 holder   = "The STIX Fonts Project Authors"
+
+[tree.credit]
+title     = "STIX Two Math 2.13 b171"
+used      = "Symbols no other default font has, such as U+23F5 and U+23FA, from the last font of the default list."
+changes   = "None: embedded as released."
+copyright = ["Copyright 2001-2021 The STIX Fonts Project Authors (https://github.com/stipub/stixfonts), with Reserved Font Name \"TM Math\". STIX Fonts™ is a trademark of The Institute of Electrical and Electronics Engineers, Inc."]
+licence   = "OFL-1.1"
 
 [[tree]]
 what     = "Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ and, for the five MIT sets it ships no licence file for (Devicons, extraglyphs, Font Awesome Extension, Seti, Power Symbols IEC), from each set's own project (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
@@ -1590,6 +1611,136 @@ status   = "kept"
 public   = "Symbols Nerd Font Mono 3.5.1, an icon font embedded in the app, unmodified. Its icon sets keep their own licences, which its README.md lists and its icon-licences directory holds: OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
 holder   = "Ryan L McIntyre (Nerd Fonts), and each icon set's authors"
 
+[tree.credit]
+title     = "Symbols Nerd Font Mono 3.5.1"
+used      = "The icons programs draw, such as Powerline's separators and file-type and status icons, where the text font has none."
+changes   = "None by baud: embedded as released. Nerd Fonts patched each icon set below into it."
+copyright = ["Copyright (c) 2014 Ryan L McIntyre"]
+licence   = "MIT"
+seen      = ["baud-app/fonts/symbols-nerd-font/README.md", "baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE"]
+parts_are = "Its icon sets, each under its own licence, as Nerd Fonts patched them in:"
+
+[[tree.credit.part]]
+name      = "Codicons 0.0.45"
+by        = "Microsoft Corporation"
+licence   = "CC-BY-4.0"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/codicons/LICENSE.txt"
+seen      = ["assets/demo/LICENSES.md"]
+url       = "https://github.com/microsoft/vscode-codicons"
+changes   = "As modified by Nerd Fonts, which patched the icons into Symbols Nerd Font Mono; baud embeds that font unmodified."
+note      = "None is supplied with the icons: their licence file is the licence's legal code, and names no holder."
+
+[[tree.credit.part]]
+name      = "Devicons 2.17.0"
+copyright = ["Copyright (c) 2015 konpa"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/devicons/LICENSE"
+url       = "https://github.com/devicons/devicon"
+
+[[tree.credit.part]]
+name      = "Devicons before its fork, 18 of its glyphs"
+by        = "Theodore Vorillas"
+licence   = "MIT"
+seen      = ["baud-app/fonts/symbols-nerd-font/icon-licences/devicons/vorillaz/README.txt"]
+url       = "http://vorillaz.github.io/devicons/"
+note      = "Its README is its notice, and gives no copyright line."
+
+[[tree.credit.part]]
+name      = "extraglyphs, from Hack"
+copyright = ["Copyright (c) 2018 Source Foundry Authors", "Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera is a trademark of Bitstream, Inc."]
+licence   = ["MIT", "Bitstream-Vera"]
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/extraglyphs/LICENSE.md"
+url       = "https://github.com/source-foundry/Hack"
+note      = "Its licence file, Hack's, gives Hack's own work under the MIT License and Bitstream Vera Sans Mono's under the Bitstream Vera licence; both are given here."
+
+[[tree.credit.part]]
+name      = "Font Awesome 6.5.1"
+by        = "Fonticons, Inc. (https://fontawesome.com)"
+copyright = ["Copyright (c) 2022 Fonticons, Inc. (https://fontawesome.com) with Reserved Font Name: \"Font Awesome\"."]
+licence   = ["OFL-1.1", "CC-BY-4.0"]
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome/LICENSE.txt"
+url       = "https://github.com/FortAwesome/Font-Awesome"
+changes   = "As modified by Nerd Fonts, which patched the icons into Symbols Nerd Font Mono; baud embeds that font unmodified."
+note      = "Its licence file puts its icons packaged as font files under the SIL OFL 1.1, and those packaged as SVG and JS under CC BY 4.0; the notice each asks for is given."
+
+[[tree.credit.part]]
+name      = "Font Awesome Extension 0.0.3"
+copyright = ["Copyright (c) 2017 André Luiz Gava"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/font-awesome-extension/LICENCE"
+url       = "https://github.com/AndreLZGava/font-awesome-extension"
+
+[[tree.credit.part]]
+name      = "Font Logos 1.3.0"
+licence   = "Unlicense"
+url       = "https://github.com/lukas-w/font-logos"
+note      = "The Unlicense asks for no notice; it is credited all the same."
+
+[[tree.credit.part]]
+name      = "MaterialDesign, October 6, 2022"
+by        = "Pictogrammers"
+licence   = "Apache-2.0"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE"
+url       = "https://github.com/Templarian/MaterialDesign-Font"
+quote     = "baud-app/fonts/symbols-nerd-font/icon-licences/materialdesign/LICENSE"
+
+[[tree.credit.part]]
+name      = "Octicons 18.3.0"
+copyright = ["Copyright (c) 2023 GitHub Inc."]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/octicons/LICENSE"
+url       = "https://github.com/primer/octicons"
+
+[[tree.credit.part]]
+name      = "Seti UI 0.8.1"
+copyright = ["Copyright (c) 2014 Jesse Weed"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/seti-ui/LICENSE.md"
+url       = "https://github.com/jesseweed/seti-ui"
+
+[[tree.credit.part]]
+name      = "Nerd Fonts' original glyphs"
+copyright = ["Copyright (c) 2014 Ryan L McIntyre"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/LICENSE"
+url       = "https://github.com/ryanoasis/nerd-fonts/"
+
+[[tree.credit.part]]
+name      = "Pomicons 1.001"
+copyright = ["Copyright (c) 2021, Gabriele Lana gabriele.lana@gmail.com", "with Reserved Font Name Pomicons."]
+licence   = "OFL-1.1"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/pomicons/LICENSE"
+url       = "https://github.com/gabrielelana/pomicons"
+
+[[tree.credit.part]]
+name      = "Powerline Extra 1.200"
+copyright = ["Copyright (c) 2016 Ryan L McIntyre"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/powerline-extra/LICENSE"
+url       = "https://github.com/ryanoasis/powerline-extra-symbols"
+
+[[tree.credit.part]]
+name      = "Powerline Symbols"
+copyright = ["Copyright 2013 Kim Silkebækken and other contributors"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/powerline-symbols/LICENSE.txt"
+url       = "https://github.com/powerline/powerline"
+
+[[tree.credit.part]]
+name      = "Power Symbols IEC"
+copyright = ["Copyright (c) 2013 Joe Loughry"]
+licence   = "MIT"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/power-symbols-iec/LICENSE.txt"
+url       = "https://github.com/jloughry/Unicode"
+
+[[tree.credit.part]]
+name      = "Weather Icons 2.0.10"
+by        = "Erik Flowers"
+licence   = "OFL-1.1"
+notice    = "baud-app/fonts/symbols-nerd-font/icon-licences/weather-icons/OFL.txt"
+url       = "https://github.com/erikflowers/weather-icons"
+note      = "Its licence file's copyright lines are the OFL's unfilled template, which names Erik Flowers."
+
 [[tree]]
 what     = "baud's embedded Regular, Bold, Italic and Bold Italic: JetBrains Mono with Hebrew drawn from Cascadia Mono and with Noto Sans Devanagari 2.007 merged in, a Modified Version under the OFL. The Cascadia Mono the build reads is byte for byte ttf/CascadiaMono.ttf of Microsoft's v2407.24 release, checked on 2026-11-03 against the release zip, and the repository's LICENSE at that tag is the OFL 1.1; the release binary's own name table carries a notice that differs from it, which FONTLOG.txt records. Shipped under the OFL"
 paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/Italic.ttf", "baud-app/fonts/built/BoldItalic.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt", "baud-app/fonts/built/MANIFEST"]
@@ -1600,6 +1751,17 @@ status   = "kept"
 public   = "baud's embedded font in four styles, Regular, Bold, Italic and Bold Italic: JetBrains Mono 2.304 with Hebrew drawn from Cascadia Mono (Cascadia Code v2407.24) and Noto Sans Devanagari 2.007 merged in, a Modified Version under the SIL Open Font License 1.1. FONTLOG.txt says what changed against each, and AUTHORS.txt names their authors"
 holder   = "The JetBrains Mono Project Authors; Microsoft Corporation, with Reserved Font Name Cascadia Code; The Noto Project Authors"
 from     = ["https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304", "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24", "https://github.com/notofonts/devanagari"]
+
+[tree.credit]
+title     = "baud's text font: JetBrains Mono 2.304 with Hebrew from Cascadia Mono and Noto Sans Devanagari 2.007"
+used      = "The text in every window, in Regular, Bold, Italic and Bold Italic."
+changes   = "A Modified Version under the OFL, in the built family's own name: JetBrains Mono 2.304's four styles, every glyph, advance, mapping and substitution of theirs kept, with Hebrew letters drawn from Cascadia Mono (Cascadia Code v2407.24), re-weighted, re-fitted and their points redrawn, the rest of the Hebrew block baud's own, and Noto Sans Devanagari 2.007 merged in."
+copyright = [
+  "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)",
+  "Copyright (c) 2019 - Present, Microsoft Corporation, with Reserved Font Name Cascadia Code.",
+  "Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari)",
+]
+licence   = "OFL-1.1"
 
 [[tree]]
 what     = "Cascadia Mono from Cascadia Code v2407.24, byte for byte ttf/CascadiaMono.ttf of Microsoft's release zip (checked 2026-11-03; hebrew/SOURCE gives the URL and both sha256s), and the dagesh anchors read out of it: under the OFL 1.1, the licence of the release's repository at its tag (OFL.txt beside them)"
@@ -1770,6 +1932,47 @@ upstream = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/tree/b8d5a7046a98a2
 status   = "kept"
 public   = "The Xcms colour conversions in xcms.rs (u'v'Y, xyY, TekHVC and the TekHVC gamut clip), ported from libX11's Xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. As the TekHVC notice asks, that notice is reproduced in xcms.rs; baud displays no TekHVC coordinates, since a TekHVC colour is read, drawn as sRGB and reported as rgb; and baud calls that colour space TekHVC wherever it names it, and uses the term for nothing else"
 holder   = "Tektronix, Inc. and The Open Group"
+transcribed = true
+ported_from = [
+  "HVC.c",
+  "HVCGcC.c",
+  "HVCMxC.c",
+  "HVCMxVC.c",
+  "uvY.c",
+  "xyY.c",
+  "XYZ.c",
+  "cmsTrig.c",
+  "LRGB.c",
+  "cmsInt.c",
+  "CvCols.c",
+  "cmsMath.c",
+]
+
+[tree.credit]
+title     = "libX11's Xcms: the colour conversions"
+used      = "The Xcms colour forms OSC 4, 10, 11 and 12 accept (u'v'Y, xyY, XYZ and TekHVC), converted to sRGB."
+changes   = "Ported to Rust in xcms.rs. baud displays no TekHVC coordinates, since a TekHVC colour is read, drawn as sRGB and reported as rgb, and calls that colour space TekHVC wherever it names it, and uses the term for nothing else."
+
+[[tree.credit.text]]
+title     = "Tektronix's TekHVC notice"
+file      = "LICENSES/libx11-xcms.txt"
+from      = "This file is a component of an X Window System-specific implementation"
+to        = "-------"
+copyright = ["Code and supporting documentation (c) Copyright 1990 1991 Tektronix, Inc. All Rights Reserved"]
+
+[[tree.credit.text]]
+title     = "Tektronix's Xcms notice"
+file      = "LICENSES/libx11-xcms.txt"
+after     = "-------"
+from      = "This file is a component of an X Window System-specific implementation"
+to        = "-------"
+copyright = ["Code and supporting documentation (c) Copyright 1990 1991 Tektronix, Inc. All Rights Reserved"]
+
+[[tree.credit.text]]
+title     = "The Open Group's notice (MIT, Open Group variant)"
+file      = "LICENSES/libx11-xcms.txt"
+from      = "Permission to use, copy, modify, distribute, and sell"
+copyright = ["Copyright 1990, 1998  The Open Group"]
 
 [[tree]]
 what     = "The OKLab conversions and Hue in color.rs (the cusp, compute_max_saturation's polynomial and Halley step, the gamut intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code, whose page puts all of it under MIT; the OKLab post offers the same conversions in the public domain"
@@ -1781,6 +1984,19 @@ status   = "kept"
 public   = "The OKLab conversions and hue in color.rs (the cusp, compute_max_saturation's polynomial and Halley step, the gamut intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code, which his page puts under MIT"
 holder   = "Björn Ottosson"
 from     = ["https://bottosson.github.io/posts/gamutclipping/", "https://bottosson.github.io/posts/oklab/"]
+transcribed = true
+ported_from = ["https://bottosson.github.io/posts/gamutclipping/"]
+
+[tree.credit]
+title     = "Björn Ottosson's sRGB gamut clipping"
+used      = "The OKLab conversions, hue and gamut clip the renderer adjusts colours in."
+changes   = "Re-expressed in Rust in color.rs."
+
+[[tree.credit.text]]
+title     = "MIT License"
+file      = "LICENSES/ottosson-MIT.txt"
+from      = "Permission is hereby granted"
+copyright = ["Copyright (c) 2021 Björn Ottosson"]
 
 [[tree]]
 what     = "Tables generated from the Unicode Character Database files pinned in the manifest: the text-default emoji a VS16 widens; and, in baud.metallib, compiled, what SGR 64's stress mark skips, the table the builds of baud-render and baud-present-macos compile from baud-render/data/ and write into the shader it is compiled from"
@@ -1791,6 +2007,13 @@ upstream = "https://www.unicode.org/Public/"
 status   = "kept"
 public   = "Tables generated from the Unicode Character Database and Unicode's emoji data files: emoji presentation. baud.metallib carries the stress mark's skip trie compiled in, which the build writes from baud-render's tables"
 holder   = "Unicode, Inc."
+
+[tree.credit]
+title     = "The Unicode Character Database: the stress mark's table, in the shaders"
+used      = "Which characters SGR 64's stress mark skips, as the GPU's shaders read it."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+changes   = "Compiled into tables when baud is built; the data files themselves are not included."
 
 [[tree]]
 what     = "baud-domain's build reads the Unicode Character Database files it compiles its bidirectional, grapheme-cluster, width, line-breaking, case-folding, search-key, cursive-joining and default-ignorable tables and its named emoji variation sequences from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
@@ -1819,6 +2042,13 @@ status   = "kept"
 public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the bidirectional, grapheme-cluster, width, line-breaking, case-folding, search, cursive-joining, default-ignorable and named-sequence tables"
 holder   = "Unicode, Inc."
 
+[tree.credit]
+title     = "The Unicode Character Database 17.0.0: the text tables"
+used      = "Bidirectional text, grapheme clusters, character widths, line breaking, case folding and cursive joining."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+changes   = "Compiled into tables when baud is built; the data files themselves are not included."
+
 [[tree]]
 what     = "baud-domain's build reads Unicode Emoji 17.0's emoji-sequences.txt and emoji-zwj-sequences.txt, the RGI emoji sequences it compiles its named-sequence trie from, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
 paths    = ["baud-domain/data/emoji17-sequences.txt", "baud-domain/data/emoji17-zwj-sequences.txt"]
@@ -1828,6 +2058,13 @@ upstream = "https://www.unicode.org/Public/17.0.0/emoji/"
 status   = "kept"
 public   = "Unicode Emoji 17.0's emoji-sequences.txt and emoji-zwj-sequences.txt, carried unmodified, which the build compiles into the named emoji sequences' trie"
 holder   = "Unicode, Inc."
+
+[tree.credit]
+title     = "Unicode Emoji 17.0: the named emoji sequences"
+used      = "Which emoji sequences are one character: the sequences of emoji-sequences.txt and emoji-zwj-sequences.txt."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
 
 [[tree]]
 what     = "baud-font's build reads the Unicode Character Database files it compiles its Arabic presentation forms, its default-ignorable code points, its canonical composition, its Indic syllabic and positional categories and its Script, Script_Extensions, script directions and paired brackets from, through links in baud-font/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
@@ -1853,6 +2090,13 @@ status   = "kept"
 public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into the Arabic presentation forms, the default-ignorable code points, canonical composition, the Indic categories and the script tables"
 holder   = "Unicode, Inc."
 
+[tree.credit]
+title     = "The Unicode Character Database 17.0.0: the shaping tables"
+used      = "Arabic presentation forms, canonical composition, the Indic categories and the script of each character, for shaping text."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+changes   = "Compiled into tables when baud is built; the data files themselves are not included."
+
 [[tree]]
 what     = "baud-render's build reads the Unicode Character Database files it compiles what SGR 64's stress mark skips, the separators and the combining characters from, through links in baud-render/data/ to the copies in docs/research/sources/, which the published crate carries as the files"
 paths    = [
@@ -1867,6 +2111,13 @@ status   = "kept"
 public   = "Unicode Character Database 17.0.0 files, carried unmodified, which the build compiles into what the stress mark skips"
 holder   = "Unicode, Inc."
 
+[tree.credit]
+title     = "The Unicode Character Database 17.0.0: the stress mark's table, in the renderer"
+used      = "Which characters SGR 64's stress mark skips, as the renderer reads it."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+changes   = "Compiled into tables when baud is built; the data files themselves are not included."
+
 [[tree]]
 what     = "baud-domain's build reads EastAsianWidth.txt of the Unicode Character Database 8.0.0, for the widths iTerm2's UnicodeVersion=8 selects, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file"
 paths    = ["baud-domain/data/unicode-eastasianwidth-8.0.0.txt"]
@@ -1876,6 +2127,13 @@ upstream = "https://www.unicode.org/Public/8.0.0/ucd/"
 status   = "kept"
 public   = "EastAsianWidth.txt of the Unicode Character Database 8.0.0, carried unmodified, which the build compiles into the Unicode 8 width table"
 holder   = "Unicode, Inc."
+
+[tree.credit]
+title     = "The Unicode Character Database 8.0.0: East Asian widths"
+used      = "The Unicode 8 character widths a program can ask for."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+changes   = "Compiled into tables when baud is built; the data files themselves are not included."
 
 [[tree]]
 what     = "kitty's colour names, which baud-domain's build compiles, through a link in baud-domain/data/ to the copy in docs/research/sources/, from X.Org's rgb.txt at 749182c and one name, DebianRed (215, 7, 81), which Debian added to its rgb.txt in 2004 (bug 243288, a value sampled from the Debian logo) and kitty's table carries; and kitty-colours.txt, baud's probes, rgb.txt's names and the numbers kitty's own C parser gives for them (and, for an oklch( or lab( colour outside sRGB, its Go conversion), written by scripts/kitty-colour-oracle.sh with no kitty text copied. A name and a value are facts (37 CFR 202.1(a); Compendium III 313.3(C), 313.4(C), 313.4(K)), and a program's output is not, in general, covered by the program's copyright (GPL FAQ, WhatCaseIsOutputGPL)"
@@ -1888,6 +2146,17 @@ status   = "kept"
 public   = "X.Org's rgb.txt, carried unmodified, which the build compiles into kitty's colour names with the one name kitty adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt. A colour name and its value are facts"
 holder   = "The Open Group (rgb.txt); DebianRed from Debian's X.Org packaging"
 
+[tree.credit]
+title     = "X.Org's rgb.txt at 749182c, with Debian's DebianRed: kitty's colour names"
+used      = "The colour names a kitty theme file may use, as kitty's own table has them."
+changes   = "Compiled into a table when baud is built, with the one name kitty adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt; the file itself is not included. A colour name and its value are facts."
+
+[[tree.credit.text]]
+title     = "The Open Group's notice (MIT, Open Group variant)"
+file      = "LICENSES/xorg-rgb-COPYING.txt"
+from      = "Permission to use, copy, modify, distribute, and sell"
+copyright = ["Copyright 1985, 1989, 1998  The Open Group"]
+
 [[tree]]
 what     = "X.Org's rgb.txt at 0d2caec, each a name and a value, which baud-domain's build compiles, through a link in baud-domain/data/ to the copy in docs/research/sources/, into the X server's colour names, the ones OSC 4, 10, 11 and 12 resolve"
 paths    = ["baud-domain/data/xorg-rgb-0d2caec.txt"]
@@ -1897,6 +2166,17 @@ upstream = "docs/research/sources/xorg-rgb-0d2caec.txt"
 status   = "kept"
 public   = "X.Org's rgb.txt, carried unmodified, each a name and a value, which the build compiles into the X server's colour names that OSC 4, 10, 11 and 12 resolve"
 holder   = "The Open Group"
+
+[tree.credit]
+title     = "X.Org's rgb.txt at 0d2caec: the X colour names"
+used      = "The colour names OSC 4, 10, 11 and 12 resolve."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "The Open Group's notice (MIT, Open Group variant)"
+file      = "LICENSES/xorg-rgb-COPYING.txt"
+from      = "Permission to use, copy, modify, distribute, and sell"
+copyright = ["Copyright 1985, 1989, 1998  The Open Group"]
 
 [[tree]]
 what     = "tinted-xresources' base16-0x96f theme, verbatim, and clang's cpp -P -DCOLOR output of it, the X resources reader's fixture; the scheme's colours are Filip Janevski's 0x96f"
@@ -1916,6 +2196,28 @@ status   = "kept"
 public   = "xterm's charsets.h, carried unmodified, which the build compiles into DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets"
 holder   = "Thomas E. Dickey (xterm)"
 
+[tree.credit]
+title     = "xterm's charsets.h"
+used      = "DEC Special Graphics, DEC Supplemental and the National Replacement Character Sets."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "xterm's licence (X11)"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission is hereby granted, free of charge"
+to        = "Copyright 1987, 1988 by Digital"
+copyright = [
+  "Copyright 1996-2025,2026 by Thomas E. Dickey",
+  "Copyright 1987, 1988  X Consortium",
+]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital Equipment Corporation"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "-- vile: txtmode"
+copyright = ["Copyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts. All Rights Reserved"]
+
 [[tree]]
 what     = "xterm's xtermcap.c, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file: the XTGETTCAP table it compiles the names XTGETTCAP answers and the termcap keyboard's rows from"
 paths    = ["baud-domain/data/xterm-xtermcap.c"]
@@ -1925,6 +2227,28 @@ upstream = "docs/research/sources/xterm-xtermcap.c"
 status   = "kept"
 public   = "xterm's xtermcap.c, carried unmodified, which the build compiles into the XTGETTCAP table and the termcap keyboard's rows"
 holder   = "Thomas E. Dickey (xterm)"
+
+[tree.credit]
+title     = "xterm's xtermcap.c"
+used      = "The names XTGETTCAP answers, and the termcap keyboard's rows."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "xterm's licence (X11)"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission is hereby granted, free of charge"
+to        = "Copyright 1987, 1988 by Digital"
+copyright = [
+  "Copyright 1996-2025,2026 by Thomas E. Dickey",
+  "Copyright 1987, 1988  X Consortium",
+]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital Equipment Corporation"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "-- vile: txtmode"
+copyright = ["Copyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts. All Rights Reserved"]
 
 [[tree]]
 what     = "ncurses' xterm-256color entry, which baud-domain's build reads, through a link in baud-domain/data/ to terminfo/xterm-256color.ti in docs/research/sources/, which the published crate carries as the file: the strings the termcap keyboard sends"
@@ -1936,6 +2260,16 @@ status   = "kept"
 public   = "ncurses' xterm-256color terminal description, carried unmodified, which the build compiles into the termcap keyboard's strings"
 holder   = "Thomas E. Dickey and the Free Software Foundation (ncurses)"
 
+[tree.credit]
+title     = "ncurses' xterm-256color terminfo entry: the termcap keyboard"
+used      = "The strings the termcap keyboard sends."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+copyright = [
+  "Copyright 2018-2025,2026 Thomas E. Dickey",
+  "Copyright 1998-2017,2018 Free Software Foundation, Inc.",
+]
+licence   = "X11"
+
 [[tree]]
 what     = "X.Org's keysymdef.h, which baud-domain's build reads, through a link in baud-domain/data/ to the copy in docs/research/sources/, which the published crate carries as the file with its notices, The Open Group's and Digital's: the keysyms xterm's national macros name, resolved to their codepoints"
 paths    = ["baud-domain/data/xorg-keysymdef.h"]
@@ -1945,6 +2279,26 @@ upstream = "docs/research/sources/xorg-keysymdef.h"
 status   = "kept"
 public   = "X.Org's keysymdef.h, carried unmodified with its notices, which the build reads for the keysyms xterm's national character sets name"
 holder   = "The Open Group; Digital Equipment Corporation"
+
+[tree.credit]
+title     = "X.Org's keysymdef.h"
+used      = "The keysyms xterm's national character sets name, resolved to their characters."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "The Open Group's notice (MIT, Open Group variant)"
+file      = "docs/research/sources/xorg-keysymdef.h"
+from      = "Permission to use, copy, modify, distribute, and sell"
+to        = "Copyright 1987 by Digital"
+copyright = ["Copyright 1987, 1994, 1998  The Open Group"]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital"
+file      = "docs/research/sources/xorg-keysymdef.h"
+after     = "Copyright 1987 by Digital"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "*****************"
+copyright = ["Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts All Rights Reserved"]
 
 [[tree]]
 what     = "Unicode's JIS0201.TXT and its six ISO 8859 mapping files, which baud-domain's build reads, through links in baud-domain/data/ to the copies in docs/research/sources/, which the published crate carries as the files: JIS-Katakana's 63 characters and JIS-Roman's Yen sign, and the six 96-character sets ESC - . / designate"
@@ -1964,6 +2318,13 @@ status   = "kept"
 public   = "Unicode's JIS0201.TXT and ISO 8859 mapping files, carried unmodified, which the build compiles into JIS-Katakana, JIS-Roman and the six 96-character sets"
 holder   = "Unicode, Inc."
 
+[tree.credit]
+title     = "Unicode's JIS X 0201 and ISO 8859 mapping tables"
+used      = "JIS-Katakana, JIS-Roman's Yen sign, and the six 96-character sets ESC - . / designate."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+copyright = ["Copyright © 1991-2026 Unicode, Inc."]
+licence   = "Unicode-3.0"
+
 [[tree]]
 what     = "vt220_tables.tsv, the cells of the VT220 manual's Tables 2-1, 2-3 and 2-5 to 2-15 and Table 4-4's national finals that the tests hold the DEC and national sets to, read from vt100.net's two pages, fetched by URL and hash-checked, no prose copied; the build never reads it. Whether a codepoint table carries the transcription's terms (no grant found) is open; no crate carries the file"
 paths    = ["baud-domain/tests/vt220_tables.tsv"]
@@ -1982,6 +2343,13 @@ status   = "kept"
 public   = "ncurses' xterm-256color terminfo entry, compiled into the app, which reads the visual bell's padding from it"
 holder   = "Thomas E. Dickey and the Free Software Foundation (ncurses)"
 
+[tree.credit]
+title     = "ncurses' xterm-256color terminfo entry"
+used      = "How long the visual bell's flash lasts: the entry's padding, read when baud is built."
+changes   = "None: the entry is included as infocmp wrote it."
+copyright = ["Copyright 2018-2025,2026 Thomas E. Dickey", "Copyright 1998-2017,2018 Free Software Foundation, Inc."]
+licence   = "X11"
+
 [[tree]]
 what     = "baud-xkb's Compose reader, ported from libxkbcommon's Compose parser and state machine; the grammar in parser.c is itself adapted from libX11's imLcPrs.c under Oki Technosystems Laboratory's and Fuji Xerox's notice"
 paths    = ["baud-xkb/src/compose.rs"]
@@ -1991,6 +2359,71 @@ upstream = "https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/src/
 status   = "kept"
 public   = "The Compose-file reader in compose.rs, ported from libxkbcommon's Compose parser and state machine, whose grammar is itself adapted from libX11's imLcPrs.c"
 holder   = "The libxkbcommon authors (Dan Nicholson, Daniel Stone, Ran Benita, Intel Corporation and the others its notice names); for the grammar, Oki Technosystems Laboratory and Fuji Xerox"
+transcribed = true
+ported_from = [
+  "src/compose/parser.c",
+  "imLcPrs.c",
+]
+
+[tree.credit]
+title     = "libxkbcommon 1.13.2's Compose reader"
+used      = "On Linux, Compose sequences: dead keys and the Compose key, read from the system's Compose files."
+changes   = "Ported to Rust in compose.rs. libxkbcommon gives these as the notices of the code it distributes, each source file naming its own."
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "LICENSES/libxkbcommon-LICENSE.txt"
+from      = "Permission is hereby granted, free of charge"
+to        = "--------------------------------------------------"
+copyright = [
+  "Copyright © 2008-2009 Dan Nicholson <dbn.lists@gmail.com>",
+  "Copyright © 2009-2012, 2016 Daniel Stone <daniel@fooishbar.org>",
+  "Copyright © 2012-2014, 2020-2022, 2025 Ran Benita <ran@unusedvar.com>",
+  "Copyright © 2010-2012, 2016 Intel Corporation",
+  "Copyright © 2013-2015, 2018-2020 Red Hat, Inc.",
+  "Copyright © 2023-2024 Pierre Le Marre <dev@wismill.eu>",
+  "Copyright (c) 1991, Oracle and/or its affiliates.",
+  "Copyright © 2008-2011 Kristian Høgsberg",
+  "Copyright © 2010 Francisco Jerez <currojerez@riseup.net>",
+  "Copyright © 2012 Collabora, Ltd.",
+  "Copyright © 2015 Kazunobu Kuriyama <kazunobu.kuriyama@nifty.com>",
+  "Copyright (C) 2011 Joseph Adams <joeyadams3.14159@gmail.com>",
+]
+
+[[tree.credit.text]]
+title     = "The Open Group's notice, in the X11 form"
+file      = "LICENSES/libxkbcommon-LICENSE.txt"
+after     = "SPDX short identifier: MIT-open-group"
+from      = "Permission is hereby granted, free of charge"
+to        = "--------------------------------------------------"
+copyright = ["Copyright 1985, 1987, 1988, 1990, 1998  The Open Group"]
+
+[[tree.credit.text]]
+title     = "Silicon Graphics' historical permission notice"
+file      = "LICENSES/libxkbcommon-LICENSE.txt"
+after     = "SPDX short identifier: HPND"
+from      = "Permission to use, copy, modify, and distribute this"
+to        = "--------------------------------------------------"
+copyright = ["Copyright (c) 1993, 1994, 1995, 1996 by Silicon Graphics Computer Systems, Inc."]
+
+[[tree.credit.text]]
+title     = "Oki Technosystems Laboratory's and Fuji Xerox's notice (historical permission, sell variant)"
+file      = "LICENSES/libxkbcommon-LICENSE.txt"
+after     = "SPDX short identifier: HPND-sell-variant"
+from      = "Permission to use, copy, modify, distribute, and sell this software"
+to        = "--------------------------------------------------"
+copyright = [
+  "Copyright 1992 by Oki Technosystems Laboratory, Inc.",
+  "Copyright 1992 by Fuji Xerox Co., Ltd.",
+]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital"
+file      = "LICENSES/libxkbcommon-LICENSE.txt"
+after     = "LicenseRef-digital-equipment-corporation"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "--------------------------------------------------"
+copyright = ["Copyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts. All Rights Reserved"]
 
 [[tree]]
 what     = "baud-xkb's build reads xkbcommon's keysym header into the binary's keysym table"
@@ -2002,6 +2435,26 @@ status   = "kept"
 public   = "xkbcommon's keysym header, carried unmodified, which the build reads into the keysym table"
 holder   = "The Open Group and Digital Equipment Corporation"
 
+[tree.credit]
+title     = "xkbcommon's keysym header"
+used      = "On Linux, the keysym table: each key's name and its character."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "The Open Group's notice (MIT, Open Group variant)"
+file      = "docs/research/sources/xkbcommon-keysyms.h"
+from      = "Permission to use, copy, modify, distribute, and sell"
+to        = "Copyright 1987 by Digital"
+copyright = ["Copyright 1987, 1994, 1998  The Open Group"]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital"
+file      = "docs/research/sources/xkbcommon-keysyms.h"
+after     = "Copyright 1987 by Digital"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "*****************"
+copyright = ["Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts All Rights Reserved"]
+
 [[tree]]
 what     = "DirectWrite's grayscale text-contrast curve as Windows Terminal's dwrite_helpers.hlsl at 4e2b8bd ports it: its four gamma coefficients in build.rs, and the curve's formula, compiled into a table, in contrast.rs"
 paths    = ["baud-domain/build.rs", "baud-domain/src/contrast.rs"]
@@ -2011,6 +2464,13 @@ upstream = "https://github.com/microsoft/terminal/blob/4e2b8bd9264642475d1398c11
 status   = "kept"
 public   = "DirectWrite's grayscale text-contrast curve as Windows Terminal ports it in dwrite_helpers.hlsl: its four gamma coefficients in build.rs, and its formula, compiled into a table, in contrast.rs"
 holder   = "Microsoft Corporation"
+
+[tree.credit]
+title     = "Windows Terminal's text-contrast curve"
+used      = "How glyphs are brightened against their background: a table computed when baud is built, from the curve's four coefficients."
+changes   = "DirectWrite's curve, as Windows Terminal ports it, computed into a table."
+copyright = ["Copyright (c) Microsoft Corporation. All rights reserved."]
+licence   = "MIT"
 
 [[tree]]
 what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Kept as facts, sixteen colour values, credited, and no GPL text ships for them"
@@ -2055,6 +2515,19 @@ upstream = "https://bottosson.github.io/posts/oklab/"
 status   = "kept"
 public   = "The OKLab matrices in oklab.rs, number for number Björn Ottosson's published linear_srgb_to_oklab and oklab_to_linear_srgb, which his OKLab post offers in the public domain or under MIT"
 holder   = "Björn Ottosson"
+transcribed = true
+ported_from = ["https://bottosson.github.io/posts/oklab/"]
+
+[tree.credit]
+title     = "Björn Ottosson's OKLab matrices"
+used      = "The oklch( and lab( colours of a kitty theme file."
+changes   = "Written in Rust in oklab.rs, number for number."
+
+[[tree.credit.text]]
+title     = "MIT License"
+file      = "LICENSES/ottosson-MIT.txt"
+from      = "Permission is hereby granted"
+copyright = ["Copyright (c) 2021 Björn Ottosson"]
 
 [[tree]]
 what     = "Code transcribed from HarfBuzz: morx.rs's extended state machine and its ligature, contextual, insertion and rearrangement subtables (hb-aat-layout-common.hh and hb-aat-layout-morx-table.hh at 64e2b53, two of whose comments it repeats nearly word for word); gvar.rs's delta application, inference loop, tuple scalar and packed point and delta readers (hb-ot-var-gvar-table.hh, hb-ot-var-common.hh and hb-open-type.hh at 12.3.0); and ivs.rs's region scalar, factor(), whose six tests are VarRegionAxis::evaluate's, in its order and with its arithmetic (hb-ot-layout-common.hh:2470-2494 at 12.3.0); shape.rs's fallback mark placement, BaseBox and fallback_marks(), which are position_around_base() and position_mark() of hb-ot-shape-fallback.cc case for case, with the same formulas and tests and four of their comments paraphrased, the Hebrew cases of recategorize_combining_class() there, hb-unicode.hh's modified combining classes 10-26 and compose_hebrew()'s presentation forms (hb-ot-shaper-hebrew.cc), all at 64e2b53; indic.rs's Indic engine, whose initial and final reordering follow hb-ot-shaper-indic.cc's initial_reordering_consonant_syllable() and final_reordering_syllable_indic() step for step with their cluster merges and masks, whose syllable grammar is hb-ot-shaper-indic-machine.rl's productions, and whose dotted circles and vowel sequences are hb-ot-shaper-syllabic.cc's and hb-ot-shaper-vowel-constraints.cc's; syllabic.rs's categories, positions and glyph properties, numbered as hb-ot-shaper-indic-machine.rl and hb-ot-shaper-indic.hh number them; and build/indic.rs, the build's module for the Indic tables, which carries gen-indic-table.py's category and position maps, overrides and matra positions, all at 14.5.1; and, re-expressed in baud's own code, glyf.rs's phantom-point walk, which follows Glyph::get_points()'s phantom_only path step for step (OT/glyf/Glyph.hh at 12.3.0); buffer.rs's deletion at the CHARACTERS cluster level, Buffer::delete(), which passes a deleted glyph's cluster back as delete_glyph() does, with its test that the cluster survives in the next glyph or the glyph before, its backward merge where the deleted cluster is the lower, and its loop over the run before that holds the old cluster, the forward merge left out because at that level merge_clusters() merges nothing (hb-buffer.cc:621-655 at 14.5.1, manifest harfbuzz-14-5-1-buffer-cc); indic.rs's merge(), which at that level merges no cells, as merge_clusters() there only marks the range unsafe to break (hb-buffer.hh at 14.5.1, manifest harfbuzz-14-5-1-buffer-hh); and layout.rs's Digest, hb_set_digest_t as HarfBuzz 10.2.0 builds it (the same shifts in 2.6.4, as hb_set_digest_lowest_bits_t, and 8.0.0), three 64-bit bits-pattern masks at its shifts 4, 0 and 9, with its add, its range test that fills a mask when a range spans 63 or more, and its intersection (hb-set-digest.hh at 10.2.0, manifest harfbuzz-10-2-0-set-digest; read in note BG). The holders those files name are all in HarfBuzz's COPYING, the same file at all three releases"
@@ -2066,6 +2539,57 @@ status   = "kept"
 public   = "Code transcribed from HarfBuzz (12.3.0, commit 64e2b53 for morx.rs and shape.rs, 10.2.0 for layout.rs, and 14.5.1 for indic.rs, syllabic.rs, build/indic.rs and buffer.rs): morx.rs's extended state machine and its subtables; gvar.rs's delta application and its packed point and delta readers; ivs.rs's region scalar; shape.rs's fallback mark placement and its Hebrew tables; indic.rs's Indic reordering, syllable grammar and dotted circles, syllabic.rs's Indic categories and positions, and build/indic.rs's mapping of the Unicode Indic categories to them; re-expressed, glyf.rs's phantom-point walk; buffer.rs's deletion at the CHARACTERS cluster level, which passes a deleted glyph's cluster back as HarfBuzz's delete_glyph() does; and layout.rs's glyph-set digest"
 holder   = "The HarfBuzz authors its COPYING lists (Google, Red Hat, Behdad Esfahbod and others)"
 from     = ["https://github.com/harfbuzz/harfbuzz/tree/12.3.0", "https://github.com/harfbuzz/harfbuzz/tree/64e2b53", "https://github.com/harfbuzz/harfbuzz/tree/10.2.0", "https://github.com/harfbuzz/harfbuzz/tree/14.5.1"]
+transcribed = true
+ported_from = [
+  "hb-aat-layout-common.hh",
+  "hb-aat-layout-morx-table.hh",
+  "hb-ot-var-gvar-table.hh",
+  "hb-ot-var-common.hh",
+  "hb-open-type.hh",
+  "hb-ot-layout-common.hh",
+  "hb-ot-shape-fallback.cc",
+  "hb-unicode.hh",
+  "hb-ot-shaper-hebrew.cc",
+  "hb-ot-shaper-indic.cc",
+  "hb-ot-shaper-indic-machine.rl",
+  "hb-ot-shaper-syllabic.cc",
+  "hb-ot-shaper-vowel-constraints.cc",
+  "hb-ot-shaper-indic.hh",
+  "gen-indic-table.py",
+  "OT/glyf/Glyph.hh",
+  "hb-buffer.cc",
+  "hb-buffer.hh",
+  "hb-set-digest.hh",
+]
+
+[tree.credit]
+title     = "HarfBuzz: shaping code"
+used      = "Shaping text: Apple's morx tables, variable fonts' glyph variations, fallback mark placement, Hebrew presentation forms, the Indic scripts, and the glyph-set digests."
+changes   = "Transcribed to Rust and re-expressed in baud-font's sources, from HarfBuzz 10.2.0, 12.3.0, 14.5.1 and commit 64e2b53."
+
+[[tree.credit.text]]
+title     = "HarfBuzz's licence (MIT, Modern Variant)"
+file      = "LICENSES/harfbuzz-COPYING.txt"
+from      = "Permission is hereby granted, without written agreement"
+copyright = [
+  "Copyright © 2010-2022  Google, Inc.",
+  "Copyright © 2015-2020  Ebrahim Byagowi",
+  "Copyright © 2019,2020  Facebook, Inc.",
+  "Copyright © 2012,2015  Mozilla Foundation",
+  "Copyright © 2011  Codethink Limited",
+  "Copyright © 2008,2010  Nokia Corporation and/or its subsidiary(-ies)",
+  "Copyright © 2009  Keith Stribley",
+  "Copyright © 2011  Martin Hosken and SIL International",
+  "Copyright © 2007  Chris Wilson",
+  "Copyright © 2005,2006,2020,2021,2022,2023  Behdad Esfahbod",
+  "Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.",
+  "Copyright © 1998-2005  David Turner and Werner Lemberg",
+  "Copyright © 2016  Igalia S.L.",
+  "Copyright © 2022  Matthias Clasen",
+  "Copyright © 2018,2021  Khaled Hosny",
+  "Copyright © 2018,2019,2020  Adobe, Inc",
+  "Copyright © 2013-2015  Alexei Podtelezhnikov",
+]
 
 [[tree]]
 what     = "Code transcribed from ab_glyph_rasterizer 0.1.10, which forks font-rs: raster.rs's Canvas, whose line(), quad(), cubic() and coverage() are draw_line_scalar(), draw_quad() and tessellate_cubic() (raster.rs, manifest ab-glyph-raster) and font-rs's scalar accumulate() (accumulate.rs) line for line, with their constants: the quadratic's 0.333 cut and count of 1 + floor((3 devsq)^1/4), the cubic's 0.35 flatness and depth 16, which ab_glyph adapted from stb_truetype (public domain or MIT, at the user's choice). raster.rs's header carries the copyright lines of ab_glyph_rasterizer's file and says what was changed, as Apache-2.0 4(b) and 4(c) ask; neither project ships a NOTICE file. Read in note BG"
@@ -2077,6 +2601,23 @@ status   = "kept"
 public   = "Code transcribed from ab_glyph_rasterizer 0.1.10, which forks font-rs: raster.rs's line, quadratic and cubic flattening and its coverage accumulation, changed as the file's header states. The cubic's subdivision comes to ab_glyph from stb_truetype, offered in the public domain or under MIT"
 holder   = "Google Inc. (font-rs) and Alex Butler (ab_glyph_rasterizer)"
 from     = ["https://crates.io/crates/ab_glyph_rasterizer/0.1.10", "https://github.com/raphlinus/font-rs"]
+transcribed = true
+ported_from = [
+  "raster.rs",
+  "accumulate.rs",
+]
+
+[tree.credit]
+title     = "ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser"
+used      = "Turning each glyph's outline into coverage: line, quadratic and cubic flattening and the coverage accumulation."
+changes   = "Transcribed to Rust in raster.rs and changed as its header states."
+copyright = [
+  "Copyright 2015 Google Inc. All rights reserved.",
+  "Modifications copyright (C) 2020 Alex Butler",
+  "Copyright 2018 Google Inc. All rights reserved.",
+]
+licence   = "Apache-2.0"
+seen      = ["baud-font/src/raster.rs"]
 
 [[tree]]
 what     = "Code transcribed from ttf-parser 0.25.1, which is offered under MIT or Apache-2.0 and is taken here under MIT: cff.rs's charstring interpreter, whose Pen operators are CharStringParser's parse_curve_to() to parse_hflex1() step for step (src/tables/cff/charstring.rs 175-580, the flexes' absolute points named dx1 to dy5 and flex1's end-point test included), whose Run::exec() is _parse_char_string() with its operator order, its odd-count width rule, its stem and mask counting and its seac branch (src/tables/cff/cff1.rs 417-690), whose seac_glyph() is seac_code_to_glyph_id() (692-709), whose format 3 FdSelect::index_of() is font_dict_index() (725-757), and whose Charset is ttf-parser's Charset, sid_to_gid() and parse_charset() (src/tables/cff/charset.rs 73-128, 193-238); glyf.rs's contour builder, Contour::push(), finish() and mid(), which are Builder::push_point(), finish_contour() and Point::lerp() (src/tables/glyf.rs 75-137, 391-396), its coordinate decoder Coords::next(), which is CoordsIter::next() (362-380), and coord_lengths(), the unrolled form of resolve_coords_len() (521-571); and outline.rs's Sink and Transform, which have OutlineBuilder's five methods and signatures and Transform's fields, combine() and apply_to() (src/lib.rs 415-499, 577-596). glyf.rs's phantom-point walk is HarfBuzz's and is under its row. Read in note BG"
@@ -2087,6 +2628,25 @@ upstream = "https://github.com/harfbuzz/ttf-parser/tree/v0.25.1"
 status   = "kept"
 public   = "Code transcribed from ttf-parser 0.25.1, which is offered under MIT or Apache-2.0 and is taken here under MIT: cff.rs's charstring interpreter, its path operators, its charset and its format 3 FDSelect lookup; glyf.rs's contour builder and its coordinate decoding; and outline.rs's outline receiver and transform"
 holder   = "Yevhenii Reizner and the ttf-parser contributors"
+transcribed = true
+ported_from = [
+  "src/tables/cff/charstring.rs",
+  "src/tables/cff/cff1.rs",
+  "src/tables/cff/charset.rs",
+  "src/tables/glyf.rs",
+  "src/lib.rs",
+]
+
+[tree.credit]
+title     = "ttf-parser 0.25.1: font outlines"
+used      = "Reading CFF charstrings and their charsets, TrueType glyph outlines, and the outline transforms."
+changes   = "Transcribed to Rust in cff.rs, glyf.rs and outline.rs, taken under MIT."
+
+[[tree.credit.text]]
+title     = "MIT License"
+file      = "LICENSES/ttf-parser-MIT.txt"
+from      = "Permission is hereby granted"
+copyright = ["Copyright (c) 2018 Yevhenii Reizner"]
 
 [[tree]]
 what     = "Code transcribed from fontTools 4.63.0: bake.rs's variation arithmetic, normalize(), piecewise(), tent(), iup() and infer(), which are normalizeValue(), piecewiseLinearMap() and supportScalar() (varLib/models.py) and iup_segment() and, re-expressed, iup_contour() (varLib/iup.py), term for term, fontTools' extrapolation past the avar map's ends included. The table writer is baud's. Read in note BG"
@@ -2097,6 +2657,22 @@ upstream = "https://github.com/fonttools/fonttools/tree/4.63.0"
 status   = "kept"
 public   = "Code transcribed from fontTools 4.63.0: bake.rs's axis normalisation, avar mapping, tuple scalar and delta inference, which are fontTools' normalizeValue(), piecewiseLinearMap(), supportScalar(), iup_segment() and iup_contour()"
 holder   = "Just van Rossum and the fontTools authors"
+transcribed = true
+ported_from = [
+  "varLib/models.py",
+  "varLib/iup.py",
+]
+
+[tree.credit]
+title     = "fontTools 4.63.0: variation arithmetic"
+used      = "Baking the static styles of a variable font when baud is built: axis normalisation, the avar mapping, tuple scalars and delta inference."
+changes   = "Transcribed to Rust in bake.rs."
+
+[[tree.credit.text]]
+title     = "MIT License"
+file      = "LICENSES/fonttools-MIT.txt"
+from      = "Permission is hereby granted"
+copyright = ["Copyright (c) 2017 Just van Rossum"]
 
 [[tree]]
 what     = "Code transcribed from fontTools 4.63.0 in tools/baud-pictures, the build tool that draws the logo files: outline.rs's glyph drawing, path pen and bounds pen, which are Glyph.draw() (ttLib/tables/_g_l_y_f.py), _TTGlyphGlyf.draw() (ttLib/ttGlyphSet.py), Transform.transform() and transformPoint() (misc/transform.py), TransformPen, BasePen.qCurveTo() and decomposeQuadraticSegment() (pens/basePen.py), SVGPathPen, BoundsPen and calcQuadraticBounds() (misc/bezierTools.py), operation for operation, so every coordinate the SVGs carry is the one fontTools wrote. Not published"
@@ -2162,6 +2738,21 @@ status   = "kept"
 public   = "The CFF Standard Encoding: the code and SID columns of the table in Appendix B of Adobe's Technical Note 5176, reproduced in part and unmodified, which the build compiles. The file's header carries Adobe's copyright line, the licence and its URI, the disclaimer and the source's URL"
 holder   = "Adobe Systems Incorporated"
 
+[tree.credit]
+title     = "Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)"
+used      = "Which glyph each code of a CFF font with the standard encoding names, as Appendix B of The Compact Font Format Specification, Technical Note #5176, version 1.0, gives it."
+changes   = "Compiled into a 256-byte table when baud is built; the table is not offered as a work of its own."
+parts_are = "The work it reproduces in part, under its licence:"
+
+[[tree.credit.part]]
+name      = "Technical Note #5176's CFF Standard Encoding (Appendix B)"
+by        = "Adobe Systems Incorporated"
+copyright = ["Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated. All rights reserved."]
+licence   = "CC-BY-ND-4.0"
+notice    = "baud-font/data/adobe-5176-cff-standard-encoding.txt"
+url       = "https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf"
+changes   = "Not modified. Its code and SID columns are reproduced in part, one code and its SID to a line, in decimal: a technical modification under the licence's section 2(a)(4), which never produces Adapted Material."
+
 [[tree]]
 what     = "The kitty keyboard protocol's functional-key numbers in input.rs (kitty_number), with the X keysym of each key as kitty's keyboard layer maps them, and the two tables baud-core/tests/kitty_encode.rs and key_encode.rs hold the encoders to: the 111 functional keys' numbers and the 35 legacy C0 cells, kitty-functional-keys.tsv and kitty-legacy-c0.tsv in docs/research/sources/, read from the protocol's page source in kitty v0.49.2, fetched by URL and hash-checked, no prose copied. The numbers are what an application and a terminal exchange in kitty's protocol, so they are kept as the protocol's interface data, as the placeholder diacritics are, attributed to kitty v0.49.2; kitty's documentation is GPL-3.0, none of its text is kept, and no GPL text ships with the crate"
 paths    = ["baud-domain/src/input.rs"]
@@ -2172,6 +2763,14 @@ upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/docs/keyboard-proto
 status   = "kept"
 public   = "The kitty keyboard protocol's key numbers in input.rs, the numbers an application and a terminal exchange in that protocol, kept as the protocol's interface data. No text of kitty's documentation is kept"
 holder   = "Kovid Goyal (kitty v0.49.2)"
+transcribed = true
+ported_from = ["docs/keyboard-protocol.rst"]
+
+[tree.credit]
+title     = "The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)"
+used      = "The numbers of the functional keys in the kitty keyboard protocol, with the X keysym of each key, in input.rs."
+changes   = "Written as a table in input.rs; no text of kitty's documentation is included."
+none      = "the numbers are what an application and a terminal exchange in kitty's keyboard protocol, its interface data, read from the protocol's page in kitty v0.49.2 and attributed to it."
 
 [[tree]]
 what     = "The Unicode placeholder diacritics, which baud-domain's build compiles, through a link in baud-domain/data/ to kitty-placeholder-diacritics.txt in docs/research/sources/: the 297 codepoints of kitty's rowcolumn-diacritics.txt (fetched by URL and hash-checked, nothing else of the file kept), a list derived from UnicodeData.txt that every client of the kitty graphics protocol must send; that file is in kitty's tree. Kept as the protocol's interface data, attributed to kitty v0.49.2"
@@ -2184,6 +2783,12 @@ status   = "kept"
 public   = "The Unicode placeholder diacritics the build compiles: the 297 codepoints of kitty's rowcolumn-diacritics.txt that every client of the kitty graphics protocol must send, kept as the protocol's interface data"
 holder   = "Kovid Goyal (kitty v0.49.2)"
 
+[tree.credit]
+title     = "kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)"
+used      = "The 297 combining marks that number a kitty graphics placeholder's rows and columns."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+none      = "the list is the kitty graphics protocol's interface data, the codepoints every client of the protocol must send, taken from kitty's rowcolumn-diacritics.txt and attributed to kitty v0.49.2."
+
 [[tree]]
 what     = "iTerm2's OSC 1337 key names, which baud-domain's build compiles, through links in baud-domain/data/ to iterm2-osc1337-doc-keys.txt and iterm2-osc1337-source-keys.txt in docs/research/sources/: 39 that iTerm2's documentation names and 54 that its VT100Terminal.m compares, read from the pages and the source (GPL-2.0, external in the manifest, fetched by URL and hash-checked), the names alone, no prose or code kept: the words an application sends to iTerm2's protocol. Kept as the protocol's interface data, attributed to iTerm2 at 964a75d (George Nachman)"
 paths    = ["baud-domain/data/iterm2-osc1337-doc-keys.txt", "baud-domain/data/iterm2-osc1337-source-keys.txt"]
@@ -2194,6 +2799,12 @@ upstream = "https://github.com/gnachman/iTerm2/blob/964a75d0f916929df83c62c1680b
 status   = "kept"
 public   = "iTerm2's OSC 1337 key names the build compiles, the words an application sends to iTerm2's protocol: 39 that its documentation names and 54 that its VT100Terminal.m compares, kept as the protocol's interface data. No prose or code of iTerm2's is kept"
 holder   = "George Nachman (iTerm2)"
+
+[tree.credit]
+title     = "iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)"
+used      = "The keys of OSC 1337 that baud recognises."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+none      = "the names are the words an application sends to iTerm2's protocol, its interface data: 39 its documentation names and 54 its VT100Terminal.m compares. No prose or code of iTerm2's is included."
 
 [[tree]]
 what     = "A Rust port of zlib 1.3.1's deflate at levels 6 and 9 (deflate.c and trees.c), so baud-bench's gen-yazi-files and linux-pixels write the PNG bytes zlib chose with no C linked into the workspace; the zlib notice is in the file, which says it is altered"
@@ -2276,6 +2887,25 @@ upstream = "https://www.ijg.org/files/jpegsrc.v6b.tar.gz"
 status   = "kept"
 public   = "The JPEG decoder's inverse DCT, triangle upsampling and YCbCr conversion in jpeg.rs: the arithmetic of the IJG's libjpeg 6b, re-expressed. This software is based in part on the work of the Independent JPEG Group"
 holder   = "Thomas G. Lane and the Independent JPEG Group"
+transcribed = true
+ported_from = [
+  "jidctint.c",
+  "jdsample.c",
+  "jdcolor.c",
+]
+
+[tree.credit]
+title     = "The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic"
+used      = "Decoding JPEG images: the inverse DCT, triangle upsampling and YCbCr conversion."
+changes   = "Re-expressed in Rust in jpeg.rs, said to be the IJG's where it stands."
+statement = "This software is based in part on the work of the Independent JPEG Group."
+
+[[tree.credit.text]]
+title     = "The IJG's licence, as libjpeg 6b's README gives it"
+file      = "LICENSES/ijg-README.txt"
+from      = "In legalese:"
+to        = "ansi2knr.c is included"
+copyright = ["This software is copyright (C) 1991-1998, Thomas G. Lane."]
 
 [[tree]]
 what     = "libjpeg-turbo 3.1.4's arithmetic-coded test image and its Huffman twin, unmodified: testimgari.jpg and testimgint.jpg, and testimgari.ppm, the decode of both by its djpeg -dct int"
@@ -2294,6 +2924,31 @@ upstream = "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.1
 status   = "kept"
 public   = "The JPEG decoder's arithmetic-coded refinement scan in jpeg.rs: the order of the IJG's arithmetic decoder (jdarith.c, as libjpeg-turbo 3.1.4 carries it), re-expressed. This software is based in part on the work of the Independent JPEG Group"
 holder   = "Thomas G. Lane, Guido Vollbeding and the Independent JPEG Group"
+transcribed = true
+ported_from = ["jdarith.c"]
+
+[tree.credit]
+title     = "libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan"
+used      = "Decoding arithmetic-coded progressive JPEG images: the refinement scan's order."
+changes   = "Re-expressed in Rust in jpeg.rs, said to be the IJG's where it stands. libjpeg-turbo's LICENSE.md puts jdarith.c under the IJG's licence and libjpeg-turbo's TurboJPEG API and build system under its BSD licence; both are given."
+statement = "This software is based in part on the work of the Independent JPEG Group."
+
+[[tree.credit.text]]
+title     = "The IJG's licence, as libjpeg-turbo's README.ijg gives it"
+file      = "LICENSES/libjpeg-turbo-README-ijg.txt"
+from      = "In legalese:"
+to        = "REFERENCES"
+copyright = ["This software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding."]
+
+[[tree.credit.text]]
+title     = "libjpeg-turbo's Modified (3-clause) BSD License"
+file      = "LICENSES/libjpeg-turbo-LICENSE.txt"
+from      = "Redistribution and use in source and binary forms"
+to        = "Why Two Licenses?"
+copyright = [
+  "Copyright (C) 2009-2026 D. R. Commander. All Rights Reserved.",
+  "Copyright (C) 2015 Viktor Szathmáry. All Rights Reserved.",
+]
 
 [[tree]]
 what     = "The readline click in readline.rs: boundary(), the column a click names, is xterm's eventColBetween formula, and point_move(), the cursor keys it sends, is ReadLineMovePoint's count over rowOnCurrentLine's wrapped rows (button.c, xterm patch #411), re-expressed; xterm's documentation gives neither. The paste's body() and quoted() follow the documented ctlseqs text, not this code"
@@ -2304,6 +2959,30 @@ upstream = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b
 status   = "kept"
 public   = "The readline click in readline.rs: the column a click names is xterm's eventColBetween formula, and the cursor keys it sends are ReadLineMovePoint's count over wrapped rows (button.c, xterm patch #411), re-expressed"
 holder   = "Thomas E. Dickey (xterm)"
+transcribed = true
+ported_from = ["button.c"]
+
+[tree.credit]
+title     = "xterm's readline click (button.c, patch #411)"
+used      = "Clicking in a shell's command line to move its cursor: the column a click names, and the cursor keys sent."
+changes   = "Re-expressed in Rust in readline.rs."
+
+[[tree.credit.text]]
+title     = "xterm's licence (X11)"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission is hereby granted, free of charge"
+to        = "Copyright 1987, 1988 by Digital"
+copyright = [
+  "Copyright 1996-2025,2026 by Thomas E. Dickey",
+  "Copyright 1987, 1988  X Consortium",
+]
+
+[[tree.credit.text]]
+title     = "Digital Equipment Corporation's notice, in the form naming Digital Equipment Corporation"
+file      = "LICENSES/xterm-COPYING.txt"
+from      = "Permission to use, copy, modify, and distribute this software"
+to        = "-- vile: txtmode"
+copyright = ["Copyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts. All Rights Reserved"]
 
 [[tree]]
 what     = "iTerm2's interpolated strings in interpolate.rs, the badge format's syntax: written from iTerm2's documentation (Scripting Fundamentals and Badges, docs/research/sources/MANIFEST.toml) and the cases in baud-domain/tests/interpolate.rs, without iTerm2's source code open; its author had read the earlier version of this file, a translation of iTerm2's parser, before writing, and used that version only as a black-box oracle; none of its code was kept"
@@ -2342,6 +3021,138 @@ status   = "kept"
 public   = "The Wayland and wayland-protocols XML files, carried unmodified, which the build reads into its interface tables"
 holder   = "The holders each file's copyright block names (Kristian Høgsberg, Intel, Collabora, Red Hat, Valve and others)"
 
+[tree.credit]
+title     = "The Wayland and wayland-protocols XML files"
+used      = "On Linux, the Wayland interfaces baud speaks: their requests, events, arguments and versions."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wayland.xml"
+from      = "Permission is hereby granted, free of charge, to any person"
+to        = "</copyright>"
+copyright = [
+  "Copyright © 2008-2011 Kristian Høgsberg",
+  "Copyright © 2010-2011 Intel Corporation",
+  "Copyright © 2012-2013 Collabora, Ltd.",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-commit-timing-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2023 Valve Corporation"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-cursor-shape-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = [
+  "Copyright 2018 The Chromium Authors",
+  "Copyright 2023 Simon Ser",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-fifo-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2023 Valve Corporation"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-fractional-scale-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2022 Kenny Levinsen"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-linux-dmabuf-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2014, 2015 Collabora, Ltd."]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-linux-drm-syncobj-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = [
+  "Copyright 2016 The Chromium Authors.",
+  "Copyright 2017 Intel Corporation",
+  "Copyright 2018 Collabora, Ltd",
+  "Copyright 2021 Simon Ser",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-presentation-time.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2013-2014 Collabora, Ltd."]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-primary-selection-unstable-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2015, 2016 Red Hat"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-tearing-control-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2021 Xaver Hugl"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-viewporter.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2013-2016 Collabora, Ltd."]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-xdg-decoration-unstable-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2018 Simon Ser"]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/wp-xdg-shell.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = [
+  "Copyright © 2008-2013 Kristian Høgsberg",
+  "Copyright © 2013      Rafael Antognolli",
+  "Copyright © 2013      Jasper St. Pierre",
+  "Copyright © 2010-2013 Intel Corporation",
+  "Copyright © 2015-2017 Samsung Electronics Co., Ltd",
+  "Copyright © 2015-2017 Red Hat Inc.",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/xdg-activation-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = [
+  "Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>",
+  "Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>",
+]
+
+[[tree.credit.text]]
+title     = "MIT License, in the form whose notice includes its next paragraph"
+file      = "baud-wayland/protocols/xdg-system-bell-v1.xml"
+from      = "Permission is hereby granted, free of charge, to any person obtaining a"
+to        = "</copyright>"
+copyright = ["Copyright © 2016, 2023 Red Hat"]
+
 [[tree]]
 what     = "baud-wayland's build reads text-input-unstable-v3 the same way, through a link to its copy in docs/research/sources/; its copyright block grants the historical permission with the right to sell (Intel, Jan Arne Petersen, Red Hat, Purism), not MIT"
 paths    = ["baud-wayland/protocols/wp-text-input-unstable-v3.xml"]
@@ -2351,6 +3162,23 @@ upstream = "https://gitlab.freedesktop.org/wayland/wayland-protocols"
 status   = "kept"
 public   = "wayland-protocols' text-input-unstable-v3 XML, carried unmodified and read the same way; its copyright block grants the historical permission with the right to sell, not MIT"
 holder   = "Intel, Jan Arne Petersen, Red Hat and Purism"
+
+[tree.credit]
+title     = "wayland-protocols' text-input-unstable-v3"
+used      = "On Linux, the input-method interface: composed text from an input method."
+changes   = "Compiled into tables when baud is built; the files themselves are not included."
+
+[[tree.credit.text]]
+title     = "The historical permission notice (sell variant), as text-input-unstable-v3 gives it"
+file      = "baud-wayland/protocols/wp-text-input-unstable-v3.xml"
+from      = "Permission to use, copy, modify, distribute, and sell this"
+to        = "</copyright>"
+copyright = [
+  "Copyright © 2012, 2013 Intel Corporation",
+  "Copyright © 2015, 2016 Jan Arne Petersen",
+  "Copyright © 2017, 2018 Red Hat, Inc.",
+  "Copyright © 2018       Purism SPC",
+]
 
 [[tree]]
 what     = "bash-preexec 0.6.0 (b73ed5f) and 0.7.0 (d866eee), unmodified, which baud-app's shell tests load into a bash baud starts; kept without the .sh extension, so the formatters leave them byte for byte. Its LICENSE.md is the same text at both tags"

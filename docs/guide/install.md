@@ -74,6 +74,18 @@ baud tells the programs it runs who it is the usual way: `TERM` is
 `TERM_PROGRAM_VERSION` is baud's version with its build, `<version>+<commit>` (the one XTVERSION reports and `baud --version` prints).
 Programs read these to decide which keys, colours and features to use.
 
+## Credits
+
+`baud --credits` prints the notices of every third-party work the `baud`
+program carries -- its fonts and their icon sets, the Unicode data and
+other tables built into it, and the code ported into it from other
+projects -- each with its copyright, what was changed and its licence, then
+the licence texts, and exits, as `baud --version` does, without opening a
+window or touching your configuration.
+[THIRD_PARTY.md](../../THIRD_PARTY.md) opens with the same notices, and on
+macOS, baud > About baud > Acknowledgements opens that page on GitHub, at
+the build's own commit.
+
 ## Make it yours
 
 baud works with no configuration at all. To change the font, colours,

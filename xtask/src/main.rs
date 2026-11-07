@@ -16,8 +16,8 @@ use xtask::scan_audit::{self, Limit};
 use xtask::sources;
 use xtask::third_party::{self, Mode, Outcome};
 use xtask::{
-    changelog, features, features_since, fnv, forbidden, loop_head, no_python, pdf_search, pmc,
-    text, vt_table,
+    changelog, credits, features, features_since, fnv, forbidden, loop_head, no_python, pdf_search,
+    pmc, text, vt_table,
 };
 
 fn main() -> ExitCode {
@@ -131,6 +131,16 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
             let o = third_party::run(root, mode, &mut stdout).map_err(|e| e.to_string())?;
             Ok(outcome(o))
         }
+        ["credits", rest @ ..] if rest.len() <= 1 => {
+            let mode = match rest {
+                [] => credits::Mode::Write,
+                ["--check"] => credits::Mode::Check,
+                ["--list"] => credits::Mode::List,
+                _ => return Err(format!("not an option: {}", rest.join(" "))),
+            };
+            let o = credits::run(root, mode, &mut stdout).map_err(|e| e.to_string())?;
+            Ok(outcome(o))
+        }
         // Every argument but the five flags is ignored, as the script
         // ignored it, and what stopped the run is printed as the script's
         // `SystemExit` printed it: the message alone.
@@ -181,7 +191,7 @@ fn run(args: &[&str]) -> Result<ExitCode, String> {
                  | changelog <context> | features [--check] | features-since <rev>|--explain \
                  | fnv1a <src> <lib> <sdig> <ldig> \
                  | sources | no-python \
-                 | third-party [--check] | publish [--size|--verify|--release\
+                 | third-party [--check] | credits [--check|--list] | publish [--size|--verify|--release\
                  |--write-notices|--write-licences] | page-text [--key K] [--from DIR] [--save DIR] \
                  [--print] [--self-test] | pdf-search <key> [<term>...] \
                  | loop-head [--fn NAME] [--no-pageoff] A [B] | vt-table <results> [<baseline>] \

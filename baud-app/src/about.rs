@@ -2,7 +2,9 @@
 //! `baud_present_macos::about` is the window; this is baud's content: the
 //! README's logo film from the app bundle's Resources, the lockup Reduce
 //! Motion and a bare binary have instead, the version line, how old the
-//! release is, the home, the licence, and the author's picture.
+//! release is, the home, the licence, the acknowledgements line, which
+//! opens the third-party notices in THIRD_PARTY.md at this build's commit or
+//! release, and the author's picture.
 //!
 //! The films are not in the binary: the two are 8.9 MB, and the `baud`
 //! crate, 4.4 MiB against crates.io's 10, has no room for what a window
@@ -11,8 +13,8 @@
 //! picture with them (`assets/readme/author.jpg`, 400 by 400): it ships
 //! with the app and is never fetched, so a bare binary has none.
 //!
-//! **A click on the picture goes where every link baud opens goes**: the
-//! caller's opener, which the app makes of its link policy and the OS's
+//! **A click on the picture or the acknowledgements line goes where every
+//! link baud opens goes**: the caller's opener, which the app makes of its link policy and the OS's
 //! opener (`app.rs`), so the profile's address passes the same allowlist as
 //! a link in the text. The link line is not that path: it is AppKit's own
 //! label link, which AppKit opens itself.
@@ -22,7 +24,7 @@
 
 #![forbid(unsafe_code)]
 
-use baud_present_macos::about::{About, Content, Face, LOGO, Logo, Motion};
+use baud_present_macos::about::{About, Acknowledgements, Content, Face, LOGO, Logo, Motion};
 use baud_render::{Argb, splash};
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{AnyThread, MainThreadMarker};
@@ -37,8 +39,42 @@ pub(crate) const LINK: &str = "github.com/baud-terminal/baud";
 /// Where it goes.
 pub(crate) const URL: &str = "https://github.com/baud-terminal/baud";
 /// **The copyright line**: `LICENSE`'s holder and its licence, which
-/// `baud-app/tests/about_window.rs` holds to that file.
-pub(crate) const COPYRIGHT: &str = "Copyright \u{a9} 2026 i-am-logger \u{b7} CC BY-NC-SA 4.0";
+/// `baud-app/tests/about_window.rs` holds to that file; the one constant
+/// `baud --version` prints too (`version::COPYRIGHT`).
+pub(crate) const COPYRIGHT: &str = crate::version::COPYRIGHT;
+
+/// **The acknowledgements line's tooltip**: the route to the same notices
+/// that needs no network, for a reader offline or at a page not there.
+pub(crate) const ACKNOWLEDGEMENTS_TIP: &str =
+    "The third-party notices in THIRD_PARTY.md on GitHub. Offline, `baud --credits` prints them.";
+
+/// **The release tag of version `v`**, as `release-plz.toml` names the
+/// `baud` package's (`git_tag_name = "baud-v{{ version }}"`).
+fn release_tag(v: &str) -> String {
+    format!("baud-v{v}")
+}
+
+/// **Where the acknowledgements line goes**: THIRD_PARTY.md at the tree
+/// this build was made from, read from the stamp `--version` prints,
+/// `<version>+<identifier>`, at compile time and never from git at run
+/// time. The identifier's commit when it names one, `.dirty` or not, else
+/// the release tag of the version: a build with no git, a crate installed
+/// from crates.io or a tarball, is `+unknown`, and every release is tagged,
+/// so the address never has an empty ref. A local build's commit that was
+/// never pushed has no page there, a 404, which is acceptable for the same
+/// reason; `baud --credits` holds the notices offline.
+pub(crate) fn acknowledgements_url(build: &str) -> String {
+    let (version, id) = build.split_once('+').unwrap_or((build, ""));
+    let hash = id
+        .split('.')
+        .next()
+        .filter(|h| !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit()));
+    let at = match hash {
+        Some(h) => h.to_owned(),
+        None => release_tag(version),
+    };
+    format!("{URL}/blob/{at}/THIRD_PARTY.md")
+}
 
 /// **The author's profile**, where a click on the picture goes.
 pub(crate) const AUTHOR_URL: &str = "https://github.com/i-am-logger";
@@ -121,8 +157,8 @@ impl Bundled {
 }
 
 /// **The window for `build`, its commit's time stamped as `stamp`, with what
-/// `bundled` carries**, a click on the picture handed to `opens`: built, not
-/// shown. `None` when a lockup does not decode.
+/// `bundled` carries**, a click on the picture or the acknowledgements line
+/// handed to `opens`: built, not shown. `None` when a lockup does not decode.
 pub(crate) fn build(
     mtm: MainThreadMarker,
     build: &str,
@@ -156,6 +192,11 @@ pub(crate) fn build(
             link: LINK,
             url: URL,
             copyright: COPYRIGHT,
+            acknowledgements: Acknowledgements {
+                url: acknowledgements_url(build),
+                tip: ACKNOWLEDGEMENTS_TIP.to_owned(),
+                open: opens.clone(),
+            },
             face: face.map(|image| Face {
                 image,
                 url: AUTHOR_URL,

@@ -48,7 +48,8 @@ mod checks {
     use crate::about::Bundled;
     use baud_domain::FrameNo;
     use baud_present_macos::about::{
-        About, Ages, Clock, FACE, GAP, LOGO, Motion, Seen, Shows, add_menu_item, frame_at,
+        ACKNOWLEDGEMENTS, About, Ages, Clock, FACE, GAP, LOGO, Motion, Seen, Shows, add_menu_item,
+        frame_at,
     };
     use core::cell::{Cell, RefCell};
     use core::time::Duration;
@@ -279,6 +280,8 @@ mod checks {
             "Copyright \u{a9} 2026 i-am-logger \u{b7} CC BY-NC-SA 4.0"
         );
         assert!(!about.window().is_visible(), "never shown");
+        the_acknowledgements_line_is_a_button_that_names_the_offline_route(&about);
+        the_acknowledgements_line_opens_third_party_md_at_the_build(mtm);
 
         // The copyright line says what LICENSE says.
         let licence = std::fs::read_to_string(workspace().join("LICENSE")).expect("LICENSE");
@@ -382,6 +385,7 @@ mod checks {
         // frame, plasma and all, is not the bare window's.
         let bare = crate::about::build(mtm, BUILD, "", bundled(None, None), opens.clone())
             .expect("the window");
+        the_acknowledgements_line_is_a_button_that_names_the_offline_route(&bare);
         assert!(!bare.has_film());
         bare.play(Motion::Plays);
         assert_eq!(bare.shows(), Shows::Still);
@@ -721,8 +725,8 @@ mod checks {
         assert_eq!(l.pause.origin.y - top(&face), GAP, "the picture's gap");
         assert_eq!(
             l.lines.len(),
-            4,
-            "the version, the age, the link and the copyright"
+            5,
+            "the version, the age, the link, the copyright and the acknowledgements line"
         );
         for r in &l.lines {
             assert_eq!(r.origin.x, l.lines[0].origin.x, "{r:?}: one column");
@@ -737,7 +741,7 @@ mod checks {
             assert!(!overlap(r, &face), "{r:?}: on the picture");
         }
         assert!(!overlap(&face, &l.pause), "the picture on the pause");
-        let middle = (top(&l.lines[0]) + l.lines[3].origin.y) / 2.0;
+        let middle = (top(&l.lines[0]) + l.lines[4].origin.y) / 2.0;
         let centre = face.origin.y + FACE / 2.0;
         assert!(
             (middle - centre).abs() <= 0.5,
@@ -967,14 +971,106 @@ mod checks {
             none.age_at(made + Duration::from_secs(60));
             assert_eq!(none.age_line(), None, "{build} {stamp:?}: no age");
             let l = none.layout();
-            assert_eq!(l.lines.len(), 3, "{build}: three lines");
-            let middle = (top(&l.lines[0]) + l.lines[2].origin.y) / 2.0;
+            assert_eq!(l.lines.len(), 4, "{build}: four lines");
+            let middle = (top(&l.lines[0]) + l.lines[3].origin.y) / 2.0;
             let face = l.face.expect("the picture");
             let centre = face.origin.y + FACE / 2.0;
             assert!(
                 (middle - centre).abs() <= 0.5,
                 "{build}: centred on the picture, {middle} and {centre}"
             );
+        }
+    }
+
+    /// **The acknowledgements line is a button, and its tooltip names the
+    /// offline route**: titled and named [`ACKNOWLEDGEMENTS`], an AXButton
+    /// with its action and target, after the window's first responder in
+    /// the key view loop, so Tab reaches it, and its tooltip and help name
+    /// `baud --credits`. Built and read, never shown. Perturbation: the
+    /// line made a label fails the role; the tooltip without the command
+    /// fails the offline route.
+    fn the_acknowledgements_line_is_a_button_that_names_the_offline_route(about: &About) {
+        let line = about.acknowledgements_line();
+        assert_eq!(line.title().to_string(), ACKNOWLEDGEMENTS);
+        assert_eq!(
+            line.accessibilityRole().map(|s| s.to_string()).as_deref(),
+            Some("AXButton"),
+            "VoiceOver has it as a button"
+        );
+        assert_eq!(
+            line.accessibilityLabel().map(|s| s.to_string()).as_deref(),
+            Some(ACKNOWLEDGEMENTS),
+            "named by the one word"
+        );
+        let tip = line.toolTip().map(|s| s.to_string()).unwrap_or_default();
+        assert!(
+            tip.contains("`baud --credits`"),
+            "the offline route: {tip:?}"
+        );
+        assert_eq!(
+            line.accessibilityHelp().map(|s| s.to_string()).as_deref(),
+            Some(tip.as_str()),
+            "and VoiceOver's help says it"
+        );
+        assert_eq!(
+            line.action(),
+            Some(sel!(openAcknowledgements:)),
+            "its action"
+        );
+        assert!(
+            line.target().is_some(),
+            "and the target that holds the opener"
+        );
+        assert!(line.isEnabled());
+        let first = about.window().content_view().expect("its view");
+        // SAFETY: a read of the loop AppKit keeps.
+        let next = unsafe { first.nextKeyView() }.expect("a next key view");
+        assert!(
+            Retained::as_ptr(&next).cast::<u8>() == Retained::as_ptr(&line).cast::<u8>(),
+            "Tab reaches the acknowledgements line"
+        );
+        let l = about.layout();
+        let last = l.lines.last().expect("the acknowledgements line");
+        assert_eq!(last.origin.x, l.lines[0].origin.x, "in the lines' column");
+        assert!(last.origin.y >= 18.0, "over the margin");
+    }
+
+    /// **A press of the acknowledgements line asks to open THIRD_PARTY.md
+    /// at the build's tree, and only that**, through the opener the window
+    /// is given, here one that records, so no browser opens and no window is
+    /// shown: at the commit for a build that names one, clean or dirty, and
+    /// at the release tag `release-plz.toml` names for a build with no git
+    /// (`+unknown`, a crates.io install), never with an empty ref.
+    /// Perturbation: the ref taken whole from the identifier fails the dirty
+    /// build; the tag as `v<version>` fails the build with no git.
+    fn the_acknowledgements_line_opens_third_party_md_at_the_build(mtm: MainThreadMarker) {
+        let plz = std::fs::read_to_string(workspace().join("release-plz.toml"))
+            .expect("release-plz.toml");
+        assert!(
+            plz.contains("name = \"baud\"\ngit_tag_name = \"baud-v{{ version }}\""),
+            "the baud package's tag name"
+        );
+        let blob = "https://github.com/baud-terminal/baud/blob";
+        for (build, at) in [
+            ("1.0.0-beta.3+0123abc", "0123abc"),
+            ("1.0.0-beta.3+0123abc.dirty", "0123abc"),
+            ("1.0.0-beta.3+unknown", "baud-v1.0.0-beta.3"),
+        ] {
+            let (got, opens) = recorder();
+            let about = crate::about::build(mtm, build, "", bundled(None, None), opens)
+                .expect("the window");
+            assert!(
+                got.borrow().is_empty(),
+                "{build}: nothing opened before a press"
+            );
+            // SAFETY: a press as AppKit makes one, with no sender.
+            unsafe { about.acknowledgements_line().performClick(None) };
+            assert_eq!(
+                *got.borrow(),
+                [format!("{blob}/{at}/THIRD_PARTY.md")],
+                "{build}"
+            );
+            assert!(!about.window().is_visible(), "never shown");
         }
     }
 
@@ -989,8 +1085,8 @@ mod checks {
         assert_eq!(bare.age_line(), None, "no age");
         let l = bare.layout();
         assert_eq!(l.face, None);
-        let block = top(&l.lines[0]) - l.lines[2].origin.y;
-        assert_eq!(l.lines[2].origin.y, 18.0, "on the margin");
+        let block = top(&l.lines[0]) - l.lines[3].origin.y;
+        assert_eq!(l.lines[3].origin.y, 18.0, "on the margin");
         assert_eq!(l.pause.origin.y - top(&l.lines[0]), GAP, "the gap");
         assert_eq!(
             l.film.origin.y + LOGO.height,
@@ -998,7 +1094,11 @@ mod checks {
             "the box at the top"
         );
         assert_eq!(l.content.height, 18.0 + block + GAP + 223.0, "the window");
-        assert_eq!(l.lines.len(), 3);
+        assert_eq!(
+            l.lines.len(),
+            4,
+            "three lines and the acknowledgements line"
+        );
         for r in &l.lines {
             assert_eq!(
                 (r.origin.x, r.size.width),

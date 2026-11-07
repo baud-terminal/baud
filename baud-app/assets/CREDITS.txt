@@ -1,0 +1,1698 @@
+Third-party notices for what this build of baud includes.
+
+baud's program file carries the works below. Each notice says what the work
+is, where baud uses it, its copyright notices, what was changed, and the
+licence text it falls under. The licence texts follow the notices: each text
+once, with the copyright notices of every work under it listed above it.
+
+Notices
+  1. baud's logo, drawn with JetBrains Mono 2.304's glyphs
+  2. STIX Two Math 2.13 b171
+  3. Symbols Nerd Font Mono 3.5.1
+  4. baud's text font: JetBrains Mono 2.304 with Hebrew from Cascadia Mono
+     and Noto Sans Devanagari 2.007
+  5. libX11's Xcms: the colour conversions
+  6. Björn Ottosson's sRGB gamut clipping
+  7. The Unicode Character Database: the stress mark's table, in the shaders
+  8. The Unicode Character Database 17.0.0: the text tables
+  9. Unicode Emoji 17.0: the named emoji sequences
+  10. The Unicode Character Database 17.0.0: the shaping tables
+  11. The Unicode Character Database 17.0.0: the stress mark's table, in the
+      renderer
+  12. The Unicode Character Database 8.0.0: East Asian widths
+  13. X.Org's rgb.txt at 749182c, with Debian's DebianRed: kitty's colour
+      names
+  14. X.Org's rgb.txt at 0d2caec: the X colour names
+  15. xterm's charsets.h
+  16. xterm's xtermcap.c
+  17. ncurses' xterm-256color terminfo entry: the termcap keyboard
+  18. X.Org's keysymdef.h
+  19. Unicode's JIS X 0201 and ISO 8859 mapping tables
+  20. ncurses' xterm-256color terminfo entry
+  21. libxkbcommon 1.13.2's Compose reader
+  22. xkbcommon's keysym header
+  23. Windows Terminal's text-contrast curve
+  24. Björn Ottosson's OKLab matrices
+  25. HarfBuzz: shaping code
+  26. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
+  27. ttf-parser 0.25.1: font outlines
+  28. fontTools 4.63.0: variation arithmetic
+  29. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
+  30. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
+  31. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
+  32. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
+  33. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
+  34. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
+  35. xterm's readline click (button.c, patch #411)
+  36. The Wayland and wayland-protocols XML files
+  37. wayland-protocols' text-input-unstable-v3
+Licence texts
+  A. SIL Open Font License, Version 1.1
+  B. MIT License
+  C. Apache License, Version 2.0
+  D. X11 License, as ncurses gives it
+  E. Unicode License V3
+  F. Bitstream Vera License
+  G. Creative Commons Attribution 4.0 International
+  H. Creative Commons Attribution-NoDerivatives 4.0 International
+  I. The Unlicense
+  J. Tektronix's TekHVC notice
+  K. Tektronix's Xcms notice
+  L. The Open Group's notice (MIT, Open Group variant)
+  M. xterm's licence (X11)
+  N. Digital Equipment Corporation's notice, in the form naming Digital
+     Equipment Corporation
+  O. Digital Equipment Corporation's notice, in the form naming Digital
+  P. MIT License, in the form whose notice includes its next paragraph
+  Q. The Open Group's notice, in the X11 form
+  R. Silicon Graphics' historical permission notice
+  S. Oki Technosystems Laboratory's and Fuji Xerox's notice (historical
+     permission, sell variant)
+  T. HarfBuzz's licence (MIT, Modern Variant)
+  U. The IJG's licence, as libjpeg 6b's README gives it
+  V. The IJG's licence, as libjpeg-turbo's README.ijg gives it
+  W. libjpeg-turbo's Modified (3-clause) BSD License
+  X. The historical permission notice (sell variant), as
+     text-input-unstable-v3 gives it
+
+============================================================================
+1. baud's logo, drawn with JetBrains Mono 2.304's glyphs
+============================================================================
+Used for:   The logo in the title bar, the About window's logo when it shows
+            it still, and the Dock icon: their prompt, block and word are
+            JetBrains Mono's own outlines.
+Copyright:  Copyright 2020 The JetBrains Mono Project Authors
+            (https://github.com/JetBrains/JetBrainsMono)
+Changes:    The glyphs' outlines are traced into the logo's drawings, placed
+            and coloured; nothing else of the font is included.
+Licence:    SIL Open Font License, Version 1.1 (full text: A, below)
+
+============================================================================
+2. STIX Two Math 2.13 b171
+============================================================================
+Used for:   Symbols no other default font has, such as U+23F5 and U+23FA,
+            from the last font of the default list.
+Copyright:  Copyright 2001-2021 The STIX Fonts Project Authors
+            (https://github.com/stipub/stixfonts), with Reserved Font Name
+            "TM Math". STIX Fonts™ is a trademark of The Institute of
+            Electrical and Electronics Engineers, Inc.
+In the font: STIXTwoMath-Regular.otf's copyright notice, name ID 0:
+             Copyright 2001-2021 The STIX Fonts Project Authors
+             (https://github.com/stipub/stixfonts)
+In the font: STIXTwoMath-Regular.otf's trademark notice, name ID 7: STIX
+             Fonts and STIX Two are trademarks of The Institute of
+             Electrical and Electronics Engineers, Inc.
+Changes:    None: embedded as released.
+Licence:    SIL Open Font License, Version 1.1 (full text: A, below)
+
+============================================================================
+3. Symbols Nerd Font Mono 3.5.1
+============================================================================
+Used for:   The icons programs draw, such as Powerline's separators and
+            file-type and status icons, where the text font has none.
+Copyright:  Copyright (c) 2014 Ryan L McIntyre
+In the font: SymbolsNerdFontMono-Regular.ttf's copyright notice, name ID 0:
+             Copyright (c) 2016, Ryan McIntyre
+Changes:    None by baud: embedded as released. Nerd Fonts patched each icon
+            set below into it.
+Licence:    MIT License (full text: B, below)
+
+Its icon sets, each under its own licence, as Nerd Fonts patched them in:
+
+3.1 Codicons 0.0.45
+    Creator:           Microsoft Corporation
+    Copyright notice:  None is supplied with the icons: their licence file
+                       is the licence's legal code, and names no holder.
+    Licence:           Creative Commons Attribution 4.0 International (G,
+                       below)
+    Disclaimer:        The licence's disclaimer applies: its "Section 5 --
+                       Disclaimer of Warranties and Limitation of
+                       Liability".
+    Material:          https://github.com/microsoft/vscode-codicons
+    Changes:           As modified by Nerd Fonts, which patched the icons
+                       into Symbols Nerd Font Mono; baud embeds that font
+                       unmodified.
+    Licence URI:       https://creativecommons.org/licenses/by/4.0/
+
+3.2 Devicons 2.17.0
+    Copyright:         Copyright (c) 2015 konpa
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/devicons/devicon
+
+3.3 Devicons before its fork, 18 of its glyphs
+    By:                Theodore Vorillas
+    Licence:           MIT License (full text: B, below)
+    Upstream:          http://vorillaz.github.io/devicons/
+    Note:              Its README is its notice, and gives no copyright
+                       line.
+
+3.4 extraglyphs, from Hack
+    Copyright:         Copyright (c) 2018 Source Foundry Authors
+                       Copyright (c) 2003 by Bitstream, Inc. All Rights
+                       Reserved. Bitstream Vera is a trademark of Bitstream,
+                       Inc.
+    Licence:           MIT License (full text: B, below)
+                       Bitstream Vera License (full text: F, below)
+    Upstream:          https://github.com/source-foundry/Hack
+    Note:              Its licence file, Hack's, gives Hack's own work under
+                       the MIT License and Bitstream Vera Sans Mono's under
+                       the Bitstream Vera licence; both are given here.
+
+3.5 Font Awesome 6.5.1
+    Creator:           Fonticons, Inc. (https://fontawesome.com)
+    Copyright notice:  Copyright (c) 2022 Fonticons, Inc.
+                       (https://fontawesome.com) with Reserved Font Name:
+                       "Font Awesome".
+    Licence:           SIL Open Font License, Version 1.1 (full text: A,
+                       below)
+                       Creative Commons Attribution 4.0 International (G,
+                       below)
+    Disclaimer:        The licence's disclaimer applies: its "Section 5 --
+                       Disclaimer of Warranties and Limitation of
+                       Liability".
+    Material:          https://github.com/FortAwesome/Font-Awesome
+    Changes:           As modified by Nerd Fonts, which patched the icons
+                       into Symbols Nerd Font Mono; baud embeds that font
+                       unmodified.
+    Licence URI:       https://creativecommons.org/licenses/by/4.0/
+    Note:              Its licence file puts its icons packaged as font
+                       files under the SIL OFL 1.1, and those packaged as
+                       SVG and JS under CC BY 4.0; the notice each asks for
+                       is given.
+
+3.6 Font Awesome Extension 0.0.3
+    Copyright:         Copyright (c) 2017 André Luiz Gava
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/AndreLZGava/font-awesome-extension
+
+3.7 Font Logos 1.3.0
+    Licence:           The Unlicense (I, below)
+    Upstream:          https://github.com/lukas-w/font-logos
+    Note:              The Unlicense asks for no notice; it is credited all
+                       the same.
+
+3.8 MaterialDesign, October 6, 2022
+    By:                Pictogrammers
+    Licence:           Apache License, Version 2.0 (full text: C, below)
+    Upstream:          https://github.com/Templarian/MaterialDesign-Font
+    Its licence statement, as it gives it:
+
+      Pictogrammers Free License
+      --------------------------
+
+      This icon collection is released as free, open source, and GPL friendly by
+      the [Pictogrammers](http://pictogrammers.com/) icon group. You may use it
+      for commercial projects, open source projects, or anything really.
+
+      # Icons: Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+      Some of the icons are redistributed under the Apache 2.0 license. All other
+      icons are either redistributed under their respective licenses or are
+      distributed under the Apache 2.0 license.
+
+      # Fonts: Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+      All web and desktop fonts are distributed under the Apache 2.0 license. Web
+      and desktop fonts contain some icons that are redistributed under the Apache
+      2.0 license. All other icons are either redistributed under their respective
+      licenses or are distributed under the Apache 2.0 license.
+
+      # Code: MIT (https://opensource.org/licenses/MIT)
+      The MIT license applies to all non-font and non-icon files.
+
+3.9 Octicons 18.3.0
+    Copyright:         Copyright (c) 2023 GitHub Inc.
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/primer/octicons
+
+3.10 Seti UI 0.8.1
+    Copyright:         Copyright (c) 2014 Jesse Weed
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/jesseweed/seti-ui
+
+3.11 Nerd Fonts' original glyphs
+    Copyright:         Copyright (c) 2014 Ryan L McIntyre
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/ryanoasis/nerd-fonts/
+
+3.12 Pomicons 1.001
+    Copyright:         Copyright (c) 2021, Gabriele Lana
+                       gabriele.lana@gmail.com
+                       with Reserved Font Name Pomicons.
+    Licence:           SIL Open Font License, Version 1.1 (full text: A,
+                       below)
+    Upstream:          https://github.com/gabrielelana/pomicons
+
+3.13 Powerline Extra 1.200
+    Copyright:         Copyright (c) 2016 Ryan L McIntyre
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/ryanoasis/powerline-extra-symbols
+
+3.14 Powerline Symbols
+    Copyright:         Copyright 2013 Kim Silkebækken and other contributors
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/powerline/powerline
+
+3.15 Power Symbols IEC
+    Copyright:         Copyright (c) 2013 Joe Loughry
+    Licence:           MIT License (full text: B, below)
+    Upstream:          https://github.com/jloughry/Unicode
+
+3.16 Weather Icons 2.0.10
+    By:                Erik Flowers
+    Licence:           SIL Open Font License, Version 1.1 (full text: A,
+                       below)
+    Upstream:          https://github.com/erikflowers/weather-icons
+    Note:              Its licence file's copyright lines are the OFL's
+                       unfilled template, which names Erik Flowers.
+
+============================================================================
+4. baud's text font: JetBrains Mono 2.304 with Hebrew from Cascadia Mono and
+   Noto Sans Devanagari 2.007
+============================================================================
+Used for:   The text in every window, in Regular, Bold, Italic and Bold
+            Italic.
+Copyright:  Copyright 2020 The JetBrains Mono Project Authors
+            (https://github.com/JetBrains/JetBrainsMono)
+            Copyright (c) 2019 - Present, Microsoft Corporation, with
+            Reserved Font Name Cascadia Code.
+            Copyright 2022 The Noto Project Authors
+            (https://github.com/notofonts/devanagari)
+In the font: Bold.ttf, BoldItalic.ttf, Italic.ttf, Regular.ttf's copyright
+             notice, name ID 0: Copyright 2020 The JetBrains Mono Project
+             Authors (https://github.com/JetBrains/JetBrainsMono) Hebrew
+             glyphs derived from Cascadia Mono (GitHub release v2407.24):
+             Copyright (c) 2019 - Present, Microsoft Corporation, with
+             Reserved Font Name Cascadia Code (the source file states: (c)
+             2021 Microsoft Corporation). Modified 2026 (re-weighted,
+             re-fitted, points redrawn) as a prototype. Devanagari glyphs
+             from Noto Sans Devanagari 2.007: Copyright 2022 The Noto
+             Project Authors (https://github.com/notofonts/devanagari).
+In the font: Bold.ttf, BoldItalic.ttf, Italic.ttf, Regular.ttf's trademark
+             notice, name ID 7: JetBrains Mono is a trademark of JetBrains
+             s.r.o. Cascadia Code is a trademark of the Microsoft group of
+             companies. Noto is a trademark of Google Inc.
+Changes:    A Modified Version under the OFL, in the built family's own
+            name: JetBrains Mono 2.304's four styles, every glyph, advance,
+            mapping and substitution of theirs kept, with Hebrew letters
+            drawn from Cascadia Mono (Cascadia Code v2407.24), re-weighted,
+            re-fitted and their points redrawn, the rest of the Hebrew block
+            baud's own, and Noto Sans Devanagari 2.007 merged in.
+Licence:    SIL Open Font License, Version 1.1 (full text: A, below)
+
+============================================================================
+5. libX11's Xcms: the colour conversions
+============================================================================
+Used for:   The Xcms colour forms OSC 4, 10, 11 and 12 accept (u'v'Y, xyY,
+            XYZ and TekHVC), converted to sRGB.
+Ported from: HVC.c, HVCGcC.c, HVCMxC.c, HVCMxVC.c, uvY.c, xyY.c, XYZ.c,
+             cmsTrig.c, LRGB.c, cmsInt.c, CvCols.c, cmsMath.c
+Copyright:  Code and supporting documentation (c) Copyright 1990 1991
+            Tektronix, Inc. All Rights Reserved
+            Copyright 1990, 1998 The Open Group
+Changes:    Ported to Rust in xcms.rs. baud displays no TekHVC coordinates,
+            since a TekHVC colour is read, drawn as sRGB and reported as
+            rgb, and calls that colour space TekHVC wherever it names it,
+            and uses the term for nothing else.
+Licence:    Tektronix's TekHVC notice (full text: J, below)
+            Tektronix's Xcms notice (full text: K, below)
+            The Open Group's notice (MIT, Open Group variant) (full text: L,
+            below)
+
+============================================================================
+6. Björn Ottosson's sRGB gamut clipping
+============================================================================
+Used for:   The OKLab conversions, hue and gamut clip the renderer adjusts
+            colours in.
+Ported from: https://bottosson.github.io/posts/gamutclipping/
+Copyright:  Copyright (c) 2021 Björn Ottosson
+Changes:    Re-expressed in Rust in color.rs.
+Licence:    MIT License (full text: B, below)
+
+============================================================================
+7. The Unicode Character Database: the stress mark's table, in the shaders
+============================================================================
+Used for:   Which characters SGR 64's stress mark skips, as the GPU's
+            shaders read it.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the data files
+            themselves are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+8. The Unicode Character Database 17.0.0: the text tables
+============================================================================
+Used for:   Bidirectional text, grapheme clusters, character widths, line
+            breaking, case folding and cursive joining.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the data files
+            themselves are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+9. Unicode Emoji 17.0: the named emoji sequences
+============================================================================
+Used for:   Which emoji sequences are one character: the sequences of
+            emoji-sequences.txt and emoji-zwj-sequences.txt.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+10. The Unicode Character Database 17.0.0: the shaping tables
+============================================================================
+Used for:   Arabic presentation forms, canonical composition, the Indic
+            categories and the script of each character, for shaping text.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the data files
+            themselves are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+11. The Unicode Character Database 17.0.0: the stress mark's table, in the
+    renderer
+============================================================================
+Used for:   Which characters SGR 64's stress mark skips, as the renderer
+            reads it.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the data files
+            themselves are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+12. The Unicode Character Database 8.0.0: East Asian widths
+============================================================================
+Used for:   The Unicode 8 character widths a program can ask for.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the data files
+            themselves are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+13. X.Org's rgb.txt at 749182c, with Debian's DebianRed: kitty's colour
+    names
+============================================================================
+Used for:   The colour names a kitty theme file may use, as kitty's own
+            table has them.
+Copyright:  Copyright 1985, 1989, 1998 The Open Group
+Changes:    Compiled into a table when baud is built, with the one name
+            kitty adds to it, DebianRed (215, 7, 81), from Debian's rgb.txt;
+            the file itself is not included. A colour name and its value are
+            facts.
+Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
+            below)
+
+============================================================================
+14. X.Org's rgb.txt at 0d2caec: the X colour names
+============================================================================
+Used for:   The colour names OSC 4, 10, 11 and 12 resolve.
+Copyright:  Copyright 1985, 1989, 1998 The Open Group
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
+            below)
+
+============================================================================
+15. xterm's charsets.h
+============================================================================
+Used for:   DEC Special Graphics, DEC Supplemental and the National
+            Replacement Character Sets.
+Copyright:  Copyright 1996-2025,2026 by Thomas E. Dickey
+            Copyright 1987, 1988 X Consortium
+            Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+            Massachusetts. All Rights Reserved
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    xterm's licence (X11) (full text: M, below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital Equipment Corporation (full text: N, below)
+
+============================================================================
+16. xterm's xtermcap.c
+============================================================================
+Used for:   The names XTGETTCAP answers, and the termcap keyboard's rows.
+Copyright:  Copyright 1996-2025,2026 by Thomas E. Dickey
+            Copyright 1987, 1988 X Consortium
+            Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+            Massachusetts. All Rights Reserved
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    xterm's licence (X11) (full text: M, below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital Equipment Corporation (full text: N, below)
+
+============================================================================
+17. ncurses' xterm-256color terminfo entry: the termcap keyboard
+============================================================================
+Used for:   The strings the termcap keyboard sends.
+Copyright:  Copyright 2018-2025,2026 Thomas E. Dickey
+            Copyright 1998-2017,2018 Free Software Foundation, Inc.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    X11 License, as ncurses gives it (full text: D, below)
+
+============================================================================
+18. X.Org's keysymdef.h
+============================================================================
+Used for:   The keysyms xterm's national character sets name, resolved to
+            their characters.
+Copyright:  Copyright 1987, 1994, 1998 The Open Group
+            Copyright 1987 by Digital Equipment Corporation, Maynard,
+            Massachusetts All Rights Reserved
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
+            below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital (full text: O, below)
+
+============================================================================
+19. Unicode's JIS X 0201 and ISO 8859 mapping tables
+============================================================================
+Used for:   JIS-Katakana, JIS-Roman's Yen sign, and the six 96-character
+            sets ESC - . / designate.
+Copyright:  Copyright © 1991-2026 Unicode, Inc.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    Unicode License V3 (full text: E, below)
+
+============================================================================
+20. ncurses' xterm-256color terminfo entry
+============================================================================
+Used for:   How long the visual bell's flash lasts: the entry's padding,
+            read when baud is built.
+Copyright:  Copyright 2018-2025,2026 Thomas E. Dickey
+            Copyright 1998-2017,2018 Free Software Foundation, Inc.
+Changes:    None: the entry is included as infocmp wrote it.
+Licence:    X11 License, as ncurses gives it (full text: D, below)
+
+============================================================================
+21. libxkbcommon 1.13.2's Compose reader
+============================================================================
+Used for:   On Linux, Compose sequences: dead keys and the Compose key, read
+            from the system's Compose files.
+Ported from: src/compose/parser.c, imLcPrs.c
+Copyright:  Copyright © 2008-2009 Dan Nicholson <dbn.lists@gmail.com>
+            Copyright © 2009-2012, 2016 Daniel Stone <daniel@fooishbar.org>
+            Copyright © 2012-2014, 2020-2022, 2025 Ran Benita
+            <ran@unusedvar.com>
+            Copyright © 2010-2012, 2016 Intel Corporation
+            Copyright © 2013-2015, 2018-2020 Red Hat, Inc.
+            Copyright © 2023-2024 Pierre Le Marre <dev@wismill.eu>
+            Copyright (c) 1991, Oracle and/or its affiliates.
+            Copyright © 2008-2011 Kristian Høgsberg
+            Copyright © 2010 Francisco Jerez <currojerez@riseup.net>
+            Copyright © 2012 Collabora, Ltd.
+            Copyright © 2015 Kazunobu Kuriyama <kazunobu.kuriyama@nifty.com>
+            Copyright (C) 2011 Joseph Adams <joeyadams3.14159@gmail.com>
+            Copyright 1985, 1987, 1988, 1990, 1998 The Open Group
+            Copyright (c) 1993, 1994, 1995, 1996 by Silicon Graphics
+            Computer Systems, Inc.
+            Copyright 1992 by Oki Technosystems Laboratory, Inc.
+            Copyright 1992 by Fuji Xerox Co., Ltd.
+            Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+            Massachusetts. All Rights Reserved
+Changes:    Ported to Rust in compose.rs. libxkbcommon gives these as the
+            notices of the code it distributes, each source file naming its
+            own.
+Licence:    MIT License, in the form whose notice includes its next
+            paragraph (full text: P, below)
+            The Open Group's notice, in the X11 form (full text: Q, below)
+            Silicon Graphics' historical permission notice (full text: R,
+            below)
+            Oki Technosystems Laboratory's and Fuji Xerox's notice
+            (historical permission, sell variant) (full text: S, below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital (full text: O, below)
+
+============================================================================
+22. xkbcommon's keysym header
+============================================================================
+Used for:   On Linux, the keysym table: each key's name and its character.
+Copyright:  Copyright 1987, 1994, 1998 The Open Group
+            Copyright 1987 by Digital Equipment Corporation, Maynard,
+            Massachusetts All Rights Reserved
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    The Open Group's notice (MIT, Open Group variant) (full text: L,
+            below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital (full text: O, below)
+
+============================================================================
+23. Windows Terminal's text-contrast curve
+============================================================================
+Used for:   How glyphs are brightened against their background: a table
+            computed when baud is built, from the curve's four coefficients.
+Copyright:  Copyright (c) Microsoft Corporation. All rights reserved.
+Changes:    DirectWrite's curve, as Windows Terminal ports it, computed into
+            a table.
+Licence:    MIT License (full text: B, below)
+
+============================================================================
+24. Björn Ottosson's OKLab matrices
+============================================================================
+Used for:   The oklch( and lab( colours of a kitty theme file.
+Ported from: https://bottosson.github.io/posts/oklab/
+Copyright:  Copyright (c) 2021 Björn Ottosson
+Changes:    Written in Rust in oklab.rs, number for number.
+Licence:    MIT License (full text: B, below)
+
+============================================================================
+25. HarfBuzz: shaping code
+============================================================================
+Used for:   Shaping text: Apple's morx tables, variable fonts' glyph
+            variations, fallback mark placement, Hebrew presentation forms,
+            the Indic scripts, and the glyph-set digests.
+Ported from: hb-aat-layout-common.hh, hb-aat-layout-morx-table.hh,
+             hb-ot-var-gvar-table.hh, hb-ot-var-common.hh, hb-open-type.hh,
+             hb-ot-layout-common.hh, hb-ot-shape-fallback.cc, hb-unicode.hh,
+             hb-ot-shaper-hebrew.cc, hb-ot-shaper-indic.cc,
+             hb-ot-shaper-indic-machine.rl, hb-ot-shaper-syllabic.cc,
+             hb-ot-shaper-vowel-constraints.cc, hb-ot-shaper-indic.hh,
+             gen-indic-table.py, OT/glyf/Glyph.hh, hb-buffer.cc,
+             hb-buffer.hh, hb-set-digest.hh
+Copyright:  Copyright © 2010-2022 Google, Inc.
+            Copyright © 2015-2020 Ebrahim Byagowi
+            Copyright © 2019,2020 Facebook, Inc.
+            Copyright © 2012,2015 Mozilla Foundation
+            Copyright © 2011 Codethink Limited
+            Copyright © 2008,2010 Nokia Corporation and/or its
+            subsidiary(-ies)
+            Copyright © 2009 Keith Stribley
+            Copyright © 2011 Martin Hosken and SIL International
+            Copyright © 2007 Chris Wilson
+            Copyright © 2005,2006,2020,2021,2022,2023 Behdad Esfahbod
+            Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023 Red
+            Hat, Inc.
+            Copyright © 1998-2005 David Turner and Werner Lemberg
+            Copyright © 2016 Igalia S.L.
+            Copyright © 2022 Matthias Clasen
+            Copyright © 2018,2021 Khaled Hosny
+            Copyright © 2018,2019,2020 Adobe, Inc
+            Copyright © 2013-2015 Alexei Podtelezhnikov
+Changes:    Transcribed to Rust and re-expressed in baud-font's sources,
+            from HarfBuzz 10.2.0, 12.3.0, 14.5.1 and commit 64e2b53.
+Licence:    HarfBuzz's licence (MIT, Modern Variant) (full text: T, below)
+
+============================================================================
+26. ab_glyph_rasterizer 0.1.10 and font-rs: the glyph rasteriser
+============================================================================
+Used for:   Turning each glyph's outline into coverage: line, quadratic and
+            cubic flattening and the coverage accumulation.
+Ported from: raster.rs, accumulate.rs
+Copyright:  Copyright 2015 Google Inc. All rights reserved.
+            Modifications copyright (C) 2020 Alex Butler
+            Copyright 2018 Google Inc. All rights reserved.
+Changes:    Transcribed to Rust in raster.rs and changed as its header
+            states.
+Licence:    Apache License, Version 2.0 (full text: C, below)
+
+============================================================================
+27. ttf-parser 0.25.1: font outlines
+============================================================================
+Used for:   Reading CFF charstrings and their charsets, TrueType glyph
+            outlines, and the outline transforms.
+Ported from: src/tables/cff/charstring.rs, src/tables/cff/cff1.rs,
+             src/tables/cff/charset.rs, src/tables/glyf.rs, src/lib.rs
+Copyright:  Copyright (c) 2018 Yevhenii Reizner
+Changes:    Transcribed to Rust in cff.rs, glyf.rs and outline.rs, taken
+            under MIT.
+Licence:    MIT License (full text: B, below)
+
+============================================================================
+28. fontTools 4.63.0: variation arithmetic
+============================================================================
+Used for:   Baking the static styles of a variable font when baud is built:
+            axis normalisation, the avar mapping, tuple scalars and delta
+            inference.
+Ported from: varLib/models.py, varLib/iup.py
+Copyright:  Copyright (c) 2017 Just van Rossum
+Changes:    Transcribed to Rust in bake.rs.
+Licence:    MIT License (full text: B, below)
+
+============================================================================
+29. Adobe's CFF Standard Encoding (Technical Note #5176, Appendix B)
+============================================================================
+Used for:   Which glyph each code of a CFF font with the standard encoding
+            names, as Appendix B of The Compact Font Format Specification,
+            Technical Note #5176, version 1.0, gives it.
+Changes:    Compiled into a 256-byte table when baud is built; the table is
+            not offered as a work of its own.
+
+The work it reproduces in part, under its licence:
+
+29.1 Technical Note #5176's CFF Standard Encoding (Appendix B)
+    Creator:           Adobe Systems Incorporated
+    Copyright notice:  Copyright © 1996–1998, 2000, 2003 by Adobe Systems
+                       Incorporated. All rights reserved.
+    Licence:           Creative Commons Attribution-NoDerivatives 4.0
+                       International (H, below)
+    Disclaimer:        The licence's disclaimer applies: its "section 5,
+                       Disclaimer of Warranties and Limitation of
+                       Liability".
+    Material:          https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf
+    Changes:           Not modified. Its code and SID columns are reproduced
+                       in part, one code and its SID to a line, in decimal:
+                       a technical modification under the licence's section
+                       2(a)(4), which never produces Adapted Material.
+    Licence URI:       https://creativecommons.org/licenses/by-nd/4.0/
+
+============================================================================
+30. The kitty keyboard protocol's key numbers (kitty v0.49.2, Kovid Goyal)
+============================================================================
+Used for:   The numbers of the functional keys in the kitty keyboard
+            protocol, with the X keysym of each key, in input.rs.
+Ported from: docs/keyboard-protocol.rst
+Changes:    Written as a table in input.rs; no text of kitty's documentation
+            is included.
+Licence:    none is needed: the numbers are what an application and a
+            terminal exchange in kitty's keyboard protocol, its interface
+            data, read from the protocol's page in kitty v0.49.2 and
+            attributed to it.
+
+============================================================================
+31. kitty's placeholder diacritics (kitty v0.49.2, Kovid Goyal)
+============================================================================
+Used for:   The 297 combining marks that number a kitty graphics
+            placeholder's rows and columns.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    none is needed: the list is the kitty graphics protocol's
+            interface data, the codepoints every client of the protocol must
+            send, taken from kitty's rowcolumn-diacritics.txt and attributed
+            to kitty v0.49.2.
+
+============================================================================
+32. iTerm2's OSC 1337 key names (iTerm2 at 964a75d, George Nachman)
+============================================================================
+Used for:   The keys of OSC 1337 that baud recognises.
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    none is needed: the names are the words an application sends to
+            iTerm2's protocol, its interface data: 39 its documentation
+            names and 54 its VT100Terminal.m compares. No prose or code of
+            iTerm2's is included.
+
+============================================================================
+33. The Independent JPEG Group's libjpeg 6b: the JPEG decoder's arithmetic
+============================================================================
+Used for:   Decoding JPEG images: the inverse DCT, triangle upsampling and
+            YCbCr conversion.
+Ported from: jidctint.c, jdsample.c, jdcolor.c
+Copyright:  This software is copyright (C) 1991-1998, Thomas G. Lane.
+Changes:    Re-expressed in Rust in jpeg.rs, said to be the IJG's where it
+            stands.
+Licence:    The IJG's licence, as libjpeg 6b's README gives it (full text:
+            U, below)
+As its licence asks: This software is based in part on the work of the
+                     Independent JPEG Group.
+
+============================================================================
+34. libjpeg-turbo 3.1.4: the arithmetic-coded refinement scan
+============================================================================
+Used for:   Decoding arithmetic-coded progressive JPEG images: the
+            refinement scan's order.
+Ported from: jdarith.c
+Copyright:  This software is copyright (C) 1991-2020, Thomas G. Lane, Guido
+            Vollbeding.
+            Copyright (C) 2009-2026 D. R. Commander. All Rights Reserved.
+            Copyright (C) 2015 Viktor Szathmáry. All Rights Reserved.
+Changes:    Re-expressed in Rust in jpeg.rs, said to be the IJG's where it
+            stands. libjpeg-turbo's LICENSE.md puts jdarith.c under the
+            IJG's licence and libjpeg-turbo's TurboJPEG API and build system
+            under its BSD licence; both are given.
+Licence:    The IJG's licence, as libjpeg-turbo's README.ijg gives it (full
+            text: V, below)
+            libjpeg-turbo's Modified (3-clause) BSD License (full text: W,
+            below)
+As its licence asks: This software is based in part on the work of the
+                     Independent JPEG Group.
+
+============================================================================
+35. xterm's readline click (button.c, patch #411)
+============================================================================
+Used for:   Clicking in a shell's command line to move its cursor: the
+            column a click names, and the cursor keys sent.
+Ported from: button.c
+Copyright:  Copyright 1996-2025,2026 by Thomas E. Dickey
+            Copyright 1987, 1988 X Consortium
+            Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+            Massachusetts. All Rights Reserved
+Changes:    Re-expressed in Rust in readline.rs.
+Licence:    xterm's licence (X11) (full text: M, below)
+            Digital Equipment Corporation's notice, in the form naming
+            Digital Equipment Corporation (full text: N, below)
+
+============================================================================
+36. The Wayland and wayland-protocols XML files
+============================================================================
+Used for:   On Linux, the Wayland interfaces baud speaks: their requests,
+            events, arguments and versions.
+Copyright:  Copyright © 2008-2011 Kristian Høgsberg
+            Copyright © 2010-2011 Intel Corporation
+            Copyright © 2012-2013 Collabora, Ltd.
+            Copyright © 2023 Valve Corporation
+            Copyright 2018 The Chromium Authors
+            Copyright 2023 Simon Ser
+            Copyright © 2022 Kenny Levinsen
+            Copyright © 2014, 2015 Collabora, Ltd.
+            Copyright 2016 The Chromium Authors.
+            Copyright 2017 Intel Corporation
+            Copyright 2018 Collabora, Ltd
+            Copyright 2021 Simon Ser
+            Copyright © 2013-2014 Collabora, Ltd.
+            Copyright © 2015, 2016 Red Hat
+            Copyright © 2021 Xaver Hugl
+            Copyright © 2013-2016 Collabora, Ltd.
+            Copyright © 2018 Simon Ser
+            Copyright © 2008-2013 Kristian Høgsberg
+            Copyright © 2013 Rafael Antognolli
+            Copyright © 2013 Jasper St. Pierre
+            Copyright © 2010-2013 Intel Corporation
+            Copyright © 2015-2017 Samsung Electronics Co., Ltd
+            Copyright © 2015-2017 Red Hat Inc.
+            Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
+            Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+            Copyright © 2016, 2023 Red Hat
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    MIT License, in the form whose notice includes its next
+            paragraph (full text: P, below)
+
+============================================================================
+37. wayland-protocols' text-input-unstable-v3
+============================================================================
+Used for:   On Linux, the input-method interface: composed text from an
+            input method.
+Copyright:  Copyright © 2012, 2013 Intel Corporation
+            Copyright © 2015, 2016 Jan Arne Petersen
+            Copyright © 2017, 2018 Red Hat, Inc.
+            Copyright © 2018 Purism SPC
+Changes:    Compiled into tables when baud is built; the files themselves
+            are not included.
+Licence:    The historical permission notice (sell variant), as
+            text-input-unstable-v3 gives it (full text: X, below)
+
+============================================================================
+Licence texts
+============================================================================
+
+----------------------------------------------------------------------------
+A. SIL Open Font License, Version 1.1
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  1.      Copyright 2020 The JetBrains Mono Project Authors
+          (https://github.com/JetBrains/JetBrainsMono)
+  2.      Copyright 2001-2021 The STIX Fonts Project Authors
+          (https://github.com/stipub/stixfonts), with Reserved Font Name "TM
+          Math". STIX Fonts™ is a trademark of The Institute of Electrical
+          and Electronics Engineers, Inc.
+  3.5     Copyright (c) 2022 Fonticons, Inc. (https://fontawesome.com) with
+          Reserved Font Name: "Font Awesome".
+  3.12    Copyright (c) 2021, Gabriele Lana gabriele.lana@gmail.com
+          with Reserved Font Name Pomicons.
+  3.16    Weather Icons 2.0.10
+  4.      Copyright 2020 The JetBrains Mono Project Authors
+          (https://github.com/JetBrains/JetBrainsMono)
+          Copyright (c) 2019 - Present, Microsoft Corporation, with Reserved
+          Font Name Cascadia Code.
+          Copyright 2022 The Noto Project Authors
+          (https://github.com/notofonts/devanagari)
+
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded, 
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+----------------------------------------------------------------------------
+B. MIT License
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  3.      Copyright (c) 2014 Ryan L McIntyre
+  3.2     Copyright (c) 2015 konpa
+  3.3     Devicons before its fork, 18 of its glyphs
+  3.4     Copyright (c) 2018 Source Foundry Authors
+          Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved.
+          Bitstream Vera is a trademark of Bitstream, Inc.
+  3.6     Copyright (c) 2017 André Luiz Gava
+  3.9     Copyright (c) 2023 GitHub Inc.
+  3.10    Copyright (c) 2014 Jesse Weed
+  3.11    Copyright (c) 2014 Ryan L McIntyre
+  3.13    Copyright (c) 2016 Ryan L McIntyre
+  3.14    Copyright 2013 Kim Silkebækken and other contributors
+  3.15    Copyright (c) 2013 Joe Loughry
+  6.      Copyright (c) 2021 Björn Ottosson
+  23.     Copyright (c) Microsoft Corporation. All rights reserved.
+  24.     Copyright (c) 2021 Björn Ottosson
+  27.     Copyright (c) 2018 Yevhenii Reizner
+  28.     Copyright (c) 2017 Just van Rossum
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------------
+C. Apache License, Version 2.0
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  3.8     MaterialDesign, October 6, 2022
+  26.     Copyright 2015 Google Inc. All rights reserved.
+          Modifications copyright (C) 2020 Alex Butler
+          Copyright 2018 Google Inc. All rights reserved.
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
+
+"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
+
+     (a) You must give any other recipients of the Work or Derivative Works a copy of this License; and
+
+     (b) You must cause any modified files to carry prominent notices stating that You changed the files; and
+
+     (c) You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
+
+     (d) If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License.
+
+     You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+To apply the Apache License to your work, attach the following boilerplate notice, with the fields enclosed by brackets "[]" replaced with your own identifying information. (Don't include the brackets!)  The text should be enclosed in the appropriate comment syntax for the file format. We also recommend that a file or class name and description of purpose be included on the same "printed page" as the copyright notice for easier identification within third-party archives.
+
+Copyright [yyyy] [name of copyright owner]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+----------------------------------------------------------------------------
+D. X11 License, as ncurses gives it
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  17.     Copyright 2018-2025,2026 Thomas E. Dickey
+          Copyright 1998-2017,2018 Free Software Foundation, Inc.
+  20.     Copyright 2018-2025,2026 Thomas E. Dickey
+          Copyright 1998-2017,2018 Free Software Foundation, Inc.
+
+Copyright 2018-2025,2026 Thomas E. Dickey
+Copyright 1998-2017,2018 Free Software Foundation, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, distribute with modifications, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE ABOVE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name(s) of the above copyright
+holders shall not be used in advertising or otherwise to promote the
+sale, use or other dealings in this Software without prior written
+authorization.
+
+-- vile:txtmode fc=72
+-- $Id: COPYING,v 1.15 2026/01/04 00:58:57 tom Exp $
+
+----------------------------------------------------------------------------
+E. Unicode License V3
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  7.      Copyright © 1991-2026 Unicode, Inc.
+  8.      Copyright © 1991-2026 Unicode, Inc.
+  9.      Copyright © 1991-2026 Unicode, Inc.
+  10.     Copyright © 1991-2026 Unicode, Inc.
+  11.     Copyright © 1991-2026 Unicode, Inc.
+  12.     Copyright © 1991-2026 Unicode, Inc.
+  19.     Copyright © 1991-2026 Unicode, Inc.
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2026 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.
+
+----------------------------------------------------------------------------
+F. Bitstream Vera License
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  3.4     Copyright (c) 2018 Source Foundry Authors
+          Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved.
+          Bitstream Vera is a trademark of Bitstream, Inc.
+
+Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera is a trademark of Bitstream, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of the fonts accompanying this license ("Fonts") and associated documentation files (the "Font Software"), to reproduce and distribute the Font Software, including without limitation the rights to use, copy, merge, publish, distribute, and/or sell copies of the Font Software, and to permit persons to whom the Font Software is furnished to do so, subject to the following conditions:
+
+The above copyright and trademark notices and this permission notice shall be included in all copies of one or more of the Font Software typefaces.
+
+The Font Software may be modified, altered, or added to, and in particular the designs of glyphs or characters in the Fonts may be modified and additional glyphs or characters may be added to the Fonts, only if the fonts are renamed to names not containing either the words "Bitstream" or the word "Vera".
+
+This License becomes null and void to the extent applicable to Fonts or Font Software that has been modified and is distributed under the "Bitstream Vera" names.
+
+The Font Software may be sold as part of a larger software package but no copy of one or more of the Font Software typefaces may be sold by itself.
+
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL BITSTREAM OR THE GNOME FOUNDATION BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM OTHER DEALINGS IN THE FONT SOFTWARE.
+
+Except as contained in this notice, the names of Gnome, the Gnome Foundation, and Bitstream Inc., shall not be used in advertising or otherwise to promote the sale, use or other dealings in this Font Software without prior written authorization from the Gnome Foundation or Bitstream Inc., respectively. For further information, contact: fonts at gnome dot org.
+
+----------------------------------------------------------------------------
+G. Creative Commons Attribution 4.0 International
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  3.1     Codicons 0.0.45
+  3.5     Copyright (c) 2022 Fonticons, Inc. (https://fontawesome.com) with
+          Reserved Font Name: "Font Awesome".
+
+Given by its URI, as its section 3(a)(1)(C) allows in place of its text:
+https://creativecommons.org/licenses/by/4.0/
+
+----------------------------------------------------------------------------
+H. Creative Commons Attribution-NoDerivatives 4.0 International
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  29.1    Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated.
+          All rights reserved.
+
+Given by its URI, as its section 3(a)(1)(C) allows in place of its text:
+https://creativecommons.org/licenses/by-nd/4.0/
+
+----------------------------------------------------------------------------
+I. The Unlicense
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  3.7     Font Logos 1.3.0
+
+It asks for no notice; its text is at: www.unlicense.org
+
+----------------------------------------------------------------------------
+J. Tektronix's TekHVC notice
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  5.      Code and supporting documentation (c) Copyright 1990 1991
+          Tektronix, Inc. All Rights Reserved
+
+This file is a component of an X Window System-specific implementation
+of Xcms based on the TekColor Color Management System.  TekColor is a
+trademark of Tektronix, Inc.  The term "TekHVC" designates a particular
+color space that is the subject of U.S. Patent No. 4,985,853 (equivalent
+foreign patents pending).  Permission is hereby granted to use, copy,
+modify, sell, and otherwise distribute this software and its
+documentation for any purpose and without fee, provided that:
+
+1. This copyright, permission, and disclaimer notice is reproduced in
+   all copies of this software and any modification thereof and in
+   supporting documentation;
+2. Any color-handling application which displays TekHVC color
+   cooordinates identifies these as TekHVC color coordinates in any
+   interface that displays these coordinates and in any associated
+   documentation;
+3. The term "TekHVC" is always used, and is only used, in association
+   with the mathematical derivations of the TekHVC Color Space,
+   including those provided in this file and any equivalent pathways and
+   mathematical derivations, regardless of digital (e.g., floating point
+   or integer) representation.
+
+Tektronix makes no representation about the suitability of this software
+for any purpose.  It is provided "as is" and with all faults.
+
+TEKTRONIX DISCLAIMS ALL WARRANTIES APPLICABLE TO THIS SOFTWARE,
+INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE.  IN NO EVENT SHALL TEKTRONIX BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+RESULTING FROM LOSS OF USE, DATA, OR PROFITS, WHETHER IN AN ACTION OF
+CONTRACT, NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR THE PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------------
+K. Tektronix's Xcms notice
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  5.      Code and supporting documentation (c) Copyright 1990 1991
+          Tektronix, Inc. All Rights Reserved
+
+This file is a component of an X Window System-specific implementation
+of Xcms based on the TekColor Color Management System.  Permission is
+hereby granted to use, copy, modify, sell, and otherwise distribute this
+software and its documentation for any purpose and without fee, provided
+that this copyright, permission, and disclaimer notice is reproduced in
+all copies of this software and in supporting documentation.  TekColor
+is a trademark of Tektronix, Inc.
+
+Tektronix makes no representation about the suitability of this software
+for any purpose.  It is provided "as is" and with all faults.
+
+TEKTRONIX DISCLAIMS ALL WARRANTIES APPLICABLE TO THIS SOFTWARE,
+INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE.  IN NO EVENT SHALL TEKTRONIX BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+RESULTING FROM LOSS OF USE, DATA, OR PROFITS, WHETHER IN AN ACTION OF
+CONTRACT, NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR THE PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------------
+L. The Open Group's notice (MIT, Open Group variant)
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  5.      Copyright 1990, 1998 The Open Group
+  13.     Copyright 1985, 1989, 1998 The Open Group
+  14.     Copyright 1985, 1989, 1998 The Open Group
+  18.     Copyright 1987, 1994, 1998 The Open Group
+  22.     Copyright 1987, 1994, 1998 The Open Group
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation.
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+OPEN GROUP BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of The Open Group shall not be
+used in advertising or otherwise to promote the sale, use or other dealings
+in this Software without prior written authorization from The Open Group.
+
+----------------------------------------------------------------------------
+M. xterm's licence (X11)
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  15.     Copyright 1996-2025,2026 by Thomas E. Dickey
+          Copyright 1987, 1988 X Consortium
+  16.     Copyright 1996-2025,2026 by Thomas E. Dickey
+          Copyright 1987, 1988 X Consortium
+  35.     Copyright 1996-2025,2026 by Thomas E. Dickey
+          Copyright 1987, 1988 X Consortium
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE ABOVE LISTED COPYRIGHT HOLDER(S) BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name(s) of the above copyright
+holders shall not be used in advertising or otherwise to promote the
+sale, use or other dealings in this Software without prior written
+authorization.
+
+----------------------------------------------------------------------------
+N. Digital Equipment Corporation's notice, in the form naming Digital
+   Equipment Corporation
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  15.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+          Massachusetts. All Rights Reserved
+  16.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+          Massachusetts. All Rights Reserved
+  35.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+          Massachusetts. All Rights Reserved
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of Digital Equipment
+Corporation not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior permission.
+
+DIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+DIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+----------------------------------------------------------------------------
+O. Digital Equipment Corporation's notice, in the form naming Digital
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  18.     Copyright 1987 by Digital Equipment Corporation, Maynard,
+          Massachusetts All Rights Reserved
+  21.     Copyright 1987, 1988 by Digital Equipment Corporation, Maynard,
+          Massachusetts. All Rights Reserved
+  22.     Copyright 1987 by Digital Equipment Corporation, Maynard,
+          Massachusetts All Rights Reserved
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of Digital not be
+used in advertising or publicity pertaining to distribution of the
+software without specific, written prior permission.
+
+DIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+DIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.
+
+----------------------------------------------------------------------------
+P. MIT License, in the form whose notice includes its next paragraph
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  21.     Copyright © 2008-2009 Dan Nicholson <dbn.lists@gmail.com>
+          Copyright © 2009-2012, 2016 Daniel Stone <daniel@fooishbar.org>
+          Copyright © 2012-2014, 2020-2022, 2025 Ran Benita
+          <ran@unusedvar.com>
+          Copyright © 2010-2012, 2016 Intel Corporation
+          Copyright © 2013-2015, 2018-2020 Red Hat, Inc.
+          Copyright © 2023-2024 Pierre Le Marre <dev@wismill.eu>
+          Copyright (c) 1991, Oracle and/or its affiliates.
+          Copyright © 2008-2011 Kristian Høgsberg
+          Copyright © 2010 Francisco Jerez <currojerez@riseup.net>
+          Copyright © 2012 Collabora, Ltd.
+          Copyright © 2015 Kazunobu Kuriyama <kazunobu.kuriyama@nifty.com>
+          Copyright (C) 2011 Joseph Adams <joeyadams3.14159@gmail.com>
+  36.     Copyright © 2008-2011 Kristian Høgsberg
+          Copyright © 2010-2011 Intel Corporation
+          Copyright © 2012-2013 Collabora, Ltd.
+          Copyright © 2023 Valve Corporation
+          Copyright 2018 The Chromium Authors
+          Copyright 2023 Simon Ser
+          Copyright © 2022 Kenny Levinsen
+          Copyright © 2014, 2015 Collabora, Ltd.
+          Copyright 2016 The Chromium Authors.
+          Copyright 2017 Intel Corporation
+          Copyright 2018 Collabora, Ltd
+          Copyright 2021 Simon Ser
+          Copyright © 2013-2014 Collabora, Ltd.
+          Copyright © 2015, 2016 Red Hat
+          Copyright © 2021 Xaver Hugl
+          Copyright © 2013-2016 Collabora, Ltd.
+          Copyright © 2018 Simon Ser
+          Copyright © 2008-2013 Kristian Høgsberg
+          Copyright © 2013 Rafael Antognolli
+          Copyright © 2013 Jasper St. Pierre
+          Copyright © 2010-2013 Intel Corporation
+          Copyright © 2015-2017 Samsung Electronics Co., Ltd
+          Copyright © 2015-2017 Red Hat Inc.
+          Copyright © 2020 Aleix Pol Gonzalez <aleixpol@kde.org>
+          Copyright © 2020 Carlos Garnacho <carlosg@gnome.org>
+          Copyright © 2016, 2023 Red Hat
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice (including the next
+paragraph) shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------------------------------------
+Q. The Open Group's notice, in the X11 form
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  21.     Copyright 1985, 1987, 1988, 1990, 1998 The Open Group
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the names of the authors or their
+institutions shall not be used in advertising or otherwise to promote the
+sale, use or other dealings in this Software without prior written
+authorization from the authors.
+
+----------------------------------------------------------------------------
+R. Silicon Graphics' historical permission notice
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  21.     Copyright (c) 1993, 1994, 1995, 1996 by Silicon Graphics Computer
+          Systems, Inc.
+
+Permission to use, copy, modify, and distribute this
+software and its documentation for any purpose and without
+fee is hereby granted, provided that the above copyright
+notice appear in all copies and that both that copyright
+notice and this permission notice appear in supporting
+documentation, and that the name of Silicon Graphics not be
+used in advertising or publicity pertaining to distribution
+of the software without specific prior written permission.
+Silicon Graphics makes no representation about the suitability
+of this software for any purpose. It is provided "as is"
+without any express or implied warranty.
+
+SILICON GRAPHICS DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL SILICON
+GRAPHICS BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION  WITH
+THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------------
+S. Oki Technosystems Laboratory's and Fuji Xerox's notice (historical
+   permission, sell variant)
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  21.     Copyright 1992 by Oki Technosystems Laboratory, Inc.
+          Copyright 1992 by Fuji Xerox Co., Ltd.
+
+Permission to use, copy, modify, distribute, and sell this software
+and its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and
+that both that copyright notice and this permission notice appear
+in supporting documentation, and that the name of Oki Technosystems
+Laboratory and Fuji Xerox not be used in advertising or publicity
+pertaining to distribution of the software without specific, written
+prior permission.
+Oki Technosystems Laboratory and Fuji Xerox make no representations
+about the suitability of this software for any purpose. It is provided
+"as is" without express or implied warranty.
+
+OKI TECHNOSYSTEMS LABORATORY AND FUJI XEROX DISCLAIM ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL OKI TECHNOSYSTEMS
+LABORATORY AND FUJI XEROX BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
+OR PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------------
+T. HarfBuzz's licence (MIT, Modern Variant)
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  25.     Copyright © 2010-2022 Google, Inc.
+          Copyright © 2015-2020 Ebrahim Byagowi
+          Copyright © 2019,2020 Facebook, Inc.
+          Copyright © 2012,2015 Mozilla Foundation
+          Copyright © 2011 Codethink Limited
+          Copyright © 2008,2010 Nokia Corporation and/or its
+          subsidiary(-ies)
+          Copyright © 2009 Keith Stribley
+          Copyright © 2011 Martin Hosken and SIL International
+          Copyright © 2007 Chris Wilson
+          Copyright © 2005,2006,2020,2021,2022,2023 Behdad Esfahbod
+          Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023 Red Hat,
+          Inc.
+          Copyright © 1998-2005 David Turner and Werner Lemberg
+          Copyright © 2016 Igalia S.L.
+          Copyright © 2022 Matthias Clasen
+          Copyright © 2018,2021 Khaled Hosny
+          Copyright © 2018,2019,2020 Adobe, Inc
+          Copyright © 2013-2015 Alexei Podtelezhnikov
+
+Permission is hereby granted, without written agreement and without
+license or royalty fees, to use, copy, modify, and distribute this
+software and its documentation for any purpose, provided that the
+above copyright notice and the following two paragraphs appear in
+all copies of this software.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE TO ANY PARTY FOR
+DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES
+ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS DOCUMENTATION, EVEN
+IF THE COPYRIGHT HOLDER HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+
+THE COPYRIGHT HOLDER SPECIFICALLY DISCLAIMS ANY WARRANTIES, INCLUDING,
+BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+ON AN "AS IS" BASIS, AND THE COPYRIGHT HOLDER HAS NO OBLIGATION TO
+PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+
+----------------------------------------------------------------------------
+U. The IJG's licence, as libjpeg 6b's README gives it
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  33.     This software is copyright (C) 1991-1998, Thomas G. Lane.
+
+In legalese:
+
+The authors make NO WARRANTY or representation, either express or implied,
+with respect to this software, its quality, accuracy, merchantability, or
+fitness for a particular purpose.  This software is provided "AS IS", and you,
+its user, assume the entire risk as to its quality and accuracy.
+
+This software is copyright (C) 1991-1998, Thomas G. Lane.
+All Rights Reserved except as specified below.
+
+Permission is hereby granted to use, copy, modify, and distribute this
+software (or portions thereof) for any purpose, without fee, subject to these
+conditions:
+(1) If any part of the source code for this software is distributed, then this
+README file must be included, with this copyright and no-warranty notice
+unaltered; and any additions, deletions, or changes to the original files
+must be clearly indicated in accompanying documentation.
+(2) If only executable code is distributed, then the accompanying
+documentation must state that "this software is based in part on the work of
+the Independent JPEG Group".
+(3) Permission for use of this software is granted only if the user accepts
+full responsibility for any undesirable consequences; the authors accept
+NO LIABILITY for damages of any kind.
+
+These conditions apply to any software derived from or based on the IJG code,
+not just to the unmodified library.  If you use our work, you ought to
+acknowledge us.
+
+Permission is NOT granted for the use of any IJG author's name or company name
+in advertising or publicity relating to this software or products derived from
+it.  This software may be referred to only as "the Independent JPEG Group's
+software".
+
+We specifically permit and encourage the use of this software as the basis of
+commercial products, provided that all warranty or liability claims are
+assumed by the product vendor.
+
+----------------------------------------------------------------------------
+V. The IJG's licence, as libjpeg-turbo's README.ijg gives it
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  34.     This software is copyright (C) 1991-2020, Thomas G. Lane, Guido
+          Vollbeding.
+
+In legalese:
+
+The authors make NO WARRANTY or representation, either express or implied,
+with respect to this software, its quality, accuracy, merchantability, or
+fitness for a particular purpose.  This software is provided "AS IS", and you,
+its user, assume the entire risk as to its quality and accuracy.
+
+This software is copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding.
+All Rights Reserved except as specified below.
+
+Permission is hereby granted to use, copy, modify, and distribute this
+software (or portions thereof) for any purpose, without fee, subject to these
+conditions:
+(1) If any part of the source code for this software is distributed, then this
+README file must be included, with this copyright and no-warranty notice
+unaltered; and any additions, deletions, or changes to the original files
+must be clearly indicated in accompanying documentation.
+(2) If only executable code is distributed, then the accompanying
+documentation must state that "this software is based in part on the work of
+the Independent JPEG Group".
+(3) Permission for use of this software is granted only if the user accepts
+full responsibility for any undesirable consequences; the authors accept
+NO LIABILITY for damages of any kind.
+
+These conditions apply to any software derived from or based on the IJG code,
+not just to the unmodified library.  If you use our work, you ought to
+acknowledge us.
+
+Permission is NOT granted for the use of any IJG author's name or company name
+in advertising or publicity relating to this software or products derived from
+it.  This software may be referred to only as "the Independent JPEG Group's
+software".
+
+We specifically permit and encourage the use of this software as the basis of
+commercial products, provided that all warranty or liability claims are
+assumed by the product vendor.
+
+----------------------------------------------------------------------------
+W. libjpeg-turbo's Modified (3-clause) BSD License
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  34.     Copyright (C) 2009-2026 D. R. Commander. All Rights Reserved.
+          Copyright (C) 2015 Viktor Szathmáry. All Rights Reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+- Neither the name of the libjpeg-turbo Project nor the names of its
+  contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS",
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+----------------------------------------------------------------------------
+X. The historical permission notice (sell variant), as
+   text-input-unstable-v3 gives it
+----------------------------------------------------------------------------
+The works under it, by notice, and their copyright notices:
+  37.     Copyright © 2012, 2013 Intel Corporation
+          Copyright © 2015, 2016 Jan Arne Petersen
+          Copyright © 2017, 2018 Red Hat, Inc.
+          Copyright © 2018 Purism SPC
+
+Permission to use, copy, modify, distribute, and sell this
+software and its documentation for any purpose is hereby granted
+without fee, provided that the above copyright notice appear in
+all copies and that both that copyright notice and this permission
+notice appear in supporting documentation, and that the name of
+the copyright holders not be used in advertising or publicity
+pertaining to distribution of the software without specific,
+written prior permission.  The copyright holders make no
+representations about the suitability of this software for any
+purpose.  It is provided "as is" without express or implied
+warranty.
+
+THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS
+SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS, IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.

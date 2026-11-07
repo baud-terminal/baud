@@ -318,6 +318,9 @@ mod windows;
 mod winops;
 // The build's name, where the app says it. Pure, and on every platform.
 mod version;
+// `baud --credits`: the third-party notices the build embeds. Pure, and on
+// every platform.
+mod credits;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform, and both drivers scroll through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -325,7 +328,14 @@ mod wheel;
 
 fn main() {
     if version::asks(std::env::args_os().skip(1)) {
-        println!("{}", version::line(version::BUILD));
+        print!("{}", version::text(version::BUILD));
+        return;
+    }
+    if credits::asks(std::env::args_os().skip(1)) {
+        if let Err(e) = credits::print(&mut std::io::stdout().lock()) {
+            eprintln!("baud: --credits: {e}");
+            std::process::exit(1);
+        }
         return;
     }
     #[cfg(any(target_os = "macos", target_os = "linux"))]

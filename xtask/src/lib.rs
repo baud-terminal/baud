@@ -17,6 +17,9 @@
 //! - `sources`: the source-provenance gate (`scripts/check-sources.sh`),
 //!   which runs `third-party --check` and the offline half of `page-text`.
 //! - `third-party [--check]`: THIRD_PARTY.md, written or checked.
+//! - `credits [--check|--list]`: baud-app/assets/CREDITS.txt, the notices
+//!   of every third-party work the binary embeds, written or checked, or
+//!   every embedded file and the row it falls under.
 //! - `no-python`: no tracked file is Python or runs it.
 //! - `publish [--size|--verify|--release|--write-notices|--write-licences]`:
 //!   what crates.io would receive, checked before anything is sent.
@@ -39,6 +42,7 @@
 
 pub mod audit;
 pub mod changelog;
+pub mod credits;
 pub mod difflib;
 pub mod features;
 pub mod features_since;

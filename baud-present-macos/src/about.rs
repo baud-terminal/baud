@@ -61,6 +61,13 @@
 //! no bundle has no picture, and the lines, centred across the window, take
 //! only their own height.
 //!
+//! **The acknowledgements line, last in the column, opens the third-party
+//! notices**: the caller's address for them, handed to the caller's opener,
+//! as the picture's is. Its tooltip names the route that needs no network,
+//! as the caller words it. The line is an `NSButton`, borderless in the link
+//! colour, so it is in the key view loop after the window's first responder
+//! and VoiceOver has it as a button named [`ACKNOWLEDGEMENTS`].
+//!
 //! **The release's age, a line of its own under the version**, in AppKit's
 //! own words (`[[source: sdk27-nsrelativedatetimeformatter-h]]`): "3 hours
 //! ago", "5 days ago", "2 weeks ago", the formatter choosing the unit. It is
@@ -87,8 +94,8 @@ use macos_liquid_glass::objc2::{
 };
 use macos_liquid_glass::objc2_app_kit::{
     NSAccessibility, NSAccessibilityButtonRole, NSAccessibilityCustomAction,
-    NSAppearanceCustomization, NSApplication, NSBezierPath, NSBitmapImageRep, NSColor, NSCursor,
-    NSEvent, NSFont, NSFontAttributeName, NSGraphicsContext, NSImage, NSImageCacheMode,
+    NSAppearanceCustomization, NSApplication, NSBezierPath, NSBitmapImageRep, NSButton, NSColor,
+    NSCursor, NSEvent, NSFont, NSFontAttributeName, NSGraphicsContext, NSImage, NSImageCacheMode,
     NSImageCurrentFrame, NSImageCurrentFrameDuration, NSImageFrameCount, NSImageScaling,
     NSImageView, NSLinkAttributeName, NSMenuItem, NSMutableParagraphStyle,
     NSParagraphStyleAttributeName, NSTextAlignment, NSTextField, NSToolTipTag, NSView,
@@ -213,6 +220,8 @@ pub struct Content<'a> {
     pub link: &'a str,
     pub url: &'a str,
     pub copyright: &'a str,
+    /// **The acknowledgements line**: where the third-party notices are.
+    pub acknowledgements: Acknowledgements,
     /// The author's picture, when the bundle carries it.
     pub face: Option<Face<'a>>,
     /// When the build's commit was made, the age line's start; `None`, no
@@ -221,6 +230,16 @@ pub struct Content<'a> {
 }
 
 /// **The author's picture and where a click on it goes.**
+/// **Where the acknowledgements line goes**, and how.
+pub struct Acknowledgements {
+    /// The address, handed to `open` as it is.
+    pub url: String,
+    /// Its tooltip, which VoiceOver reads as the button's help.
+    pub tip: String,
+    /// **The opener**, the caller's, as [`Face::open`] is.
+    pub open: Rc<dyn Fn(&str)>,
+}
+
 pub struct Face<'a> {
     /// Drawn round, filling [`FACE`] points.
     pub image: Retained<NSImage>,
@@ -853,6 +872,65 @@ fn link_line(
     f
 }
 
+define_class!(
+    /// What the acknowledgements line's action reaches: its target, holding
+    /// what opens the address.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = Box<dyn Fn()>]
+    struct AcknowledgementsTarget;
+
+    impl AcknowledgementsTarget {
+        #[unsafe(method(openAcknowledgements:))]
+        fn open_acknowledgements(&self, _sender: Option<&AnyObject>) {
+            (self.ivars())();
+        }
+    }
+
+    unsafe impl NSObjectProtocol for AcknowledgementsTarget {}
+);
+
+/// **The acknowledgements line**: a button, so it is in the window's key
+/// view loop and VoiceOver has it as a button named by its title, drawn as a
+/// line of the column, borderless, in the link colour and the lines' size,
+/// its tooltip also its accessibility help.
+fn acknowledgements_button(
+    mtm: MainThreadMarker,
+    target: &AcknowledgementsTarget,
+    tip: &str,
+    size: CGFloat,
+    align: NSTextAlignment,
+) -> Retained<NSButton> {
+    // SAFETY: `openAcknowledgements:` is the target's, and takes the
+    // sender; the button holds its target weakly, and the About window keeps
+    // it.
+    let b = unsafe {
+        NSButton::buttonWithTitle_target_action(
+            &NSString::from_str(ACKNOWLEDGEMENTS),
+            Some(target),
+            Some(sel!(openAcknowledgements:)),
+            mtm,
+        )
+    };
+    b.setBordered(false);
+    b.setFont(Some(&NSFont::systemFontOfSize(size)));
+    b.setContentTintColor(Some(&NSColor::linkColor()));
+    b.setAlignment(align);
+    // Said outright, as the picture's are: a button not yet in a window on
+    // screen answers AXUnknown, and VoiceOver reads what it is told.
+    // SAFETY: a constant AppKit declares, read and not written.
+    b.setAccessibilityRole(Some(unsafe { NSAccessibilityButtonRole }));
+    b.setAccessibilityLabel(Some(&NSString::from_str(ACKNOWLEDGEMENTS)));
+    let tip = NSString::from_str(tip);
+    b.setToolTip(Some(&tip));
+    b.setAccessibilityHelp(Some(&tip));
+    b
+}
+
+/// **The acknowledgements line's word**: its title, and the name VoiceOver
+/// reads, one constant so the word changes in one place.
+pub const ACKNOWLEDGEMENTS: &str = "Acknowledgements";
+
 /// **Where the window's parts are, in its content's points**: what a test
 /// holds against the layout.
 #[derive(Clone, Debug, PartialEq)]
@@ -866,7 +944,7 @@ pub struct Layout {
     /// The author's picture, if there is one.
     pub face: Option<NSRect>,
     /// The lines, from the top: the version, the age if there is one, the
-    /// link and the copyright.
+    /// link, the copyright and the acknowledgements line.
     pub lines: Vec<NSRect>,
     /// Each line's text's own width, `fittingSize`'s, in the same order.
     pub text: Vec<CGFloat>,
@@ -880,6 +958,9 @@ pub struct About {
     age: Option<Retained<NSTextField>>,
     link: Retained<NSTextField>,
     copyright: Retained<NSTextField>,
+    /// The acknowledgements line, a button, and its target.
+    acknowledgements: Retained<NSButton>,
+    _acknowledgements_target: Retained<AcknowledgementsTarget>,
     face: Option<Retained<FaceView>>,
     released: Option<SystemTime>,
     ages: Ages,
@@ -910,11 +991,30 @@ impl About {
         });
         let link = link_line(mtm, content.link, content.url, small, align);
         let copyright = line(mtm, content.copyright, small, Ink::Secondary, align);
-        let fields: Vec<&Retained<NSTextField>> = [Some(&copyright), Some(&link), age.as_ref()]
-            .into_iter()
-            .flatten()
-            .chain([&version])
-            .collect();
+        let (url, open) = (
+            content.acknowledgements.url.clone(),
+            content.acknowledgements.open.clone(),
+        );
+        let target = AcknowledgementsTarget::alloc(mtm)
+            .set_ivars(Box::new(move || open(&url)) as Box<dyn Fn()>);
+        // SAFETY: `NSObject`'s `init`.
+        let target: Retained<AcknowledgementsTarget> = unsafe { msg_send![super(target), init] };
+        let acknowledgements =
+            acknowledgements_button(mtm, &target, &content.acknowledgements.tip, small, align);
+        let as_view =
+            |f: &Retained<NSTextField>| Retained::into_super(Retained::into_super(f.clone()));
+        let fields: Vec<Retained<NSView>> = [Some(Retained::into_super(Retained::into_super(
+            acknowledgements.clone(),
+        )))]
+        .into_iter()
+        .chain([
+            Some(as_view(&copyright)),
+            Some(as_view(&link)),
+            age.as_ref().map(as_view),
+        ])
+        .flatten()
+        .chain([as_view(&version)])
+        .collect();
         let fits: Vec<NSSize> = fields.iter().map(|f| f.fittingSize()).collect();
         let gaps = LINE_GAP * CGFloat::from(u8::try_from(fields.len() - 1).unwrap_or(0));
         let block = fits.iter().map(|f| f.height).sum::<CGFloat>() + gaps;
@@ -992,6 +1092,11 @@ impl About {
             view.addSubview(field);
             y += fit.height + LINE_GAP;
         }
+        // The acknowledgements line after the film's pause in the key view
+        // loop, so Tab reaches it from the window's first responder.
+        // SAFETY: both views are this window's, and the loop holds them
+        // weakly, as the header says.
+        unsafe { view.setNextKeyView(Some(&acknowledgements)) };
         *view.ivars().shown.borrow_mut() = Some(Shown {
             on_dark,
             on_light,
@@ -1023,6 +1128,8 @@ impl About {
             age,
             link,
             copyright,
+            acknowledgements,
+            _acknowledgements_target: target,
             face,
             released: content.released,
             ages,
@@ -1068,11 +1175,16 @@ impl About {
 
     /// Where each part is.
     pub fn layout(&self) -> Layout {
-        let fields: Vec<&Retained<NSTextField>> = [
-            Some(&self.version),
-            self.age.as_ref(),
-            Some(&self.link),
-            Some(&self.copyright),
+        let as_view =
+            |f: &Retained<NSTextField>| Retained::into_super(Retained::into_super(f.clone()));
+        let fields: Vec<Retained<NSView>> = [
+            Some(as_view(&self.version)),
+            self.age.as_ref().map(as_view),
+            Some(as_view(&self.link)),
+            Some(as_view(&self.copyright)),
+            Some(Retained::into_super(Retained::into_super(
+                self.acknowledgements.clone(),
+            ))),
         ]
         .into_iter()
         .flatten()
@@ -1102,6 +1214,14 @@ impl About {
             .expect("set in new")
             .logo
             .clone()
+    }
+
+    /// **The acknowledgements line**, the button a click, Space or
+    /// VoiceOver's press opens the notices' address with; a test reads its
+    /// title, its tooltip, its role and its action, and presses it into a
+    /// recording opener.
+    pub fn acknowledgements_line(&self) -> Retained<NSButton> {
+        self.acknowledgements.clone()
     }
 
     /// The three lines' text, as AppKit has them.

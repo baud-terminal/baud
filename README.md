@@ -21,7 +21,7 @@ in time. baud does it with a look of its own.
 **Status:** baud runs as an everyday terminal on macOS 26 and later, and
 the Linux version is in progress. [What works today, and what doesn't yet](docs/guide/status.md).
 
-**[See all 217 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
+**[See all 218 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
 
 ## Install
 
@@ -43,6 +43,11 @@ writes `~/.config/baud/config.toml` (under `$XDG_CONFIG_HOME` when that is
 set) with every setting commented out and explained; take the `#` off a
 line to change it.
 [Configuration](docs/guide/configuration.md) lists every key.
+
+`baud --credits` prints the notices of the fonts, icons, data and ported
+code the program carries, with their licences; on a Mac, the About window's
+Acknowledgements link opens the same notices in
+[THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Proved, not promised
 
@@ -68,7 +73,7 @@ that starts cargo or a test binary itself, such as a mutation run in a copied
 tree the runner cannot reach, calls `scripts/bounded --timeout SECS -- COMMAND...`,
 because a timeout on cargo alone leaves the test binary under it running.
 
-## Credits
+## Acknowledgements
 
 baud is built on other people's work: the JetBrains Mono, Cascadia Mono, STIX
 Two Math and Symbols Nerd Font fonts, and code and data from xterm, Unicode,

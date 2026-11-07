@@ -27518,6 +27518,22 @@ group  = "J"
 # Read 2026-10-16 for the bundle's version keys; not committed -- vendor
 # documentation. The url is the JSON the documentation page renders from.
 
+[sources.gnu-coding-standards-version]
+key    = "gnu-coding-standards-version"
+title  = "GNU Coding Standards, 4.8.1 --version -- \"The following line, after the version number line or lines, should be a copyright notice\"; \"Next should follow a line stating the license\""
+author = "Free Software Foundation"
+year   = 2026
+venue  = "gnu.org/prep/standards"
+url    = "https://www.gnu.org/prep/standards/html_node/_002d_002dversion.html"
+file   = ""
+sha256 = "3b6579633b5c79d1d0a9b7b0323c7f11a605a6323a2fd286968b36cfb798345f"
+bytes  = 11056
+status = "external"
+group  = "J"
+# Read 2026-11-07 for what `baud --version` prints after its first line
+# (baud-app/src/version.rs); not committed -- the manual is under the GNU
+# FDL. The page is generated, so a re-fetch need not hash the same.
+
 [sources.apple-cfbundleversion]
 key    = "apple-cfbundleversion"
 title  = "Bundle Resources, Information Property List: CFBundleVersion -- \"one to three period-separated integers\", and \"increment the build version before you distribute a build\""
