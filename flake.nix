@@ -43,7 +43,8 @@
     }:
     let
       inherit (nixpkgs) lib;
-      # Where baud runs: macOS on Apple silicon, and Linux.
+      # Where baud builds: macOS on Apple silicon, where it runs, and Linux,
+      # where it has run only on headless Wayland compositors.
       systems = [
         "aarch64-darwin"
         "aarch64-linux"

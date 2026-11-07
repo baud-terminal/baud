@@ -519,7 +519,7 @@ How text looks.
 ## Input
 
 - **Keys** — Sends the keys. *macOS.* **Partly:** Some keys. <sub>[proof](../../core/src/keys.rs) · [reference](../input-coverage.md#keys)</sub>
-- **Paste** — Pastes text. *Linux, headless so far.* **For now:** A stopgap. <sub>[proof](../../core/tests/wrap.rs) · [reference](../vt-coverage.md#tier-1--the-core-1)</sub>
+- **Paste** — Pastes text. *Linux.* **For now:** A stopgap. <sub>[proof](../../core/tests/wrap.rs) · [reference](../vt-coverage.md#tier-1--the-core-1)</sub>
 
 ## Spare
 

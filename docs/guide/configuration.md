@@ -3,6 +3,9 @@
 baud needs no configuration. With none it uses JetBrains Mono at 13 points,
 follows your Mac's light or dark appearance, and draws its window in the
 Mac's standard see-through material. A config file changes only what you put in it.
+What this page says a setting does on Linux has run at most on a headless
+Wayland compositor, not yet on a desktop; [Features](features.md) says which
+parts have run there.
 
 ## Where the file goes
 
@@ -374,9 +377,11 @@ While Reduce Transparency is on in System Settings, Accessibility, Display,
 every background and the margin around the text are drawn solid, whatever
 the dims say, and go back to see-through when it is turned off.
 
-On Linux `theme = "auto"` means dark, so `dim_dark` is used unless
-`theme = "light"`; `style`, the tints, `hue`, `saturation` and `shadow` have
-no effect there.
+On Linux `theme = "auto"` follows the desktop's light or dark setting, light
+where it states no preference; it is dark until the desktop reports and where
+nothing does. The dim follows the half drawn, `dim_dark` on the dark one and
+`dim_light` on the light one. `style`, the tints, `hue`, `saturation` and
+`shadow` have no effect there.
 
 ## Keys baud no longer reads
 

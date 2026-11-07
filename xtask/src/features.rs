@@ -627,7 +627,7 @@ fn stripped(t: &Table, k: &str) -> Result<String, Stop> {
 fn platform_mark(f: &Table) -> Result<&'static str, Stop> {
     Ok(match at_str(f, "platform")? {
         "macos" => " *macOS.*",
-        "linux" => " *Linux, headless so far.*",
+        "linux" => " *Linux.*",
         _ => "",
     })
 }

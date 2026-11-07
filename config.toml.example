@@ -68,7 +68,8 @@ emoji = "font"
 # once. On Linux "sound" is the desktop's system bell, where it offers one
 # (xdg-system-bell-v1), and modes 1042 and 1043 both ask the desktop to
 # bring the window to you (xdg-activation-v1): it decides whether the
-# window comes forward or is marked as wanting attention.
+# window comes forward or is marked as wanting attention. On Linux none of
+# this has run yet, even on a headless compositor.
 bell = "sound"
 
 # Saved changes to this file, and to the theme and font files it names,
@@ -205,8 +206,9 @@ ambiguous_width = "narrow"
 # in $XDG_CONFIG_HOME/baud/themes/ and ~/.config/baud/themes/, as given and
 # then with .yaml and .yml. What a file leaves unset stays baud's own, entries 16-255
 # stay xterm's, and a file that cannot be read is reported and leaves baud's
-# own half. On Linux, where `auto` is dark, a light half is drawn only with
-# theme = "light".
+# own half. On Linux `auto` draws the light half when the desktop reports
+# light or no preference, and the dark half until it reports and where nothing
+# does.
 #
 # `selection` and `selection_text`: the colour behind selected text and the
 # colour of the text itself -- also of the find field and its current match,
@@ -275,7 +277,8 @@ floor = 1.2
 # a little saucer's beam lift the cursor away and set it back down, in the ufo
 # trail's. Each fits inside the hidden phase at any interval. Under macOS's
 # Reduce Motion, or the Linux desktop's reduced-motion setting once the
-# desktop has reported it, it is always "none". An animation draws a frame a display tick while it moves: the
+# desktop has reported it (not yet run on Linux, even on a headless
+# compositor), it is always "none". An animation draws a frame a display tick while it moves: the
 # plasma, the fire and the ufo about 31 a 500 ms cycle at 120 Hz, the fade
 # about 18, "none" two. The GPU and the CPU path, which Linux draws with,
 # draw each animation the same, pixel for pixel; "none" draws nothing while

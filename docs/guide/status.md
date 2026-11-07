@@ -19,16 +19,19 @@ programs, and pictures.
   right-to-left line. A paragraph that wraps with both directions in it,
   and ECMA-48's reversed and directed strings, are not drawn yet
   ([bidi](../bidi.md)).
-- **Linux.** The Linux version builds and has run in headless sessions.
-  There, given the same fonts and colours, it draws the same pixels as the
-  Mac version at scales 1 and 2 and in-between scales such as 1.5, it
-  stays sharp when its window moves to a screen of another scale, it
-  copies and pastes with the desktop's clipboard, and a mouse selects
-  text, scrolls back through the history, pastes with the middle button,
-  opens links with Ctrl-click and works in programs that use the mouse;
-  characters drawn from each system's own fonts, and some programs' dim
-  colours, can still look different. Nobody has used it on a real screen,
-  and its GPU drawing is not started. It is not ready to use.
+- **Linux.** The Linux version builds and has run only on headless Wayland
+  compositors, weston and sway, which show nothing on a screen. There,
+  given the same fonts and colours, it drew the same pixels as the Mac
+  version at scales 1 and 2 and in-between scales such as 1.5, stayed
+  sharp when its window moved to an output of another scale, copied and
+  pasted with the compositor's clipboard, and a virtual mouse selected
+  text, scrolled back through the history, pasted with the middle button,
+  passed links on to be opened with Ctrl-click and worked in programs
+  that use the mouse. Characters drawn from each system's own fonts, and
+  some programs' dim colours, can still look different. Input methods,
+  the bell, zoom and the desktop's light, dark and accessibility settings
+  have not run even headless. Nobody has used it on a real screen, and
+  its GPU drawing is not started. It is not ready to use.
 - **A few control sequences.** The gaps are each listed with their reason
   in [vt-coverage](../vt-coverage.md), as a row at **partial** or **out**.
 

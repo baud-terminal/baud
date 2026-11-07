@@ -28,7 +28,7 @@ area = "input"
 status = "done"
 date = "2026-11-03"
 title = "Key releases and modifier keys on macOS"
-summary = "Programs that ask learn when a key is let go and when Shift, Control, Option or Command is pressed on its own, on macOS as on Linux, with Caps Lock reported while it is on."
+summary = "Programs that ask learn when a key is let go and when Shift, Control, Option or Command is pressed on its own, on macOS as on Linux, where it has not yet run even on a headless compositor, with Caps Lock reported while it is on."
 
 [[item]]
 id = "B1-13"
@@ -67,7 +67,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Mouse, wheel, selection and paste on Linux"
-summary = "The mouse in programs, the wheel, selecting text, the scrollbar and pasting, on Linux as on macOS."
+summary = "The mouse in programs, the wheel, selecting text, the scrollbar and pasting, on Linux as on macOS. Run only on headless compositors."
 
 [[item]]
 id = "F2-05"
@@ -75,7 +75,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-23"
 title = "Cursor trails, blinking text, fades and the scrollbar on Linux"
-summary = "Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, the trails with the pixels a Mac's CPU path draws."
+summary = "Blinking text, fades, the scrollbar and every cursor trail -- the fire, the plasma and the rest -- on Linux, the trails with the pixels a Mac's CPU path draws. The scrollbar's drag has run on a headless compositor; the trails, blinking text and fades not yet, even there."
 
 [[item]]
 id = "F2-06"
@@ -83,7 +83,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Zoom, links and light and dark on Linux"
-summary = "Ctrl + and Ctrl - to zoom, Ctrl-click to open links, and following the desktop's light or dark setting."
+summary = "Ctrl + and Ctrl - to zoom, Ctrl-click to open links, and following the desktop's light or dark setting. Ctrl-click has run only on a headless compositor; zoom and light and dark not yet, even there."
 
 [[item]]
 id = "F2-07"
@@ -91,7 +91,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Compose key, dead keys and input methods on Linux"
-summary = "Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method."
+summary = "Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method. Not yet run, even on a headless compositor."
 
 [[item]]
 id = "F2-08"
@@ -99,7 +99,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Redraw only what changed on Linux"
-summary = "Each frame hands the desktop only the rows that changed, instead of the whole window."
+summary = "Each frame hands the desktop only the rows that changed, instead of the whole window. Run only on headless compositors."
 
 [[item]]
 id = "F2-09"
@@ -107,7 +107,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Smoother frames and pointer shapes on Linux"
-summary = "Frames drawn when the desktop asks and timed for the moment they reach the screen, the right pointer shape over text, and input methods."
+summary = "Frames drawn when the desktop asks and timed for the moment they reach the screen, the right pointer shape over text, and input methods. Run only on headless compositors; the input methods not yet, even there."
 
 [[item]]
 id = "F2-11"
@@ -115,7 +115,7 @@ area = "platforms"
 status = "done"
 date = "2026-10-21"
 title = "Clipboard and middle-click paste on Linux"
-summary = "Copy and paste through the desktop's clipboard, the primary selection and middle-click paste."
+summary = "Copy and paste through the desktop's clipboard, the primary selection and middle-click paste. Run only on a headless compositor."
 
 [[item]]
 id = "SQ-v1.0-01"
@@ -248,7 +248,7 @@ area = "window"
 status = "done"
 date = "2026-10-24"
 title = "A launch splash"
-summary = "baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting."
+summary = "baud's colour logo at launch, coming out of a burst of plasma and swept back out, each from left to right, with a setting to turn it off. With reduced motion on it shows whole and fades instead, on Linux once the desktop has reported the setting. On Linux the splash has run only on a headless compositor, and not yet with reduced motion on."
 
 [[item]]
 id = "F1-20"
@@ -518,7 +518,7 @@ area = "input"
 status = "done"
 date = "2026-10-16"
 title = "Keypad arrows reach programs that ask for every key, on Linux"
-summary = "With NumLock off, the keypad's arrows, Home, End, Page Up/Down, Insert, Delete and the centre key are sent as kitty's own keypad keys, or as the keys they stand for in older modes. A Mac keyboard has no NumLock, so on macOS the keypad still types digits."
+summary = "With NumLock off, the keypad's arrows, Home, End, Page Up/Down, Insert, Delete and the centre key are sent as kitty's own keypad keys, or as the keys they stand for in older modes. A Mac keyboard has no NumLock, so on macOS the keypad still types digits. On Linux not yet run, even on a headless compositor."
 
 [[item]]
 id = "2026-10-16-a-refused-picture-file-no-longer"
@@ -654,7 +654,7 @@ area = "images"
 status = "done"
 date = "2026-10-16"
 title = "Pictures from image tools such as kitten icat and yazi"
-summary = "Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls; on Linux too. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering followed the same day."
+summary = "Programs that show pictures the kitty way, such as kitten icat, can now send raw or PNG pictures in pieces, place, replace and delete them, and get answers to their queries. Large pictures decode between frames, so typing never stalls, on Linux too, where it has not yet run, even on a headless compositor. When image memory fills, the oldest pictures not on screen make room. Cropping, scaling and layering followed the same day."
 
 [[item]]
 id = "2026-10-16-png-decoding-three-times-faster"

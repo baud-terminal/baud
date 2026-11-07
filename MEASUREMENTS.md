@@ -3954,6 +3954,36 @@ the thumb and the edges, and `linux-pixels.sh` reports screens that differ from 
 bench, which it exits 0 on. `snapshot.debian.org`, which `linux-frames.sh` pins, failed
 image builds with a 504 where the error was read, and later let them through.
 
+## The Linux pointer and pixel checks pass
+
+Not timed. Both scripts as committed, on an aarch64 colima VM: sway 1.7 and 1.10.1,
+weston 10.0.1.
+
+| script | before | now |
+|---|---|---|
+| `linux-pointer.sh`, six arms | 16 FAILED, above; then the app did not build, and 106 checks failed against no app | 102 ok, 0 FAILED, exit 0 |
+| `linux-pixels.sh`, 18 fixtures | every screenshot differed from the bench | the two benches identical on 18 of 18, the app 0 pixels from the bench on 18 of 18 and on the 6 moves, the 4 controls one value |
+
+**Why they failed**, each shown by a run that changed only that:
+
+- The build: under `-D warnings`, items only the tests, or only the other system, use
+  stopped `baud` building, 15 errors for Linux and 14 for macOS. They are gated to the
+  tests or to the system that uses them. The pointer script's build step had no
+  `set -e` and went on to the checks.
+- The activity lights' own line, at the bottom of the Linux window by default, takes
+  a row: the grid is 80x23 in the pointer's window and would be 100x34 in the pixels'.
+  With the line off, the 16 FAILED went and every screen matched. The pointer checks
+  now keep the line and expect its grid. The pixels checks turn it off, since the bench
+  draws no line, and their child had waited for 35 rows that never came.
+- The copy's words, up 1.5 s, sat over row 1 of two frames compared (67 pixels). The
+  frames are now taken after them.
+- Over a refused link the pointer is the arrow (`link::Hover::pointer`).
+- A bug: a resize that changed the width left the count that numbers selections where
+  it was (`keep::kept_across_resize`), so after output, a re-cut and a drag to the
+  top, the oldest line drawn copied as the next. A variant whose child wrote at the
+  pty's 80x24 failed on it before the fix and passed after it, and a seat test went
+  red, then green.
+
 ## One binary cannot take the machine down
 
 macOS refuses `RLIMIT_AS`, `_DATA` and `_RSS` below 512 GiB, and under a runaway test binary it

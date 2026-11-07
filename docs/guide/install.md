@@ -90,10 +90,11 @@ cursor or window, see [Configuration](configuration.md).
 
 ## Linux
 
-The Linux version builds and has run in headless sessions. There, given
-the same fonts and colours, it draws the same pixels as the Mac version,
-it copies and pastes with the desktop's clipboard, and a mouse selects,
-scrolls back, pastes with the middle button, opens links and works in
+The Linux version builds and has run only on headless Wayland
+compositors, weston and sway. There, given the same fonts and colours, it
+drew the same pixels as the Mac version, copied and pasted with the
+compositor's clipboard, and a virtual mouse selected, scrolled back,
+pasted with the middle button, passed links on to be opened and worked in
 programs that use the mouse; characters drawn from each system's own
 fonts, and some programs' dim colours, can still look different. Nobody
 has used it on a real screen yet, so it is not ready to use.
