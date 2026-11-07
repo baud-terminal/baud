@@ -32,7 +32,7 @@ baud-tablegen = { workspace = true }
 # same specification over the same bytes, so every face on this machine is a
 # differential test -- the `baud-difftest` discipline, one crate over.
 ttf-parser = "0.25.1"
-png = "0.17.16"
+png = "0.18.1"
 # Inflates the committed fixtures' zlib streams, which the generators in
 # `tests/writer/` hold to the rows they compute.
 miniz_oxide = "0.9.1"

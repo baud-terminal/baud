@@ -199,7 +199,8 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
             }
         }
         4 => {
-            let mut parser = vt100::Parser::new(ROWS as u16, COLS as u16, 10_000);
+            let size = |n: usize| std::num::NonZero::new(n as u16).expect("the grid has cells");
+            let mut parser = vt100::Parser::new(size(ROWS), size(COLS), 10_000);
             drive(p, total, |chunk| parser.process(chunk))
         }
         5 => {

@@ -1,11 +1,12 @@
 //! **An SVG drawn as `resvg --skip-system-fonts [-w N -h N] in.svg
-//! out.png` draws it, read back as Pillow reads that PNG**: resvg 0.48.1
+//! out.png` draws it, read back as Pillow reads that PNG**: resvg 0.49.0
 //! as a library with the options its command line builds by default
 //! (`src/main.rs`'s `parse_args`), the pixmap fitted and scaled as its
 //! `FitTo::Size` does, and the premultiplied pixels demultiplied as its
 //! `save_png` demultiplies them (`Pixmap::take_demultiplied`), which is
-//! the RGBA Pillow loads. Measured: the library's PNG and the pinned
-//! command's are the same bytes for every picture the brand draws.
+//! the RGBA Pillow loads. Measured: 0.48.1's library and command drew the
+//! same bytes for every picture the brand draws, and 0.49.0's library
+//! draws those bytes.
 
 use crate::png::{Image, Mode};
 use resvg::tiny_skia::{IntSize, Pixmap, Transform};

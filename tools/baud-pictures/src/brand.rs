@@ -64,7 +64,7 @@
 //! 512 icons' cell, 168 units, so the mark beside the traffic lights keeps
 //! its size with the word added before it.
 //!
-//! **Every PNG is its SVG drawn by resvg 0.48.1** ([`crate::raster`]) and
+//! **Every PNG is its SVG drawn by resvg 0.49.0** ([`crate::raster`]) and
 //! written as Pillow 12.3.0 wrote it ([`crate::png`]), but the
 //! organisation picture's: that is its SVG drawn by resvg with two lights
 //! of baud's plasma laid over it, on the word and on the mark, each drawn

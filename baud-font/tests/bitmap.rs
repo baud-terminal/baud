@@ -210,10 +210,10 @@ fn same(ours: Rgba, theirs: RgbaColor) -> bool {
 /// The oracle's output, whatever channel layout `EXPAND | STRIP_16` left it
 /// in, as RGBA8 -- which is the one layout baud's decoder answers in.
 fn oracle_rgba(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
-    let mut dec = png::Decoder::new(bytes);
+    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().expect("the oracle reads the PNG");
-    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let mut buf = vec![0u8; reader.output_buffer_size().expect("the size fits")];
     let info = reader
         .next_frame(&mut buf)
         .expect("the oracle decodes the PNG");
@@ -244,10 +244,10 @@ fn decode_both(bytes: &[u8], t: &mut Tally, what: &str) {
         Err(e) => {
             // A strike may carry a PNG nobody can read; `sbix-strikes.ttf`
             // does on purpose. The oracle must refuse it too.
-            let mut dec = png::Decoder::new(bytes);
+            let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
             dec.set_transformations(png::Transformations::EXPAND);
             let theirs = dec.read_info().and_then(|mut r| {
-                let mut buf = vec![0u8; r.output_buffer_size()];
+                let mut buf = vec![0u8; r.output_buffer_size().expect("the size fits")];
                 r.next_frame(&mut buf).map(|_| ())
             });
             assert!(

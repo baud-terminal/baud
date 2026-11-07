@@ -275,6 +275,6 @@ zerocopy = "0.8"
 # writes the `o=z` streams (stored, fixed and dynamic blocks in one) and `png`
 # the `f=100` pictures the protocol carries. Neither is in a build of the core.
 miniz_oxide = "0.9.1"
-png = "0.17.16"
+png = "0.18.1"
 
 

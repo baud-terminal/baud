@@ -32,7 +32,7 @@ baud-tablegen = { workspace = true }
 # resumable inflate is checked against, `png` decodes the PNGs `png.rs` is,
 # and `proptest` generates the streams and the base64 cut at random.
 miniz_oxide = "0.9.1"
-png = "0.17.16"
+png = "0.18.1"
 proptest = "1"
 # The evaluator (`expression.rs`) is behind `alloc`; its tests reach it.
 baud-domain = { path = ".", features = ["alloc"] }

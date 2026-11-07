@@ -10,7 +10,7 @@
 //! | module | is | ported from |
 //! |---|---|---|
 //! | [`outline`] | glyf outlines as SVG path data and ink boxes, in `f64` | fontTools 4.63.0's `TransformPen`, `SVGPathPen`, `BoundsPen` |
-//! | [`raster`] | an SVG drawn to RGBA | the resvg 0.48.1 command line, as a library |
+//! | [`raster`] | an SVG drawn to RGBA | the resvg 0.49.0 command line, as a library |
 //! | [`png`] | the PNG bytes | Pillow 12.3.0's PNG writer and `ZipEncode.c` |
 //! | [`zlib`] | deflate, inflate, CRC-32 | zlib 1.3.2 through `extern "C"`, the version Pillow carried |
 //! | [`webp`] | the SVG frames' WebP, and reading them back | libwebp 1.6.0 through `extern "C"`, as Pillow 12.3.0's `_webp.c` calls the build it linked |

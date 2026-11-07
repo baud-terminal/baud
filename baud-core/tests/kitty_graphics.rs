@@ -142,7 +142,7 @@ fn png(w: u32, h: u32, color: png::ColorType, data: &[u8], idat: usize) -> Vec<u
         e.set_depth(png::BitDepth::Eight);
         // Every filter a row can carry, so the unfiltering is exercised
         // and not only `Sub`, the crate's default.
-        e.set_adaptive_filter(png::AdaptiveFilterType::Adaptive);
+        e.set_filter(png::Filter::Adaptive);
         let mut wr = e.write_header().unwrap();
         let mut sw = wr.stream_writer_with_size(idat).unwrap();
         sw.write_all(data).unwrap();

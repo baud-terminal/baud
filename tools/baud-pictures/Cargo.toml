@@ -8,8 +8,8 @@ license = "CC-BY-NC-SA-4.0"
 publish = false
 
 [dependencies]
-# The rasteriser, the version the pinned resvg command line was, with its
-# default features off: the pictures hold no text and no raster images.
-resvg = { version = "=0.48.1", default-features = false }
+# The rasteriser, which draws the bytes the resvg 0.48.1 command line did,
+# with its default features off: the pictures hold no text and no raster images.
+resvg = { version = "=0.49.0", default-features = false }
 # JetBrains Mono's glyf, hmtx and cmap, read as raw points.
 read-fonts = "=0.46.0"

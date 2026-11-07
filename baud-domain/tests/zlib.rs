@@ -583,10 +583,10 @@ fn the_system_pngs_cut_anywhere_decode_as_one_read_and_the_oracle() {
 /// RGBA from the `png` crate, expanded and stripped to 8 bits as `Png`
 /// decodes, or `None` where it refuses the file.
 fn oracle(bytes: &[u8]) -> Option<Vec<u8>> {
-    let mut dec = png::Decoder::new(bytes);
+    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let mut buf = vec![0u8; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut buf).ok()?;
     let px = &buf[..info.buffer_size()];
     Some(match info.color_type {

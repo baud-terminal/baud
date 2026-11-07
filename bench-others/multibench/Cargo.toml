@@ -15,7 +15,7 @@ publish = false
 # right relative location, which is most of them. A pinned registry version is
 # also a version anyone can quote alongside the numbers.
 alacritty_terminal = "0.26"
-vt100 = "0.16"
+vt100 = "0.18"
 termwiz = { version = "0.23", default-features = false }
 # The core. It allocates nothing itself; `alloc` turns on `Owned`, which
 # allocates the terminal's storage before each timed run
