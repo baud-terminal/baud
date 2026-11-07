@@ -28,7 +28,8 @@
 //! (`baud_render::line_lamps`).
 
 use baud_core::{IndicatorLamps, LampState, ReadLamp, StatusType, Term};
-use baud_render::{FlashClause, StatusLineLights};
+use baud_domain::HostTime;
+use baud_render::{Activity, FlashClause, Led, StatusLineLights};
 use core::time::Duration;
 
 /// "The interval between the change in the state of a feature and the
@@ -78,6 +79,23 @@ fn state(lit: impl FnOnce() -> bool) -> LampState {
     }
 }
 
+/// **The line is clear**: `outbox` holds no byte the kernel has not taken.
+/// The one reading of what is owed: DEC's line takes it as [`read`] does, and
+/// the lights, the title bar's panel among them, through [`feed_cs`]. The
+/// lights' CS also goes dark on a write the kernel refused any of (`Wrote`),
+/// and in the film on its count of short writes.
+pub(crate) fn clear(outbox: &crate::pty::Outbox) -> bool {
+    outbox.is_empty()
+}
+
+/// **CS's light told what is owed at a step**: dark while the line is not
+/// [`clear`], and so lit at rest ([`Led::at_rest`]).
+pub(crate) fn feed_cs(activity: &mut Activity, outbox: &crate::pty::Outbox, now: HostTime) {
+    if !clear(outbox) {
+        activity.seen(Led::Cs, now);
+    }
+}
+
 /// **The five lamps as they are now**: `cd` and `oh` as the driver read
 /// them, CS while `outbox` holds no byte the kernel has not taken, FAX
 /// while a picture is placed, SYN while synchronized output is held.
@@ -90,7 +108,7 @@ pub(crate) fn read(
     IndicatorLamps {
         cd,
         oh,
-        cs: state(|| outbox.is_empty()),
+        cs: state(|| clear(outbox)),
         fax: state(|| term.images().any_placed()),
         syn: state(|| term.synchronized_output()),
     }
@@ -197,6 +215,36 @@ mod tests {
             Owes::Frame
         );
         assert_eq!(words(&t), "", "off, none");
+    }
+
+    /// **CS at rest, with something queued and after it, on DEC's line and
+    /// in the title bar's panel**, one outbox read by both: lit with nothing
+    /// owed, dark with a byte queued; emptied, the line's word is back at
+    /// once and the panel's lamp after its hold, as a light is. What the
+    /// panel draws for what `Activity` shows is `titlebar_mark.rs`'s.
+    /// Perturbation: [`clear`] inverted, or [`feed_cs`] feeding with the
+    /// line clear, and this goes red.
+    #[test]
+    fn cs_is_lit_at_rest_and_dark_while_a_byte_is_owed() {
+        use baud_render::{Light, Pace};
+        let at = |ms: u64| HostTime::ZERO.plus(Duration::from_millis(ms));
+        let mut owned = Owned::new(&WS);
+        let t = Term::new(owned.storage(), &WS);
+        let mut lights = Activity::new();
+        let (none, step) = (ReadLamp::default(), |a: &mut Activity, o, now| {
+            feed_cs(a, o, now);
+            a.step(now, Pace::Full).cs
+        });
+        let rest = crate::pty::Outbox::default();
+        assert_eq!(read(&t, &rest, none, none).cs, LampState::Lit);
+        assert_eq!(step(&mut lights, &rest, at(0)), Light::Lit, "at rest");
+        let mut owed = crate::pty::Outbox::default();
+        owed.push(b"x");
+        assert_eq!(read(&t, &owed, none, none).cs, LampState::Dark);
+        assert_eq!(step(&mut lights, &owed, at(8)), Light::Dark, "queued");
+        assert_eq!(read(&t, &rest, none, none).cs, LampState::Lit);
+        assert_eq!(step(&mut lights, &rest, at(16)), Light::Dark, "the hold");
+        assert_eq!(step(&mut lights, &rest, at(1_000)), Light::Lit, "clear");
     }
 
     /// **Both drivers give the line its words at each step**: the macOS

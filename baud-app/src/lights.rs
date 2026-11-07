@@ -1277,7 +1277,7 @@ mod tests {
             "crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);",
             "let synced = self.synced.seen(&self.app.term);",
             "self.app.term.images().any_placed()",
-            "if !self.app.outbox.is_empty() {\n                self.app.activity.seen(Led::Cs, now);",
+            "crate::line_lamps::feed_cs(&mut self.app.activity, &self.app.outbox, now);",
             "crate::access::lights_pace(self.app.motion)",
             "let glow = crate::lights::glow(self.app.flashing);",
             "look: self.app.renderer.lights_look(glow),",

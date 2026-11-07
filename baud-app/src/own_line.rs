@@ -210,9 +210,7 @@ impl LineLights {
         if front == InFront::Job {
             self.activity.seen(Led::Oh, now);
         }
-        if !outbox.is_empty() {
-            self.activity.seen(Led::Cs, now);
-        }
+        crate::line_lamps::feed_cs(&mut self.activity, outbox, now);
         if self.synced.seen(term) {
             self.activity.seen(Led::Syn, now);
         }

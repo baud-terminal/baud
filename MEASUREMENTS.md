@@ -1201,16 +1201,14 @@ with an A/A copy `cmp` finds identical to the change:
 | cat-cjk | +1.99% [+1.98, +2.01] | +2.00% [+1.98, +2.02] | [-0.00, +0.01] |
 | vim-unicode | +1.72% [+1.68, +1.74] | +1.73% [+1.68, +1.81] | [-0.00, +0.01] |
 
-The four rounds kept agree within 0.1 points of each arm's median. btop
-draws what its parent draws -- the same frames, rows, instances, cache
-hits and glyphs rasterised -- and holds no Devanagari: its 2.39% is paid
-by rows that hold none: the syllable walk over each cell, and the word
-and syllable tests in the run loop (below, "Rows with nothing to
-re-form"). cat-cjk and vim-unicode draw other work, their
-Devanagari in more columns: cat-cjk rasterises 39 glyphs where it
-rasterised 33, and the cells of runs a prefiltered path would shape a
-frame are 396.3 where they were 426.2, vim-unicode's 950.0 where they
-were 962.3.
+The four rounds kept agree within 0.1 points of each arm's median. btop draws what its
+parent draws -- the same frames, rows, instances, cache hits and glyphs rasterised --
+and holds no Devanagari: its 2.39% is paid by rows that hold none: the syllable walk
+over each cell, and the word and syllable tests in the run loop (below, "Rows with
+nothing to re-form"). cat-cjk and vim-unicode draw other work, their Devanagari in more
+columns: cat-cjk rasterises 39 glyphs where it rasterised 33, and the cells of runs a
+prefiltered path would shape a frame are 396.3 where they were 426.2, vim-unicode's
+950.0 where they were 962.3.
 
 **A glyph's pen to a quarter pixel.** Two hundred words of `devanagari.txt`
 at 80 columns in Noto Sans Devanagari, headline columns left open inside
@@ -4444,43 +4442,38 @@ on those, and 15.53:1 on #1A1B26 and 14.94:1 on #FDF6E3; the amber, one colour i
 both forms, reads 9.17:1, 1.80:1, 8.24:1 and 1.92:1. Under a window of their own
 half those four plates compose byte for byte as they did before the choice.
 
-**Open.** On the greys #707070 to #878787 neither form reaches 4.5:1: #808080 takes
-the dark word at 4.08:1, and the least is 3.85:1 at #7B7B7B. On #808080 the amber
-is 1.90:1, and slot 8, #7F7F7F, is 1.01:1 on the plate and 1.24:1 on the socket.
-With no plate the word follows the window, and can sit on glass of its own
-lightness under `[glass] style = "glass"` (`baud-app/src/mark.rs`). A capture of a
-window never shown draws its title bar's views grey, the lockup alone in the leading
-accessory too, so it reads the layout and the colours are read on the composed
-strip. Whether a window on screen and not key draws the plate so is unmeasured.
-
-## The README's film reads the README
-
-Not timed: no byte path changed. `SESSION` gains a scene after the liquid trail's first two jumps:
-`:open README.md`, `/character`, Ctrl-d three times, `ge`, `gg`, then the `:q` it already had. Its
-plan goes from 18.8 s to 23.4 s before the waits, 1.4 s of keys and 3.2 s of holds, and the
-headless takes on the pinned programs filmed 23.7 to 23.9 s. Ctrl-d is pressed through `Term::key`,
-which sends `0x04`, and `CSI 100 ; 5 u` once a program has pushed kitty's disambiguate flag.
-
-**`:q` still reaches the prompt**, as `quit` and `should_close` in helix 25.07.1's source say:
-`:open` replaces the buffer in helix's one view, and `:q` closes that view with both buffers clean.
-The `Prompt` after it came in every take, and a frame before `cat`'s output read
-`~/baud 7s ❯ cat hello.txt` under the `hx` line.
-
-**Each jump lights a liquid**: `:open`, `/character`, `ge` and `gg` in every take. Ctrl-d moves
-the page and the cursor together: with no soft wrap the cursor kept its row and lit nothing, and
-wrapped, on these rows, the first two presses lit one and the third did not, so Ctrl-d is printed
-and not held. A 100 ms hold before `gg` fails the take with "no liquid ignition at step 27".
-
-**helix wraps here.** Unwrapped, the first take read "e terminal with character": helix searches as
-each key is typed, `/ch` lands on `scheme` at column 71 of the README's fourth line, and the sideways
-scroll stays. `[editor.soft-wrap] enable = true` in the scratch home's helix config ends that.
-
-**The census**, the `trails` shot now holding the scene, on this commit's take: 917 frames, worst 7
-general and 0 red flashes at a pixel, area 58, strict 1,374 of 21,824. The photo, fireworks and
-clear shots also pass, the fireworks at 27 and 8.
-
-**What the GIF is likely to weigh**: the headless film's 712 frames at 30 a second, through the
-pinned gifski 1.34.0 with `GIFSKI`'s settings, make 10.5 MB. The frames are the CPU renderer's and
-the title strip is composed, so a filmed window's bytes are unmeasured. GitHub's documentation
-limits an attached GIF to 10 MB and a file in a repository to 100 MiB, warning at 50, and says
-nothing of a limit on a README's image from the repository.
+**Open.** On the greys #707070 to #878787 neither form reaches 4.5:1: #808080 takes the
+dark word at 4.08:1, and the least is 3.85:1 at #7B7B7B. On #808080 the amber is 1.90:1,
+and slot 8, #7F7F7F, is 1.01:1 on the plate and 1.24:1 on the socket. With no plate the
+word follows the window, and can sit on glass of its own lightness under `[glass] style
+= "glass"` (`baud-app/src/mark.rs`). A capture of a window never shown draws its title
+bar's views grey, the lockup alone in the leading accessory too, so it reads the layout
+and the colours are read on the composed strip. The grey is AppKit's own drawing and not
+the capture's: an `NSImageView` in the title bar's views draws its picture as Rec. 601
+luma at half strength while its window has no active appearance, and an opaque pixel of
+the plate, amber or a lit lamp lands within 1 of (luma + what lies under) / 2, #101010
+over the test's #3A3A3A at #252525 and the amber over that at #696969. A view alone in a
+bitmap reads a picture of #FF8000 as #4C4C4C at alpha #80, premultiplied: luma #98. In
+the same accessory a filled view, a layer background and `layer.contents` stay colour,
+as does an `NSImageView` in the content view; `isKeyWindow`, `isMainWindow`, `isVisible`
+and `NSApp.isActive` overridden, the view's `allowsVibrancy` off or an appearance of its
+own change nothing, and `renderInContext:` and `dataWithPDFInsideRect:` read no colour
+either. **A colour frame was got only in scratch and is not committed**: a never-shown
+window whose class answers yes to a private state, here
+`_hasActiveAppearanceIgnoringKeyFocus`, one of four that do it. Against the composed
+strip at 960 points: plate #101010 and #EFEFEF in the same columns, lamps within 1 in
+255 a channel, the light plate's edge within 8 where the composed ground is #E4E4E6 and
+the test's #ECECEC; the lockup alone differs by up to 182, resampled from its picture to
+a frame 51.37 x 12.54 points at y 579.728, pure amber at 228 pixels against 265 at 2x
+and 11 against 62 at 1x. Whether a window on screen and not key greys the panel was not
+reached, since that takes a window on the screen, and `NSImageView.h`, `NSImageCell.h`,
+`NSImage.h`, `NSCell.h`, `NSControl.h` and `NSWindow.h` say nothing of it, where the
+same search does find `NSVisualEffectView`'s inactive state and `NSCell`'s background
+style. What a window on screen does is unmeasured. On a never-shown window, each of
+`hasKeyAppearance`, `hasMainAppearance`, `_hasActiveAppearance` and
+`_hasActiveAppearanceIgnoringKeyFocus`, answering yes alone, gives colour;
+`_hasKeyAppearance`, `_hasMainAppearance` and `_hasActiveControls` alone do not, and an
+overridden `isKeyWindow` leaves `hasKeyAppearance` no. None of these state names is in
+the SDK's AppKit headers. The lamps, the plate and the mark were already `NSImageView`s
+before the panel (`lights.rs`, `mark.rs` at its parent), so whatever this does to a
+window in the background, the panel did not bring it.

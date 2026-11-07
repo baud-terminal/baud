@@ -267,6 +267,7 @@ fn run() {
     assert_eq!(checked, 8, "two bodies at four sizes");
     on_the_plate(mtm);
     theme_files_keep_their_plate(mtm);
+    grey_in_a_window_not_active(mtm);
     renders(mtm);
     panel_renders(mtm);
     println!("{NAME}: ok, {checked} windows");
@@ -966,6 +967,149 @@ fn check_panel(
         lw.origin.y >= v.origin.y + v.size.height - EPS,
         "{at}: the module {lw:?} overlaps the terminal's view {v:?}"
     );
+}
+
+/// **The view alone, drawn into a bitmap at 2x**, RGBA, premultiplied, rows
+/// from the top.
+#[cfg(target_os = "macos")]
+fn drawn(view: &NSView) -> (usize, Vec<u8>) {
+    use macos_liquid_glass::objc2::AnyThread;
+    use macos_liquid_glass::objc2_app_kit::{
+        NSBitmapFormat, NSBitmapImageRep, NSDeviceRGBColorSpace,
+    };
+    let size = view.bounds().size;
+    let (pw, ph) = (
+        (size.width * 2.0).round() as isize,
+        (size.height * 2.0).round() as isize,
+    );
+    // SAFETY: no planes, so AppKit allocates; the depth and the row bytes are
+    // a 32-bit RGBA bitmap's.
+    let rep = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(),
+            core::ptr::null_mut(),
+            pw,
+            ph,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            NSBitmapFormat::empty(),
+            4 * pw,
+            32,
+        )
+    }
+    .expect("a bitmap");
+    rep.setSize(size);
+    view.cacheDisplayInRect_toBitmapImageRep(view.bounds(), &rep);
+    let (w, h) = (pw as usize, ph as usize);
+    // SAFETY: the buffer the rep allocated, w * h * 4 bytes, read while it
+    // lives.
+    let bytes = unsafe { core::slice::from_raw_parts(rep.bitmapData(), w * h * 4) }.to_vec();
+    (w, bytes)
+}
+
+/// How far from grey the most coloured pixel of a bitmap is.
+#[cfg(target_os = "macos")]
+fn chroma(bytes: &[u8]) -> u8 {
+    bytes
+        .chunks_exact(4)
+        .map(|p| {
+            let (lo, hi) = (p[0].min(p[1]).min(p[2]), p[0].max(p[1]).max(p[2]));
+            hi - lo
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// **The panel's pictures are colour, and AppKit greys them where they stand
+/// in a window that is not active**, as every window here is. A picture in an
+/// `NSImageView` in the title bar's views draws as its own luma at half
+/// strength; the same picture in the same size of view in the content view
+/// draws as it is: #101010 and #EFEFEF the plate, the lockup and each lit lamp
+/// in colour. So a capture of these windows says nothing of colour, and the
+/// grey is the view's own drawing and not the capture's. If the half of this
+/// about AppKit goes red with baud unchanged, AppKit has changed: read
+/// `MEASUREMENTS.md`, "The title bar is a modem's panel", again. CS's picture
+/// follows `Shown` too: lit at rest, dark in `Shown::DARK`, with `Activity`
+/// and the outbox behind it in `line_lamps.rs`'s test.
+/// Perturbation: the plate's colour, a strip that shows every light's dark
+/// picture, or CS dark at rest, and this goes red.
+#[cfg(target_os = "macos")]
+fn grey_in_a_window_not_active(mtm: MainThreadMarker) {
+    use baud_render::{ActivityLights, Led, Light, Shown, Theme};
+    use macos_liquid_glass::objc2_app_kit::NSImageView;
+    let face = [baud_font::Face::parse(embedded::BOLD.bytes).expect("the Bold")];
+    for (name, theme, plate) in [
+        ("NSAppearanceNameDarkAqua", Theme::dark(), 0x10u8),
+        ("NSAppearanceNameAqua", Theme::light(), 0xEF),
+    ] {
+        let r = renderer_of(&face, theme);
+        let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+        let w = window.ns_window();
+        let a = NSAppearance::appearanceNamed(&NSString::from_str(name)).expect("a stock one");
+        window.set_appearance(Some(&a));
+        let inset = strip::inset_of(w);
+        let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
+        let holder = strip::Accessory::put(
+            mtm,
+            &window,
+            TitlebarSide::Trailing,
+            NSSize::new(0.0, inset),
+        );
+        let mut strip = lights::Strip::new(Some(holder), None, mark.size());
+        let content = w.contentView().expect("a content view");
+        // The same picture in a view of the same size, in the content view.
+        let in_content = |view: &NSImageView| {
+            let copy = NSImageView::new(mtm);
+            copy.setImageScaling(view.imageScaling());
+            copy.setImage(view.image().as_deref());
+            copy.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), view.frame().size));
+            content.addSubview(&copy);
+            let (_, bytes) = drawn(&copy);
+            copy.removeFromSuperview();
+            bytes
+        };
+        let show = |shown: Shown, strip: &mut lights::Strip| {
+            let setting = ActivityLights::TitleBar;
+            draw_and_place(w, strip, &mark, &r, setting, shown, 2.0, inset);
+        };
+        show(Shown::all(Light::Lit), &mut strip);
+        let view = strip.plate_view().expect("a plate");
+        let centre = |(across, bytes): (usize, Vec<u8>)| -> [u8; 4] {
+            let at = (bytes.len() / 4 / across / 2 * across + across / 2) * 4;
+            bytes[at..at + 4].try_into().expect("a pixel")
+        };
+        let across = (view.bounds().size.width * 2.0).round() as usize;
+        assert_eq!(
+            centre((across, in_content(view))),
+            [plate, plate, plate, 0xFF],
+            "{name}: the plate's picture"
+        );
+        let [red, green, blue, alpha] = centre(drawn(view));
+        assert!(
+            alpha < 0xFF && red == green && green == blue,
+            "{name}: the plate in the title bar, half strength: {red} {alpha}"
+        );
+        let mut coloured = vec![("the lockup", mark.view())];
+        coloured.extend(Led::ALL.iter().map(|&led| {
+            (
+                led.letters(),
+                strip.lamp_view(led).expect("every lamp at this size"),
+            )
+        }));
+        for (what, view) in coloured {
+            let (there, here) = (chroma(&in_content(view)), chroma(&drawn(view).1));
+            assert!(there >= 64, "{name}: {what}'s picture is colour: {there}");
+            assert!(here <= 1, "{name}: {what} greyed in the title bar: {here}");
+        }
+        let cs = |strip: &lights::Strip| chroma(&in_content(strip.lamp_view(Led::Cs).expect("CS")));
+        show(Shown::rest(), &mut strip);
+        assert!(cs(&strip) >= 64, "{name}: CS lit at rest: {}", cs(&strip));
+        show(Shown::DARK, &mut strip);
+        assert!(cs(&strip) < 64, "{name}: CS dark: {}", cs(&strip));
+    }
 }
 
 /// **The title bar as AppKit draws it, whole, for each appearance at 1x and

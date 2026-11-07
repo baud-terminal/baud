@@ -14993,9 +14993,7 @@ impl Driver {
             if self.app.term.images().any_placed() {
                 self.app.activity.seen(Led::Fax, now);
             }
-            if !self.app.outbox.is_empty() {
-                self.app.activity.seen(Led::Cs, now);
-            }
+            crate::line_lamps::feed_cs(&mut self.app.activity, &self.app.outbox, now);
         }
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(now, pace);
