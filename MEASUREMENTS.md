@@ -4542,3 +4542,21 @@ ignored test, as secure input is the whole Mac's). **Neither lock reader, the sl
 the saver search has been seen firing**: this Mac may not be locked, slept or given a screen
 saver for a test. What refuses when they answer is tested on a pure function, and what they
 read is not.
+
+## The flake's package evaluates with nothing built
+
+Not timed on a byte path. `cachix/devenv-nixpkgs` builds its source during evaluation, so at the
+base no system's `packages.<system>.baud.drvPath` evaluated on this Mac with
+import-from-derivation off, and neither Linux system with it on: a platform mismatch.
+`aarch64-darwin` evaluated with it on. The flake's `nixpkgs` is now `NixOS/nixpkgs` at
+`674a2028`, the revision that wrapper patches. Every package's drvPath evaluated with it off, in
+7.2 s and 8.8 s warm (`scripts/check-flake-eval.sh`), before the last comment edits.
+
+On `aarch64-darwin` the package's stdenv and every `nativeBuildInput` keep their drvPaths, rustc
+1.101.0-nightly 2026-11-06 among them. `demo-container` keeps `stream-baud-demo`'s drvPath
+(`hcixizk8`), so its six package paths are unchanged and `IMAGE_SHA256` is not moved. `nixpkgs-demo`
+stays: at `674a2028` btop is 1.4.7 and not 1.4.8, and fastfetch has another store path. With
+`allowUnfreePredicate` removed, both the base and this revision refuse the package as unfree.
+
+**Not yet run on this change:** the darwin build, the tests in `baud-app/tests/install.rs`, and any
+Linux build.

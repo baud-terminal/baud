@@ -6,24 +6,31 @@
   # terminal.
   description = "baud, a fast terminal emulator";
 
-  # The same nixpkgs and rust-overlay revisions as `devenv.lock`, so the
-  # package builds with the compiler the repository is built and tested
-  # with. `flake.lock` holds them, and `baud-app/tests/install.rs` fails
-  # when it and `devenv.lock` disagree.
+  # **The package takes nixpkgs itself, at the revision the dev shell's is
+  # made from.** The shell reads `cachix/devenv-nixpkgs`, which patches this
+  # same revision (`nixpkgs-src` in `devenv.lock`) in a derivation for the
+  # system asked for. Importing that needs a builder for that system during
+  # evaluation, which a configuration evaluated on another machine, or with
+  # `allow-import-from-derivation = false`, does not have. On aarch64-darwin,
+  # the one system both evaluate for here, the package's stdenv and rustc are
+  # the same derivations without its patches. rust-overlay is at
+  # `devenv.lock`'s revision too, so the package builds with the compiler the
+  # repository is built and tested with. `flake.lock` holds them, and
+  # `baud-app/tests/install.rs` fails when
+  # it and `devenv.lock` disagree. `scripts/check-flake-eval.sh` evaluates
+  # every package with import-from-derivation off.
   inputs = {
-    nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
+    nixpkgs.url = "github:NixOS/nixpkgs/674a2028661e550a97400c1cc992b9cca9a668a1";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # **The README session's container** (`nix/demo-container/`): its
-    # aarch64-linux packages, starship 1.27.0 among them, from a
-    # nixpkgs-unstable revision, pinned here by its commit. The revision
-    # above carries an older starship, inside two advisories, and a Mac
-    # cannot evaluate it for Linux: its source is a derivation for the system
-    # asked for. The demo takes its own starship from the same commit
-    # (`baud-app/examples/demo/container.rs`), and only the container's image
-    # reads this input.
+    # aarch64-linux packages, starship 1.27.0 among them, from the
+    # nixpkgs-unstable commit the demo takes its own starship from
+    # (`baud-app/examples/demo/container.rs`). The image's pin holds their
+    # store paths, and btop and fastfetch differ at the revision above; only
+    # the container's image reads this input.
     nixpkgs-demo.url = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
   };
 
@@ -48,8 +55,8 @@
         import nixpkgs {
           inherit system;
           overlays = [ rust-overlay.overlays.default ];
-          # devenv-nixpkgs allows unfree packages already; this names the
-          # one the flake means, and keeps holding on NixOS's nixpkgs.
+          # nixpkgs counts baud's licence as unfree and refuses the package
+          # unless it is allowed; this allows baud and nothing else.
           config.allowUnfreePredicate = pkg: lib.getName pkg == "baud";
         };
 

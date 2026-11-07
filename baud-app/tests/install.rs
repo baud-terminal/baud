@@ -1,9 +1,10 @@
 //! **Nix builds baud with the compiler the repository uses, from the
-//! repository's own address.** The dev shell takes nixpkgs and
-//! rust-overlay at the revisions `devenv.lock` holds, and its nightly from
-//! that rust-overlay; the root `flake.nix`, which `nix run` and `nix
-//! build` read, pins its own inputs in `flake.lock` and names the nightly
-//! by date; and the document that names a nightly, docs/embedding.md,
+//! repository's own address.** The dev shell takes rust-overlay and
+//! nixpkgs, the latter through devenv's wrapper of it, at the revisions
+//! `devenv.lock` holds, and its nightly from that rust-overlay; the root
+//! `flake.nix`, which `nix run` and `nix build` read, pins its own inputs
+//! in `flake.lock`, nixpkgs without the wrapper, and names the nightly by
+//! date; and the document that names a nightly, docs/embedding.md,
 //! gives that date. This file fails on a
 //! lock bumped alone and on a document left on an old nightly. The dev
 //! shell names no date, so both locks moved together can take its nightly
@@ -47,8 +48,14 @@ fn locked(lock: &str) -> Vec<(String, String)> {
 }
 
 /// **The flake locks the dev shell's nixpkgs and rust-overlay at the
-/// shell's revisions**, every input but `nixpkgs-demo`: the README
-/// session's container takes its Linux packages from a nixpkgs of its own
+/// shell's revisions**, so `nix build` and the shell agree on the compiler
+/// and on what links with it: rust-overlay's revision gives rustc, and the
+/// nixpkgs revision the stdenv. The shell's nixpkgs is that revision behind
+/// devenv's wrapper (`nixpkgs-src` in `devenv.lock`), and the flake locks
+/// the revision without it: see
+/// `the_package_s_nixpkgs_is_built_during_no_evaluation`. Every input is
+/// held but `nixpkgs-demo`: the README session's container takes its
+/// packages from a later nixpkgs of its own
 /// (`nix/demo-container/default.nix`), pinned in `flake.nix` by its commit
 /// and locked at it, and builds nothing of baud's with it. The control:
 /// that input's revision is not the shell's.
@@ -78,7 +85,7 @@ fn the_flake_locks_the_dev_shells_nixpkgs_and_rust_overlay() {
         "the control: the demo's revision is not the shell's"
     );
     let devenv = locked(&read("devenv.lock"));
-    for repo in ["cachix/devenv-nixpkgs", "oxalica/rust-overlay"] {
+    for repo in ["NixOS/nixpkgs", "oxalica/rust-overlay"] {
         assert!(
             flake.iter().any(|(r, _)| r == repo),
             "flake.lock locks no {repo}: {flake:?}"
@@ -95,6 +102,69 @@ fn the_flake_locks_the_dev_shells_nixpkgs_and_rust_overlay() {
             "flake.lock has {repo} at {rev}, devenv.lock at {shell:?}"
         );
     }
+}
+
+/// Why the flake's `nixpkgs` would need a build during evaluation, if it
+/// would: `nix` is `flake.nix` and `lock` is `flake.lock`. Plain nixpkgs
+/// evaluates on any machine, for any system. A wrapper of it does not when
+/// it patches its source with a derivation, as `cachix/devenv-nixpkgs` does:
+/// a wrapper shows as another address, or as a locked input of its own.
+fn evaluation_builds(nix: &str, lock: &str) -> Option<String> {
+    let open = "    nixpkgs.url = \"github:NixOS/nixpkgs/";
+    let Some(at) = nix.find(open) else {
+        return Some("the nixpkgs input is not NixOS/nixpkgs at a commit".to_owned());
+    };
+    let rest = &nix[at + open.len()..];
+    let Some(rev) = rest.find('"').map(|end| &rest[..end]) else {
+        return Some("the nixpkgs input does not close".to_owned());
+    };
+    let node = lock
+        .find("\"nixpkgs\": {")
+        .map(|at| &lock[at..])
+        .and_then(|node| Some(&node[..node.find("\"original\"")?]));
+    let Some(node) = node else {
+        return Some("flake.lock has no nixpkgs".to_owned());
+    };
+    if node.contains("\"inputs\"") {
+        return Some(format!(
+            "flake.lock's nixpkgs has inputs of its own: {node}"
+        ));
+    }
+    if field(node, "owner") != Some("NixOS")
+        || field(node, "repo") != Some("nixpkgs")
+        || field(node, "rev") != Some(rev)
+    {
+        return Some(format!("flake.lock's nixpkgs is not {rev}: {node}"));
+    }
+    lock.contains("devenv-nixpkgs")
+        .then(|| "flake.lock holds devenv-nixpkgs".to_owned())
+}
+
+/// **The package's nixpkgs is built during no evaluation.** A NixOS
+/// configuration evaluated on a Mac for a Linux host reads
+/// `packages.${system}.baud`, and with import-from-derivation in the path
+/// that asks the Mac to build for Linux. `scripts/check-flake-eval.sh` is the
+/// real check, by nix, and this one holds the shape without it. The
+/// controls: the wrapper's address, an input of the locked nixpkgs and a
+/// revision the lock does not hold are each refused.
+#[test]
+fn the_package_s_nixpkgs_is_built_during_no_evaluation() {
+    let (nix, lock) = (read("flake.nix"), read("flake.lock"));
+    assert_eq!(evaluation_builds(&nix, &lock), None);
+
+    let input = "nixpkgs.url = \"github:NixOS/nixpkgs/";
+    let wrapped = nix.replace(input, "nixpkgs.url = \"github:cachix/devenv-nixpkgs/");
+    assert_ne!(wrapped, nix, "the control's anchor");
+    assert!(evaluation_builds(&wrapped, &lock).is_some(), "the address");
+
+    let open = "\"nixpkgs\": {\n";
+    let with_input = lock.replacen(open, "\"nixpkgs\": {\n\"inputs\": {},\n", 1);
+    assert_ne!(with_input, lock, "the control's anchor");
+    assert!(evaluation_builds(&nix, &with_input).is_some(), "the input");
+
+    let moved = nix.replacen(input, "nixpkgs.url = \"github:NixOS/nixpkgs/0", 1);
+    assert_ne!(moved, nix, "the control's anchor");
+    assert!(evaluation_builds(&moved, &lock).is_some(), "the revision");
 }
 
 #[test]
