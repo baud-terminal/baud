@@ -5,6 +5,17 @@
 //! committed file byte for byte, writing no tracked file; `logo --out DIR`
 //! writes all four to `DIR` in place of the tree, and holds those.
 //!
+//! **`--mp4`**, with `--out DIR` and only with it, also writes each half's
+//! film as an MP4 beside its GIF in `DIR`, `logo-dark.mp4` and `logo-light.mp4`, for a
+//! video to cut it into: the same frames, each held its own hundredths at a
+//! constant 100 frames a second, so every frame keeps its time exactly,
+//! encoded by the pinned ffmpeg's libx264 with fixed settings, four threads,
+//! no metadata and every bit-exact flag ([`MP4`]). It is encoded twice and
+//! must be the same bytes both times, as long as the film and as many
+//! frames as its hundredths. Nothing commits the MP4s, so they are never
+//! written into the tree, where an untracked file makes the demo's
+//! `--record` refuse it as dirty: without `--out`, `--mp4` is refused.
+//!
 //! **What it shows**: the lockup, `baud ❯ █`, as the launch splash holds
 //! it and the logo files draw it, with baud's white plasma moving round
 //! and through it as if each glyph were a solid wall, its block blinking
@@ -122,6 +133,68 @@ use std::process::{Command, Stdio};
 pub const GIFSKI_NIXPKGS: &str = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
 /// `gifski --version` there.
 pub const GIFSKI: &str = "gifski 1.34.0";
+/// The first line of `ffmpeg -version` from the same nixpkgs, whose
+/// `ffmpeg-headless.bin` encodes the MP4s.
+pub const FFMPEG: &str = "ffmpeg version 9.0.1";
+
+/// The MP4's frame rate: a hundredth a frame, the films' own unit.
+pub const MP4_FPS: u32 = 100;
+
+/// **The MP4's encoder settings**: RGB to BT.709 4:2:0 in TV range, H.264
+/// High at CRF 18, `slow`, four threads, no audio, nothing of the run in
+/// the file -- the demo's `--record` MP4's settings
+/// (`baud-app/examples/demo/film.rs`), the conversion added.
+pub const MP4: [&str; 31] = [
+    "-vf",
+    "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+    "-an",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "18",
+    "-pix_fmt",
+    "yuv420p",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-threads",
+    "4",
+    "-fflags",
+    "+bitexact",
+    "-flags:v",
+    "+bitexact",
+    "-map_metadata",
+    "-1",
+    "-map_chapters",
+    "-1",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+];
+
+/// Whether `logo` writes the MP4s too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mp4 {
+    Yes,
+    No,
+}
+
+/// **`--mp4` taken out of `logo`'s arguments**, wherever it stands, and
+/// the rest for [`args`].
+#[must_use]
+pub fn mp4_asked(argv: &[String]) -> (Mp4, Vec<String>) {
+    let rest: Vec<String> = argv.iter().filter(|a| *a != "--mp4").cloned().collect();
+    match rest.len() == argv.len() {
+        true => (Mp4::No, rest),
+        false => (Mp4::Yes, rest),
+    }
+}
 /// nixpkgs' revision for zlib and libwebp, `tools/shell.nix`'s `pictures`.
 pub const NIXPKGS_REV: &str = "7dd199b0e2993e37b4775ed66b1c291699608c9f";
 
@@ -1194,6 +1267,107 @@ fn run(cmd: &mut Command, what: &str) -> Result<Vec<u8>, Fail> {
     Ok(out.stdout)
 }
 
+/// ffmpeg's `bin`, `ffmpeg-headless.bin` from gifski's nixpkgs, its
+/// version checked.
+///
+/// # Errors
+/// When nix cannot build it, or it is not [`FFMPEG`].
+pub fn ffmpeg() -> Result<PathBuf, Fail> {
+    let out = run(
+        Command::new("nix").args([
+            "build",
+            "--no-link",
+            "--print-out-paths",
+            &format!("{GIFSKI_NIXPKGS}#ffmpeg-headless.bin"),
+        ]),
+        "nix build ffmpeg",
+    )?;
+    let bin = PathBuf::from(String::from_utf8_lossy(&out).trim()).join("bin");
+    let v = run(
+        Command::new(bin.join("ffmpeg")).args(["-hide_banner", "-version"]),
+        "ffmpeg -version",
+    )?;
+    let v = String::from_utf8_lossy(&v);
+    let first = v.lines().next().unwrap_or("");
+    if !first.starts_with(FFMPEG) {
+        return Err(format!(
+            "the tools are not the pinned ones: ffmpeg is {first:?}, not {FFMPEG:?}"
+        ));
+    }
+    Ok(bin)
+}
+
+/// **One half's MP4**: every frame held its hundredths at [`MP4_FPS`],
+/// piped to ffmpeg as raw RGB and encoded with [`MP4`] into `d/name`.
+fn mp4(
+    ff: &Path,
+    d: &Path,
+    frames: &[Vec<u8>],
+    delays: &[u32],
+    name: &str,
+) -> Result<Vec<u8>, Fail> {
+    use std::io::Write;
+    let out = d.join(name);
+    let mut cmd = Command::new(ff.join("ffmpeg"));
+    cmd.args(["-hide_banner", "-v", "error", "-y", "-f", "rawvideo"])
+        .args(["-pix_fmt", "rgb24", "-s", &format!("{W}x{H}")])
+        .args(["-r", &MP4_FPS.to_string(), "-i", "-"])
+        .args(MP4)
+        .arg(&out)
+        .stdin(Stdio::piped())
+        .stderr(Stdio::inherit());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("ffmpeg did not run: {e}"))?;
+    let mut fed = Ok(());
+    if let Some(mut pipe) = child.stdin.take() {
+        'all: for (f, &cs) in frames.iter().zip(delays) {
+            for _ in 0..cs {
+                if let Err(e) = pipe.write_all(f) {
+                    fed = Err(format!("ffmpeg's input: {e}"));
+                    break 'all;
+                }
+            }
+        }
+    }
+    let st = child.wait().map_err(|e| format!("ffmpeg: {e}"))?;
+    fed?;
+    if !st.success() {
+        return Err(format!("ffmpeg failed: {st}"));
+    }
+    read(&out)
+}
+
+/// **The MP4 holds the film**: as many frames as its hundredths, playing
+/// as long, by ffprobe.
+fn mp4_holds(ff: &Path, half: &str, path: &Path, total: u32) -> Result<String, Fail> {
+    let out = run(
+        Command::new(ff.join("ffprobe"))
+            .args(["-v", "error", "-select_streams", "v:0", "-count_packets"])
+            .args([
+                "-show_entries",
+                "stream=nb_read_packets,duration,start_time",
+            ])
+            .args(["-of", "csv=p=0"])
+            .arg(path),
+        "ffprobe",
+    )?;
+    let said = String::from_utf8_lossy(&out).trim().to_string();
+    let f: Vec<&str> = said.split(',').collect();
+    let num = |k: usize| f.get(k).and_then(|v| v.trim().parse::<f64>().ok());
+    let (start, lasts, frames) = (num(0), num(1), num(2));
+    let want = f64::from(total) / f64::from(MP4_FPS);
+    let held = matches!((start, lasts, frames),
+        (Some(s), Some(l), Some(n)) if s.abs() < 1e-3 && (l - want).abs() < 1e-3
+            && (n - f64::from(total)).abs() < 0.5);
+    if !held {
+        return Err(format!(
+            "{half}: the MP4 reads {said:?} (start, length, frames), not 0, {want}, {total}"
+        ));
+    }
+    Ok(said)
+}
+
 /// gifski, built from its pinned nixpkgs, and its version checked.
 ///
 /// # Errors
@@ -1525,12 +1699,12 @@ fn census(
 /// One half's GIF and SVG bytes, checked, and the lines that report them.
 fn make(
     root: &Path,
-    gifski: &Path,
+    (gifski, ff): (&Path, Option<&Path>),
     h: &Half,
     tmp: &Path,
     (walls, today): (&Path, &Path),
     blink: &Value,
-) -> Result<Made, Fail> {
+) -> Result<(Made, Option<Vec<u8>>), Fail> {
     let half = h.name;
     let d = tmp.join(half);
     let (prims, report) = strands(walls, half, blink, &d)?;
@@ -1572,6 +1746,23 @@ fn make(
     }
     let (got, loops, size) = decoded(root, &b, &d)?;
     let total: u32 = delays.iter().sum();
+    let movie = match ff {
+        Some(ff) => {
+            let m = mp4(ff, &d, &frames, &delays, "logo.mp4")?;
+            if mp4(ff, &d, &frames, &delays, "again.mp4")? != m {
+                return Err(format!(
+                    "{half}: ffmpeg wrote different MP4s from the same frames"
+                ));
+            }
+            let said = mp4_holds(ff, half, &d.join("logo.mp4"), total)?;
+            println!(
+                "{half}: the MP4, {} bytes, twice the same, reads {said}",
+                m.len()
+            );
+            Some(m)
+        }
+        None => None,
+    };
     let lasts: u32 = got.iter().map(|(_, cs)| cs).sum();
     gif_holds(half, lasts, total, loops, size, b.len())?;
     let s = svg(&frames, &still, &delays)?;
@@ -1643,7 +1834,7 @@ fn make(
             cp("threshold")?
         ),
     ];
-    Ok((b, s, lines))
+    Ok(((b, s, lines), movie))
 }
 
 /// The tests that hold the files, in the tree or in `out`, their output
@@ -1693,7 +1884,19 @@ fn tests(root: &Path, out: Option<&Path>) -> Result<(), Fail> {
 ///
 /// # Errors
 /// What stops the run before the files are compared or written.
-pub fn main(root: &Path, files: &Files, keep: Option<&Path>) -> Result<Vec<String>, Fail> {
+pub fn main(
+    root: &Path,
+    files: &Files,
+    keep: Option<&Path>,
+    movie: Mp4,
+) -> Result<Vec<String>, Fail> {
+    if movie == Mp4::Yes && !matches!(files, Files::Out(_)) {
+        return Err(
+            "--mp4 needs --out DIR: the MP4s are not committed, and left in the \
+                    tree they make the demo's --record refuse it as dirty"
+                .into(),
+        );
+    }
     libraries()?;
     let out = match files {
         Files::Out(d) => {
@@ -1711,6 +1914,14 @@ pub fn main(root: &Path, files: &Files, keep: Option<&Path>) -> Result<Vec<Strin
         webp::LIBWEBP
     );
     let gifski = gifski()?;
+    let ff = match movie {
+        Mp4::Yes => {
+            let b = ffmpeg()?;
+            eprintln!("tools: {FFMPEG} from {GIFSKI_NIXPKGS}, {}", b.display());
+            Some(b)
+        }
+        Mp4::No => None,
+    };
     let tmp = keep.map_or_else(
         || std::env::temp_dir().join(format!("baud-pictures-logo-{}", std::process::id())),
         Path::to_path_buf,
@@ -1733,7 +1944,21 @@ pub fn main(root: &Path, files: &Files, keep: Option<&Path>) -> Result<Vec<Strin
         let (walls, today) = walls_hold(root, &today[0], &tmp)?;
         let mut bad = Vec::new();
         for (h, blink) in HALVES.iter().zip(&blink) {
-            let (g, s, lines) = make(root, &gifski, h, &tmp, (&walls, &today), blink)?;
+            let ((g, s, lines), movie) = make(
+                root,
+                (&gifski, ff.as_deref()),
+                h,
+                &tmp,
+                (&walls, &today),
+                blink,
+            )?;
+            if let Some(m) = movie {
+                let at = root.join(h.gif).with_extension("mp4");
+                let name = at.file_name().ok_or("a file's name")?.to_owned();
+                let to = out.as_ref().map_or(at, |d| d.join(name));
+                std::fs::write(&to, &m).map_err(|e| format!("{}: {e}", to.display()))?;
+                println!("wrote {}", to.display());
+            }
             for line in lines {
                 println!("{line}");
             }

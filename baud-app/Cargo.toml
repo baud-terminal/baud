@@ -92,6 +92,12 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 # only thing it is for.
 ceiling-idle-skip = []
 
+# **The take's journal, off** (`src/take.rs`): what a filmed take of the
+# window showed and when, for the demo's `--record NAME.mp4` and its
+# sound. Off, `BAUD_TAKE` is never read, so a shipped baud cannot be made
+# to journal; on, it changes nothing drawn -- the journal only reads.
+take = []
+
 # The binary is `baud`, as the package is.
 [[bin]]
 name = "baud"

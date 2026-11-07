@@ -73,7 +73,7 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(5);
 const DONE_TAIL: Duration = Duration::from_millis(1500);
 
 const USAGE: &str = "usage: cargo run --release --example demo -- [--dry] \
-                     [--record OUT.gif [--allow-dirty]] [--forbidden LIST --controls FILE] \
+                     [--record OUT.gif|OUT.mp4 [--allow-dirty]] [--forbidden LIST --controls FILE] \
                      [--pid-file PATH] [--events PATH] [--done PATH]\n       \
                      cargo run --release --example demo -- --headless DIR \
                      [--forbidden LIST --controls FILE]\n       \
@@ -254,9 +254,15 @@ fn run(args: &Args) -> Result<(), String> {
         }
         None => None,
     };
-    let built = build_baud(&profile)?;
+    // An MP4's take journals what baud showed, which only a baud built with
+    // the `take` feature can; every other run builds baud as it ships.
+    let journal = kit.as_ref().is_some_and(|k| k.form == record::Form::Mp4);
+    let built = build_baud(&profile, journal)?;
     let baud = built.bin;
-    println!("baud:    {}", baud.display());
+    match journal {
+        true => println!("baud:    {}, with --features take", baud.display()),
+        false => println!("baud:    {}", baud.display()),
+    }
     let run = tree.as_ref().map(|t| record::Run {
         root: &root,
         command: command.clone(),
@@ -363,9 +369,12 @@ fn keep_full_screen(root: &Path, target: &Path, gif: &str) -> Result<(), String>
     Ok(())
 }
 
-/// `NAME.full-screen.json` for the GIF `NAME.gif`.
+/// `NAME.full-screen.json` for the GIF `NAME.gif` or the MP4 `NAME.mp4`.
 fn full_screen_name(gif: &str) -> String {
-    format!("{}.full-screen.json", gif.trim_end_matches(".gif"))
+    let stem = gif
+        .strip_suffix(".gif")
+        .or_else(|| gif.strip_suffix(".mp4"));
+    format!("{}.full-screen.json", stem.unwrap_or(gif))
 }
 
 /// **The README session without a window**: baud's own test of it
@@ -1029,8 +1038,10 @@ struct Built {
 /// (`CARGO`, which `cargo run` sets) in the example's own profile and
 /// target directory, read from where the example's binary is:
 /// `<target>/<profile>/examples/demo`. `cargo run` lets go of its build
-/// lock before it starts the example, so the build can take it.
-fn build_baud(p: &Profile) -> Result<Built, String> {
+/// lock before it starts the example, so the build can take it. With
+/// `journal`, for an MP4's take, built with the `take` feature, which
+/// changes only whether baud can journal (`baud-app/src/take.rs`).
+fn build_baud(p: &Profile, journal: bool) -> Result<Built, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut cmd = Command::new(cargo);
     cmd.args(["build", "-p", "baud", "--bin", "baud", "--manifest-path"])
@@ -1038,6 +1049,9 @@ fn build_baud(p: &Profile) -> Result<Built, String> {
         .arg("--target-dir")
         .arg(&p.target)
         .args(p.flags());
+    if journal {
+        cmd.args(["--features", "take"]);
+    }
     let status = cmd.status().map_err(|e| format!("cargo: {e}"))?;
     let bin = p.dir.join("baud");
     if !status.success() || !bin.is_file() {
@@ -1166,6 +1180,12 @@ const FULL_SCREEN_ENV: &str = "BAUD_FULL_SCREEN_CHECK";
 const FULL_SCREEN_GO: &str = "full-screen.go";
 const FULL_SCREEN_OUT: &str = "full-screen.json";
 
+/// **The variable that starts baud's take journal**, as
+/// `baud-app/src/take.rs` names it, and the journal's file in the scratch
+/// root: what an MP4's timeline is made from.
+const TAKE_ENV: &str = "BAUD_TAKE";
+const TAKE_JOURNAL: &str = "take.tsv";
+
 /// How long the reading may take: about two seconds in full screen, and
 /// the two transitions.
 const FULL_SCREEN_LIMIT: Duration = Duration::from_secs(20);
@@ -1241,13 +1261,18 @@ fn live(
     // The filming run alone arms baud's full-screen reading, in a
     // directory of the scratch root.
     let check = at.root.join("full-screen");
-    let armed: Vec<(&str, &Path)> = match &filming {
+    // An MP4's take also journals what baud showed, for its timeline.
+    let journal = at.root.join(TAKE_JOURNAL);
+    let mut armed: Vec<(&str, &Path)> = match &filming {
         Some(_) => {
             fs::create_dir_all(&check).map_err(|e| format!("{}: {e}", check.display()))?;
             vec![(FULL_SCREEN_ENV, check.as_path())]
         }
         None => Vec::new(),
     };
+    if kit.is_some_and(|k| k.form == record::Form::Mp4) {
+        armed.push((TAKE_ENV, journal.as_path()));
+    }
     let launch = Instant::now();
     let spawned = Command::new(baud)
         .env_clear()
@@ -1287,10 +1312,11 @@ fn live(
         Some(f) => Fixed::Yes(f.display),
         None => Fixed::No,
     };
+    let mut scenes = Vec::new();
     let played = pid_files
         .iter()
         .try_for_each(|p| write_pid(p, pid))
-        .and_then(|()| play(&ev, pid, at, fixed, &board));
+        .and_then(|()| play(&ev, pid, at, fixed, &board, &mut scenes));
     match &played {
         Ok(_) => ev.line("done"),
         Err(e) => ev.line(&format!("DIE {e}")),
@@ -1305,6 +1331,7 @@ fn live(
     }
     let last = guard::frame(pid, &mac::windows(true));
     let display = filming.as_ref().map(|f| f.display);
+    let started = filming.as_ref().and_then(record::Filming::started);
     let said = filming.map(|f| f.finish(Duration::from_secs(60), mac::console));
     // The film whole, its window read through a full screen and back.
     if let (Some(_), Some(Ok(_)), Ok(_)) = (kit, &said, &played) {
@@ -1335,6 +1362,9 @@ fn live(
         said,
         display,
         frame: first,
+        scenes,
+        started,
+        journal,
     }))
 }
 
@@ -1374,6 +1404,7 @@ fn play(
     at: &Layout,
     fixed: Fixed,
     board: &mac::Kept<mac::General>,
+    scenes: &mut Vec<(Instant, String)>,
 ) -> Result<Rect, String> {
     let begun = Instant::now();
     let mut seen: Vec<(f64, Option<Rect>)> = Vec::new();
@@ -1464,6 +1495,7 @@ fn play(
             }
             Step::Run(t) => {
                 ev.line(&session::event(step, prompt));
+                scenes.push((Instant::now(), t.to_string()));
                 let ks = keys::keys_for(t).map_err(|c| format!("no key types {c:?}"))?;
                 let mut gaps = Gaps::new(seed, ks.len() + 1);
                 log.refresh();
@@ -1611,6 +1643,10 @@ mod tests {
             "the control"
         );
         assert_eq!(super::full_screen_name("hero.gif"), "hero.full-screen.json");
+        assert_eq!(super::full_screen_name("tour.mp4"), "tour.full-screen.json");
+        let take = include_str!("../../src/take.rs");
+        let line = format!("pub(crate) const ENV: &str = \"{}\";", super::TAKE_ENV);
+        assert!(take.contains(&line), "{line}");
     }
 
     /// **The session is asked before the VM and before the window**: in

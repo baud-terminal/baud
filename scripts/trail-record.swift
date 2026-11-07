@@ -140,6 +140,14 @@ final class Rec: NSObject {
             wr.startSession(atSourceTime: t)
             start = t
             started = true
+            if holdsLast {
+                // The film's time 0 on the host clock, which baud's take
+                // journal stamps on too, and the host clock read now beside
+                // it: two readings of one clock differ by the frame's
+                // delivery, a few milliseconds, never by an epoch.
+                let ns = { (c: CMTime) in CMTimeConvertScale(c, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value }
+                print("film starts at host \(ns(t)) ns, read at host \(ns(CMClockGetTime(CMClockGetHostTimeClock()))) ns")
+            }
         }
         if !inp.isReadyForMoreMediaData {
             notReady += 1

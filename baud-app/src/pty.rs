@@ -453,6 +453,9 @@ const OUTER: &[&str] = &[
     crate::shell::HELPERS[0],
     crate::shell::HELPERS[1],
     crate::shell::HELPERS[2],
+    // A filmed take's journal (`take.rs`): the window filmed writes it, and
+    // a baud inside it, or any program, is never handed it.
+    "BAUD_TAKE",
     // The outer terminal's colours, window and terminfo.
     "COLORFGBG",
     "WINDOWID",

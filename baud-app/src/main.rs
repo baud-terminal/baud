@@ -130,6 +130,9 @@ mod keep;
 mod heap;
 #[cfg(target_os = "macos")]
 mod latency;
+// What a filmed take showed and when, under `BAUD_TAKE`, for its sound.
+#[cfg(target_os = "macos")]
+mod take;
 // What a macOS window lends its terminal and renderer as `'static`, given
 // back when it closes.
 #[cfg(target_os = "macos")]

@@ -10,6 +10,18 @@
 //! the stop and says where, and the film must play to there and no
 //! further. The GIF and its provenance file reach the path given only once
 //! every check has passed.
+//!
+//! **Or an MP4**, when the path given ends `.mp4`: the same film cropped
+//! to the same window, sampled at [`film::MP4_FPS`] and encoded by the
+//! pinned ffmpeg's libx264 with [`film::MP4_ENCODE`], so the same film makes
+//! the same bytes; it must play from the film's first frame to its stop, as
+//! many frames as that runs, starting at 0. Beside it the take's timeline,
+//! `NAME.timeline.tsv` (`timeline.rs`): baud, built with the `take`
+//! feature and started with `BAUD_TAKE`,
+//! journals what it showed on the host clock, the recorder says where the
+//! film starts on that clock, and the demo adds each typed command; the
+//! timeline is refused if it names this machine. An MP4 has no provenance
+//! file: `--verify` and the provenance record are the GIF's.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -25,6 +37,7 @@ use crate::names;
 use crate::provenance::{self, Facts, Tree};
 use crate::run::{Events, NIXPKGS};
 use crate::scratch::Layout;
+use crate::timeline;
 
 /// Where Xcode is: the recorder is compiled with its `swiftc` and SDK, as
 /// `scripts/readme-capture.sh` compiles it.
@@ -33,12 +46,31 @@ const XCODE: &str = "/Applications/Xcode.app/Contents/Developer";
 /// How a path in the scratch directory is written in the provenance file.
 pub const SCRATCH: &str = "<scratch>";
 
+/// What `--record` makes, by the path's extension.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Form {
+    Gif,
+    Mp4,
+}
+
+impl Form {
+    /// The form a path names: `.gif` or `.mp4`, with a name before it.
+    pub fn of(name: &str) -> Option<Form> {
+        match name.rsplit_once('.') {
+            Some((stem, "gif")) if !stem.is_empty() => Some(Form::Gif),
+            Some((stem, "mp4")) if !stem.is_empty() => Some(Form::Mp4),
+            _ => None,
+        }
+    }
+}
+
 /// **What `--record` needs, resolved before any window**: where the GIF
-/// goes, the encoder and the compiled recorder.
+/// or the MP4 goes, the encoder and the compiled recorder.
 pub struct Kit {
     pub out: PathBuf,
-    /// The GIF's file name.
+    /// The output's file name, `.gif` or `.mp4`.
     pub gif: String,
+    pub form: Form,
     pub ffmpeg: PathBuf,
     pub ffprobe: PathBuf,
     pub gifski: PathBuf,
@@ -106,8 +138,9 @@ pub fn kit(
     let gif = out
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".gif") && n.len() > 4)
-        .ok_or_else(|| format!("--record takes a .gif path, not {}", out.display()))?;
+        .filter(|n| Form::of(n).is_some())
+        .ok_or_else(|| format!("--record takes a .gif or .mp4 path, not {}", out.display()))?;
+    let form = Form::of(&gif).unwrap_or(Form::Gif);
     let dir = match out.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
         _ => PathBuf::from("."),
@@ -166,6 +199,7 @@ pub fn kit(
     Ok(Kit {
         out: out.to_path_buf(),
         gif,
+        form,
         ffmpeg,
         ffprobe,
         gifski,
@@ -185,6 +219,9 @@ pub fn kit(
 pub struct Filming {
     child: Child,
     said: Arc<Mutex<Vec<String>>>,
+    /// When the line saying where the film starts on the host clock was
+    /// read: the demo's clock carried onto the host's (`timeline::Clock`).
+    started: Arc<Mutex<Option<Instant>>>,
     err: Arc<Mutex<String>>,
     threads: Vec<JoinHandle<()>>,
     pub display: Display,
@@ -206,12 +243,18 @@ pub fn start(kit: &Kit, at: &Layout, ev: &Events) -> Result<Filming, String> {
         .map_err(|e| format!("the recorder: {e}"))?;
     ev.line("recorder started");
     let said = Arc::new(Mutex::new(Vec::new()));
+    let started = Arc::new(Mutex::new(None));
     let err = Arc::new(Mutex::new(String::new()));
     let mut threads = Vec::new();
     if let Some(out) = child.stdout.take() {
-        let (said, ev) = (Arc::clone(&said), ev.clone());
+        let (said, ev, at) = (Arc::clone(&said), ev.clone(), Arc::clone(&started));
         threads.push(std::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
+                if line.starts_with("film starts at host ") {
+                    if let Ok(mut a) = at.lock() {
+                        *a = Some(Instant::now());
+                    }
+                }
                 ev.line(&format!("recorder: {line}"));
                 if let Ok(mut s) = said.lock() {
                     s.push(line);
@@ -233,6 +276,7 @@ pub fn start(kit: &Kit, at: &Layout, ev: &Events) -> Result<Filming, String> {
     let mut f = Filming {
         child,
         said,
+        started,
         err,
         threads,
         display: Display {
@@ -281,6 +325,11 @@ pub fn start(kit: &Kit, at: &Layout, ev: &Events) -> Result<Filming, String> {
 }
 
 impl Filming {
+    /// When the film's start on the host clock was read, once it has been.
+    pub fn started(&self) -> Option<Instant> {
+        self.started.lock().ok().and_then(|a| *a)
+    }
+
     fn err(&self) -> String {
         self.err.lock().map(|s| s.clone()).unwrap_or_default()
     }
@@ -662,6 +711,26 @@ pub fn self_check(kit: &Kit, at: &Layout, run: &Run) -> Result<(), String> {
         "         with byte {mid} of {} changed, --verify refuses it",
         bytes.len()
     );
+    if kit.form == Form::Mp4 {
+        let (one, two) = (dir.join("check.mp4"), dir.join("again.mp4"));
+        let m = encode_mp4(kit, &raw, &c, &one)?;
+        encode_mp4(kit, &raw, &c, &two)?;
+        if m.frames != 120 {
+            return Err(format!(
+                "2 s at {} a second made {} frames, not 120",
+                film::MP4_FPS,
+                m.frames
+            ));
+        }
+        let read = |p: &Path| fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+        if read(&one)? != read(&two)? {
+            return Err("two encodes of one film made different MP4s".to_string());
+        }
+        println!(
+            "check:   the same testsrc as an MP4, twice: {} frames, {:.3} s, the same bytes",
+            m.frames, m.mp4
+        );
+    }
     Ok(())
 }
 
@@ -672,6 +741,11 @@ pub struct Session {
     pub said: Vec<String>,
     pub display: Display,
     pub frame: Rect,
+    /// For the MP4's timeline: each typed command and when its first key
+    /// was posted, when the film's start was read, and baud's journal.
+    pub scenes: Vec<(Instant, String)>,
+    pub started: Option<Instant>,
+    pub journal: PathBuf,
 }
 
 /// **The GIF made, checked and written**: the film cropped to baud's
@@ -680,6 +754,9 @@ pub struct Session {
 /// file checked for this machine's names; then the GIF and its file
 /// written beside each other and `--verify` run on them.
 pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> Result<(), String> {
+    if kit.form == Form::Mp4 {
+        return finish_mp4(kit, at, run, target, s);
+    }
     let raw = at.root.join("raw.mp4");
     let c = film::crop(&s.frame, &s.display)?;
     let gif = at.root.join(&kit.gif);
@@ -750,6 +827,142 @@ pub fn finish(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
     Ok(())
 }
 
+/// What the MP4 made: its frames, how long the film and it play.
+pub struct Made {
+    pub frames: usize,
+    pub film: f64,
+    pub mp4: f64,
+}
+
+/// **The film made the MP4**: ffmpeg crops it to `c`, samples it at
+/// [`film::MP4_FPS`] and encodes it ([`film::mp4_args`]) into `mp4`, which
+/// must run as long as the film plays ([`film::mp4_covers`]) and start at
+/// its first frame.
+pub fn encode_mp4(kit: &Kit, raw: &Path, c: &Crop, mp4: &Path) -> Result<Made, String> {
+    run_ok(
+        Command::new(&kit.ffmpeg).args(film::mp4_args(
+            &raw.to_string_lossy(),
+            c,
+            &mp4.to_string_lossy(),
+        )),
+        "ffmpeg",
+    )?;
+    let plays = say(duration(kit).arg(raw), "ffprobe")?;
+    let film = film::length(&plays)
+        .ok_or_else(|| format!("ffprobe gave the film's length as {plays:?}"))?;
+    let shown = say(duration(kit).arg(mp4), "ffprobe")?;
+    let mp4_s = seconds(&shown, "the MP4's length")?;
+    let mut probe = Command::new(&kit.ffprobe);
+    probe.args([
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-count_packets",
+        "-show_entries",
+        "stream=nb_read_packets,start_time",
+        "-of",
+        "csv=p=0",
+    ]);
+    let read = say(probe.arg(mp4), "ffprobe")?;
+    let (start, count) = read
+        .split_once(',')
+        .ok_or_else(|| format!("ffprobe gave the MP4's stream as {read:?}"))?;
+    let frames = count
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("ffprobe gave the MP4's frames as {count:?}"))?;
+    if seconds(start, "the MP4's start")?.abs() > 0.001 {
+        return Err(format!(
+            "the MP4 starts at {start} s, not at the film's first frame"
+        ));
+    }
+    film::mp4_covers(frames, film, mp4_s)?;
+    Ok(Made {
+        frames,
+        film,
+        mp4: mp4_s,
+    })
+}
+
+/// **The take's timeline**: baud's journal and the typed commands, on the
+/// film's clock, refused if it names this machine.
+fn timeline_text(s: &Session, names: &[String]) -> Result<String, String> {
+    let (first, read_ns) = film::film_start(&s.said)?;
+    let read = s
+        .started
+        .ok_or("the line saying where the film starts was never read")?;
+    let clock = timeline::Clock {
+        read,
+        host_ns: read_ns,
+    };
+    let journal = fs::read_to_string(&s.journal)
+        .map_err(|e| format!("baud's take journal, {}: {e}", s.journal.display()))?;
+    let mut rows = timeline::journal(&journal)?;
+    rows.extend(
+        s.scenes
+            .iter()
+            .map(|(t, command)| timeline::scene(clock.host(*t), command)),
+    );
+    let text = timeline::text(first, rows)?;
+    let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    let hit = names::named_outside(text.as_bytes(), names, &[&public]);
+    if !hit.is_empty() {
+        return Err(format!("the timeline would name this machine: {hit:?}"));
+    }
+    Ok(text)
+}
+
+/// **The MP4 and its timeline made, checked and written**: the film
+/// cropped and encoded ([`encode_mp4`]), playing to the stop; the
+/// repository still at the commit it was built from; the raw film kept in
+/// cargo's target directory; then the MP4 and `NAME.timeline.tsv` written
+/// beside each other.
+fn finish_mp4(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> Result<(), String> {
+    let raw = at.root.join("raw.mp4");
+    let c = film::crop(&s.frame, &s.display)?;
+    let mp4 = at.root.join(&kit.gif);
+    println!(
+        "encode:  the film cropped to baud's window ({})",
+        c.filter()
+    );
+    let m = encode_mp4(kit, &raw, &c, &mp4)?;
+    let stop = film::said_film(&s.said).ok_or("the recorder never said where its film stops")?;
+    film::ends_at_stop(m.film, stop)?;
+    let text = timeline_text(&s, run.names)?;
+    let now = provenance::tree(run.root)?;
+    if now.commit != run.tree.commit {
+        return Err(format!(
+            "the repository moved from {} to {} while it was filmed",
+            run.tree.commit, now.commit
+        ));
+    }
+    let stem = kit.gif.trim_end_matches(".mp4");
+    let keep_dir = target.join("demo");
+    fs::create_dir_all(&keep_dir).map_err(|e| format!("{}: {e}", keep_dir.display()))?;
+    let keep = keep_dir.join(format!("{stem}.raw.mp4"));
+    fs::copy(&raw, &keep).map_err(|e| format!("{}: {e}", keep.display()))?;
+    fs::copy(&mp4, &kit.out).map_err(|e| format!("{}: {e}", kit.out.display()))?;
+    let tsv = kit.out.with_file_name(format!("{stem}.timeline.tsv"));
+    fs::write(&tsv, &text).map_err(|e| format!("{}: {e}", tsv.display()))?;
+    println!(
+        "mp4:     {}, {} bytes, {} frames at {}, {:.3} s, the film's {:.3} s",
+        kit.out.display(),
+        bytes_of(&kit.out)?,
+        m.frames,
+        film::MP4_FPS,
+        m.mp4,
+        m.film
+    );
+    println!(
+        "         its timeline beside it, {}, {} rows",
+        tsv.display(),
+        text.lines().count().saturating_sub(1)
+    );
+    println!("raw:     {}", keep.display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -765,6 +978,7 @@ mod tests {
         Filming {
             child,
             said: Arc::new(Mutex::new(vec!["film 1.000".to_string()])),
+            started: Arc::new(Mutex::new(None)),
             err: Arc::new(Mutex::new(String::new())),
             threads: Vec::new(),
             display: Display {

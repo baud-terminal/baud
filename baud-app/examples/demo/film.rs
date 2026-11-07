@@ -166,6 +166,116 @@ pub fn gifski_args(gif: &str) -> Vec<String> {
     a
 }
 
+/// **The MP4's frame rate**: a constant 60 a second, each frame the film's
+/// frame at that moment and the last one held until the next, as ffmpeg's
+/// `fps` filter samples the GIF's 30. Constant rather than the capture's own
+/// times because YouTube's upload guidance asks for a constant rate, and the
+/// capture sends no frame while nothing changes, so a still second is one
+/// frame held, which players and editors seek and cut badly; the recorder
+/// films at most 60 a second (`minimumFrameInterval`), so a frame moves by
+/// at most half of one sixtieth, 8.3 ms, and the timeline's times, from the
+/// film's first frame, are the MP4's.
+pub const MP4_FPS: u32 = 60;
+
+/// **ffmpeg's arguments for the MP4**: the film cropped to baud's window
+/// and sampled at [`MP4_FPS`], encoded by libx264 with fixed settings and
+/// a fixed thread count, no audio, no metadata and every bit-exact flag, so
+/// the same film makes the same bytes. Nothing trimmed and nothing padded.
+pub fn mp4_args(raw: &str, c: &Crop, mp4: &str) -> Vec<String> {
+    let mut a: Vec<String> = ["-v", "error", "-y", "-i"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    a.push(raw.to_string());
+    a.extend(["-vf".to_string(), format!("{},fps={MP4_FPS}", c.filter())]);
+    a.extend(MP4_ENCODE.iter().map(|s| s.to_string()));
+    a.push(mp4.to_string());
+    a
+}
+
+/// The encoder's settings, the same in the logo's MP4
+/// (`tools/baud-pictures`): H.264 High at CRF 18, `slow`, 4:2:0, BT.709,
+/// four threads whatever the machine has, and nothing of the run written
+/// into the file.
+pub const MP4_ENCODE: [&str; 29] = [
+    "-an",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "18",
+    "-pix_fmt",
+    "yuv420p",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-threads",
+    "4",
+    "-fflags",
+    "+bitexact",
+    "-flags:v",
+    "+bitexact",
+    "-map_metadata",
+    "-1",
+    "-map_chapters",
+    "-1",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+];
+
+/// **The MP4 is the film, start to end, at its own speed**: as many frames
+/// at [`MP4_FPS`] as the film runs, to within one and a half, and it plays
+/// as long as those frames, to within one frame.
+pub fn mp4_covers(frames: usize, film: f64, mp4: f64) -> Result<(), String> {
+    let fps = f64::from(MP4_FPS);
+    let at = frames as f64 / fps;
+    if (at - film).abs() > 1.5 / fps {
+        return Err(format!(
+            "{frames} frames at {MP4_FPS} a second run {at:.3} s, but the film runs {film:.3} s"
+        ));
+    }
+    if (mp4 - at).abs() > 1.0 / fps {
+        return Err(format!(
+            "the MP4 plays {mp4:.3} s, but its {frames} frames at {MP4_FPS} a second run {at:.3} s"
+        ));
+    }
+    Ok(())
+}
+
+/// **Where the film starts on the host clock**, from the recorder's line
+/// `film starts at host T ns, read at host R ns`: the first frame's time and
+/// the clock read beside it, which must be within a second of it, or the
+/// frame's time is not on the host clock and nothing can be laid on it.
+pub fn film_start(lines: &[String]) -> Result<(u64, u64), String> {
+    let l = lines
+        .iter()
+        .find(|l| l.starts_with("film starts at host "))
+        .ok_or("the recorder never said where its film starts on the host clock")?;
+    let rest = l.strip_prefix("film starts at host ").unwrap_or_default();
+    let (t, rest) = rest
+        .split_once(" ns, read at host ")
+        .ok_or(format!("{l:?}"))?;
+    let r = rest.strip_suffix(" ns").ok_or(format!("{l:?}"))?;
+    let (t, r) = (
+        t.parse::<u64>().map_err(|_| format!("{l:?}"))?,
+        r.parse::<u64>().map_err(|_| format!("{l:?}"))?,
+    );
+    if t.abs_diff(r) > 1_000_000_000 {
+        return Err(format!(
+            "the film's first frame is {} s from the host clock read beside it, so it is not \
+             on that clock",
+            t.abs_diff(r) / 1_000_000_000
+        ));
+    }
+    Ok((t, r))
+}
+
 /// **How long a film plays**, ffprobe's `-show_entries format=duration -of
 /// csv=p=0`: the MP4's edit list, which the recorder ends at the stop, and
 /// what ffmpeg samples. The packets do not stop there: the writer gives the

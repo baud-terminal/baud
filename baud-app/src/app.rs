@@ -815,6 +815,9 @@ struct App {
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
     latency: Latency,
+    /// What a filmed take showed and when, under `BAUD_TAKE`, and one test
+    /// per hook otherwise; see `take.rs`.
+    take: crate::take::Take,
     /// The image budget the core was provisioned with, so a refusal's log
     /// line names the limit it hit (`host::describe_refusals`).
     images: baud_domain::ImageBudget,
@@ -1671,6 +1674,7 @@ impl App {
             unfocused_cursor,
             slide: Slide::new(cell_h),
             latency: Latency::from_env(),
+            take: crate::take::Take::from_env(),
             images,
             clipboard,
             clips,
@@ -2320,6 +2324,10 @@ impl App {
             (&mut self.chase, &mut self.trail, &mut self.last_cursor_cell),
             (&mut self.carried, ridden),
         );
+        self.take_frame(match trail_look {
+            Some(_) => crate::take::Drew::Yes,
+            None => crate::take::Drew::No,
+        });
         // The alternate-screen switch: the new screen sliding in over the
         // old one, or the veil under Reduce Motion, advanced and cleared off
         // `tick_target` like the trail. Settled, this frame draws neither --
@@ -2375,6 +2383,7 @@ impl App {
             ),
             None => Vec::new(),
         };
+        self.take_bursts();
         self.renderer.set_fireworks(&shows);
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
@@ -3192,11 +3201,13 @@ impl App {
                         Some(Drawn::Frame(g)) => {
                             shown = Presented::Yes;
                             self.latency.committed(|| before);
+                            self.take_committed();
                             startup_first("first commit", &FIRST_COMMIT);
                             // Drawn now, the frame is on the layer and
                             // no completion follows it: marked here for
                             // the tick's splash gate (`frame`).
                             if show == Show::Now {
+                                self.take.shown(host_now);
                                 self.layer_shown = Done::Yes;
                                 startup_first("first present", &FIRST_PRESENT);
                             }
@@ -3233,11 +3244,13 @@ impl App {
                         Some(Drawn::Frame(g)) => {
                             shown = Presented::Yes;
                             self.latency.committed(|| before);
+                            self.take_committed();
                             startup_first("first commit", &FIRST_COMMIT);
                             // Drawn now, the frame is on the layer and
                             // no completion follows it: marked here for
                             // the tick's splash gate (`frame`).
                             if show == Show::Now {
+                                self.take.shown(host_now);
                                 self.layer_shown = Done::Yes;
                                 startup_first("first present", &FIRST_PRESENT);
                             }
@@ -3324,6 +3337,8 @@ impl App {
                         // the GPU is; no completion follows a CPU frame.
                         self.layer_shown = Done::Yes;
                         self.latency.shown_cpu(host_now);
+                        self.take_committed();
+                        self.take.shown(host_now);
                         startup_first("first present", &FIRST_PRESENT);
                         if FIRST_BYTES.load(Ordering::Relaxed) {
                             startup_first("first content", &FIRST_CONTENT);
@@ -3475,6 +3490,7 @@ impl App {
     /// stamp that is not a landing on this clock is refused, printed once
     /// per refusal, and the key still completes without it.
     fn presented(&mut self) {
+        self.take.shown(host_now);
         if self.latency.on() == Switch::Off {
             return;
         }
@@ -3492,6 +3508,126 @@ impl App {
                 now.nanos()
             );
         }
+    }
+
+    /// **The cursor's centre in the window's pixels**, for the take's
+    /// journal: the cell `marked.rs` answers the input manager with, past
+    /// the padding (`pad_px`).
+    fn take_cursor(&self) -> (i64, i64) {
+        let m = self.renderer.metrics();
+        let cell = crate::marked::cursor_cell(&self.term, m.cell_w, m.cell_h);
+        let [x, y, w, h] = crate::marked::in_frame(cell, self.pad_px);
+        crate::take::Pos::centre([x, y, w, h].map(|p| i64::from(p.value())))
+    }
+
+    /// The frame being drawn committed, its rows at the cursor now.
+    fn take_committed(&mut self) {
+        if !self.take.on() {
+            return;
+        }
+        let at = self.take_cursor();
+        self.take.committed(|| at);
+    }
+
+    /// **The frame being drawn, to the take's journal**: whether it draws a
+    /// trail, and where the pictures it draws are, the union of every
+    /// placement on the screen shown, laid out left to right as
+    /// `Renderer`'s placement does before a row drawn right to left
+    /// mirrors it.
+    fn take_frame(&mut self, trail: crate::take::Drew) {
+        if !self.take.on() {
+            return;
+        }
+        let at = self.take_cursor();
+        let kind = format!("{:?}", self.cursor_trail).to_lowercase();
+        let pictures = self.take_pictures();
+        self.take.frame(&kind, trail, || at, || pictures);
+    }
+
+    fn take_pictures(&self) -> Option<[i64; 4]> {
+        let imgs = self.term.images();
+        if !imgs.any_placed() {
+            return None;
+        }
+        let origin = self.term.image_origin(self.term.window_back());
+        let m = self.renderer.metrics();
+        let (cw, ch) = (i64::from(m.cell_w.value()), i64::from(m.cell_h.value()));
+        let (pw, ph) = (cell_px(m.cell_w), cell_px(m.cell_h));
+        let (px, py) = (
+            i64::from(self.pad_px.0.value()),
+            i64::from(self.pad_px.1.value()),
+        );
+        let top = i64::try_from(origin.top.value()).unwrap_or(i64::MAX);
+        let mut union: Option<[i64; 4]> = None;
+        for (_, p) in imgs.placements() {
+            if p.screen != origin.screen {
+                continue;
+            }
+            let Some(view) = imgs.image(p.image) else {
+                continue;
+            };
+            let dest = p.kitty.draw(view.width, view.height, pw, ph).dest;
+            if dest.w == 0 || dest.h == 0 {
+                continue;
+            }
+            let line = i64::try_from(p.line.value()).unwrap_or(i64::MAX);
+            let col = i64::try_from(p.col.index()).unwrap_or(i64::MAX);
+            let x0 = px + col * cw + i64::from(dest.x);
+            let y0 = py + (line - top) * ch + i64::from(dest.y);
+            let (x1, y1) = (x0 + i64::from(dest.w), y0 + i64::from(dest.h));
+            union = Some(match union {
+                None => [x0, y0, x1, y1],
+                Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
+            });
+        }
+        union.map(|[a, b, c, d]| [a, b, c - a, d - b])
+    }
+
+    /// Every burst born for the frame being drawn, at its origin; taken
+    /// whether or not the journal is on.
+    fn take_bursts(&mut self) {
+        let born = self.fireworks.births();
+        let (px, py) = (self.pad_px.0.value(), self.pad_px.1.value());
+        for b in born {
+            let at = (
+                f64::from(b.x).round() as i64 + i64::from(px),
+                f64::from(b.y).round() as i64 + i64::from(py),
+            );
+            self.take
+                .note("fireworks", "burst", || crate::take::Pos::At(at.0, at.1));
+        }
+    }
+
+    /// **A copy said**: the selection's two ends, the first cell's top
+    /// left to the last's bottom right, on the window shown.
+    fn take_copied(&mut self) {
+        if !self.take.on() {
+            return;
+        }
+        let back = self.term.window_back();
+        let rows = self.term.view(back).rows();
+        let m = self.renderer.metrics();
+        let (cw, ch) = (i64::from(m.cell_w.value()), i64::from(m.cell_h.value()));
+        let (px, py) = (
+            i64::from(self.pad_px.0.value()),
+            i64::from(self.pad_px.1.value()),
+        );
+        let scrolled = self.scrolled;
+        let cell = |p: baud_render::Point| {
+            let row = scrolled.window_row(back, p.line, rows)?;
+            let r = i64::try_from(row.index()).ok()?;
+            let c = i64::try_from(p.col.index()).ok()?;
+            Some((px + c * cw, py + r * ch))
+        };
+        let pos = match self.selection.map(|s| s.ordered()) {
+            Some((a, b)) => match (cell(a), cell(b)) {
+                (Some(a), Some(b)) => crate::take::Pos::Span(a.0, a.1, b.0 + cw, b.1 + ch),
+                (Some(a), None) | (None, Some(a)) => crate::take::Pos::At(a.0, a.1),
+                (None, None) => crate::take::Pos::None,
+            },
+            None => crate::take::Pos::None,
+        };
+        self.take.note("copy", "-", || pos);
     }
 
     fn present_counts(&self) -> String {
@@ -11202,6 +11338,7 @@ impl Driver {
             self.downs.pressed(code, e);
         }
         self.app.latency.key(current_event_time, host_now);
+        self.app.take.key(&e);
         let (text, held) = (e.text, e.mods);
         let typed = predicts(e.code, self.app.term.keypad());
         match self.app.send(e) {
@@ -11686,6 +11823,7 @@ impl Driver {
         }
         if !drained.chunks.is_empty() {
             self.app.latency.fed(host_now);
+            self.app.take.fed();
             // The first read after a key's write is that key's echo -- the
             // instrument's rule, and the loop's: it is owed a frame now.
             if self.app.echo == Echo::Wanted {
@@ -15514,6 +15652,20 @@ impl Driver {
         }
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(now, pace);
+        self.app.take.lamps(
+            || {
+                Led::ALL
+                    .iter()
+                    .map(|&l| {
+                        (
+                            l.letters(),
+                            *shown.get(l) == baud_render::lights::Light::Lit,
+                        )
+                    })
+                    .collect()
+            },
+            host_now,
+        );
         let glow = crate::lights::glow(self.app.flashing);
         let wanted = crate::lights::Drawn {
             scale: self.app.scale,
@@ -16403,6 +16555,7 @@ impl Driver {
         if app.copied.selection(count, pulse) == crate::copied::Owes::Frame {
             app.pending = Pending::Dirty;
         }
+        app.take_copied();
         app.say_copied();
     }
 
@@ -16427,6 +16580,7 @@ impl Driver {
         let pty = &self.app.pty;
         let form = crate::paste::form(&self.app.term, || pty.literal_next(), || pty.specials());
         self.app.outbox.push(&crate::paste::bytes(&text, form));
+        self.app.take.paste();
         self.app.flush_reply(Asked::Typed);
     }
 

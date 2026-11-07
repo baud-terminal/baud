@@ -62,6 +62,10 @@ pub(crate) struct Fireworks {
     shows: Vec<Running>,
     /// The last show's seed: each one's its own.
     seed: Seed,
+    /// Each burst's origin as it is born, in frame pixels, until
+    /// [`Fireworks::births`] takes them: what a filmed take's journal
+    /// places each pop at (`take.rs`).
+    born: Vec<Pt>,
 }
 
 /// Where a cell's centre is in frame pixels: the renderer's cell size, the
@@ -94,6 +98,7 @@ impl Fireworks {
             seen: None,
             shows: Vec::new(),
             seed: Seed(0xF1EE_0000),
+            born: Vec::new(),
         }
     }
 
@@ -130,6 +135,7 @@ impl Fireworks {
                 while s.born < by {
                     s.born.set(&mut s.origins, cursor);
                     s.born = s.born.next();
+                    self.born.push(cursor);
                 }
             }
             out.push(Show {
@@ -168,6 +174,7 @@ impl Fireworks {
         // first is born on the show's first frame, there, and a still show
         // keeps them all there.
         let origins = [at; ORIGINS];
+        self.born.push(at);
         self.seed = Seed(self.seed.0.wrapping_add(0x9E37_79B9));
         self.shows.push(Running {
             start: now,
@@ -180,6 +187,14 @@ impl Fireworks {
         if self.shows.len() > 2 {
             self.shows.remove(0);
         }
+    }
+
+    /// The bursts born since the last call, their origins in frame pixels;
+    /// taken on every frame, so they never pile up. Only the macOS driver
+    /// journals a take (`app.rs`), so only it takes them.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn births(&mut self) -> Vec<Pt> {
+        std::mem::take(&mut self.born)
     }
 
     /// **What a tick owes**: a frame while a show is up, and the one a
@@ -364,9 +379,15 @@ mod tests {
                 ),
                 None => Vec::new(),
             };
-            self.renderer.set_fireworks(&shows);
         "#;
-        assert!(present.contains(&bare(FRAME)), "the frame hands them on");
+        const HAND: &str = "self.renderer.set_fireworks(&shows);";
+        let taken = present.find(&bare(FRAME)).expect("the frame takes them") + bare(FRAME).len();
+        let handed = present.find(HAND).expect("the frame hands them on");
+        assert_eq!(present.matches(HAND).count(), 1, "once a frame");
+        // What lies between, such as the take's note of each burst, names
+        // no shows, so the ones handed on are the ones taken.
+        let between = &present[taken..handed];
+        assert!(!between.contains("shows"), "as taken: {between}");
         let tick = body(app, "fn frame(&mut self, target: f64) {");
         const SPLASH: &str = r#"
             if self.app.splash.owes(target) == crate::splash::Owes::Frame {
