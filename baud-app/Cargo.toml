@@ -102,6 +102,12 @@ ceiling-idle-skip = []
 # to journal; on, it changes nothing drawn -- the journal only reads.
 take = []
 
+# **The effect probe, test-only** (`baud-present-macos/src/probe.rs`):
+# every effect is recorded where it runs instead of made, and the binary
+# takes `--event-rig`, the child `tests/event_rig.rs` runs. Never in a
+# build that ships.
+effect-probe = ["baud-present-macos/effect-probe"]
+
 # The binary is `baud`, as the package is.
 [[bin]]
 name = "baud"
@@ -118,6 +124,12 @@ test = true
 # **The titlebar mark in real windows** (`tests/titlebar_mark.rs`): AppKit
 # views are main-thread-only and libtest runs each test on a thread of its
 # own, so the test is its own `main` and answers nextest's `--list` itself.
+# Runs only with `--features effect-probe`, which the child needs.
+[[test]]
+name = "event_rig"
+path = "tests/event_rig.rs"
+required-features = ["effect-probe"]
+
 [[test]]
 name = "about_window"
 path = "tests/about_window.rs"

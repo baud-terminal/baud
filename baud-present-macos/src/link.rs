@@ -13,7 +13,7 @@
 
 use macos_liquid_glass::objc2::rc::{Retained, autoreleasepool};
 use macos_liquid_glass::objc2_app_kit::NSWorkspace;
-use macos_liquid_glass::objc2_foundation::{NSArray, NSProcessInfo, NSString, NSURL};
+use macos_liquid_glass::objc2_foundation::{NSProcessInfo, NSString, NSURL};
 
 /// What became of a link handed over.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -87,6 +87,17 @@ pub type Hand = fn(Ask, &str) -> Opened;
 /// loop either way; it goes the same route, since nothing a tick does
 /// should wait on another process.
 pub fn workspace(ask: Ask, url: &str) -> Opened {
+    // The probe build records the effect where it runs and opens nothing.
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = url;
+        crate::probe::record(match ask {
+            Ask::Open => crate::probe::EffectKind::Open,
+            Ask::Reveal => crate::probe::EffectKind::Reveal,
+        });
+        Opened::Taken
+    }
+    #[cfg(not(feature = "effect-probe"))]
     autoreleasepool(|_| match parse(url) {
         Err(o) => o,
         Ok(u) => match ask {
@@ -98,6 +109,7 @@ pub fn workspace(ask: Ask, url: &str) -> Opened {
                 }
             }
             Ask::Reveal => {
+                use macos_liquid_glass::objc2_foundation::NSArray;
                 NSWorkspace::sharedWorkspace()
                     .activateFileViewerSelectingURLs(&NSArray::from_slice(&[&*u]));
                 Opened::Taken
@@ -118,15 +130,15 @@ pub fn workspace(ask: Ask, url: &str) -> Opened {
 /// on the main thread, after `hand` has returned; it is the caller's way
 /// back in, through a waker, and holds no borrow across the hand-over.
 /// The block runs through [`crate::unwind::guard`], so a panic in it is
-/// stopped there rather than in libdispatch, which would abort.
+/// stopped there rather than in libdispatch, which would abort. `url` is
+/// moved into the block, not copied.
 pub fn later(
     ask: Ask,
-    url: &str,
+    url: String,
     hand: Hand,
     done: impl FnOnce(Opened) + Send + 'static,
 ) -> Result<(), Opened> {
-    autoreleasepool(|_| parse(url).map(drop))?;
-    let url = url.to_owned();
+    autoreleasepool(|_| parse(&url).map(drop))?;
     dispatch2::DispatchQueue::main().exec_async(move || {
         crate::unwind::guard("a link handed to the OS", (), move || done(hand(ask, &url)));
     });

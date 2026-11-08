@@ -347,6 +347,13 @@ fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     std::thread::spawn(discover::Catalogue::system);
     log::init();
+    #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+    if let Some(code) = app::rig::asked() {
+        std::process::exit(match code == std::process::ExitCode::SUCCESS {
+            true => 0,
+            false => 1,
+        });
+    }
     #[cfg(target_os = "macos")]
     app::run();
     #[cfg(target_os = "linux")]

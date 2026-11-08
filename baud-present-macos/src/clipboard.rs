@@ -16,8 +16,21 @@ pub enum Written {
     Refused,
 }
 
-/// Replace the pasteboard's contents with `text`.
+/// Replace the pasteboard's contents with `text`. The probe build records
+/// the write where it runs and writes nothing (`crate::probe`).
 pub fn write_text(text: &str) -> Written {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = text;
+        crate::probe::record(crate::probe::EffectKind::Copy);
+        Written::Taken
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    written(text)
+}
+
+#[cfg(not(feature = "effect-probe"))]
+fn written(text: &str) -> Written {
     let board = NSPasteboard::generalPasteboard();
     board.clearContents();
     let kind = NSString::from_str(STRING_TYPE);

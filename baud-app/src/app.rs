@@ -81,6 +81,9 @@ use std::time::{Duration, Instant};
 
 #[cfg(test)]
 mod launch_tests;
+/// The event rig's child (`tests/event_rig.rs`), in the probe build only.
+#[cfg(feature = "effect-probe")]
+pub(crate) mod rig;
 
 /// How a frame reaches the screen: through the GPU's completion and the
 /// run loop, as every frame in the loop does, or on this thread with the
@@ -513,9 +516,9 @@ struct App {
     gpu: Option<Gpu>,
     cell: Option<CellMemory>,
     waker: Waker,
-    /// What the OS said of each link opened on a later turn
-    /// ([`LinkAnswers`]), taken by the next pump.
-    answered: LinkAnswers,
+    /// What a main-queue turn did with each effect asked for
+    /// ([`Turned`]), taken by the next pump that is not a tick.
+    turned: Turned,
     pty: Pty,
     /// What the child is owed and the kernel has not taken (`pty.rs`):
     /// every write goes through it, in order, and the pump offers what is
@@ -1523,7 +1526,7 @@ impl App {
             gpu,
             cell,
             waker,
-            answered: LinkAnswers::default(),
+            turned: Turned::default(),
             pty,
             outbox: Outbox::default(),
             hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -1574,10 +1577,10 @@ impl App {
                 let _ = p.set_missing(link_config.missing_read());
                 p
             },
-            // The display link's tick reads the answers, so the worker
-            // need wake nothing.
+            // The worker wakes the view after each answer, and the answers
+            // are read on that wake (`paths_answered`), never on the tick.
             probes: {
-                let mut p = crate::probe::Probes::system(|| {});
+                let mut p = crate::probe::Probes::system(move || waker.wake());
                 p.set_programs(link_config.programs());
                 p
             },
@@ -2175,9 +2178,15 @@ impl App {
         let Some(words) = self.copied.take_saying() else {
             return;
         };
-        if let Some(mtm) = MainThreadMarker::new() {
-            baud_present_macos::announce::announce(mtm, &words);
-        }
+        // To VoiceOver on a later main-queue turn, outside the view's
+        // callback, as every effect is (`Turned`).
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            baud_present_macos::unwind::guard("a copy's announcement", (), move || {
+                if let Some(mtm) = MainThreadMarker::new() {
+                    baud_present_macos::announce::announce(mtm, &words);
+                }
+            });
+        });
     }
 
     fn present(&mut self, screen: &DrawableView, show: Show) {
@@ -4361,57 +4370,88 @@ fn predicts(code: KeyCode, keypad: KeypadMode) -> bool {
 #[derive(Clone, Default)]
 struct PendingStyle(std::rc::Rc<std::cell::Cell<Option<Appearance>>>);
 
-/// **What the OS said of a link opened on a later turn**, back for the
-/// next pump, the shape [`PendingStyle`] has for the same reason.
+/// **What a main-queue turn did with an effect the driver asked for**,
+/// back for the driver's next wake.
 ///
-/// A link is handed to `NSWorkspace` by a block on the main queue
-/// (`baud_present_macos::link::later`), never from inside the view's
-/// callback that asked: `activateFileViewerSelectingURLs:` waits for
-/// Finder in a nested event loop that runs the view's queued `wake:`,
-/// and run from a tick that re-entered the view while the tick held it,
-/// a panic that aborted the app. The block holds no driver, so what an
-/// open answered -- `Declined` says on the bar that no app took it --
-/// comes back through this list and the view's waker. `Arc<Mutex>` only
-/// because the block must be `Send`; both ends are the main thread, and
-/// the lock is never held across the hand-over.
-#[derive(Clone, Default)]
-struct LinkAnswers(std::sync::Arc<std::sync::Mutex<Vec<LinkAnswer>>>);
-
-/// An open the OS answered: what it said, of which scheme, and the link
-/// as the log shows it.
-struct LinkAnswer {
-    opened: baud_present_macos::link::Opened,
-    scheme: crate::link::Scheme,
-    shown: String,
+/// An effect -- a link opened or revealed, a `[link.path]` command
+/// started, the pasteboard written -- runs in a block on the main queue,
+/// never inside the view's callback that asked: the window crate holds
+/// the view's responder borrowed for each callback's whole length, and
+/// `activateFileViewerSelectingURLs:` waits for Finder in a nested event
+/// loop that delivers the view's queued `wake:`, which re-entered the
+/// view and aborted the app. The block holds no driver, so what it did
+/// comes back as a [`TurnDone`] on this channel, followed by a wake, and
+/// the next pump that is not a tick applies it: the counts, the log, the
+/// bar's note. The P0's shape: one boxed block per effect, a user's
+/// action and never a frame, and nothing when idle.
+struct Turned {
+    tx: std::sync::mpsc::Sender<TurnDone>,
+    rx: std::sync::mpsc::Receiver<TurnDone>,
 }
 
-impl LinkAnswers {
-    /// The `done` for one open: the answer onto the list, then a wake.
-    fn done(
-        &self,
-        waker: Waker,
+impl Default for Turned {
+    fn default() -> Turned {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Turned { tx, rx }
+    }
+}
+
+/// One effect's answer.
+enum TurnDone {
+    /// An open the OS answered, of which scheme, and the link as the log
+    /// shows it.
+    Opened {
+        opened: baud_present_macos::link::Opened,
         scheme: crate::link::Scheme,
         shown: String,
-    ) -> impl FnOnce(baud_present_macos::link::Opened) + Send + 'static {
-        let list = self.0.clone();
-        move |opened| {
-            if let Ok(mut l) = list.lock() {
-                l.push(LinkAnswer {
-                    opened,
-                    scheme,
-                    shown,
-                });
-            }
-            waker.wake();
+    },
+    /// A printed path's `[link.path]` command, started or not.
+    Started(std::io::Result<std::process::Child>),
+    /// The pasteboard written with `text`, or refused.
+    Copied {
+        written: clipboard::Written,
+        text: String,
+    },
+}
+
+impl Turned {
+    /// What a block hands its answer back by: the channel, then a wake.
+    fn back(&self, waker: Waker) -> Back {
+        Back {
+            tx: self.tx.clone(),
+            waker,
         }
     }
+}
 
-    /// Every answer since the last take, in order.
-    fn take(&self) -> Vec<LinkAnswer> {
-        self.0
-            .lock()
-            .map(|mut l| std::mem::take(&mut *l))
-            .unwrap_or_default()
+/// A block's way back to the driver.
+struct Back {
+    tx: std::sync::mpsc::Sender<TurnDone>,
+    waker: Waker,
+}
+
+impl Back {
+    /// The answer onto the channel, then a wake, so the driver hears it.
+    fn send(self, done: TurnDone) {
+        if self.tx.send(done).is_ok() {
+            self.waker.wake();
+        }
+    }
+}
+
+/// **A `[link.path]` command, started on a later turn** (`Turned`), as it
+/// starts in the app. The probe build records it and starts nothing.
+fn start_command(cmd: std::process::Command) -> std::io::Result<std::process::Child> {
+    #[cfg(feature = "effect-probe")]
+    {
+        drop(cmd);
+        baud_present_macos::probe::record(baud_present_macos::probe::EffectKind::Command);
+        Err(std::io::Error::other("the effect probe starts nothing"))
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    {
+        let mut cmd = cmd;
+        cmd.spawn()
     }
 }
 
@@ -5095,7 +5135,7 @@ fn open_from_about(url: &str) {
                 Opened::Taken => crate::info!("link opened ({scheme:?}): {said}"),
                 other => crate::warn!("link refused ({other:?}): {said}"),
             };
-            if let Err(why) = opener::later(ask, t.as_str(), opener::workspace, done) {
+            if let Err(why) = opener::later(ask, t.as_str().to_owned(), opener::workspace, done) {
                 crate::warn!("link refused ({why:?}): {url}");
             }
         }
@@ -11651,8 +11691,14 @@ impl Driver {
     /// on a wake only if a frame's worth of time has passed since the last
     /// commit, so a flood draws once a vsync and a keystroke draws now.
     fn pump(&mut self, trigger: Trigger) {
-        // What the OS said of a link opened on a later turn.
-        self.links_answered();
+        // Every answer, here and below, on a turn that is not the display
+        // link's tick: the tick draws. What a main-queue turn did with an
+        // effect, and the printed paths' worker's answers, which it wakes
+        // the view with.
+        if !matches!(trigger, Trigger::Tick) {
+            self.turns_answered();
+            self.paths_answered();
+        }
         // The config's files, on every turn and not only on a tick: the
         // display link pauses while the window is covered, which is when
         // the config is edited in another app (`follow_config`).
@@ -12889,6 +12935,11 @@ impl Responder for Driver {
 
     fn wake(&mut self) {
         startup_first("run loop", &FIRST_WAKE);
+        // The event rig's click on a printed path, taken as a click is.
+        #[cfg(feature = "effect-probe")]
+        if let Some(path) = rig::take_click() {
+            self.rig_click(path);
+        }
         if self.app.frames.value() > 0
             && self.app.presenter.as_ref().map(Presenter::in_flight) != Some(InFlight::Busy)
         {
@@ -14074,7 +14125,29 @@ impl Driver {
         };
         let turn = app
             .probes
-            .turn(host_now(), seen, || crate::fg::group(master));
+            .tick(host_now(), seen, || crate::fg::group(master));
+        app.links.checks = app.probes.counts;
+        if turn.frame == crate::paths::Owed::Yes {
+            app.pending = Pending::Dirty;
+        }
+    }
+
+    /// **The printed paths' worker's answers, on its wake**: the worker
+    /// wakes the view after each one (`probe.rs`), so they are merged
+    /// here, on a pump that is not the tick, and a click's answer is acted
+    /// on here too. The tick only paces and sends the next batch
+    /// (`paths_turn`).
+    fn paths_answered(&mut self) {
+        let app = &mut self.app;
+        let mut seen = crate::probe::Seen {
+            term: &app.term,
+            scrolled: app.scrolled,
+            lines: &mut app.lines,
+            uris: &mut app.uris,
+            urls: app.link_config.urls_read(),
+            paths: &mut app.paths,
+        };
+        let turn = app.probes.answers(&mut seen);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
             app.pending = Pending::Dirty;
@@ -14085,8 +14158,8 @@ impl Driver {
     }
 
     /// **A click on a printed path**: asked again of the worker, off the
-    /// frame; the answer comes at a later tick (`paths_turn`), or now when
-    /// there is no worker to ask.
+    /// frame; the answer comes on the wake the worker sends with it
+    /// (`paths_answered`), or now when there is no worker to ask.
     fn check_path(&mut self, p: &crate::link::Printed) {
         self.app.path_click = Some((
             p.path().to_vec(),
@@ -14096,6 +14169,22 @@ impl Driver {
             path: p.path().to_vec(),
             form: p.form(),
             line: p.line(),
+        });
+    }
+
+    /// The event rig's click on `path` as a printed path with no
+    /// `:line:col`, asked of the worker as `check_path` asks.
+    #[cfg(feature = "effect-probe")]
+    fn rig_click(&mut self, path: Vec<u8>) {
+        let line = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
+        self.app.path_click = Some((
+            path.clone(),
+            crate::paths::Asked::Printed(crate::paths::LineCol::default()),
+        ));
+        self.check_file(crate::paths::Candidate {
+            path,
+            form: crate::paths::Form::Absolute,
+            line,
         });
     }
 
@@ -14133,25 +14222,22 @@ impl Driver {
         let clicked = self.app.path_click.take();
         let note = match done {
             crate::probe::Clicked::Exists(path) => {
-                let uri = crate::paths::file_uri(&path);
                 let asked = crate::paths::asked_for(clicked, &path);
                 let host = Host(self.app.uris.host());
                 let does = crate::paths::on_found(&asked, &path, host, self.app.uris.rules());
+                // Each of the three is handed to a later main-queue turn
+                // (`Turned`), and what it did comes back on a wake.
                 if let Found::Copy = does {
-                    let text = String::from_utf8_lossy(&path).into_owned();
-                    self.link_copied(&text);
+                    // The worker's bytes moved, copied only when they are
+                    // not UTF-8.
+                    let text = String::from_utf8(path)
+                        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+                    self.link_copied(text);
                     return;
                 }
                 if let Found::Command(built) = does {
-                    match built.map(|cmd| self.app.commands.start(cmd)) {
-                        Ok(Ok(())) => {
-                            self.app.links.opened.bump();
-                            crate::info!("printed path sent to [link.path]'s command");
-                        }
-                        Ok(Err(e)) => {
-                            self.app.links.refused.bump();
-                            crate::warn!("printed path not sent: [link.path]'s command: {e}");
-                        }
+                    match built {
+                        Ok(cmd) => self.start_later(cmd),
                         Err(why) => {
                             self.app.links.refused.bump();
                             crate::warn!(
@@ -14161,9 +14247,11 @@ impl Driver {
                     }
                     return;
                 }
-                match crate::link::admit(uri.as_bytes(), Host(self.app.uris.host())) {
+                let uri = crate::paths::file_uri(&path);
+                match crate::link::admit_owned(uri, Host(self.app.uris.host())) {
                     Ok(t) if t.action() == Action::Reveal => {
-                        match opener::later(Ask::Reveal, t.as_str(), opener::workspace, |_| {}) {
+                        match opener::later(Ask::Reveal, t.into_string(), opener::workspace, |_| {})
+                        {
                             Ok(()) => {
                                 self.app.links.revealed.bump();
                                 crate::info!("printed path revealed");
@@ -15418,24 +15506,27 @@ impl Driver {
         }
     }
 
-    /// **What the OS said of each link opened on a later turn**
-    /// ([`LinkAnswers`]), said and counted as a click's own answer was. A
-    /// `Declined` is the click having tried: with no app the bar says so,
-    /// and the programs are asked about again.
-    fn links_answered(&mut self) {
+    /// **What each main-queue turn did with an effect** ([`Turned`]), said
+    /// and counted as the effect's own answer was when it ran inline. An
+    /// open `Declined` is the click having tried: with no app the bar says
+    /// so, and the programs are asked about again.
+    fn turns_answered(&mut self) {
         use baud_present_macos::link::Opened;
-        for LinkAnswer {
-            opened,
-            scheme,
-            shown,
-        } in self.app.answered.take()
-        {
-            match opened {
-                Opened::Taken => {
+        while let Ok(done) = self.app.turned.rx.try_recv() {
+            match done {
+                TurnDone::Opened {
+                    opened: Opened::Taken,
+                    scheme,
+                    shown,
+                } => {
                     self.app.links.opened.bump();
                     crate::info!("link opened ({scheme:?}): {shown}");
                 }
-                Opened::Declined => {
+                TurnDone::Opened {
+                    opened: Opened::Declined,
+                    scheme,
+                    shown,
+                } => {
                     self.app.links.refused.bump();
                     crate::warn!("link refused (Declined): {shown}");
                     self.app.probes.owe_programs();
@@ -15447,9 +15538,33 @@ impl Driver {
                         self.app.pending = Pending::Dirty;
                     }
                 }
-                other => {
+                TurnDone::Opened { opened, shown, .. } => {
                     self.app.links.refused.bump();
-                    crate::warn!("link refused ({other:?}): {shown}");
+                    crate::warn!("link refused ({opened:?}): {shown}");
+                }
+                TurnDone::Started(Ok(child)) => {
+                    self.app.commands.keep(child);
+                    self.app.links.opened.bump();
+                    crate::info!("printed path sent to [link.path]'s command");
+                }
+                TurnDone::Started(Err(e)) => {
+                    self.app.links.refused.bump();
+                    crate::warn!("printed path not sent: [link.path]'s command: {e}");
+                }
+                TurnDone::Copied {
+                    written: clipboard::Written::Taken,
+                    text,
+                } => {
+                    self.app.links.opened.bump();
+                    crate::info!("link copied by a [link.*] rule");
+                    self.selection_copied(&text);
+                }
+                TurnDone::Copied {
+                    written: clipboard::Written::Refused,
+                    ..
+                } => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link not copied: the pasteboard refused it");
                 }
             }
         }
@@ -15511,7 +15626,7 @@ impl Driver {
                     // as a copy of a selection is; nothing is opened.
                     Click::Copy => {
                         let text = t.as_str().to_string();
-                        self.link_copied(&text);
+                        self.link_copied(text);
                     }
                     // A command of yours: no shell, null streams, reaped on a
                     // tick.
@@ -15554,20 +15669,32 @@ impl Driver {
                     // reveal, which answers nothing, is counted here.
                     Click::Open | Click::Reveal => match t.action() {
                         Action::Open => {
-                            let done =
-                                self.app
-                                    .answered
-                                    .done(self.app.waker, t.scheme(), shown.clone());
-                            if let Err(why) =
-                                opener::later(Ask::Open, t.as_str(), opener::workspace, done)
-                            {
+                            let back = self.app.turned.back(self.app.waker);
+                            let (scheme, said) = (t.scheme(), shown.clone());
+                            let done = move |opened| {
+                                back.send(TurnDone::Opened {
+                                    opened,
+                                    scheme,
+                                    shown: said,
+                                });
+                            };
+                            if let Err(why) = opener::later(
+                                Ask::Open,
+                                t.as_str().to_owned(),
+                                opener::workspace,
+                                done,
+                            ) {
                                 self.app.links.refused.bump();
                                 crate::warn!("link refused ({why:?}): {shown}");
                             }
                         }
                         Action::Reveal => {
-                            match opener::later(Ask::Reveal, t.as_str(), opener::workspace, |_| {})
-                            {
+                            match opener::later(
+                                Ask::Reveal,
+                                t.as_str().to_owned(),
+                                opener::workspace,
+                                |_| {},
+                            ) {
                                 Ok(()) => {
                                     self.app.links.revealed.bump();
                                     crate::info!("link revealed: {shown}");
@@ -16654,18 +16781,29 @@ impl Driver {
     /// **A link's text to the pasteboard, for a `[link.*]` rule's `copy`**:
     /// the same write and the same words as Cmd-C on a selection, and no
     /// process started.
-    fn link_copied(&mut self, text: &str) {
-        match clipboard::write_text(text) {
-            clipboard::Written::Taken => {
-                self.app.links.opened.bump();
-                crate::info!("link copied by a [link.*] rule");
-                self.selection_copied(text);
-            }
-            clipboard::Written::Refused => {
-                self.app.links.refused.bump();
-                crate::warn!("link not copied: the pasteboard refused it");
-            }
-        }
+    fn link_copied(&mut self, text: String) {
+        // On a later main-queue turn (`Turned`): what the pasteboard said
+        // comes back on a wake, and `turns_answered` counts it and says it,
+        // through `self.selection_copied(&text)`.
+        let back = self.app.turned.back(self.app.waker);
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            baud_present_macos::unwind::guard("a link's copy", (), move || {
+                let written = clipboard::write_text(&text);
+                back.send(TurnDone::Copied { written, text });
+            });
+        });
+    }
+
+    /// **A `[link.path]` command, started on a later main-queue turn**
+    /// (`Turned`): the started child comes back on a wake, for the tick's
+    /// reaper.
+    fn start_later(&mut self, cmd: std::process::Command) {
+        let back = self.app.turned.back(self.app.waker);
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            baud_present_macos::unwind::guard("a printed path's command", (), move || {
+                back.send(TurnDone::Started(start_command(cmd)));
+            });
+        });
     }
 
     /// **A copy of the selection, said** (`copied.rs`): the words, the pulse
@@ -21228,9 +21366,41 @@ mod mark_tests {
             0,
             "never inline"
         );
+        // The answers -- the turns' and the paths worker's -- are drained
+        // on a pump that is not the tick, and the tick's paths turn takes
+        // no answer.
+        let pump = src
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .map(|(_, rest)| rest)
+            .expect("pump");
+        let gate = pump
+            .find(concat!("if !matches!(trigger, ", "Trigger::Tick) {"))
+            .expect("the gate");
+        let turns = pump
+            .find(concat!("self.turns_", "answered();"))
+            .expect("the turns");
+        let paths = pump
+            .find(concat!("self.paths_", "answered();"))
+            .expect("the paths");
+        let tick = pump
+            .find(concat!("if let Trigger::", "Tick = trigger {"))
+            .expect("the tick");
         assert!(
-            src.contains(concat!("self.links_", "answered();")),
-            "an open's answer drained"
+            gate < turns && turns < paths && paths < tick,
+            "drained before the tick arm, behind the gate"
+        );
+        let (_, paths_turn) = src
+            .split_once(concat!("    fn paths_", "turn(&mut self) {"))
+            .expect("paths_turn");
+        let (paths_turn, _) = paths_turn.split_once("\n    }\n").expect("its end");
+        assert!(
+            paths_turn.contains(concat!(".tick(", "host_now(),")),
+            "{paths_turn}"
+        );
+        assert!(!paths_turn.contains(".answers("), "no answer on the tick");
+        assert!(
+            !paths_turn.contains("path_checked"),
+            "no click acted on the tick"
         );
         assert!(src.contains(concat!(
             "view.set_responder(Box::new(",

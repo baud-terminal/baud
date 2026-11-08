@@ -1661,21 +1661,23 @@ mod tests {
             (
                 "app.rs",
                 include_str!("app.rs"),
-                "clipboard::write_text(text)",
+                "clipboard::write_text(&text)",
             ),
             (
                 "linux.rs",
                 include_str!("linux.rs"),
-                "Board::Clipboard, text)",
+                "Board::Clipboard, &text)",
             ),
         ] {
             let (_, body) = src
-                .split_once(concat!("fn link_", "copied(&mut self, text: &str) {"))
+                .split_once(concat!("fn link_", "copied(&mut self, text: String) {"))
                 .expect(name);
             let (body, _) = body.split_once("\n    }\n").expect("its end");
             assert!(body.contains(write), "{name}: the write");
+            // The words, said once the pasteboard took it: in the copy on
+            // Linux, and on macOS where the turn's answer comes back.
             assert!(
-                body.contains("self.selection_copied(text)"),
+                src.contains("self.selection_copied(&text);"),
                 "{name}: the words"
             );
             assert!(!body.contains(".start("), "{name}: no process");

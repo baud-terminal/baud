@@ -28,12 +28,21 @@ use macos_liquid_glass::objc2_foundation::NSSize;
 /// Panics stopped at an entry since the process began.
 static CAUGHT: AtomicU64 = AtomicU64::new(0);
 
+/// How many panics [`guard`] has stopped: compared, never read as a number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Caught(u64);
+
+impl Caught {
+    /// None stopped.
+    pub const NONE: Caught = Caught(0);
+}
+
 /// The entries that have said so on stderr, so each says it once.
 static SAID: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
 
 /// How many panics [`guard`] has stopped.
-pub fn caught() -> u64 {
-    CAUGHT.load(Ordering::Relaxed)
+pub fn caught() -> Caught {
+    Caught(CAUGHT.load(Ordering::Relaxed))
 }
 
 /// Run `f`, the body of the entry named `site`; a panic in it answers
@@ -61,6 +70,15 @@ pub fn guard<R>(site: &'static str, default: R, f: impl FnOnce() -> R) -> R {
     }
 }
 
+/// Under the `effect-probe` feature, where the method runs, kept until it
+/// returns ([`crate::probe::enter`]); nothing otherwise.
+macro_rules! entered {
+    ($at:ident) => {
+        #[cfg(feature = "effect-probe")]
+        let _entered = crate::probe::enter(crate::probe::Where::$at);
+    };
+}
+
 /// **A [`Responder`] whose every method runs through [`guard`].** What the
 /// view is given: a key the inner one panicked on is consumed, and nothing
 /// else answers anything.
@@ -68,52 +86,69 @@ pub struct Guarded<R>(pub R);
 
 impl<R: Responder> Responder for Guarded<R> {
     fn key(&mut self, key: &KeyPress) -> Handled {
+        entered!(InCallback);
         guard("the view's key", Handled::Consumed, || self.0.key(key))
     }
     fn key_released(&mut self, key: &KeyPress) {
+        entered!(InCallback);
         guard("the view's key_released", (), || self.0.key_released(key));
     }
     fn modifiers_changed(&mut self, change: &ModifierChange) {
+        entered!(InCallback);
         guard("the view's modifiers_changed", (), || {
             self.0.modifiers_changed(change);
         });
     }
     fn text(&mut self, text: &str) {
+        entered!(InCallback);
         guard("the view's text", (), || self.0.text(text));
     }
     fn command(&mut self, selector: &str) {
+        entered!(InCallback);
         guard("the view's command", (), || self.0.command(selector));
     }
     fn marked_text(&mut self, text: &str) {
+        entered!(InCallback);
         guard("the view's marked_text", (), || self.0.marked_text(text));
     }
     fn mouse(&mut self, event: &Mouse) {
+        entered!(InCallback);
         guard("the view's mouse", (), || self.0.mouse(event));
     }
     fn scroll(&mut self, event: &Scroll) {
+        entered!(InCallback);
         guard("the view's scroll", (), || self.0.scroll(event));
     }
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
+        entered!(InCallback);
         guard("the view's resized", (), || self.0.resized(size, scale));
     }
     fn frame(&mut self, target: f64) {
+        entered!(InFrame);
         guard("the view's frame", (), || self.0.frame(target));
     }
     fn focus(&mut self, focus: Focus) {
+        entered!(InCallback);
         guard("the view's focus", (), || self.0.focus(focus));
     }
     fn cursor_rect(&self) -> Rect {
+        entered!(InCallback);
         guard("the view's cursor_rect", Rect::default(), || {
             self.0.cursor_rect()
         })
     }
     fn wake(&mut self) {
+        entered!(InCallback);
+        #[cfg(feature = "effect-probe")]
+        crate::probe::woke();
         guard("the view's wake", (), || self.0.wake());
     }
     fn presented(&mut self) {
+        entered!(InCallback);
         guard("the view's presented", (), || self.0.presented());
     }
     fn appearance(&mut self, appearance: Appearance) {
+        entered!(InCallback);
         guard("the view's appearance", (), || {
             self.0.appearance(appearance)
         });

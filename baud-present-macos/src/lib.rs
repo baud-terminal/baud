@@ -48,6 +48,9 @@ pub mod link;
 pub mod metal;
 pub mod notify;
 pub mod print;
+#[cfg(feature = "effect-probe")]
+#[allow(unsafe_code)]
+pub mod probe;
 pub mod redraw;
 pub mod screens;
 pub mod selection;

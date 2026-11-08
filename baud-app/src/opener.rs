@@ -58,6 +58,12 @@ impl Opener {
         Ok(())
     }
 
+    /// Keep `child`, started on a later turn, until it is reaped.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn keep(&mut self, child: Child) {
+        self.children.push(child);
+    }
+
     /// Reap the openers that have ended, never waiting.
     pub(crate) fn reap(&mut self) {
         self.children

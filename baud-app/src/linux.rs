@@ -159,6 +159,17 @@ fn tearing(t: crate::config::Tearing) -> baud_present_wayland::Tearing {
     }
 }
 
+/// **An effect a handler asked for, run on the loop's next turn**: the
+/// printed path's reveal over the session bus, its `[link.path]`
+/// command, its copy. Nothing a handler does reaches the OS from inside
+/// it; `Driver::run_later` performs each after `dispatch` returns, as
+/// the macOS driver's main-queue turn does, and says what became of it.
+enum Later {
+    Reveal(String),
+    Command(std::process::Command),
+    Copy(String),
+}
+
 struct Driver {
     conn: Connection,
     window: Window,
@@ -354,6 +365,9 @@ struct Driver {
     /// ran, reaped on each turn, and this machine's name for a
     /// `file://host/` link.
     opener: crate::opener::Opener,
+    /// What a handler asked of the OS this turn, run at the top of the
+    /// loop's next one, after `dispatch` has returned ([`Later`]).
+    later: Vec<Later>,
     host: String,
     /// The notifications programs post, delivered over the session bus
     /// (`notify.rs`), and what the notification server said it supports.
@@ -746,6 +760,7 @@ pub fn run() {
         path_click: None,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
+        later: Vec::new(),
         host: crate::opener::host_name(),
         notes,
         pictures: crate::kitty_files::LocalFiles::new(),
@@ -765,6 +780,9 @@ pub fn run() {
         return;
     }
     'run: loop {
+        // What the last turn's handlers asked of the OS, with none of them
+        // on the stack.
+        d.run_later();
         // The loop wakes for a held key's next repeat as well as for the
         // synchronised update's cap and a flash's end, whichever is sooner --
         // each only while it is ahead. One already reached is owed a frame,
@@ -1708,7 +1726,7 @@ impl Driver {
                     // a copy of a selection is; nothing is opened.
                     Click::Copy => {
                         let text = t.as_str().to_string();
-                        self.link_copied(&text);
+                        self.link_copied(text);
                     }
                     // A command of yours: no shell, null streams, reaped on
                     // each turn as `xdg-open` is.
@@ -1927,25 +1945,21 @@ impl Driver {
         let clicked = self.path_click.take();
         let note = match done {
             crate::probe::Clicked::Exists(path) => {
-                let uri = crate::paths::file_uri(&path);
                 let asked = crate::paths::asked_for(clicked, &path);
                 let does =
                     crate::paths::on_found(&asked, &path, Host(&self.host), self.uris.rules());
+                // Each of the three on the loop's next turn (`Later`).
                 if let Found::Copy = does {
-                    let text = String::from_utf8_lossy(&path).into_owned();
-                    self.link_copied(&text);
+                    // The worker's bytes moved, copied only when they are
+                    // not UTF-8.
+                    let text = String::from_utf8(path)
+                        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+                    self.later.push(Later::Copy(text));
                     return;
                 }
                 if let Found::Command(built) = does {
-                    match built.map(|cmd| self.opener.start(cmd)) {
-                        Ok(Ok(())) => {
-                            self.report.links.opened.bump();
-                            crate::info!("printed path sent to [link.path]'s command");
-                        }
-                        Ok(Err(e)) => {
-                            self.report.links.refused.bump();
-                            crate::warn!("printed path not sent: [link.path]'s command: {e}");
-                        }
+                    match built {
+                        Ok(cmd) => self.later.push(Later::Command(cmd)),
                         Err(why) => {
                             self.report.links.refused.bump();
                             crate::warn!(
@@ -1955,20 +1969,13 @@ impl Driver {
                     }
                     return;
                 }
-                match crate::link::admit(uri.as_bytes(), Host(&self.host)) {
-                    Ok(t) if t.action() == Action::Reveal => match self.bus.as_mut() {
-                        Some(bus) => {
-                            bus.reveal(&crate::opener::local(t.as_str()));
-                            self.report.links.revealed.bump();
-                            crate::info!("printed path sent to the file manager");
-                            None
-                        }
-                        None => {
-                            self.report.links.refused.bump();
-                            crate::warn!("printed path not revealed: no session bus");
-                            None
-                        }
-                    },
+                let uri = crate::paths::file_uri(&path);
+                match crate::link::admit_owned(uri, Host(&self.host)) {
+                    Ok(t) if t.action() == Action::Reveal => {
+                        self.later
+                            .push(Later::Reveal(crate::opener::local(&t.into_string())));
+                        None
+                    }
                     Ok(_) | Err(_) => {
                         self.report.links.refused.bump();
                         Some(PathNote::TooLong)
@@ -1989,6 +1996,43 @@ impl Driver {
                 self.pending = Pending::Dirty;
             }
         }
+    }
+
+    /// **What the last turn's handlers asked of the OS** ([`Later`]), done
+    /// now, at the top of the loop, after `dispatch` returned and with no
+    /// handler on the stack; each said and counted as it was when it ran
+    /// in the handler. The queue's storage is kept for the next turn.
+    fn run_later(&mut self) {
+        let mut asked = core::mem::take(&mut self.later);
+        for effect in asked.drain(..) {
+            match effect {
+                Later::Reveal(uri) => match self.bus.as_mut() {
+                    Some(bus) => {
+                        bus.reveal(&uri);
+                        self.report.links.revealed.bump();
+                        crate::info!("printed path sent to the file manager");
+                    }
+                    None => {
+                        self.report.links.refused.bump();
+                        crate::warn!("printed path not revealed: no session bus");
+                    }
+                },
+                Later::Command(cmd) => match self.opener.start(cmd) {
+                    Ok(()) => {
+                        self.report.links.opened.bump();
+                        crate::info!("printed path sent to [link.path]'s command");
+                    }
+                    Err(e) => {
+                        self.report.links.refused.bump();
+                        crate::warn!("printed path not sent: [link.path]'s command: {e}");
+                    }
+                },
+                Later::Copy(text) => self.link_copied(text),
+            }
+        }
+        // Whatever the effects themselves asked for waits a turn.
+        asked.append(&mut self.later);
+        self.later = asked;
     }
 
     /// **What the session bus sent** (`bus.rs`): the desktop's colour
@@ -2656,15 +2700,15 @@ impl Driver {
     /// **A link's text to the clipboard, for a `[link.*]` rule's `copy`**:
     /// the same write and the same words as a copy of the selection, and no
     /// process started.
-    fn link_copied(&mut self, text: &str) {
+    fn link_copied(&mut self, text: String) {
         match self
             .window
-            .copy(&mut self.conn.sender(), Board::Clipboard, text)
+            .copy(&mut self.conn.sender(), Board::Clipboard, &text)
         {
             Copied::Set => {
                 self.report.links.opened.bump();
                 crate::info!("link copied by a [link.*] rule");
-                self.selection_copied(text);
+                self.selection_copied(&text);
             }
             Copied::Unavailable => self.uncopied_once(),
             Copied::Unfocused => {

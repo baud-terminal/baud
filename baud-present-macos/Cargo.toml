@@ -79,3 +79,8 @@ harness = false
 [features]
 default = ["neon-scan"]
 neon-scan = ["baud-core/neon-scan"]
+# **The effect probe, test-only** (`src/probe.rs`): every effect a driver
+# asks of the OS is recorded where it runs instead of made, and the
+# reveal crash's nested call is made in its place. For `baud`'s event rig
+# (`baud-app/tests/event_rig.rs`); never in a build that ships.
+effect-probe = []

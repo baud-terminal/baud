@@ -49,7 +49,7 @@ fn main() {
 #[allow(unsafe_code)]
 mod checks {
     use baud_present_macos::link::{Ask, Opened, later};
-    use baud_present_macos::unwind::{Guarded, caught};
+    use baud_present_macos::unwind::{Caught, Guarded, caught};
     use core::cell::Cell;
     use macos_liquid_glass::drawable::{
         DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
@@ -116,7 +116,9 @@ mod checks {
         }
         fn wake(&mut self) {
             if WAKES.fetch_add(1, Relaxed) == 0 {
-                let asked = later(Ask::Reveal, FILE, finder, |o| DONE.lock().unwrap().push(o));
+                let asked = later(Ask::Reveal, FILE.to_owned(), finder, |o| {
+                    DONE.lock().unwrap().push(o);
+                });
                 assert_eq!(asked, Ok(()), "the address parses");
                 self.handed_during.set(Some(HANDED.lock().unwrap().len()));
             }
@@ -137,7 +139,7 @@ mod checks {
 
         // The refusals are answered at once and queue nothing.
         assert_eq!(
-            later(Ask::Open, "https://a b", finder, |_| {}),
+            later(Ask::Open, "https://a b".to_owned(), finder, |_| {}),
             Err(Opened::Unparsed)
         );
 
@@ -179,7 +181,11 @@ mod checks {
             "the nested wake reached the responder inside the hand's loop"
         );
         assert_eq!(WAKES.load(Relaxed), 2, "and no other wake came");
-        assert_eq!(caught(), 0, "no panic was stopped: none happened");
+        assert_eq!(
+            caught(),
+            Caught::NONE,
+            "no panic was stopped: none happened"
+        );
         println!("{}: ok", crate::NAME);
     }
 }

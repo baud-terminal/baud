@@ -1215,24 +1215,33 @@ impl<T: Moment> Probes<T> {
         [due, hang, programs].into_iter().flatten().min()
     }
 
-    /// **One turn, at `now`**: answers merged, the hang watched, and a batch
-    /// sent once it is due. `group` reads the terminal's foreground group,
-    /// a `TIOCGPGRP` on the master, only when a batch goes.
+    /// **One turn, at `now`**: answers merged ([`Probes::answers`]), then
+    /// the clock's half ([`Probes::tick`]). Linux's loop, whose turn is
+    /// every wake, and the tests take both at once.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn turn(&mut self, now: T, s: Seen<'_, '_>, group: impl FnOnce() -> Option<Pid>) -> Turn {
+        let mut s = s;
+        let mut turn = self.answers(&mut s);
+        let clock = self.tick(now, s, group);
+        turn.frame = if turn.frame == Owed::Yes {
+            Owed::Yes
+        } else {
+            clock.frame
+        };
+        turn
+    }
+
+    /// **The worker's answers, merged**: what its wake says came. A click's
+    /// answer is [`Turn::clicked`]. Nothing here waits or asks, so macOS
+    /// takes it on the view's `wake`, which the worker sends after each
+    /// answer, and never on the display link's tick.
+    pub fn answers(&mut self, s: &mut Seen<'_, '_>) -> Turn {
         let mut turn = Turn::default();
         if s.paths.marks() != Marks::On {
             return turn;
         }
-        self.pace.saw(Taken(s.term.amplification().0), now);
-        // Answers first: a hang is a batch with none.
-        let (answers, beats) = match &self.slot {
-            Slot::Running(w) => {
-                let got: Vec<Answer> = core::iter::from_fn(|| w.rx.try_recv().ok()).collect();
-                (got, Some(w.beats()))
-            }
-            Slot::Unstarted | Slot::Closed => (Vec::new(), None),
-        };
-        if let Some(beats) = beats {
+        if let Slot::Running(w) = &self.slot {
+            let answers: Vec<Answer> = core::iter::from_fn(|| w.rx.try_recv().ok()).collect();
             for a in answers {
                 self.counts.calls += a.calls;
                 self.answered = self.answered.next();
@@ -1279,6 +1288,23 @@ impl<T: Moment> Probes<T> {
                     turn.clicked = clicked;
                 }
             }
+        }
+        turn
+    }
+
+    /// **The clock's half of a turn, at `now`**: the hang watched, and a
+    /// batch sent once it is due. `group` reads the terminal's foreground
+    /// group, a `TIOCGPGRP` on the master, only when a batch goes. No
+    /// answer is taken here.
+    pub fn tick(&mut self, now: T, s: Seen<'_, '_>, group: impl FnOnce() -> Option<Pid>) -> Turn {
+        let mut turn = Turn::default();
+        if s.paths.marks() != Marks::On {
+            return turn;
+        }
+        self.pace.saw(Taken(s.term.amplification().0), now);
+        // A hang is a batch out with no beat since.
+        if let Slot::Running(w) = &self.slot {
+            let beats = w.beats();
             if let Some(f) = &mut self.flight {
                 if beats != f.beats {
                     f.beats = beats;

@@ -194,6 +194,34 @@ impl<'a> Target<'a> {
     }
 }
 
+/// **An admitted URI that owns its bytes**: what [`admit_owned`] gives
+/// back, to move into a later turn, where a [`Target`] borrows and cannot
+/// go.
+#[derive(Debug)]
+pub struct AdmittedUri {
+    uri: String,
+    action: Action,
+}
+
+impl AdmittedUri {
+    pub fn action(&self) -> Action {
+        self.action
+    }
+
+    /// The URI, moved out.
+    pub fn into_string(self) -> String {
+        self.uri
+    }
+}
+
+/// **[`admit`], keeping the `String` it checked**: the same checks, and
+/// the URI moved into the answer rather than borrowed, so it can cross to
+/// a later turn with no copy.
+pub fn admit_owned(uri: String, host: Host<'_>) -> Result<AdmittedUri, Refused> {
+    let action = admit(uri.as_bytes(), host)?.action();
+    Ok(AdmittedUri { uri, action })
+}
+
 /// This machine's name, for a `file://host/path` link -- the form
 /// `ls --hyperlink` emits -- to be recognised as local. Empty when unknown,
 /// which admits only the empty and `localhost` hosts.
@@ -2172,6 +2200,26 @@ mod tests {
     use super::*;
 
     const NONE: Host<'static> = Host("");
+
+    /// **`admit_owned` decides as `admit` does and keeps the very bytes it
+    /// checked**: the same action, the same refusal, and the `String`
+    /// moved out is the one moved in -- its buffer's address unchanged, so
+    /// nothing was copied. Perturbation: rebuild the URI from the checked
+    /// `&str` and the address assertion fails.
+    #[test]
+    fn admit_owned_moves_the_uri_it_checked() {
+        let uri = String::from("file:///tmp/a%20b");
+        let at = uri.as_ptr();
+        let t = admit_owned(uri, NONE).expect("admitted");
+        assert_eq!(t.action(), Action::Reveal);
+        let back = t.into_string();
+        assert_eq!(back, "file:///tmp/a%20b");
+        assert_eq!(back.as_ptr(), at, "moved, not copied");
+        assert_eq!(
+            admit_owned(String::from("javascript:x"), NONE).map(|t| t.action()),
+            admit(b"javascript:x", NONE).map(|t| t.action()),
+        );
+    }
 
     fn ok(uri: &str) -> Target<'_> {
         admit(uri.as_bytes(), Host("thishost.local")).unwrap_or_else(|r| panic!("{uri}: {r:?}"))

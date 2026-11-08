@@ -1,0 +1,349 @@
+//! **Every effect runs in a turn of its own, never inside the view's
+//! callback**: the event rig.
+//!
+//! Each row is a site where baud asks the OS for something. The row's
+//! cause is made to happen in a child process -- the `baud` binary built
+//! with the `effect-probe` feature, `--event-rig` (`src/app/rig.rs`) -- a
+//! real `DrawableView` with baud's `Driver`, a window never shown, and no
+//! Dock icon. There each effect is recorded where it runs, and then makes
+//! the nested call the reveal crash's stack shows
+//! (`nextEventMatchingMask:` in the default mode) with a `wake:` queued.
+//! Inside any responder call that re-enters the view, and today's window
+//! crate aborts on it: the parent reads the child's abort as the row's
+//! failure. 20 iterations a row, each a fresh click.
+//!
+//! A row is green, or **pending** at a stage: expected to fail exactly as
+//! recorded until the stage that moves its site, red if it passes early,
+//! fails another way, or outlives its stage ([`verdict`]).
+//!
+//! Run with `cargo test -p baud --features effect-probe --test event_rig`;
+//! the default suite does not build the probe.
+#![cfg(target_os = "macos")]
+
+use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// The stage the rule's work has reached: a pending row names the stage
+/// that must clear it. `Done` is after the last.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Stage {
+    One,
+    Two,
+    Three,
+    Done,
+}
+
+/// The stage this commit is.
+const CURRENT: Stage = Stage::One;
+
+/// How a row fails.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Failure {
+    /// The effect ran inside the view's `frame`.
+    InFrame(EffectKind),
+    /// It ran inside another responder method.
+    InCallback(EffectKind),
+    /// The child aborted.
+    Aborted,
+    /// No effect within the bound.
+    NotRun,
+    /// The effect ran other than once in an iteration, or another effect
+    /// ran.
+    Times,
+    /// The nested call never had its `wake:`.
+    Lost(EffectKind),
+    /// The child said something else was wrong.
+    Child,
+}
+
+/// A row's state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RowState {
+    Green,
+    Pending { stage: Stage, recorded: Failure },
+}
+
+/// What makes the row's effect happen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cause {
+    /// A click on a printed path, the paths worker's answer on its wake,
+    /// and the frame driven by `tick:` each pass, or never.
+    PrintedPath(Rule, Ticks),
+}
+
+/// What `[link.path]` makes of a printed path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rule {
+    Reveal,
+    Command,
+    Copy,
+}
+
+/// Whether the frame is driven.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Ticks {
+    Driven,
+    None,
+}
+
+/// What the row expects: the effect, exactly once an iteration, in a turn
+/// of its own with the responder free, its nested `wake:` delivered.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Expect {
+    Effect(EffectKind),
+}
+
+/// The row's name, as the failure says it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SiteName(&'static str);
+
+/// One row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Site {
+    name: SiteName,
+    cause: Cause,
+    expect: Expect,
+    state: RowState,
+}
+
+/// What a row came to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Observed {
+    Passed,
+    Failed(Failure),
+}
+
+/// The harness's judgement of a row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Verdict {
+    Pass,
+    /// A green row failed.
+    Broke(Failure),
+    /// A pending row passed: move it to green on purpose.
+    PassedWhilePending,
+    /// A pending row failed, but not as recorded.
+    FailedOtherwise(Failure),
+    /// A pending row outlived its stage.
+    PastItsStage,
+    /// A pending row is left after the last stage.
+    PendingAfterTheLast,
+}
+
+/// **The pending mechanism**: a row's state, what it came to, and the
+/// stage the work is at.
+fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
+    match (state, observed) {
+        (RowState::Green, Observed::Passed) => Verdict::Pass,
+        (RowState::Green, Observed::Failed(f)) => Verdict::Broke(f),
+        (RowState::Pending { .. }, _) if current == Stage::Done => Verdict::PendingAfterTheLast,
+        (RowState::Pending { stage, .. }, _) if current > stage => Verdict::PastItsStage,
+        (RowState::Pending { .. }, Observed::Passed) => Verdict::PassedWhilePending,
+        (RowState::Pending { recorded, .. }, Observed::Failed(f)) if f == recorded => Verdict::Pass,
+        (RowState::Pending { .. }, Observed::Failed(f)) => Verdict::FailedOtherwise(f),
+    }
+}
+
+const SITES: [Site; 4] = [
+    Site {
+        name: SiteName("a printed path's reveal"),
+        cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
+        expect: Expect::Effect(EffectKind::Reveal),
+        state: RowState::Green,
+    },
+    Site {
+        name: SiteName("a printed path's [link.path] command"),
+        cause: Cause::PrintedPath(Rule::Command, Ticks::Driven),
+        expect: Expect::Effect(EffectKind::Command),
+        state: RowState::Green,
+    },
+    Site {
+        name: SiteName("a printed path's copy"),
+        cause: Cause::PrintedPath(Rule::Copy, Ticks::Driven),
+        expect: Expect::Effect(EffectKind::Copy),
+        state: RowState::Green,
+    },
+    Site {
+        name: SiteName("a printed path's reveal, with no tick at all"),
+        cause: Cause::PrintedPath(Rule::Reveal, Ticks::None),
+        expect: Expect::Effect(EffectKind::Reveal),
+        state: RowState::Green,
+    },
+];
+
+/// Iterations a row runs in its child.
+const ITERATIONS: &str = "20";
+
+/// The scratch directory a row's child lives in: its home, its config and
+/// the file it clicks.
+fn scratch(name: &str) -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("event_rig")
+        .join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("home")).expect("the scratch home");
+    dir
+}
+
+fn config(rule: Rule) -> &'static str {
+    match rule {
+        Rule::Reveal => "[link]\npaths = \"on\"\n",
+        Rule::Command => {
+            "[link]\npaths = \"on\"\n\n[link.path]\ncommand = [\"/usr/bin/true\", \"{path}\"]\n"
+        }
+        Rule::Copy => "[link]\npaths = \"on\"\n\n[link.path]\naction = \"copy\"\n",
+    }
+}
+
+/// The row's cause in a child; what it came to.
+fn run(site: &Site, slug: &str) -> Observed {
+    let Cause::PrintedPath(rule, ticks) = site.cause;
+    let Expect::Effect(kind) = site.expect;
+    let dir = scratch(slug);
+    let file = dir.join("clicked.txt");
+    std::fs::write(&file, b"x").expect("the file clicked");
+    let conf = dir.join("config.toml");
+    std::fs::write(&conf, config(rule)).expect("the config");
+    let out = Command::new(env!("CARGO_BIN_EXE_baud"))
+        .args([
+            "--event-rig",
+            file.to_str().expect("a UTF-8 path"),
+            ITERATIONS,
+            match ticks {
+                Ticks::Driven => "tick",
+                Ticks::None => "no-tick",
+            },
+        ])
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("ZDOTDIR", dir.join("home"))
+        .env("SHELL", "/bin/sh")
+        .env("PATH", "/usr/bin:/bin")
+        .env("BAUD_CONFIG", &conf)
+        .env("BAUD_TYPING", "off")
+        .current_dir(&dir)
+        .output()
+        .expect("the child");
+    judge(kind, &out, &dir)
+}
+
+/// What a child's output and exit say.
+fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
+    use std::os::unix::process::ExitStatusExt;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let _ = std::fs::write(dir.join("stdout"), &out.stdout);
+    let _ = std::fs::write(dir.join("stderr"), &out.stderr);
+    if out.status.signal().is_some() {
+        return Observed::Failed(Failure::Aborted);
+    }
+    let want = Record {
+        kind,
+        at: Where::InTurn,
+        responder: Responder::Free,
+        nested: Nested::Delivered,
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let iterations: usize = ITERATIONS.parse().expect("a count");
+    let mut records = 0;
+    for line in &lines {
+        if *line == "none" {
+            return Observed::Failed(Failure::NotRun);
+        }
+        let Some(r) = Record::parse(line) else {
+            return Observed::Failed(Failure::Child);
+        };
+        records += 1;
+        if r.kind != kind {
+            return Observed::Failed(Failure::Times);
+        }
+        match (r.at, r.responder) {
+            (Where::InFrame, _) => return Observed::Failed(Failure::InFrame(kind)),
+            (Where::InCallback, _) | (_, Responder::Held) => {
+                return Observed::Failed(Failure::InCallback(kind));
+            }
+            (Where::InTurn, Responder::Free) => {}
+        }
+        if r != want {
+            return Observed::Failed(Failure::Lost(kind));
+        }
+    }
+    if records != iterations {
+        return Observed::Failed(Failure::Times);
+    }
+    match out.status.success() {
+        true => Observed::Passed,
+        false => Observed::Failed(Failure::Child),
+    }
+}
+
+/// **Every row, each in a child of its own**, judged by [`verdict`] at
+/// [`CURRENT`].
+#[test]
+fn every_effect_runs_in_a_turn_of_its_own() {
+    let mut red = Vec::new();
+    for (i, site) in SITES.iter().enumerate() {
+        let observed = run(site, &format!("row{i}"));
+        let v = verdict(site.state, observed, CURRENT);
+        println!("{:?}: {observed:?} -> {v:?}", site.name);
+        if v != Verdict::Pass {
+            red.push((site.name, v));
+        }
+    }
+    assert!(red.is_empty(), "{red:?}");
+}
+
+/// **The pending mechanism, a fake row in each state.** Each state's
+/// break, run once and each failing here alone: a recorded failure judged
+/// `FailedOtherwise` (state 1); a pending row that passes judged `Pass`
+/// (2); any failure taken as the recorded one (3); the stage check
+/// dropped (4); the after-the-last check dropped (5).
+#[test]
+fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
+    let recorded = Failure::InFrame(EffectKind::Copy);
+    let pending = RowState::Pending {
+        stage: Stage::Two,
+        recorded,
+    };
+    // Pending and failing as recorded, within its stage: passes.
+    assert_eq!(
+        verdict(pending, Observed::Failed(recorded), Stage::One),
+        Verdict::Pass
+    );
+    assert_eq!(
+        verdict(pending, Observed::Failed(recorded), Stage::Two),
+        Verdict::Pass
+    );
+    // Pending but passing: red.
+    assert_eq!(
+        verdict(pending, Observed::Passed, Stage::One),
+        Verdict::PassedWhilePending
+    );
+    // Pending but failing for another reason: red.
+    assert_eq!(
+        verdict(pending, Observed::Failed(Failure::Aborted), Stage::One),
+        Verdict::FailedOtherwise(Failure::Aborted)
+    );
+    // Pending past its stage: red, failing as recorded or not.
+    assert_eq!(
+        verdict(pending, Observed::Failed(recorded), Stage::Three),
+        Verdict::PastItsStage
+    );
+    // Any pending row after the last stage: red, whatever its own stage.
+    let last = RowState::Pending {
+        stage: Stage::Three,
+        recorded,
+    };
+    assert_eq!(
+        verdict(last, Observed::Failed(recorded), Stage::Done),
+        Verdict::PendingAfterTheLast
+    );
+    // And a green row: passes when it passes, red when it fails.
+    assert_eq!(
+        verdict(RowState::Green, Observed::Passed, Stage::One),
+        Verdict::Pass
+    );
+    assert_eq!(
+        verdict(RowState::Green, Observed::Failed(recorded), Stage::One),
+        Verdict::Broke(recorded)
+    );
+}
