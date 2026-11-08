@@ -26,11 +26,28 @@ pub const PAUSE: &str = ".devenv/state/warm.pause";
 /// root for a value (`scripts/warm.sh`).
 pub const TOKEN: &str = "BAUD_WARM_BUILD";
 
+/// A process id, as the kernel numbers processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pid(pub u32);
+
+impl std::fmt::Display for Pid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::str::FromStr for Pid {
+    type Err = std::num::ParseIntError;
+    fn from_str(s: &str) -> Result<Pid, Self::Err> {
+        s.parse().map(Pid)
+    }
+}
+
 /// A watcher or a build, and the checkout it names.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Warm {
     /// The process id.
-    pub pid: u32,
+    pub pid: Pid,
     /// `None` when the script's path is not absolute, so no pause can be
     /// read for it.
     pub root: Option<PathBuf>,
@@ -51,7 +68,7 @@ pub fn unpaused(listing: &str, paused: impl Fn(&Path) -> bool) -> Vec<Warm> {
         .lines()
         .filter_map(|line| {
             let (pid, args) = line.trim_start().split_once(char::is_whitespace)?;
-            let pid: u32 = pid.parse().ok()?;
+            let pid: Pid = pid.parse().ok()?;
             let words: Vec<&str> = args.split_whitespace().collect();
             let rest = words
                 .windows(2)
@@ -133,7 +150,7 @@ pub fn building() -> Vec<Warm> {
 }
 
 /// Each process's id and environment, where they can be read.
-fn environs() -> Vec<(u32, Vec<u8>)> {
+fn environs() -> Vec<(Pid, Vec<u8>)> {
     #[cfg(target_os = "linux")]
     {
         let Ok(dir) = std::fs::read_dir("/proc") else {
@@ -141,7 +158,7 @@ fn environs() -> Vec<(u32, Vec<u8>)> {
         };
         dir.flatten()
             .filter_map(|entry| {
-                let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
+                let pid: Pid = entry.file_name().to_str()?.parse().ok()?;
                 // Another user's, or one that has ended, is not read.
                 let environ = std::fs::read(entry.path().join("environ")).ok()?;
                 Some((pid, environ))

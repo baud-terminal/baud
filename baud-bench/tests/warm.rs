@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use baud_bench::warm::{self, PAUSE, Warm};
+use baud_bench::warm::{self, PAUSE, Pid, Warm};
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -34,7 +34,7 @@ fn an_unpaused_watcher_or_build_refuses_and_a_paused_one_does_not() {
 ";
     let r = Some(PathBuf::from("/r"));
     let expect = |pid: u32, root: &Option<PathBuf>| Warm {
-        pid,
+        pid: Pid(pid),
         root: root.clone(),
     };
 
@@ -83,6 +83,7 @@ struct Scene {
     dir: PathBuf,
     child: Option<Child>,
     pids: Vec<PathBuf>,
+    fakes: Vec<Child>,
 }
 
 impl Drop for Scene {
@@ -92,7 +93,7 @@ impl Drop for Scene {
                 let _ = Command::new("kill").args(["-9", pid.trim()]).status();
             }
         }
-        if let Some(child) = self.child.as_mut() {
+        for child in self.fakes.iter_mut().chain(self.child.as_mut()) {
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -101,9 +102,7 @@ impl Drop for Scene {
 }
 
 impl Scene {
-    /// `build` runs with `{dir}` replaced by the folder, and the scene waits
-    /// for each of `pids`, files under it the build writes, to be written.
-    fn start(name: &str, build: &str, pids: &[&str]) -> Scene {
+    fn new(name: &str) -> Scene {
         let repo = repo();
         let made = std::env::temp_dir().join(format!("baud-warm-{name}-{}", std::process::id()));
         std::fs::create_dir_all(made.join("scripts")).unwrap();
@@ -116,42 +115,82 @@ impl Scene {
         ] {
             std::fs::copy(repo.join(file), dir.join(file)).unwrap();
         }
-        let mut scene = Scene {
-            pids: pids.iter().map(|p| dir.join(p)).collect(),
+        Scene {
             dir,
             child: None,
-        };
-        let build = build.replace("{dir}", &scene.dir.display().to_string());
-        scene.child = Some(
+            pids: Vec::new(),
+            fakes: Vec::new(),
+        }
+    }
+
+    /// `new`, `spawn` and `wait_for`.
+    fn start(name: &str, build: &str, pids: &[&str]) -> Scene {
+        let mut scene = Scene::new(name);
+        scene.spawn(build);
+        scene.wait_for(pids);
+        scene
+    }
+
+    /// `warm.sh build` with `{dir}` in `build` replaced by the folder, its
+    /// output in `build.out` there.
+    fn spawn(&mut self, build: &str) {
+        let build = build.replace("{dir}", &self.dir.display().to_string());
+        let out = std::fs::File::create(self.dir.join("build.out")).unwrap();
+        self.child = Some(
             Command::new("bash")
-                .arg(scene.script())
+                .arg(self.script())
                 .args(["build", &build])
-                .stdout(Stdio::null())
+                .stdout(out)
                 .spawn()
                 .unwrap(),
         );
-        // bounded compiles its watcher on a first run; then the build starts.
+    }
+
+    /// Wait for each of `pids`, files under the folder the build writes, to
+    /// be written. bounded compiles its watcher on a first run.
+    fn wait_for(&mut self, pids: &[&str]) {
         let until = Instant::now() + Duration::from_secs(120);
-        for file in scene.pids.clone() {
+        for file in pids {
+            let file = self.dir.join(file);
+            self.pids.push(file.clone());
             while std::fs::read_to_string(&file)
                 .unwrap_or_default()
                 .trim()
                 .is_empty()
             {
-                let ended = scene.child.as_mut().unwrap().try_wait().unwrap();
+                let ended = self.child.as_mut().unwrap().try_wait().unwrap();
                 assert!(ended.is_none(), "warm.sh build ended first: {ended:?}");
                 assert!(Instant::now() < until, "the fake build never started");
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
-        scene
+    }
+
+    /// A process that reads as a live `cargo test` started in `cwd`: a shell
+    /// script named `cargo`, given `test`, that sleeps until killed.
+    fn fake_test_run(&mut self, cwd: &Path) {
+        let bin = self.dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let cargo = bin.join("cargo");
+        std::fs::write(&cargo, "while :; do sleep 1; done\n").unwrap();
+        std::fs::create_dir_all(cwd).unwrap();
+        self.fakes.push(
+            Command::new("/bin/sh")
+                .arg(&cargo)
+                .arg("test")
+                .current_dir(cwd)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
     }
 
     fn script(&self) -> PathBuf {
         self.dir.join("scripts/warm.sh")
     }
 
-    fn pid(&self, file: &str) -> u32 {
+    fn pid(&self, file: &str) -> Pid {
         read(&self.dir.join(file)).trim().parse().unwrap()
     }
 
@@ -198,7 +237,7 @@ impl Scene {
     }
 }
 
-fn alive(pid: u32) -> bool {
+fn alive(pid: Pid) -> bool {
     Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(Stdio::null())
@@ -216,7 +255,7 @@ fn a_live_build_refuses_a_measurement_until_warm_pause_stops_it() {
         &["sleeper.pid"],
     );
     let sleeper = scene.pid("sleeper.pid");
-    let build = scene.child.as_ref().unwrap().id();
+    let build = Pid(scene.child.as_ref().unwrap().id());
 
     // Red: a build in flight and no pause.
     let refused = scene.refused();
@@ -260,6 +299,46 @@ fn a_live_build_refuses_a_measurement_until_warm_pause_stops_it() {
     assert!(!scene.dir.join(PAUSE).exists());
 }
 
+/// A build waits for a test run started in its own checkout, whose binaries
+/// it would relink, and for no other: not one in another folder, and not one
+/// in a worktree under `.claude/`, which builds in its own target directory.
+#[test]
+fn a_build_waits_for_a_test_run_in_its_own_checkout_alone() {
+    let mut scene = Scene::new("waits");
+    let outside = scene.dir.with_extension("elsewhere");
+    scene.fake_test_run(&outside);
+    scene.fake_test_run(&scene.dir.join(".claude/worktrees/lane"));
+    let build = "echo $$ >'{dir}/sleeper.pid'; exec sleep 600";
+    scene.spawn(build);
+    scene.wait_for(&["sleeper.pid"]);
+    assert!(scene.run("pause").status.success());
+    scene.ended();
+    let _ = std::fs::remove_dir_all(&outside);
+
+    assert!(scene.run("resume").status.success());
+    std::fs::remove_file(scene.dir.join("sleeper.pid")).unwrap();
+    let dir = scene.dir.clone();
+    scene.fake_test_run(&dir);
+    scene.spawn(build);
+    let until = Instant::now() + Duration::from_secs(120);
+    while !read(&scene.dir.join("build.out")).contains("warm: waiting for the test run to end") {
+        assert!(Instant::now() < until, "the build did not wait");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        !scene.dir.join("sleeper.pid").exists(),
+        "it built beside the test run"
+    );
+
+    // The test run ends; the build starts.
+    let mut here = scene.fakes.pop().unwrap();
+    here.kill().unwrap();
+    here.wait().unwrap();
+    scene.wait_for(&["sleeper.pid"]);
+    assert!(scene.run("pause").status.success());
+    scene.ended();
+}
+
 /// **Linux: a pause stops what bounded does not reach.** There bounded's
 /// helper is systemd-run or `setsid timeout`, which a signal to bounded's pid
 /// does not reach, and a process whose parent has exited is out of any tree.
@@ -277,7 +356,7 @@ fn on_linux_a_pause_stops_the_whole_build() {
     let orphan = scene.pid("orphan.pid");
     let sleeper = scene.pid("sleeper.pid");
 
-    let pids: Vec<u32> = scene.refused().iter().map(|w| w.pid).collect();
+    let pids: Vec<Pid> = scene.refused().iter().map(|w| w.pid).collect();
     assert!(
         pids.contains(&orphan) && pids.contains(&sleeper),
         "{pids:?}"
@@ -332,7 +411,7 @@ fn every_measuring_main_asks_first() {
 /// The watcher's build is `test:unit`'s: one binding in devenv.nix, used by
 /// both, so RUSTFLAGS and the profile cannot differ, and the watcher builds
 /// from the root, where `CARGO_TARGET_DIR`'s relative `./target` is the
-/// gate's. Then the no-LTO arm, in a directory of its own.
+/// gate's.
 #[test]
 fn the_watcher_builds_what_the_gate_builds() {
     let repo = repo();
@@ -388,11 +467,7 @@ fn the_watcher_builds_what_the_gate_builds() {
     };
     assert_eq!(
         bound("watch = "),
-        "\"exec bash \\\"$DEVENV_ROOT/scripts/warm.sh\\\" watch ${lib.escapeShellArg watchBuild}\""
-    );
-    assert_eq!(
-        bound("watchBuild = "),
-        "\"${warmBuild} && ${noltoBuild} --no-run\""
+        "\"exec bash \\\"$DEVENV_ROOT/scripts/warm.sh\\\" watch ${lib.escapeShellArg warmBuild}\""
     );
     // The watcher builds what `test:unit` runs: the suite, and on macOS the
     // event rig, each with the gate's own string.
@@ -420,18 +495,6 @@ fn the_watcher_builds_what_the_gate_builds() {
         ),
         "test:unit runs the rig and fails on it: {exec}"
     );
-    // The no-LTO arm: the re-runs' variables, in `target/nolto`.
-    let nolto = bound("noltoBuild = ");
-    for word in [
-        "CARGO_TARGET_DIR=./target/nolto ",
-        "CARGO_PROFILE_RELEASE_LTO=off ",
-        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 ",
-        "RUSTFLAGS='-D warnings' ",
-        "cargo nextest run --release",
-        "${scope}",
-    ] {
-        assert!(nolto.contains(word), "noltoBuild lacks {word}: {nolto}");
-    }
 
     assert!(nix.contains("CARGO_TARGET_DIR = \"./target\";"));
     let build = sh.split_once("\nbuild)\n").expect("warm.sh has build").1;

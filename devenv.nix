@@ -32,16 +32,11 @@ let
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   rigRun = if isDarwin then " ${rigBuild}; c=$?;" else " c=0;";
   warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run" else "${unitBuild} --no-run";
-
-  # **The no-LTO arm**, which a re-run after a small fix builds: release with
-  # LTO off and 16 codegen units, under the gate's RUSTFLAGS, in a target
-  # directory of its own, `target/nolto`, so it and the gate's arm never
-  # evict each other. A re-run finds it warm only with this string's
-  # variables, `CARGO_TARGET_DIR` included.
-  noltoBuild = "CARGO_TARGET_DIR=./target/nolto CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet ${scope}";
-  # What the watcher builds at each save: the gate's arm, then the no-LTO one.
-  watchBuild = "${warmBuild} && ${noltoBuild} --no-run";
-  watch = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg watchBuild}";
+  # The watcher, for `devenv up` and `warm-run` alike. No no-LTO arm: a
+  # re-run after a small fix builds `--cargo-profile fast` in its own slot's
+  # target directory, which cargo keys on that path, so a build here would
+  # warm nothing it reads.
+  watch = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
 
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`
@@ -90,9 +85,9 @@ in
 
   # **The release test build, kept warm while you work.** `devenv up` starts
   # a watcher, and `warm-run` the same one in the foreground, that runs
-  # `test:unit`'s builds, `--no-run`, and then the no-LTO arm, through
-  # `scripts/bounded` at nice 10, 2 s after the last save, so the gate and a
-  # re-run after a small fix find nothing left to compile. `warm-pause`
+  # `test:unit`'s builds, `--no-run`, through `scripts/bounded` at nice 10,
+  # 2 s after the last save, so the gate finds nothing left to compile in this
+  # checkout's `./target`. `warm-pause`
   # stops the build in flight and starts no other until `warm-resume`,
   # `warm-status` prints one line on the watcher, the pause and the build,
   # and every bench and timing example refuses to measure beside an unpaused

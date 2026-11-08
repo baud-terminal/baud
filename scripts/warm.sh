@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # **The release test build, kept warm while you work.** `devenv up` runs
 # `warm.sh watch BUILD`, and `warm-run` runs the same in the foreground,
-# where BUILD is `test:unit`'s own builds with `--no-run` and then the no-LTO
-# arm a re-run after a small fix uses (`watchBuild` in devenv.nix, made of
-# the strings those run), so the fingerprints match and neither finds
-# anything left to compile:
+# where BUILD is `test:unit`'s own builds with `--no-run` (`warmBuild` in
+# devenv.nix, made of the strings it runs), so the fingerprints match and
+# the gate finds nothing left to compile:
 #
 #   warm.sh watch BUILD   watch the tree; on each save, after 2 s quiet, build
 #   warm.sh build BUILD   one build, under scripts/bounded, at nice 10
@@ -28,8 +27,10 @@
 #
 # **Not while a test run is live.** A build in the middle of a gate's test run
 # would relink the binaries nextest is starting and the rlibs the doctests
-# link, so a build waits for every `cargo test` and `nextest run` on the
-# machine to end, `--no-run` aside.
+# link, so a build waits for every `cargo test` and `nextest run` started in
+# this checkout to end, `--no-run` aside. One started in another checkout,
+# a worktree under `.claude/` included, builds in that checkout's target
+# directory and is not waited for.
 #
 # **A pause stops the whole tree, or says it did not.** Every process of a
 # build carries `BAUD_WARM_BUILD=<root>` in its environment. A signal to
@@ -61,18 +62,34 @@ usage() {
   exit 2
 }
 
-# Every live `cargo test` or `nextest run` on the machine, builds aside, but
-# the ones this build runs under: a test of this file starts it from one.
+# A process's working directory: `/proc` on Linux, lsof elsewhere.
+cwd_of() {
+  if [[ -d /proc/self ]]; then
+    readlink "/proc/$1/cwd" 2>/dev/null
+  else
+    lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'
+  fi
+}
+
+# Whether a live `cargo test` or `nextest run`, builds aside, was started in
+# this checkout: its working directory is the root or under it, and not
+# under `.claude/`, whose worktrees are checkouts of their own. The ones
+# this build runs under are left out: a test of this file starts it from one.
 test_run_live() {
-  local above=" " pid=$$
+  local above=" " pid=$$ cwd
   while [[ $pid =~ ^[0-9]+$ ]] && ((pid > 1)); do
     above+="$pid "
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null) || break
     pid=${pid//[[:space:]]/}
   done
-  ps -A -o pid= -o args= 2>/dev/null | awk -v above="$above" '
-    index(above, " " $1 " ") == 0 && /(^|\/)cargo(-nextest)? (nextest run|test)( |$)/ && !/--no-run/ { found = 1 }
-    END { exit !found }'
+  for pid in $(ps -A -o pid= -o args= 2>/dev/null | awk -v above="$above" '
+    index(above, " " $1 " ") == 0 && /(^|\/)cargo(-nextest)? (nextest run|test)( |$)/ && !/--no-run/ { print $1 }'); do
+    cwd=$(cwd_of "$pid")
+    if [[ ($cwd == "$root" || $cwd == "$root"/*) && $cwd != "$root"/.claude/* ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # The processes of this root's builds, by the variable in their environment,
