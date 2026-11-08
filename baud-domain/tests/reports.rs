@@ -103,15 +103,17 @@ fn dsr_operating_status_is_csi_zero_n() {
 }
 
 /// The Primary DA response carries the `?` private marker and the identity
-/// number. baud is a VT102.
+/// number: a VT100 with the Advanced Video Option by default, and a VT102
+/// with Sixel's `4` under the claim (`[[source: ctlseqs]]`).
 #[test]
-fn primary_da_answers_as_a_vt102() {
+fn primary_da_answers_as_a_vt100_with_avo_and_a_vt102_with_sixel() {
     assert_eq!(
-        enc(Report::PrimaryDeviceAttributes(
-            DeviceAttribute::Vt102,
-            SixelClaim::No
-        )),
-        b"\x1b[?6c"
+        enc(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt100Avo)),
+        b"\x1b[?1;2c"
+    );
+    assert_eq!(
+        enc(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102Sixel)),
+        b"\x1b[?6;4c"
     );
 }
 
@@ -128,7 +130,8 @@ fn reports_are_mutually_distinguishable() {
             col: one(1),
         },
         Report::OperatingStatus,
-        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt100Avo),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102Sixel),
     ];
     for (i, a) in all.iter().enumerate() {
         for (j, b) in all.iter().enumerate() {
@@ -153,7 +156,8 @@ fn every_report_is_a_well_formed_csi() {
             col: one(2048),
         },
         Report::OperatingStatus,
-        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt100Avo),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102Sixel),
     ];
     for r in all {
         let b = enc(r);
@@ -440,7 +444,12 @@ fn report_encodings_fit() {
         ),
         (
             "da",
-            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
+            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt100Avo),
+            b'c',
+        ),
+        (
+            "da, sixel",
+            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102Sixel),
             b'c',
         ),
         (

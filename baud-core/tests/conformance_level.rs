@@ -23,13 +23,13 @@ fn reply_to(t: &mut Term<'_>, bytes: &[u8]) -> Vec<u8> {
 const RQSS: &[u8] = b"\x1bP$q\"p\x1b\\";
 
 /// **Level 4 and seven-bit at power-up**, DEC STD 070's `host_state_init`
-/// and the VT510's factory default, and the primary DA answer still the
-/// VT102's.
+/// and the VT510's factory default, and the primary DA answer a VT100 with
+/// the Advanced Video Option, below the level.
 #[test]
 fn the_terminal_powers_up_at_level_four_seven_bit() {
     support::with_term(&WS, |t| {
         assert_eq!(reply_to(t, RQSS), b"\x1bP1$r64;1\"p\x1b\\");
-        assert_eq!(reply_to(t, b"\x1b[c"), b"\x1b[?6c");
+        assert_eq!(reply_to(t, b"\x1b[c"), b"\x1b[?1;2c");
     });
 }
 
@@ -47,7 +47,7 @@ fn decscl_selects_the_level_and_the_c1_transmission() {
         assert_eq!(reply_to(t, b"\x1b[5n"), b"\x9b0n");
         support::feed(t, b"\x1b[64;2\"p");
         assert_eq!(reply_to(t, RQSS), b"\x90\x31$r64;0\"p\x9c");
-        assert_eq!(reply_to(t, b"\x1b[c"), b"\x9b?6c", "DA1 is the identity");
+        assert_eq!(reply_to(t, b"\x1b[c"), b"\x9b?1;2c", "DA1 is the identity");
     });
 }
 
@@ -130,7 +130,7 @@ fn a_full_reset_returns_to_level_four_seven_bit() {
 fn leaving_vt52_returns_to_level_one_seven_bit() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[?2l\x1b<");
-        assert_eq!(reply_to(t, b"\x1bZ"), b"\x1b[?6c", "DECID at Level 1");
+        assert_eq!(reply_to(t, b"\x1bZ"), b"\x1b[?1;2c", "DECID at Level 1");
         assert_eq!(reply_to(t, RQSS), b"", "no DECRQSS at Level 1");
         let counted = t.unsupported;
         support::feed(t, b"\x1b G");

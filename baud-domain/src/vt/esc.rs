@@ -59,8 +59,9 @@ pub enum Esc {
     /// `[[source: dec-std-070]]` 070-4 (PDF 232): "This control is
     /// identical to a primary DA control with an omitted parameter or a
     /// parameter value of zero (0)", and "DECID is not recognized at Level
-    /// 3 or above"; baud's DA names a VT102, which STD 070 places at Level 1,
-    /// so note b's Level 3 bar is not reached.
+    /// 3 or above"; baud's DA names a VT100 by default, and a VT102 under
+    /// the Sixel claim, both of which STD 070 places at Level 1, so note
+    /// b's Level 3 bar is not reached.
     /// Note a of the same entry records the conflict with ECMA-48: "THIS
     /// CONTROL IS RESERVED FOR FUTURE STANDARDIZATION BY ISO AND ANSI.
     /// Conforming software shall use the primary Device Attributes (DA)

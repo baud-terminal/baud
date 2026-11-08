@@ -266,9 +266,12 @@ fn tmux_starting_is_answered_in_order() {
         let find = |n: &[u8]| got.windows(n.len()).position(|w| w == n);
         let reports = got.windows(DARK.len()).filter(|w| *w == DARK).count();
         assert_eq!(reports, 1, "one report, none for 2031 h: {got:?}");
-        // baud's DA1 answer opens `CSI ? 6` -- a VT102, with `;4` when it
-        // claims Sixel -- which no 997 does.
-        let (scheme, da1) = (find(DARK).expect("a 997"), find(b"\x1b[?6").expect("a DA1"));
+        // baud's DA1 answer, a VT100 with the Advanced Video Option, which
+        // no 997 is.
+        let (scheme, da1) = (
+            find(DARK).expect("a 997"),
+            find(b"\x1b[?1;2c").expect("a DA1"),
+        );
         assert!(scheme < da1, "the 997 precedes DA1: {got:?}");
     });
 }

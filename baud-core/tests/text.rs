@@ -181,16 +181,17 @@ fn reply_to(bytes: &[u8]) -> Vec<u8> {
     t.reply().to_vec()
 }
 
-/// **`DA` under-claims as a VT102, and the shape is the whole point.**
+/// **`DA` under-claims as a VT100 with the Advanced Video Option, and the
+/// shape is the whole point.**
 ///
 /// An application parses whatever arrives as the report it asked for, so a
 /// reply in the wrong shape is worse than silence -- which is why every answer
 /// goes through a named `Report` rather than bytes chosen at the call site.
 #[test]
-fn a_device_attributes_query_is_answered_as_a_vt102() {
-    assert_eq!(reply_to(b"\x1b[c"), b"\x1b[?6c");
+fn a_device_attributes_query_is_answered_as_a_vt100_with_avo() {
+    assert_eq!(reply_to(b"\x1b[c"), b"\x1b[?1;2c");
     // `CSI 0 c` is the same query with an explicit default.
-    assert_eq!(reply_to(b"\x1b[0c"), b"\x1b[?6c");
+    assert_eq!(reply_to(b"\x1b[0c"), b"\x1b[?1;2c");
 }
 
 /// `CSI 5 n` is "are you well", `CSI 6 n` is "where is the cursor", 1-based.
@@ -209,7 +210,7 @@ fn a_status_query_is_answered_and_an_unknown_one_is_not() {
 /// Several queries in one read all reach the host, in order.
 #[test]
 fn a_read_carrying_two_queries_answers_both() {
-    assert_eq!(reply_to(b"\x1b[c\x1b[5n"), b"\x1b[?6c\x1b[0n");
+    assert_eq!(reply_to(b"\x1b[c\x1b[5n"), b"\x1b[?1;2c\x1b[0n");
 }
 
 /// The buffer is emptied by the embedder, not by the next read.
@@ -225,11 +226,15 @@ fn a_reply_survives_until_it_is_cleared() {
     let q = b"\x1b[c";
     t.write_at(BytePos::from_index(0), q);
     t.feed(BytePos::from_index(0), ReadLen::from_index(q.len()));
-    assert_eq!(t.reply(), b"\x1b[?6c");
+    assert_eq!(t.reply(), b"\x1b[?1;2c");
     // A second read that says nothing must not erase what is owed.
     t.write_at(BytePos::from_index(0), b"x");
     t.feed(BytePos::from_index(0), ReadLen::from_index(1));
-    assert_eq!(t.reply(), b"\x1b[?6c", "an unrelated read must not drop it");
+    assert_eq!(
+        t.reply(),
+        b"\x1b[?1;2c",
+        "an unrelated read must not drop it"
+    );
     t.clear_reply();
     assert!(t.reply().is_empty());
 }

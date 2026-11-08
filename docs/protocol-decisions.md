@@ -52,19 +52,22 @@ full lines.
 
 Two rules the tests pin, because both failure modes are worse than silence:
 
-* **DA under-claims.** baud answers `CSI ? 6 c` (VT102), with attribute `4`
-  added, `CSI ? 6 ; 4 c`, only when the embedder has provisioned image memory
-  and claims Sixel (`Term::set_sixel_claim`; `baud-app`'s `[images]
-  advertise_sixel`, off by default). It now implements
-  selective erase, which is a VT220 feature, and the answer still does not move
-  -- a DA identity is a promise about *everything* in that level. This said
+* **DA under-claims.** baud answers `CSI ? 1 ; 2 c`, a VT100 with the
+  Advanced Video Option (`[[source: ctlseqs]]`), and `CSI ? 6 ; 4 c`, a
+  VT102 with attribute `4`, only when the embedder has provisioned image
+  memory and claims Sixel (`Term::set_sixel_claim`; `baud-app`'s `[images]
+  advertise_sixel`, off by default). The default was VT102's `CSI ? 6 c`
+  until 2026-11-08, and moved down to VT100 because `kitten icat` cannot
+  read a three-byte answer (the departure below). It implements VT102
+  editing and selective erase, which is a VT220 feature, and the answer
+  does not move up -- a DA identity is a promise about *everything* in that
+  level. This said
   the bar was UDKs; it is not: DECUDK is DEC STD 070's independent extension
   8 (`Levels: 2X`), not a Level 2 requirement, so a Level 2 claim without `;8`
   is the honest shape for a terminal without them. What keeps baud off Level
-  1 and 2 is this list:
-  no Level 1 operation (DECSCL selects Level 1 since 2026-10-19 without
-  its restrictions), no DA2, and for Level 2 LS1R-LS3R and the Level 2
-  keyboard. Claiming more would make applications
+  2 is DA2, unbuilt, and the Level 2 keyboard; LS1R-LS3R are built since
+  2026-10-19, and DECSCL 61 has done only what Level 1 defines since
+  2026-10-22 (the DECSCL row). Claiming more would make applications
   send sequences baud drops, which is the `parsed` failure by another
   route. This also said baud had no NRCS and no 132-column mode;
   the national sets are designated and translated, and DECCOLM is done.
@@ -345,6 +348,18 @@ pending wrap, and not DECAWM (note AE's Q12; the `ESC 7` and `ESC 8` rows).
 
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
   replaces it with Blank; which code point Blank stores is open.
+- **DA1 answers a VT100 with the Advanced Video Option (`?1;2c`), below what
+  baud implements**, where `[[source: dec-std-070]]` 070-4 DA (PDF 221-222)
+  has the first parameter name "the highest level that the device can
+  support"; `CSI ? 6 ; 4 c` under the Sixel claim is below it too. The
+  default is a VT100 so that `kitten icat`'s detection works: it ends only on
+  a DA whose CSI after `ESC [`, final byte included, is longer than three
+  bytes (`[[source: kitty-icat-detect]]`, `detect.go:93`), and VT102's `?6c`
+  is three, so kitten waited out its ten seconds and drew nothing.
+  `?1;2c` is one of the identities `[[source: ctlseqs]]` lists for `CSI c`,
+  xterm's answer with `decTerminalID` 100
+  ([vt-coverage.md](vt-coverage.md), the `CSI c` row;
+  `kitten_icat_s_detection_ends_on_baud_s_primary_da`).
 - **A `SUB` draws no error character by default**, where DEC's VT220 to
   VT500 display one (`[[source: dec-std-070]]` p. 5-132): baud's default, with `[screen] substitute_mark` to draw it, and in VT52 mode it draws none either way, which no DEC text settles ([vt-coverage.md](vt-coverage.md), the SUB rows). Drawing nothing, it moves nothing, so a wrap pending after a full line stays pending across it, where the mark, a character, would take the wrap first.
 - **Marks past what the cluster store holds are dropped**, and counted

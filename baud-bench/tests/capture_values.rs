@@ -550,8 +550,8 @@ fn kitten_s_queries_are_found_as_the_pattern_found_them() {
 fn only_the_direct_query_is_answered_and_only_when_asked() {
     let out = b"\x1b_Ga=q,t=d,i=1;AA\x1b\\\x1b_Ga=q,t=f,i=2;BB\x1b\\\x1b_Ga=q,i=3;CC\x1b\\\x1b[c";
     assert_eq!(
-        kitten::reply(out, b"\x1b[?6c", Direct::Silent).unwrap(),
-        b"\x1b[?6c"
+        kitten::reply(out, b"\x1b[?1;2c", Direct::Silent).unwrap(),
+        b"\x1b[?1;2c"
     );
     assert_eq!(
         kitten::reply(out, b"\x1b[?6;4c", Direct::Answered).unwrap(),

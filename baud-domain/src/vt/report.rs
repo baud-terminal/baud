@@ -82,10 +82,12 @@ pub enum Report {
     /// nothing else; tmux rejected a `997 ; 0 n`, and neovim needs exactly two
     /// parameters.
     ColorScheme(ColorScheme),
-    /// Primary DA, `CSI ? Ps c`. The [`SixelClaim`] flag adds attribute `4` to the
-    /// reply when the embedder has provisioned image memory, so an application
-    /// learns baud will draw a Sixel and uses it rather than a text fallback.
-    PrimaryDeviceAttributes(DeviceAttribute, SixelClaim),
+    /// Primary DA, `CSI ? Ps c`: one of the two answers baud gives, chosen
+    /// by the [`SixelClaim`]. Under the claim, made when the embedder has
+    /// provisioned image memory, the answer carries attribute `4`, so an
+    /// application learns baud will draw a Sixel and uses it rather than a
+    /// text fallback.
+    PrimaryDeviceAttributes(DeviceAttribute),
     /// The answer to VT52's `ESC Z`: `ESC / Z`.
     ///
     /// `[[source: vt510-decanm]]` Table 5-1: "ESC Z Identify (host to
@@ -449,35 +451,45 @@ pub enum ChecksumReport {
     Off,
 }
 
-/// Which terminal baud claims to be, in a Primary DA response.
+/// Which terminal baud claims to be, in a Primary DA response: the whole
+/// answer, so only the two baud sends can be built.
 ///
-/// An enum with one variant on purpose. `[[source: ctlseqs]]` lists the
-/// identities under `CSI Ps c`, and picking one is a promise about *everything*
-/// at that level -- over-claiming makes applications send sequences baud drops,
-/// which is the `parsed` failure by another route. Widening the claim should
-/// cost a deliberate edit here, next to the reason, rather than a changed digit
-/// in a byte string.
+/// `[[source: ctlseqs]]` lists the identities under `CSI Ps c`, and picking
+/// one is a promise about *everything* at that level -- over-claiming makes
+/// applications send sequences baud drops, which is the `parsed` failure by
+/// another route. Widening the claim should cost a deliberate edit here, next
+/// to the reason, rather than a changed digit in a byte string.
+///
+/// **Both answers are below what baud implements, a departure.**
+/// `[[source: dec-std-070]]` 070-4 DA (PDF 221-222) has the first parameter
+/// name "the highest level that the device can support", and baud has VT102
+/// editing, selective erase and more. The default answers a VT100 because
+/// `kitten icat`'s detection ends only on a DA whose CSI, final byte
+/// included, is longer than three bytes (`[[source: kitty-icat-detect]]`,
+/// `detect.go:93`), and VT102's `?6c` is three: kitten waited out its ten
+/// seconds and drew nothing. `docs/protocol-decisions.md` lists it under its
+/// open departures.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeviceAttribute {
-    /// `CSI ? 6 c`. What baud actually is: DECSTBM (VT100) and IL/DL (VT102).
-    /// It has selective erase, which is VT220, and still answers VT102 --
-    /// one VT220 feature does not buy the level, and it has neither UDKs nor
-    /// 132-column mode.
-    ///
-    /// This also said baud had no NRCS. It translates fourteen national
-    /// replacement sets and UK, whatever level this answer claims, whenever
-    /// designated: DECNRCM, `?42`, is recognised and ignored, as DEC STD 070
-    /// ignores it for a North American keyboard (note AF's Q-DECNRCM, (c)).
-    /// Which level this answer amounts to is the level reading behind note
-    /// AE's Q9.
-    Vt102,
+    /// `CSI ? 1 ; 2 c`, "VT100 with Advanced Video Option"
+    /// (`[[source: ctlseqs]]`), the answer without the Sixel claim and what
+    /// xterm sends with `decTerminalID` 100. Under-claiming only makes an
+    /// application use less, and ctlseqs: "The VT100-style response
+    /// parameters do not mean anything by themselves".
+    Vt100Avo,
+    /// `CSI ? 6 ; 4 c`, VT102 with attribute `4`, Sixel graphics
+    /// (`[[source: ctlseqs]]`), the answer under the Sixel claim. An
+    /// unprovisioned baud refuses every Sixel and never makes the claim, so
+    /// an application that reads `4` and sends images sees them drawn.
+    Vt102Sixel,
 }
 
 impl DeviceAttribute {
-    /// The `Ps` in `CSI ? Ps c`.
-    fn param(self) -> u16 {
+    /// The two `Ps` in `CSI ? Ps ; Ps c`.
+    fn params(self) -> [u16; 2] {
         match self {
-            DeviceAttribute::Vt102 => 6,
+            DeviceAttribute::Vt100Avo => [1, 2],
+            DeviceAttribute::Vt102Sixel => [6, 4],
         }
     }
 }
@@ -845,17 +857,12 @@ impl Report {
                 e.push_num(u16::from(f.bits()));
                 e.push(b'u');
             }
-            Report::PrimaryDeviceAttributes(d, sixel) => {
+            Report::PrimaryDeviceAttributes(d) => {
+                let [identity, attribute] = d.params();
                 e.push(b'?');
-                e.push_num(d.param());
-                // Attribute `4` is Sixel graphics (`[[source: ctlseqs]]`), added
-                // only when the store is provisioned so the claim is honest: an
-                // unprovisioned baud refuses every Sixel, and advertising it
-                // would make an application send images it draws as nothing.
-                if let SixelClaim::Yes = sixel {
-                    e.push(b';');
-                    e.push_num(4);
-                }
+                e.push_num(identity);
+                e.push(b';');
+                e.push_num(attribute);
                 e.push(b'c');
             }
             Report::MouseSgr(ev) => {

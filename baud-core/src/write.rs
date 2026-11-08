@@ -2712,18 +2712,20 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
     }
 }
 
-/// Answer a primary DA, for `CSI c` and for DECID, `ESC Z`, one answer.
+/// Answer a primary DA, for `CSI c` and for DECID, `ESC Z`, one answer:
+/// `CSI ? 1 ; 2 c`, a VT100 with the Advanced Video Option, by default
+/// ([`DeviceAttribute`] says why it is below baud's level).
 ///
-/// Advertise Sixel (attribute `4`) only when the embedder opted in
+/// Advertise Sixel, `CSI ? 6 ; 4 c`, only when the embedder opted in
 /// (`Term::set_sixel_claim`) and the store is provisioned, so the claim is
 /// honest: an application that reads it then draws with Sixel rather than a
 /// text fallback, and an unprovisioned baud that refuses every Sixel must not
 /// claim it.
 fn primary_device_attributes(p: &mut Paint<'_, '_>) {
-    p.want_reply(Report::PrimaryDeviceAttributes(
-        DeviceAttribute::Vt102,
-        p.sixel_claim(),
-    ))
+    p.want_reply(Report::PrimaryDeviceAttributes(match p.sixel_claim() {
+        SixelClaim::No => DeviceAttribute::Vt100Avo,
+        SixelClaim::Yes => DeviceAttribute::Vt102Sixel,
+    }))
 }
 
 /// Perform a two-byte `ESC` sequence.

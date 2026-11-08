@@ -237,7 +237,7 @@ report them as gaps; if you think one is wrong, the reasoning is in
   different cell.
 - **Queries are never answered with the wrong shape.** An application parses
   whatever arrives as the report it asked for, so a wrong answer is worse than
-  silence — DA under-claims as a VT102, and an unimplemented DSR gets no reply.
+  silence — DA under-claims as a VT100, and an unimplemented DSR gets no reply.
 
 ## What is worth reporting
 

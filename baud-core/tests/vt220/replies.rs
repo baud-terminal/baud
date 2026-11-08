@@ -22,20 +22,20 @@ fn replies(bytes: &[u8]) -> Vec<u8> {
 
 // ── Device Attributes ───────────────────────────────────────────────────────
 
-/// `CSI c` answers, and answers what baud actually is.
+/// `CSI c` answers, and answers below what baud is.
 ///
-/// VT102: baud has DECSTBM (VT100) and IL/DL (VT102), and does not have sixel,
-/// ReGIS, UDKs, NRCS or 132-column mode. Selective erase, a VT220 feature, has
-/// since landed and the answer still does not move -- a DA identity promises
-/// *everything* at that level, so one VT220 feature does not buy the claim.
+/// A VT100 with the Advanced Video Option, `?1;2c` (`[[source: ctlseqs]]`),
+/// a departure below baud's VT102 editing and VT220 selective erase, so that
+/// `kitten icat`'s detection, which needs a DA longer than VT102's three
+/// bytes, ends (`[[source: kitty-icat-detect]]`; `kitten_detects_the_da.rs`).
 /// Over-claiming would make applications send sequences baud silently drops;
 /// under-claiming only makes them use less.
 #[test]
-fn da_identifies_as_vt102() {
-    assert_eq!(replies(b"\x1b[c"), b"\x1b[?6c");
+fn da_identifies_as_a_vt100_with_avo() {
+    assert_eq!(replies(b"\x1b[c"), b"\x1b[?1;2c");
     assert_eq!(
         replies(b"\x1b[0c"),
-        b"\x1b[?6c",
+        b"\x1b[?1;2c",
         "0 and omitted are the same"
     );
 }
@@ -69,7 +69,7 @@ fn a_da_with_a_nonzero_parameter_is_not_answered_and_is_counted() {
         let name = String::from_utf8_lossy(bytes).escape_debug().to_string();
         match answered {
             true => {
-                assert_eq!(t.reply(), b"\x1b[?6c", "{name}: answered");
+                assert_eq!(t.reply(), b"\x1b[?1;2c", "{name}: answered");
                 assert_eq!(t.unsupported, before, "{name}: not counted");
             }
             false => {
@@ -153,7 +153,7 @@ fn private_dsr_is_a_different_namespace() {
 fn replies_accumulate_in_order() {
     assert_eq!(
         replies(b"\x1b[5n\x1b[c\x1b[6n"),
-        b"\x1b[0n\x1b[?6c\x1b[1;1R"
+        b"\x1b[0n\x1b[?1;2c\x1b[1;1R"
     );
 }
 
@@ -172,12 +172,15 @@ fn clear_reply_empties_the_buffer() {
 }
 
 /// Queries whose replies queue exactly `n` bytes: DSR 5's `CSI 0 n`, which is
-/// `short` bytes in whichever C1 form is in force, and DA1's `CSI ? 6 c`, one
-/// byte longer -- `n % short` DA1s and DSR 5s for the rest. It reaches every
-/// `n` from `(short - 1) * (short + 1)` up: 15 in seven-bit form, 8 in eight.
+/// `short` bytes in whichever C1 form is in force, and the kitty keyboard
+/// flags' `CSI ? 0 u`, one byte longer -- `n % short` of those and DSR 5s for
+/// the rest. It reaches every `n` from `(short - 1) * (short + 1)` up: 15 in
+/// seven-bit form, 8 in eight. DA1 was the longer one while it answered
+/// `CSI ? 6 c`; its `CSI ? 1 ; 2 c` is three bytes longer, twice DSR 5's
+/// length in eight-bit form, so the two reach only multiples of three there.
 pub(crate) fn fill(n: usize, short: usize) -> Vec<u8> {
     let long = n % short;
-    let mut q = b"\x1b[c".repeat(long);
+    let mut q = b"\x1b[?u".repeat(long);
     q.extend_from_slice(&b"\x1b[5n".repeat((n - long * (short + 1)) / short));
     q
 }

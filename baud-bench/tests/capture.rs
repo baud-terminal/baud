@@ -1596,7 +1596,7 @@ read -r -d c x
 printf 'GOT:%q' "$x""#;
     let k = stand_in_kitten(&s, script);
     for (name, want) in [
-        ("detect-da6", r"GOT:$'\E[?6'"),
+        ("detect-da12", r"GOT:$'\E[?1;2'"),
         ("detect-da64", r"GOT:$'\E[?6;4'"),
         ("detect-direct", r"GOT:$'\E_Gi=1;OK\E\\\E[?6;4'"),
     ] {
@@ -1620,7 +1620,7 @@ fn how_kitten_ended_is_reported_and_a_hang_is_refused() {
     assert_eq!(e, "kitten icat pic did not finish in 0.2s");
     // The detect burst's own errors end the run the same way.
     let k = stand_in_kitten(&s, r"printf '\033_Ga=q,bad;A\033\\\033[c'; exec sleep 30");
-    let bad = kitten::mode_named("detect-da6").unwrap();
+    let bad = kitten::mode_named("detect-da12").unwrap();
     assert!(kitten::record(&k, bad, "p", 80, 24, 30.0).is_err());
 }
 
@@ -1752,7 +1752,7 @@ fn a_scan_walks_links_as_the_script_walked_them() {
 /// a property of the stand-in.
 #[test]
 fn the_silent_modes_say_silent() {
-    assert_eq!(kitten::mode_named("detect-da6").unwrap().3, Direct::Silent);
+    assert_eq!(kitten::mode_named("detect-da12").unwrap().3, Direct::Silent);
     assert_eq!(
         kitten::mode_named("detect-direct").unwrap().3,
         Direct::Answered

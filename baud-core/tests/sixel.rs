@@ -696,7 +696,7 @@ fn the_primary_da_advertises_sixel_only_when_opted_in_and_provisioned() {
     one(&mut t, b"\x1b[c");
     assert_eq!(
         t.reply(),
-        b"\x1b[?6c",
+        b"\x1b[?1;2c",
         "provisioned but not opted in: no claim"
     );
     t.clear_reply();
@@ -714,7 +714,7 @@ fn the_primary_da_advertises_sixel_only_when_opted_in_and_provisioned() {
     one(&mut t, b"\x1b[c");
     assert_eq!(
         t.reply(),
-        b"\x1b[?6c",
+        b"\x1b[?1;2c",
         "opted in but unprovisioned: no Sixel claim"
     );
 }

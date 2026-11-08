@@ -116,7 +116,7 @@ fn same_as_da(decid: &[u8], da: &[u8], want: &[u8], setup: impl Fn(&mut Term<'_>
 /// At Level 2, DECSCL 62;1.
 #[test]
 fn decid_answers_the_primary_da() {
-    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6c", |t| {
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?1;2c", |t| {
         level(t, LEVEL_2)
     });
 }
@@ -132,7 +132,7 @@ fn decid_answers_the_sixel_claim_as_da_does() {
 /// Under `S8C1T` the answer's introducer is `9B`, as DA's is.
 #[test]
 fn decid_answers_in_eight_bits_after_s8c1t() {
-    same_as_da(b"\x1b Gab\x1bZcd", b"\x1b Gab\x1b[ccd", b"\x9b?6c", |t| {
+    same_as_da(b"\x1b Gab\x1bZcd", b"\x1b Gab\x1b[ccd", b"\x9b?1;2c", |t| {
         level(t, LEVEL_2)
     });
 }
@@ -140,7 +140,7 @@ fn decid_answers_in_eight_bits_after_s8c1t() {
 /// `9A` is DECID's C1 under ISO 8859-1, read as `ESC Z`.
 #[test]
 fn the_c1_9a_under_latin1_is_decid() {
-    same_as_da(b"\x1b%@ab\x9acd", b"\x1b%@ab\x1b[ccd", b"\x1b[?6c", |t| {
+    same_as_da(b"\x1b%@ab\x9acd", b"\x1b%@ab\x1b[ccd", b"\x1b[?1;2c", |t| {
         level(t, LEVEL_2)
     });
 }
@@ -169,7 +169,7 @@ fn the_c1_9a_is_not_recognised_at_level_four() {
 /// the answer's introducer is `9B`.
 #[test]
 fn decid_answers_at_level_two_in_eight_bits() {
-    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x9b?6c", |t| {
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x9b?1;2c", |t| {
         level(t, b"\x1b[62\"p")
     });
 }
@@ -177,7 +177,7 @@ fn decid_answers_at_level_two_in_eight_bits() {
 /// Level 1, DECSCL 61, which is seven-bit only.
 #[test]
 fn decid_answers_at_level_one() {
-    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6c", |t| {
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?1;2c", |t| {
         level(t, b"\x1b[61\"p")
     });
 }

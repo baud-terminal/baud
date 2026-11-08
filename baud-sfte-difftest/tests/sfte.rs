@@ -249,10 +249,11 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   it stops at 1, from 1-7 at 9, from 8 at 9 -- where baud stops at 8 and 16
 ///   (`baud-core/src/ops.rs`).
 /// * **`DA reply` -- sfte answers `CSI ? 62 c`, a VT220; baud answers
-///   `CSI ? 6 c`.** baud under-claims as a VT102 on purpose
-///   (`docs/vt-coverage.md:542`): an application parses whatever arrives as
-///   the report it asked for, and claiming a VT220's feature set would be a
-///   lie it then acts on. Both replies are pinned byte for byte.
+///   `CSI ? 1 ; 2 c`, a VT100 with the Advanced Video Option.** baud
+///   under-claims on purpose (`docs/vt-coverage.md`, the `CSI c` row): an
+///   application parses whatever arrives as the report it asked for, and
+///   claiming a VT220's feature set would be a lie it then acts on. Both
+///   replies are pinned byte for byte.
 /// * **`alt screen re-entry` -- sfte homes the cursor on a second `?1049 h`,
 ///   and baud leaves it.** Both clear the screen, so every cell agrees; baud
 ///   clears without homing because xterm's `ClearScreen` does not home
@@ -323,7 +324,7 @@ const MUST_DIFFER: &[(&str, Control)] = &[
         "tab at a stop",
         Control::Cells(&[(0, 9, ' ', 'X'), (0, 16, 'X', ' ')]),
     ),
-    ("DA reply", Control::Reply(b"\x1b[?6c", b"\x1b[?62c")),
+    ("DA reply", Control::Reply(b"\x1b[?1;2c", b"\x1b[?62c")),
     ("alt screen in/out", Control::Cursor((0, 4), (1, 0))),
     ("alt screen re-entry", Control::Cursor((0, 5), (0, 0))),
     ("alt screen entry", Control::Cursor((2, 6), (0, 0))),

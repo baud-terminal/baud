@@ -1200,8 +1200,9 @@ mod tests {
             let mut t = Term::new(owned.storage(), &WS);
             t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
             t.set_kitty_files(Box::leak(Box::new(LocalFiles::new())));
-            // kitten's detection waits ten seconds on `CSI ? 6 c` and goes
-            // on at once on `CSI ? 6 ; 4 c`, baud's other answer.
+            // kitten's detection waited ten seconds on `CSI ? 6 c`, baud's
+            // default until 2026-11-08, and goes on at once on
+            // `CSI ? 6 ; 4 c`, the answer under the Sixel claim.
             t.set_sixel_claim(baud_domain::SixelClaim::Yes);
             let mut seen = Vec::new();
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -1328,7 +1329,7 @@ mod tests {
         let path = bytes_of(&probe).to_vec();
         let kitten = burst(&path, path.len());
         let err = |i: u8| format!("\x1b_Gi={i};EBADF:Failed to read image file\x1b\\");
-        let expect = format!("\x1b_Gi=1;OK\x1b\\{}{}\x1b[?6c", err(2), err(3));
+        let expect = format!("\x1b_Gi=1;OK\x1b\\{}{}\x1b[?1;2c", err(2), err(3));
         let missing = replies_in_reads(d.files(), &kitten, &[]);
         assert_eq!(String::from_utf8_lossy(&missing), expect, "no file there");
         let mut reads: Vec<Vec<usize>> = vec![vec![]];
@@ -1345,7 +1346,7 @@ mod tests {
         }
         d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
         let own = replies_in_reads(d.files(), &burst(&path, 3), &[]);
-        let ok = format!("\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\{}\x1b[?6c", err(3));
+        let ok = format!("\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\{}\x1b[?1;2c", err(3));
         assert_eq!(String::from_utf8_lossy(&own), ok, "claimed at its size");
     }
 }

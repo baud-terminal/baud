@@ -11,9 +11,9 @@
 //!
 //! kitten's default, `--transfer-mode=detect`, queries first: three `a=q`, one
 //! per medium, then the Primary DA, and it waits up to ten seconds for the DA.
-//! The `detect-*` cases answer as baud would: baud's DA is `CSI ? 6 c`, or
-//! `CSI ? 6 ; 4 c` with `[images] advertise_sixel`, and baud answers no `a=q`
-//! today. `detect-direct` also answers `OK` to the direct query alone, which
+//! The `detect-*` cases answer as baud would: baud's DA is `CSI ? 1 ; 2 c`,
+//! or `CSI ? 6 ; 4 c` with `[images] advertise_sixel`, and baud answers no
+//! `a=q` today. `detect-direct` also answers `OK` to the direct query alone, which
 //! is what a baud implementing `t=d` and no other medium would send.
 //!
 //! kitty and the input pictures are pinned by nixpkgs revision, and every
@@ -116,7 +116,7 @@ pub type Mode = (
 
 const MODES: [Mode; 5] = [
     ("stream", &["--transfer-mode=stream"], None, Direct::Silent),
-    ("detect-da6", &[], Some(b"\x1b[?6c"), Direct::Silent),
+    ("detect-da12", &[], Some(b"\x1b[?1;2c"), Direct::Silent),
     ("detect-da64", &[], Some(b"\x1b[?6;4c"), Direct::Silent),
     ("detect-direct", &[], Some(b"\x1b[?6;4c"), Direct::Answered),
     // Unicode placeholders, as through tmux: the image with `a=T,U=1` and

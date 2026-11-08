@@ -12,7 +12,7 @@
 //! `docs/input-coverage.md` names three layers and this is the one every
 //! terminal implements. An application that has not negotiated an enhancement
 //! must receive what any other terminal would send, which is the same reasoning
-//! that makes `DA` under-claim as a VT102.
+//! that makes `DA` under-claim as a VT100.
 //!
 //! The expectations are read out of the pinned specification rather than
 //! written here, for the reason `coverage.rs` extracts the key tables: a key table
