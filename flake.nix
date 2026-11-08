@@ -32,6 +32,10 @@
     # store paths, and btop and fastfetch differ at the revision above; only
     # the container's image reads this input.
     nixpkgs-demo.url = "github:NixOS/nixpkgs/6dadaf4375be35033e1c84395adbd53ff5fded96";
+    # **The demo's programs on the Mac** (`NIXPKGS` in
+    # `baud-app/examples/demo/run.rs`): only the demo's mpv
+    # (`nix/demo-mpv/`) reads this input, its recipe and its dependencies.
+    nixpkgs-demo-mac.url = "github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a";
   };
 
   outputs =
@@ -39,6 +43,7 @@
     , nixpkgs
     , rust-overlay
     , nixpkgs-demo
+    , nixpkgs-demo-mac
     , ...
     }:
     let
@@ -187,6 +192,11 @@
           aarch64-darwin.demo-container = import ./nix/demo-container {
             pkgs = pkgsFor "aarch64-darwin";
             linux = nixpkgs-demo.legacyPackages.aarch64-linux;
+          };
+          # **The demo's mpv** (`nix/demo-mpv/`): nixpkgs' mpv built from
+          # mpv's master at a commit with its two terminal video fixes.
+          aarch64-darwin.demo-mpv = import ./nix/demo-mpv {
+            pkgs = nixpkgs-demo-mac.legacyPackages.aarch64-darwin;
           };
         };
 

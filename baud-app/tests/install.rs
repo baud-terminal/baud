@@ -54,35 +54,42 @@ fn locked(lock: &str) -> Vec<(String, String)> {
 /// devenv's wrapper (`nixpkgs-src` in `devenv.lock`), and the flake locks
 /// the revision without it: see
 /// `the_package_s_nixpkgs_is_built_during_no_evaluation`. Every input is
-/// held but `nixpkgs-demo`: the README session's container takes its
-/// packages from a later nixpkgs of its own
-/// (`nix/demo-container/default.nix`), pinned in `flake.nix` by its commit
-/// and locked at it, and builds nothing of baud's with it. The control:
-/// that input's revision is not the shell's.
+/// held but the demo's two: `nixpkgs-demo`, from which the README
+/// session's container takes its packages (`nix/demo-container/default.nix`),
+/// and `nixpkgs-demo-mac`, the nixpkgs of the demo's programs on the Mac,
+/// from which its mpv is built (`nix/demo-mpv/default.nix`). Each is pinned
+/// in `flake.nix` by its commit and locked at it, and builds nothing of
+/// baud's. The control: neither revision is the shell's.
 #[test]
 fn the_flake_locks_the_dev_shells_nixpkgs_and_rust_overlay() {
     let lock = read("flake.lock");
-    let demo = lock
-        .find("\"nixpkgs-demo\": {")
-        .map(|at| &lock[at..])
-        .and_then(|node| node.split("\"locked\": {").nth(1))
-        .and_then(|block| field(&block[..block.find('}')?], "rev"))
-        .expect("the demo's nixpkgs is locked");
-    assert!(
-        read("flake.nix").contains(&format!(
-            "nixpkgs-demo.url = \"github:NixOS/nixpkgs/{demo}\";"
-        )),
-        "the demo's input is pinned by the commit it is locked at"
-    );
+    let demos: Vec<String> = ["nixpkgs-demo", "nixpkgs-demo-mac"]
+        .into_iter()
+        .map(|input| {
+            let rev = lock
+                .find(&format!("\"{input}\": {{"))
+                .map(|at| &lock[at..])
+                .and_then(|node| node.split("\"locked\": {").nth(1))
+                .and_then(|block| field(&block[..block.find('}')?], "rev"))
+                .unwrap_or_else(|| panic!("the demo's {input} is locked"))
+                .to_owned();
+            assert!(
+                read("flake.nix")
+                    .contains(&format!("{input}.url = \"github:NixOS/nixpkgs/{rev}\";")),
+                "the demo's {input} is pinned by the commit it is locked at"
+            );
+            rev
+        })
+        .collect();
     let flake: Vec<_> = locked(&lock)
         .into_iter()
-        .filter(|(repo, rev)| !(repo == "NixOS/nixpkgs" && rev == demo))
+        .filter(|(repo, rev)| !(repo == "NixOS/nixpkgs" && demos.contains(rev)))
         .collect();
     assert!(
         !locked(&read("devenv.lock"))
             .iter()
-            .any(|(_, rev)| rev == demo),
-        "the control: the demo's revision is not the shell's"
+            .any(|(_, rev)| demos.contains(rev)),
+        "the control: no demo revision is the shell's"
     );
     let devenv = locked(&read("devenv.lock"));
     for repo in ["NixOS/nixpkgs", "oxalica/rust-overlay"] {

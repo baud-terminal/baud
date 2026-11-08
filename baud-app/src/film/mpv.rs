@@ -451,3 +451,82 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         "the premise: every frame differs from the one before but the second"
     );
 }
+
+/// **The demo's prompts after mpv's exit**: each shell's mark is a
+/// BEL-ended `OSC 133 ; A`, after the `OSC 133 ; D` of the command before
+/// it -- zsh's, baud's integration's, `ESC ] 133 ; A ; aid=PID BEL`
+/// (`baud-app/src/shell/zshenv.zsh`), and the container's bash's,
+/// `ESC ] 133 ; A ; BEL` (`nix/demo-container/profile`) -- and after the
+/// capture's quit, whose `a=d` the `ESC` of `ESC [ ? 25 h` cuts, either
+/// one, fed whole, finds the primary screen up, `?1049` off, and opens a
+/// prompt there. Then the case with no `ESC` after the quit's `a=d`, the
+/// capture cut there: the prompt's own first byte ends the open string, so
+/// the mark that follows is read as one, here on the alternate screen
+/// nothing has left. The control: a prompt with no mark opens none.
+/// Perturbation: feed the shell's prompt as plain text and no prompt
+/// opens.
+#[test]
+fn the_demos_prompts_after_mpvs_exit_are_bel_ended_osc_133_marks() {
+    let zshenv = include_str!("../shell/zshenv.zsh");
+    for spelled in [
+        "__baud_bel=$'\\a'",
+        "${__baud_osc}D;$st;aid=$$${__baud_bel}",
+        "${__baud_osc}A;aid=$$${__baud_bel}",
+    ] {
+        assert!(zshenv.contains(spelled), "zsh's mark: {spelled}");
+    }
+    let profile = include_str!("../../../nix/demo-container/profile");
+    assert!(
+        profile.contains("printf '\\033]133;D;%s\\a\\033]133;A;\\a'"),
+        "bash's mark in the container"
+    );
+    let zsh: &[u8] = b"\x1b]133;D;0;aid=4242\x07\x1b]133;A;aid=4242\x07~/baud \xe2\x9d\xaf ";
+    let bash: &[u8] = b"\x1b]133;D;0\x07\x1b]133;A;\x07~ \xe2\x9d\xaf ";
+    let bytes = std::fs::read(capture::PATH).expect("the capture");
+    let quit = b"\x1b_Ga=d;";
+    let cut = bytes
+        .windows(quit.len())
+        .rposition(|w| w == quit)
+        .map(|i| i + quit.len())
+        .expect("the quit's a=d");
+    assert_eq!(
+        &bytes[cut..cut + 6],
+        b"\x1b[?25h",
+        "the premise: an ESC follows the quit"
+    );
+    let grid = grid_of(GRID);
+    let fed = |parts: &[&[u8]]| {
+        let mut owned = Owned::new(&grid);
+        let mut term = Term::new(owned.storage(), &grid);
+        let before = term.prompts_opened();
+        for p in parts {
+            for chunk in p.chunks(1024) {
+                crate::reads::feed(
+                    &mut term,
+                    [chunk],
+                    |_| {},
+                    |_| {},
+                    &mut crate::hostlog::NoLog,
+                );
+            }
+        }
+        (term.screen(), term.prompts_opened() != before, term.zone())
+    };
+    for prompt in [zsh, bash] {
+        assert_eq!(
+            fed(&[&bytes, prompt]),
+            (baud_core::Screen::Normal, true, baud_core::Zone::Prompt),
+            "after mpv's whole exit: {}",
+            String::from_utf8_lossy(prompt)
+        );
+        let (screen, _, zone) = fed(&[&bytes[..cut], prompt]);
+        assert_eq!(
+            (screen, zone),
+            (baud_core::Screen::Alternate, baud_core::Zone::Prompt),
+            "the string left open, then the prompt: {}",
+            String::from_utf8_lossy(prompt)
+        );
+    }
+    let (_, opened, _) = fed(&[&bytes, b"~/baud \xe2\x9d\xaf "]);
+    assert!(!opened, "the control: a prompt with no mark opens none");
+}

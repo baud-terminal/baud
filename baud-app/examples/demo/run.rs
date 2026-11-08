@@ -52,20 +52,28 @@ fn starship_new_enough(version: &str) -> bool {
 /// The programs the session runs on this Mac: nixpkgs attribute, binary.
 /// helix edits baud's config, OpenSSH's client ssh's into the container
 /// (`container.rs`), its manual pages left out, kitten draws the pictures,
-/// mpv plays the logo's film and, in the trailer, the tour, whose stream
-/// yt-dlp finds, yazi lists the repository's copy and opens its README in
-/// helix (`scratch::YAZI_TOML`), and Chawan, `cha`, shows a web page
+/// yt-dlp finds the stream of the tour the trailer plays in mpv
+/// ([`MPV_OUTPUT`]), yazi lists the repository's copy and opens its README
+/// in helix (`scratch::YAZI_TOML`), and Chawan, `cha`, shows a web page
 /// (`scratch::CHAWAN_TOML`); fastfetch, btop and the container's helix run
 /// in the container, from its image.
-const PROGRAMS: [(&str, &str); 7] = [
+const PROGRAMS: [(&str, &str); 6] = [
     ("helix", "hx"),
     ("openssh^out", "ssh"),
     ("kitty", "kitten"),
-    ("mpv", "mpv"),
     ("yt-dlp", "yt-dlp"),
     ("yazi", "yazi"),
     ("chawan", "cha"),
 ];
+
+/// **The repository flake's mpv** (`nix/demo-mpv/`): nixpkgs' mpv at
+/// [`NIXPKGS`], built from mpv's master at [`MPV_REV`], which holds
+/// 12d630d819, the status line locked against the VOs' frames, and is
+/// 8e566099cb, whose vo_kitty uninit ends its `a=d` with `ST`. 0.41.0 has
+/// neither: its status line cut frames, and its quit left a control string
+/// open (`tests/recordings/kitty/mpv-logo-40x6.raw`).
+pub const MPV_OUTPUT: &str = "demo-mpv";
+pub const MPV_REV: &str = "8e566099cbbbfbd9177c457ed26ac51223ba7303";
 
 /// **The headless film's frame period**, in milliseconds: 100 frames a
 /// second, the rate the README logo's flashes are counted at
@@ -786,6 +794,27 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
         println!("{bin:<13}{}", exe.display());
         bins.push(dir.to_string_lossy().into_owned());
     }
+    let (mpv, mpv_tools) = flake_out(MPV_OUTPUT)?;
+    let at = format!("{}#{MPV_OUTPUT}.rev", provenance::repository().display());
+    let rev = Command::new("nix")
+        .args(["eval", "--raw"])
+        .arg(&at)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("nix: {e}"))?;
+    if !rev.status.success() || rev.stdout != MPV_REV.as_bytes() {
+        return Err(format!(
+            "{at} is {:?}, not {MPV_REV}",
+            String::from_utf8_lossy(&rev.stdout)
+        ));
+    }
+    let exe = mpv.join("bin").join("mpv");
+    if !exe.is_file() {
+        return Err(format!("{MPV_OUTPUT} has no {}", exe.display()));
+    }
+    println!("{:<13}{}", "mpv", exe.display());
+    bins.push(mpv.join("bin").to_string_lossy().into_owned());
+    tools.extend(mpv_tools);
     bins.push(starship.to_string_lossy().into_owned());
     let cache = cache_dir()?;
     let mut faces = Vec::new();
@@ -1835,15 +1864,15 @@ fn play(
                 ev.line(&session::event(step, prompt));
             }
             Step::Hover(cell) => {
-                let w = guard::frame(pid, &mac::windows(true))
-                    .ok_or("baud has no window on screen")?;
+                let w =
+                    guard::frame(pid, &mac::windows(true)).ok_or("baud has no window on screen")?;
                 let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
                 poster.hover(at)?;
                 ev.line(&session::event(step, prompt));
             }
             Step::CmdClick(cell) => {
-                let w = guard::frame(pid, &mac::windows(true))
-                    .ok_or("baud has no window on screen")?;
+                let w =
+                    guard::frame(pid, &mac::windows(true)).ok_or("baud has no window on screen")?;
                 let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
                 log.refresh();
                 typed_from = log.bytes.len();
@@ -1851,8 +1880,8 @@ fn play(
                 ev.line(&session::event(step, prompt));
             }
             Step::Drag { from, to } => {
-                let w = guard::frame(pid, &mac::windows(true))
-                    .ok_or("baud has no window on screen")?;
+                let w =
+                    guard::frame(pid, &mac::windows(true)).ok_or("baud has no window on screen")?;
                 let place = |c, within| session::in_window(c, within, (w.x, w.y), (w.w, w.h));
                 let (press, release) = session::drag_ends();
                 let before = board.count();
@@ -1920,6 +1949,47 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    /// **The demo's mpv is the flake's, at [`MPV_REV`], on the Mac's
+    /// nixpkgs**: no mpv among nixpkgs' [`PROGRAMS`]; the flake's
+    /// [`MPV_OUTPUT`] imports `nix/demo-mpv` with the input pinned at
+    /// [`NIXPKGS`]'s revision; that file fetches mpv at [`MPV_REV`] with a
+    /// hash, and its build fails unless the source holds both fixes, the
+    /// status line's lock and the ST after vo_kitty's delete. The control:
+    /// the file with another revision is caught. Perturbation: put `mpv`
+    /// back in `PROGRAMS` and the first assertion fails.
+    #[test]
+    fn the_demos_mpv_is_the_flakes_at_both_fixes() {
+        use super::{MPV_OUTPUT, MPV_REV, NIXPKGS, PROGRAMS};
+        assert!(
+            PROGRAMS.iter().all(|(attr, _)| !attr.starts_with("mpv")),
+            "mpv comes from the flake, not from nixpkgs as it is"
+        );
+        let flake = include_str!("../../../flake.nix");
+        let nix = include_str!("../../../nix/demo-mpv/default.nix");
+        let rev = NIXPKGS.rsplit('/').next().unwrap();
+        assert!(flake.contains(&format!(
+            "nixpkgs-demo-mac.url = \"github:NixOS/nixpkgs/{rev}\";"
+        )));
+        assert!(flake.contains(&format!(
+            "aarch64-darwin.{MPV_OUTPUT} = import ./nix/demo-mpv {{\n            \
+             pkgs = nixpkgs-demo-mac.legacyPackages.aarch64-darwin;"
+        )));
+        let pinned = |n: &str| n.contains(&format!("  rev = \"{MPV_REV}\";\n"));
+        assert!(pinned(nix), "mpv at {MPV_REV}");
+        assert!(
+            !pinned(&nix.replace(MPV_REV, &"0".repeat(40))),
+            "the control"
+        );
+        assert!(nix.contains("    hash = \"sha256-"));
+        for check in [
+            "grep -q '^void terminal_lock_output(void);$' osdep/terminal.h",
+            "grep -A1 'append_passthrough(p, out, KITTY_ESC_DELETE_ALL);' video/out/vo_kitty.c",
+            "| grep -q 'append_passthrough(p, out, KITTY_ESC_END);'",
+        ] {
+            assert!(nix.contains(check), "the build checks: {check}");
+        }
+    }
+
     /// **The repository's copy is exactly its paths, at `HEAD`**: the
     /// archive of the repository this test runs in holds each file of
     /// `scratch::REPO_COPY`, a folder's every file at `HEAD`, and nothing

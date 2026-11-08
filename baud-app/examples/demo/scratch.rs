@@ -125,14 +125,16 @@ fn zshrc(path: &str) -> String {
 pub const BIN: &str = "bin";
 
 /// **mpv's config in the scratch home**, `~/.config/mpv/mpv.conf`, so the
-/// trailer's `mpv URL`, and the README film's that replaces it, is typed with no
-/// option: its video in kitty's graphics protocol, each frame sent in the
-/// stream itself (`vo-kitty-use-shm=no`, mpv's default, written out:
-/// nixpkgs' mpv 0.41 names its shared memory without the leading `/` the
+/// trailer's `mpv URL`, and the README film's that replaces it, is typed
+/// with no option: its video in kitty's graphics protocol, each frame sent
+/// in the stream itself (`vo-kitty-use-shm=no`, mpv's default, written
+/// out: mpv 0.41 named its shared memory without the leading `/` the
 /// protocol asks for, which baud refuses, as kitty does), no audio, which
 /// the takes do not film, and no status line, whose writes from its own
-/// thread land inside a frame's chunks and cut them
-/// (`tests/recordings/README.md`, `kitty/mpv-logo-40x6.raw`).
+/// thread landed inside a frame's chunks in 0.41 and cut them
+/// (`tests/recordings/README.md`, `kitty/mpv-logo-40x6.raw`). The demo's
+/// mpv (`run::MPV_REV`) holds the fixes to both, and the takes film no
+/// status line either way.
 pub const MPV_CONF: &str = "# mpv for the tour and the trailer: video in kitty's protocol, in the stream\n\
                             vo=kitty\nvo-kitty-use-shm=no\naudio=no\nreally-quiet\n";
 
