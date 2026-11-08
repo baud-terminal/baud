@@ -1106,7 +1106,7 @@ fn the_readme_session_lights_every_light() {
             .count()
     };
     let prompts = [
-        Some(1),
+        hold_after(Step::Prompt),
         hold_after(Step::Run("fastfetch")),
         hold_after(Step::Run("cat hello.txt")),
         hold_after(Step::Run(steps::FIREWORKS)),
@@ -1133,17 +1133,26 @@ fn the_readme_session_lights_every_light() {
             );
         }
     }
-    // **The arrows down and the arrows up each light a plasma**: the first
-    // of each, in its step or the next, the trail plasma then; the first up
-    // comes past `REIGNITE` after the first down (`Show::ArrowTrail`).
+    // **The arrows down and the arrows up each light a plasma**: one from
+    // the first down to the first up, and one from the first up to the
+    // search, the trail plasma then (`Show::ArrowTrail`). Not in the arrow's
+    // own step: the keys go over ssh and come back as helix's redraw while
+    // the next arrows are typed, so a move's plasma lands in a step after.
     let down = at(Step::Arrow(steps::Arrow::Down));
     let up = at(Step::Arrow(steps::Arrow::Up));
-    for i in [down, up].into_iter().flatten() {
-        let lit = take
-            .ignitions
-            .iter()
-            .any(|(s, t, _)| s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma);
-        assert!(lit, "no plasma ignition at step {i} {:?}", steps[i]);
+    let search = at(Step::Line("/character"));
+    for (from, to) in [(down, up), (up, search)] {
+        let (Some(from), Some(to)) = (from, to) else {
+            continue;
+        };
+        let lit = take.ignitions.iter().any(|(s, t, _)| {
+            s.is_some_and(|s| (from..to).contains(&s)) && *t == CursorTrail::Plasma
+        });
+        assert!(
+            lit,
+            "no plasma ignition from step {from} {:?} to step {to} {:?}",
+            steps[from], steps[to]
+        );
     }
     // **The finale's `sed` turns the trail to the saucer before `clear`**,
     // by baud's reading of the file again, and `clear` lights it.
