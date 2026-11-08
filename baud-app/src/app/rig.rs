@@ -21,7 +21,7 @@
 //! recorded where they run (`baud_present_macos::probe`), and each record
 //! is printed as a line for the parent; an iteration with none prints
 //! `none`. `tick-inline` and `tick-in-frame` are the controls:
-//! `link::later` hands over inline, in the callback that asked or in the
+//! the effect queue's turn runs inline, in the callback that asked or in the
 //! next frame.
 
 use super::*;
@@ -182,6 +182,7 @@ fn run(act: Act, iterations: Iterations, ticks: Ticks) -> std::process::ExitCode
     };
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+    crate::os_effect::install();
     let size = WINDOW_SIZE;
     let scale = 2.0;
     let inset = predicted_inset(mtm, size);
@@ -277,6 +278,12 @@ fn run(act: Act, iterations: Iterations, ticks: Ticks) -> std::process::ExitCode
             println!("the window was made key");
             failed = true;
         }
+    }
+    // No panic stopped anywhere: a borrow taken twice in a nested turn
+    // (the effect queue's re-entry) would be one, swallowed by its guard.
+    if baud_present_macos::unwind::caught() != baud_present_macos::unwind::Caught::NONE {
+        println!("a panic was caught");
+        failed = true;
     }
     match failed {
         true => std::process::ExitCode::from(1),

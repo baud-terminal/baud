@@ -1,6 +1,7 @@
 //! Handing an admitted link to the OS: open it with the default handler
-//! for its scheme, or reveal a file in Finder -- on the main queue's next
-//! turn, never inside the callback that asked ([`later`]).
+//! for its scheme, or reveal a file in Finder -- in a main-queue turn of
+//! its own, never inside the callback that asked: [`workspace`] takes a
+//! [`Turn`], which only such a turn has.
 //!
 //! Safe calls only -- every `NSWorkspace` and `NSURL` call here is a safe
 //! fn in the pinned bindings, reached through the window crate's
@@ -11,8 +12,9 @@
 //! string names. No subprocess, no `open(1)`, no argv: the URL is one
 //! `NSURL`.
 
-use baud_domain::AdmittedUri;
 use macos_liquid_glass::objc2::rc::{Retained, autoreleasepool};
+
+use crate::turn::Turn;
 use macos_liquid_glass::objc2_app_kit::NSWorkspace;
 use macos_liquid_glass::objc2_foundation::{NSProcessInfo, NSString, NSURL};
 
@@ -68,12 +70,15 @@ pub enum Ask {
     Reveal,
 }
 
-/// Who carries an [`Ask`] out: [`workspace`] in the app, a recorder in a
-/// test. A plain `fn`, so the block that takes it to the main queue is
-/// `Send` and holds nothing of the caller's.
-pub type Hand = fn(Ask, &str) -> Opened;
+/// **Whether `url` would be handed over at all**, answered now, before
+/// the effect is asked for: `Unparsed` and `Mismatch` are the caller's to
+/// say at once, and `NSURL` runs no loop. [`workspace`] parses it again on
+/// its turn, because the `NSURL` made here is not `Send` and is not kept.
+pub fn checks(url: &str) -> Result<(), Opened> {
+    autoreleasepool(|_| parse(url).map(drop))
+}
 
-/// **`NSWorkspace` itself**, called only from the block [`later`] queues.
+/// **`NSWorkspace` itself**, made only in a turn of its own ([`Turn`]).
 ///
 /// `activateFileViewerSelectingURLs:` is not a quick call: AppKit performs
 /// it as a Finder service, and the services handler waits for the reply in
@@ -87,7 +92,8 @@ pub type Hand = fn(Ask, &str) -> Opened;
 /// synchronous LaunchServices call whose header says nothing of the run
 /// loop either way; it goes the same route, since nothing a tick does
 /// should wait on another process.
-pub fn workspace(ask: Ask, url: &str) -> Opened {
+pub fn workspace(turn: &Turn<'_>, ask: Ask, url: &str) -> Opened {
+    let _ = turn;
     // The probe build records the effect where it runs and opens nothing.
     #[cfg(feature = "effect-probe")]
     {
@@ -118,59 +124,6 @@ pub fn workspace(ask: Ask, url: &str) -> Opened {
         },
     })
 }
-
-/// **Hand a link to the OS after the callback that asked has returned.**
-///
-/// The parse is answered now -- `Unparsed` and `Mismatch` are the caller's
-/// to say at once, and `NSURL` runs no loop -- and the hand-over is a block
-/// on the main queue, which runs on a later turn of the main run loop and
-/// so outside every responder callback, none of which runs the loop
-/// itself, with no responder borrowed: a nested loop inside `hand` then
-/// delivers the view's performs into a responder that is free to take
-/// them. `done` hears what `hand` answered, and gets the URI back, on the
-/// main thread after `hand` has returned; it is the caller's way back in,
-/// through a waker, and holds no borrow across the hand-over. The block
-/// runs through [`crate::unwind::guard`], so a panic in it is stopped
-/// there rather than in libdispatch, which would abort.
-///
-/// `url` is moved into the block and back out to `done`, never copied.
-/// **It is parsed twice**, once here and once in the block, because the
-/// `NSURL` the first parse makes is not `Send` and cannot cross to the
-/// main queue's block; the second parse is the hand's own.
-pub fn later(
-    ask: Ask,
-    url: AdmittedUri,
-    hand: Hand,
-    done: impl FnOnce(Opened, AdmittedUri) + Send + 'static,
-) -> Result<(), Opened> {
-    autoreleasepool(|_| parse(url.as_str()).map(drop))?;
-    let run = move || {
-        let opened = hand(ask, url.as_str());
-        done(opened, url);
-    };
-    // The event rig's controls: the hand-over made inline, in the callback
-    // that asked or in the next frame, where the reveal was before this
-    // function, so the rig sees an effect made there.
-    #[cfg(feature = "effect-probe")]
-    match crate::probe::inline() {
-        crate::probe::Inline::No => {}
-        crate::probe::Inline::InCallback => {
-            run();
-            return Ok(());
-        }
-        crate::probe::Inline::InFrame => {
-            crate::probe::park(Box::new(run));
-            return Ok(());
-        }
-    }
-    dispatch2::DispatchQueue::main().exec_async(move || {
-        crate::unwind::guard(SITE, (), run);
-    });
-    Ok(())
-}
-
-/// The block's entry, as a stopped panic names it.
-const SITE: crate::unwind::SiteName = crate::unwind::SiteName("a link handed to the OS");
 
 /// This machine's name, as `file://host/path` links name it.
 pub fn host_name() -> String {

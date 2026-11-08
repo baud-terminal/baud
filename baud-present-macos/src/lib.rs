@@ -56,6 +56,7 @@ pub mod redraw;
 pub mod screens;
 pub mod selection;
 pub mod settings;
+pub mod turn;
 pub mod unwind;
 pub mod window;
 

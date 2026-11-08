@@ -195,6 +195,9 @@ mod notify;
 mod next_turn;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod opener;
+// What a macOS window asks of the desktop, made on a turn of its own.
+#[cfg(target_os = "macos")]
+mod os_effect;
 // A file path printed as plain text, underlined only if it exists: the scan's
 // half, pure, so its tests run on every platform; and the one worker thread
 // that asks the file system, which both drivers run.

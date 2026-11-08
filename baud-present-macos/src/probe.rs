@@ -210,8 +210,9 @@ impl Wakes {
     }
 }
 
-/// Whether `link::later` hands over inline: the rig's controls, which put
-/// the effect back where it was before the fix.
+/// Whether a turn's door (`turn::soon`, `turn::later`) hands over
+/// inline: the rig's controls, which put the effect back where it was
+/// before the fix.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Inline {
     /// On a main-queue turn of its own, as shipped.
@@ -249,12 +250,12 @@ pub fn run_parked() {
     }
 }
 
-/// Set whether `link::later` hands over inline.
+/// Set whether a turn's door hands over inline.
 pub fn set_inline(inline: Inline) {
     INLINE.with(|i| i.set(inline));
 }
 
-/// Whether `link::later` hands over inline.
+/// Whether a turn's door hands over inline.
 pub fn inline() -> Inline {
     INLINE.with(Cell::get)
 }

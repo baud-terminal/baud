@@ -248,8 +248,8 @@ const SITES: [Site; 11] = [
         expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Green,
     },
-    // **The control.** The reveal row with `link::later` handing over
-    // inline, as the reveal was handed over before it: the reveal runs
+    // **The control.** The reveal row with the effect queue's turn run
+    // inline, as the reveal was handed over before it had a turn: the reveal runs
     // inside the callback the click's answer arrives in -- the worker's
     // `wake`, where f1ed2869 put it, not the frame -- with the responder
     // held, and its nested `wake:` is held until the call returns
@@ -261,8 +261,8 @@ const SITES: [Site; 11] = [
         expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Control(Failure::InCallback(EffectKind::Reveal, Nested::Never)),
     },
-    // **The frame's control: the crash's own shape.** `link::later` parks
-    // the hand-over and baud's `frame` makes it, as the reveal was made in
+    // **The frame's control: the crash's own shape.** The effect queue's
+    // turn is parked and baud's `frame` runs it, as the reveal was made in
     // `frame` before it had a turn: the reveal runs inside the frame with
     // the responder held, and its nested `wake:` is held until `frame`
     // returns (macos-liquid-glass 1.0.0-beta.9). On beta.8 this was the

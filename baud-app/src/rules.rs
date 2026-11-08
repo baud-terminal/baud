@@ -1657,16 +1657,23 @@ mod tests {
             r.command(t.rule().expect("a rule's"), uri).is_none(),
             "no process"
         );
-        for (name, src, write) in [
+        // macOS asks its effect queue, whose turn writes the pasteboard.
+        assert!(
+            include_str!("os_effect.rs").contains("clipboard::write_text(text.as_str())"),
+            "the macOS write"
+        );
+        for (name, src, write, said) in [
             (
                 "app.rs",
                 include_str!("app.rs"),
-                "clipboard::write_text(&text)",
+                "OsEffect::Copy(",
+                "self.selection_copied(text.as_str());",
             ),
             (
                 "linux.rs",
                 include_str!("linux.rs"),
                 "Board::Clipboard, &text)",
+                "self.selection_copied(&text);",
             ),
         ] {
             let (_, body) = src
@@ -1676,10 +1683,7 @@ mod tests {
             assert!(body.contains(write), "{name}: the write");
             // The words, said once the pasteboard took it: in the copy on
             // Linux, and on macOS where the turn's answer comes back.
-            assert!(
-                src.contains("self.selection_copied(&text);"),
-                "{name}: the words"
-            );
+            assert!(src.contains(said), "{name}: the words");
             assert!(!body.contains(".start("), "{name}: no process");
             assert!(
                 src.contains("let text = t.as_str().to_string();\n"),

@@ -41,6 +41,8 @@ extern crate alloc;
 mod admitted;
 mod base64;
 mod bidi;
+#[cfg(feature = "alloc")]
+mod owned_text;
 mod bidi_data {
     //! Bidirectional data, compiled by `build/bidi.rs` from the sources
     //! pinned in `docs/research/sources/MANIFEST.toml`
@@ -288,6 +290,8 @@ pub use linebreak::*;
 pub use link_table::*;
 pub use merged::*;
 pub use nrcs_data::*;
+#[cfg(feature = "alloc")]
+pub use owned_text::*;
 pub use placeholder::*;
 pub use pos::*;
 pub use premultiply::*;

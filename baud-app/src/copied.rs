@@ -1047,8 +1047,16 @@ mod tests {
             linux.contains("Copied::Set => self.selection_copied(&text),"),
             "the Linux copy says it once it is set"
         );
+        // To VoiceOver through the window's effect queue, whose turn says
+        // them.
         assert_eq!(
-            MAC.matches("baud_present_macos::announce::announce(mtm, &words);")
+            MAC.matches("Spoken::of(words)").count(),
+            1,
+            "the words asked for"
+        );
+        assert_eq!(
+            include_str!("os_effect.rs")
+                .matches("baud_present_macos::announce::announce(mtm, words.as_str());")
                 .count(),
             1,
             "the words reach VoiceOver"

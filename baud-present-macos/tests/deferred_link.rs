@@ -16,12 +16,12 @@
 //! mode. No Finder and no browser. 100 iterations each.
 //!
 //! Two checks:
-//! - **Handed over after the frame** (`link::later`): nothing is handed
+//! - **Handed over after the frame** (`turn::later`): nothing is handed
 //!   over during `tick:`; on a later turn exactly one reveal of the
 //!   address is, with the responder free, and the nested `wake:` reaches
 //!   the responder inside the hand's own call.
 //! - **The window crate's guard, the control**: the same hand called
-//!   inline from the frame, as the reveal was before `link::later`. Since
+//!   inline from the frame, as the reveal was before it had a turn. Since
 //!   macos-liquid-glass 1.0.0-beta.9 the nested `wake:` is held while the
 //!   frame runs and delivered once as it returns, and nothing panics. Run
 //!   against 1.0.0-beta.8, this arm aborts with "RefCell already
@@ -64,8 +64,9 @@ fn main() {
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod checks {
-    use baud_domain::AdmittedUri;
-    use baud_present_macos::link::{Ask, Opened, later};
+    use baud_present_macos::link::{Ask, Opened, checks};
+    use baud_present_macos::turn;
+    use baud_present_macos::unwind::SiteName;
     use baud_present_macos::unwind::{Caught, Guarded, caught};
     use core::cell::Cell;
     use macos_liquid_glass::drawable::{
@@ -221,15 +222,11 @@ mod checks {
             let _call = InCall::enter();
             match self.hands {
                 Hands::Later => {
-                    let asked = later(
-                        Ask::Reveal,
-                        AdmittedUri::checked(FILE.to_owned()),
-                        finder,
-                        |o, _| {
-                            DONE.lock().unwrap().push(o);
-                        },
-                    );
-                    assert_eq!(asked, Ok(()), "the address parses");
+                    assert_eq!(checks(FILE), Ok(()), "the address parses");
+                    turn::later(SiteName("the test's reveal"), |_turn| {
+                        let o = finder(Ask::Reveal, FILE);
+                        DONE.lock().unwrap().push(o);
+                    });
                 }
                 Hands::Inline => {
                     let o = finder_inline(Ask::Reveal, FILE);
@@ -283,16 +280,8 @@ mod checks {
     }
 
     pub(crate) fn handed_over_after_the_frame() {
-        // The refusals are answered at once and queue nothing.
-        assert_eq!(
-            later(
-                Ask::Open,
-                AdmittedUri::checked("https://a b".to_owned()),
-                finder,
-                |_, _| {}
-            ),
-            Err(Opened::Unparsed)
-        );
+        // A refusal is answered at once, before anything is asked.
+        assert_eq!(checks("https://a b"), Err(Opened::Unparsed));
         let (view, link, handed_during) = view(Hands::Later);
         for i in 0..ITERATIONS {
             reset();
