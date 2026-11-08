@@ -47,7 +47,10 @@
 //! directory at the end. The container and its image are removed, and the
 //! VM deleted, on every way out ([`Running`]'s drop), Ctrl-C among them: its
 //! handler only sets [`INTERRUPTED`], and every wait the session makes stops
-//! on it and returns, so the drop runs.
+//! on it and returns, so the drop runs. With `DOCKER_HOST` set, the
+//! container runs in that docker's VM instead, which is neither started
+//! nor deleted ([`Vm::Given`]); only the container and its image are
+//! removed.
 
 use std::fs;
 use std::io::{Read as _, Write as _};
@@ -493,12 +496,33 @@ impl Drop for ColimaHome {
 }
 
 /// What docker's context was before the session, the docker it talks to --
-/// the session's VM's socket, empty until it is up -- and colima's directory
-/// for the VM.
+/// the session's VM's socket, empty until it is up -- colima's directory
+/// for the VM, and whose VM it is.
 struct Colima {
     context: Option<String>,
     host: String,
     home: ColimaHome,
+    vm: Vm,
+}
+
+/// **Whose VM the container runs in**: the session's own, which it starts
+/// as [`COLIMA_PROFILE`] and deletes, or one already running whose docker
+/// `DOCKER_HOST` names, which it neither starts nor deletes nor switches
+/// docker's context for -- only the container and the image it loaded are
+/// its to remove. The take runs in its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Vm {
+    Own,
+    Given(String),
+}
+
+/// **[`Vm`] from `DOCKER_HOST`**: a socket named, that docker; unset or
+/// empty, the session's own VM.
+pub fn vm_of(docker_host: Option<&str>) -> Vm {
+    match docker_host {
+        Some(h) if !h.is_empty() => Vm::Given(h.to_string()),
+        _ => Vm::Own,
+    }
 }
 
 /// Whether `colima delete` took the session's VM.
@@ -544,12 +568,17 @@ impl Undo {
     /// answers; then the session's VM deleted with its data, however far
     /// its start got; then docker switched back to its context if anything
     /// moved it. Each is tried whatever the one before did. Says whether
-    /// the VM is gone.
+    /// the VM is gone. In a VM the session was given ([`Vm::Given`]), only
+    /// the container and the image: the VM is not the session's to delete,
+    /// and docker's context was never asked.
     fn run(&self, run: &mut Runner) -> Gone {
         if !self.colima.host.is_empty() {
             let host = [("DOCKER_HOST", self.colima.host.as_str())];
             let _ = run("docker", &["rm", "-f", &self.name], &host);
             let _ = run("docker", &["image", "rm", "-f", &self.image], &host);
+        }
+        if let Vm::Given(_) = self.colima.vm {
+            return Gone::Yes;
         }
         let env = self.colima.home.env();
         let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -620,8 +649,23 @@ fn socket(status: &str) -> Option<String> {
 /// before that -- the undo exists before the VM's start, so a start
 /// Ctrl-C cut short is deleted too. Ctrl-C ends the wait for the banner
 /// ([`INTERRUPTED`]).
+///
+/// With `DOCKER_HOST` set ([`vm_of`]), the container runs in that docker's
+/// VM, already running: no VM is started or deleted, docker's context is
+/// not read, and an image of [`IMAGE`]'s name already there refuses the
+/// session before anything is loaded, since the undo removes the image by
+/// that name.
 pub fn up(image: &Image, keys: &Keys, given: &[PathBuf], port: u16) -> Result<Running, String> {
     let tar = image.gnutar.as_path();
+    let run = match vm_of(std::env::var("DOCKER_HOST").ok().as_deref()) {
+        Vm::Own => own_vm()?,
+        Vm::Given(host) => given_vm(host)?,
+    };
+    in_vm(run, image, tar, keys, given, port)
+}
+
+/// **The session's own VM, started**, its docker's socket read from colima.
+fn own_vm() -> Result<Running, String> {
     let context = say("docker", &["context", "show"], &[]).ok();
     let base = fs::canonicalize(COLIMA_BASE).map_err(|e| format!("{COLIMA_BASE}: {e}"))?;
     let names = fs::read_dir(&base).map_err(|e| format!("{}: {e}", base.display()))?;
@@ -649,6 +693,7 @@ pub fn up(image: &Image, keys: &Keys, given: &[PathBuf], port: u16) -> Result<Ru
                 context,
                 host: String::new(),
                 home,
+                vm: Vm::Own,
             },
             name: format!("baud-demo-{}", std::process::id()),
             image: IMAGE.to_string(),
@@ -676,6 +721,50 @@ pub fn up(image: &Image, keys: &Keys, given: &[PathBuf], port: u16) -> Result<Ru
     if run.undo.colima.host.is_empty() {
         return Err("colima named no docker socket".to_string());
     }
+    Ok(run)
+}
+
+/// **A VM already running, through its docker at `host`**: nothing started,
+/// and refused if that docker already holds an image of [`IMAGE`]'s name.
+fn given_vm(host: String) -> Result<Running, String> {
+    let env = [("DOCKER_HOST", host.as_str())];
+    if say(
+        "docker",
+        &["image", "inspect", "--format", "{{.Id}}", IMAGE],
+        &env,
+    )
+    .is_ok()
+    {
+        return Err(format!(
+            "the docker at {host} already holds {IMAGE}, which the session's undo would remove; \
+             nothing was loaded"
+        ));
+    }
+    println!("docker:  the VM of the docker at {host}; no VM is started or deleted");
+    Ok(Running {
+        undo: Undo {
+            colima: Colima {
+                context: None,
+                host: host.clone(),
+                home: ColimaHome { dir: None },
+                vm: Vm::Given(host),
+            },
+            name: format!("baud-demo-{}", std::process::id()),
+            image: IMAGE.to_string(),
+        },
+    })
+}
+
+/// **The container up in `run`'s VM**: the image loaded, the keys and the
+/// `given` files copied in, the container started and its banner read.
+fn in_vm(
+    run: Running,
+    image: &Image,
+    tar: &Path,
+    keys: &Keys,
+    given: &[PathBuf],
+    port: u16,
+) -> Result<Running, String> {
     let archive = image.archive.to_string_lossy().into_owned();
     let loaded = run.docker(&["load", "--quiet", "--input", &archive]);
     // Docker holds the image now; a scratch directory kept after a failure
@@ -1270,6 +1359,11 @@ mod tests {
     /// names, the VM's docker at `host`, `context show` answering `now`
     /// and the container's removal failing.
     fn undone(host: &str, was: &str, now: &str) -> Vec<String> {
+        undone_in(Vm::Own, host, was, now)
+    }
+
+    /// [`undone`] in `vm`'s VM.
+    fn undone_in(vm: Vm, host: &str, was: &str, now: &str) -> Vec<String> {
         let u = Undo {
             colima: Colima {
                 context: Some(was.to_string()),
@@ -1277,6 +1371,7 @@ mod tests {
                 home: ColimaHome {
                     dir: Some(PathBuf::from("/c/home")),
                 },
+                vm,
             },
             name: "baud-demo-7".to_string(),
             image: IMAGE.to_string(),
@@ -1347,6 +1442,32 @@ mod tests {
         assert!(listed(&format!(
             "{list}{{\"name\":\"baud-demo\",\"status\":\"Running\"}}\n"
         )));
+    }
+
+    /// **`DOCKER_HOST` names the VM the session is given, and that VM is
+    /// not the session's**: a socket set is [`Vm::Given`], unset or empty
+    /// the session's own; in a given VM the undo removes the container and
+    /// the image through that docker and nothing more -- no `colima delete`,
+    /// no `docker context` -- and in its own VM, the control, it deletes the
+    /// VM and reads the context. Perturbation: let the undo go on past the
+    /// image in a given VM, and the delete is in its list.
+    #[test]
+    fn a_given_vm_is_used_and_left_running() {
+        let sock = "unix:///b/default/docker.sock";
+        assert_eq!(vm_of(Some(sock)), Vm::Given(sock.to_string()));
+        assert_eq!(vm_of(Some("")), Vm::Own);
+        assert_eq!(vm_of(None), Vm::Own);
+        let rm = format!("DOCKER_HOST={sock} docker rm -f baud-demo-7");
+        let rmi = format!("DOCKER_HOST={sock} docker image rm -f baud-demo:readme");
+        assert_eq!(
+            undone_in(Vm::Given(sock.to_string()), sock, "default", "default"),
+            [rm.clone(), rmi.clone()]
+        );
+        let own = undone_in(Vm::Own, sock, "default", "default");
+        assert!(
+            own.iter().any(|c| c.contains("colima delete")),
+            "the control: {own:?}"
+        );
     }
 
     /// **colima's directory exists before colima is asked**, since 0.10.3
