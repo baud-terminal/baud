@@ -11,6 +11,7 @@
 //! string names. No subprocess, no `open(1)`, no argv: the URL is one
 //! `NSURL`.
 
+use baud_domain::AdmittedUri;
 use macos_liquid_glass::objc2::rc::{Retained, autoreleasepool};
 use macos_liquid_glass::objc2_app_kit::NSWorkspace;
 use macos_liquid_glass::objc2_foundation::{NSProcessInfo, NSString, NSURL};
@@ -126,24 +127,42 @@ pub fn workspace(ask: Ask, url: &str) -> Opened {
 /// so outside every responder callback, none of which runs the loop
 /// itself, with no responder borrowed: a nested loop inside `hand` then
 /// delivers the view's performs into a responder that is free to take
-/// them. `done` hears what `hand` answered,
-/// on the main thread, after `hand` has returned; it is the caller's way
-/// back in, through a waker, and holds no borrow across the hand-over.
-/// The block runs through [`crate::unwind::guard`], so a panic in it is
-/// stopped there rather than in libdispatch, which would abort. `url` is
-/// moved into the block, not copied.
+/// them. `done` hears what `hand` answered, and gets the URI back, on the
+/// main thread after `hand` has returned; it is the caller's way back in,
+/// through a waker, and holds no borrow across the hand-over. The block
+/// runs through [`crate::unwind::guard`], so a panic in it is stopped
+/// there rather than in libdispatch, which would abort.
+///
+/// `url` is moved into the block and back out to `done`, never copied.
+/// **It is parsed twice**, once here and once in the block, because the
+/// `NSURL` the first parse makes is not `Send` and cannot cross to the
+/// main queue's block; the second parse is the hand's own.
 pub fn later(
     ask: Ask,
-    url: String,
+    url: AdmittedUri,
     hand: Hand,
-    done: impl FnOnce(Opened) + Send + 'static,
+    done: impl FnOnce(Opened, AdmittedUri) + Send + 'static,
 ) -> Result<(), Opened> {
-    autoreleasepool(|_| parse(&url).map(drop))?;
+    autoreleasepool(|_| parse(url.as_str()).map(drop))?;
+    let run = move || {
+        let opened = hand(ask, url.as_str());
+        done(opened, url);
+    };
+    // The event rig's control: the hand-over made inline, as the reveal
+    // was before this function, so the rig sees an effect inside a frame.
+    #[cfg(feature = "effect-probe")]
+    if crate::probe::inline() == crate::probe::Inline::Yes {
+        run();
+        return Ok(());
+    }
     dispatch2::DispatchQueue::main().exec_async(move || {
-        crate::unwind::guard("a link handed to the OS", (), move || done(hand(ask, &url)));
+        crate::unwind::guard(SITE, (), run);
     });
     Ok(())
 }
+
+/// The block's entry, as a stopped panic names it.
+const SITE: crate::unwind::SiteName = crate::unwind::SiteName("a link handed to the OS");
 
 /// This machine's name, as `file://host/path` links name it.
 pub fn host_name() -> String {

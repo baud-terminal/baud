@@ -346,7 +346,7 @@ define_class!(
             let at = self.convertPoint_fromView(event.locationInWindow(), None);
             let b = self.bounds();
             if (0.0..b.size.width).contains(&at.x) && (0.0..b.size.height).contains(&at.y) {
-                crate::unwind::guard("the About picture's click", (), || self.press());
+                crate::unwind::guard(crate::unwind::SiteName("the About picture's click"), (), || self.press());
             }
         }
 
@@ -365,7 +365,7 @@ define_class!(
         /// VoiceOver's press, the click's twin.
         #[unsafe(method(accessibilityPerformPress))]
         fn accessibility_press(&self) -> bool {
-            crate::unwind::guard("the About picture's press", (), || self.press());
+            crate::unwind::guard(crate::unwind::SiteName("the About picture's press"), (), || self.press());
             true
         }
     }
@@ -555,7 +555,7 @@ define_class!(
     impl AboutView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            crate::unwind::guard("the About page's draw", (), || {
+            crate::unwind::guard(crate::unwind::SiteName("the About page's draw"), (), || {
                 if let Some(s) = &*self.ivars().shown.borrow() {
                     s.picture(self.look()).page.setFill();
                     macos_liquid_glass::objc2_app_kit::NSRectFill(self.bounds());
@@ -565,12 +565,12 @@ define_class!(
 
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn appearance_changed(&self) {
-            crate::unwind::guard("the About page's appearance", (), || self.follow());
+            crate::unwind::guard(crate::unwind::SiteName("the About page's appearance"), (), || self.follow());
         }
 
         #[unsafe(method(tick:))]
         fn tick(&self, link: &CADisplayLink) {
-            crate::unwind::guard("the About film's tick", (), || self.advance(link));
+            crate::unwind::guard(crate::unwind::SiteName("the About film's tick"), (), || self.advance(link));
         }
 
         #[unsafe(method(acceptsFirstResponder))]
@@ -586,7 +586,7 @@ define_class!(
             // The view's bounds are its frame's size at the origin, unscaled.
             let o = self.frame().origin;
             let local = NSPoint::new(point.x - o.x, point.y - o.y);
-            if crate::unwind::guard("the About page's hit test", false, || self.on_film(local)) {
+            if crate::unwind::guard(crate::unwind::SiteName("the About page's hit test"), false, || self.on_film(local)) {
                 Some(Retained::into_super(self.retain()))
             } else {
                 // SAFETY: `NSView`'s own, with the point it was sent.
@@ -597,7 +597,7 @@ define_class!(
         /// VoiceOver's way to the pause: the logo's one custom action.
         #[unsafe(method(pauseOrPlayFromAccessibility))]
         fn pause_from_accessibility(&self) -> bool {
-            crate::unwind::guard("the About film's pause", (), || self.pause_or_play());
+            crate::unwind::guard(crate::unwind::SiteName("the About film's pause"), (), || self.pause_or_play());
             true
         }
 
@@ -606,8 +606,8 @@ define_class!(
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
             let at = self.convertPoint_fromView(event.locationInWindow(), None);
-            if crate::unwind::guard("the About page's click", false, || self.on_film(at)) {
-                crate::unwind::guard("the About film's pause", (), || self.pause_or_play());
+            if crate::unwind::guard(crate::unwind::SiteName("the About page's click"), false, || self.on_film(at)) {
+                crate::unwind::guard(crate::unwind::SiteName("the About film's pause"), (), || self.pause_or_play());
                 if let Some(window) = self.window() {
                     window.makeFirstResponder(Some(self));
                 }
@@ -625,7 +625,7 @@ define_class!(
                 .charactersIgnoringModifiers()
                 .is_some_and(|c| c.to_string() == " ");
             if space && self.ivars().shows.get() == Shows::Film {
-                crate::unwind::guard("the About film's pause", (), || self.pause_or_play());
+                crate::unwind::guard(crate::unwind::SiteName("the About film's pause"), (), || self.pause_or_play());
             } else {
                 // SAFETY: `NSResponder`'s own, with the event it was sent.
                 let () = unsafe { msg_send![super(self), keyDown: event] };
@@ -885,7 +885,7 @@ define_class!(
     impl AcknowledgementsTarget {
         #[unsafe(method(openAcknowledgements:))]
         fn open_acknowledgements(&self, _sender: Option<&AnyObject>) {
-            crate::unwind::guard("the Acknowledgements item", (), || (self.ivars())());
+            crate::unwind::guard(crate::unwind::SiteName("the Acknowledgements item"), (), || (self.ivars())());
         }
     }
 
@@ -1328,7 +1328,7 @@ define_class!(
     impl AboutTarget {
         #[unsafe(method(openAbout:))]
         fn open_about(&self, _sender: Option<&AnyObject>) {
-            crate::unwind::guard("the About item", (), || (self.ivars())());
+            crate::unwind::guard(crate::unwind::SiteName("the About item"), (), || (self.ivars())());
         }
     }
 

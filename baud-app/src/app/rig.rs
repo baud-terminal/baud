@@ -2,7 +2,8 @@
 //! test-only `effect-probe` feature: a real `DrawableView` with baud's
 //! `Driver` as its responder, in a process that shows nothing.
 //!
-//! `baud --event-rig <file> <iterations> <tick|no-tick>` makes the window
+//! `baud --event-rig <file> <iterations> <tick|no-tick|tick-inline>`
+//! makes the window
 //! and never orders it in, under the prohibited activation policy, so
 //! there is no Dock icon and nothing takes focus. Each iteration clicks
 //! `file` as a printed path: the click is taken on the view's `wake`, and
@@ -13,8 +14,9 @@
 //! code path, with no vsync to wait on. The effect the click comes to is
 //! recorded where it runs (`baud_present_macos::probe`), and each record
 //! is printed as a line for the parent; an iteration with none prints
-//! `none`. A nested `wake:` inside a responder call aborts on today's
-//! window crate, which the parent reads as its own failure.
+//! `none`. `tick-inline` is the control: `link::later` hands over inline,
+//! so a reveal runs inside the callback that asked, as it did before
+//! `later`.
 
 use super::*;
 use baud_present_macos::probe;
@@ -57,6 +59,11 @@ pub(crate) fn asked() -> Option<std::process::ExitCode> {
     let ticks = match ticks.as_str() {
         "tick" => Ticks::Driven,
         "no-tick" => Ticks::None,
+        // The control: the hand-over made inline, in the callback.
+        "tick-inline" => {
+            probe::set_inline(probe::Inline::Yes);
+            Ticks::Driven
+        }
         _ => return Some(std::process::ExitCode::from(2)),
     };
     let Ok(iterations) = iterations.parse().map(Iterations) else {

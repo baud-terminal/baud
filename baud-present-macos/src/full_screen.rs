@@ -87,7 +87,11 @@ pub fn when_full_screen(window: &NSWindow, then: impl Fn(Change) + 'static) -> F
         // alive for the call.
         let n = unsafe { n.as_ref() };
         if let Some(change) = Change::of(&n.name()) {
-            crate::unwind::guard("a window's full-screen observer", (), || then(change));
+            crate::unwind::guard(
+                crate::unwind::SiteName("a window's full-screen observer"),
+                (),
+                || then(change),
+            );
         }
     });
     let center = NSNotificationCenter::defaultCenter();

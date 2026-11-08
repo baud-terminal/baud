@@ -76,7 +76,9 @@ pub use crate::paths::NoPaths;
 pub use crate::paths::{Gone, PathsAt};
 use crate::rules::{NO_RULES, Rules};
 
-use baud_domain::{Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap};
+use baud_domain::{
+    AdmittedUri, Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap,
+};
 use baud_render::{
     AbsLine, Field, Hints, HoverPaint, LinkHover, LinkLook, LinkSpan, Point, Scrolled, row_of,
     row_styles_of,
@@ -194,22 +196,30 @@ impl<'a> Target<'a> {
     }
 }
 
-/// **An admitted URI that owns its bytes**: what [`admit_owned`] gives
-/// back, to move into a later turn, where a [`Target`] borrows and cannot
-/// go.
+/// **An admitted URI that owns its bytes, and what it is for**: what
+/// [`admit_owned`] gives back, to move into a later turn, where a
+/// [`Target`] borrows and cannot go.
 #[derive(Debug)]
-pub struct AdmittedUri {
-    uri: String,
+pub struct Admitted {
+    uri: AdmittedUri,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    scheme: Scheme,
     action: Action,
 }
 
-impl AdmittedUri {
+impl Admitted {
+    /// About's log names it (`app.rs`); Linux's driver has no About.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn scheme(&self) -> Scheme {
+        self.scheme
+    }
+
     pub fn action(&self) -> Action {
         self.action
     }
 
     /// The URI, moved out.
-    pub fn into_string(self) -> String {
+    pub fn into_uri(self) -> AdmittedUri {
         self.uri
     }
 }
@@ -217,9 +227,26 @@ impl AdmittedUri {
 /// **[`admit`], keeping the `String` it checked**: the same checks, and
 /// the URI moved into the answer rather than borrowed, so it can cross to
 /// a later turn with no copy.
-pub fn admit_owned(uri: String, host: Host<'_>) -> Result<AdmittedUri, Refused> {
-    let action = admit(uri.as_bytes(), host)?.action();
-    Ok(AdmittedUri { uri, action })
+pub fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
+    let (scheme, action) = {
+        let t = admit(uri.as_bytes(), host)?;
+        (t.scheme(), t.action())
+    };
+    Ok(Admitted {
+        uri: AdmittedUri::checked(uri),
+        scheme,
+        action,
+    })
+}
+
+impl Target<'_> {
+    /// **The admitted URI, owned**: its one copy, made where the bytes are
+    /// borrowed from the terminal's link table or a line's text, which a
+    /// later turn may find changed.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn to_admitted(self) -> AdmittedUri {
+        AdmittedUri::checked(self.uri.to_owned())
+    }
 }
 
 /// This machine's name, for a `file://host/path` link -- the form
@@ -2202,7 +2229,8 @@ mod tests {
     const NONE: Host<'static> = Host("");
 
     /// **`admit_owned` decides as `admit` does and keeps the very bytes it
-    /// checked**: the same action, the same refusal, and the `String`
+    /// checked**, and `AdmittedUri::checked` is called in this file alone,
+    /// after the checks: its door is the policy's: the same action, the same refusal, and the `String`
     /// moved out is the one moved in -- its buffer's address unchanged, so
     /// nothing was copied. Perturbation: rebuild the URI from the checked
     /// `&str` and the address assertion fails.
@@ -2211,14 +2239,22 @@ mod tests {
         let uri = String::from("file:///tmp/a%20b");
         let at = uri.as_ptr();
         let t = admit_owned(uri, NONE).expect("admitted");
-        assert_eq!(t.action(), Action::Reveal);
-        let back = t.into_string();
+        assert_eq!((t.action(), t.scheme()), (Action::Reveal, Scheme::File));
+        let back = t.into_uri().into_string();
         assert_eq!(back, "file:///tmp/a%20b");
         assert_eq!(back.as_ptr(), at, "moved, not copied");
         assert_eq!(
             admit_owned(String::from("javascript:x"), NONE).map(|t| t.action()),
             admit(b"javascript:x", NONE).map(|t| t.action()),
         );
+        let door = concat!("AdmittedUri::", "checked(");
+        assert_eq!(include_str!("link.rs").matches(door).count(), 2);
+        for (name, src) in [
+            ("app.rs", include_str!("app.rs")),
+            ("linux.rs", include_str!("linux.rs")),
+        ] {
+            assert!(!src.contains(door), "{name} admits nothing itself");
+        }
     }
 
     fn ok(uri: &str) -> Target<'_> {

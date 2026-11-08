@@ -31,7 +31,7 @@ pub fn when_launched(then: impl FnOnce() + 'static) {
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
         let f = once.borrow_mut().take();
         if let Some(f) = f {
-            crate::unwind::guard("the launch observer", (), f);
+            crate::unwind::guard(crate::unwind::SiteName("the launch observer"), (), f);
         }
     });
     let center = NSNotificationCenter::defaultCenter();

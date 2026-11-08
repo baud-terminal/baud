@@ -152,6 +152,14 @@ impl Wakes {
     }
 }
 
+/// Whether `link::later` hands over inline: the rig's control, which
+/// puts the effect back inside the callback that asked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Inline {
+    No,
+    Yes,
+}
+
 /// The bound on the nested call: reaching it is a failure, never a wait.
 const BOUND: Duration = Duration::from_secs(2);
 
@@ -160,6 +168,17 @@ thread_local! {
     static WAKES: Cell<Wakes> = const { Cell::new(Wakes::NONE) };
     static WAKER: Cell<Option<Waker>> = const { Cell::new(None) };
     static LOG: RefCell<Vec<Record>> = const { RefCell::new(Vec::new()) };
+    static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
+}
+
+/// Set whether `link::later` hands over inline.
+pub fn set_inline(inline: Inline) {
+    INLINE.with(|i| i.set(inline));
+}
+
+/// Whether `link::later` hands over inline.
+pub fn inline() -> Inline {
+    INLINE.with(Cell::get)
 }
 
 /// A responder method entered at `at`, left when this drops.
@@ -213,18 +232,27 @@ pub fn record(kind: EffectKind) {
     if let Some(waker) = WAKER.with(Cell::get) {
         let _ = std::thread::spawn(move || waker.wake()).join();
     }
+    // Inside a responder call the window crate holds the wake until the
+    // call returns, so the wait there is one nested call -- which runs the
+    // queued perform, ready since the join -- and not the bound.
+    let bound = match responder {
+        Responder::Held => Duration::ZERO,
+        Responder::Free => BOUND,
+    };
     let nested = match MainThreadMarker::new() {
         None => Nested::Never,
         Some(mtm) => {
             let app = NSApplication::sharedApplication(mtm);
             let start = Instant::now();
+            let mut first = true;
             loop {
                 if wakes() > before {
                     break Nested::Delivered;
                 }
-                if start.elapsed() >= BOUND {
+                if !first && start.elapsed() >= bound {
                     break Nested::Never;
                 }
+                first = false;
                 let until = NSDate::dateWithTimeIntervalSinceNow(0.01);
                 // SAFETY: the default mode is a framework constant; not
                 // dequeued, so no event is taken from the app.

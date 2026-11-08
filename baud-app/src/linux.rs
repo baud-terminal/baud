@@ -1972,8 +1972,9 @@ impl Driver {
                 let uri = crate::paths::file_uri(&path);
                 match crate::link::admit_owned(uri, Host(&self.host)) {
                     Ok(t) if t.action() == Action::Reveal => {
-                        self.later
-                            .push(Later::Reveal(crate::opener::local(&t.into_string())));
+                        self.later.push(Later::Reveal(crate::opener::local(
+                            &t.into_uri().into_string(),
+                        )));
                         None
                     }
                     Ok(_) | Err(_) => {

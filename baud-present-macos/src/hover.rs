@@ -66,12 +66,12 @@ define_class!(
     impl Watcher {
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            crate::unwind::guard("a light's entry", (), || self.heard(event));
+            crate::unwind::guard(crate::unwind::SiteName("a light's entry"), (), || self.heard(event));
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            crate::unwind::guard("a light's exit", (), || self.heard(event));
+            crate::unwind::guard(crate::unwind::SiteName("a light's exit"), (), || self.heard(event));
         }
     }
 );

@@ -64,6 +64,7 @@ fn main() {
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod checks {
+    use baud_domain::AdmittedUri;
     use baud_present_macos::link::{Ask, Opened, later};
     use baud_present_macos::unwind::{Caught, Guarded, caught};
     use core::cell::Cell;
@@ -220,9 +221,14 @@ mod checks {
             let _call = InCall::enter();
             match self.hands {
                 Hands::Later => {
-                    let asked = later(Ask::Reveal, FILE.to_owned(), finder, |o| {
-                        DONE.lock().unwrap().push(o);
-                    });
+                    let asked = later(
+                        Ask::Reveal,
+                        AdmittedUri::checked(FILE.to_owned()),
+                        finder,
+                        |o, _| {
+                            DONE.lock().unwrap().push(o);
+                        },
+                    );
                     assert_eq!(asked, Ok(()), "the address parses");
                 }
                 Hands::Inline => {
@@ -279,7 +285,12 @@ mod checks {
     pub(crate) fn handed_over_after_the_frame() {
         // The refusals are answered at once and queue nothing.
         assert_eq!(
-            later(Ask::Open, "https://a b".to_owned(), finder, |_| {}),
+            later(
+                Ask::Open,
+                AdmittedUri::checked("https://a b".to_owned()),
+                finder,
+                |_, _| {}
+            ),
             Err(Opened::Unparsed)
         );
         let (view, link, handed_during) = view(Hands::Later);

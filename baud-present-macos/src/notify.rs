@@ -157,7 +157,7 @@ define_class!(
         /// where the program asked for that.
         #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
         fn will_present(&self, _center: &AnyObject, _n: &AnyObject, handler: &Block<dyn Fn(usize)>) {
-            crate::unwind::guard("the notification delegate's will-present", (), || {
+            crate::unwind::guard(crate::unwind::SiteName("the notification delegate's will-present"), (), || {
                 handler.call((PRESENT,));
             });
         }
@@ -165,7 +165,7 @@ define_class!(
         /// A click, on the notification or one of its actions.
         #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
         fn did_receive(&self, _center: &AnyObject, response: &AnyObject, handler: &Block<dyn Fn()>) {
-            crate::unwind::guard("the notification delegate's click", (), || {
+            crate::unwind::guard(crate::unwind::SiteName("the notification delegate's click"), (), || {
                 // SAFETY: `UNNotificationResponse`'s `actionIdentifier` and
                 // `notification`, `UNNotification`'s `request` and
                 // `UNNotificationRequest`'s `identifier`, each nonnull.
@@ -345,14 +345,18 @@ impl Center {
         self.asked.set(Permission::Asked);
         let shared = Arc::clone(&self.permission);
         let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
-            crate::unwind::guard("the notification permission's answer", (), || {
-                if let Ok(mut p) = shared.lock() {
-                    *p = match granted.as_bool() {
-                        true => Permission::Granted,
-                        false => Permission::Denied,
-                    };
-                }
-            });
+            crate::unwind::guard(
+                crate::unwind::SiteName("the notification permission's answer"),
+                (),
+                || {
+                    if let Ok(mut p) = shared.lock() {
+                        *p = match granted.as_bool() {
+                            true => Permission::Granted,
+                            false => Permission::Denied,
+                        };
+                    }
+                },
+            );
         });
         // SAFETY: `-requestAuthorizationWithOptions:completionHandler:`,
         // the options an `NSUInteger`, the handler `void (^)(BOOL,
@@ -403,25 +407,29 @@ impl Center {
     pub fn ask_delivered(&self) {
         let shared = Arc::clone(&self.delivered);
         let done = RcBlock::new(move |list: core::ptr::NonNull<NSArray<AnyObject>>| {
-            crate::unwind::guard("the delivered notifications' answer", (), || {
-                // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
-                let list = unsafe { list.as_ref() };
-                let ids: Vec<String> = list
-                    .iter()
-                    .map(|n| {
-                        // SAFETY: a notification's `request` and its
-                        // `identifier`, each nonnull.
-                        unsafe {
-                            let req: Retained<AnyObject> = msg_send![&n, request];
-                            let id: Retained<NSString> = msg_send![&req, identifier];
-                            id.to_string()
-                        }
-                    })
-                    .collect();
-                if let Ok(mut d) = shared.lock() {
-                    *d = Some(ids);
-                }
-            });
+            crate::unwind::guard(
+                crate::unwind::SiteName("the delivered notifications' answer"),
+                (),
+                || {
+                    // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
+                    let list = unsafe { list.as_ref() };
+                    let ids: Vec<String> = list
+                        .iter()
+                        .map(|n| {
+                            // SAFETY: a notification's `request` and its
+                            // `identifier`, each nonnull.
+                            unsafe {
+                                let req: Retained<AnyObject> = msg_send![&n, request];
+                                let id: Retained<NSString> = msg_send![&req, identifier];
+                                id.to_string()
+                            }
+                        })
+                        .collect();
+                    if let Ok(mut d) = shared.lock() {
+                        *d = Some(ids);
+                    }
+                },
+            );
         });
         // SAFETY: `-getDeliveredNotificationsWithCompletionHandler:`, the
         // handler `void (^)(NSArray<UNNotification *> *)`.
@@ -650,7 +658,7 @@ define_class!(
     impl Tile {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            crate::unwind::guard("the Dock tile's draw", (), || {
+            crate::unwind::guard(crate::unwind::SiteName("the Dock tile's draw"), (), || {
                 let b = self.bounds();
                 let app = NSApplication::sharedApplication(self.mtm());
                 if let Some(icon) = app.applicationIconImage() {

@@ -2181,11 +2181,15 @@ impl App {
         // To VoiceOver on a later main-queue turn, outside the view's
         // callback, as every effect is (`Turned`).
         dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard("a copy's announcement", (), move || {
-                if let Some(mtm) = MainThreadMarker::new() {
-                    baud_present_macos::announce::announce(mtm, &words);
-                }
-            });
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a copy's announcement"),
+                (),
+                move || {
+                    if let Some(mtm) = MainThreadMarker::new() {
+                        baud_present_macos::announce::announce(mtm, &words);
+                    }
+                },
+            );
         });
     }
 
@@ -4396,6 +4400,16 @@ impl Default for Turned {
     }
 }
 
+/// **A link as the log shows it**: its first 80 bytes, escaped. Words
+/// for a person, never an address to open.
+struct ShownLink(String);
+
+impl core::fmt::Display for ShownLink {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// One effect's answer.
 enum TurnDone {
     /// An open the OS answered, of which scheme, and the link as the log
@@ -4403,7 +4417,7 @@ enum TurnDone {
     Opened {
         opened: baud_present_macos::link::Opened,
         scheme: crate::link::Scheme,
-        shown: String,
+        shown: ShownLink,
     },
     /// A printed path's `[link.path]` command, started or not.
     Started(std::io::Result<std::process::Child>),
@@ -5117,7 +5131,8 @@ fn closed(id: crate::windows::WindowId) {
 fn open_from_about(url: &str) {
     use crate::link::{Action, Host};
     use baud_present_macos::link::{self as opener, Ask, Opened};
-    match crate::link::admit(url.as_bytes(), Host("")) {
+    // The address owned once, here, and moved from then on.
+    match crate::link::admit_owned(url.to_owned(), Host("")) {
         Err(why) => crate::warn!("link refused ({why:?}): {url}"),
         Ok(t) => {
             let ask = match t.action() {
@@ -5129,13 +5144,14 @@ fn open_from_about(url: &str) {
                     return;
                 }
             };
-            // On a later turn, as a window's links are (`link::later`).
-            let (scheme, said) = (t.scheme(), url.to_owned());
-            let done = move |done: Opened| match done {
-                Opened::Taken => crate::info!("link opened ({scheme:?}): {said}"),
-                other => crate::warn!("link refused ({other:?}): {said}"),
+            // On a later turn, as a window's links are (`link::later`); the
+            // address comes back to `done` to be said.
+            let scheme = t.scheme();
+            let done = move |done: Opened, said: baud_domain::AdmittedUri| match done {
+                Opened::Taken => crate::info!("link opened ({scheme:?}): {}", said.as_str()),
+                other => crate::warn!("link refused ({other:?}): {}", said.as_str()),
             };
-            if let Err(why) = opener::later(ask, t.as_str().to_owned(), opener::workspace, done) {
+            if let Err(why) = opener::later(ask, t.into_uri(), opener::workspace, done) {
                 crate::warn!("link refused ({why:?}): {url}");
             }
         }
@@ -5153,33 +5169,41 @@ fn open_from_about(url: &str) {
 /// shown too, and a minimized window counts as shown there
 /// (`[[source: apple-nsapplicationdelegate-should-handle-reopen]]`).
 fn new_window_from_menu() {
-    baud_present_macos::unwind::guard("File > New Window", (), || {
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
-        let app = NSApplication::sharedApplication(mtm);
-        let asked = [app.keyWindow(), app.mainWindow()]
-            .into_iter()
-            .flatten()
-            .find_map(|front| {
-                OPEN.with_borrow(|o| {
-                    o.ids().into_iter().find_map(|id| {
-                        let open = o.get(id)?;
-                        std::ptr::eq(open.window.ns_window(), &*front)
-                            .then(|| (id, open.view.waker()))
+    baud_present_macos::unwind::guard(
+        baud_present_macos::unwind::SiteName("File > New Window"),
+        (),
+        || {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let app = NSApplication::sharedApplication(mtm);
+            let asked = [app.keyWindow(), app.mainWindow()]
+                .into_iter()
+                .flatten()
+                .find_map(|front| {
+                    OPEN.with_borrow(|o| {
+                        o.ids().into_iter().find_map(|id| {
+                            let open = o.get(id)?;
+                            std::ptr::eq(open.window.ns_window(), &*front)
+                                .then(|| (id, open.view.waker()))
+                        })
                     })
-                })
-            });
-        match asked {
-            Some((id, waker)) => {
-                ASKED.with(|a| a.ask(id));
-                waker.wake();
+                });
+            match asked {
+                Some((id, waker)) => {
+                    ASKED.with(|a| a.ask(id));
+                    waker.wake();
+                }
+                None => dispatch2::DispatchQueue::main().exec_async(|| {
+                    baud_present_macos::unwind::guard(
+                        baud_present_macos::unwind::SiteName("a window's opening"),
+                        (),
+                        || open_window(None),
+                    )
+                }),
             }
-            None => dispatch2::DispatchQueue::main().exec_async(|| {
-                baud_present_macos::unwind::guard("a window's opening", (), || open_window(None))
-            }),
-        }
-    });
+        },
+    );
 }
 
 /// What begins every notification identifier this process posts.
@@ -8111,12 +8135,18 @@ mod drag_tests {
             quits.contains(terminate),
             "told to quit, the last window's close quits the app: {close}"
         );
+        // The close's observer queues it on the main queue, a later turn.
+        let observer = SRC
+            .split_once(concat!(
+                "closing::when_",
+                "closing(window.ns_window(), move || {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n        });\n"))
+            .map(|(b, _)| b)
+            .expect("the close's observer");
         assert!(
-            SRC.contains(concat!(
-                ".exec_async(move || {\n                baud_present_macos::unwind::guard(",
-                "\"a window's close\", (), || closed(id))\n            });"
-            )),
-            "closed on a later turn"
+            observer.contains(".exec_async(move || {") && observer.contains("|| closed(id),"),
+            "closed on a later turn: {observer}"
         );
         let key = body(
             SRC,
@@ -8132,10 +8162,7 @@ mod drag_tests {
         );
         let new = body(SRC, concat!("    fn new_", "window(&mut self) {"), "    ");
         assert!(
-            new.contains(concat!(
-                ".exec_async(move || {\n            baud_present_macos::unwind::guard(",
-                "\"a new window\", (), || open_window(at))\n        });"
-            )),
+            new.contains(".exec_async(move || {") && new.contains("|| open_window(at),"),
             "opened on a later turn: {new}"
         );
     }
@@ -13759,14 +13786,18 @@ impl Opening {
             let window_cb = window.clone();
             let glass_now = std::rc::Rc::clone(&driver.glass_live);
             let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
-                baud_present_macos::unwind::guard("the widget style's observer", (), || {
-                    apply_glass(
-                        &glass_cb,
-                        &window_cb,
-                        &glass_now.get(),
-                        glass_cb.appearance(&window_cb),
-                    );
-                });
+                baud_present_macos::unwind::guard(
+                    baud_present_macos::unwind::SiteName("the widget style's observer"),
+                    (),
+                    || {
+                        apply_glass(
+                            &glass_cb,
+                            &window_cb,
+                            &glass_now.get(),
+                            glass_cb.appearance(&window_cb),
+                        );
+                    },
+                );
             });
             // The window's entry in the open windows holds it, and it goes
             // with the window (`closed`).
@@ -13807,7 +13838,11 @@ impl Opening {
         });
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
             dispatch2::DispatchQueue::main().exec_async(move || {
-                baud_present_macos::unwind::guard("a window's close", (), || closed(id))
+                baud_present_macos::unwind::guard(
+                    baud_present_macos::unwind::SiteName("a window's close"),
+                    (),
+                    || closed(id),
+                )
             });
         });
         // **Full screen moves the grid's top** (`strip.rs`): the whole
@@ -13895,7 +13930,11 @@ impl Driver {
         let at =
             crate::windows::inherited(self.app.term.working_directory(), &names, self.derive.dir());
         dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard("a new window", (), || open_window(at))
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a new window"),
+                (),
+                || open_window(at),
+            )
         });
     }
 
@@ -13914,12 +13953,16 @@ impl Driver {
         };
         self.close_asked = CloseAsked::Yes;
         dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard("a window's close, asked", (), || {
-                let window = OPEN.with_borrow(|o| o.get(id).map(|w| w.window.clone()));
-                if let Some(w) = window {
-                    w.close();
-                }
-            });
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a window's close, asked"),
+                (),
+                || {
+                    let window = OPEN.with_borrow(|o| o.get(id).map(|w| w.window.clone()));
+                    if let Some(w) = window {
+                        w.close();
+                    }
+                },
+            );
         });
     }
 
@@ -14250,7 +14293,7 @@ impl Driver {
                 let uri = crate::paths::file_uri(&path);
                 match crate::link::admit_owned(uri, Host(self.app.uris.host())) {
                     Ok(t) if t.action() == Action::Reveal => {
-                        match opener::later(Ask::Reveal, t.into_string(), opener::workspace, |_| {})
+                        match opener::later(Ask::Reveal, t.into_uri(), opener::workspace, |_, _| {})
                         {
                             Ok(()) => {
                                 self.app.links.revealed.bump();
@@ -14405,9 +14448,13 @@ impl Driver {
                 MacCall::Expire(id, after) => {
                     if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
                         let _ = dispatch2::DispatchQueue::main().after(when, move || {
-                            baud_present_macos::unwind::guard("a notice's expiry", (), || {
-                                baud_present_macos::notify::remove_by_id(&id);
-                            });
+                            baud_present_macos::unwind::guard(
+                                baud_present_macos::unwind::SiteName("a notice's expiry"),
+                                (),
+                                || {
+                                    baud_present_macos::notify::remove_by_id(&id);
+                                },
+                            );
                         });
                     }
                 }
@@ -15578,7 +15625,7 @@ impl Driver {
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
         use crate::link::{Action, Host, Under};
         use baud_present_macos::link::{self as opener, Ask};
-        let shown = |uri: &[u8]| {
+        let show = |uri: &[u8]| {
             uri.iter()
                 .take(80)
                 .copied()
@@ -15608,12 +15655,12 @@ impl Driver {
                 Ok(uri) => uri,
                 Err(why) => {
                     self.app.links.refused.bump();
-                    crate::warn!("link refused ({why:?}): {}", shown(bare.text()));
+                    crate::warn!("link refused ({why:?}): {}", show(bare.text()));
                     return;
                 }
             },
         };
-        let shown = shown(uri);
+        let shown = ShownLink(show(uri));
         match crate::link::admit_with(uri, Host(self.app.uris.host()), self.app.uris.rules()) {
             Err(why) => {
                 self.app.links.refused.bump();
@@ -15669,31 +15716,31 @@ impl Driver {
                     // reveal, which answers nothing, is counted here.
                     Click::Open | Click::Reveal => match t.action() {
                         Action::Open => {
+                            // The address copied once, here, out of the
+                            // terminal's storage; it and the words for the
+                            // log move into the turn and back.
                             let back = self.app.turned.back(self.app.waker);
-                            let (scheme, said) = (t.scheme(), shown.clone());
-                            let done = move |opened| {
+                            let scheme = t.scheme();
+                            let done = move |opened, _uri| {
                                 back.send(TurnDone::Opened {
                                     opened,
                                     scheme,
-                                    shown: said,
+                                    shown,
                                 });
                             };
-                            if let Err(why) = opener::later(
-                                Ask::Open,
-                                t.as_str().to_owned(),
-                                opener::workspace,
-                                done,
-                            ) {
+                            if let Err(why) =
+                                opener::later(Ask::Open, t.to_admitted(), opener::workspace, done)
+                            {
                                 self.app.links.refused.bump();
-                                crate::warn!("link refused ({why:?}): {shown}");
+                                crate::warn!("link refused ({why:?}): {}", show(uri));
                             }
                         }
                         Action::Reveal => {
                             match opener::later(
                                 Ask::Reveal,
-                                t.as_str().to_owned(),
+                                t.to_admitted(),
                                 opener::workspace,
-                                |_| {},
+                                |_, _| {},
                             ) {
                                 Ok(()) => {
                                     self.app.links.revealed.bump();
@@ -16787,10 +16834,14 @@ impl Driver {
         // through `self.selection_copied(&text)`.
         let back = self.app.turned.back(self.app.waker);
         dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard("a link's copy", (), move || {
-                let written = clipboard::write_text(&text);
-                back.send(TurnDone::Copied { written, text });
-            });
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a link's copy"),
+                (),
+                move || {
+                    let written = clipboard::write_text(&text);
+                    back.send(TurnDone::Copied { written, text });
+                },
+            );
         });
     }
 
@@ -16800,9 +16851,13 @@ impl Driver {
     fn start_later(&mut self, cmd: std::process::Command) {
         let back = self.app.turned.back(self.app.waker);
         dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard("a printed path's command", (), move || {
-                back.send(TurnDone::Started(start_command(cmd)));
-            });
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a printed path's command"),
+                (),
+                move || {
+                    back.send(TurnDone::Started(start_command(cmd)));
+                },
+            );
         });
     }
 
@@ -20728,10 +20783,14 @@ fn print_later(
                 panel.store(PANEL_IDLE, Relaxed);
                 return;
             }
-            let shown = baud_present_macos::unwind::guard("the print panel", false, || {
-                baud_present_macos::print::show_panel(w.get(mtm), &title, &pages, layout, mtm);
-                true
-            });
+            let shown = baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("the print panel"),
+                false,
+                || {
+                    baud_present_macos::print::show_panel(w.get(mtm), &title, &pages, layout, mtm);
+                    true
+                },
+            );
             panel.store(if shown { PANEL_SHOWN } else { PANEL_IDLE }, Relaxed);
         });
     });
@@ -21346,7 +21405,8 @@ mod mark_tests {
     /// the view through the services handler's nested loop and aborted the
     /// app. `link::later`'s own test drives the view (`baud-present-macos`,
     /// `tests/deferred_link.rs`); this pins that the app takes that route
-    /// at each of its three sites and nowhere calls `workspace` itself.
+    /// at each of its four sites -- a printed path's reveal, a link's open
+    /// and reveal, and About's -- and nowhere calls `workspace` itself.
     /// The count of hand-overs is the control. Perturbation: a site that
     /// calls `workspace` itself fails the third assertion, and a site
     /// dropped fails the first.

@@ -37,6 +37,8 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(feature = "alloc")]
+mod admitted;
 mod base64;
 mod bidi;
 mod bidi_data {
@@ -258,6 +260,8 @@ mod width_data {
 }
 pub mod zlib;
 
+#[cfg(feature = "alloc")]
+pub use admitted::*;
 pub use base64::*;
 pub use bidi::*;
 pub use brand::*;

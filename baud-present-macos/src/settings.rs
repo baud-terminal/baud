@@ -233,7 +233,7 @@ fn observe(
 ) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
     let marks = Arc::clone(marks);
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-        crate::unwind::guard("a setting's observer", (), || {
+        crate::unwind::guard(crate::unwind::SiteName("a setting's observer"), (), || {
             marks.of(s).store(true, Ordering::Release);
         });
     });

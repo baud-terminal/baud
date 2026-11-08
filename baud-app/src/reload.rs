@@ -714,12 +714,16 @@ extern "C" fn on_ready(ctx: *mut core::ffi::c_void) {
     // `[[source: macos-sdk-dispatch-source-h]]` 519-521).
     let ctx = unsafe { &*ctx.cast::<Context>() };
     // A panic here would abort: libdispatch's handler cannot unwind.
-    baud_present_macos::unwind::guard("a watched file's change", (), || {
-        if drain_kqueue(ctx.kq.as_raw_fd()) == Heard::Moved {
-            ctx.mark.store(true, std::sync::atomic::Ordering::Release);
-            (ctx.wake)();
-        }
-    });
+    baud_present_macos::unwind::guard(
+        baud_present_macos::unwind::SiteName("a watched file's change"),
+        (),
+        || {
+            if drain_kqueue(ctx.kq.as_raw_fd()) == Heard::Moved {
+                ctx.mark.store(true, std::sync::atomic::Ordering::Release);
+                (ctx.wake)();
+            }
+        },
+    );
 }
 
 /// **The source's cancel handler**: submitted "once the source's event

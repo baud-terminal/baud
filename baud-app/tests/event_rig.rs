@@ -8,9 +8,20 @@
 //! Dock icon. There each effect is recorded where it runs, and then makes
 //! the nested call the reveal crash's stack shows
 //! (`nextEventMatchingMask:` in the default mode) with a `wake:` queued.
-//! Inside any responder call that re-enters the view, and today's window
-//! crate aborts on it: the parent reads the child's abort as the row's
-//! failure. 20 iterations a row, each a fresh click.
+//! Inside a responder call that call re-enters the view: on
+//! macos-liquid-glass 1.0.0-beta.8 the child aborted, which the parent
+//! reads as the row's failure, and since beta.9 the wake is held, and the
+//! record says the effect ran inside the responder call. 100 iterations
+//! a row, each a fresh click.
+//!
+//! **Where the click rows' red came from.** Taken at the parent commit
+//! with the rig alone added, no site moved, on beta.8: the command and
+//! copy rows aborted ("RefCell already borrowed"), and the no-tick row
+//! ran no effect. The reveal row passed there, its site having moved a
+//! commit before, so its red came from a perturbation: `link::later`
+//! made to hand over inline, under which it aborted the same way. That
+//! perturbation is now a standing control,
+//! [`the_rig_sees_an_effect_made_inside_a_callback`].
 //!
 //! A row is green, or **pending** at a stage: expected to fail exactly as
 //! recorded until the stage that moves its site, red if it passes early,
@@ -21,6 +32,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
+use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -80,11 +92,14 @@ enum Rule {
     Copy,
 }
 
-/// Whether the frame is driven.
+/// Whether the frame is driven, and whether the hand-over is made inline
+/// in the callback that asked: the control, which puts a reveal back
+/// inside a responder call, where the crash had it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Ticks {
     Driven,
     None,
+    DrivenInline,
 }
 
 /// What the row expects: the effect, exactly once an iteration, in a turn
@@ -93,10 +108,6 @@ enum Ticks {
 enum Expect {
     Effect(EffectKind),
 }
-
-/// The row's name, as the failure says it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct SiteName(&'static str);
 
 /// One row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -172,7 +183,7 @@ const SITES: [Site; 4] = [
 ];
 
 /// Iterations a row runs in its child.
-const ITERATIONS: &str = "20";
+const ITERATIONS: &str = "100";
 
 /// The scratch directory a row's child lives in: its home, its config and
 /// the file it clicks.
@@ -212,6 +223,7 @@ fn run(site: &Site, slug: &str) -> Observed {
             match ticks {
                 Ticks::Driven => "tick",
                 Ticks::None => "no-tick",
+                Ticks::DrivenInline => "tick-inline",
             },
         ])
         .env_clear()
@@ -345,5 +357,28 @@ fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
     assert_eq!(
         verdict(RowState::Green, Observed::Failed(recorded), Stage::One),
         Verdict::Broke(recorded)
+    );
+}
+
+/// **The control: the rig sees an effect made inside the view's
+/// callback.** The reveal row's child with `link::later` handing over
+/// inline, as the reveal was handed over before it: every iteration's
+/// reveal is recorded inside the callback the click's answer arrives in,
+/// the worker's `wake`, with the responder held. Since macos-liquid-glass
+/// 1.0.0-beta.9 the child lives through it, the nested `wake:` held until
+/// the callback returns; on beta.8 it aborted, the crash. A rig that
+/// could not see where an effect runs would pass this row as green, and
+/// this fails.
+#[test]
+fn the_rig_sees_an_effect_made_inside_a_callback() {
+    let control = Site {
+        name: SiteName("a printed path's reveal, made inside the callback"),
+        cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInline),
+        expect: Expect::Effect(EffectKind::Reveal),
+        state: RowState::Green,
+    };
+    assert_eq!(
+        run(&control, "control"),
+        Observed::Failed(Failure::InCallback(EffectKind::Reveal))
     );
 }

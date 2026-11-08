@@ -21,12 +21,16 @@ use macos_liquid_glass::objc2_app_kit::{NSAppearance, NSColor, NSColorSpace};
 pub fn unemphasized(appearance: &NSAppearance) -> Hilite {
     let pair = Cell::new((Argb::default(), Argb::default()));
     let resolve = RcBlock::new(|| {
-        crate::unwind::guard("the selection colours' resolve", (), || {
-            pair.set((
-                srgb(&NSColor::unemphasizedSelectedTextBackgroundColor()),
-                srgb(&NSColor::unemphasizedSelectedTextColor()),
-            ));
-        });
+        crate::unwind::guard(
+            crate::unwind::SiteName("the selection colours' resolve"),
+            (),
+            || {
+                pair.set((
+                    srgb(&NSColor::unemphasizedSelectedTextBackgroundColor()),
+                    srgb(&NSColor::unemphasizedSelectedTextColor()),
+                ));
+            },
+        );
     });
     appearance.performAsCurrentDrawingAppearance(&resolve);
     let (page, text) = pair.get();

@@ -37,21 +37,36 @@ impl Caught {
     pub const NONE: Caught = Caught(0);
 }
 
+/// **An entry the OS calls into baud through**, by the name a stopped
+/// panic says: the event rig's row names (`baud-app/tests/event_rig.rs`)
+/// are of this type, so a guarded entry and a row are named alike.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SiteName(pub &'static str);
+
+impl core::fmt::Display for SiteName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
 /// The entries that have said so on stderr, so each says it once.
-static SAID: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+static SAID: Mutex<Vec<SiteName>> = Mutex::new(Vec::new());
 
 /// How many panics [`guard`] has stopped.
 pub fn caught() -> Caught {
     Caught(CAUGHT.load(Ordering::Relaxed))
 }
 
-/// Run `f`, the body of the entry named `site`; a panic in it answers
-/// `default` instead of leaving the entry.
-pub fn guard<R>(site: &'static str, default: R, f: impl FnOnce() -> R) -> R {
+/// Run `f`, the body of the entry `site`; a panic in it answers `default`
+/// instead of leaving the entry. Each entry says its first panic on
+/// stderr; after that the count of every panic stopped is said each time
+/// it reaches a power of two, so an entry that panics on every frame is
+/// not silent after its first.
+pub fn guard<R>(site: SiteName, default: R, f: impl FnOnce() -> R) -> R {
     match std::panic::catch_unwind(AssertUnwindSafe(f)) {
         Ok(r) => r,
         Err(_) => {
-            CAUGHT.fetch_add(1, Ordering::Relaxed);
+            let count = CAUGHT.fetch_add(1, Ordering::Relaxed) + 1;
             let first = SAID.lock().map_or(true, |mut said| {
                 let first = !said.contains(&site);
                 if first {
@@ -61,9 +76,10 @@ pub fn guard<R>(site: &'static str, default: R, f: impl FnOnce() -> R) -> R {
             });
             if first {
                 eprintln!(
-                    "baud: a panic in {site} was stopped there rather than unwind into the OS; \
-                     later ones there are counted, not said"
+                    "baud: a panic in {site} was stopped there rather than unwind into the OS"
                 );
+            } else if count.is_power_of_two() {
+                eprintln!("baud: {count} panics stopped at the OS's entries, the latest in {site}");
             }
             default
         }
@@ -87,53 +103,63 @@ pub struct Guarded<R>(pub R);
 impl<R: Responder> Responder for Guarded<R> {
     fn key(&mut self, key: &KeyPress) -> Handled {
         entered!(InCallback);
-        guard("the view's key", Handled::Consumed, || self.0.key(key))
+        guard(SiteName("the view's key"), Handled::Consumed, || {
+            self.0.key(key)
+        })
     }
     fn key_released(&mut self, key: &KeyPress) {
         entered!(InCallback);
-        guard("the view's key_released", (), || self.0.key_released(key));
+        guard(SiteName("the view's key_released"), (), || {
+            self.0.key_released(key)
+        });
     }
     fn modifiers_changed(&mut self, change: &ModifierChange) {
         entered!(InCallback);
-        guard("the view's modifiers_changed", (), || {
+        guard(SiteName("the view's modifiers_changed"), (), || {
             self.0.modifiers_changed(change);
         });
     }
     fn text(&mut self, text: &str) {
         entered!(InCallback);
-        guard("the view's text", (), || self.0.text(text));
+        guard(SiteName("the view's text"), (), || self.0.text(text));
     }
     fn command(&mut self, selector: &str) {
         entered!(InCallback);
-        guard("the view's command", (), || self.0.command(selector));
+        guard(SiteName("the view's command"), (), || {
+            self.0.command(selector)
+        });
     }
     fn marked_text(&mut self, text: &str) {
         entered!(InCallback);
-        guard("the view's marked_text", (), || self.0.marked_text(text));
+        guard(SiteName("the view's marked_text"), (), || {
+            self.0.marked_text(text)
+        });
     }
     fn mouse(&mut self, event: &Mouse) {
         entered!(InCallback);
-        guard("the view's mouse", (), || self.0.mouse(event));
+        guard(SiteName("the view's mouse"), (), || self.0.mouse(event));
     }
     fn scroll(&mut self, event: &Scroll) {
         entered!(InCallback);
-        guard("the view's scroll", (), || self.0.scroll(event));
+        guard(SiteName("the view's scroll"), (), || self.0.scroll(event));
     }
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
         entered!(InCallback);
-        guard("the view's resized", (), || self.0.resized(size, scale));
+        guard(SiteName("the view's resized"), (), || {
+            self.0.resized(size, scale)
+        });
     }
     fn frame(&mut self, target: f64) {
         entered!(InFrame);
-        guard("the view's frame", (), || self.0.frame(target));
+        guard(SiteName("the view's frame"), (), || self.0.frame(target));
     }
     fn focus(&mut self, focus: Focus) {
         entered!(InCallback);
-        guard("the view's focus", (), || self.0.focus(focus));
+        guard(SiteName("the view's focus"), (), || self.0.focus(focus));
     }
     fn cursor_rect(&self) -> Rect {
         entered!(InCallback);
-        guard("the view's cursor_rect", Rect::default(), || {
+        guard(SiteName("the view's cursor_rect"), Rect::default(), || {
             self.0.cursor_rect()
         })
     }
@@ -141,15 +167,15 @@ impl<R: Responder> Responder for Guarded<R> {
         entered!(InCallback);
         #[cfg(feature = "effect-probe")]
         crate::probe::woke();
-        guard("the view's wake", (), || self.0.wake());
+        guard(SiteName("the view's wake"), (), || self.0.wake());
     }
     fn presented(&mut self) {
         entered!(InCallback);
-        guard("the view's presented", (), || self.0.presented());
+        guard(SiteName("the view's presented"), (), || self.0.presented());
     }
     fn appearance(&mut self, appearance: Appearance) {
         entered!(InCallback);
-        guard("the view's appearance", (), || {
+        guard(SiteName("the view's appearance"), (), || {
             self.0.appearance(appearance)
         });
     }

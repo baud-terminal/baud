@@ -372,28 +372,36 @@ fn run(act: Act) {
     match act {
         Act::Nothing => {}
         Act::Toggle => dispatch2::DispatchQueue::main().exec_async(|| {
-            baud_present_macos::unwind::guard("the full-screen check's toggle", (), || {
-                LIVE.with_borrow(|l| {
-                    if let Some(l) = l {
-                        l.parts.window.toggleFullScreen(None);
-                    }
-                });
-            });
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("the full-screen check's toggle"),
+                (),
+                || {
+                    LIVE.with_borrow(|l| {
+                        if let Some(l) = l {
+                            l.parts.window.toggleFullScreen(None);
+                        }
+                    });
+                },
+            );
         }),
         Act::ReadAfter(d) => {
             let Ok(when) = dispatch2::DispatchTime::try_from(d) else {
                 return;
             };
             let _ = dispatch2::DispatchQueue::main().after(when, || {
-                baud_present_macos::unwind::guard("the full-screen check's reading", (), || {
-                    let next = LIVE.with_borrow_mut(|l| {
-                        l.as_mut().map_or(Act::Nothing, |l| {
-                            let now = read(&l.parts);
-                            l.check.rested(now)
-                        })
-                    });
-                    run(next);
-                });
+                baud_present_macos::unwind::guard(
+                    baud_present_macos::unwind::SiteName("the full-screen check's reading"),
+                    (),
+                    || {
+                        let next = LIVE.with_borrow_mut(|l| {
+                            l.as_mut().map_or(Act::Nothing, |l| {
+                                let now = read(&l.parts);
+                                l.check.rested(now)
+                            })
+                        });
+                        run(next);
+                    },
+                );
             });
         }
         Act::Write(r) => LIVE.with_borrow(|l| {
@@ -406,13 +414,17 @@ fn run(act: Act) {
 
 /// The directory changed: [`GO`] there starts the check.
 extern "C" fn on_dir(_: *mut core::ffi::c_void) {
-    baud_present_macos::unwind::guard("the full-screen check's directory", (), || {
-        let act = LIVE.with_borrow_mut(|l| match l {
-            Some(l) if l.dir.join(GO).exists() => l.check.go(),
-            _ => Act::Nothing,
-        });
-        run(act);
-    });
+    baud_present_macos::unwind::guard(
+        baud_present_macos::unwind::SiteName("the full-screen check's directory"),
+        (),
+        || {
+            let act = LIVE.with_borrow_mut(|l| match l {
+                Some(l) if l.dir.join(GO).exists() => l.check.go(),
+                _ => Act::Nothing,
+            });
+            run(act);
+        },
+    );
 }
 
 /// **The check armed for `parts` from `dir`**: the window heard through

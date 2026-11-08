@@ -60,7 +60,9 @@ pub fn forward_command_key_ups(view: Retained<NSView>) -> KeyUps {
         }
         // A panic in the view's key-up stops here, and the event was
         // delivered as far as it got.
-        crate::unwind::guard("the key-up monitor", (), || view.keyUp(e));
+        crate::unwind::guard(crate::unwind::SiteName("the key-up monitor"), (), || {
+            view.keyUp(e)
+        });
         // Delivered: AppKit would only keep it.
         core::ptr::null_mut()
     });

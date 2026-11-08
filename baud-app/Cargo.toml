@@ -37,7 +37,7 @@ default-run = "baud"
 # different set is a different `-C metadata`, and the machine code moves
 # with it.
 baud-core = { workspace = true, features = ["alloc", "default"] }
-baud-domain = { workspace = true }
+baud-domain = { workspace = true, features = ["alloc"] }
 baud-font = { workspace = true }
 baud-render = { workspace = true }
 
