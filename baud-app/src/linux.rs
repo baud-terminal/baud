@@ -367,7 +367,7 @@ struct Driver {
     opener: crate::opener::Opener,
     /// What a handler asked of the OS this turn, run at the top of the
     /// loop's next one, after `dispatch` has returned ([`Later`]).
-    later: Vec<Later>,
+    later: crate::next_turn::NextTurn<Later>,
     host: String,
     /// The notifications programs post, delivered over the session bus
     /// (`notify.rs`), and what the notification server said it supports.
@@ -760,7 +760,7 @@ pub fn run() {
         path_click: None,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
         opener: crate::opener::Opener::default(),
-        later: Vec::new(),
+        later: crate::next_turn::NextTurn::default(),
         host: crate::opener::host_name(),
         notes,
         pictures: crate::kitty_files::LocalFiles::new(),
@@ -2004,7 +2004,7 @@ impl Driver {
     /// handler on the stack; each said and counted as it was when it ran
     /// in the handler. The queue's storage is kept for the next turn.
     fn run_later(&mut self) {
-        let mut asked = core::mem::take(&mut self.later);
+        let mut asked = self.later.take();
         for effect in asked.drain(..) {
             match effect {
                 Later::Reveal(uri) => match self.bus.as_mut() {
@@ -2032,8 +2032,7 @@ impl Driver {
             }
         }
         // Whatever the effects themselves asked for waits a turn.
-        asked.append(&mut self.later);
-        self.later = asked;
+        self.later.keep(asked);
     }
 
     /// **What the session bus sent** (`bus.rs`): the desktop's colour

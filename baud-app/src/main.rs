@@ -189,6 +189,10 @@ mod log;
 mod notify;
 // The Linux driver's `xdg-open` for a link, and the reaper both drivers keep
 // for it and for a `[link.*]` command: its tests run on every platform.
+// Linux's queue of what a handler asked of the OS: its tests run on every
+// platform.
+#[cfg(any(target_os = "linux", test))]
+mod next_turn;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod opener;
 // A file path printed as plain text, underlined only if it exists: the scan's
