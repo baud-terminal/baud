@@ -309,23 +309,34 @@ fn fade(slice: &mut [f32]) {
     }
 }
 
-/// **`--sound`**, when it is the first argument: both versions made, or
-/// why not. `None` for any other command line.
-pub fn from_args() -> Option<ExitCode> {
-    dispatch(&std::env::args().skip(1).collect::<Vec<_>>())
+/// **What a command line runs**: the soundtracks, or the rest of the
+/// demo, whose session opens baud's window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// `--sound ...`: [`main`] alone, which opens no window.
+    Sound,
+    /// Anything else: the demo's own `main`, the session among it.
+    Run,
 }
 
-/// [`from_args`] on `args`: every command line that starts `--sound` is
-/// answered here, and no other is.
-fn dispatch(args: &[String]) -> Option<ExitCode> {
-    if args.first().map(String::as_str) != Some("--sound") {
-        return None;
+/// **The mode of `args`**, the command line less the program: every line
+/// whose first argument is `--sound` is [`Mode::Sound`], a bad one too, and
+/// no other line is.
+pub fn mode(args: &[String]) -> Mode {
+    match args.first().map(String::as_str) {
+        Some("--sound") => Mode::Sound,
+        _ => Mode::Run,
     }
+}
+
+/// **`--sound`**, [`Mode::Sound`]'s whole run: both versions made, or why
+/// not, and the exit code.
+pub fn main(args: &[String]) -> ExitCode {
     let (unpinned, rest): (Vec<&String>, Vec<&String>) =
-        args[1..].iter().partition(|a| *a == "--unpinned");
+        args.iter().skip(1).partition(|a| *a == "--unpinned");
     let [bin, tour, tsv, dir] = rest.as_slice() else {
         eprintln!("usage: demo --sound FFMPEG_BIN TOUR.mp4 TOUR.timeline.tsv PACK/ [--unpinned]");
-        return Some(ExitCode::from(2));
+        return ExitCode::from(2);
     };
     let job = Job {
         bin: PathBuf::from(bin),
@@ -334,7 +345,7 @@ fn dispatch(args: &[String]) -> Option<ExitCode> {
         pack: PathBuf::from(dir),
         pinned: unpinned.is_empty(),
     };
-    Some(match run(&job) {
+    match run(&job) {
         Ok(said) => {
             println!("{said}");
             ExitCode::SUCCESS
@@ -343,7 +354,7 @@ fn dispatch(args: &[String]) -> Option<ExitCode> {
             eprintln!("demo --sound: {e}");
             ExitCode::FAILURE
         }
-    })
+    }
 }
 
 struct Job {
@@ -892,46 +903,61 @@ mod tests {
         assert!(loud.iter().all(|s| s.abs() <= CEILING));
     }
 
-    /// **`--sound` opens no window and plays nothing**: each `main` in
-    /// `demo.rs` hands the command line to [`from_args`] before anything
-    /// else, and returns what it answers; every line starting `--sound` is
-    /// answered there, a bad one too, and no other line is, so the session
-    /// (`run::main`), which opens baud's window, is never reached from it;
-    /// and this file, its tests aside, starts no process but ffmpeg and
-    /// ffprobe (and `shasum`, through `provenance::sha256`), and names none
-    /// of the modules or APIs that open a window or play a sound. The
-    /// controls: the probes find what they look for in `demo.rs` and in
-    /// this file. Perturbation: call `run::main()` first in either `main`,
-    /// or let a bad `--sound` line fall through, and an assertion fails.
+    /// **`--sound` never reaches the session, so it opens no window and
+    /// plays nothing**, shown without running the demo:
+    /// - [`mode`] makes every line whose first argument is `--sound`
+    ///   [`Mode::Sound`], a bad one too, and no other line;
+    /// - each `main` in `demo.rs` is the one `match` on it, whose `Sound`
+    ///   arm is [`main`] and returns what it returns, and `run::main`, the
+    ///   session that opens baud's window, is named in `demo.rs` on one
+    ///   line only, the macOS `Run` arm;
+    /// - this file, its tests aside, starts no process but ffprobe and
+    ///   ffmpeg (and `shasum`, through `provenance::sha256`), and names none
+    ///   of the modules or APIs that open a window or play a sound.
+    ///
+    /// The controls: the source probes find the `Run` arm and this file's
+    /// spawns. Perturbation: map `--sound` to `Mode::Run`, or call
+    /// `run::main()` in the `Sound` arm, and an assertion fails; neither
+    /// break is ever run as the demo, only as this test.
     #[test]
-    fn sound_opens_no_window_and_plays_nothing() {
-        let main = include_str!("../demo.rs");
-        let mains: Vec<&str> = main
+    fn sound_never_reaches_the_session() {
+        let s = |v: &[&str]| v.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        for sound in [
+            &["--sound"][..],
+            &["--sound", "a", "b"],
+            &["--sound", "bin", "t.mp4", "t.tsv", "pack/", "--unpinned"],
+        ] {
+            assert_eq!(mode(&s(sound)), Mode::Sound, "{sound:?}");
+        }
+        for other in [
+            &[][..],
+            &["--record", "tour.mp4"],
+            &["--dry", "--sound"],
+            &["--verify", "trailer.gif"],
+        ] {
+            assert_eq!(mode(&s(other)), Mode::Run, "{other:?}");
+        }
+        let demo = include_str!("../demo.rs");
+        let mains: Vec<&str> = demo
             .split("fn main() -> std::process::ExitCode {\n")
             .skip(1)
             .collect();
         assert_eq!(mains.len(), 2, "the macOS main and the other");
-        for m in &mains {
+        for (m, run) in mains.iter().zip(["run::main()", "other(&args)"]) {
+            let want = format!(
+                "    let args: Vec<String> = std::env::args().skip(1).collect();\n    \
+                 match sound::mode(&args) {{\n        \
+                 sound::Mode::Sound => sound::main(&args),\n        \
+                 sound::Mode::Run => {run},\n    }}\n}}\n"
+            );
             assert!(
-                m.starts_with(
-                    "    if let Some(code) = sound::from_args() {\n        return code;\n    }\n"
-                ),
-                "a main does something before --sound: {}",
-                &m[..m.len().min(120)]
+                m.starts_with(&want),
+                "a main is not the match:\n{}",
+                &m[..m.len().min(300)]
             );
         }
-        assert!(
-            main.contains("run::main()"),
-            "the control: the session's entry is there"
-        );
-        let s = |v: &[&str]| v.iter().map(|a| a.to_string()).collect::<Vec<_>>();
-        assert_eq!(dispatch(&s(&["--sound"])), Some(ExitCode::from(2)));
-        assert_eq!(
-            dispatch(&s(&["--sound", "a", "b"])),
-            Some(ExitCode::from(2))
-        );
-        assert_eq!(dispatch(&s(&["--record", "tour.mp4"])), None);
-        assert_eq!(dispatch(&[]), None);
+        let session: Vec<&str> = demo.lines().filter(|l| l.contains("run::main")).collect();
+        assert_eq!(session, ["        sound::Mode::Run => run::main(),"]);
         let me = include_str!("sound.rs");
         let code = &me[..me.find("#[cfg(test)]").expect("the tests")];
         let spawned: Vec<&str> = code

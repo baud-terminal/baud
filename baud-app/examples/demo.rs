@@ -269,21 +269,31 @@ mod sound;
 #[path = "demo/timeline.rs"]
 mod timeline;
 
+// `--sound` is told apart before anything else runs, and its arm returns
+// what the mixer returns: the session, which opens baud's window, is in
+// the `Run` arm alone (`sound::tests::sound_never_reaches_the_session`).
 #[cfg(target_os = "macos")]
 fn main() -> std::process::ExitCode {
-    if let Some(code) = sound::from_args() {
-        return code;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match sound::mode(&args) {
+        sound::Mode::Sound => sound::main(&args),
+        sound::Mode::Run => run::main(),
     }
-    run::main()
 }
 
 #[cfg(not(target_os = "macos"))]
 fn main() -> std::process::ExitCode {
-    if let Some(code) = sound::from_args() {
-        return code;
-    }
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let [flag, gif] = args.as_slice() {
+    match sound::mode(&args) {
+        sound::Mode::Sound => sound::main(&args),
+        sound::Mode::Run => other(&args),
+    }
+}
+
+/// Every other system's demo: `--verify` alone.
+#[cfg(not(target_os = "macos"))]
+fn other(args: &[String]) -> std::process::ExitCode {
+    if let [flag, gif] = args {
         if flag == "--verify" {
             let gif = std::path::Path::new(gif);
             return match provenance::verify(gif, &provenance::repository()) {
