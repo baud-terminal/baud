@@ -952,8 +952,8 @@ mod tests {
         );
         assert!(
             src.contains(concat!(
-                "admit_with(uri, Host(self.app.uris.",
-                "host()), self.app.uris.rules())"
+                "admit_printed(\n            uri,\n            Host(self.app.uris.",
+                "host()),\n            self.app.uris.rules(),"
             )),
             "a click admits against the name the lines do"
         );

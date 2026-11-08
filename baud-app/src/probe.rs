@@ -113,7 +113,7 @@ use baud_render::{AbsLine, Scrolled};
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
-    Candidate, Front, Handler, Links, Marks, Moved, Owed, Paths, Probe, Program, Turned,
+    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, Probe, Program, Turned,
 };
 use crate::sys::Pid;
 
@@ -191,14 +191,37 @@ pub trait Fs: Send {
 }
 
 /// **When the thread taking the reads asks for the foreground group**:
-/// at a read [`GROUP_EVERY`] or more after it last did.
+/// at a read [`GROUP_EVERY`] or more after it last did, and at every read
+/// carrying an `OSC 8` link's introducer, whatever the pace says: a link
+/// takes its origin from who printed it ([`crate::paths::Origin`]), asked
+/// at the read because the program may be gone by the time the bytes are
+/// parsed.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sampler {
     last: Option<std::time::Instant>,
+    /// The last bytes of the reads so far, at most three: an introducer
+    /// split across two reads is still seen.
+    tail: [Option<u8>; 3],
+}
+
+/// Whether a read carried an `OSC 8` link's introducer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Linked {
+    #[default]
+    No,
+    Yes,
+}
+
+/// Whether a read asks for the foreground group, and whether it carried a
+/// link.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Asks {
+    No,
+    Yes(Linked),
 }
 
 impl Sampler {
-    /// Whether the read at `now` asks.
+    /// Whether the read at `now` asks, by the pace alone.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
         let due = self
             .last
@@ -208,6 +231,64 @@ impl Sampler {
         }
         due
     }
+
+    /// **Whether the read of `bytes` at `now` asks**: when [`Sampler::due`]
+    /// says so, or when the bytes carry `ESC ] 8 ;` or its 8-bit form `9D 8
+    /// ;`, with the bytes the reads before them ended on.
+    pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
+        // The tail, then the read's last bytes: what the next read follows.
+        let mut seam = [0u8; 6];
+        let mut n = 0;
+        for &b in self.tail.iter().flatten() {
+            seam[n] = b;
+            n += 1;
+        }
+        let linked = match introduced(&seam[..n], bytes) {
+            true => Linked::Yes,
+            false => Linked::No,
+        };
+        for &b in &bytes[bytes.len() - bytes.len().min(3)..] {
+            seam[n] = b;
+            n += 1;
+        }
+        self.tail = [None; 3];
+        let kept = n.min(3);
+        for (slot, &b) in self.tail[3 - kept..].iter_mut().zip(&seam[n - kept..n]) {
+            *slot = Some(b);
+        }
+        match (self.due(now), linked) {
+            (true, l) => Asks::Yes(l),
+            (false, Linked::Yes) => Asks::Yes(Linked::Yes),
+            (false, Linked::No) => Asks::No,
+        }
+    }
+}
+
+/// Whether `bytes`, after `tail`, hold an `OSC 8` introducer.
+fn introduced(tail: &[u8], bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(3)];
+    let mut seam = [0u8; 6];
+    seam[..tail.len()].copy_from_slice(tail);
+    seam[tail.len()..tail.len() + head.len()].copy_from_slice(head);
+    holds_introducer(&seam[..tail.len() + head.len()]) || holds_introducer(bytes)
+}
+
+/// Whether `b` holds `ESC ] 8 ;` or `9D 8 ;`.
+fn holds_introducer(b: &[u8]) -> bool {
+    let mut from = 0;
+    while let Some(p) = b[from..].iter().position(|&c| c == 0x1b || c == 0x9d) {
+        let at = from + p;
+        let rest = &b[at + 1..];
+        let hit = match b[at] {
+            0x1b => rest.starts_with(b"]8;"),
+            _ => rest.starts_with(b"8;"),
+        };
+        if hit {
+            return true;
+        }
+        from = at + 1;
+    }
+    false
 }
 
 /// How mount points are compared to a path.
@@ -592,10 +673,10 @@ pub struct Ask {
     /// program the worker names.
     pub cursor: AbsLine,
     pub paths: Vec<Candidate>,
-    /// Each group seen at a read since the last batch, with the last line
-    /// written under it, and the last line past [`GROUPS`] of them.
-    pub seen: Vec<(Pid, AbsLine)>,
-    pub unnamed: Option<AbsLine>,
+    /// Each group seen at a read since the last batch, with the lines it
+    /// wrote, and the lines written past [`GROUPS`] of them.
+    pub seen: Vec<(Pid, LineSpan)>,
+    pub unnamed: Option<LineSpan>,
     /// For [`Kind::Programs`]: what to find a program for.
     pub programs: Vec<Program>,
 }
@@ -610,8 +691,8 @@ pub struct Answer {
     /// What is in front now; none for a batch left for a newer one before
     /// it was taken, which names nothing.
     pub front: Option<Front>,
-    /// What each group seen since the last batch was, to its last line.
-    pub seen: Vec<(Front, AbsLine)>,
+    /// What each group seen since the last batch was, with the lines it wrote.
+    pub seen: Vec<(Front, LineSpan)>,
     pub probes: Vec<(Vec<u8>, Probe)>,
     /// For [`Kind::Programs`]: what each was found to be; none for a batch
     /// left for a newer one.
@@ -636,6 +717,14 @@ fn left(ask: &Ask) -> Answer {
     }
 }
 
+/// Two groups' lines as one, either none.
+fn joined(a: Option<LineSpan>, b: Option<LineSpan>) -> Option<LineSpan> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.joined(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 /// A newer screen batch in `newer`'s place: the groups `older` carried go
 /// with it, so a batch left untaken drops none.
 fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> bool {
@@ -645,11 +734,11 @@ fn replace(slot: &mut Option<Ask>, mut newer: Ask, answers: &Sender<Answer>) -> 
     };
     for (g, l) in &older.seen {
         match newer.seen.iter_mut().find(|e| e.0 == *g) {
-            Some(e) => e.1 = e.1.max(*l),
+            Some(e) => e.1 = e.1.joined(*l),
             None => newer.seen.push((*g, *l)),
         }
     }
-    newer.unnamed = newer.unnamed.max(older.unnamed);
+    newer.unnamed = joined(newer.unnamed, older.unnamed);
     *slot = Some(newer);
     answers.send(left(&older)).is_ok()
 }
@@ -855,7 +944,7 @@ fn answer(
         beat();
         front_of(&n)
     };
-    let mut seen: Vec<(Front, AbsLine)> = ask
+    let mut seen: Vec<(Front, LineSpan)> = ask
         .seen
         .iter()
         .map(|&(g, l)| (front_of_group(g, &mut calls), l))
@@ -870,7 +959,7 @@ fn answer(
             named.remove(g);
         }
     }
-    let through = |f: Front| seen.iter().filter(|s| s.0 == f).map(|s| s.1).max();
+    let through = |f: Front| seen.iter().filter(|s| s.0 == f).map(|s| s.1.last()).max();
     let (elsewhere, multiplexed) = (through(Front::Elsewhere), through(Front::Multiplexer));
     let mut probes = Vec::new();
     if front != Front::Elsewhere && !ask.paths.is_empty() {
@@ -1083,10 +1172,10 @@ pub struct Probes<T> {
     click: Option<Id>,
     /// The group in front when the worker last named it not local.
     elsewhere: Option<Pid>,
-    /// Each group seen at a read since the last batch, with the last line
-    /// written under it, and the last line written past [`GROUPS`] of them.
-    seen: Vec<(Pid, AbsLine)>,
-    unnamed: Option<AbsLine>,
+    /// Each group seen at a read since the last batch, with the lines it
+    /// wrote, and the lines written past [`GROUPS`] of them.
+    seen: Vec<(Pid, LineSpan)>,
+    unnamed: Option<LineSpan>,
     /// What to find a program for, the driver's list from the config, and
     /// whether it is owed an ask.
     programs: Vec<Program>,
@@ -1148,27 +1237,41 @@ impl<T: Moment> Probes<T> {
         self.started
     }
 
-    /// **A read was taken with `group` in front, and the cursor ended it on
-    /// `line`**: the group kept with its last line, and a new one sent to
-    /// be named at once, while it may still run. `group` is the
-    /// [`Sampler`]'s: none for a read that did not ask, or a group the
-    /// kernel no longer names.
-    pub fn read_taken(&mut self, paths: &mut Paths, group: Option<Pid>, line: AbsLine) {
+    /// **A read was taken with `group` in front, writing `span`**, from the
+    /// line the cursor was on as it began to the line it ended on: the
+    /// group kept with its lines, and a new one sent to be named at once,
+    /// while it may still run. `group` is the [`Sampler`]'s: none for a read
+    /// that did not ask, or a group the kernel no longer names. With
+    /// `[link] paths = "off"` only a read that `linked` an `OSC 8` link is
+    /// kept, since only a link's click reads who printed it
+    /// ([`Paths::origin`]).
+    pub fn read_taken(
+        &mut self,
+        paths: &mut Paths,
+        group: Option<Pid>,
+        span: LineSpan,
+        linked: Linked,
+    ) {
         let Some(g) = group else {
             return;
         };
-        if paths.marks() != Marks::On || matches!(self.slot, Slot::Closed) {
+        let kept = match paths.marks() {
+            Marks::On => true,
+            Marks::Off => linked == Linked::Yes,
+            Marks::Closed => false,
+        };
+        if !kept || matches!(self.slot, Slot::Closed) {
             return;
         }
         if let Some(e) = self.seen.iter_mut().find(|e| e.0 == g) {
-            e.1 = e.1.max(line);
+            e.1 = e.1.joined(span);
             return;
         }
         if self.seen.len() >= GROUPS {
-            self.unnamed = self.unnamed.max(Some(line));
+            self.unnamed = joined(self.unnamed, Some(span));
             return;
         }
-        self.seen.push((g, line));
+        self.seen.push((g, span));
         if matches!(self.slot, Slot::Unstarted) {
             self.started.bump();
             match (self.start)() {
@@ -1187,7 +1290,7 @@ impl<T: Moment> Probes<T> {
                 id: self.next_id,
                 kind: Kind::Name,
                 group: Some(g),
-                cursor: line,
+                cursor: span.last(),
                 paths: Vec::new(),
                 seen: Vec::new(),
                 unnamed: None,
@@ -1201,8 +1304,14 @@ impl<T: Moment> Probes<T> {
     /// Linux loop's wait; macOS's display link ticks anyway.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn deadline(&self, paths: &Paths, now: T) -> Option<T> {
-        if paths.marks() != Marks::On {
-            return None;
+        match paths.marks() {
+            Marks::On => {}
+            Marks::Closed => return None,
+            // A link's read is named at the next turn, now.
+            Marks::Off => {
+                let named = !self.seen.is_empty() || self.unnamed.is_some();
+                return named.then_some(now);
+            }
         }
         // A frame's scan owes a batch before any turn has timed it: the next
         // turn, now, times it.
@@ -1237,7 +1346,8 @@ impl<T: Moment> Probes<T> {
     /// answer, and never on the display link's tick.
     pub fn answers(&mut self, s: &mut Seen<'_, '_>) -> Turn {
         let mut turn = Turn::default();
-        if s.paths.marks() != Marks::On {
+        // With paths off, a link's read was named all the same.
+        if s.paths.marks() == Marks::Closed {
             return turn;
         }
         if let Slot::Running(w) = &self.slot {
@@ -1267,8 +1377,13 @@ impl<T: Moment> Probes<T> {
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
                 let before = s.paths.generation();
-                for &(f, line) in &a.seen {
-                    s.paths.written_under(f, line);
+                for &(f, span) in &a.seen {
+                    s.paths.written_under(f, span);
+                }
+                // A span gone from history is dropped as the next arrives,
+                // on the primary screen, whose history the spans number.
+                if !a.seen.is_empty() && s.term.screen() == baud_core::Screen::Normal {
+                    s.paths.trim_spans(crate::keep::oldest(s.term, s.scrolled));
                 }
                 s.paths.set_front(front, a.cursor);
                 let clicked = (a.kind == Kind::Click && self.click == Some(a.id)).then(|| {
@@ -1298,8 +1413,31 @@ impl<T: Moment> Probes<T> {
     /// answer is taken here.
     pub fn tick(&mut self, now: T, s: Seen<'_, '_>, group: impl FnOnce() -> Option<Pid>) -> Turn {
         let mut turn = Turn::default();
-        if s.paths.marks() != Marks::On {
-            return turn;
+        match s.paths.marks() {
+            Marks::On => {}
+            Marks::Closed => return turn,
+            // Paths off: only the groups a link's read saw, sent to be
+            // named, with no screen read and nothing looked up.
+            Marks::Off => {
+                if (self.seen.is_empty() && self.unnamed.is_none())
+                    || matches!(self.slot, Slot::Closed)
+                {
+                    return turn;
+                }
+                let ask = Ask {
+                    id: self.next_id,
+                    kind: Kind::Screen,
+                    group: group(),
+                    cursor: s.scrolled.line(Rows::ZERO, s.term.cursor().0),
+                    paths: Vec::new(),
+                    seen: core::mem::take(&mut self.seen),
+                    unnamed: self.unnamed.take(),
+                    programs: Vec::new(),
+                };
+                self.counts.batches += 1;
+                self.send(ask, now, s.paths, s.lines, &mut turn);
+                return turn;
+            }
         }
         self.pace.saw(Taken(s.term.amplification().0), now);
         // A hang is a batch out with no beat since.
@@ -1348,9 +1486,13 @@ impl<T: Moment> Probes<T> {
             s.paths.set_front(Front::Elsewhere, cursor);
             s.paths.settled();
             // Every row to the cursor is now this group's: what was seen
-            // before it is covered.
-            self.seen.clear();
-            self.unnamed = None;
+            // before it is covered, and was written while it was in front.
+            for (_, span) in self.seen.drain(..) {
+                s.paths.written_under(Front::Elsewhere, span);
+            }
+            if let Some(span) = self.unnamed.take() {
+                s.paths.written_under(Front::Elsewhere, span);
+            }
             return turn;
         }
         s.paths.front_moved(cursor);
@@ -1616,7 +1758,7 @@ impl Woken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::Forms;
+    use crate::paths::{Forms, Origin};
     use baud_core::Owned;
     use baud_domain::{BytePos, ReadLen, WinSize};
     use std::collections::HashMap;
@@ -2452,7 +2594,8 @@ mod tests {
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
-            pr.read_taken(&mut paths, Some(at_read), printed);
+            let span = crate::paths::LineSpan::of(printed, printed);
+            pr.read_taken(&mut paths, Some(at_read), span, Linked::No);
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
                 let _ = lines.scan(
@@ -2614,5 +2757,108 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **A read carrying an `OSC 8` introducer asks for the group even
+    /// inside the pace**, its 8-bit form too and one split across reads;
+    /// a read without one, inside the pace, does not. Named breaks: ask by
+    /// the pace alone -- the link's read inside the pace asks nothing; drop
+    /// the tail -- a split introducer asks nothing.
+    #[test]
+    fn a_links_read_always_asks_who_wrote_it() {
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        let fresh = || {
+            let mut s = Sampler::default();
+            assert_eq!(
+                s.read(t0, b"$ "),
+                Asks::Yes(Linked::No),
+                "the pace's first read"
+            );
+            s
+        };
+        let mut s = fresh();
+        assert_eq!(
+            s.read(soon, b"plain text\r\n"),
+            Asks::No,
+            "no link, inside the pace"
+        );
+        let mut s = fresh();
+        let link = b"\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\";
+        assert_eq!(s.read(soon, link), Asks::Yes(Linked::Yes), "a link");
+        let mut s = fresh();
+        assert_eq!(
+            s.read(soon, b"\x9d8;;file:///x\x9c"),
+            Asks::Yes(Linked::Yes),
+            "C1"
+        );
+        // Only the opening introducer, cut inside it: the second read holds
+        // no `ESC` at all.
+        let open = b"\x1b]8;;file:///etc/hosts\x07hosts";
+        for cut in 1..4 {
+            let mut s = fresh();
+            let (a, b) = open.split_at(cut);
+            let _ = s.read(soon, a);
+            assert_eq!(s.read(soon, b), Asks::Yes(Linked::Yes), "split after {cut}");
+        }
+        let mut s = fresh();
+        assert_eq!(
+            s.read(soon, b"\x1b]7;file://h/w\x07\x1b]8"),
+            Asks::No,
+            "OSC 7, no 8;"
+        );
+    }
+
+    /// **With `[link] paths = "off"`, a read carrying a link is named all
+    /// the same, and one without is not**: the link's lines take the origin
+    /// of the program that wrote them, `ssh` here, through the worker as a
+    /// printed path's would; a read with no link starts nothing. Named
+    /// break: name the group only when paths are on -- the link's line stays
+    /// unknown.
+    #[test]
+    fn with_paths_off_a_links_read_is_named() {
+        let run = |linked: Linked| {
+            let mut f = Fake::with(&[]);
+            f.groups.insert(9, vec!["ssh".into()]);
+            let (mut pr, starts) = probes(f);
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            t.write_at(BytePos::ZERO, b"x\r\n");
+            t.feed(BytePos::ZERO, ReadLen::from_index(3));
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            assert_eq!(paths.marks(), Marks::Off);
+            let (mut lines, mut uris) = (Lines::default(), Uris::default());
+            let s = Scrolled::START;
+            let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+            pr.read_taken(&mut paths, Some(9), LineSpan::of(line, line), linked);
+            let t0 = Instant::now();
+            for i in 0..1_000_000u32 {
+                let seen = Seen {
+                    term: &t,
+                    scrolled: s,
+                    lines: &mut lines,
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                };
+                let _ = pr.turn(t0 + Duration::from_millis(u64::from(i)), seen, || Some(9));
+                if paths.origin(line) != Origin::Unknown || *starts.lock().unwrap() == 0 {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+            let started = *starts.lock().unwrap();
+            (started, paths.origin(line))
+        };
+        assert_eq!(
+            run(Linked::Yes),
+            (1, Origin::Remote),
+            "a link's read, named ssh's"
+        );
+        assert_eq!(
+            run(Linked::No),
+            (0, Origin::Unknown),
+            "no link: nothing started"
+        );
     }
 }

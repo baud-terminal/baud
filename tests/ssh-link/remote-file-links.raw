@@ -1,0 +1,4 @@
+]8;;file:///etc/passwd\passwd]8;;\
+]8;;file://localhost/etc/passwd\passwd]8;;\
+]8;;file://here.example/etc/passwd\passwd]8;;\
+]8;;file://remotebox/etc/hosts/etc/hosts]8;;

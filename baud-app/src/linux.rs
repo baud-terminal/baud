@@ -950,16 +950,18 @@ pub fn run(given: Option<crate::rules::Run>) {
                 Chunk::Closed => break 'run,
                 Chunk::Bytes(bytes) => {
                     // Which program wrote it, asked at the read: it may be
-                    // gone by the batch (`Probes::read_taken`).
+                    // gone by the batch (`Probes::read_taken`), and a read
+                    // carrying a link always asks.
                     let master = d.pty.reads().master;
-                    let group = d
-                        .groups
-                        .due(Instant::now())
-                        .then(|| crate::fg::group(master))
-                        .flatten();
+                    let (group, linked) = match d.groups.read(Instant::now(), &bytes) {
+                        crate::probe::Asks::Yes(l) => (crate::fg::group(master), l),
+                        crate::probe::Asks::No => (None, crate::probe::Linked::No),
+                    };
+                    let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
                     d.feed(&bytes);
                     let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
-                    d.probes.read_taken(&mut d.seat.paths, group, ended);
+                    let span = crate::paths::LineSpan::of(began, ended);
+                    d.probes.read_taken(&mut d.seat.paths, group, span, linked);
                 }
             }
         }
@@ -1709,7 +1711,10 @@ impl Driver {
         // bus included, as the macOS app counts a link the system did not
         // take.
         let said = shown(uri);
-        match crate::link::admit_with(uri, Host(&self.host), self.uris.rules()) {
+        // An `OSC 8` link takes its origin from its line, as the worker named
+        // who wrote it (`link::admit_printed`).
+        let origin = matches!(link, Under::Osc8(_)).then(|| self.seat.paths.origin(line));
+        match crate::link::admit_printed(uri, Host(&self.host), self.uris.rules(), origin) {
             Err(why) => {
                 self.report.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {said}");

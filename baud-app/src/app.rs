@@ -11762,6 +11762,9 @@ impl Driver {
             self.app.selection.as_ref(),
             self.app.scrolled,
         );
+        // The line the batch begins on: with the one it ends on, the lines
+        // its reads wrote (`Probes::read_taken`).
+        let began = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -11872,15 +11875,17 @@ impl Driver {
             self.ring_bell(volume);
         }
         // Which program wrote each read, to the line the batch ended on, for
-        // the printed paths (`Probes::read_taken`): after the follow, which
-        // comes straight after the feed, and after the bell, which nothing
-        // between it and the read may delay; numbered after any resize the
-        // read asked for, as the reads after it are.
+        // Which program wrote each read, and the lines the batch wrote, for
+        // the printed paths and a link's origin (`Probes::read_taken`): after
+        // the follow, which comes straight after the feed, and after the bell,
+        // which nothing between it and the read may delay; numbered after any
+        // resize the read asked for, as the reads after it are.
         let ended = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
+        let span = crate::paths::LineSpan::of(began, ended);
         for chunk in &drained.chunks {
             self.app
                 .probes
-                .read_taken(&mut self.app.paths, chunk.group, ended);
+                .read_taken(&mut self.app.paths, chunk.group, span, chunk.linked);
         }
         if self.app.copied.program(copies, host_now()) == crate::copied::Owes::Frame {
             self.app.pending = Pending::Dirty;
@@ -15716,7 +15721,16 @@ impl Driver {
             },
         };
         let shown = crate::os_effect::ShownLink(show(uri));
-        match crate::link::admit_with(uri, Host(self.app.uris.host()), self.app.uris.rules()) {
+        // An `OSC 8` link takes its origin from its line, as the worker named
+        // who wrote it (`link::admit_printed`).
+        let origin = matches!(link, Under::Osc8(_)).then(|| self.app.paths.origin(line));
+        let admitted = crate::link::admit_printed(
+            uri,
+            Host(self.app.uris.host()),
+            self.app.uris.rules(),
+            origin,
+        );
+        match admitted {
             Err(why) => {
                 self.app.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {shown}");

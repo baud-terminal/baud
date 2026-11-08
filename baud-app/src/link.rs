@@ -164,6 +164,14 @@ pub enum Refused {
     /// No program for the command a `[link.NAME]` rule runs, as the worker
     /// last found: a click still tries.
     NoCommand,
+    /// An `OSC 8` `file://` link naming this machine, printed while a
+    /// program not known to be on it was in front -- `ssh` and its kin: the
+    /// file it names is the other machine's, and this machine's file of the
+    /// same name is not the one meant ([`crate::paths::Origin::Remote`]).
+    Remote,
+    /// The same, printed before the worker named the program in front: a
+    /// click a moment later finds it named ([`crate::paths::Origin::Unknown`]).
+    Unnamed,
 }
 
 /// A URI the policy admitted, with what it is for. Only [`admit`] builds
@@ -359,6 +367,29 @@ pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Ta
         scheme,
         rule: ruled,
     })
+}
+
+/// **[`admit_with`], for a link a click reads off the cells**: an `OSC 8`
+/// link is printed by some program, and a `file://` one names a file on
+/// that program's machine. One `admit_with` lets through names this machine
+/// -- the empty host, `localhost` or one of its names -- so it is refused
+/// unless the program that printed it was this machine's: `origin` is the
+/// link's line's, as the worker named it when the line was written, never
+/// what is in front at the click. A link read from the text (`origin`
+/// none) has no printer to ask about.
+pub fn admit_printed<'a>(
+    uri: &'a [u8],
+    host: Host<'_>,
+    rules: &Rules,
+    origin: Option<crate::paths::Origin>,
+) -> Result<Target<'a>, Refused> {
+    use crate::paths::Origin;
+    let t = admit_with(uri, host, rules)?;
+    match (t.scheme(), origin) {
+        (Scheme::File, Some(Origin::Remote)) => Err(Refused::Remote),
+        (Scheme::File, Some(Origin::Unknown)) => Err(Refused::Unnamed),
+        _ => Ok(t),
+    }
 }
 
 /// Whether `name` is one of the four schemes baud opens by default, which
@@ -1380,6 +1411,8 @@ pub fn refusal_words(why: Refused) -> &'static str {
         Refused::NoApp(Scheme::File) => "no app for file:",
         Refused::NoApp(Scheme::Added) => "no app for it",
         Refused::NoCommand => "no app for its command",
+        Refused::Remote => "a file on the computer the program that printed it runs on",
+        Refused::Unnamed => "not known yet which computer printed it",
     }
 }
 

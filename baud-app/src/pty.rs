@@ -117,6 +117,9 @@ pub struct Read {
     /// printed paths, read here because the program may be gone by the time
     /// anything else asks.
     pub group: Option<crate::sys::Pid>,
+    /// Whether the bytes carried an `OSC 8` link's introducer, which always
+    /// asks for the group (`probe::Sampler::read`).
+    pub linked: crate::probe::Linked,
 }
 
 /// What a drain found: the chunks that arrived, and whether more can.
@@ -1902,10 +1905,10 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
-        let group = sampler
-            .due(std::time::Instant::now())
-            .then(|| crate::fg::group(fd))
-            .flatten();
+        let (group, linked) = match sampler.read(std::time::Instant::now(), bytes) {
+            crate::probe::Asks::Yes(l) => (crate::fg::group(fd), l),
+            crate::probe::Asks::No => (None, crate::probe::Linked::No),
+        };
         if let Some(f) = log.as_mut() {
             use std::io::Write;
             let _ = f.write_all(bytes);
@@ -1915,6 +1918,7 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
                 at,
                 bytes: bytes.to_vec(),
                 group,
+                linked,
             })
             .is_err()
         {
