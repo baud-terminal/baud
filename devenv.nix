@@ -22,6 +22,17 @@ let
   # which nextest refuses beside `--no-run`; `test:unit` adds it.
   unitBuild = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet ${scope}";
 
+  # **The event rig, macOS's** (`baud-app/tests/event_rig.rs`): every effect
+  # baud asks of the OS runs in a turn of its own. It needs `baud` built
+  # with the test-only `effect-probe` feature, so it is a build of its own,
+  # under the gate's RUSTFLAGS, in `release-probe`'s directory (the
+  # workspace Cargo.toml says why). `test:unit` runs it after the suite, and
+  # the warm process builds it after the suite's build.
+  rigBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud --features effect-probe --test event_rig";
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+  rigRun = if isDarwin then " ${rigBuild}; c=$?;" else " c=0;";
+  warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run" else "${unitBuild} --no-run";
+
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`
   # feature; a green build on the host proves neither.
@@ -80,7 +91,7 @@ in
   # devenv/src/devenv/mod.rs): the gate would start a build beside its own,
   # and stop the `devenv up` already running.
   processes = lib.mkIf (!config.devenv.isTesting) {
-    warm.exec = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg "${unitBuild} --no-run"}";
+    warm.exec = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
   };
 
   scripts.warm-pause.exec = ''
@@ -388,7 +399,7 @@ in
       # nextest rather than `cargo test`, since 2026-10-07; why is at
       # `pkgs.cargo-nextest` above. It builds the same test binaries, with
       # the same profile and flags, through `cargo test --no-run`.
-      exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ]";
+      exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?;${rigRun} [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ] && [ \"$c\" -eq 0 ]";
       after = [ "test:check" ];
     };
 

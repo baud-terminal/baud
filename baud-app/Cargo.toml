@@ -121,20 +121,26 @@ path = "src/main.rs"
 name = "demo"
 test = true
 
-# **The titlebar mark in real windows** (`tests/titlebar_mark.rs`): AppKit
-# views are main-thread-only and libtest runs each test on a thread of its
-# own, so the test is its own `main` and answers nextest's `--list` itself.
-# Runs only with `--features effect-probe`, which the child needs.
+# **The event rig** (`tests/event_rig.rs`): every effect baud asks of the
+# OS runs in a turn of its own, checked in a child `baud` built with the
+# test-only `effect-probe` feature, so the test is built only with it.
+# `test:unit` runs it on macOS, in `release-probe`'s own directory.
 [[test]]
 name = "event_rig"
 path = "tests/event_rig.rs"
 required-features = ["effect-probe"]
 
+# **The About window, built and never shown** (`tests/about_window.rs`):
+# AppKit views are main-thread-only and libtest runs each test on a thread
+# of its own, so the test is its own `main` and answers nextest's `--list`
+# itself.
 [[test]]
 name = "about_window"
 path = "tests/about_window.rs"
 harness = false
 
+# **The titlebar mark in real windows** (`tests/titlebar_mark.rs`): its own
+# `main`, for the same reason.
 [[test]]
 name = "titlebar_mark"
 path = "tests/titlebar_mark.rs"

@@ -284,7 +284,40 @@ fn the_watcher_builds_what_the_gate_builds() {
         .expect("processes has warm");
     assert_eq!(
         warm,
-        "\"exec bash \\\"$DEVENV_ROOT/scripts/warm.sh\\\" watch ${lib.escapeShellArg \"${unitBuild} --no-run\"}\";"
+        "\"exec bash \\\"$DEVENV_ROOT/scripts/warm.sh\\\" watch ${lib.escapeShellArg warmBuild}\";"
+    );
+    // The watcher builds what `test:unit` runs: the suite, and on macOS the
+    // event rig, each with the gate's own string.
+    let bound = |name: &str| {
+        nix.lines()
+            .find_map(|l| l.trim().strip_prefix(name))
+            .and_then(|l| l.strip_suffix(';'))
+            .unwrap_or_else(|| panic!("devenv.nix binds {name}"))
+            .to_owned()
+    };
+    assert_eq!(
+        bound("warmBuild = "),
+        "if isDarwin then \"${unitBuild} --no-run && ${rigBuild} --no-run\" else \"${unitBuild} --no-run\""
+    );
+    assert_eq!(
+        bound("rigRun = "),
+        "if isDarwin then \" ${rigBuild}; c=$?;\" else \" c=0;\""
+    );
+    let rig = bound("rigBuild = ");
+    for word in [
+        "RUSTFLAGS='-D warnings'",
+        "cargo nextest run",
+        "--cargo-profile release-probe",
+        "--features effect-probe",
+        "--test event_rig",
+    ] {
+        assert!(rig.contains(word), "rigBuild lacks {word}: {rig}");
+    }
+    assert!(
+        exec.contains(
+            "${rigRun} [ \\\"$a\\\" -eq 0 ] && [ \\\"$b\\\" -eq 0 ] && [ \\\"$c\\\" -eq 0 ]"
+        ),
+        "test:unit runs the rig and fails on it: {exec}"
     );
 
     assert!(nix.contains("CARGO_TARGET_DIR = \"./target\";"));
