@@ -33,6 +33,16 @@ let
   rigRun = if isDarwin then " ${rigBuild}; c=$?;" else " c=0;";
   warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run" else "${unitBuild} --no-run";
 
+  # **The no-LTO arm**, which a re-run after a small fix builds: release with
+  # LTO off and 16 codegen units, under the gate's RUSTFLAGS, in a target
+  # directory of its own, `target/nolto`, so it and the gate's arm never
+  # evict each other. A re-run finds it warm only with this string's
+  # variables, `CARGO_TARGET_DIR` included.
+  noltoBuild = "CARGO_TARGET_DIR=./target/nolto CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet ${scope}";
+  # What the watcher builds at each save: the gate's arm, then the no-LTO one.
+  watchBuild = "${warmBuild} && ${noltoBuild} --no-run";
+  watch = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg watchBuild}";
+
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`
   # feature; a green build on the host proves neither.
@@ -79,11 +89,13 @@ in
   ];
 
   # **The release test build, kept warm while you work.** `devenv up` starts
-  # a watcher that runs `test:unit`'s build, `--no-run`, through
+  # a watcher, and `warm-run` the same one in the foreground, that runs
+  # `test:unit`'s builds, `--no-run`, and then the no-LTO arm, through
   # `scripts/bounded` at nice 10, 2 s after the last save, so the gate and a
   # re-run after a small fix find nothing left to compile. `warm-pause`
-  # stops the build in flight and starts no other until `warm-resume`, and
-  # every bench and timing example refuses to measure beside an unpaused
+  # stops the build in flight and starts no other until `warm-resume`,
+  # `warm-status` prints one line on the watcher, the pause and the build,
+  # and every bench and timing example refuses to measure beside an unpaused
   # watcher (`baud-bench/src/warm.rs`). `scripts/warm.sh` has the rest.
   #
   # **Not under `devenv test`**, which starts every process before it runs
@@ -91,8 +103,14 @@ in
   # devenv/src/devenv/mod.rs): the gate would start a build beside its own,
   # and stop the `devenv up` already running.
   processes = lib.mkIf (!config.devenv.isTesting) {
-    warm.exec = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
+    warm.exec = watch;
   };
+
+  scripts.warm-run.exec = watch;
+
+  scripts.warm-status.exec = ''
+    bash "$DEVENV_ROOT/scripts/warm.sh" status
+  '';
 
   scripts.warm-pause.exec = ''
     bash "$DEVENV_ROOT/scripts/warm.sh" pause
@@ -228,6 +246,8 @@ in
       echo "  dev-build     - Build the workspace"
       echo "  warm-pause    - Stop the warm build (devenv up) before a measurement"
       echo "  warm-resume   - Let the warm build start again at the next save"
+      echo "  warm-run      - Run the warm build's watcher in the foreground"
+      echo "  warm-status   - One line: the watcher, the pause, the build"
       echo ""
     } >&2
   '';

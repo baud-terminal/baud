@@ -3,7 +3,9 @@
 //! `devenv up` starts a watcher, and the watcher a build at each save.
 //! Every bench and timing example calls [`refuse_while_warm`] before it
 //! measures anything, and refuses while a watcher or a build of one is
-//! running and that checkout has not been paused (`warm-pause`).
+//! running and that checkout has not been paused (`warm-pause`), and on
+//! Linux beside any process of a build, paused or not: one a pause has not
+//! stopped is still on the CPU.
 //!
 //! An idle watcher counts, since the next save starts a build halfway
 //! through the measurement. It is found on the whole machine, not in one
@@ -20,11 +22,15 @@ use std::path::{Path, PathBuf};
 /// The pause, under a checkout's root.
 pub const PAUSE: &str = ".devenv/state/warm.pause";
 
-/// A watcher or a build, and the checkout its command line names.
+/// The variable every process of a warm build carries, with its checkout's
+/// root for a value (`scripts/warm.sh`).
+pub const TOKEN: &str = "BAUD_WARM_BUILD";
+
+/// A watcher or a build, and the checkout it names.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Warm {
-    /// The process id, as the listing spells it.
-    pub pid: String,
+    /// The process id.
+    pub pid: u32,
     /// `None` when the script's path is not absolute, so no pause can be
     /// read for it.
     pub root: Option<PathBuf>,
@@ -45,6 +51,7 @@ pub fn unpaused(listing: &str, paused: impl Fn(&Path) -> bool) -> Vec<Warm> {
         .lines()
         .filter_map(|line| {
             let (pid, args) = line.trim_start().split_once(char::is_whitespace)?;
+            let pid: u32 = pid.parse().ok()?;
             let words: Vec<&str> = args.split_whitespace().collect();
             let rest = words
                 .windows(2)
@@ -55,10 +62,7 @@ pub fn unpaused(listing: &str, paused: impl Fn(&Path) -> bool) -> Vec<Warm> {
                 .map(PathBuf::from);
             match &root {
                 Some(r) if paused(r) => None,
-                _ => Some(Warm {
-                    pid: pid.to_owned(),
-                    root,
-                }),
+                _ => Some(Warm { pid, root }),
             }
         })
         .collect()
@@ -102,6 +106,54 @@ pub fn listing() -> Result<String, String> {
     }
 }
 
+/// The root a process's environment names in [`TOKEN`], given the environment
+/// as `/proc/<pid>/environ` spells it: `NAME=value` entries, each ended by a
+/// NUL.
+pub fn build_root(environ: &[u8]) -> Option<PathBuf> {
+    environ.split(|&b| b == 0).find_map(|entry| {
+        let value = entry.strip_prefix(TOKEN.as_bytes())?.strip_prefix(b"=")?;
+        Some(PathBuf::from(String::from_utf8_lossy(value).into_owned()))
+    })
+}
+
+/// Every process of a warm build that is running, paused or not, by
+/// [`TOKEN`] in its environment. Linux alone shows another process's
+/// environment, in `/proc`; elsewhere this finds none, and the command lines
+/// [`unpaused`] reads are what there is.
+pub fn building() -> Vec<Warm> {
+    environs()
+        .into_iter()
+        .filter_map(|(pid, environ)| {
+            build_root(&environ).map(|root| Warm {
+                pid,
+                root: Some(root),
+            })
+        })
+        .collect()
+}
+
+/// Each process's id and environment, where they can be read.
+fn environs() -> Vec<(u32, Vec<u8>)> {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(dir) = std::fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        dir.flatten()
+            .filter_map(|entry| {
+                let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
+                // Another user's, or one that has ended, is not read.
+                let environ = std::fs::read(entry.path().join("environ")).ok()?;
+                Some((pid, environ))
+            })
+            .collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
 /// Why a measurement must not start now, or `None`. A machine whose
 /// processes cannot be listed is a reason: what cannot be seen is not known
 /// to be quiet.
@@ -115,12 +167,22 @@ pub fn refusal() -> Option<String> {
         }
     };
     let warm = unpaused(&listing, |root| root.join(PAUSE).exists());
-    if warm.is_empty() {
+    let building = building();
+    if warm.is_empty() && building.is_empty() {
         return None;
     }
     let mut why = String::from(
         "a warm build or its watcher is running, and a measurement must not share the CPU with it:",
     );
+    for w in &building {
+        if let Some(root) = &w.root {
+            why.push_str(&format!(
+                "\n  pid {}, a build in {}, which runs paused or not",
+                w.pid,
+                root.display()
+            ));
+        }
+    }
     for w in &warm {
         match &w.root {
             Some(root) => why.push_str(&format!("\n  pid {} in {}", w.pid, root.display())),
