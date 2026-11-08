@@ -2906,10 +2906,10 @@ mod tests {
             }
         }
         // What a hover over the path on the first row reads, as a click does.
-        let row = String::from_utf8_lossy(text);
-        let row = row.trim_end();
+        // The first row as its cells hold it, as the driver reads it.
+        let row = crate::programs::screen(&t).swap_remove(0);
         let units: Vec<crate::link::Unit> = row.chars().map(crate::link::Unit::Char).collect();
-        let at = row.find("docs/").expect("the path");
+        let at = row[..row.find("docs/").expect("the path")].chars().count();
         let first = s.line(Rows::ZERO, baud_domain::Row::from_index(0));
         let edges = (crate::link::Edge::Line, crate::link::Edge::Line);
         let hovered = crate::paths::PathsAt::at(
@@ -2962,6 +2962,13 @@ mod tests {
             Some(FEATURES.as_bytes()),
             "a hover and a click read it there"
         );
+        // As helix draws it, with its own underline: that line is the
+        // program's and baud draws none over it (`lined.rs`), and the path
+        // is found all the same, for a hover and a click.
+        let helix = b"see [guide](\x1b[4mdocs/guide/features.md\x1b[24m)\r\n";
+        let (drawn, log, hovered) = on_screen(readme_tree(), Screen::Alternate, helix, |_| 7);
+        assert_eq!(drawn, 0, "helix's own line: {log:?}");
+        assert_eq!(hovered.as_deref(), Some(FEATURES.as_bytes()));
         // The normal screen reads a relative path against the shell's
         // reported folder alone, and none was reported.
         let (drawn, log, _) = on_screen(readme_tree(), Screen::Normal, README, |_| 7);
