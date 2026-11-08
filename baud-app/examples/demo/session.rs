@@ -40,6 +40,10 @@ pub enum Step {
     /// rather than a control code typed as text.
     Ctrl(char),
     /// Press an arrow key, encoded the same way.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no scene of the tour presses an arrow key")
+    )]
     Arrow(Arrow),
     /// Hold the screen, in milliseconds of real time.
     Hold(u32),
@@ -78,6 +82,10 @@ pub enum Step {
 
 /// An arrow key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no scene of the tour presses an arrow key")
+)]
 pub enum Arrow {
     Up,
     Down,
@@ -101,10 +109,10 @@ pub const OPENING: &str = "# are you ready for this?";
 /// **Where scene 11 copies from**: the word `copy` of its own line,
 /// `# copy. paste.`, typed at the container's prompt, `~ ❯ `
 /// ([`REMOTE_PROMPT`], four columns), so the word is columns 6 to 9. The
-/// row is the one the line lands on after fastfetch's card and helix, read
-/// off a take: **row 12 is a placeholder** until one is filmed.
-pub const COPY_FROM: Cell = Cell { row: 12, col: 6 };
-pub const COPY_TO: Cell = Cell { row: 12, col: 9 };
+/// row is the one the line lands on after fastfetch's card and helix, 22:
+/// read off the headless session; the take re-checks it.
+pub const COPY_FROM: Cell = Cell { row: 22, col: 6 };
+pub const COPY_TO: Cell = Cell { row: 22, col: 9 };
 pub const COPIED: &str = "copy";
 
 /// **Where scene 9's click lands**: inside `https://nixos.org` on the
@@ -135,20 +143,17 @@ pub const SESSION: &[Step] = &[
     Prompt,
     Hold(1400),
     // 8. baud's README in the container's helix, the take's commit's
-    // (`container::home_files`): the arrows' plasma trail, the word the
+    // (`container::home_files`): the plasma trail four rows down and four
+    // up, each one counted motion helix redraws at once, the word the
     // tagline turns on, three half pages down, its end and its top.
     Scene(8),
     Run("# watch the cursor."),
     Prompt,
     Run("hx README.md"),
     Hold(900),
-    Move(Arrow::Down),
-    Move(Arrow::Down),
-    Move(Arrow::Down),
-    Move(Arrow::Down),
+    Keys(DOWN),
     Hold(300),
-    Move(Arrow::Up),
-    Move(Arrow::Up),
+    Keys(UP),
     Hold(450),
     Line("/character"),
     Hold(700),
@@ -276,9 +281,10 @@ pub enum Show {
     Fastfetch,
     /// A drag, Command-C and Command-V, in that order.
     CopyPaste,
-    /// The arrow keys moving helix's cursor down and then up while the
-    /// trail is plasma, the first up past `REIGNITE` after the first down,
-    /// so each lights a plasma of its own.
+    /// helix's cursor moved down and then up while the trail is plasma,
+    /// each by one counted motion of more than [`THRESHOLD_ROWS`] rows,
+    /// which helix redraws at once: a move past baud's snap, so each lights
+    /// a plasma of its own whatever the round trip over ssh.
     ArrowTrail,
 }
 
@@ -294,8 +300,31 @@ impl Show {
 }
 
 /// The 334 ms inside which a move lights no new trail (`REIGNITE` in
-/// `baud-app/src/trail.rs`).
+/// `baud-app/src/trail.rs`); the plasma is exempt, and lights every long
+/// move.
+#[cfg(test)]
 pub const REIGNITE_MS: u32 = 334;
+
+/// **The rows a move may span and still snap**, drawing no trail
+/// (`THRESHOLD` in `baud-app/src/trail.rs`, 2.0 cells): helix redraws
+/// each arrow key as its own frame, and over ssh a frame of one row snaps,
+/// so scene 8 moves by counted motions instead.
+pub const THRESHOLD_ROWS: u32 = 2;
+
+/// **Scene 8's two motions**, helix's `j` and `k` with a count: four
+/// rows down and four up, each one redraw (amendment c.1).
+pub const DOWN: &str = "4j";
+pub const UP: &str = "4k";
+
+/// **The rows a counted motion `keys` moves by `motion`**: its count
+/// before the motion's key, `1` with none; none if it is another key.
+pub fn counted(keys: &str, motion: char) -> Option<u32> {
+    let count = keys.strip_suffix(motion)?;
+    match count.is_empty() {
+        true => Some(1),
+        false => count.parse().ok(),
+    }
+}
 
 /// **What of [`Show::ALL`] `steps` puts on screen**, each by the steps
 /// that show it.
@@ -352,11 +381,13 @@ pub fn shows(steps: &[Step]) -> Vec<Show> {
         }
     }
     if let (Some(hx), Some(search)) = (hx, at(Line("/character"))) {
-        let down = (hx..search).find(|&i| steps[i] == Move(Arrow::Down));
-        let up = (hx..search).find(|&i| steps[i] == Move(Arrow::Up));
-        if let (Some(d), Some(u)) = (down, up) {
-            let apart = duration(&steps[d..u]).as_millis();
-            if d < u && apart > u128::from(REIGNITE_MS) {
+        let long = |motion: char| {
+            (hx..search).find(|&i| {
+                matches!(steps[i], Keys(k) if counted(k, motion).is_some_and(|n| n > THRESHOLD_ROWS))
+            })
+        };
+        if let (Some(d), Some(u)) = (long('j'), long('k')) {
+            if d < u {
                 out.push(Show::ArrowTrail);
             }
         }
@@ -865,8 +896,8 @@ mod tests {
             Some("# watch the cursor."),
             &[
                 Run("hx README.md"),
-                Move(Arrow::Down),
-                Move(Arrow::Up),
+                Keys("4j"),
+                Keys("4k"),
                 Line("/character"),
                 Ctrl('d'),
                 Keys("ge"),
@@ -962,15 +993,20 @@ mod tests {
 
     /// **Everything the storyline must show is on screen**: a link
     /// clicked, the lights, the README's jumps, fastfetch, copy and paste,
-    /// and the arrow keys' plasma trail, each found in the tour's steps by
+    /// and the plasma trail down and up, each found in the tour's steps by
     /// [`shows`]. The controls: the tour without its drag shows no copy and
-    /// paste; with its first up arrow moved next to the first down, inside
-    /// `REIGNITE`, no arrow trail; and with the click on another cell than
+    /// paste; with its `4k` made `2k`, two rows, which snap, no arrow
+    /// trail; and with the click on another cell than
     /// the pointer rested on, no link. Perturbation: delete the `Drag` from
     /// `SESSION` and the first assertion fails.
     #[test]
     fn every_must_show_item_is_in_some_step() {
         assert_eq!(shows(SESSION), Show::ALL, "what the tour shows");
+        assert_eq!(
+            [counted(DOWN, 'j'), counted(UP, 'k'), counted("j", 'j')],
+            [Some(4), Some(4), Some(1)]
+        );
+        assert_eq!(counted("gg", 'j'), None, "another key");
         let no_drag: Vec<Step> = SESSION
             .iter()
             .copied()
@@ -981,8 +1017,7 @@ mod tests {
             .iter()
             .copied()
             .map(|s| match s {
-                Hold(300) => Move(Arrow::Up),
-                Move(Arrow::Up) => Hold(300),
+                Keys("4k") => Keys("2k"),
                 s => s,
             })
             .collect();
@@ -1165,7 +1200,7 @@ mod tests {
     }
 
     /// **The README's scene is one helix, in the requested order**: `hx
-    /// README.md`, the arrows down four and up two, `/character`, Ctrl-d
+    /// README.md`, `4j` and `4k`, `/character`, Ctrl-d
     /// three times, `ge`, `gg`, then the Nix link's `/Nix`, its click,
     /// Chawan's `q` and `:q`, then the shell's prompt; and every hold after
     /// a jump is past the 334 ms inside which a plasma lights nothing new.
@@ -1186,12 +1221,8 @@ mod tests {
             moves,
             [
                 Run("hx README.md"),
-                Move(Arrow::Down),
-                Move(Arrow::Down),
-                Move(Arrow::Down),
-                Move(Arrow::Down),
-                Move(Arrow::Up),
-                Move(Arrow::Up),
+                Keys("4j"),
+                Keys("4k"),
                 Line("/character"),
                 Ctrl('d'),
                 Ctrl('d'),

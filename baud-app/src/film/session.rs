@@ -1226,17 +1226,21 @@ fn the_readme_session_lights_every_light() {
             );
         }
     }
-    // **The arrows down and the arrows up each light a plasma**: one from
-    // the first down to the first up, and one from the first up to the
-    // search, the trail plasma then (`Show::ArrowTrail`). Not in the arrow's
-    // own step: the keys go over ssh and come back as helix's redraw while
-    // the next arrows are typed, so a move's plasma lands in a step after.
-    let down = at(Step::Arrow(steps::Arrow::Down));
-    let up = at(Step::Arrow(steps::Arrow::Up));
+    // **The move down and the move up each light a plasma**: one from `4j`
+    // to `4k`, and one from `4k` to the search, the trail plasma then
+    // (`Show::ArrowTrail`). Not in the key's own step: the key goes over ssh
+    // and comes back as helix's redraw during the hold after it. Both are
+    // required in the tour, so a tour without them fails here.
+    let down = at(Step::Keys(steps::DOWN));
+    let up = at(Step::Keys(steps::UP));
     let search = at(Step::Line("/character"));
     for (from, to) in [(down, up), (up, search)] {
         let (Some(from), Some(to)) = (from, to) else {
-            continue;
+            panic!(
+                "the tour has no {} and {} before its search",
+                steps::DOWN,
+                steps::UP
+            );
         };
         let lit = take.ignitions.iter().any(|(s, t, _)| {
             s.is_some_and(|s| (from..to).contains(&s)) && *t == CursorTrail::Plasma
