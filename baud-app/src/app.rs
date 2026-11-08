@@ -14224,6 +14224,19 @@ impl Driver {
         });
     }
 
+    /// The event rig's point at the middle of cell `(row, col)`, in the
+    /// view's own top-left points: [`pointer_under`]'s arithmetic turned
+    /// round, so a press sent there is over that cell.
+    #[cfg(feature = "effect-probe")]
+    fn rig_point(&self, row: Row, col: Col) -> NSPoint {
+        let (scale, cell, _, pad) = self.pointer_geometry();
+        let at = |pad: u32, cell: f64, i: usize| (f64::from(pad) + (i as f64 + 0.5) * cell) / scale;
+        NSPoint::new(
+            at(pad.0, cell.0, col.index()),
+            at(pad.1, cell.1, row.index()),
+        )
+    }
+
     /// The event rig's click on `path` as a printed path with no
     /// `:line:col`, asked of the worker as `check_path` asks.
     #[cfg(feature = "effect-probe")]

@@ -26,6 +26,7 @@
 
 use super::*;
 use baud_present_macos::probe;
+use macos_liquid_glass::objc2::sel;
 use std::cell::RefCell;
 
 /// Whether each pass drives the view's frame.
@@ -43,6 +44,20 @@ enum Act {
     /// Type this line to the shell, as keys are sent: what it runs writes
     /// back through the pty, as a program's output does.
     Type(Vec<u8>),
+    /// A pointer gesture over what this line, typed once first, drew.
+    Gesture(Gesture, Vec<u8>),
+}
+
+/// A gesture over the screen's first row, sent to the view's own methods
+/// (`probe::press`, `probe::menu`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Gesture {
+    /// Cmd-click on the second cell, a link's.
+    LinkClick,
+    /// A drag from the first cell to the fourth.
+    Select,
+    /// That drag, then the Edit menu's Copy.
+    CopyMenu,
 }
 
 thread_local! {
@@ -91,6 +106,9 @@ pub(crate) fn asked() -> Option<std::process::ExitCode> {
     let act = match cause.as_str() {
         "path" => Act::Click(arg.as_bytes().to_vec()),
         "type" => Act::Type([arg.as_bytes(), b"\n"].concat()),
+        "link" => Act::Gesture(Gesture::LinkClick, [arg.as_bytes(), b"\n"].concat()),
+        "select" => Act::Gesture(Gesture::Select, [arg.as_bytes(), b"\n"].concat()),
+        "copy-menu" => Act::Gesture(Gesture::CopyMenu, [arg.as_bytes(), b"\n"].concat()),
         _ => return Some(std::process::ExitCode::from(2)),
     };
     let ticks = match ticks.as_str() {
@@ -112,6 +130,45 @@ pub(crate) fn asked() -> Option<std::process::ExitCode> {
         return Some(std::process::ExitCode::from(2));
     };
     Some(run(act, iterations, ticks))
+}
+
+/// Which iteration a gesture is.
+#[derive(Clone, Copy)]
+struct Turn(u16);
+
+/// `g` sent to `view`, over the first row's first four cells. A
+/// selection's drag ends on the fourth cell one iteration and the third
+/// the next, so each makes a selection the last did not.
+fn gesture(
+    view: &DrawableView,
+    g: Gesture,
+    [first, second, third, fourth]: [NSPoint; 4],
+    at: Turn,
+) {
+    use probe::{Chord, Press, press};
+    match g {
+        Gesture::LinkClick => {
+            press(view, Press::Down, second, Chord::Command);
+            press(view, Press::Up, second, Chord::Command);
+        }
+        Gesture::Select => drag(view, first, [fourth, third][usize::from(at.0 % 2)]),
+        // The selection made once, by the first iteration's drag, and
+        // copied by each iteration's Copy.
+        Gesture::CopyMenu => {
+            if at.0 == 0 {
+                drag(view, first, fourth);
+            }
+            probe::menu(view, sel!(copy:));
+        }
+    }
+}
+
+/// A left-button drag from `from` to `to`.
+fn drag(view: &DrawableView, from: NSPoint, to: NSPoint) {
+    use probe::{Chord, Press, press};
+    press(view, Press::Down, from, Chord::Plain);
+    press(view, Press::Dragged, to, Chord::Plain);
+    press(view, Press::Up, to, Chord::Plain);
 }
 
 /// A `wake:` posted from another thread and joined: certainly queued.
@@ -136,15 +193,43 @@ fn run(act: Act, iterations: Iterations, ticks: Ticks) -> std::process::ExitCode
         ..
     } = Opening::new(mtm, size, scale, inset, shell, None);
     driver.pump(Trigger::Opening);
+    let cells = [0, 1, 2, 3].map(|col| driver.rig_point(Row::ZERO, Col::at_index(col)));
     view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
+    // The view the window's first responder, which tells baud it has the
+    // keys and the pointer (`becomeFirstResponder`, `Focus::Gained`): a
+    // link's Cmd-click is armed only then. The window is not made key,
+    // nor shown, by it; the checks below say so every iteration.
+    let _ = window.ns_window().makeFirstResponder(Some(&view));
     probe::set_waker(view.waker());
+    // A gesture's screen, drawn once: the line typed, and its last effect,
+    // a clear of the pasteboard (`OSC 52`) printed after what the gesture
+    // is over, is the sign it has been read -- a clear, which says nothing,
+    // so no announcement of the setup's is left to fall in an iteration. A
+    // count, never a time; the bound is a failure.
+    if let Act::Gesture(_, setup) = &act {
+        TYPED.with(|c| *c.borrow_mut() = Some(setup.clone()));
+        post(view.waker());
+        let start = Instant::now();
+        let mut ready = false;
+        while !ready && start.elapsed() < BOUND {
+            probe::pass(0.01);
+            ready = probe::take()
+                .iter()
+                .any(|r| r.kind == probe::EffectKind::Clear);
+        }
+        if !ready {
+            println!("the gesture's screen was never drawn");
+            return std::process::ExitCode::from(1);
+        }
+    }
     let ticker = probe::Ticker::new(&view);
     let mut failed = false;
-    for _ in 0..iterations.0 {
+    for i in 0..iterations.0 {
         let _ = probe::take();
         match &act {
             Act::Click(file) => CLICK.with(|c| *c.borrow_mut() = Some(file.clone())),
             Act::Type(line) => TYPED.with(|c| *c.borrow_mut() = Some(line.clone())),
+            Act::Gesture(g, _) => gesture(&view, *g, cells, Turn(i)),
         }
         post(view.waker());
         let start = Instant::now();
@@ -170,7 +255,9 @@ fn run(act: Act, iterations: Iterations, ticks: Ticks) -> std::process::ExitCode
         }
         got.extend(probe::take());
         // A program's rows only: a click rings no bell.
-        while let (Act::Type(_), Some(left)) = (&act, SPACING.checked_sub(start.elapsed())) {
+        while let (Act::Type(_) | Act::Gesture(..), Some(left)) =
+            (&act, SPACING.checked_sub(start.elapsed()))
+        {
             probe::pass(left.as_secs_f64());
         }
         got.extend(probe::take());

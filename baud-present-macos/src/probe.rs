@@ -24,7 +24,7 @@ use macos_liquid_glass::objc2::MainThreadMarker;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{Message, msg_send, sel};
 use macos_liquid_glass::objc2_app_kit::{NSApplication, NSEventMask};
-use macos_liquid_glass::objc2_foundation::{NSDate, NSDefaultRunLoopMode};
+use macos_liquid_glass::objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint};
 use macos_liquid_glass::objc2_quartz_core::CADisplayLink;
 
 /// Where a call runs.
@@ -394,6 +394,83 @@ impl Drop for Ticker {
     fn drop(&mut self) {
         self.link.invalidate();
     }
+}
+
+/// **A pointer gesture sent to the view**: an `NSEvent` made here and
+/// handed to the view's own `mouseDown:`, `mouseDragged:` or `mouseUp:`,
+/// the methods AppKit calls with a click's events. It is never posted to
+/// the application or the window server (`postEvent:`, `CGEventPost`), so
+/// it reaches nothing but this view, and nothing takes focus.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Press {
+    Down,
+    Dragged,
+    Up,
+}
+
+/// Whether Command is held with a [`Press`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Chord {
+    Plain,
+    Command,
+}
+
+/// Send `press` at `at`, a point in the view's own (flipped) coordinates,
+/// to `view`'s own method for it.
+pub fn press(view: &DrawableView, press: Press, at: NSPoint, chord: Chord) {
+    use macos_liquid_glass::objc2::runtime::AnyObject;
+    use macos_liquid_glass::objc2::{class, rc::Retained as R};
+    use macos_liquid_glass::objc2_app_kit::{NSEventModifierFlags, NSEventType};
+    let in_window = view.convertPoint_toView(at, None);
+    let number = view.window().map_or(0, |w| w.windowNumber());
+    let kind = match press {
+        Press::Down => NSEventType::LeftMouseDown,
+        Press::Dragged => NSEventType::LeftMouseDragged,
+        Press::Up => NSEventType::LeftMouseUp,
+    };
+    let flags = match chord {
+        Chord::Plain => NSEventModifierFlags(0),
+        Chord::Command => NSEventModifierFlags::Command,
+    };
+    // SAFETY: `+mouseEventWithType:location:modifierFlags:timestamp:
+    // windowNumber:context:eventNumber:clickCount:pressure:`, with a nil
+    // context, which the header asks for; nullable.
+    let event: Option<R<AnyObject>> = unsafe {
+        msg_send![
+            class!(NSEvent),
+            mouseEventWithType: kind,
+            location: in_window,
+            modifierFlags: flags,
+            timestamp: 0.0f64,
+            windowNumber: number,
+            context: Option::<&AnyObject>::None,
+            eventNumber: 0isize,
+            clickCount: 1isize,
+            pressure: 1.0f32
+        ]
+    };
+    let Some(event) = event else {
+        return;
+    };
+    // SAFETY: the view's own event methods, each taking an `NSEvent`.
+    unsafe {
+        let () = match press {
+            Press::Down => msg_send![view, mouseDown: &*event],
+            Press::Dragged => msg_send![view, mouseDragged: &*event],
+            Press::Up => msg_send![view, mouseUp: &*event],
+        };
+    }
+}
+
+/// Send the view a menu item's action, `copy:` and the like, as the menu
+/// sends it to the first responder: the view's own method, a nil sender.
+pub fn menu(view: &DrawableView, action: macos_liquid_glass::objc2::runtime::Sel) {
+    use macos_liquid_glass::objc2::runtime::AnyObject;
+    // SAFETY: `-performSelector:withObject:`, the action an `IBAction`
+    // taking its sender. An action returns nothing, so what comes back is
+    // no object: read as a bare pointer, never retained.
+    let _: *mut AnyObject =
+        unsafe { msg_send![view, performSelector: action, withObject: Option::<&AnyObject>::None] };
 }
 
 #[cfg(test)]

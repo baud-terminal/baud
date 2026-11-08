@@ -102,6 +102,20 @@ enum Cause {
     /// keys are sent, and its output comes back through the pty, under
     /// this config; the frame never driven.
     Program(Program),
+    /// A gesture sent to the view's own methods, over what `setup`, typed
+    /// once first, drew; the frame never driven.
+    Gesture(Gesture),
+}
+
+/// A gesture, the screen it is over and the config.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Gesture {
+    /// The child's act: `link`, `select` or `copy-menu`.
+    act: &'static str,
+    /// The shell line that draws the screen, `{file}` the row's own
+    /// scratch file; it ends with an `OSC 52` clear, the sign it was read.
+    setup: &'static str,
+    config: &'static str,
 }
 
 /// A program's output, and the config it is read under.
@@ -204,7 +218,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 10] = [
+const SITES: [Site; 11] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -313,6 +327,26 @@ const SITES: [Site; 10] = [
             recorded: Failure::InCallback(EffectKind::Front, Nested::Never),
         },
     },
+    // **Stage 2's rows: what a gesture asks**, a press or a menu item sent
+    // to the view's own methods. The Cmd-click and copy-on-select rows wait
+    // on a probe door for the window's focus: baud reads every left press
+    // in a window that is not key as the click that brings it forward.
+    Site {
+        name: SiteName("a selection, copied by the Edit menu"),
+        cause: Cause::Gesture(Gesture {
+            act: "copy-menu",
+            setup: r"printf '\033[H\033[2JWORD\033]52;c;!\007'",
+            config: "[clipboard]\ncopy_on_select = \"off\"\n",
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Pending {
+            stage: Stage::Two,
+            recorded: Failure::InCallback(EffectKind::Copy, Nested::Never),
+        },
+    },
 ];
 
 /// Iterations a row runs in its child.
@@ -357,6 +391,17 @@ fn run(site: &Site, slug: &str) -> Observed {
         // frame reads it the same way, so the Tick arm's own guard covers
         // that entry.
         Cause::Program(p) => ("type", p.line.to_owned(), p.config, Ticks::None),
+        Cause::Gesture(g) => {
+            let file = dir.join("clicked.txt");
+            std::fs::write(&file, b"x").expect("the file linked");
+            let file = file.to_str().expect("a UTF-8 path");
+            (
+                g.act,
+                g.setup.replace("{file}", file),
+                g.config,
+                Ticks::None,
+            )
+        }
     };
     std::fs::write(&conf, config).expect("the config");
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
