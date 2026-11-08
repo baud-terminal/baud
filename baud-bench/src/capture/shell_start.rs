@@ -127,8 +127,9 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
     // `readable` saw it exit and let go of the slave, on Darwin when its
     // exit hung the terminal up, which comes before its parent can see the
     // exit. So the wait is for a shell that is ending, and returns. One that
-    // hung its terminal up and goes on running is given 2 s, as the shell is
-    // after `exit`, and then killed. The write below is no test of it: Darwin
+    // hung its terminal up and goes on running, which Darwin's `revoke` lets
+    // reach here, is given 2 s, as the shell is after `exit`, and then
+    // killed. The write below is no test of it: Darwin
     // refuses a write to a pty no process holds, and Linux takes it into the
     // buffer and answers success.
     if gone || child.exited() {

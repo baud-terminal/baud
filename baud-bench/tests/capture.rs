@@ -20,12 +20,14 @@ mod exec;
 const TOOL: &str = "CAPTURE_TEST_TOOL";
 const ARGS: &str = "CAPTURE_TEST_ARGS";
 const LIBTEST_HEADER: &str = "\nrunning 1 test\n";
+#[cfg(target_os = "macos")]
 const LEAVES: &str = "CAPTURE_TEST_LEAVES";
 
 /// Not a check: this test binary run as a `SHELL` that hangs its terminal
 /// up and goes on running, the session's leader by `exec`. It ignores the
 /// hangup's `SIGHUP`, hangs the terminal up and sleeps 20 s. Unset, it does
 /// nothing.
+#[cfg(target_os = "macos")]
 #[test]
 fn as_a_shell_that_leaves_its_terminal() {
     if std::env::var_os(LEAVES).is_none() {
@@ -39,8 +41,9 @@ fn as_a_shell_that_leaves_its_terminal() {
     std::thread::sleep(Duration::from_secs(20));
 }
 
-/// Darwin refuses `TIOCNOTTY` of a session's leader; `revoke` of the
-/// terminal's path hangs it up, every descriptor of it with it.
+/// `revoke` of the terminal's path hangs it up, every descriptor of it
+/// with it, the tool's slave too; Darwin refuses `TIOCNOTTY` of a session's
+/// leader.
 #[cfg(target_os = "macos")]
 fn hang_up_the_terminal() {
     unsafe extern "C" {
@@ -59,14 +62,6 @@ fn hang_up_the_terminal() {
         revoke(path)
     };
     assert_eq!(got, 0, "revoke: {}", std::io::Error::last_os_error());
-}
-
-/// Linux hangs a terminal up when its session's leader gives it up.
-#[cfg(not(target_os = "macos"))]
-fn hang_up_the_terminal() {
-    // SAFETY: `TIOCNOTTY` takes no argument.
-    let got = unsafe { libc::ioctl(0, libc::TIOCNOTTY) };
-    assert_eq!(got, 0, "TIOCNOTTY: {}", std::io::Error::last_os_error());
 }
 
 /// Not a check: this test binary run as a tool, because the tools are
@@ -1836,7 +1831,12 @@ fn a_shell_start_with_no_home_fails_before_the_exit_it_sends() {
 /// **A shell that hangs its terminal up and goes on running is killed after
 /// 2 s**, and the tool says so: the `SHELL` is this binary as
 /// [`as_a_shell_that_leaves_its_terminal`], which sleeps 20 s, and with no
-/// bound the tool waits out the sleep and calls it an exit.
+/// bound the tool waits out the sleep and calls it an exit. Darwin's alone:
+/// on Linux a read fails only once `readable` has seen the shell exit and
+/// let the slave go, so no shell still running reaches the wait, and one
+/// that hung its terminal up there is read until it ends, as this one was,
+/// 20 s and an exit of 0.
+#[cfg(target_os = "macos")]
 #[test]
 fn a_shell_that_leaves_its_terminal_is_killed_within_the_bound() {
     let s = Scratch::new("start-left");
