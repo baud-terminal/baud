@@ -290,19 +290,17 @@ fn configured(
     source: Option<&Path>,
     env: &[(OsString, OsString)],
 ) -> crate::config::Config {
-    let var = |k: &str| {
+    let under = crate::config::ConfigEnv::of(|k| {
         env.iter()
             .rev()
             .find(|(n, _)| n == k)
             .map(|(_, v)| v.clone())
             .or_else(|| std::env::var_os(k))
-    };
-    let home = crate::config::absolute_dir(var("HOME"));
-    let path_var = var("PATH");
+    });
     let mut cfg = crate::config::Config::defaults();
     // Two reads, so the film's lines start outside BASE's last table.
-    let mut said = cfg.apply_in(BASE, home.as_deref(), path_var.as_deref());
-    said.extend(cfg.apply_in(text, home.as_deref(), path_var.as_deref()));
+    let mut said = cfg.apply_in(BASE, &under);
+    said.extend(cfg.apply_in(text, &under));
     assert!(said.is_empty(), "the film's config: {said:?}");
     if let Some(p) = source {
         cfg.beside(p);

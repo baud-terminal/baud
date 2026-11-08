@@ -1694,28 +1694,22 @@ impl Config {
         }
     }
 
-    /// [`apply_in`](Self::apply_in) under this process's `HOME` and `PATH`,
-    /// the environment baud runs in.
+    /// [`apply_in`](Self::apply_in) under this process's environment, the
+    /// one baud runs in ([`ConfigEnv::process`]).
     pub(crate) fn apply(&mut self, text: &str) -> Vec<String> {
-        let home = absolute_dir(std::env::var_os("HOME"));
-        let path_var = std::env::var_os("PATH");
-        self.apply_in(text, home.as_deref(), path_var.as_deref())
+        self.apply_in(text, &ConfigEnv::process())
     }
 
     /// Reads `text` over `self`, and returns what it could not act on, one
     /// sentence each: a key no arm knows in the section it is in, and a
     /// value that fell back to a default. `load` prints them; a test reads
     /// them, because a config whose every value equals its default reads
-    /// the same whether a line landed or was swallowed. `home` is the
-    /// absolute home folder a `~/` program is taken against, and `path_var`
-    /// the `PATH` a rule's program is looked up on: a film reads its config
-    /// under the environment its baud is given.
-    pub(crate) fn apply_in(
-        &mut self,
-        text: &str,
-        home: Option<&std::path::Path>,
-        path_var: Option<&std::ffi::OsStr>,
-    ) -> Vec<String> {
+    /// the same whether a line landed or was swallowed. It is read under
+    /// `env`: a film reads its config under the environment its baud is
+    /// given.
+    pub(crate) fn apply_in(&mut self, text: &str, env: &ConfigEnv) -> Vec<String> {
+        let home = env.home.as_deref();
+        let path_var = env.path.as_deref();
         let mut said = Vec::new();
         // The stack is settled after the whole file, so `font_fallback`
         // counts wherever it sits relative to `fonts`.
@@ -3409,6 +3403,32 @@ pub(crate) fn config_paths(
 /// longer makes. Both the config's lookup and the themes' read through it.
 pub(crate) fn absolute_dir(v: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     v.map(std::path::PathBuf::from).filter(|p| p.is_absolute())
+}
+
+/// **The environment a config is read under** ([`Config::apply_in`]): the
+/// home folder a `~/` program is taken against, absolute or none, and the
+/// `PATH` a rule's program is looked up on, to say at read when it is not
+/// there.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub(crate) struct ConfigEnv {
+    pub(crate) home: Option<std::path::PathBuf>,
+    pub(crate) path: Option<std::ffi::OsString>,
+}
+
+impl ConfigEnv {
+    /// This process's `HOME` and `PATH`, the environment baud runs in.
+    pub(crate) fn process() -> ConfigEnv {
+        ConfigEnv::of(|k| std::env::var_os(k))
+    }
+
+    /// The `HOME` and `PATH` that `var` gives, `HOME` held absolute as
+    /// [`absolute_dir`] holds it.
+    pub(crate) fn of(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> ConfigEnv {
+        ConfigEnv {
+            home: absolute_dir(var("HOME")),
+            path: var("PATH"),
+        }
+    }
 }
 
 /// **`[shell] program` as written, made the shell a window starts**: an
