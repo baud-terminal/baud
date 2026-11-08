@@ -24,9 +24,11 @@
 //! `NAME.mp4.provenance.toml` (`provenance::tour_document`): the commit
 //! filmed, its tree, the features baud was built with, the command, the
 //! MP4's and the timeline's SHA-256, every step with its time, and the
-//! video's description -- an end card naming the commit and the feature,
-//! and the credit line of `assets/demo/LICENSES.md`. `--verify` is the
-//! GIF's: the MP4 itself is uploaded, not kept in the repository.
+//! video's two descriptions, silent and clicks (`sound.rs`) -- an end card
+//! naming the commit and the feature, and the credit line of
+//! `assets/demo/LICENSES.md`, the clicks one's then its keyboard sounds'
+//! credit line. `--verify` is the GIF's: the MP4 itself is uploaded, not
+//! kept in the repository.
 
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -997,9 +999,10 @@ fn finish_mp4(kit: &Kit, at: &Layout, run: &Run, target: &Path, s: Session) -> R
         events: s.events.iter().map(|l| scrub(l, at)).collect(),
     };
     let credits = provenance::credit_line(provenance::LICENSES)?;
+    let clicks = provenance::clicks_credit(provenance::LICENSES)?;
     let header = provenance::tour_header(&kit.gif);
     let header: Vec<&str> = header.iter().map(String::as_str).collect();
-    let record = provenance::tour_document(&tour, credits).text(&header);
+    let record = provenance::tour_document(&tour, credits, clicks).text(&header);
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
     let hit = names::named_outside(record.as_bytes(), run.names, &[&public]);
     if !hit.is_empty() {

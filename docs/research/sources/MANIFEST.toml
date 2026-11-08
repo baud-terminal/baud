@@ -39706,3 +39706,79 @@ group  = "FM"
 # `${XDG_CONFIG_HOME:-~/.config}/chawan/config.toml` exists -> use that";
 # `buffer.images` defaults to false, and `display.image-mode` "auto" (the default)
 # "detects sixel or kitty support automatically".
+
+[sources.mechvibes-license-v3-5-6]
+key    = "mechvibes-license-v3-5-6"
+title  = "hainguyents13/mechvibes LICENSE at tag v3.5.6 -- the MIT License of Mechvibes and its bundled sound packs"
+author = "Hải Nguyễn"
+year   = 2026
+venue  = "hainguyents13/mechvibes at 56d7135 (tag v3.5.6)"
+url    = "https://raw.githubusercontent.com/hainguyents13/mechvibes/56d7135bcdf6ceb7fe2f4e06f8ca0903277a9e68/LICENSE"
+file   = ""
+sha256 = "2af83c37e54f5156ee4cce2ef2f87c611162b9ec4111a3dce156e7649d302928"
+bytes  = 1071
+status = "external"
+group  = "FM"
+# Read 2026-11-08 for assets/demo/LICENSES.md: "MIT License", "Copyright (c)
+# 2026 Hải Nguyễn", then the MIT grant and its one condition, "The above
+# copyright notice and this permission notice shall be included in all copies
+# or substantial portions of the Software." The commit's git tree, listed whole
+# through the GitHub API that day, has no licence file under soundpacks/; the
+# README's License section says "MIT License. See [LICENSE](LICENSE)".
+
+[sources.mechvibes-electron-license]
+key    = "mechvibes-electron-license"
+title  = "hainguyents13/mechvibes-electron LICENSE -- the MIT License of the original Mechvibes app"
+author = "Hai Nguyen"
+year   = 2021
+venue  = "hainguyents13/mechvibes-electron at 74bed23 (archived)"
+url    = "https://raw.githubusercontent.com/hainguyents13/mechvibes-electron/74bed23454e02c46b8d5d84e28db9c797ae8e5ae/LICENSE"
+file   = ""
+sha256 = "398acd97a6d32c449f5f1c6a7cb87a7907e6ae56ecfa4e433a00673a76449df5"
+bytes  = 1067
+status = "external"
+group  = "FM"
+# Read 2026-11-08: the same MIT text as mechvibes-license-v3-5-6 but its
+# copyright line, "Copyright (c) 2021 Hai Nguyen". Its
+# src/audio/cherrymx-brown-abs/sound.ogg hashed that day to
+# 1a77001c5741aff8102c967ba7b8f42d40771506f185174ff40d0de78a265385, byte for
+# byte the v3.5.6 pack's; its config.json is the V1 format.
+
+[sources.mechvibes-soundpack-config-v2]
+key    = "mechvibes-soundpack-config-v2"
+title  = "Mechvibes Soundpack Config.json V2 Format (docs/soundpack-config-v2.md) at tag v3.5.6"
+author = "Hải Nguyễn, the Mechvibes authors"
+year   = 2026
+venue  = "hainguyents13/mechvibes at 56d7135 (tag v3.5.6)"
+url    = "https://raw.githubusercontent.com/hainguyents13/mechvibes/56d7135bcdf6ceb7fe2f4e06f8ca0903277a9e68/docs/soundpack-config-v2.md"
+file   = ""
+sha256 = "77efcac668e66b674e30e6c44979127f8b2d91535b1ce074f4e3eced798dcd95"
+bytes  = 24993
+status = "external"
+group  = "FM"
+# Read 2026-11-08 for baud-app/examples/demo/sound.rs: "`timing` is an array
+# of `[start_ms, end_ms]` pairs within the audio file"; "One segment ... plays
+# when the key goes down. Releasing the key is silent."; "Two segments ...
+# play the first when the key goes down and the second when it comes up."; "A
+# key with more than two segments plays nothing". Of a mouse code, not a key:
+# "The app deliberately does not substitute another sound".
+
+[sources.mechvibes-engine-rs]
+key    = "mechvibes-engine-rs"
+title  = "Mechvibes src/libs/audio/engine.rs at tag v3.5.6 -- handle_key_event, lookup_timing, play_segment, apply_fade"
+author = "Hải Nguyễn, the Mechvibes authors"
+year   = 2026
+venue  = "hainguyents13/mechvibes at 56d7135 (tag v3.5.6)"
+url    = "https://raw.githubusercontent.com/hainguyents13/mechvibes/56d7135bcdf6ceb7fe2f4e06f8ca0903277a9e68/src/libs/audio/engine.rs"
+file   = ""
+sha256 = "c75a516843bd65e6375e37a3652160ac1da4201810e11ac701bc4cc2b0270919"
+bytes  = 43372
+status = "external"
+group  = "FM"
+# Read 2026-11-08 for baud-app/examples/demo/sound.rs. handle_key_event plays
+# only `if let Some((start, end)) = lookup_timing(&self.key_map, code, down)`,
+# with no other arm, and lookup_timing returns None for a code the map does
+# not hold: a key the pack does not define plays nothing. play_segment cuts at
+# whole frames, `(((ms as f64) / 1000.0) * (sample_rate as f64)) as usize`;
+# apply_fade ramps in over FADE_IN_MS = 2.0 and out over FADE_OUT_MS = 5.0,
+# each at most half the slice.

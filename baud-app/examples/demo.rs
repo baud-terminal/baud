@@ -38,7 +38,7 @@
 //! or is removed, and the tour an MP4; each refuses the other's form.
 //!
 //! Either from the repository's root or from `baud-app/`. macOS only but
-//! for `--verify`; on any other system the rest says so and exits
+//! for `--verify` and `--sound`; on any other system the rest says so and exits
 //! non-zero.
 //!
 //! **What it needs**: nix, which every program comes from, at the nixpkgs
@@ -200,6 +200,11 @@
 //! is in this repository; on any system with git and `shasum` or
 //! `sha256sum`.
 //!
+//! **`--sound FFMPEG_BIN TOUR.mp4 TOUR.timeline.tsv PACK/`**: the tour's
+//! two soundtracks, `TOUR.silent.mp4` and `TOUR.clicks.mp4` beside it, the
+//! clicks from a Mechvibes pack (`demo/sound.rs`); on any system.
+//! `scripts/demo-sound.sh` runs it with the pinned ffmpeg.
+//!
 //! **For a recorder outside**: `--pid-file PATH` gets baud's pid once it is
 //! running, `--events PATH` a line per step, seconds since launch first,
 //! and `--done PATH` is created when the session ends: 1.5 s before the
@@ -258,18 +263,25 @@ mod scratch;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "demo/session.rs"]
 mod session;
-#[cfg(any(target_os = "macos", test))]
+#[path = "demo/sound.rs"]
+mod sound;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "demo/timeline.rs"]
 mod timeline;
 
 #[cfg(target_os = "macos")]
 fn main() -> std::process::ExitCode {
+    if let Some(code) = sound::from_args() {
+        return code;
+    }
     run::main()
 }
 
 #[cfg(not(target_os = "macos"))]
 fn main() -> std::process::ExitCode {
+    if let Some(code) = sound::from_args() {
+        return code;
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let [flag, gif] = args.as_slice() {
         if flag == "--verify" {
@@ -292,6 +304,8 @@ fn main() -> std::process::ExitCode {
             };
         }
     }
-    eprintln!("demo: the README session runs on macOS, in baud's macOS window; --verify runs here");
+    eprintln!(
+        "demo: the README session runs on macOS, in baud's macOS window; --verify and --sound run here"
+    );
     std::process::ExitCode::from(2)
 }

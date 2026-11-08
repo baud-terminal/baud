@@ -243,10 +243,63 @@ It is the project's own work, under the repository's licence (`LICENSE`).
 
 ## Music and sound effects
 
-The tour has no music. Its sound effects are not chosen yet, and no audio is
-in the repository. This is a slot: a sound chosen later, such as the key
-sounds of a real keyboard's recording, gets its own section here, read and
-kept the same way.
+The tour has no music and no sound effect but its keys. It is delivered in
+two versions, made from one take by `scripts/demo-sound.sh`: one silent,
+and one with a keyboard's clicks laid under every key the timeline says was
+typed. Only the clicks version uses the sound pack below, and only its
+description carries the pack's credit. No audio is in the repository.
+
+## Keyboard sounds
+
+- **Piece:** the clicks version's keys, Mechvibes' "CherryMX Brown - ABS
+  keycaps" sound pack, its config's `author` "Mechvibes". Fetched by hand
+  into a directory outside the repository and given to the mixer, from
+  <https://github.com/hainguyents13/mechvibes/tree/56d7135bcdf6ceb7fe2f4e06f8ca0903277a9e68/soundpacks/keyboard/cherrymx-brown-abs>
+  (tag v3.5.6, commit 56d7135). Not in the repository. The mixer refuses
+  another pack unless told the credit does not cover it
+  (`PACK_PIN`, `baud-app/examples/demo/sound.rs`). Its files, and the two
+  the mixer reads, by SHA-256:
+  - `config.json`, 14914 bytes,
+    `41385c5d6d635cf42c73b81c1257452eb63cb29d610e4f1035946dcfe912129b`,
+    read;
+  - `sound.ogg`, 1883746 bytes, Vorbis, stereo, 44.1 kHz,
+    `1a77001c5741aff8102c967ba7b8f42d40771506f185174ff40d0de78a265385`,
+    read;
+  - `brown.jpg`, 12922 bytes, the pack's icon,
+    `7f344b0a5d597bdca04d33ea499fe091e77ae3da4a5e72a8c360543f01b50895`,
+    not read.
+- **Licence:** MIT.
+- **Read at:** the repository's `LICENSE` at that commit,
+  <https://raw.githubusercontent.com/hainguyents13/mechvibes/56d7135bcdf6ceb7fe2f4e06f8ca0903277a9e68/LICENSE>
+  (`[[source: mechvibes-license-v3-5-6]]`). Read 2026-11-08. The commit's git
+  tree, listed whole through the GitHub API, has no licence file under
+  `soundpacks/`, and the README's License section says "MIT License. See
+  [LICENSE](LICENSE) for details."
+- **What it says:** "MIT License", then "Copyright (c) 2026 Hải Nguyễn", then
+  "Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the
+  "Software"), to deal in the Software without restriction, including
+  without limitation the rights to use, copy, modify, merge, publish,
+  distribute, sublicense, and/or sell copies of the Software", "subject to
+  the following conditions: The above copyright notice and this permission
+  notice shall be included in all copies or substantial portions of the
+  Software."
+- **The original app's copy:** the same `sound.ogg`, byte for byte, is
+  `src/audio/cherrymx-brown-abs/sound.ogg` in the archived original app,
+  hainguyents13/mechvibes-electron at commit 74bed23, with a V1 config.
+  Its `LICENSE` (`[[source: mechvibes-electron-license]]`, read 2026-11-08)
+  is the same MIT text with "Copyright (c) 2021 Hai Nguyen". The credit
+  takes the line of the release the pack was fetched from.
+- **YouTube:** allowed. The MIT License has no NonCommercial and no
+  NoDerivatives term. Its one condition is the notice: the credit line below
+  gives the copyright line and the licence's name, and links the licence's
+  text at the tag.
+
+## The keyboard sounds' credit line, for the clicks version's description
+
+```text
+Keyboard sounds: the CherryMX Brown - ABS keycaps sound pack, by Mechvibes (github.com/hainguyents13/mechvibes), Copyright (c) 2026 Hải Nguyễn, MIT License, github.com/hainguyents13/mechvibes/blob/v3.5.6/LICENSE.
+```
 
 ## The credit line for the video's description
 

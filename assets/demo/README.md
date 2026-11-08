@@ -5,7 +5,7 @@ real session into baud's window at 40 ms a key and records it.
 
 | Piece | What it is | Made by |
 |---|---|---|
-| the tour | Take 1: baud in a real shell, the storyline's scenes 6 to 16, every command typed, the `#` lines typed at the prompt as narration. An MP4 with sound, uploaded to YouTube and not kept here. | `cargo run --release --example demo -- --record assets/demo/tour.mp4 --forbidden LIST --controls FILE` |
+| the tour | Take 1: baud in a real shell, the storyline's scenes 6 to 16, every command typed, the `#` lines typed at the prompt as narration. An MP4, silent or with keyboard clicks, uploaded to YouTube and not kept here. | `cargo run --release --example demo -- --record assets/demo/tour.mp4 --forbidden LIST --controls FILE` |
 | the trailer | Take 2, `trailer.gif`, not filmed yet: baud plays a stretch of the tour from YouTube, at its own speed, in its own window with mpv and yt-dlp, about 20 s. The README's film. | `cargo run --release --example demo -- --trailer --tour URL --start T --end T --record assets/demo/trailer.gif --forbidden LIST --controls FILE`, the stretch from the README jumps to the dial-up lights read off the tour's take; the GIF must pass the WCAG 2.3.1 flash census or is removed |
 | the UFO logo | The second logo film, `ufo-logo-dark.gif` and `ufo-logo-light.gif`: the ufo trail's saucer, in amber, threads the letters: it hovers behind the word, tilts and darts from gap to counter, in front of the letters and behind them, lights the `b` with its beam, beams the block up, streaks off left behind the word, comes back from the right and sets the block down. Its MP4s, `baud-pictures logo --ufo --mp4 --out DIR`. | `baud-pictures logo --ufo` |
 
@@ -15,7 +15,7 @@ Until the trailer is filmed the README shows no film, only its logo.
 
 - `README.md`, this file.
 - `LICENSES.md`: each piece the films show, its licence, the page it was
-  read at, and the credit line for the video's description.
+  read at, and the credit lines for the video's descriptions.
 - `ufo-logo-dark.gif` and `ufo-logo-light.gif`, the UFO logo, each with
   its `.provenance.toml`: the GIF's SHA-256, the flight's, the walls'
   pin, the encoder and its settings, and WCAG 2.3.1's census of the GIF.
@@ -28,15 +28,19 @@ Until the trailer is filmed the README shows no film, only its logo.
   `cargo run --example demo -- --verify assets/demo/trailer.gif`.
 - `tour.mp4.provenance.toml`, written by the tour's take: the commit filmed,
   that baud was built with `--features take`, the MP4's and its timeline's
-  SHA-256, every step with its time, and the video's description, an end
-  card naming the commit and the feature followed by the credit line.
+  SHA-256, every step with its time, and the video's two descriptions, an
+  end card naming the commit and the feature followed by the credit line,
+  the clicks version's then the keyboard sounds' credit line.
   `tour.mp4` and `tour.timeline.tsv` are written beside it and ignored by
-  git.
+  git, as are its two versions.
 
-No MP4 and no audio is committed here. The tour has no music. Its sound
-effects are not chosen yet, the keys among them, which are to be recorded
-from a real keyboard; `scripts/demo-sound.sh` mixes them into the tour's MP4
-over silence, from a directory it is given, by the timeline's rows.
+No MP4 and no audio is committed here. The tour has no music and no sound
+effect. It is delivered in two versions, and one is chosen after watching:
+`scripts/demo-sound.sh assets/demo/tour.mp4 assets/demo/tour.timeline.tsv
+PACK/` writes `tour.silent.mp4`, silent, and `tour.clicks.mp4`, a
+keyboard's click under every key the timeline says was typed, from the
+Mechvibes sound pack `LICENSES.md` names, which is fetched into PACK/ by
+hand and never committed.
 
 ## The tour, scene by scene
 

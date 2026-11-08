@@ -57,3 +57,8 @@ $S/
 # and an untracked file would make the next take's tree dirty.
 /assets/demo/tour.mp4
 /assets/demo/tour.timeline.tsv
+# Its two versions, which `scripts/demo-sound.sh` writes beside it, and the
+# directory that run works in.
+/assets/demo/tour.silent.mp4
+/assets/demo/tour.clicks.mp4
+/assets/demo/.tour.sound.*/

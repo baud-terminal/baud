@@ -679,30 +679,48 @@ pub fn header(gif: &str) -> Vec<String> {
 /// (`baud-app/src/take.rs`); every other take builds baud as it ships.
 pub const TAKE_FEATURES: [&str; 1] = ["take"];
 
-/// **The films' licences, for the reviewer**, whose last section holds the
-/// credit line for the video's description.
+/// **The films' licences, for the reviewer**, whose last two sections hold
+/// the credit lines for the video's descriptions.
 pub const LICENSES: &str = include_str!("../../../assets/demo/LICENSES.md");
 
-/// The heading of [`LICENSES`]'s credit line.
+/// The heading of [`LICENSES`]'s credit line, every version's.
 pub const CREDIT_HEADING: &str = "## The credit line for the video's description";
+
+/// The heading of [`LICENSES`]'s keyboard sounds' credit line, the clicks
+/// version's alone (`sound.rs`).
+pub const CLICKS_HEADING: &str =
+    "## The keyboard sounds' credit line, for the clicks version's description";
 
 /// **The credit line**, the one fenced block under [`CREDIT_HEADING`] in
 /// `licences`, without its fences.
 pub fn credit_line(licences: &str) -> Result<&str, String> {
+    block_under(licences, CREDIT_HEADING)
+}
+
+/// **The keyboard sounds' credit line**, the one fenced block under
+/// [`CLICKS_HEADING`].
+pub fn clicks_credit(licences: &str) -> Result<&str, String> {
+    block_under(licences, CLICKS_HEADING)
+}
+
+/// The one ```` ```text ```` block of the section `heading` opens, which
+/// ends at the next `## ` heading or the file's end, without its fences.
+fn block_under<'a>(licences: &'a str, heading: &str) -> Result<&'a str, String> {
     let at = licences
-        .find(CREDIT_HEADING)
-        .ok_or("assets/demo/LICENSES.md has no credit line's section")?;
-    let rest = &licences[at + CREDIT_HEADING.len()..];
+        .find(heading)
+        .ok_or_else(|| format!("assets/demo/LICENSES.md has no section {heading:?}"))?;
+    let rest = &licences[at + heading.len()..];
+    let rest = &rest[..rest.find("\n## ").unwrap_or(rest.len())];
     let open = rest
         .find("```text\n")
-        .ok_or("the credit line's section has no ```text block")?;
+        .ok_or_else(|| format!("{heading:?} has no ```text block"))?;
     let body = &rest[open + "```text\n".len()..];
     let close = body
         .find("\n```")
-        .ok_or("the credit line's block is not closed")?;
+        .ok_or_else(|| format!("{heading:?}'s block is not closed"))?;
     let line = body[..close].trim();
     if line.is_empty() || body[close + 4..].contains("```") {
-        return Err("the credit line's section must hold one block, and it not empty".to_string());
+        return Err(format!("{heading:?} must hold one block, and it not empty"));
     }
     Ok(line)
 }
@@ -747,8 +765,11 @@ pub fn end_card(tree: &Tree) -> String {
 /// **`NAME.mp4.provenance.toml`'s document**: the commit, its tree, the
 /// features, the command, the MP4's and its timeline's SHA-256, the tools
 /// and pins, every step with its time, and the video's description -- the
-/// end card and the credit line ([`credit_line`]).
-pub fn tour_document(f: &Tour, credits: &str) -> Doc {
+/// end card and the credit line ([`credit_line`]) -- once for each of the
+/// video's two versions (`sound.rs`): the silent one's, and the clicks
+/// one's, which alone ends with the keyboard sounds' credit line
+/// ([`clicks_credit`]).
+pub fn tour_document(f: &Tour, credits: &str, clicks: &str) -> Doc {
     let mut d = Doc::default();
     d.str("", "made", &f.command);
     d.str("", "from", &f.from);
@@ -775,11 +796,13 @@ pub fn tour_document(f: &Tour, credits: &str) -> Doc {
     d.str("timeline", "file", &f.timeline);
     d.str("timeline", "sha256", &f.timeline_sha256);
     d.str("video", "end_card", end_card(&f.tree));
+    let silent = format!("{}\n\n{credits}", end_card(&f.tree));
     d.str(
         "video",
-        "description",
-        format!("{}\n\n{credits}", end_card(&f.tree)),
+        "description_clicks",
+        format!("{silent}\n\n{clicks}"),
     );
+    d.str("video", "description_silent", silent);
     d.str("nixpkgs", "revision", &f.nixpkgs);
     for (attr, path) in &f.tools {
         d.str("tools", attr, path);
@@ -1080,14 +1103,26 @@ mod tests {
     }
     /// **The tour's record names the commit, the feature and the credits**:
     /// the commit and `features = ["take"]` under `[baud]`, the end card in
-    /// the description, then the credit line, which is the one block under
-    /// LICENSES.md's heading; and the file reads back. The controls: a
-    /// section with two blocks, or none, is refused. Perturbation: leave the
-    /// feature out of the end card and its assertion fails.
+    /// both versions' descriptions, then the credit line, which is the one
+    /// block under LICENSES.md's heading; the clicks version's alone then
+    /// ends with the keyboard sounds' credit, the licence's own copyright
+    /// line in it, and the silent version's names no keyboard sound; and
+    /// the file reads back. The controls: a section with two blocks, or
+    /// none, is refused, and each heading's block is its own section's, not
+    /// the next one's. Perturbations: leave the feature out of the end card,
+    /// or give the silent version the clicks credit, and an assertion fails.
     #[test]
     fn the_tour_record_names_the_commit_the_feature_and_the_credits() {
         let credits = credit_line(LICENSES).expect("the credit line");
         assert!(credits.contains("JetBrains Mono"), "{credits}");
+        let clicks = clicks_credit(LICENSES).expect("the keyboard sounds' credit line");
+        assert!(
+            clicks.contains("Copyright (c) 2026 Hải Nguyễn")
+                && clicks.contains("Mechvibes")
+                && clicks.contains("MIT License"),
+            "{clicks}"
+        );
+        assert!(!credits.contains("Mechvibes") && !clicks.contains("JetBrains"));
         let tree = Tree {
             commit: "0123456789abcdef0123456789abcdef01234567".to_string(),
             dirty: Vec::new(),
@@ -1111,7 +1146,7 @@ mod tests {
             pins: Vec::new(),
             events: vec!["0.000 scene 1".to_string()],
         };
-        let text = tour_document(&f, credits).text(&["x"]);
+        let text = tour_document(&f, credits, clicks).text(&["x"]);
         let back = read(&text).expect("it reads back");
         assert_eq!(back.text_of("baud", "commit"), Some(tree.commit.as_str()));
         assert_eq!(
@@ -1123,10 +1158,20 @@ mod tests {
             card.contains("0123456789ab") && card.contains("--features take"),
             "{card}"
         );
-        let description = back.text_of("video", "description").unwrap();
-        assert!(description.starts_with(&card) && description.ends_with(credits));
+        let silent = back.text_of("video", "description_silent").unwrap();
+        assert!(silent.starts_with(&card) && silent.ends_with(credits));
+        assert!(!silent.contains("Keyboard sounds"), "{silent}");
+        let with = back.text_of("video", "description_clicks").unwrap();
+        assert_eq!(with, format!("{silent}\n\n{clicks}"));
         let two = format!("{CREDIT_HEADING}\n\n```text\na\n```\n\n```text\nb\n```\n");
         assert!(credit_line(&two).is_err(), "the control: two blocks");
         assert!(credit_line(CREDIT_HEADING).is_err(), "the control: none");
+        let next =
+            format!("{CLICKS_HEADING}\n\nnone here\n\n{CREDIT_HEADING}\n\n```text\na\n```\n");
+        assert!(
+            clicks_credit(&next).is_err(),
+            "the control: the next section's block"
+        );
+        assert_eq!(credit_line(&next), Ok("a"));
     }
 }
