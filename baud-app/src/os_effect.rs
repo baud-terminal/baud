@@ -71,9 +71,12 @@ pub(crate) enum OsEffect {
         at: Option<std::path::PathBuf>,
         over: Option<Over>,
     },
-    /// Text to the pasteboard, for a `[link.*]` rule's or a printed
-    /// path's `copy`.
-    Copy(ClipText),
+    /// Text to the pasteboard, and whose copy it is.
+    Copy { text: ClipText, from: CopyFrom },
+    /// The pasteboard emptied: a program's `OSC 52` clear.
+    Clear,
+    /// The find pasteboard's query: a find field's search.
+    FindText(ClipText),
     /// Words to VoiceOver.
     Announce(Spoken),
 }
@@ -88,6 +91,17 @@ pub(crate) struct Over {
     pub(crate) frame: macos_liquid_glass::objc2_foundation::NSRect,
     pub(crate) content: macos_liquid_glass::objc2_foundation::NSSize,
     pub(crate) id: crate::windows::WindowId,
+}
+
+/// Whose copy reaches the pasteboard, which says what is said of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CopyFrom {
+    /// A `[link.*]` rule's or a printed path's `copy`.
+    Link,
+    /// The selection: Cmd-C, the Edit menu, copy-on-select.
+    Selection,
+    /// A program's `OSC 52` write.
+    Program,
 }
 
 /// What asked for a reveal or a command, as the log says it.
@@ -120,11 +134,16 @@ pub(crate) enum Outcome {
     Copied {
         written: baud_present_macos::clipboard::Written,
         text: ClipText,
+        from: CopyFrom,
     },
     /// A window opened for a link's `action = "window"`.
     WindowOpened,
     /// No window opened: the program a link's window would run is not there.
     WindowRefused(std::ffi::OsString),
+    /// The pasteboard emptied.
+    Cleared,
+    /// The find pasteboard written, or refused.
+    Found(baud_present_macos::clipboard::Written),
     /// The words given to VoiceOver.
     Announced,
 }
@@ -357,10 +376,18 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
                 });
             },
         ),
-        OsEffect::Copy(text) => Outcome::Copied {
-            written: baud_present_macos::clipboard::write_text(text.as_str()),
+        OsEffect::Copy { text, from } => Outcome::Copied {
+            written: baud_present_macos::clipboard::write_text(t, text.as_str()),
             text,
+            from,
         },
+        OsEffect::Clear => {
+            baud_present_macos::clipboard::clear(t);
+            Outcome::Cleared
+        }
+        OsEffect::FindText(text) => {
+            Outcome::Found(baud_present_macos::clipboard::write_find(t, text.as_str()))
+        }
         OsEffect::Announce(words) => {
             if let Some(mtm) = macos_liquid_glass::objc2::MainThreadMarker::new() {
                 baud_present_macos::announce::announce(mtm, words.as_str());

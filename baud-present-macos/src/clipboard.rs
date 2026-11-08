@@ -16,9 +16,11 @@ pub enum Written {
     Refused,
 }
 
-/// Replace the pasteboard's contents with `text`. The probe build records
-/// the write where it runs and writes nothing (`crate::probe`).
-pub fn write_text(text: &str) -> Written {
+/// Replace the pasteboard's contents with `text`, on a turn of its own
+/// (`crate::turn`): a pasteboard write is a desktop effect, never made
+/// inside a callback. The probe build records the write where it runs and
+/// writes nothing (`crate::probe`).
+pub fn write_text(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
     #[cfg(feature = "effect-probe")]
     {
         let _ = text;
@@ -43,7 +45,7 @@ fn written(text: &str) -> Written {
 /// Empty the pasteboard: what a program's `OSC 52` whose data is neither
 /// base64 nor `?` asks for -- `[[source: ctlseqs]]`, "the selection is
 /// cleared".
-pub fn clear() {
+pub fn clear(_turn: &crate::turn::Turn<'_>) {
     #[cfg(feature = "effect-probe")]
     crate::probe::record(crate::probe::EffectKind::Clear);
     #[cfg(not(feature = "effect-probe"))]
@@ -76,8 +78,8 @@ pub fn read_find() -> Option<String> {
 }
 
 /// Replace the find pasteboard's string with `text`, the query a find
-/// field holds.
-pub fn write_find(text: &str) -> Written {
+/// field holds, on a turn of its own.
+pub fn write_find(_turn: &crate::turn::Turn<'_>, text: &str) -> Written {
     #[cfg(feature = "effect-probe")]
     {
         let _ = text;

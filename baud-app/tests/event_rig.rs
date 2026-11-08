@@ -311,10 +311,7 @@ const SITES: [Site; 16] = [
             each: &[EffectKind::Copy],
             paced: &[EffectKind::Announce],
         },
-        state: RowState::Pending {
-            stage: Stage::Two,
-            recorded: Failure::InCallback(EffectKind::Copy, Nested::Never),
-        },
+        state: RowState::Green,
     },
     Site {
         name: SiteName("OSC 52's clear of the pasteboard"),
@@ -323,10 +320,7 @@ const SITES: [Site; 16] = [
             config: "",
         }),
         expect: Expect::effect(&[EffectKind::Clear]),
-        state: RowState::Pending {
-            stage: Stage::Two,
-            recorded: Failure::InCallback(EffectKind::Clear, Nested::Never),
-        },
+        state: RowState::Green,
     },
     Site {
         name: SiteName("the bell's Dock bounce, mode 1042"),
@@ -385,10 +379,7 @@ const SITES: [Site; 16] = [
             each: &[EffectKind::Copy],
             paced: &[EffectKind::Announce],
         },
-        state: RowState::Pending {
-            stage: Stage::Two,
-            recorded: Failure::InCallback(EffectKind::Copy, Nested::Never),
-        },
+        state: RowState::Green,
     },
     // **A link's `[link.*]` command, Cmd-clicked**, through the focus door:
     // the command is asked on the press's release and started on the effect

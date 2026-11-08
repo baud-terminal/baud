@@ -7019,7 +7019,7 @@ mod alt_window_tests {
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const FEED: &str = concat!("crate::reads::", "paced(");
-        const POLL: &str = concat!("pasteboard(", "clips.poll(t, osc52));");
+        const POLL: &str = concat!("pasteboard(", "clips.poll(t, osc52), os);");
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
         let pump = SRC.split(PUMP).nth(1).expect("the pump");
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
@@ -9876,7 +9876,7 @@ mod restart_tests {
         let copy = &copy[..copy.find("\n    }\n").expect("copy ends")];
         assert!(
             copy.contains("crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap)")
-                && copy.contains("clipboard::write_text(&text);")
+                && copy.contains("from: crate::os_effect::CopyFrom::Selection,")
                 && !copy.contains("text_as("),
             "Cmd-C puts on the pasteboard what the copy rule a test reaches says \
              (`keep::copied`): the text taken when it was made, or the kept text: {copy}"
@@ -10998,9 +10998,8 @@ mod motion_tests {
                     answered = Answered::Yes;
                 },
                 |t| {
-                    let copied = pasteboard("#,
-            r#"clips.poll(t, osc52));
-                    copies.merge(copied);
+                    pasteboard("#,
+            r#"clips.poll(t, osc52), os);
                     resized = honour(widths.poll(t, host), t).or(resized);
                     fonts_asked.extend_from_slice(t.font_requests());
                     t.clear_font_requests();
@@ -12031,7 +12030,7 @@ impl Driver {
         // **And its page width at the request**: the read stopped there, the
         // grid takes the columns before the rest is parsed, and the rest of
         // the app follows after the batch (`width.rs`, `program_resized`).
-        let (term, trace, outbox, clips, widths, hostlog, pace, prints) = (
+        let (term, trace, outbox, clips, widths, hostlog, pace, prints, os) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
@@ -12040,6 +12039,7 @@ impl Driver {
             &mut self.app.hostlog,
             &mut self.app.pace,
             &mut self.app.prints,
+            &self.app.os,
         );
         let (watch, printer_list, printing) = (
             &mut self.app.watch,
@@ -12048,8 +12048,6 @@ impl Driver {
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
-        // A program's copies this batch, said once after it (`copied.rs`).
-        let mut copies = crate::copied::Batch::default();
         let mut resized = None;
         // AA, for a reply the feed queued: one store a reply, not a byte's.
         let mut answered = Answered::No;
@@ -12083,8 +12081,7 @@ impl Driver {
                 answered = Answered::Yes;
             },
             |t| {
-                let copied = pasteboard(clips.poll(t, osc52));
-                copies.merge(copied);
+                pasteboard(clips.poll(t, osc52), os);
                 resized = honour(widths.poll(t, host), t).or(resized);
                 fonts_asked.extend_from_slice(t.font_requests());
                 t.clear_font_requests();
@@ -12142,9 +12139,6 @@ impl Driver {
             self.app
                 .probes
                 .read_taken(&mut self.app.paths, chunk.writers, span, chunk.linked);
-        }
-        if self.app.copied.program(copies, host_now()) == crate::copied::Owes::Frame {
-            self.app.pending = Pending::Dirty;
         }
         self.app.say_copied();
         if answered == Answered::Yes {
@@ -12460,28 +12454,34 @@ fn menu_missed(
     }
 }
 
-/// What a polled `OSC 52` write does: the pasteboard written or emptied, or a
-/// refusal's one warning said. Returns the copy a program made, for the words
-/// that say so (`copied.rs`), where the pasteboard took it.
-fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) -> crate::copied::Batch {
-    let mut copied = crate::copied::Batch::default();
+/// What a polled `OSC 52` write asks: the pasteboard written or emptied, on
+/// the window's effect queue's turn (`os_effect.rs`), or a refusal's one
+/// warning said. The words for a program's copy come with its outcome
+/// (`turns_answered`), where the pasteboard took it. The text is the
+/// core's, in a buffer it reuses, so the one copy is made here.
+fn pasteboard(
+    polled: Option<(crate::clip::Decision<'_>, Option<String>)>,
+    os: &crate::os_effect::OsQueue,
+) {
+    use crate::os_effect::{CopyFrom, OsEffect};
     let Some((decision, warn)) = polled else {
-        return copied;
+        return;
     };
     match decision {
-        crate::clip::Decision::Set(text) => match clipboard::write_text(text) {
-            clipboard::Written::Taken => copied.copied(text),
-            clipboard::Written::Refused => {
-                crate::warn!("clipboard: the pasteboard refused a program's copy");
-            }
-        },
-        crate::clip::Decision::Clear => clipboard::clear(),
+        crate::clip::Decision::Set(text) => {
+            let _ = os.ask(OsEffect::Copy {
+                text: baud_domain::ClipText::of(text.to_owned()),
+                from: CopyFrom::Program,
+            });
+        }
+        crate::clip::Decision::Clear => {
+            let _ = os.ask(OsEffect::Clear);
+        }
         crate::clip::Decision::Refused(_) => {}
     }
     if let Some(line) = warn {
         crate::warn!("{line}");
     }
-    copied
 }
 
 impl Responder for Driver {
@@ -15914,9 +15914,11 @@ impl Driver {
     /// open `Declined` is the click having tried: with no app the bar says
     /// so, and the programs are asked about again.
     fn turns_answered(&mut self) {
-        use crate::os_effect::{Asked, Outcome};
+        use crate::os_effect::{Asked, CopyFrom, Outcome};
         use baud_present_macos::link::Opened;
         let mut done = core::mem::take(&mut self.app.os_done);
+        // A program's copies among these outcomes, said once.
+        let mut programs = crate::copied::Batch::default();
         self.app.os.answered(&mut done);
         for d in done.drain(..) {
             match d.outcome {
@@ -15994,17 +15996,36 @@ impl Driver {
                 Outcome::Copied {
                     written: clipboard::Written::Taken,
                     text,
-                } => {
-                    self.app.links.opened.bump();
-                    crate::info!("link copied by a [link.*] rule");
-                    self.selection_copied(text.as_str());
-                }
+                    from,
+                } => match from {
+                    CopyFrom::Link => {
+                        self.app.links.opened.bump();
+                        crate::info!("link copied by a [link.*] rule");
+                        self.selection_copied(text.as_str());
+                    }
+                    CopyFrom::Selection => self.selection_copied(text.as_str()),
+                    // Said once for the whole drain, as a read batch's
+                    // copies are one (`copied.rs`).
+                    CopyFrom::Program => programs.copied(text.as_str()),
+                },
                 Outcome::Copied {
                     written: clipboard::Written::Refused,
+                    from,
                     ..
-                } => {
-                    self.app.links.refused.bump();
-                    crate::warn!("link not copied: the pasteboard refused it");
+                } => match from {
+                    CopyFrom::Link => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link not copied: the pasteboard refused it");
+                    }
+                    CopyFrom::Selection => {
+                        crate::warn!("clipboard: the pasteboard refused the selection");
+                    }
+                    CopyFrom::Program => {
+                        crate::warn!("clipboard: the pasteboard refused a program's copy");
+                    }
+                },
+                Outcome::Found(clipboard::Written::Refused) => {
+                    crate::warn!("clipboard: the find pasteboard refused the query");
                 }
                 Outcome::WindowOpened => {
                     self.app.links.opened.bump();
@@ -16016,10 +16037,16 @@ impl Driver {
                         "link not opened in a new window: {program:?} is not a program that can run"
                     );
                 }
-                Outcome::Announced => {}
+                Outcome::Cleared
+                | Outcome::Found(clipboard::Written::Taken)
+                | Outcome::Announced => {}
             }
         }
         self.app.os_done = done;
+        if self.app.copied.program(programs, host_now()) == crate::copied::Owes::Frame {
+            self.app.pending = Pending::Dirty;
+        }
+        self.app.say_copied();
     }
 
     /// Hand a link to the OS, or refuse it and say why. The one call site
@@ -17235,7 +17262,9 @@ impl Driver {
                 .iter()
                 .filter_map(|c| char::from_u32(c.value()))
                 .collect();
-            let _ = clipboard::write_find(&text);
+            let _ = self.app.os.ask(crate::os_effect::OsEffect::FindText(
+                baud_domain::ClipText::of(text),
+            ));
             self.app.find_written = query.to_vec();
         }
         let back = self.app.term.window_back();
@@ -17261,11 +17290,13 @@ impl Driver {
     fn copy(&mut self) {
         let app = &self.app;
         let (sel, wrap) = (app.selection.as_ref(), app.renderer.word_wrap());
+        // To the pasteboard on the effect queue's turn; said, by
+        // `turns_answered`, once it took it.
         if let Some(text) = crate::keep::copied(sel, &app.kept, &app.term, app.scrolled, wrap) {
-            let written = clipboard::write_text(&text);
-            if written == clipboard::Written::Taken {
-                self.selection_copied(&text);
-            }
+            let _ = app.os.ask(crate::os_effect::OsEffect::Copy {
+                text: baud_domain::ClipText::of(text),
+                from: crate::os_effect::CopyFrom::Selection,
+            });
         }
     }
 
@@ -17276,12 +17307,10 @@ impl Driver {
         // On the effect queue's turn (`os_effect.rs`): what the pasteboard
         // said comes back on a wake, and `turns_answered` counts it and says
         // it, through `self.selection_copied`.
-        let _ = self
-            .app
-            .os
-            .ask(crate::os_effect::OsEffect::Copy(baud_domain::ClipText::of(
-                text,
-            )));
+        let _ = self.app.os.ask(crate::os_effect::OsEffect::Copy {
+            text: baud_domain::ClipText::of(text),
+            from: crate::os_effect::CopyFrom::Link,
+        });
     }
 
     /// **A `[link.path]` command, started on the effect queue's turn**

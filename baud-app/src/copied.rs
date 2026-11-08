@@ -166,12 +166,6 @@ impl Batch {
     pub(crate) fn copied(&mut self, text: &str) {
         self.0 = Some(characters(text));
     }
-
-    /// What another read left in `other`, the last one counting.
-    #[cfg(any(target_os = "macos", test))]
-    pub(crate) fn merge(&mut self, other: Batch) {
-        self.0 = other.0.or(self.0);
-    }
 }
 
 /// **What a copy of the selection decides of the pulse**, from the settings;
@@ -969,16 +963,16 @@ mod tests {
         assert!(f.look.is_some(), "the words show as usual");
     }
 
-    /// **A batch's last copy is the one it says**, across the reads that fed
-    /// it, a read with none leaving it be. Perturbation: keep the first in
-    /// `merge`.
+    /// **A batch's last copy is the one it says**: on macOS the copies
+    /// whose outcomes came back in one drain of the effect queue
+    /// (`turns_answered`). Perturbation: keep the first in `copied`.
     #[test]
     fn a_batch_counts_its_last_copy() {
         let mut b = Batch::default();
-        b.merge(batch("abc"));
-        b.merge(Batch::default());
-        assert_eq!(b, batch("xyz"), "a read with none leaves the last");
-        b.merge(batch("ab"));
+        assert_eq!(b, Batch::default(), "none yet");
+        b.copied("abc");
+        assert_eq!(b, batch("xyz"));
+        b.copied("ab");
         assert_eq!(b, batch("xy"), "the last one counts");
     }
 
@@ -1008,13 +1002,14 @@ mod tests {
         const MAC: &str = include_str!("app.rs");
         const LINUX: &str = include_str!("linux.rs");
         let copy = body(MAC, concat!("    fn copy(", "&mut self) {"));
-        for want in [
-            "let written = clipboard::write_text(&text);",
-            "if written == clipboard::Written::Taken {",
-            "self.selection_copied(&text);",
-        ] {
-            assert!(copy.contains(want), "{want}");
-        }
+        // Cmd-C asks the effect queue; its outcome, taken, is said.
+        assert!(copy.contains("CopyFrom::Selection"), "{copy}");
+        assert_eq!(
+            MAC.matches("CopyFrom::Selection => self.selection_copied(text.as_str()),")
+                .count(),
+            1,
+            "the selection said once the pasteboard took it"
+        );
         for (src, wants) in [
             (
                 MAC,
@@ -1022,7 +1017,7 @@ mod tests {
                     "self.app.copied.is_due(now)",
                     ".frame(seen, preview, highlight.as_ref(), cols, rows);",
                     "self.renderer.set_selection_pulse(signal.pulse);",
-                    "self.app.copied.program(copies, host_now())",
+                    "self.app.copied.program(programs, host_now())",
                 ],
             ),
             (

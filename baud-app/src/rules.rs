@@ -1832,14 +1832,14 @@ mod tests {
         );
         // macOS asks its effect queue, whose turn writes the pasteboard.
         assert!(
-            include_str!("os_effect.rs").contains("clipboard::write_text(text.as_str())"),
+            include_str!("os_effect.rs").contains("clipboard::write_text(t, text.as_str())"),
             "the macOS write"
         );
         for (name, src, write, said) in [
             (
                 "app.rs",
                 include_str!("app.rs"),
-                "OsEffect::Copy(",
+                "from: crate::os_effect::CopyFrom::Link,",
                 "self.selection_copied(text.as_str());",
             ),
             (
