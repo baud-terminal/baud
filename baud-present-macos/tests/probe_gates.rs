@@ -31,6 +31,7 @@ const GATED: &[(&str, &str)] = &[
     ("src/window.rs", ".orderBack(None)"),
     ("src/window.rs", ".toggleFullScreen(None)"),
     ("src/window.rs", ".setFrame_display("),
+    ("src/window.rs", "opens()"),
     ("src/clipboard.rs", ".clearContents()"),
     ("src/clipboard.rs", ".setString_forType("),
     (

@@ -4994,8 +4994,10 @@ fn show_dock(mtm: MainThreadMarker, changed: Option<Option<crate::notify::DockBa
 /// one it was opened from. The Dock's icon is the launch's. The logo is
 /// every window's: it greets the window rather than marking the end of
 /// a launch, so this sets nothing of it and the boot carries `[launch]
-/// splash` as the launch's does (`splash.rs`).
-fn open_window(at: Option<std::path::PathBuf>) {
+/// splash` as the launch's does (`splash.rs`). With `run`, a link's
+/// `action = "window"`, the window's terminal runs that program in place
+/// of the shell, opened by the effect queue's turn (`os_effect.rs`).
+pub(crate) fn open_window(at: Option<std::path::PathBuf>, run: Option<crate::rules::Run>) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -5004,7 +5006,7 @@ fn open_window(at: Option<std::path::PathBuf>) {
         .map(|w| w.frame());
     let scale = NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor());
     let inset = predicted_inset(mtm, WINDOW_SIZE);
-    let shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref());
+    let shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref(), run);
     let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, None);
     opening.show(mtm, scale, after);
 }
@@ -5130,7 +5132,7 @@ fn new_window_from_menu() {
                     baud_present_macos::unwind::guard(
                         baud_present_macos::unwind::SiteName("a window's opening"),
                         (),
-                        || open_window(None),
+                        || open_window(None, None),
                     )
                 }),
             }
@@ -7456,7 +7458,7 @@ mod drag_tests {
             .expect("the callback ends");
         let start = body(
             src,
-            concat!("fn start(scale: CGFloat, size: NSSize, ", "inset: CGFloat,"),
+            concat!("    fn start(\n        scale: ", "CGFloat,\n"),
             "    ",
         );
         let build = body(
@@ -8094,7 +8096,7 @@ mod drag_tests {
         );
         let new = body(SRC, concat!("    fn new_", "window(&mut self) {"), "    ");
         assert!(
-            new.contains(".exec_async(move || {") && new.contains("|| open_window(at),"),
+            new.contains(".exec_async(move || {") && new.contains("|| open_window(at, None),"),
             "opened on a later turn: {new}"
         );
     }
@@ -8186,7 +8188,10 @@ mod drag_tests {
         const SRC: &str = include_str!("app.rs");
         let open = body(
             SRC,
-            concat!("\nfn open_", "window(at: Option<std::path::PathBuf>) {"),
+            concat!(
+                "\npub(crate) fn open_",
+                "window(at: Option<std::path::PathBuf>, run: Option<crate::rules::Run>) {"
+            ),
             "",
         );
         for named in ["launch_splash", "LaunchSplash", "splash"] {
@@ -8204,7 +8209,7 @@ mod drag_tests {
         assert!(shell < built && built < shown, "{open}");
         let start = body(
             SRC,
-            concat!("fn start(scale: CGFloat, size: NSSize, ", "inset: CGFloat,"),
+            concat!("    fn start(\n        scale: ", "CGFloat,\n"),
             "    ",
         );
         assert!(start.contains(concat!("Pty::", "spawn(")), "spawned there");
@@ -13099,7 +13104,7 @@ pub fn run() {
             NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
         }
     };
-    let shell = Shell::start(scale, size, inset, None);
+    let shell = Shell::start(scale, size, inset, None, None);
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     // **A Command-N window is a window of its own, never a tab**
@@ -13246,8 +13251,16 @@ impl Shell {
     /// The boot and the shell, at `scale` for a window of `size` whose
     /// titlebar is `inset` high; the shell starts in `at` when it is given
     /// (`windows::inherited`).
-    fn start(scale: CGFloat, size: NSSize, inset: CGFloat, at: Option<&std::path::Path>) -> Shell {
+    fn start(
+        scale: CGFloat,
+        size: NSSize,
+        inset: CGFloat,
+        at: Option<&std::path::Path>,
+        run: Option<crate::rules::Run>,
+    ) -> Shell {
         let mut boot = Boot::prepare(scale);
+        // A link's window runs its program in place of the shell.
+        boot.shell.run = run;
         // The config's watch and notice, for the driver (`reload.rs`).
         let reload_from = boot.reload.take();
         let notice = boot.notice.clone();
@@ -13869,20 +13882,27 @@ impl Driver {
     /// (`windows::inherited`). Before this machine's names are read, an
     /// `OSC 7` naming a host is judged against none.
     fn new_window(&mut self) {
+        let at = self.folder();
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            baud_present_macos::unwind::guard(
+                baud_present_macos::unwind::SiteName("a new window"),
+                (),
+                || open_window(at, None),
+            )
+        });
+    }
+
+    /// **This window's folder, for a window opened from it**
+    /// (`windows::inherited`): Command-N's, and a link's `action =
+    /// "window"`'s. Before this machine's names are read, an `OSC 7`
+    /// naming a host is judged against none.
+    fn folder(&mut self) -> Option<std::path::PathBuf> {
         let names = self
             .hosts
             .names()
             .map(<[String]>::to_vec)
             .unwrap_or_default();
-        let at =
-            crate::windows::inherited(self.app.term.working_directory(), &names, self.derive.dir());
-        dispatch2::DispatchQueue::main().exec_async(move || {
-            baud_present_macos::unwind::guard(
-                baud_present_macos::unwind::SiteName("a new window"),
-                (),
-                || open_window(at),
-            )
-        });
+        crate::windows::inherited(self.app.term.working_directory(), &names, self.derive.dir())
     }
 
     /// **The window's close, asked for once**, on a later turn of the main
@@ -14238,13 +14258,24 @@ impl Driver {
                     self.link_copied(text);
                     return;
                 }
-                if let Found::Window(_) = does {
-                    // Refused, counted and said until a later main-queue turn
-                    // can open a window; nothing runs.
-                    self.app.links.refused.bump();
-                    crate::warn!(
-                        "printed path refused for [link.path]'s window (not built on macOS yet)"
-                    );
+                if let Found::Window(built) = does {
+                    match built {
+                        // In the file's own folder.
+                        Ok(run) => {
+                            use std::os::unix::ffi::OsStrExt;
+                            let at = std::path::Path::new(std::ffi::OsStr::from_bytes(&path))
+                                .parent()
+                                .map(std::path::Path::to_path_buf);
+                            let _ = self
+                                .app
+                                .os
+                                .ask(crate::os_effect::OsEffect::OpenWindow { run, at });
+                        }
+                        Err(why) => {
+                            self.app.links.refused.bump();
+                            crate::warn!("printed path refused for [link.path]'s window ({why:?})");
+                        }
+                    }
                     return;
                 }
                 if let Found::Command(built) = does {
@@ -15625,6 +15656,16 @@ impl Driver {
                     self.app.links.refused.bump();
                     crate::warn!("link not copied: the pasteboard refused it");
                 }
+                Outcome::WindowOpened => {
+                    self.app.links.opened.bump();
+                    crate::info!("link opened in a new window");
+                }
+                Outcome::WindowRefused(program) => {
+                    self.app.links.refused.bump();
+                    crate::warn!(
+                        "link not opened in a new window: {program:?} is not a program that can run"
+                    );
+                }
                 Outcome::Announced => {}
             }
         }
@@ -15714,12 +15755,31 @@ impl Driver {
                             }
                         }
                     }
-                    // A window of yours: its argv opens a window on macOS once a
-                    // later main-queue turn can open one; until then the click is
-                    // refused, counted and said, and nothing runs.
+                    // A window of yours: the rule's argv, built once here and
+                    // moved, opened in this window's folder on the effect
+                    // queue's turn (`os_effect.rs`), its terminal running the
+                    // program in place of a shell.
                     Click::Window => {
-                        self.app.links.refused.bump();
-                        crate::warn!("link refused (window: not built on macOS yet): {shown}");
+                        let built = t
+                            .rule()
+                            .and_then(|ix| self.app.uris.rules().window(ix, t.as_str()));
+                        match built {
+                            Some(Ok(run)) => {
+                                let at = self.folder();
+                                let _ = self
+                                    .app
+                                    .os
+                                    .ask(crate::os_effect::OsEffect::OpenWindow { run, at });
+                            }
+                            Some(Err(why)) => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused ({why:?}): {shown}");
+                            }
+                            None => {
+                                self.app.links.refused.bump();
+                                crate::warn!("link refused (no command): {shown}");
+                            }
+                        }
                     }
                     // A file the worker found gone is asked about again, as a
                     // printed path's click is: revealed if it came back, said
@@ -19364,7 +19424,7 @@ mod tests {
         let from_menu = &from_menu[..from_menu.find("\n}\n").expect("its end")];
         assert!(from_menu.contains(concat!("a.ask(", "id)")));
         assert!(from_menu.contains(concat!("waker.", "wake();")));
-        assert!(from_menu.contains(concat!("open_window(", "None)")));
+        assert!(from_menu.contains(concat!("open_window(", "None, None)")));
         let wake = SRC
             .split(concat!(
                 "    fn wake(&mut self) {\n        startup_first(",

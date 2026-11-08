@@ -118,3 +118,20 @@ pub fn set_frame(window: &NSWindow, frame: NSRect) {
     #[cfg(not(feature = "effect-probe"))]
     window.setFrame_display(frame, true);
 }
+
+/// **A new window, running a program in place of a shell**, opened by
+/// `opens` on a main-queue turn of its own (`t`), after the click that
+/// asked has returned: a link's `action = "window"`. The window and its
+/// terminal are the app's to build, so `opens` builds them; this is the
+/// one door to it, so under the test-only `effect-probe` feature the
+/// opening is recorded and no window is made.
+pub fn open_running(t: &crate::turn::Turn<'_>, opens: impl FnOnce()) {
+    let _ = t;
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = opens;
+        record(EffectKind::OpenWindow);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    opens();
+}

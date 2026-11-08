@@ -6069,6 +6069,61 @@ mod reader {
         assert_eq!(rows, keys);
     }
 
+    /// The text of `text` after `head`, up to `end`.
+    fn between<'a>(text: &'a str, head: &str, end: &str) -> &'a str {
+        let (_, rest) = text.split_once(head).expect(head);
+        rest.split(end).next().unwrap_or(rest)
+    }
+
+    /// The values the `action` row of a guide's section lists, unquoted.
+    fn action_row(section: &str) -> std::collections::BTreeSet<&str> {
+        let row = section
+            .lines()
+            .find(|l| l.starts_with("| `action` |"))
+            .expect("an action row");
+        let cell = row.split(" | ").nth(1).expect("its values");
+        cell.split(", ")
+            .map(|v| v.trim_matches(['`', '"']))
+            .collect()
+    }
+
+    /// **The guide's `action` rows and the example's comments name every
+    /// value the reader takes, and the rows no other**: `[link.path]`'s row
+    /// lists `rules::PATH_ACTIONS` and the rules' row `rules::ACTIONS`, both
+    /// ways, and the example's comments for each section name each value in
+    /// quotes, so no value is one a reader of either cannot know. Break:
+    /// leave `"window"` out of the guide's `[link.path]` row.
+    #[test]
+    fn the_guide_and_example_name_every_link_action() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/guide/configuration.md"
+        ))
+        .expect("docs/guide/configuration.md");
+        let path = action_row(between(&page, "\n## [link.path]\n", "\n## "));
+        let rule = action_row(between(&page, "\n## Your own link types\n", "\n## "));
+        assert!(path.contains("reveal"), "the control: {path:?}");
+        assert_eq!(path, crate::rules::PATH_ACTIONS.into_iter().collect());
+        assert_eq!(rule, crate::rules::ACTIONS.into_iter().collect());
+        let example = include_str!("../../config.toml.example");
+        for (head, end, values) in [
+            (
+                "# [link.path]\n",
+                "# Your own link types",
+                &crate::rules::PATH_ACTIONS,
+            ),
+            ("# [link.tel]\n", "# [link.mailto]", &crate::rules::ACTIONS),
+        ] {
+            let comments = between(example, head, end);
+            for v in values {
+                assert!(
+                    comments.contains(&format!("\"{v}\"")),
+                    "{head}: the example never names \"{v}\""
+                );
+            }
+        }
+    }
+
     /// **`[message]` and `[message.copy]` read as they document**: the
     /// defaults, each value, what a bad value says, and two fixed colours under
     /// 4.5:1 refused and said, baud's staying, where a `"none"` is left to the

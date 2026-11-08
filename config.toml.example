@@ -668,10 +668,13 @@
 #
 # What a click does. "reveal", the default, shows a clicked file in Finder
 # (the file manager on Linux), and never opens or runs it; "command" hands it
-# to the command below, and is what a command named alone means; "copy" puts
-# its path on the clipboard; "off" is the same as paths = "off" above. Any
-# value but "command" beside a command ignores the section, so this example
-# names "command" with its command.
+# to the command below, and is what a command named alone means; "window"
+# runs the command in a new baud window of its own, in the file's folder,
+# for a program that draws in a terminal, such as an editor: ["hx",
+# "{path}"], the window closing when it ends; "copy" puts its path on the
+# clipboard; "off" is the same as paths = "off" above. Any value but
+# "command" or "window" beside a command ignores the section, so this
+# example names "command" with its command.
 # action = "command"
 #
 # The program a click runs, then its arguments: {path} is the file's full
@@ -696,9 +699,11 @@
 # scheme = "tel"
 #
 # "open" hands the link to the app your system has for it; "command" runs
-# command; "copy" puts the link on the clipboard and opens nothing; "off"
-# turns the scheme off. Left out, it is "command" when a command is named,
-# else "open".
+# command; "window" runs command in a new baud window of its own, in the
+# folder of the window you clicked in, for a program that draws in a
+# terminal, such as the text browser in ["w3m", "{url}"]; "copy" puts the
+# link on the clipboard and opens nothing; "off" turns the scheme off. Left
+# out, it is "command" when a command is named, else "open".
 # action = "open"
 #
 # [link.https]
@@ -707,7 +712,8 @@
 # link. No shell runs it, so {url} is one argument whatever it holds; a rule
 # that puts {url} in a script, after sh -c, osascript -e or the script flag of
 # an interpreter baud knows (-c, -C, -e, -E, -m, -p or -r, by interpreter), is
-# ignored.
+# ignored. Beside action = "window", the same command runs in a new baud
+# window of its own, for a program that draws in a terminal.
 # command = ["/usr/bin/env", "open", "-a", "Firefox", "{url}"]
 #
 # [link.mailto]

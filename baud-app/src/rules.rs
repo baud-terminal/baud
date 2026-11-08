@@ -350,7 +350,6 @@ impl Run {
     /// starts, before anything opens, so a program that is gone opens no
     /// window. A metadata call: never on the frame path. A name that is
     /// not UTF-8 is never one a rule wrote, and is not looked for.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn found(&self, path_var: Option<&OsStr>) -> Program {
         match self.program().to_str() {
             Some(p) => program_found(p, path_var),

@@ -235,7 +235,7 @@ fn run(
     let size = WINDOW_SIZE;
     let scale = 2.0;
     let inset = predicted_inset(mtm, size);
-    let shell = Shell::start(scale, size, inset, None);
+    let shell = Shell::start(scale, size, inset, None, None);
     let Opening {
         mut driver,
         view,

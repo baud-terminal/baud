@@ -96,10 +96,12 @@ pub enum EffectKind {
     FullScreen,
     /// A window's frame set (`window::set_frame`).
     Frame,
+    /// A new window opened, running a program (`window::open_running`).
+    OpenWindow,
 }
 
 /// Each kind's word in a [`Record::line`], one table both ways.
-const KINDS: [(EffectKind, &str); 23] = [
+const KINDS: [(EffectKind, &str); 24] = [
     (EffectKind::Open, "open"),
     (EffectKind::Reveal, "reveal"),
     (EffectKind::Command, "command"),
@@ -123,6 +125,7 @@ const KINDS: [(EffectKind, &str); 23] = [
     (EffectKind::Back, "back"),
     (EffectKind::FullScreen, "full-screen"),
     (EffectKind::Frame, "frame"),
+    (EffectKind::OpenWindow, "open-window"),
 ];
 
 impl EffectKind {
@@ -527,6 +530,7 @@ mod tests {
                 EffectKind::Back => Place(20),
                 EffectKind::FullScreen => Place(21),
                 EffectKind::Frame => Place(22),
+                EffectKind::OpenWindow => Place(23),
             }
         }
         for (i, (k, w)) in KINDS.iter().enumerate() {

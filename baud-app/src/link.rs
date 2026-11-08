@@ -3926,17 +3926,6 @@ mod tests {
         assert_eq!(h.look(), None);
     }
 
-    /// What a driver does with a click on a window rule, link or printed
-    /// path, in the commit at hand.
-    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-    enum WindowClick {
-        /// Refused, counted in `links.refused` and said; nothing runs, and
-        /// nothing falls through to a reveal.
-        Refused,
-        /// The window is asked for: the text is the ask.
-        Opens(&'static str),
-    }
-
     /// The text of the arm starting at `head`, through the line that closes
     /// it at `head`'s own indent.
     fn arm<'a>(src: &'a str, head: &str) -> &'a str {
@@ -3950,43 +3939,24 @@ mod tests {
     }
 
     /// **A click on a window rule is refused on a driver until that
-    /// driver's own commit opens the window**: each driver's link arm and
-    /// printed-path arm either refuse, count and say, with no reveal and no
-    /// window, or ask for the window. Named breaks: let a printed path's
-    /// arm fall through to a reveal; leave the count out.
+    /// driver's own commit opens the window**, and both drivers now do: each
+    /// one's link arm and printed-path arm ask for the window, and neither
+    /// reaches a reveal, the printed path's `if let` ending in its own
+    /// return. Named break: drop the ask on either driver. Without the
+    /// return the arm no longer compiles here, since it moves the click.
     #[test]
     fn a_window_click_is_refused_until_its_driver_opens_it() {
-        let drivers: [(&str, &str, WindowClick); 2] = [
-            ("app.rs", include_str!("app.rs"), WindowClick::Refused),
-            (
-                "linux.rs",
-                include_str!("linux.rs"),
-                WindowClick::Opens("Later::Window("),
-            ),
+        let drivers = [
+            ("app.rs", include_str!("app.rs"), "OsEffect::OpenWindow"),
+            ("linux.rs", include_str!("linux.rs"), "Later::Window("),
         ];
-        for (name, src, does) in drivers {
+        for (name, src, ask) in drivers {
             for head in ["Click::Window => {", "if let Found::Window("] {
                 let body = arm(src, head);
-                match does {
-                    WindowClick::Refused => {
-                        assert!(
-                            body.contains("links.refused.bump()"),
-                            "{name} {head}: uncounted"
-                        );
-                        assert!(body.contains("warn!("), "{name} {head}: unsaid");
-                        // A printed path's arm is an `if let`: without its
-                        // own return the click goes on to the reveal below.
-                        let ends = head.starts_with("if let") && !body.contains("return;");
-                        assert!(!ends, "{name} {head}: falls through");
-                        for opens in ["Reveal", "OpenWindow", "Later::Window", "open_window("] {
-                            assert!(!body.contains(opens), "{name} {head}: {opens}");
-                        }
-                    }
-                    WindowClick::Opens(ask) => {
-                        assert!(body.contains(ask), "{name} {head}: no {ask}");
-                        assert!(!body.contains("Reveal"), "{name} {head}: a reveal");
-                    }
-                }
+                assert!(body.contains(ask), "{name} {head}: no {ask}");
+                assert!(!body.contains("Reveal"), "{name} {head}: a reveal");
+                let ends = head.starts_with("if let") && !body.contains("return;");
+                assert!(!ends, "{name} {head}: falls through");
             }
         }
     }

@@ -63,6 +63,12 @@ pub(crate) enum OsEffect {
         cmd: std::process::Command,
         from: Asked,
     },
+    /// A new window running a `[link.*]` rule's program in place of a
+    /// shell, its terminal started in `at` (`app::open_window`).
+    OpenWindow {
+        run: crate::rules::Run,
+        at: Option<std::path::PathBuf>,
+    },
     /// Text to the pasteboard, for a `[link.*]` rule's or a printed
     /// path's `copy`.
     Copy(ClipText),
@@ -101,6 +107,10 @@ pub(crate) enum Outcome {
         written: baud_present_macos::clipboard::Written,
         text: ClipText,
     },
+    /// A window opened for a link's `action = "window"`.
+    WindowOpened,
+    /// No window opened: the program a link's window would run is not there.
+    WindowRefused(std::ffi::OsString),
     /// The words given to VoiceOver.
     Announced,
 }
@@ -309,6 +319,22 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
             }
             (started, _) => Outcome::Started { started, from },
         },
+        // In the turn, with no responder borrowed: the new window takes the
+        // keyboard, which inside a callback would re-enter the view. It is
+        // the click's, not the asking window's, so it opens whether or not
+        // that window has closed since.
+        // Looked for first, on the PATH the window's terminal would run it
+        // under; then opened in the turn, with no responder borrowed: the
+        // new window takes the keyboard, which inside a callback would
+        // re-enter the view. It is the click's, not the asking window's, so
+        // it opens whether or not that window has closed since.
+        OsEffect::OpenWindow { run, at } => {
+            window_or_refused(run, at, std::env::var_os("PATH").as_deref(), |at, run| {
+                baud_present_macos::window::open_running(t, move || {
+                    crate::app::open_window(at, Some(run));
+                });
+            })
+        }
         OsEffect::Copy(text) => Outcome::Copied {
             written: baud_present_macos::clipboard::write_text(text.as_str()),
             text,
@@ -318,6 +344,25 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
                 baud_present_macos::announce::announce(mtm, words.as_str());
             }
             Outcome::Announced
+        }
+    }
+}
+
+/// **A link's window, or why none**: `run`'s program looked for on
+/// `path_var`'s folders, and `opens` given the window to open only when it
+/// is there, so a program that is gone opens no window that would exit at
+/// once. Pure over `opens`, so a test asks it with no window and no turn.
+fn window_or_refused(
+    run: crate::rules::Run,
+    at: Option<std::path::PathBuf>,
+    path_var: Option<&std::ffi::OsStr>,
+    opens: impl FnOnce(Option<std::path::PathBuf>, crate::rules::Run),
+) -> Outcome {
+    match run.found(path_var) {
+        crate::rules::Program::Missing => Outcome::WindowRefused(run.into_argv().swap_remove(0)),
+        crate::rules::Program::Found => {
+            opens(at, run);
+            Outcome::WindowOpened
         }
     }
 }
@@ -477,5 +522,42 @@ mod tests {
         q.ask(spoken("a"));
         run_with(&Fake, |_, _, _| Outcome::Announced);
         assert_eq!(caps(&q), (RESERVED, RESERVED));
+    }
+
+    /// **A link's window opens only when its program is there**: a program
+    /// that is gone, by its path or as a name on no folder of `PATH`, is
+    /// refused and named, and the opener is never called; one that is there
+    /// is opened once, with the folder and the argv it was asked with,
+    /// moved. Named break: call `opens` before looking -- the missing editor
+    /// opens a window that exits at once.
+    #[test]
+    fn a_links_window_opens_only_when_its_program_is_there() {
+        use std::ffi::{OsStr, OsString};
+        use std::path::PathBuf;
+        let run = |p: &str| {
+            crate::rules::Run::given(vec![OsString::from(p), OsString::from("/tmp/x")])
+                .expect("a program")
+        };
+        let path_var = Some(OsStr::new("/usr/bin:/bin"));
+        let mut opened: Vec<(Option<PathBuf>, Vec<OsString>)> = Vec::new();
+        for gone in ["/no/such/editor", "no-such-editor"] {
+            let out = window_or_refused(run(gone), None, path_var, |at, r| {
+                opened.push((at, r.into_argv()));
+            });
+            assert!(
+                matches!(&out, Outcome::WindowRefused(p) if p == gone),
+                "{gone}: refused and named"
+            );
+        }
+        assert!(opened.is_empty(), "nothing opened: {opened:?}");
+        let at = Some(PathBuf::from("/tmp"));
+        let out = window_or_refused(run("sh"), at.clone(), path_var, |at, r| {
+            opened.push((at, r.into_argv()));
+        });
+        assert!(matches!(out, Outcome::WindowOpened), "the control");
+        assert_eq!(
+            opened,
+            [(at, vec![OsString::from("sh"), OsString::from("/tmp/x")])]
+        );
     }
 }

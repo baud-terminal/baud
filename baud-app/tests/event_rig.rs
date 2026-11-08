@@ -131,6 +131,7 @@ enum Rule {
     Reveal,
     Command,
     Copy,
+    Window,
 }
 
 /// Whether the frame is driven, and whether the hand-over is made inline:
@@ -218,7 +219,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 12] = [
+const SITES: [Site; 14] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -272,6 +273,24 @@ const SITES: [Site; 12] = [
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInFrame),
         expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Control(Failure::InFrame(EffectKind::Reveal, Nested::Never)),
+    },
+    // **A link's window**: `[link.path] action = "window"`, the window
+    // opened on the effect queue's turn with the responder free, recorded
+    // by the probe and never made.
+    Site {
+        name: SiteName("a printed path's [link.path] window"),
+        cause: Cause::PrintedPath(Rule::Window, Ticks::Driven),
+        expect: Expect::effect(&[EffectKind::OpenWindow]),
+        state: RowState::Green,
+    },
+    // **Its control**: the effect queue's turn run inline, so the window
+    // would open inside the callback the click's answer arrives in -- the
+    // shape the new window's taking the keyboard re-enters the view in.
+    Site {
+        name: SiteName("a printed path's [link.path] window, made inside the callback"),
+        cause: Cause::PrintedPath(Rule::Window, Ticks::DrivenInline),
+        expect: Expect::effect(&[EffectKind::OpenWindow]),
+        state: RowState::Control(Failure::InCallback(EffectKind::OpenWindow, Nested::Never)),
     },
     // **Stage 2's rows: what a program writes**, each pending until its
     // site moves through the effect queue, its recorded failure what the
@@ -386,6 +405,10 @@ fn config(rule: Rule) -> &'static str {
             "[link]\npaths = \"on\"\n\n[link.path]\ncommand = [\"/usr/bin/true\", \"{path}\"]\n"
         }
         Rule::Copy => "[link]\npaths = \"on\"\n\n[link.path]\naction = \"copy\"\n",
+        Rule::Window => {
+            "[link]\npaths = \"on\"\n\n[link.path]\naction = \"window\"\n\
+             command = [\"/usr/bin/true\", \"{path}\"]\n"
+        }
     }
 }
 
