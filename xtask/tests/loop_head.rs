@@ -4,13 +4,14 @@
 //! binary involved.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use xtask::features_since::Exit;
 use xtask::html::Count;
 use xtask::loop_head::{self, Instruction, PageOff, Stop, find, functions, normalise, reloads};
+
+mod exec;
 
 const NAME: &str = "ingest2::timed";
 
@@ -188,14 +189,10 @@ impl Bin {
         let dir = std::env::temp_dir().join(format!("loop-head-{}-{n}", std::process::id()));
         fs::create_dir_all(&dir).expect("the directory");
         let tool = dir.join("objdump");
-        fs::write(
+        exec::script(
             &tool,
             "#!/bin/sh\nfor a; do f=$a; done\ncase \"$f\" in *fail*) echo \"boom\" >&2; exit 3;; esac\nexec cat \"$f\"\n",
-        )
-        .expect("the stand-in");
-        let mut mode = fs::metadata(&tool).expect("its metadata").permissions();
-        mode.set_mode(0o755);
-        fs::set_permissions(&tool, mode).expect("executable");
+        );
         Self(dir)
     }
 

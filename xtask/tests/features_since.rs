@@ -6,6 +6,7 @@
 //! script never returned on.
 
 mod common;
+mod exec;
 
 use std::env;
 use std::ffi::OsStr;
@@ -1469,8 +1470,7 @@ fn a_cargo_that_prints_no_json_checks_everything() {
         .stdout;
     symlink(String::from_utf8_lossy(&git).trim(), bare.join("git")).expect("a link");
     let cargo = bare.join("cargo");
-    fs::write(&cargo, "#!/bin/sh\necho nonsense\n").expect("the script");
-    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).expect("the mode");
+    exec::script(&cargo, "#!/bin/sh\necho nonsense\n");
     r.commit("bare");
     let got = r.run_in(&r.0.0, Some(&bare.to_string_lossy()), &["HEAD"]);
     assert_eq!(got.code, Some(0));

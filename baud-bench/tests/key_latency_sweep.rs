@@ -9,6 +9,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod exec;
+
 const STUB: &str = "tests/keylat/stub";
 
 /// The arguments for [`as_the_driver`], a unit separator between each.
@@ -250,9 +252,7 @@ fn the_stream_child_s_command_quotes_a_path_with_a_space() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("keylat a'b");
     fs::create_dir_all(&dir).expect("a scratch directory");
     let exe = dir.join("says-its-flag");
-    fs::write(&exe, "#!/bin/sh\necho \"$1\"\n").expect("a script");
-    let chmod = Command::new("chmod").arg("+x").arg(&exe).status();
-    assert!(chmod.is_ok_and(|s| s.success()));
+    exec::script(&exe, "#!/bin/sh\necho \"$1\"\n");
     let cmd = baud_bench::key_latency::sweep::child_env(
         baud_bench::key_latency::cli::Child::Stream,
         &exe.display().to_string(),

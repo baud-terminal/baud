@@ -1124,6 +1124,22 @@ mod tests {
         d
     }
 
+    /// `body` at `path`, mode 755, written by `sh`, so no descriptor of the
+    /// file is ever open here: a file this process wrote stays open for
+    /// writing in a child another test thread forked meanwhile until that
+    /// child execs, and Linux refuses to run a file open for writing
+    /// (ETXTBSY).
+    fn write_script(path: &Path, body: &str) {
+        let mut sh = std::process::Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(&mut sh.stdin.take().unwrap(), body.as_bytes()).unwrap();
+        assert!(sh.wait().unwrap().success(), "{}", path.display());
+    }
+
     /// **A stream that hashes to another is refused before docker sees
     /// it**, and its file removed; so is one whose script fails. The
     /// control: the same stream at its own pin is kept.
@@ -1131,8 +1147,7 @@ mod tests {
     fn a_stream_that_is_not_the_pinned_one_is_refused() {
         let d = scratch("stream");
         let script = d.join("stream");
-        fs::write(&script, "#!/bin/sh\nprintf layer\necho progress >&2\n").unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&script, "#!/bin/sh\nprintf layer\necho progress >&2\n");
         let sha = crate::provenance::sha256;
         // The SHA-256 of `layer`, and of `layes`.
         let own = "dac1d7cfa95021764849fd102524e141488c5e3a90f861dbb5a12d9ac8584f85";
@@ -1143,8 +1158,7 @@ mod tests {
         let kept = stream(&d.join("b"), &script, own, &sha).unwrap();
         assert_eq!(fs::read(&kept).unwrap(), b"layer");
         let fails = d.join("fails");
-        fs::write(&fails, "#!/bin/sh\necho no >&2\nexit 1\n").unwrap();
-        fs::set_permissions(&fails, fs::Permissions::from_mode(0o755)).unwrap();
+        write_script(&fails, "#!/bin/sh\necho no >&2\nexit 1\n");
         let failed = stream(&d.join("c"), &fails, own, &sha).unwrap_err();
         assert!(failed.contains("stream failed: no"), "{failed}");
         assert!(!d.join("c/image.tar").exists());

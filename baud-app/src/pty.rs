@@ -4257,17 +4257,24 @@ mod tests {
     /// No shell's startup files run: both are `/bin/sh` scripts.
     #[test]
     fn the_configured_program_is_the_childs_shell() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("baud-program-pty-{}", std::process::id()));
         let mut parent = program_parent(&dir);
+        // Written by `sh`, so no descriptor of the file is ever open here: a
+        // file this process wrote stays open for writing in a child another
+        // test thread forked meanwhile until that child execs, and Linux
+        // refuses to run a file open for writing (ETXTBSY).
         let script = |name: &str| {
             let p = dir.join(name);
-            std::fs::write(
-                &p,
-                "#!/bin/sh\nprintf 'ran=%s shell=%s\\n' \"$0\" \"$SHELL\"\n",
-            )
-            .expect("the script");
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+            let mut sh = std::process::Command::new("/bin/sh")
+                .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+                .arg(&p)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .expect("sh");
+            let body = b"#!/bin/sh\nprintf 'ran=%s shell=%s\\n' \"$0\" \"$SHELL\"\n";
+            std::io::Write::write_all(&mut sh.stdin.take().expect("its input"), body)
+                .expect("the script");
+            assert!(sh.wait().expect("sh").success(), "{}", p.display());
             p.to_str().expect("UTF-8").to_string()
         };
         let (path, theirs) = (script("myshell"), script("theirs"));

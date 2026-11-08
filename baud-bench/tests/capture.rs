@@ -15,6 +15,8 @@ use baud_bench::capture::pty::{Child, Environ, Lookup, Spawn};
 use baud_bench::capture::{kitten, kitten::Direct, resize, shell_start, tui, vim_unicode};
 use baud_bench::capture::{marks, yazi_files, yazi_walk};
 
+mod exec;
+
 const TOOL: &str = "CAPTURE_TEST_TOOL";
 const ARGS: &str = "CAPTURE_TEST_ARGS";
 const LIBTEST_HEADER: &str = "\nrunning 1 test\n";
@@ -892,14 +894,10 @@ fn a_program_run_beside_the_pty_is_coerced_too() {
     let s = Scratch::new("locale-children");
     let seen = s.at("seen");
     for stub in ["nix", "sips"] {
-        fs::write(
-            s.at(stub),
-            format!("#!/bin/sh\nprintf '%s' \"${{LC_CTYPE-unset}}\" > '{seen}'\nexit 7\n"),
-        )
-        .unwrap();
-        let mut perm = fs::metadata(s.at(stub)).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut perm, 0o755);
-        fs::set_permissions(s.at(stub), perm).unwrap();
+        exec::script(
+            Path::new(&s.at(stub)),
+            &format!("#!/bin/sh\nprintf '%s' \"${{LC_CTYPE-unset}}\" > '{seen}'\nexit 7\n"),
+        );
     }
     let path = format!("{}:/usr/bin:/bin", s.0.display());
     for (tool_name, args) in [
@@ -1502,16 +1500,12 @@ fn the_walk_tool_dies_where_the_script_died() {
 /// A kitten: it says what it was given, and goes on as `script` says.
 fn stand_in_kitten(s: &Scratch, script: &str) -> String {
     let path = s.at("kitten");
-    fs::write(
-        &path,
-        format!(
+    exec::script(
+        Path::new(&path),
+        &format!(
             "#!/usr/bin/env -S bash --noprofile --norc\nexport HISTFILE=/dev/null\nprintf 'args:%s|' \"$@\"\n{script}\n"
         ),
-    )
-    .unwrap();
-    let mut perm = fs::metadata(&path).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perm, 0o755);
-    fs::set_permissions(&path, perm).unwrap();
+    );
     path
 }
 
@@ -1740,10 +1734,7 @@ fn parse_start(b: &[u8]) -> Vec<(f64, Vec<u8>)> {
 fn a_shell_start_records_each_read_with_its_time() {
     let s = Scratch::new("start");
     let shell = s.at("shell");
-    fs::write(&shell, FAKE_SHELL).unwrap();
-    let mut perm = fs::metadata(&shell).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perm, 0o755);
-    fs::set_permissions(&shell, perm).unwrap();
+    exec::script(Path::new(&shell), FAKE_SHELL);
     let home = s.0.canonicalize().unwrap();
     let home = home.to_str().unwrap();
     let out = s.at("start.bin");

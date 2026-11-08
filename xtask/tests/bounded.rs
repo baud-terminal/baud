@@ -19,6 +19,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+mod exec;
+
 const ROLE: &str = "BOUNDED_TEST_ROLE";
 const DIR: &str = "BOUNDED_TEST_DIR";
 const CODE: &str = "BOUNDED_TEST_CODE";
@@ -560,7 +562,7 @@ fn a_tree_with(scratch: &Scratch, budgets: Option<&str>) -> PathBuf {
     fs::create_dir_all(&dir).expect("the copy");
     let from = the_script();
     let script = dir.join("bounded");
-    fs::copy(&from, &script).expect("the script");
+    exec::copy(&from, &script);
     fs::copy(from.with_file_name("bounded.rs"), dir.join("bounded.rs")).expect("the source");
     if let Some(budgets) = budgets {
         write_budgets(&script, budgets);
@@ -1082,14 +1084,12 @@ mod watcher {
     /// the watcher that prints it, where a real one would quietly bring 1T down
     /// to this machine: the MiB, or `None` for a refusal.
     fn handed_on(budgets: &str, bound: Option<&str>) -> Option<u64> {
-        use std::os::unix::fs::PermissionsExt;
         let scratch = Scratch::new();
         let script = a_tree_with(&scratch, Some(budgets));
         fs::remove_file(script.with_file_name("bounded.rs")).expect("the source");
         let stand_in = scratch.0.join("repo/target/bounded/bounded");
         fs::create_dir_all(stand_in.parent().expect("the directory")).expect("target");
-        fs::write(&stand_in, "#!/bin/sh\nprintf %s \"$1\"\n").expect("the stand-in");
-        fs::set_permissions(&stand_in, fs::Permissions::from_mode(0o755)).expect("executable");
+        exec::script(&stand_in, "#!/bin/sh\nprintf %s \"$1\"\n");
         let mut command = Command::new(&script);
         command.env_remove(BOUND).arg("/usr/bin/true");
         if let Some(bound) = bound {
@@ -1339,7 +1339,6 @@ mod watcher {
     /// left to chance.
     #[test]
     fn two_first_starts_build_apart() {
-        use std::os::unix::fs::PermissionsExt;
         let scratch = Scratch::new();
         let script = copy_of_the_script(&scratch, "#![no_main]", "#![no_main]");
         let seen = scratch.0.join("seen");
@@ -1353,9 +1352,9 @@ mod watcher {
             .find(|p| p.is_file())
             .expect("a rustc");
         let shim = shims.join("rustc");
-        fs::write(
+        exec::script(
             &shim,
-            format!(
+            &format!(
                 "#!/bin/bash\n\
                  prev=; out=\n\
                  for a in \"$@\"; do [ \"$prev\" = -o ] && out=$a; prev=$a; done\n\
@@ -1368,9 +1367,7 @@ mod watcher {
                 seen = seen.display(),
                 real = real.display(),
             ),
-        )
-        .expect("the shim");
-        fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).expect("executable");
+        );
         let path = format!("{}:{path}", shims.display());
         let start = |role: &str| {
             let mut command = Command::new(&script);

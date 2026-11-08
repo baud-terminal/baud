@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+mod exec;
+
 const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/host");
 
 /// A row of `cases.tsv`.
@@ -102,7 +104,7 @@ impl Scene {
     /// The stand-in app, launching `text`.
     fn app_with(&self, name: &str, text: &str) -> String {
         let path = self.dir.join(name);
-        fs::copy(format!("{DATA}/app.sh"), &path).expect("the stand-in");
+        exec::copy(Path::new(&format!("{DATA}/app.sh")), &path);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("mode");
         fs::write(self.dir.join(format!("{name}.txt")), text).expect("its launches");
         path.display().to_string()
