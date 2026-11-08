@@ -168,8 +168,13 @@ enum Later {
     Reveal(String),
     Command(std::process::Command),
     Copy(String),
-    /// A new baud running a link's window, in a folder (`windows::running_window`).
-    Window(crate::rules::Run, Option<std::path::PathBuf>),
+    /// A new baud running a link's window, in a folder, at the clicking
+    /// window's grid (`windows::running_window`).
+    Window(
+        crate::rules::Run,
+        Option<std::path::PathBuf>,
+        crate::run_arg::Grid,
+    ),
 }
 
 struct Driver {
@@ -454,7 +459,14 @@ enum Said {
     Once,
 }
 
-pub fn run(given: Option<crate::rules::Run>) {
+pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
+    // `baud --grid COLSxROWS -e`: a link's window opens at the grid of the
+    // window it was asked from, within the grid baud provisions; else the
+    // grid before the compositor has said how large the window is.
+    let (given, first) = match given {
+        Some((run, grid)) => (Some(run), grid.map_or(FIRST, |g| g.within(&MAX_GRID))),
+        None => (None, FIRST),
+    };
     crate::warn!(
         "baud on Wayland: run only on headless compositors, where its pixels, keys, pointer and clipboard are checked; no screen has shown it"
     );
@@ -507,7 +519,7 @@ pub fn run(given: Option<crate::rules::Run>) {
             .with_clipboard(cfg.clipboard.budget)
             .with_notices(crate::notify::BUDGET),
     ));
-    let mut term = Term::new(owned.storage(), &FIRST);
+    let mut term = Term::new(owned.storage(), &first);
     // The kitty file mediums, read with the text's checks
     // (`kitty_files.rs`); leaked as the storage is.
     term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
@@ -560,8 +572,8 @@ pub fn run(given: Option<crate::rules::Run>) {
         PxSize::of(cfg.font_size).expect("size"),
         theme,
         Blend::Native,
-        Cols::of_index(usize::from(FIRST.ws_col)),
-        Rows::of_index(usize::from(FIRST.ws_row)),
+        Cols::of_index(usize::from(first.ws_col)),
+        Rows::of_index(usize::from(first.ws_row)),
     )
     .expect("cell metrics");
     crate::host::set_up_renderer(&mut renderer, &cfg, &notice);
@@ -573,7 +585,7 @@ pub fn run(given: Option<crate::rules::Run>) {
     let term = crate::host::set_up_term(term, &cfg, &renderer, &fonts);
     startup_mark("renderer");
     let pty = Pty::spawn_polled(
-        &FIRST,
+        &first,
         renderer.metrics().cell_w,
         renderer.metrics().cell_h,
         // `baud -e`'s program in place of the shell, when it was given.
@@ -1667,6 +1679,12 @@ impl Driver {
         }
     }
 
+    /// The grid the terminal has: what a link's window opens at.
+    fn grid(&self) -> crate::run_arg::Grid {
+        let (cols, rows) = self.term.geometry();
+        crate::run_arg::Grid::of(cols, rows)
+    }
+
     /// **A link to the desktop, or refused and said why**, the macOS
     /// driver's rules (`link::admit`): what it opens goes to `xdg-open`,
     /// one argument and no shell (`opener.rs`), and a `file:` link, which
@@ -1778,7 +1796,7 @@ impl Driver {
                                     std::slice::from_ref(&self.host),
                                     self.derive.dir(),
                                 );
-                                self.later.push(Later::Window(run, dir));
+                                self.later.push(Later::Window(run, dir, self.grid()));
                             }
                             Some(Err(why)) => {
                                 self.report.links.refused.bump();
@@ -2002,7 +2020,7 @@ impl Driver {
                             let dir = std::path::Path::new(std::ffi::OsStr::from_bytes(&path))
                                 .parent()
                                 .map(std::path::Path::to_path_buf);
-                            self.later.push(Later::Window(run, dir));
+                            self.later.push(Later::Window(run, dir, self.grid()));
                         }
                         Err(why) => {
                             self.report.links.refused.bump();
@@ -2083,7 +2101,7 @@ impl Driver {
                     }
                 },
                 Later::Copy(text) => self.link_copied(text),
-                Later::Window(run, dir) => {
+                Later::Window(run, dir, grid) => {
                     // A program that is gone opens no window: asked here, as
                     // the new baud would run it, before it starts.
                     if run.found(std::env::var_os("PATH").as_deref())
@@ -2097,8 +2115,12 @@ impl Driver {
                         continue;
                     }
                     let started = std::env::current_exe().and_then(|exe| {
-                        self.opener
-                            .start(crate::windows::running_window(&exe, run, dir.as_deref()))
+                        self.opener.start(crate::windows::running_window(
+                            &exe,
+                            run,
+                            Some(grid),
+                            dir.as_deref(),
+                        ))
                     });
                     match started {
                         Ok(()) => {

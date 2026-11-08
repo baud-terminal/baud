@@ -355,24 +355,33 @@ fn main() {
     // there rather than started with a Dock icon of its own.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[cfg_attr(target_os = "macos", allow(unused_variables))]
-    let run: Option<rules::Run> = match run_arg::asked(std::env::args_os().skip(1)) {
-        run_arg::Asked::Shell => None,
-        run_arg::Asked::NoProgram => {
-            eprintln!("baud: {} names no program to run", run_arg::FLAG);
-            std::process::exit(2);
-        }
-        #[cfg(target_os = "macos")]
-        run_arg::Asked::Run(_) => {
-            eprintln!(
-                "baud: {} is for Linux; on macOS a link's action = \"window\" opens its \
-                 window in the running baud",
-                run_arg::FLAG
-            );
-            std::process::exit(2);
-        }
-        #[cfg(target_os = "linux")]
-        run_arg::Asked::Run(r) => Some(r),
-    };
+    let run: Option<(rules::Run, Option<run_arg::Grid>)> =
+        match run_arg::asked(std::env::args_os().skip(1)) {
+            run_arg::Asked::Shell => None,
+            run_arg::Asked::NoProgram => {
+                eprintln!("baud: {} names no program to run", run_arg::FLAG);
+                std::process::exit(2);
+            }
+            run_arg::Asked::BadGrid => {
+                eprintln!(
+                    "baud: {} takes COLSxROWS, then {} and a program",
+                    run_arg::GRID,
+                    run_arg::FLAG
+                );
+                std::process::exit(2);
+            }
+            #[cfg(target_os = "macos")]
+            run_arg::Asked::Run(..) => {
+                eprintln!(
+                    "baud: {} is for Linux; on macOS a link's action = \"window\" opens its \
+                     window in the running baud",
+                    run_arg::FLAG
+                );
+                std::process::exit(2);
+            }
+            #[cfg(target_os = "linux")]
+            run_arg::Asked::Run(r, grid) => Some((r, grid)),
+        };
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     host::startup_begin();
     // The installed fonts are read on a thread of their own from the

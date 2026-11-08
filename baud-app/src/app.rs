@@ -4964,6 +4964,9 @@ struct Open {
     /// Command is held (`baud_present_macos::keyup`), removed with the
     /// window.
     _keyups: Option<baud_present_macos::keyup::KeyUps>,
+    /// The window a link's window was opened over, given the keyboard back
+    /// when this one closes, if it is still open (`windows::focus_back`).
+    returns_to: Option<crate::windows::WindowId>,
 }
 
 thread_local! {
@@ -4996,19 +4999,29 @@ fn show_dock(mtm: MainThreadMarker, changed: Option<Option<crate::notify::DockBa
 /// a launch, so this sets nothing of it and the boot carries `[launch]
 /// splash` as the launch's does (`splash.rs`). With `run`, a link's
 /// `action = "window"`, the window's terminal runs that program in place
-/// of the shell, opened by the effect queue's turn (`os_effect.rs`).
-pub(crate) fn open_window(at: Option<std::path::PathBuf>, run: Option<crate::rules::Run>) {
+/// of the shell, opened by the effect queue's turn (`os_effect.rs`), and
+/// with `over` it covers the window the click came from, at its frame and
+/// size, and hands the keyboard back to it when it closes (`closed`).
+pub(crate) fn open_window(
+    at: Option<std::path::PathBuf>,
+    run: Option<crate::rules::Run>,
+    over: Option<crate::os_effect::Over>,
+) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let after = NSApplication::sharedApplication(mtm)
+    let key = NSApplication::sharedApplication(mtm)
         .keyWindow()
         .map(|w| w.frame());
+    let placed = crate::windows::placed(over.map(|o| o.frame), key);
+    // A link's window takes the size of the window it covers, so its grid
+    // is laid out for the frame it is given.
+    let size = over.map_or(WINDOW_SIZE, |o| o.content);
     let scale = NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor());
-    let inset = predicted_inset(mtm, WINDOW_SIZE);
-    let shell = Shell::start(scale, WINDOW_SIZE, inset, at.as_deref(), run);
-    let opening = Opening::new(mtm, WINDOW_SIZE, scale, inset, shell, None);
-    opening.show(mtm, scale, after);
+    let inset = predicted_inset(mtm, size);
+    let shell = Shell::start(scale, size, inset, at.as_deref(), run);
+    let opening = Opening::new(mtm, size, scale, inset, shell, None);
+    opening.show(mtm, scale, placed, over.map(|o| o.id));
 }
 
 /// **A window that has closed, taken down**: on a main-queue turn after
@@ -5032,7 +5045,17 @@ fn closed(id: crate::windows::WindowId) {
     };
     open.view.stop_display_link();
     open.view.set_responder(Box::new(Gone));
+    let back = open.returns_to;
     drop(open);
+    // **A link's window gives the keyboard back to the window it covered**,
+    // on a turn of its own, if that one is still open; one that closed
+    // first is given nothing.
+    if back.is_some() {
+        baud_present_macos::turn::later(
+            baud_present_macos::unwind::SiteName("a link's window gives the keyboard back"),
+            move |_| give_back(back),
+        );
+    }
     // Its progress leaves the Dock tile with it.
     if let Some(mtm) = MainThreadMarker::new() {
         show_dock(mtm, DOCK.with_borrow_mut(|d| d.gone(id)));
@@ -5047,6 +5070,20 @@ fn closed(id: crate::windows::WindowId) {
         if let Some(mtm) = MainThreadMarker::new() {
             NSApplication::sharedApplication(mtm).terminate(None);
         }
+    }
+}
+
+/// **The keyboard back to `back`**, the window a closed link's window was
+/// opened over, raised and made key through the probe-gated door, when it
+/// is still open (`windows::focus_back`). Taken out of the open windows
+/// before the call, which may re-enter them.
+fn give_back(back: Option<crate::windows::WindowId>) {
+    use macos_liquid_glass::objc2::Message;
+    let window = OPEN.with_borrow(|o| {
+        crate::windows::focus_back(o, back).map(|w| w.window.ns_window().retain())
+    });
+    if let Some(w) = window {
+        baud_present_macos::window::make_key_and_order_front(&w);
     }
 }
 
@@ -5132,7 +5169,7 @@ fn new_window_from_menu() {
                     baud_present_macos::unwind::guard(
                         baud_present_macos::unwind::SiteName("a window's opening"),
                         (),
-                        || open_window(None, None),
+                        || open_window(None, None, None),
                     )
                 }),
             }
@@ -7474,7 +7511,10 @@ mod drag_tests {
             .expect("run builds the window");
         let show = body(
             src,
-            concat!("fn show(self, mtm: MainThreadMarker, ", "scale: CGFloat,"),
+            concat!(
+                "fn show(\n        self,\n        mtm: ",
+                "MainThreadMarker,"
+            ),
             "    ",
         );
         Launch {
@@ -7955,9 +7995,10 @@ mod drag_tests {
             "registered before the app runs"
         );
         assert!(
-            launch
-                .callback
-                .contains(concat!("opening.", "show(mtm, scale, None);")),
+            launch.callback.contains(concat!(
+                "opening.",
+                "show(mtm, scale, crate::windows::Placed::Default, None);"
+            )),
             "the launch's window is shown there: {}",
             launch.callback
         );
@@ -8096,7 +8137,8 @@ mod drag_tests {
         );
         let new = body(SRC, concat!("    fn new_", "window(&mut self) {"), "    ");
         assert!(
-            new.contains(".exec_async(move || {") && new.contains("|| open_window(at, None),"),
+            new.contains(".exec_async(move || {")
+                && new.contains("|| open_window(at, None, None),"),
             "opened on a later turn: {new}"
         );
     }
@@ -8174,6 +8216,69 @@ mod drag_tests {
         );
     }
 
+    /// **A link's window covers the clicked window and gives it the keyboard
+    /// back**, wired as the pure decisions say (`windows::placed`,
+    /// `windows::focus_back`): both clicks ask for the window over this one
+    /// (`Driver::over`); `open_window` places it with `placed` and sizes it
+    /// to the clicked content; `show` sets an `Over` frame through the
+    /// probe-gated `window::set_frame` and never cascades it, and keeps the
+    /// window to give back; `closed` gives it back on a turn of its own
+    /// (`turn::later`), through `focus_back` and the probe-gated
+    /// `window::make_key_and_order_front`. The windows are AppKit's, so the
+    /// source is what can fail. Named breaks: ask with no `over` at the
+    /// path's click; give the keyboard back inside `closed`, off a turn.
+    #[test]
+    fn a_links_window_covers_the_clicked_one_and_gives_the_keyboard_back() {
+        const SRC: &str = include_str!("app.rs");
+        let asks = SRC.matches(concat!("OsEffect::", "OpenWindow {")).count();
+        let over = SRC.matches(concat!("let over = self.", "over();")).count();
+        assert_eq!((asks, over), (2, 2), "both clicks ask over this window");
+        let open = body(SRC, concat!("\npub(crate) fn open_", "window("), "");
+        assert!(open.contains(concat!("windows::", "placed(over.map(|o| o.frame), key)")));
+        assert!(open.contains(concat!("over.map_or(WINDOW_SIZE, ", "|o| o.content)")));
+        let show = body(
+            SRC,
+            concat!(
+                "    fn show(\n        self,\n        mtm: ",
+                "MainThreadMarker,"
+            ),
+            "    ",
+        );
+        let (_, over_arm) = show
+            .split_once(concat!("Placed::", "Over(f) => {"))
+            .expect("the Over arm");
+        let (over_arm, _) = over_arm.split_once("}").expect("its end");
+        assert!(over_arm.contains(concat!("window::", "set_frame(window.ns_window(), f)")));
+        assert!(!over_arm.contains("cascade"), "never cascaded");
+        assert!(
+            show.contains("returns_to,"),
+            "the window to give back, kept"
+        );
+        let closed = body(
+            SRC,
+            concat!("\nfn closed(id: crate::windows::", "WindowId) {"),
+            "",
+        );
+        let (_, later) = closed
+            .split_once(concat!("turn::", "later("))
+            .expect("on a turn");
+        assert!(later.contains(concat!("give_", "back(back)")), "{later}");
+        assert!(
+            !closed.contains(concat!("make_key_", "and_order_front")),
+            "never in closed"
+        );
+        let give = body(
+            SRC,
+            concat!(
+                "\nfn give_",
+                "back(back: Option<crate::windows::WindowId>) {"
+            ),
+            "",
+        );
+        assert!(give.contains(concat!("windows::", "focus_back(o, back)")));
+        assert!(give.contains(concat!("window::", "make_key_and_order_front(&w)")));
+    }
+
     /// **Every window plays the logo, as the launch's does**: a window
     /// opened after the launch -- Command-N, File > New Window, a Dock
     /// click -- goes through `open_window`, which starts its
@@ -8190,7 +8295,7 @@ mod drag_tests {
             SRC,
             concat!(
                 "\npub(crate) fn open_",
-                "window(at: Option<std::path::PathBuf>, run: Option<crate::rules::Run>) {"
+                "window(\n    at: Option<std::path::PathBuf>,\n    run: Option<crate::rules::Run>,\n    over: Option<crate::os_effect::Over>,\n) {"
             ),
             "",
         );
@@ -8204,7 +8309,10 @@ mod drag_tests {
             .find(concat!("Opening::", "new("))
             .expect("the window is built");
         let shown = open
-            .find(concat!("opening.", "show(mtm, scale, after);"))
+            .find(concat!(
+                "opening.",
+                "show(mtm, scale, placed, over.map(|o| o.id));"
+            ))
             .expect("and shown");
         assert!(shell < built && built < shown, "{open}");
         let start = body(
@@ -13179,7 +13287,7 @@ pub fn run() {
     // responder holding the view's borrow.
     baud_present_macos::launch::when_launched(move || {
         startup_mark("launched");
-        opening.show(mtm, scale, None);
+        opening.show(mtm, scale, crate::windows::Placed::Default, None);
     });
     baud_present_macos::window::activate(mtm);
     startup_mark("activated");
@@ -13606,7 +13714,13 @@ impl Opening {
     /// -- its titlebar icon, the glass, the style observer, first
     /// responder, and the responder last, so nothing here re-enters a
     /// responder holding the view's borrow.
-    fn show(self, mtm: MainThreadMarker, scale: CGFloat, after: Option<NSRect>) {
+    fn show(
+        self,
+        mtm: MainThreadMarker,
+        scale: CGFloat,
+        placed: crate::windows::Placed<NSRect>,
+        returns_to: Option<crate::windows::WindowId>,
+    ) {
         let Opening {
             mut driver,
             view,
@@ -13666,11 +13780,19 @@ impl Opening {
         // offsets one window from the last: placed at that window's top
         // left, which hands back the point a step down and right, and then
         // at that point (`[[source: apple-nswindow-cascadetopleftfrompoint]]`).
-        if let Some(f) = after {
-            let w = window.ns_window();
-            let next =
-                w.cascadeTopLeftFromPoint(NSPoint::new(f.origin.x, f.origin.y + f.size.height));
-            w.cascadeTopLeftFromPoint(next);
+        // A link's window instead covers the one it was asked from, at its
+        // frame exactly, through the probe-gated door (`window::set_frame`).
+        match placed {
+            crate::windows::Placed::Cascade(f) => {
+                let w = window.ns_window();
+                let next =
+                    w.cascadeTopLeftFromPoint(NSPoint::new(f.origin.x, f.origin.y + f.size.height));
+                w.cascadeTopLeftFromPoint(next);
+            }
+            crate::windows::Placed::Over(f) => {
+                baud_present_macos::window::set_frame(window.ns_window(), f);
+            }
+            crate::windows::Placed::Default => {}
         }
         window.show();
         startup_mark("shown");
@@ -13796,6 +13918,7 @@ impl Opening {
                 _closing: None,
                 _full_screen: None,
                 _keyups: None,
+                returns_to,
             })
         });
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
@@ -13892,9 +14015,24 @@ impl Driver {
             baud_present_macos::unwind::guard(
                 baud_present_macos::unwind::SiteName("a new window"),
                 (),
-                || open_window(at, None),
+                || open_window(at, None, None),
             )
         });
+    }
+
+    /// **The window a link's window opens over**: this one's frame, the
+    /// content that frame holds and its key in the open windows; none
+    /// before it has been shown, when it has no key yet. Read on the click,
+    /// which changes nothing of the window.
+    fn over(&self) -> Option<crate::os_effect::Over> {
+        let id = self.window_id?;
+        let w = self.window.ns_window();
+        let frame = w.frame();
+        Some(crate::os_effect::Over {
+            frame,
+            content: w.contentRectForFrameRect(frame).size,
+            id,
+        })
     }
 
     /// **This window's folder, for a window opened from it**
@@ -14271,10 +14409,12 @@ impl Driver {
                             let at = std::path::Path::new(std::ffi::OsStr::from_bytes(&path))
                                 .parent()
                                 .map(std::path::Path::to_path_buf);
-                            let _ = self
-                                .app
-                                .os
-                                .ask(crate::os_effect::OsEffect::OpenWindow { run, at });
+                            let over = self.over();
+                            let _ = self.app.os.ask(crate::os_effect::OsEffect::OpenWindow {
+                                run,
+                                at,
+                                over,
+                            });
                         }
                         Err(why) => {
                             self.app.links.refused.bump();
@@ -15780,10 +15920,12 @@ impl Driver {
                         match built {
                             Some(Ok(run)) => {
                                 let at = self.folder();
-                                let _ = self
-                                    .app
-                                    .os
-                                    .ask(crate::os_effect::OsEffect::OpenWindow { run, at });
+                                let over = self.over();
+                                let _ = self.app.os.ask(crate::os_effect::OsEffect::OpenWindow {
+                                    run,
+                                    at,
+                                    over,
+                                });
                             }
                             Some(Err(why)) => {
                                 self.app.links.refused.bump();
@@ -19438,7 +19580,7 @@ mod tests {
         let from_menu = &from_menu[..from_menu.find("\n}\n").expect("its end")];
         assert!(from_menu.contains(concat!("a.ask(", "id)")));
         assert!(from_menu.contains(concat!("waker.", "wake();")));
-        assert!(from_menu.contains(concat!("open_window(", "None, None)")));
+        assert!(from_menu.contains(concat!("open_window(", "None, None, None)")));
         let wake = SRC
             .split(concat!(
                 "    fn wake(&mut self) {\n        startup_first(",
@@ -20239,6 +20381,9 @@ mod tests {
             let elsewhere = match name {
                 // The bell's raise is the other.
                 "window::order_front" => elsewhere - 1,
+                // A link's window placed over the one it covers, in `show`,
+                // which only `open_running`'s turn reaches with an `Over`.
+                "window::set_frame" => elsewhere - 1,
                 _ => elsewhere,
             };
             assert_eq!(elsewhere, 1, "{name} called outside the block");
@@ -21360,7 +21505,10 @@ mod driver_rule_tests {
 mod mark_tests {
     /// `show`'s body, from its signature to the line that closes it.
     fn show(src: &str) -> &str {
-        let head = concat!("fn show(self, mtm: MainThreadMarker, ", "scale: CGFloat,");
+        let head = concat!(
+            "fn show(\n        self,\n        mtm: ",
+            "MainThreadMarker,"
+        );
         src.split_once(head)
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)

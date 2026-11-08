@@ -64,16 +64,30 @@ pub(crate) enum OsEffect {
         from: Asked,
     },
     /// A new window running a `[link.*]` rule's program in place of a
-    /// shell, its terminal started in `at` (`app::open_window`).
+    /// shell, its terminal started in `at` (`app::open_window`), over the
+    /// window the click came from.
     OpenWindow {
         run: crate::rules::Run,
         at: Option<std::path::PathBuf>,
+        over: Option<Over>,
     },
     /// Text to the pasteboard, for a `[link.*]` rule's or a printed
     /// path's `copy`.
     Copy(ClipText),
     /// Words to VoiceOver.
     Announce(Spoken),
+}
+
+/// **The window a link's window opens over**: its frame, title bar
+/// included, which the new window takes exactly; the size of its content,
+/// which the new window's grid is laid out for; and its key, which the new
+/// window hands the keyboard back to when it closes, if that one is still
+/// open (`windows::focus_back`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct Over {
+    pub(crate) frame: macos_liquid_glass::objc2_foundation::NSRect,
+    pub(crate) content: macos_liquid_glass::objc2_foundation::NSSize,
+    pub(crate) id: crate::windows::WindowId,
 }
 
 /// What asked for a reveal or a command, as the log says it.
@@ -328,13 +342,17 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
         // new window takes the keyboard, which inside a callback would
         // re-enter the view. It is the click's, not the asking window's, so
         // it opens whether or not that window has closed since.
-        OsEffect::OpenWindow { run, at } => {
-            window_or_refused(run, at, std::env::var_os("PATH").as_deref(), |at, run| {
+        OsEffect::OpenWindow { run, at, over } => window_or_refused(
+            run,
+            at,
+            over,
+            std::env::var_os("PATH").as_deref(),
+            |at, run, over| {
                 baud_present_macos::window::open_running(t, move || {
-                    crate::app::open_window(at, Some(run));
+                    crate::app::open_window(at, Some(run), over);
                 });
-            })
-        }
+            },
+        ),
         OsEffect::Copy(text) => Outcome::Copied {
             written: baud_present_macos::clipboard::write_text(text.as_str()),
             text,
@@ -355,13 +373,14 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
 fn window_or_refused(
     run: crate::rules::Run,
     at: Option<std::path::PathBuf>,
+    over: Option<Over>,
     path_var: Option<&std::ffi::OsStr>,
-    opens: impl FnOnce(Option<std::path::PathBuf>, crate::rules::Run),
+    opens: impl FnOnce(Option<std::path::PathBuf>, crate::rules::Run, Option<Over>),
 ) -> Outcome {
     match run.found(path_var) {
         crate::rules::Program::Missing => Outcome::WindowRefused(run.into_argv().swap_remove(0)),
         crate::rules::Program::Found => {
-            opens(at, run);
+            opens(at, run, over);
             Outcome::WindowOpened
         }
     }
@@ -524,14 +543,17 @@ mod tests {
         assert_eq!(caps(&q), (RESERVED, RESERVED));
     }
 
-    /// **A link's window opens only when its program is there**: a program
-    /// that is gone, by its path or as a name on no folder of `PATH`, is
-    /// refused and named, and the opener is never called; one that is there
-    /// is opened once, with the folder and the argv it was asked with,
-    /// moved. Named break: call `opens` before looking -- the missing editor
-    /// opens a window that exits at once.
+    /// **A link's window opens only when its program is there, over the
+    /// window the click came from**: a program that is gone, by its path or
+    /// as a name on no folder of `PATH`, is refused and named, and the
+    /// opener is never called; one that is there is opened once, with the
+    /// folder and the argv it was asked with, moved, and the clicked
+    /// window's frame, content and key as they were read. Named breaks: call
+    /// `opens` before looking -- the missing editor opens a window that
+    /// exits at once; open at the default place -- the frame is lost.
     #[test]
     fn a_links_window_opens_only_when_its_program_is_there() {
+        use macos_liquid_glass::objc2_foundation::{NSPoint, NSRect, NSSize};
         use std::ffi::{OsStr, OsString};
         use std::path::PathBuf;
         let run = |p: &str| {
@@ -539,10 +561,15 @@ mod tests {
                 .expect("a program")
         };
         let path_var = Some(OsStr::new("/usr/bin:/bin"));
-        let mut opened: Vec<(Option<PathBuf>, Vec<OsString>)> = Vec::new();
+        let clicked = Over {
+            frame: NSRect::new(NSPoint::new(120.0, 80.0), NSSize::new(1013.0, 655.0)),
+            content: NSSize::new(1013.0, 655.0),
+            id: crate::windows::Windows::<()>::new().open(()),
+        };
+        let mut opened: Vec<(Option<PathBuf>, Vec<OsString>, Option<Over>)> = Vec::new();
         for gone in ["/no/such/editor", "no-such-editor"] {
-            let out = window_or_refused(run(gone), None, path_var, |at, r| {
-                opened.push((at, r.into_argv()));
+            let out = window_or_refused(run(gone), None, Some(clicked), path_var, |at, r, o| {
+                opened.push((at, r.into_argv(), o));
             });
             assert!(
                 matches!(&out, Outcome::WindowRefused(p) if p == gone),
@@ -551,13 +578,23 @@ mod tests {
         }
         assert!(opened.is_empty(), "nothing opened: {opened:?}");
         let at = Some(PathBuf::from("/tmp"));
-        let out = window_or_refused(run("sh"), at.clone(), path_var, |at, r| {
-            opened.push((at, r.into_argv()));
-        });
+        let out = window_or_refused(
+            run("sh"),
+            at.clone(),
+            Some(clicked),
+            path_var,
+            |at, r, o| {
+                opened.push((at, r.into_argv(), o));
+            },
+        );
         assert!(matches!(out, Outcome::WindowOpened), "the control");
         assert_eq!(
             opened,
-            [(at, vec![OsString::from("sh"), OsString::from("/tmp/x")])]
+            [(
+                at,
+                vec![OsString::from("sh"), OsString::from("/tmp/x")],
+                Some(clicked)
+            )]
         );
     }
 }

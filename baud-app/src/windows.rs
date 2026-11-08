@@ -225,6 +225,37 @@ impl<W> Windows<W> {
     }
 }
 
+/// **Where a new window goes**: over the window a link's window was asked
+/// from, at exactly its frame, covering the window it came from -- or
+/// else a step down and right of the key window, as AppKit cascades one,
+/// or where AppKit puts a window when none is open.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Placed<R> {
+    Over(R),
+    Cascade(R),
+    Default,
+}
+
+/// [`Placed`] for a window asked `over` a window's frame, or with `key`
+/// the key window's frame when it was asked.
+#[cfg(any(target_os = "macos", test))]
+pub fn placed<R>(over: Option<R>, key: Option<R>) -> Placed<R> {
+    match (over, key) {
+        (Some(frame), _) => Placed::Over(frame),
+        (None, Some(frame)) => Placed::Cascade(frame),
+        (None, None) => Placed::Default,
+    }
+}
+
+/// **The window a closing link's window hands the keyboard back to**: the
+/// one it was opened over, if that is still open; none when it closed
+/// first, so focus never goes to a window that is gone.
+#[cfg(any(target_os = "macos", test))]
+pub fn focus_back<W>(open: &Windows<W>, over: Option<WindowId>) -> Option<&W> {
+    open.get(over?)
+}
+
 /// What a key chord asks of the windows.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -403,26 +434,28 @@ fn new_baud(exe: &std::path::Path, dir: Option<&std::path::Path>) -> std::proces
 
 /// **The new baud a link's `action = "window"` starts on Linux**, whose
 /// driver runs one window per process: `exe` -- this program, as
-/// `current_exe` reads it -- with `-e` and `run`'s elements, each one
-/// argument and none re-split (`run_arg.rs`), started in `dir` as New
-/// Window starts one ([`new_baud`]), with no shell between. Started through
-/// the opener on the turn after the click, and reaped by it.
+/// `current_exe` reads it -- with `--grid` and `size`, the clicking
+/// window's grid, then `-e` and `run`'s elements, each one argument and
+/// none re-split (`run_arg.rs`), started in `dir` as New Window starts one
+/// ([`new_baud`]), with no shell between. Started through the opener on
+/// the turn after the click, and reaped by it.
 #[cfg(any(target_os = "linux", test))]
 pub fn running_window(
     exe: &std::path::Path,
     run: crate::rules::Run,
+    size: Option<crate::run_arg::Grid>,
     dir: Option<&std::path::Path>,
 ) -> std::process::Command {
     let mut cmd = new_baud(exe, dir);
-    cmd.args(crate::run_arg::args(run));
+    cmd.args(crate::run_arg::args(run, size));
     cmd
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Screen, Windows,
-        after_close, centred, clicked, inherited, mac_chord, screen,
+        AfterClose, Asked, Chord, Clicked, Command, LAST_WINDOW, LastWindow, Left, Placed, Screen,
+        Windows, after_close, centred, clicked, focus_back, inherited, mac_chord, placed, screen,
     };
     use baud_core::{FileHost, Owned, Term, WorkingDirectory};
     use baud_domain::{BytePos, ReadLen, Row, WinSize};
@@ -680,12 +713,14 @@ mod tests {
 
     /// **A link's window on Linux is this program again, `-e` and the
     /// argv after it, with no shell**: the program the executable's path,
-    /// the arguments `-e` then each element as it was -- a space and a
+    /// the arguments `--grid` and the clicking window's grid, `-e`, then each
+    /// element as it was -- a space and a
     /// `--` inside one included -- which `run_arg::asked` reads back to the
     /// same argv, started in the folder given with `PWD` naming it, and
     /// `WAYLAND_SOCKET` left out; a folder that is gone starts it where a
-    /// launch would. Named break: join the elements into one argument --
-    /// the arguments are two, not four.
+    /// launch would. Named breaks: join the elements into one argument --
+    /// the arguments are four, not six; leave the grid out -- the new window
+    /// opens at the default grid.
     #[test]
     fn a_links_window_on_linux_is_this_program_with_dash_e() {
         use std::ffi::{OsStr, OsString};
@@ -695,13 +730,22 @@ mod tests {
             .collect();
         let run = crate::rules::Run::given(argv).expect("a program");
         let dir = std::env::temp_dir();
-        let cmd = super::running_window(Path::new("/opt/baud/bin/baud"), run.clone(), Some(&dir));
+        let ws = crate::run_arg::Grid::of(
+            baud_domain::Cols::of_index(132),
+            baud_domain::Rows::of_index(43),
+        );
+        let cmd = super::running_window(
+            Path::new("/opt/baud/bin/baud"),
+            run.clone(),
+            Some(ws),
+            Some(&dir),
+        );
         assert_eq!(cmd.get_program(), "/opt/baud/bin/baud");
         let args: Vec<&OsStr> = cmd.get_args().collect();
-        assert_eq!(args, ["-e", "hx", "/tmp/a b.rs", "--"]);
+        assert_eq!(args, ["--grid", "132x43", "-e", "hx", "/tmp/a b.rs", "--"]);
         assert_eq!(
             crate::run_arg::asked(args.iter().map(OsString::from)),
-            crate::run_arg::Asked::Run(run.clone()),
+            crate::run_arg::Asked::Run(run.clone(), Some(ws)),
             "the new process reads the argv it was given"
         );
         assert_eq!(cmd.get_current_dir(), Some(dir.as_path()));
@@ -714,7 +758,42 @@ mod tests {
             envs.contains(&(OsStr::new("WAYLAND_SOCKET"), None)),
             "{envs:?}"
         );
-        let gone = super::running_window(Path::new("/b"), run, Some(Path::new("/no/such/dir")));
+        let gone =
+            super::running_window(Path::new("/b"), run, None, Some(Path::new("/no/such/dir")));
         assert_eq!(gone.get_current_dir(), None, "a folder that is gone");
+    }
+
+    /// **A link's window takes the clicked window's frame exactly**, over
+    /// the key window's cascade; with no window to cover it cascades from
+    /// the key window, and with neither it goes where AppKit puts one.
+    /// Named break: cascade whenever there is a key window -- the link's
+    /// window opens a step down and right of the one it covers.
+    #[test]
+    fn a_links_window_takes_the_clicked_frame() {
+        let (clicked, key) = ((120, 80, 1013, 655), (40, 40, 960, 600));
+        assert_eq!(placed(Some(clicked), Some(key)), Placed::Over(clicked));
+        assert_eq!(placed(Some(clicked), None), Placed::Over(clicked));
+        assert_eq!(placed(None, Some(key)), Placed::Cascade(key), "Command-N's");
+        assert_eq!(placed::<()>(None, None), Placed::Default, "the launch's");
+    }
+
+    /// **A closing link's window gives the keyboard back to the window it
+    /// covered, if that one is still open**: open, it is the one; closed
+    /// first, none, and no other window is taken in its place; a window
+    /// opened over nothing gives nothing back. Named breaks: give it back to
+    /// none -- the clicked window is left behind; to the window opened last
+    /// -- a closed-first window's place goes to another.
+    #[test]
+    fn a_links_window_gives_the_keyboard_back_to_the_one_it_covered() {
+        let mut open = Windows::new();
+        let clicked = open.open("clicked");
+        let other = open.open("other");
+        let link = open.open("link's");
+        assert_eq!(focus_back(&open, Some(clicked)), Some(&"clicked"));
+        assert_eq!(focus_back(&open, None), None, "opened over nothing");
+        let _ = open.close(link);
+        let _ = open.close(clicked);
+        assert_eq!(focus_back(&open, Some(clicked)), None, "closed first");
+        assert!(open.get(other).is_some(), "the control: another is open");
     }
 }
