@@ -69,6 +69,27 @@ pub struct Pty {
     /// process.
     #[cfg(target_os = "macos")]
     closing: Option<std::io::PipeWriter>,
+    /// **How a link's program ended, for its window** (`held.rs`): its
+    /// name, its start, and the status the reader reaps once the stream
+    /// ends. None for a shell window, which never holds.
+    #[cfg(target_os = "macos")]
+    reaping: Option<Reaping>,
+}
+
+/// **A link's program, watched for how it ends** (`Pty::after_exit`).
+#[cfg(target_os = "macos")]
+struct Reaping {
+    program: OsString,
+    born: std::time::Instant,
+    reaped: Arc<std::sync::OnceLock<Reaped>>,
+}
+
+/// **The status `waitpid` gave a link's program, and when.**
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug)]
+struct Reaped {
+    status: std::process::ExitStatus,
+    at: std::time::Instant,
 }
 
 /// **A window's close hangs up its shell**, as the process's exit always
@@ -1600,7 +1621,9 @@ impl Pty {
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
         let (child, master) = Pty::fork(told, at, shell)?;
-        Some(Pty::reading(master, Some(child), told, wake))
+        // A link's program is watched for how it ends; a shell is not.
+        let program = shell.run.as_ref().map(|r| r.program().to_os_string());
+        Some(Pty::reading(master, Some(child), told, program, wake))
     }
 
     /// The pty over `master`, a child's manager the fork told `told`,
@@ -1610,6 +1633,7 @@ impl Pty {
         master: crate::sys::Fd,
         child: Option<crate::sys::Pid>,
         told: crate::sys::Winsize,
+        program: Option<OsString>,
         wake: impl Fn() + Send + 'static,
     ) -> Pty {
         // Before the reader starts, so it never sees the master block.
@@ -1618,7 +1642,21 @@ impl Pty {
         let signalled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&signalled);
         let (held, closing) = Reading::of(master);
-        std::thread::spawn(move || reader(held, tx, flag, wake));
+        // A link's program, watched for how it ends: its start now, and its
+        // status where the reader reaps it.
+        let (reaping, reaps) = program
+            .zip(child)
+            .map(|(program, pid)| {
+                let reaped = Arc::new(std::sync::OnceLock::new());
+                let watch = Reaping {
+                    program,
+                    born: std::time::Instant::now(),
+                    reaped: Arc::clone(&reaped),
+                };
+                (watch, (pid, reaped))
+            })
+            .unzip();
+        std::thread::spawn(move || reader(held, tx, flag, reaps, wake));
         Pty {
             master,
             child,
@@ -1627,6 +1665,7 @@ impl Pty {
             rx,
             signalled,
             closing,
+            reaping,
         }
     }
 
@@ -1654,7 +1693,7 @@ impl Pty {
             started_by,
             None,
         )?;
-        Some(Pty::reading(master, None, told, wake))
+        Some(Pty::reading(master, None, told, None, wake))
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
@@ -1785,6 +1824,26 @@ impl Pty {
         self.child
     }
 
+    /// **What the window does now its child has ended** (`held::after_exit`):
+    /// a link's program by the status the reader reaped and how long after
+    /// its start; a shell window, or a program no status was reaped for,
+    /// closes. Asked once the stream has closed, which the reader says only
+    /// after the reap.
+    #[cfg(target_os = "macos")]
+    pub fn after_exit(&self) -> crate::held::AfterExit {
+        let Some(r) = &self.reaping else {
+            return crate::held::AfterExit::Close;
+        };
+        let Some(got) = r.reaped.get() else {
+            return crate::held::AfterExit::Close;
+        };
+        crate::held::after_exit(
+            Some(&r.program),
+            crate::held::Ended::of(got.status),
+            got.at.saturating_duration_since(r.born),
+        )
+    }
+
     /// **The pty's device**, as the badge's `tty` names it: "The path to
     /// the local TTY device", `ptsname`'s answer at the spawn.
     pub fn tty(&self) -> Option<&std::path::Path> {
@@ -1857,8 +1916,34 @@ impl Reading {
     }
 }
 
+/// **The status `pid` ended with**, reaped: `waitpid` with no options,
+/// which waits, called by the reader once the stream has ended, when the
+/// child is ending. Again when a signal cuts it short; none when there is
+/// no such child.
 #[cfg(target_os = "macos")]
-fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+fn reap(pid: crate::sys::Pid) -> Option<std::process::ExitStatus> {
+    use std::os::unix::process::ExitStatusExt;
+    let mut status: core::ffi::c_int = 0;
+    loop {
+        // SAFETY: `status` is a valid out-pointer for the call's length.
+        let got = unsafe { crate::sys::waitpid(pid, &raw mut status, 0) };
+        if got == pid {
+            return Some(std::process::ExitStatus::from_raw(status));
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return None;
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn reader(
+    held: Reading,
+    tx: Sender<Read>,
+    signalled: Arc<AtomicBool>,
+    reaps: Option<(crate::sys::Pid, Arc<std::sync::OnceLock<Reaped>>)>,
+    wake: impl Fn(),
+) {
     let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
     let mut sampler = crate::probe::Sampler::default();
@@ -1900,7 +1985,21 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
                 },
                 Waited::Failed => return,
             },
-            Got::Closed => return,
+            // The child's end: a link's program is reaped first, so its
+            // status is set before the channel says the stream closed.
+            Got::Closed => {
+                if let Some((pid, reaped)) = reaps {
+                    if let Some(status) = reap(pid) {
+                        let _ = reaped.set(Reaped {
+                            status,
+                            at: std::time::Instant::now(),
+                        });
+                    }
+                    drop(tx);
+                    wake();
+                }
+                return;
+            }
         };
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
@@ -3597,7 +3696,7 @@ mod tests {
         );
         let (ended, reader_ended) = channel();
         std::thread::spawn(move || {
-            reader(held, tx, flag, || {});
+            reader(held, tx, flag, None, || {});
             let _ = ended.send(());
         });
         let opened = fifo.clone();
@@ -3614,6 +3713,7 @@ mod tests {
             rx,
             signalled,
             closing,
+            reaping: None,
         };
         // The control: the reader's copy alone keeps the line up, so the
         // shell still answers through it once a write reaches it.
@@ -4369,6 +4469,65 @@ mod tests {
             "the control"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A link's program is reaped before its window hears the stream
+    /// close, so the window decides on the status it ended with**: real
+    /// children on a real pty, run as a link's window runs them, and drained
+    /// as the driver drains them. `exit 3` at once holds with its line;
+    /// `exit 0` closes; `kill -SEGV` of itself holds naming the signal; and
+    /// the same failure in a shell window, which is watched for nothing,
+    /// closes. Deterministic: the reader sets the status before it drops the
+    /// channel the drain reads `Closed` from. Named break: never reap -- the
+    /// failure closes its window with what it said.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_links_program_is_reaped_before_its_stream_closes() {
+        use crate::held::AfterExit;
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let told = text_area(&size, Px::of(8), Px::of(16));
+        let ended = |script: &str, link: bool| {
+            let argv = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
+            let run = crate::rules::Run::given(argv).expect("a program");
+            let start = ShellStart {
+                integration: crate::shell::Integration::Off,
+                program: None,
+                run: None,
+            }
+            .running(run.clone());
+            let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+            let (pid, master) =
+                Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
+                    .expect("forkpty");
+            let program = link.then(|| run.program().to_os_string());
+            let (woke, wakes) = channel();
+            let pty = Pty::reading(master, Some(pid), told, program, move || {
+                let _ = woke.send(());
+            });
+            let bound = std::time::Duration::from_secs(60);
+            // A shell window's reader ends with no wake, so a reader that
+            // has let go of its wake is drained again until the stream
+            // says so.
+            while pty.drain().stream == Stream::Open {
+                use std::sync::mpsc::RecvTimeoutError;
+                let got = wakes.recv_timeout(bound);
+                assert_ne!(got, Err(RecvTimeoutError::Timeout), "the reader ends");
+            }
+            pty.after_exit()
+        };
+        assert_eq!(
+            ended("exit 3", true),
+            AfterExit::Hold("sh exited 3; any key closes".into())
+        );
+        assert_eq!(ended("exit 0", true), AfterExit::Close);
+        assert_eq!(
+            ended("kill -SEGV $$", true),
+            AfterExit::Hold("sh ended on signal 11; any key closes".into())
+        );
+        assert_eq!(ended("exit 3", false), AfterExit::Close, "a shell window");
     }
 
     /// **A window's program runs on a real pty as its argv, with no shell

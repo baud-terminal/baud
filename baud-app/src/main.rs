@@ -331,6 +331,7 @@ mod credits;
 // `baud -e PROGRAM [ARGS...]`: the arguments read, pure, and on every
 // platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod held;
 mod run_arg;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform, and both drivers scroll through it.

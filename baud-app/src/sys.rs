@@ -257,10 +257,11 @@ unsafe extern "C" {
     #[cfg(test)]
     pub fn unlockpt(fd: Fd) -> c_int;
 
-    /// Waits for the child `pid` and reaps it, for the test that forks
-    /// many at once and must not leave them behind. A `pid_t` is an `int`
-    /// on both platforms, and so is the status.
-    #[cfg(test)]
+    /// Waits for the child `pid` and reaps it: the pty's reader, for how a
+    /// link's program ended (`pty::reap`), and the test that forks many at
+    /// once and must not leave them behind. A `pid_t` is an `int` on both
+    /// platforms, and so is the status.
+    #[cfg(any(target_os = "macos", test))]
     pub fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
 }
 

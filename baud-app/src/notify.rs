@@ -2618,7 +2618,8 @@ mod tests {
                 .map(|(b, _)| b.to_owned())
                 .expect(from)
         };
-        let exit = between("ifdrained.stream==Stream::Closed{", "self.close_later();");
+        // The close is `Driver::ended`'s, which closes or holds (`held.rs`).
+        let exit = between("ifdrained.stream==Stream::Closed{", "self.ended();");
         assert!(
             exit.ends_with(
                 "==crate::hostlog::Finished::Yes&&self.app.notes.checks()==crate::notify::Checks::Done{"

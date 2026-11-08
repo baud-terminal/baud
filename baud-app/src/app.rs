@@ -4939,6 +4939,17 @@ struct Driver {
     /// Whether the window's close has been asked for, once its shell has
     /// gone, so the pump that sees it again asks nothing more.
     close_asked: CloseAsked,
+    /// Whether a link's window is held open after its program failed
+    /// (`held.rs`), until a key closes it.
+    holding: Held,
+}
+
+/// Whether a link's window is held open after its program ended
+/// (`Driver::ended`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    No,
+    Yes,
 }
 
 /// Whether a window's close has been asked for (`Driver::close_later`).
@@ -8067,9 +8078,16 @@ mod drag_tests {
             .split_once(concat!("if drained.stream == ", "Stream::Closed {"))
             .expect("the control: the pump sees the end of the stream");
         let arm = closed.split_once("\n        }\n").expect("its arm ends").0;
+        // Through `ended`, which closes a shell's window and holds only a
+        // link's that failed (`held.rs`).
         assert!(
-            arm.contains(concat!("self.close_", "later();")),
+            arm.contains(concat!("self.", "ended();")),
             "the shell's exit closes its window"
+        );
+        let ended = body(SRC, concat!("    fn ", "ended(&mut self) {"), "    ");
+        assert!(
+            ended.contains(concat!("AfterExit::Close => self.close_", "later(),")),
+            "{ended}"
         );
         assert!(!arm.contains(terminate), "and terminates nothing itself");
         let show = launch(SRC).show;
@@ -8214,6 +8232,62 @@ mod drag_tests {
             !prepare.contains(concat!("thread::", "spawn")),
             "the boot starts a thread before the shell is spawned"
         );
+    }
+
+    /// **A link's window that failed at once holds, and a key closes it**,
+    /// wired as `held.rs` decides: the child's end, once the log is
+    /// written, asks `Driver::ended` rather than closing; `ended` closes or
+    /// holds as `Pty::after_exit` says, writes the line through the core
+    /// with `held::written`, and asks nothing more once held; and `key`
+    /// closes a held window on any key past the Command chords, which
+    /// still copy and find, before anything sends a key on: it goes to no
+    /// program. The windows are AppKit's, so the source is what can fail. Named breaks: close on the child's end as before -- the
+    /// line never shows; let a held window's key through -- it types into
+    /// a pty no one reads and the window stays.
+    #[test]
+    fn a_links_window_that_failed_holds_until_a_key() {
+        const SRC: &str = include_str!("app.rs");
+        let closed = SRC
+            .split_once(concat!("if drained.stream == ", "Stream::Closed {"))
+            .expect("the child's end")
+            .1;
+        let closed = &closed[..closed.find("\n        }\n").expect("its end")];
+        assert!(closed.contains(concat!("self.", "ended();")), "{closed}");
+        assert!(
+            !closed.contains(concat!("self.close_", "later();")),
+            "{closed}"
+        );
+        let ended = body(SRC, concat!("    fn ", "ended(&mut self) {"), "    ");
+        let (gate, rest) = ended
+            .split_once(concat!("match self.app.pty.", "after_exit() {"))
+            .expect("the decision");
+        assert!(
+            gate.contains(concat!("if self.holding == ", "Held::Yes {")),
+            "{gate}"
+        );
+        assert!(rest.contains(concat!("AfterExit::Close => ", "self.close_later(),")));
+        assert!(rest.contains(concat!("self.holding = ", "Held::Yes;")));
+        assert!(rest.contains(concat!("crate::held::", "written(&line)")));
+        let key = body(
+            SRC,
+            concat!("    fn key(&mut self, key: ", "&KeyPress) -> Handled {"),
+            "    ",
+        );
+        let gate = concat!(
+            "if self.holding == Held::Yes {\n",
+            "            self.close_later();\n",
+            "            return Handled::Consumed;\n"
+        );
+        let at = key.find(gate).expect("the held gate");
+        let command = key
+            .find(concat!("if key.modifiers.", "command {"))
+            .expect("the Command arm");
+        let (_, after) = key[command..].split_once("\n        }\n").expect("its end");
+        assert!(
+            after.trim_start().starts_with("// A held window"),
+            "{after}"
+        );
+        assert!(at < key.find("self.typed(e, ").expect("the key sent on"));
     }
 
     /// **A link's window covers the clicked window and gives it the keyboard
@@ -12225,7 +12299,7 @@ impl Driver {
                 == crate::hostlog::Finished::Yes
                 && self.app.notes.checks() == crate::notify::Checks::Done
             {
-                self.close_later();
+                self.ended();
             }
         }
         // Hold the frame while the application is mid synchronised update, so
@@ -12393,6 +12467,12 @@ impl Responder for Driver {
                     self.find_chord(chord);
                 }
             }
+            return Handled::Consumed;
+        }
+        // A held window: any key but a Command chord closes it -- Command-C
+        // still copies what the program said -- and goes to no program.
+        if self.holding == Held::Yes {
+            self.close_later();
             return Handled::Consumed;
         }
         // `?1011`, scroll to the bottom on a key press: set at power-on, so a
@@ -13657,6 +13737,7 @@ impl Opening {
             glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
             window_id: None,
             close_asked: CloseAsked::No,
+            holding: Held::No,
         };
         // **The config's watch, heard on the main queue** (`reload.rs`): the
         // dispatch source's handler drains the kqueue and wakes the view, and
@@ -14046,6 +14127,31 @@ impl Driver {
             .map(<[String]>::to_vec)
             .unwrap_or_default();
         crate::windows::inherited(self.app.term.working_directory(), &names, self.derive.dir())
+    }
+
+    /// **The window's child has ended**, its stream closed and the log
+    /// written: a shell window closes, and a link's window closes or holds
+    /// as `held::after_exit` says of how its program ended. A held window
+    /// shows one line below what the program printed, written here rather
+    /// than to a pty no one reads, and stays until a key closes it
+    /// (`Driver::key`); each turn after asks nothing more.
+    fn ended(&mut self) {
+        if self.holding == Held::Yes {
+            return;
+        }
+        match self.app.pty.after_exit() {
+            crate::held::AfterExit::Close => self.close_later(),
+            crate::held::AfterExit::Hold(line) => {
+                self.holding = Held::Yes;
+                let bytes = crate::held::written(&line);
+                self.app.term.write_at(baud_core::BytePos::ZERO, &bytes);
+                self.app.term.feed(
+                    baud_core::BytePos::ZERO,
+                    baud_core::ReadLen::from_index(bytes.len()),
+                );
+                self.app.pending = Pending::Dirty;
+            }
+        }
     }
 
     /// **The window's close, asked for once**, on a later turn of the main
