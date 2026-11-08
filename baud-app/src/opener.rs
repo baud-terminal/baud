@@ -52,7 +52,10 @@ pub(crate) struct Opener {
 }
 
 impl Opener {
-    /// Start `cmd`, kept until it is reaped.
+    /// Start `cmd`, kept until it is reaped. Linux's, on its loop's next
+    /// turn (`next_turn.rs`); macOS starts its commands on the effect
+    /// queue's turn (`os_effect.rs`) and keeps them here.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn start(&mut self, mut cmd: Command) -> std::io::Result<()> {
         self.children.push(cmd.spawn()?);
         Ok(())

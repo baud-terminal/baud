@@ -57,9 +57,12 @@ pub(crate) enum OsEffect {
         shown: ShownLink,
     },
     /// A file shown in Finder; which link or path asked, for the log.
-    Reveal { uri: AdmittedUri, from: Revealed },
-    /// A `[link.*]` command started.
-    Command(std::process::Command),
+    Reveal { uri: AdmittedUri, from: Asked },
+    /// A `[link.*]` command started; what asked, for the log.
+    Command {
+        cmd: std::process::Command,
+        from: Asked,
+    },
     /// Text to the pasteboard, for a `[link.*]` rule's or a printed
     /// path's `copy`.
     Copy(ClipText),
@@ -67,8 +70,8 @@ pub(crate) enum OsEffect {
     Announce(Spoken),
 }
 
-/// What a reveal was asked for, as the log says it.
-pub(crate) enum Revealed {
+/// What asked for a reveal or a command, as the log says it.
+pub(crate) enum Asked {
     /// A printed path's click.
     PrintedPath,
     /// A link in the window, as shown.
@@ -86,10 +89,13 @@ pub(crate) enum Outcome {
     /// A reveal, as the OS answered it.
     Revealed {
         opened: baud_present_macos::link::Opened,
-        from: Revealed,
+        from: Asked,
     },
     /// A command, started or not.
-    Started(std::io::Result<std::process::Child>),
+    Started {
+        started: std::io::Result<std::process::Child>,
+        from: Asked,
+    },
     /// The pasteboard written with this text, or refused.
     Copied {
         written: baud_present_macos::clipboard::Written,
@@ -293,12 +299,15 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
             opened: workspace(t, Ask::Reveal, uri.as_str()),
             from,
         },
-        OsEffect::Command(cmd) => match (crate::app::start_command(cmd), open) {
+        OsEffect::Command { cmd, from } => match (crate::app::start_command(cmd), open) {
             (Ok(child), Open::Closed) => {
                 ORPHANS.with_borrow_mut(|o| o.keep(child));
-                Outcome::Started(Err(std::io::Error::other("its window closed")))
+                Outcome::Started {
+                    started: Err(std::io::Error::other("its window closed")),
+                    from,
+                }
             }
-            (started, _) => Outcome::Started(started),
+            (started, _) => Outcome::Started { started, from },
         },
         OsEffect::Copy(text) => Outcome::Copied {
             written: baud_present_macos::clipboard::write_text(text.as_str()),

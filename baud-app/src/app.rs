@@ -14252,7 +14252,7 @@ impl Driver {
                             Ok(()) => {
                                 let _ = self.app.os.ask(crate::os_effect::OsEffect::Reveal {
                                     uri,
-                                    from: crate::os_effect::Revealed::PrintedPath,
+                                    from: crate::os_effect::Asked::PrintedPath,
                                 });
                                 self.app.links.revealed.bump();
                                 crate::info!("printed path revealed");
@@ -15518,7 +15518,7 @@ impl Driver {
     /// open `Declined` is the click having tried: with no app the bar says
     /// so, and the programs are asked about again.
     fn turns_answered(&mut self) {
-        use crate::os_effect::{Outcome, Revealed};
+        use crate::os_effect::{Asked, Outcome};
         use baud_present_macos::link::Opened;
         let mut done = core::mem::take(&mut self.app.os_done);
         self.app.os.answered(&mut done);
@@ -15560,20 +15560,40 @@ impl Driver {
                 } => {}
                 Outcome::Revealed {
                     opened,
-                    from: Revealed::PrintedPath,
+                    from: Asked::PrintedPath,
                 } => crate::warn!("printed path not revealed ({opened:?})"),
                 Outcome::Revealed {
                     opened,
-                    from: Revealed::Link(shown),
+                    from: Asked::Link(shown),
                 } => crate::warn!("link not revealed ({opened:?}): {shown}"),
-                Outcome::Started(Ok(child)) => {
+                Outcome::Started {
+                    started: Ok(child),
+                    from,
+                } => {
                     self.app.commands.keep(child);
                     self.app.links.opened.bump();
-                    crate::info!("printed path sent to [link.path]'s command");
+                    match from {
+                        Asked::PrintedPath => {
+                            crate::info!("printed path sent to [link.path]'s command")
+                        }
+                        Asked::Link(shown) => {
+                            crate::info!("link handed to a [link.*] command: {shown}")
+                        }
+                    }
                 }
-                Outcome::Started(Err(e)) => {
+                Outcome::Started {
+                    started: Err(e),
+                    from,
+                } => {
                     self.app.links.refused.bump();
-                    crate::warn!("printed path not sent: [link.path]'s command: {e}");
+                    match from {
+                        Asked::PrintedPath => {
+                            crate::warn!("printed path not sent: [link.path]'s command: {e}")
+                        }
+                        Asked::Link(shown) => {
+                            crate::warn!("link not sent: [link.*] command: {e}: {shown}")
+                        }
+                    }
                 }
                 Outcome::Copied {
                     written: clipboard::Written::Taken,
@@ -15660,14 +15680,14 @@ impl Driver {
                         let built = t
                             .rule()
                             .and_then(|ix| self.app.uris.rules().command(ix, t.as_str()));
-                        match built.map(|b| b.map(|cmd| self.app.commands.start(cmd))) {
-                            Some(Ok(Ok(()))) => {
-                                self.app.links.opened.bump();
-                                crate::info!("link handed to a [link.*] command: {shown}");
-                            }
-                            Some(Ok(Err(e))) => {
-                                self.app.links.refused.bump();
-                                crate::warn!("link not sent: [link.*] command: {e}: {shown}");
+                        // Started on the effect queue's turn; what it did
+                        // comes back to `turns_answered`, counted and said.
+                        match built {
+                            Some(Ok(cmd)) => {
+                                let _ = self.app.os.ask(crate::os_effect::OsEffect::Command {
+                                    cmd,
+                                    from: crate::os_effect::Asked::Link(shown),
+                                });
                             }
                             Some(Err(why)) => {
                                 self.app.links.refused.bump();
@@ -15724,7 +15744,7 @@ impl Driver {
                                     crate::info!("link revealed: {shown}");
                                     let _ = self.app.os.ask(crate::os_effect::OsEffect::Reveal {
                                         uri: uri_owned,
-                                        from: crate::os_effect::Revealed::Link(shown),
+                                        from: crate::os_effect::Asked::Link(shown),
                                     });
                                 }
                                 Err(why) => {
@@ -16825,7 +16845,10 @@ impl Driver {
     /// (`os_effect.rs`): the started child comes back on a wake, for the
     /// tick's reaper.
     fn start_later(&mut self, cmd: std::process::Command) {
-        let _ = self.app.os.ask(crate::os_effect::OsEffect::Command(cmd));
+        let _ = self.app.os.ask(crate::os_effect::OsEffect::Command {
+            cmd,
+            from: crate::os_effect::Asked::PrintedPath,
+        });
     }
 
     /// **A copy of the selection, said** (`copied.rs`): the words, the pulse
@@ -21399,6 +21422,10 @@ mod mark_tests {
             "only inside About's turn"
         );
         assert!(about.contains(concat!("opener::", "workspace(turn,")));
+        // A `[link.*]` command too: started on the queue's turn, never in
+        // the click's callback.
+        assert_eq!(src.matches(concat!("commands.", "start(")).count(), 0);
+        assert_eq!(src.matches(concat!("OsEffect::", "Command {")).count(), 2);
         // The answers -- the turns' and the paths worker's -- are drained
         // on a pump that is not the tick, and the tick's paths turn takes
         // no answer.
