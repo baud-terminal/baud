@@ -69,6 +69,12 @@ name = "on_screen"
 path = "tests/on_screen.rs"
 harness = false
 
+# The same, for a view's callback handing a link to the OS.
+[[test]]
+name = "deferred_link"
+path = "tests/deferred_link.rs"
+harness = false
+
 # `baud-core`'s NEON scan, on, for the reason `baud-render` gives.
 [features]
 default = ["neon-scan"]

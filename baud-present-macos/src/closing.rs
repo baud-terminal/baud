@@ -55,7 +55,9 @@ pub fn when_occlusion_changes(window: &NSWindow, then: impl Fn() + 'static) -> C
 }
 
 fn hear(window: &NSWindow, name: &NSNotificationName, then: impl Fn() + 'static) -> Closing {
-    let block = RcBlock::new(move |_: NonNull<NSNotification>| then());
+    let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+        crate::unwind::guard("a window's close or occlusion observer", (), &then);
+    });
     let center = NSNotificationCenter::defaultCenter();
     let object: &AnyObject = window;
     // SAFETY: the object filter is this window, and no queue, so the block

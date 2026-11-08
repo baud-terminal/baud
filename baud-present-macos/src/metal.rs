@@ -2265,7 +2265,7 @@ impl Gpu {
                         // buffer that completed, valid for the call.
                         let landed = landing(unsafe { done.as_ref() });
                         flying.fetch_sub(1, Ordering::AcqRel);
-                        then(landed);
+                        crate::unwind::guard("a frame's GPU completion", (), || then(landed));
                     });
                 // SAFETY: the block is a valid `MTLCommandBufferHandler`
                 // for the length of the call; Metal copies it, so the

@@ -1,5 +1,6 @@
 //! Handing an admitted link to the OS: open it with the default handler
-//! for its scheme, or reveal a file in Finder.
+//! for its scheme, or reveal a file in Finder -- on the main queue's next
+//! turn, never inside the callback that asked ([`later`]).
 //!
 //! Safe calls only -- every `NSWorkspace` and `NSURL` call here is a safe
 //! fn in the pinned bindings, reached through the window crate's
@@ -56,31 +57,80 @@ pub fn parse(url: &str) -> Result<Retained<NSURL>, Opened> {
     }
 }
 
-/// Open with the default handler for the scheme.
-pub fn open(url: &str) -> Opened {
-    match parse(url) {
-        Err(o) => o,
-        Ok(u) => {
-            if NSWorkspace::sharedWorkspace().openURL(&u) {
-                Opened::Taken
-            } else {
-                Opened::Declined
-            }
-        }
-    }
+/// What a link asks of the OS.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ask {
+    /// Open with the default handler for the scheme.
+    Open,
+    /// Select the file in Finder. Never launches it, which is the whole
+    /// reason a `file://` link takes this route and not `Open`.
+    Reveal,
 }
 
-/// Select the file in Finder. Never launches it, which is the whole reason
-/// a `file://` link takes this route and not [`open`].
-pub fn reveal(url: &str) -> Opened {
-    match parse(url) {
+/// Who carries an [`Ask`] out: [`workspace`] in the app, a recorder in a
+/// test. A plain `fn`, so the block that takes it to the main queue is
+/// `Send` and holds nothing of the caller's.
+pub type Hand = fn(Ask, &str) -> Opened;
+
+/// **`NSWorkspace` itself**, called only from the block [`later`] queues.
+///
+/// `activateFileViewerSelectingURLs:` is not a quick call: AppKit performs
+/// it as a Finder service, and the services handler waits for the reply in
+/// a nested event loop (`+[NSServicesMenuHandler _performServiceFromEntry:...]`
+/// -> `_checkForCancellationUntilDate` -> `nextEventMatchingMask:`), which
+/// runs whatever the main run loop has queued -- the view's own `wake:` and
+/// `presentSurface:` performs among them. Made from a display-link tick it
+/// re-entered the view while the tick held its responder, and the panic
+/// that followed aborted the app (`DrawableView`'s responder is a
+/// `RefCell`, borrowed for the whole of each callback). `openURL:` is a
+/// synchronous LaunchServices call whose header says nothing of the run
+/// loop either way; it goes the same route, since nothing a tick does
+/// should wait on another process.
+pub fn workspace(ask: Ask, url: &str) -> Opened {
+    autoreleasepool(|_| match parse(url) {
         Err(o) => o,
-        Ok(u) => {
-            NSWorkspace::sharedWorkspace()
-                .activateFileViewerSelectingURLs(&NSArray::from_slice(&[&*u]));
-            Opened::Taken
-        }
-    }
+        Ok(u) => match ask {
+            Ask::Open => {
+                if NSWorkspace::sharedWorkspace().openURL(&u) {
+                    Opened::Taken
+                } else {
+                    Opened::Declined
+                }
+            }
+            Ask::Reveal => {
+                NSWorkspace::sharedWorkspace()
+                    .activateFileViewerSelectingURLs(&NSArray::from_slice(&[&*u]));
+                Opened::Taken
+            }
+        },
+    })
+}
+
+/// **Hand a link to the OS after the callback that asked has returned.**
+///
+/// The parse is answered now -- `Unparsed` and `Mismatch` are the caller's
+/// to say at once, and `NSURL` runs no loop -- and the hand-over is a block
+/// on the main queue, which runs on a later turn of the main run loop and
+/// so outside every responder callback, none of which runs the loop
+/// itself, with no responder borrowed: a nested loop inside `hand` then
+/// delivers the view's performs into a responder that is free to take
+/// them. `done` hears what `hand` answered,
+/// on the main thread, after `hand` has returned; it is the caller's way
+/// back in, through a waker, and holds no borrow across the hand-over.
+/// The block runs through [`crate::unwind::guard`], so a panic in it is
+/// stopped there rather than in libdispatch, which would abort.
+pub fn later(
+    ask: Ask,
+    url: &str,
+    hand: Hand,
+    done: impl FnOnce(Opened) + Send + 'static,
+) -> Result<(), Opened> {
+    autoreleasepool(|_| parse(url).map(drop))?;
+    let url = url.to_owned();
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        crate::unwind::guard("a link handed to the OS", (), move || done(hand(ask, &url)));
+    });
+    Ok(())
 }
 
 /// This machine's name, as `file://host/path` links name it.

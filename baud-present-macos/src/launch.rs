@@ -29,8 +29,9 @@ use macos_liquid_glass::objc2_foundation::{NSNotification, NSNotificationCenter}
 pub fn when_launched(then: impl FnOnce() + 'static) {
     let once = RefCell::new(Some(then));
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-        if let Some(f) = once.borrow_mut().take() {
-            f();
+        let f = once.borrow_mut().take();
+        if let Some(f) = f {
+            crate::unwind::guard("the launch observer", (), f);
         }
     });
     let center = NSNotificationCenter::defaultCenter();

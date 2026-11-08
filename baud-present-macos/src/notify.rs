@@ -157,23 +157,28 @@ define_class!(
         /// where the program asked for that.
         #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
         fn will_present(&self, _center: &AnyObject, _n: &AnyObject, handler: &Block<dyn Fn(usize)>) {
-            handler.call((PRESENT,));
+            crate::unwind::guard("the notification delegate's will-present", (), || {
+                handler.call((PRESENT,));
+            });
         }
 
         /// A click, on the notification or one of its actions.
         #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
         fn did_receive(&self, _center: &AnyObject, response: &AnyObject, handler: &Block<dyn Fn()>) {
-            // SAFETY: `UNNotificationResponse`'s `actionIdentifier` and
-            // `notification`, `UNNotification`'s `request` and
-            // `UNNotificationRequest`'s `identifier`, each nonnull.
-            let (action, id) = unsafe {
-                let action: Retained<NSString> = msg_send![response, actionIdentifier];
-                let n: Retained<AnyObject> = msg_send![response, notification];
-                let req: Retained<AnyObject> = msg_send![&n, request];
-                let id: Retained<NSString> = msg_send![&req, identifier];
-                (action.to_string(), id.to_string())
-            };
-            self.ivars().push(Click { id, action });
+            crate::unwind::guard("the notification delegate's click", (), || {
+                // SAFETY: `UNNotificationResponse`'s `actionIdentifier` and
+                // `notification`, `UNNotification`'s `request` and
+                // `UNNotificationRequest`'s `identifier`, each nonnull.
+                let (action, id) = unsafe {
+                    let action: Retained<NSString> = msg_send![response, actionIdentifier];
+                    let n: Retained<AnyObject> = msg_send![response, notification];
+                    let req: Retained<AnyObject> = msg_send![&n, request];
+                    let id: Retained<NSString> = msg_send![&req, identifier];
+                    (action.to_string(), id.to_string())
+                };
+                self.ivars().push(Click { id, action });
+            });
+            // Answered whatever became of the click: the centre waits on it.
             handler.call(());
         }
     }
@@ -340,12 +345,14 @@ impl Center {
         self.asked.set(Permission::Asked);
         let shared = Arc::clone(&self.permission);
         let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
-            if let Ok(mut p) = shared.lock() {
-                *p = match granted.as_bool() {
-                    true => Permission::Granted,
-                    false => Permission::Denied,
-                };
-            }
+            crate::unwind::guard("the notification permission's answer", (), || {
+                if let Ok(mut p) = shared.lock() {
+                    *p = match granted.as_bool() {
+                        true => Permission::Granted,
+                        false => Permission::Denied,
+                    };
+                }
+            });
         });
         // SAFETY: `-requestAuthorizationWithOptions:completionHandler:`,
         // the options an `NSUInteger`, the handler `void (^)(BOOL,
@@ -396,23 +403,25 @@ impl Center {
     pub fn ask_delivered(&self) {
         let shared = Arc::clone(&self.delivered);
         let done = RcBlock::new(move |list: core::ptr::NonNull<NSArray<AnyObject>>| {
-            // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
-            let list = unsafe { list.as_ref() };
-            let ids: Vec<String> = list
-                .iter()
-                .map(|n| {
-                    // SAFETY: a notification's `request` and its
-                    // `identifier`, each nonnull.
-                    unsafe {
-                        let req: Retained<AnyObject> = msg_send![&n, request];
-                        let id: Retained<NSString> = msg_send![&req, identifier];
-                        id.to_string()
-                    }
-                })
-                .collect();
-            if let Ok(mut d) = shared.lock() {
-                *d = Some(ids);
-            }
+            crate::unwind::guard("the delivered notifications' answer", (), || {
+                // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
+                let list = unsafe { list.as_ref() };
+                let ids: Vec<String> = list
+                    .iter()
+                    .map(|n| {
+                        // SAFETY: a notification's `request` and its
+                        // `identifier`, each nonnull.
+                        unsafe {
+                            let req: Retained<AnyObject> = msg_send![&n, request];
+                            let id: Retained<NSString> = msg_send![&req, identifier];
+                            id.to_string()
+                        }
+                    })
+                    .collect();
+                if let Ok(mut d) = shared.lock() {
+                    *d = Some(ids);
+                }
+            });
         });
         // SAFETY: `-getDeliveredNotificationsWithCompletionHandler:`, the
         // handler `void (^)(NSArray<UNNotification *> *)`.
@@ -641,31 +650,33 @@ define_class!(
     impl Tile {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            let b = self.bounds();
-            let app = NSApplication::sharedApplication(self.mtm());
-            if let Some(icon) = app.applicationIconImage() {
-                icon.drawInRect(b);
-            }
-            let Some(bar) = self.ivars().get() else {
-                return;
-            };
-            let (w, h) = (b.size.width, b.size.height);
-            let track = NSRect::new(NSPoint::new(w * 0.1, h * 0.06), NSSize::new(w * 0.8, h * 0.12));
-            let r: CGFloat = track.size.height / 2.0;
-            NSColor::colorWithWhite_alpha(0.0, 0.55).setFill();
-            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(track, r, r).fill();
-            let colour = match bar.tone {
-                Tone::Normal => NSColor::controlAccentColor(),
-                Tone::Error => NSColor::systemRedColor(),
-                Tone::Paused => NSColor::systemYellowColor(),
-            };
-            let (fill, alpha) = match bar.fraction {
-                Some(f) => (f.clamp(0.0, 1.0), 1.0),
-                None => (1.0, 0.45),
-            };
-            colour.colorWithAlphaComponent(alpha).setFill();
-            let inner = NSRect::new(track.origin, NSSize::new(track.size.width * fill, track.size.height));
-            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(inner, r, r).fill();
+            crate::unwind::guard("the Dock tile's draw", (), || {
+                let b = self.bounds();
+                let app = NSApplication::sharedApplication(self.mtm());
+                if let Some(icon) = app.applicationIconImage() {
+                    icon.drawInRect(b);
+                }
+                let Some(bar) = self.ivars().get() else {
+                    return;
+                };
+                let (w, h) = (b.size.width, b.size.height);
+                let track = NSRect::new(NSPoint::new(w * 0.1, h * 0.06), NSSize::new(w * 0.8, h * 0.12));
+                let r: CGFloat = track.size.height / 2.0;
+                NSColor::colorWithWhite_alpha(0.0, 0.55).setFill();
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(track, r, r).fill();
+                let colour = match bar.tone {
+                    Tone::Normal => NSColor::controlAccentColor(),
+                    Tone::Error => NSColor::systemRedColor(),
+                    Tone::Paused => NSColor::systemYellowColor(),
+                };
+                let (fill, alpha) = match bar.fraction {
+                    Some(f) => (f.clamp(0.0, 1.0), 1.0),
+                    None => (1.0, 0.45),
+                };
+                colour.colorWithAlphaComponent(alpha).setFill();
+                let inner = NSRect::new(track.origin, NSSize::new(track.size.width * fill, track.size.height));
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(inner, r, r).fill();
+            });
         }
     }
 );

@@ -58,7 +58,9 @@ pub fn forward_command_key_ups(view: Retained<NSView>) -> KeyUps {
         if !forwards(e.modifierFlags(), window) {
             return event.as_ptr();
         }
-        view.keyUp(e);
+        // A panic in the view's key-up stops here, and the event was
+        // delivered as far as it got.
+        crate::unwind::guard("the key-up monitor", (), || view.keyUp(e));
         // Delivered: AppKit would only keep it.
         core::ptr::null_mut()
     });

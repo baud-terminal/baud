@@ -52,6 +52,7 @@ pub mod redraw;
 pub mod screens;
 pub mod selection;
 pub mod settings;
+pub mod unwind;
 
 pub use journal::Landing;
 pub use metal::{

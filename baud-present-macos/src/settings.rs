@@ -233,7 +233,9 @@ fn observe(
 ) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
     let marks = Arc::clone(marks);
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
-        marks.of(s).store(true, Ordering::Release);
+        crate::unwind::guard("a setting's observer", (), || {
+            marks.of(s).store(true, Ordering::Release);
+        });
     });
     // SAFETY: no object filter and no queue, so the block runs on the
     // posting thread; it captures an `Arc` of atomics, which is `Send` and
