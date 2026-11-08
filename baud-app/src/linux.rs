@@ -401,6 +401,11 @@ struct Driver {
     /// activated, logged at `info` from the end of each turn, its deadline
     /// a bound on the wait while the log shows it.
     report: crate::report::Polled<Instant>,
+    /// Whether a link's window is held open after its program failed
+    /// (`held.rs`), with its line, until a key closes it.
+    holding: crate::held::Holding,
+    /// Whether a key in a held window asked the window to close.
+    quit: Quit,
 }
 
 /// **The config's watch** (`reload.rs`), and the config the window last
@@ -448,6 +453,13 @@ fn bar_frame(renderer: &Renderer<'_, '_>, scale: f64) -> crate::bar::Frame {
 /// Whether a read brought a reply the core queued.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Answered {
+    No,
+    Yes,
+}
+
+/// Whether the window's loop ends at the end of this turn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Quit {
     No,
     Yes,
 }
@@ -788,6 +800,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         notice,
         scheme: None,
         report: crate::report::Polled::new(Instant::now(), crate::report::Logged::now()),
+        holding: crate::held::Holding::No,
+        quit: Quit::No,
     };
     d.timed.set_image_animation(cfg.image_animation);
     if let crate::access::MotionSource::Fixed(m) = motion_source {
@@ -889,9 +903,11 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             .probes
             .deadline(&d.seat.paths, now)
             .map(|t| t.saturating_duration_since(now));
+        // With no pidfd, the one more look a hung-up master's child is owed.
+        let reap = d.pty.reap_owed().map(|t| t.saturating_duration_since(now));
         let timeout = [
             sync, repeat, flash, copied, caret, decode, paste, delay, effects, frames, expiry,
-            settle, report, lights, words, paths,
+            settle, report, lights, words, paths, reap,
         ]
         .into_iter()
         .flatten()
@@ -925,9 +941,17 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             transfers.push((fd, crate::pty::Interest::Read));
             transfers.len() - 1
         });
+        // The child, as its pidfd, until it is reaped: readable once it has
+        // ended (`held.rs`).
+        let child = d.pty.child_fd().map(|fd| {
+            transfers.push((fd, crate::pty::Interest::Read));
+            transfers.len() - 1
+        });
+        // The master until it hangs up, after which it would answer every
+        // wait at once (`Pty::polled_master`).
         let waited = wait(
             d.conn.as_fd(),
-            d.pty.as_fd(),
+            d.pty.polled_master(),
             d.outbox.owed(),
             &transfers,
             timeout,
@@ -959,7 +983,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         }
         if pty == Ready::Readable {
             match d.pty.read_chunk() {
-                Chunk::Closed => break 'run,
+                // The child let go of its terminal: the master leaves the
+                // poll, and the window decides below once the child is
+                // reaped too (`held.rs`).
+                Chunk::Closed => d.pty.hung_up(),
                 Chunk::Bytes(bytes) => {
                     // Which program wrote it, asked at the read: it may be
                     // gone by the batch (`Probes::read_taken`), and a read
@@ -976,6 +1003,18 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     d.probes.read_taken(&mut d.seat.paths, group, span, linked);
                 }
             }
+        }
+        // The child's end, by its pidfd, or with none the one more look the
+        // hangup owes (`Pty::reap_owed`); and the window's decision once
+        // both its ends are in, in either order.
+        if child.and_then(|i| extra.get(i).copied()) == Some(Ready::Readable) {
+            d.pty.reap();
+        }
+        if d.pty.reap_owed().is_some_and(|t| Instant::now() >= t) {
+            d.pty.give_up();
+        }
+        if d.ended() == Quit::Yes || d.quit == Quit::Yes {
+            break 'run;
         }
         // A ReGIS delay's held reads, at its deadline, read or not, and a
         // one-shot input's once it has ended.
@@ -1205,7 +1244,7 @@ impl Driver {
                 .map(|by| by.saturating_duration_since(Instant::now()));
             if let Err(e) = wait(
                 mine.as_fd(),
-                mine.as_fd(),
+                Some(mine.as_fd()),
                 crate::pty::Owed::Nothing,
                 &[],
                 left,
@@ -2687,6 +2726,28 @@ impl Driver {
         }
     }
 
+    /// **The window's child has ended, or let go of its terminal**: once
+    /// both are in, in either order (`held::decide`), a shell's window and
+    /// a link's that ended well close, and a link's that failed holds,
+    /// showing its line below what the program printed (`held::written`,
+    /// drawn in `present`) until a key closes it. Each turn after asks
+    /// nothing more.
+    fn ended(&mut self) -> Quit {
+        if self.holding != crate::held::Holding::No {
+            return Quit::No;
+        }
+        match self.pty.decide(self.pty.stream()) {
+            crate::held::Decided::Wait => Quit::No,
+            crate::held::Decided::Close => Quit::Yes,
+            crate::held::Decided::Hold(line) => {
+                self.holding = crate::held::Holding::Yes(line);
+                self.feed(crate::held::written());
+                self.pending = Pending::Dirty;
+                Quit::No
+            }
+        }
+    }
+
     /// A key event where `pressed.rs` sends it.
     fn route_key(&mut self, route: crate::pressed::Route) {
         // A key takes a copy's words down, and still goes on (`copied.rs`).
@@ -2701,6 +2762,15 @@ impl Driver {
             crate::pressed::Route::Nobody => return,
             crate::pressed::Route::Program(k) => k,
         };
+        // A held window: any key but a modifier's own closes it, and goes
+        // to no program; the shortcuts, Copy among them, came before this
+        // as their own events.
+        if self.holding != crate::held::Holding::No {
+            if route.typed() && crate::held::closes(k.code) {
+                self.quit = Quit::Yes;
+            }
+            return;
+        }
         // A key dismisses the hover text over DEC's line, and still goes
         // on to the program (`line_tip.rs`, WCAG 2.2's 1.4.13).
         if self.line_tip.dismiss(&self.term) == crate::line_tip::Changed::Yes {
@@ -3484,8 +3554,26 @@ impl Driver {
         let signal = self
             .copied
             .frame(seen_at, preview, highlight.as_ref(), cols, rows);
-        if let Some(look) = signal.look {
-            self.renderer.set_tip(Some(look));
+        // A held window's line, after whatever that slot shows (`held.rs`).
+        let held = match &self.holding {
+            crate::held::Holding::No => None,
+            crate::held::Holding::Yes(line) => crate::held::on_view(
+                line,
+                self.term.cursor().0,
+                self.term.window_back(),
+                cols,
+                rows,
+            ),
+        };
+        match (signal.look, held) {
+            (Some(look), held) => self
+                .renderer
+                .set_tip(crate::held::with_line(Some(look), held)),
+            (None, Some(held)) => self.renderer.set_tip(crate::held::with_line(
+                self.line_tip.look().cloned(),
+                Some(held),
+            )),
+            (None, None) => {}
         }
         self.renderer.set_selection_pulse(signal.pulse);
         // The input method's composition at the live cursor, and where

@@ -39782,3 +39782,61 @@ group  = "FM"
 # whole frames, `(((ms as f64) / 1000.0) * (sample_rate as f64)) as usize`;
 # apply_fade ramps in over FADE_IN_MS = 2.0 and out over FADE_OUT_MS = 5.0,
 # each at most half the slice.
+
+[sources.xnu-kern-sig]
+key    = "xnu-kern-sig"
+title  = "XNU xnu-12377.121.6, bsd/kern/kern_sig.c -- psignal_internal posts a process's NOTE_SIGNAL before any check of the signal's action"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_sig.c"
+file   = ""
+sha256 = "8ce8c8d74345256e8598fc36b79976406fb165ae88d90721f3d918a3dd317495"
+bytes  = 94486
+status = "external"
+group  = "E"
+# Read for fg::Watch's reap. Lines 2125-2127: `proc_knote(sig_proc,
+# NOTE_SIGNAL | signum)` for any signal not sent to a thread, before the
+# disposition is consulted, so an EVFILT_SIGNAL watch on SIGCHLD fires under
+# its default action. kern_exit.c posts the child's NOTE_EXIT (2703-2704)
+# before `p->p_stat = SZOMB` (2773) and sends the parent SIGCHLD after it
+# (2779).
+
+[sources.linux-man-pidfd-open]
+key    = "linux-man-pidfd-open"
+title  = "pidfd_open(2) -- 'When the task that it refers to terminates and becomes a zombie, these interfaces indicate the file descriptor as readable'"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2/pidfd_open.2?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "e1b56b12a9a763ca13937c96f9e2e500c704303819691b5485359d81f4bc1ff6"
+bytes  = 7258
+status = "external"
+group  = "E"
+
+[sources.posix-waitid]
+key    = "posix-waitid"
+title  = "waitid -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/waitid.html"
+file   = ""
+sha256 = "d239e202038340327baa6fce18c94ee2c5c9b0bf4f8b488b754d3734dd309b34"
+bytes  = 12864
+status = "external"
+group  = "E"
+
+[sources.posix-poll]
+key    = "posix-poll"
+title  = "poll -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/poll.html"
+file   = ""
+sha256 = "f4a2d560a2523e4aa7acd2570283e16b4b479239b2b3059f8eb8e09fe52c1854"
+bytes  = 20132
+status = "external"
+group  = "E"

@@ -257,13 +257,62 @@ unsafe extern "C" {
     #[cfg(test)]
     pub fn unlockpt(fd: Fd) -> c_int;
 
-    /// Waits for the child `pid` and reaps it: the pty's reader, for how a
-    /// link's program ended (`pty::reap`), and the test that forks many at
-    /// once and must not leave them behind. A `pid_t` is an `int` on both
-    /// platforms, and so is the status.
-    #[cfg(any(target_os = "macos", test))]
+    /// Reaps the child `pid`: with [`WNOHANG`] a window's watch, once its
+    /// child's end is an event (`pty::reap_now`), and with no options the
+    /// test that forks many at once and must not leave them behind. Never
+    /// `-1`, which would reap the opener's children from under their own
+    /// `try_wait`. A `pid_t` is an `int` on both platforms, and so is the
+    /// status.
     pub fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+
+    /// Sends `sig` to `pid`; the tests send 0, which checks only whether a
+    /// process of that number exists -- a zombie still does -- and answer
+    /// [`ESRCH`] once it was reaped.
+    #[cfg(test)]
+    pub fn kill(pid: c_int, sig: c_int) -> c_int;
+
+    /// Waits for `id` to change state as `options` say, for the tests that
+    /// need a child that has exited and not been reaped: [`WNOWAIT`] "Keep
+    /// the process whose status is returned in infop in a waitable state"
+    /// (`[[source: posix-waitid]]`). The record it fills is only a place to write to
+    /// here, so it is taken as bytes, larger than either system's.
+    #[cfg(all(test, target_os = "macos"))]
+    pub fn waitid(
+        idtype: c_int,
+        id: core::ffi::c_uint,
+        infop: *mut c_void,
+        options: c_int,
+    ) -> c_int;
 }
+
+/// `waitpid`'s option to answer at once, 0, when the child has not ended
+/// yet: a window's watch asks only once an event says the child has
+/// (`pty::reap_now`). The same value on both platforms.
+pub const WNOHANG: c_int = 1;
+
+/// "No such process": what `kill(pid, 0)` answers once a reaped child is
+/// gone from the process table, and what `kevent` answers for a process
+/// watch on a child that has already exited (`[[source:
+/// macos-man-kqueue]]`). The same value on both platforms.
+#[cfg(test)]
+pub const ESRCH: c_int = 3;
+
+/// `waitid`'s arguments for one child that has exited, left waitable:
+/// `P_PID`, `WEXITED` and `WNOWAIT` (`[[source: posix-waitid]]`).
+#[cfg(test)]
+pub const P_PID: c_int = 1;
+#[cfg(test)]
+pub const WEXITED: c_int = 4;
+#[cfg(all(test, target_os = "macos"))]
+pub const WNOWAIT: c_int = 0x20;
+#[cfg(all(test, target_os = "linux"))]
+pub const WNOWAIT: c_int = 0x0100_0000;
+
+/// `SIGCHLD`, the signal a parent is sent once its child is a zombie, and
+/// so the event a window's watch reaps on (`fg::Watch`). The number
+/// differs per platform.
+#[cfg(target_os = "macos")]
+pub const SIGCHLD: c_int = 20;
 
 // **POSIX shared memory, for the kitty `t=s` medium**
 // (`kitty_files.rs`): open an object read-only, and unlink its name once
@@ -1196,6 +1245,16 @@ pub const NOTE_EXEC: c_uint = 0x2000_0000;
 /// close wakes its thread with it (`fg::Watch`).
 #[cfg(target_os = "macos")]
 pub const EVFILT_USER: i16 = -10;
+
+/// `kevent`'s filter for a signal sent to this process: it "returns when
+/// the given signal is generated for the process. This coexists with the
+/// signal() and sigaction() facilities, and has a lower precedence", and
+/// "will record all attempts to deliver a signal to a process, even if the
+/// signal has been marked as SIG_IGN" (`[[source: macos-man-kqueue]]`
+/// 383-390). A window's watch takes [`SIGCHLD`] on it, which leaves the
+/// signal's default action as it was.
+#[cfg(target_os = "macos")]
+pub const EVFILT_SIGNAL: i16 = -6;
 #[cfg(target_os = "macos")]
 pub const NOTE_TRIGGER: c_uint = 0x0100_0000;
 
@@ -1407,6 +1466,23 @@ pub fn no_dataless_fetch() -> bool {
     r == 0
 }
 
+// **A window's child, as a descriptor, on Linux** (`pty.rs`): `pidfd_open`
+// "creates a file descriptor that refers to the task referenced by pid",
+// and "When the task that it refers to terminates and becomes a zombie,
+// these interfaces indicate the file descriptor as readable" (`[[source:
+// linux-man-pidfd-open]]` 28-29, 168-169), so the loop's one poll hears the
+// child's end beside the master's, and a `waitpid` then finds the zombie.
+// The page gives it as `syscall(SYS_pidfd_open, pid, flags)`, so it is the
+// raw call by its number, 434 in the table every architecture shares from
+// 5.3 on; an older kernel answers `ENOSYS`.
+#[cfg(target_os = "linux")]
+pub const SYS_PIDFD_OPEN: core::ffi::c_long = 434;
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    /// Variadic in the header: the call's own arguments follow its number.
+    pub fn syscall(number: core::ffi::c_long, ...) -> core::ffi::c_long;
+}
+
 // **The config watch on Linux** (`reload.rs`): "When a directory is
 // monitored, inotify will return events for the directory itself, and for
 // files inside the directory" (`[[source: linux-man-inotify-7]]` 15-16),
@@ -1488,6 +1564,9 @@ mod tests {
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <signal.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -1511,6 +1590,7 @@ mod tests {
 #include <locale.h>
 #include <sys/inotify.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -1582,6 +1662,13 @@ int main(void) {
     printf("getpagesize=%lld\n", (long long)getpagesize());
     printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
     printf("pid_t.size=%zu\n", sizeof(pid_t));
+    printf("WNOHANG=%lld\n", (long long)WNOHANG);
+    printf("ESRCH=%lld\n", (long long)ESRCH);
+    printf("P_PID=%lld\n", (long long)P_PID);
+    printf("WEXITED=%lld\n", (long long)WEXITED);
+    printf("WNOWAIT=%lld\n", (long long)WNOWAIT);
+    printf("SIGCHLD=%lld\n", (long long)SIGCHLD);
+    printf("id_t.size=%zu\n", sizeof(id_t));
     printf("pid_t.signed=%d\n", (pid_t)-1 < 0);
     {
         const int stty[] = {VEOF, VEOL, VERASE, VINTR, VKILL, VQUIT, VSTART, VSTOP, VSUSP,
@@ -1701,6 +1788,7 @@ int main(void) {
     printf("NOTE_FORK=%lld\n", (long long)NOTE_FORK);
     printf("NOTE_EXEC=%lld\n", (long long)NOTE_EXEC);
     printf("EVFILT_USER=%lld\n", (long long)EVFILT_USER);
+    printf("EVFILT_SIGNAL=%lld\n", (long long)EVFILT_SIGNAL);
     printf("NOTE_TRIGGER=%lld\n", (long long)NOTE_TRIGGER);
     printf("EVFILT_VNODE=%lld\n", (long long)EVFILT_VNODE);
     printf("NOTE_DELETE=%lld\n", (long long)NOTE_DELETE);
@@ -1741,6 +1829,7 @@ int main(void) {
     printf("IN_DELETE=%lld\n", (long long)IN_DELETE);
     printf("IN_DELETE_SELF=%lld\n", (long long)IN_DELETE_SELF);
     printf("IN_MOVE_SELF=%lld\n", (long long)IN_MOVE_SELF);
+    printf("SYS_pidfd_open=%lld\n", (long long)SYS_pidfd_open);
 #endif
     return 0;
 }
@@ -1968,6 +2057,16 @@ int main(void) {
         // is what the headers' program answers.
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
         assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
+        assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
+        assert_eq!(h["ESRCH"], i128::from(ESRCH));
+        assert_eq!(h["P_PID"], i128::from(P_PID));
+        assert_eq!(h["WEXITED"], i128::from(WEXITED));
+        assert_eq!(h["WNOWAIT"], i128::from(WNOWAIT));
+        assert_eq!(h["id_t.size"], size_of::<core::ffi::c_uint>() as i128);
+        #[cfg(target_os = "macos")]
+        assert_eq!(h["SIGCHLD"], i128::from(SIGCHLD));
+        #[cfg(target_os = "linux")]
+        assert_eq!(h["SYS_pidfd_open"], i128::from(SYS_PIDFD_OPEN));
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));
@@ -2022,6 +2121,7 @@ int main(void) {
             assert_eq!(h["NOTE_FORK"], i128::from(NOTE_FORK));
             assert_eq!(h["NOTE_EXEC"], i128::from(NOTE_EXEC));
             assert_eq!(h["EVFILT_USER"], i128::from(EVFILT_USER));
+            assert_eq!(h["EVFILT_SIGNAL"], i128::from(EVFILT_SIGNAL));
             assert_eq!(h["NOTE_TRIGGER"], i128::from(NOTE_TRIGGER));
             assert_eq!(h["EVFILT_VNODE"], i128::from(EVFILT_VNODE));
             assert_eq!(h["NOTE_DELETE"], i128::from(NOTE_DELETE));

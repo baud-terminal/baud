@@ -151,6 +151,10 @@ pub enum MessageAt {
     /// Where the link preview's bar goes when no link is under it: the main
     /// display's last row, from the left edge.
     Bar,
+    /// On this row of the main display, from the left edge, moved up as
+    /// far as its lines need to fit: a held window's line, under what its
+    /// program printed (`baud-app`'s `held.rs`).
+    Row(Row),
 }
 
 /// **`text` laid out as a message**, in the message pair, under a main
@@ -172,6 +176,7 @@ pub fn message_look(text: &str, cols: Cols, rows: Rows, at: MessageAt) -> Option
     let room = cols - width;
     let (top, left) = match at {
         MessageAt::Bar => (rows.saturating_sub(n), 0),
+        MessageAt::Row(r) => (r.index(), 0),
         MessageAt::Tip(a) => {
             let (first, last) = (a.first.0.index(), a.last.0.index());
             if last + 1 + n <= rows {

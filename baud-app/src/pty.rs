@@ -69,27 +69,42 @@ pub struct Pty {
     /// process.
     #[cfg(target_os = "macos")]
     closing: Option<std::io::PipeWriter>,
-    /// **How a link's program ended, for its window** (`held.rs`): its
-    /// name, its start, and the status the reader reaps once the stream
-    /// ends. None for a shell window, which never holds.
-    #[cfg(target_os = "macos")]
-    reaping: Option<Reaping>,
+    /// **How the window's child ends** (`held.rs`): the program a link's
+    /// window runs, its start, and where its status goes once it is reaped.
+    ending: Ending,
+    /// **The child as a descriptor** (`pidfd_open`), readable once it has
+    /// ended, in the loop's poll until it is reaped; none once it is, or
+    /// where the kernel has no such call ([`Pty::reap_owed`]).
+    #[cfg(target_os = "linux")]
+    pidfd: Option<std::os::fd::OwnedFd>,
+    /// Whether the master has hung up: then it leaves the poll, which would
+    /// answer its hangup at once on every wait after.
+    #[cfg(target_os = "linux")]
+    hung: crate::held::Stream,
+    /// With no pidfd, when the hung-up master's child is looked for once
+    /// more ([`Pty::reap_owed`]).
+    #[cfg(target_os = "linux")]
+    again: Option<std::time::Instant>,
 }
 
-/// **A link's program, watched for how it ends** (`Pty::after_exit`).
-#[cfg(target_os = "macos")]
-struct Reaping {
-    program: OsString,
+/// **How a window's child ends, for its window** (`held::decide`): the
+/// program a link's window ran, none for a shell window, which never
+/// holds; when it was started; and the status it was reaped with, which
+/// its watch sets (`fg::Watch` on macOS, the pidfd on Linux).
+struct Ending {
+    program: Option<OsString>,
     born: std::time::Instant,
-    reaped: Arc<std::sync::OnceLock<Reaped>>,
+    slot: crate::held::Slot,
 }
 
-/// **The status `waitpid` gave a link's program, and when.**
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct Reaped {
-    status: std::process::ExitStatus,
-    at: std::time::Instant,
+impl Ending {
+    fn of(program: Option<OsString>) -> Ending {
+        Ending {
+            program,
+            born: std::time::Instant::now(),
+            slot: crate::held::Slot::default(),
+        }
+    }
 }
 
 /// **A window's close hangs up its shell**, as the process's exit always
@@ -1621,7 +1636,7 @@ impl Pty {
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
         let (child, master) = Pty::fork(told, at, shell)?;
-        // A link's program is watched for how it ends; a shell is not.
+        // A link's program holds its window as it ends; a shell does not.
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
         Some(Pty::reading(master, Some(child), told, program, wake))
     }
@@ -1642,21 +1657,7 @@ impl Pty {
         let signalled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&signalled);
         let (held, closing) = Reading::of(master);
-        // A link's program, watched for how it ends: its start now, and its
-        // status where the reader reaps it.
-        let (reaping, reaps) = program
-            .zip(child)
-            .map(|(program, pid)| {
-                let reaped = Arc::new(std::sync::OnceLock::new());
-                let watch = Reaping {
-                    program,
-                    born: std::time::Instant::now(),
-                    reaped: Arc::clone(&reaped),
-                };
-                (watch, (pid, reaped))
-            })
-            .unzip();
-        std::thread::spawn(move || reader(held, tx, flag, reaps, wake));
+        std::thread::spawn(move || reader(held, tx, flag, wake));
         Pty {
             master,
             child,
@@ -1665,7 +1666,7 @@ impl Pty {
             rx,
             signalled,
             closing,
-            reaping,
+            ending: Ending::of(program),
         }
     }
 
@@ -1705,12 +1706,39 @@ impl Pty {
         let told = text_area(size, cell_w, cell_h);
         let (child, master) = Pty::fork(told, None, shell)?;
         make_nonblocking(master);
-        Some(Pty {
+        let program = shell.run.as_ref().map(|r| r.program().to_os_string());
+        Some(Pty::polled(master, child, told, program))
+    }
+
+    /// The pty over `master` and its child `child`, polled by the caller:
+    /// the child taken as a descriptor at once, so its end is an event in
+    /// the same poll.
+    #[cfg(target_os = "linux")]
+    fn polled(
+        master: crate::sys::Fd,
+        child: crate::sys::Pid,
+        told: crate::sys::Winsize,
+        program: Option<OsString>,
+    ) -> Pty {
+        let pidfd = match pidfd_open(child) {
+            Ok(fd) => Some(fd),
+            Err(e) => {
+                crate::info!(
+                    "pty: no pidfd for the child ({e}); its end is asked at the hangup and once after"
+                );
+                None
+            }
+        };
+        Pty {
             master,
             child: Some(child),
             told,
             line: LineDiscipline::of(master),
-        })
+            ending: Ending::of(program),
+            pidfd,
+            hung: crate::held::Stream::Open,
+            again: None,
+        }
     }
 
     /// The master, to wait on.
@@ -1824,24 +1852,105 @@ impl Pty {
         self.child
     }
 
-    /// **What the window does now its child has ended** (`held::after_exit`):
-    /// a link's program by the status the reader reaped and how long after
-    /// its start; a shell window, or a program no status was reaped for,
-    /// closes. Asked once the stream has closed, which the reader says only
-    /// after the reap.
+    /// **What the window does about its child's end** (`held::decide`):
+    /// waits until `stream` has closed and the child has been reaped, in
+    /// either order, then closes or holds by how it ended.
+    pub fn decide(&self, stream: crate::held::Stream) -> crate::held::Decided {
+        let e = &self.ending;
+        crate::held::decide(e.program.as_deref(), e.born, stream, e.slot.get())
+    }
+
+    /// **The window's child, for its watch to reap** (`fg::Watch`); none for
+    /// a pty over a child a test forked itself.
     #[cfg(target_os = "macos")]
-    pub fn after_exit(&self) -> crate::held::AfterExit {
-        let Some(r) = &self.reaping else {
-            return crate::held::AfterExit::Close;
+    pub fn reaps(&self) -> Option<crate::fg::Child> {
+        Some(crate::fg::Child {
+            pid: self.child?,
+            slot: Arc::clone(&self.ending.slot),
+        })
+    }
+
+    /// **The master to poll**, until it hangs up ([`Pty::hung_up`]): a
+    /// hung-up master answers every poll at once, and would spin the loop.
+    #[cfg(target_os = "linux")]
+    pub fn polled_master(&self) -> Option<BorrowedFd<'_>> {
+        match self.hung {
+            crate::held::Stream::Open => Some(self.as_fd()),
+            crate::held::Stream::Closed => None,
+        }
+    }
+
+    /// The read said the child has gone: the master leaves the poll, and
+    /// the child is asked after at once, for a kernel with no pidfd.
+    #[cfg(target_os = "linux")]
+    pub fn hung_up(&mut self) {
+        self.hung = crate::held::Stream::Closed;
+        if self.pidfd.is_none() {
+            self.reap();
+            if self.ending.slot.get().is_none() {
+                self.again = Some(std::time::Instant::now() + REAP_AGAIN);
+            }
+        }
+    }
+
+    /// Whether the master has hung up.
+    #[cfg(target_os = "linux")]
+    pub fn stream(&self) -> crate::held::Stream {
+        self.hung
+    }
+
+    /// **The child's descriptor to poll**, while it has not been reaped.
+    #[cfg(target_os = "linux")]
+    pub fn child_fd(&self) -> Option<BorrowedFd<'_>> {
+        use std::os::fd::AsFd;
+        match self.ending.slot.get() {
+            Some(_) => None,
+            None => self.pidfd.as_ref().map(AsFd::as_fd),
+        }
+    }
+
+    /// **The child reaped, if it has ended**: on its pidfd's readiness, and
+    /// with no pidfd at the hangup and once after ([`Pty::reap_owed`]). The
+    /// pidfd closes once it is reaped, which it would otherwise answer on
+    /// every poll after.
+    #[cfg(target_os = "linux")]
+    pub fn reap(&mut self) {
+        let Some(pid) = self.child else {
+            return;
         };
-        let Some(got) = r.reaped.get() else {
-            return crate::held::AfterExit::Close;
-        };
-        crate::held::after_exit(
-            Some(&r.program),
-            crate::held::Ended::of(got.status),
-            got.at.saturating_duration_since(r.born),
-        )
+        if self.ending.slot.get().is_some() {
+            return;
+        }
+        if let Reap::Reaped(r) = reap_now(pid) {
+            let _ = self.ending.slot.set(r);
+            self.pidfd = None;
+        }
+    }
+
+    /// **When the loop owes the child one more look**: with no pidfd, a
+    /// hung-up master's child not yet reaped is asked once more
+    /// [`REAP_AGAIN`] after the hangup's look, and if it is still running
+    /// then the window closes without its status ([`Pty::give_up`]).
+    #[cfg(target_os = "linux")]
+    pub fn reap_owed(&self) -> Option<std::time::Instant> {
+        self.again.filter(|_| self.ending.slot.get().is_none())
+    }
+
+    /// **The look after [`REAP_AGAIN`], with no pidfd**: reaped if it has
+    /// ended; if not, the window stops waiting, with no status, and closes
+    /// as a shell's does. Its process ends with the window's, and the
+    /// child is then the system's to reap.
+    #[cfg(target_os = "linux")]
+    pub fn give_up(&mut self) {
+        self.again = None;
+        self.reap();
+        if self.ending.slot.get().is_none() {
+            let at = std::time::Instant::now();
+            let _ = self
+                .ending
+                .slot
+                .set(crate::held::Reaped { status: None, at });
+        }
     }
 
     /// **The pty's device**, as the badge's `tty` names it: "The path to
@@ -1916,34 +2025,67 @@ impl Reading {
     }
 }
 
-/// **The status `pid` ended with**, reaped: `waitpid` with no options,
-/// which waits, called by the reader once the stream has ended, when the
-/// child is ending. Again when a signal cuts it short; none when there is
-/// no such child.
-#[cfg(target_os = "macos")]
-fn reap(pid: crate::sys::Pid) -> Option<std::process::ExitStatus> {
+/// **How long after a hung-up master's look its child is looked for once
+/// more, on a kernel with no pidfd** ([`Pty::reap_owed`]): a child that
+/// closed its terminal on its way out has usually ended by then; one that
+/// has not is left to the system once the window closes.
+#[cfg(target_os = "linux")]
+pub const REAP_AGAIN: Duration = Duration::from_millis(100);
+
+/// **`pid` as a descriptor** (`pidfd_open(2)`): "the close-on-exec flag
+/// is set on the file descriptor" (`[[source: linux-man-pidfd-open]]` 32),
+/// so no program a link starts holds it; `ENOSYS` before 5.3, or where a
+/// filter refuses the call.
+#[cfg(target_os = "linux")]
+fn pidfd_open(pid: crate::sys::Pid) -> std::io::Result<std::os::fd::OwnedFd> {
+    let flags: core::ffi::c_uint = 0;
+    // SAFETY: the call's two arguments, a pid and its flags, in the types
+    // the kernel reads; it returns a new descriptor or -1.
+    let fd = unsafe { crate::sys::syscall(crate::sys::SYS_PIDFD_OPEN, pid, flags) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let fd = crate::sys::Fd::try_from(fd).map_err(|_| std::io::Error::other("pidfd"))?;
+    // SAFETY: a descriptor the call just made, owned here alone.
+    Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+}
+
+/// Whether a child's end has been reaped yet ([`reap_now`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Reap {
+    /// It has not ended, or has not yet become a zombie to reap.
+    Running,
+    Reaped(crate::held::Reaped),
+}
+
+/// **`pid` reaped, if it has ended**: `waitpid` on that pid alone with
+/// [`crate::sys::WNOHANG`], which answers at once, asked only once an event
+/// says the child ended -- the window's watch on macOS (`fg::Watch`), the
+/// child's pidfd in the Linux loop's poll. Again when a signal cuts it
+/// short. A pid that is no child of this process -- one something else
+/// reaped -- is reaped with no status.
+pub(crate) fn reap_now(pid: crate::sys::Pid) -> Reap {
     use std::os::unix::process::ExitStatusExt;
     let mut status: core::ffi::c_int = 0;
     loop {
         // SAFETY: `status` is a valid out-pointer for the call's length.
-        let got = unsafe { crate::sys::waitpid(pid, &raw mut status, 0) };
+        let got = unsafe { crate::sys::waitpid(pid, &raw mut status, crate::sys::WNOHANG) };
+        let at = std::time::Instant::now();
         if got == pid {
-            return Some(std::process::ExitStatus::from_raw(status));
+            let status = Some(std::process::ExitStatus::from_raw(status));
+            return Reap::Reaped(crate::held::Reaped { status, at });
+        }
+        if got == 0 {
+            return Reap::Running;
         }
         if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return None;
+            return Reap::Reaped(crate::held::Reaped { status: None, at });
         }
     }
 }
 
 #[cfg(target_os = "macos")]
-fn reader(
-    held: Reading,
-    tx: Sender<Read>,
-    signalled: Arc<AtomicBool>,
-    reaps: Option<(crate::sys::Pid, Arc<std::sync::OnceLock<Reaped>>)>,
-    wake: impl Fn(),
-) {
+fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
     let mut sampler = crate::probe::Sampler::default();
@@ -1987,17 +2129,13 @@ fn reader(
             },
             // The child's end: a link's program is reaped first, so its
             // status is set before the channel says the stream closed.
+            // The child let go of its terminal: the channel says so once
+            // it has dropped, and the window is woken to hear it. Nothing
+            // here waits for the child, which may go on without its
+            // terminal; its watch reaps it when it ends (`fg::Watch`).
             Got::Closed => {
-                if let Some((pid, reaped)) = reaps {
-                    if let Some(status) = reap(pid) {
-                        let _ = reaped.set(Reaped {
-                            status,
-                            at: std::time::Instant::now(),
-                        });
-                    }
-                    drop(tx);
-                    wake();
-                }
+                drop(tx);
+                wake();
                 return;
             }
         };
@@ -2068,21 +2206,19 @@ pub enum Interest {
     Write,
 }
 
-/// Waits until either descriptor is readable, one of `also` is ready for
-/// what it is watched for, or `timeout` passes -- `None` waits as long as
-/// it takes -- and says which of the two, and which of `also`, in its
-/// order: a descriptor the kernel says nothing of is one the caller need
-/// not read. A signal that cuts the wait short answers `Idle` for all,
-/// so the caller simply waits again; `poll` reports a descriptor that is
-/// still ready on the next wait.
+/// **The records one [`wait`] polls**: `a`, then `b` -- or, with no `b`, a
+/// record POSIX's `poll` skips, "If the value of fd is less than 0, events
+/// shall be ignored, and revents shall be set to 0" (`[[source:
+/// posix-poll]]`), so the places of `also` stay where the caller counts
+/// them -- then each of `also`. A hung-up master is left out this way:
+/// polled, it would answer `POLLHUP` at once on every wait after.
 #[cfg(target_os = "linux")]
-pub fn wait(
+fn poll_set(
     a: BorrowedFd<'_>,
-    b: BorrowedFd<'_>,
+    b: Option<BorrowedFd<'_>>,
     b_owed: Owed,
     also: &[(BorrowedFd<'_>, Interest)],
-    timeout: Option<Duration>,
-) -> std::io::Result<(Ready, Ready, Vec<Ready>)> {
+) -> Vec<crate::sys::PollFd> {
     let mut fds = vec![
         crate::sys::PollFd {
             fd: a.as_raw_fd(),
@@ -2090,7 +2226,7 @@ pub fn wait(
             revents: 0,
         },
         crate::sys::PollFd {
-            fd: b.as_raw_fd(),
+            fd: b.map_or(-1, |b| b.as_raw_fd()),
             events: match b_owed {
                 Owed::Nothing => crate::sys::POLLIN,
                 Owed::Bytes => crate::sys::POLLIN | crate::sys::POLLOUT,
@@ -2106,6 +2242,25 @@ pub fn wait(
         },
         revents: 0,
     }));
+    fds
+}
+
+/// Waits until either descriptor is readable, one of `also` is ready for
+/// what it is watched for, or `timeout` passes -- `None` waits as long as
+/// it takes -- and says which of the two, and which of `also`, in its
+/// order: a descriptor the kernel says nothing of is one the caller need
+/// not read. A signal that cuts the wait short answers `Idle` for all,
+/// so the caller simply waits again; `poll` reports a descriptor that is
+/// still ready on the next wait.
+#[cfg(target_os = "linux")]
+pub fn wait(
+    a: BorrowedFd<'_>,
+    b: Option<BorrowedFd<'_>>,
+    b_owed: Owed,
+    also: &[(BorrowedFd<'_>, Interest)],
+    timeout: Option<Duration>,
+) -> std::io::Result<(Ready, Ready, Vec<Ready>)> {
+    let mut fds = poll_set(a, b, b_owed, also);
     // Rounded up to whole milliseconds, not down, from the nanoseconds: a
     // deadline 0.8 ms -- or 0.8 us -- ahead truncated to `poll(0)` returns
     // at once, and a caller waiting for that deadline asks again, spinning
@@ -2622,7 +2777,7 @@ mod tests {
         ] {
             let (ra, rb, extra) = wait(
                 a.as_fd(),
-                b.as_fd(),
+                Some(b.as_fd()),
                 Owed::Nothing,
                 &also,
                 Some(Duration::ZERO),
@@ -3696,7 +3851,7 @@ mod tests {
         );
         let (ended, reader_ended) = channel();
         std::thread::spawn(move || {
-            reader(held, tx, flag, None, || {});
+            reader(held, tx, flag, || {});
             let _ = ended.send(());
         });
         let opened = fifo.clone();
@@ -3713,7 +3868,7 @@ mod tests {
             rx,
             signalled,
             closing,
-            reaping: None,
+            ending: Ending::of(None),
         };
         // The control: the reader's copy alone keeps the line up, so the
         // shell still answers through it once a write reaches it.
@@ -4471,63 +4626,626 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// **A link's program is reaped before its window hears the stream
-    /// close, so the window decides on the status it ended with**: real
-    /// children on a real pty, run as a link's window runs them, and drained
-    /// as the driver drains them. `exit 3` at once holds with its line;
-    /// `exit 0` closes; `kill -SEGV` of itself holds naming the signal; and
-    /// the same failure in a shell window, which is watched for nothing,
-    /// closes. Deterministic: the reader sets the status before it drops the
-    /// channel the drain reads `Closed` from. Named break: never reap -- the
-    /// failure closes its window with what it said.
+    /// **A window over `script` as a link's window or a shell's runs it**:
+    /// the pty, its reader, and the window's watch reaping its child, each
+    /// waking `wakes` as they wake the driver.
     #[cfg(target_os = "macos")]
-    #[test]
-    fn a_links_program_is_reaped_before_its_stream_closes() {
-        use crate::held::AfterExit;
+    struct Window {
+        pty: Pty,
+        /// Held for its thread, which reaps the child; dropped with the
+        /// window.
+        _watch: crate::fg::Watch,
+        wakes: std::sync::mpsc::Receiver<()>,
+        pid: crate::sys::Pid,
+    }
+
+    #[cfg(target_os = "macos")]
+    impl Window {
+        fn of(script: &str, kind: Runs) -> Window {
+            let (pid, master, told, program) = fork_script(script, kind);
+            Window::over(master, pid, told, program)
+        }
+
+        /// **A window whose stream and whose child are two processes**:
+        /// `stream` on the pty, and `child` beside it, the one the window
+        /// reaps and decides on. Darwin keeps a session leader's
+        /// controlling terminal open for as long as it lives, whatever
+        /// descriptors it closes (measured: `exec 0<&- 1>&- 2>&-` then a
+        /// wait, under `forkpty`, reads nothing and no end), and it revokes
+        /// the terminal as the leader exits, so the two ends of one child
+        /// cannot be put in either order by the child alone here.
+        fn split(stream: &str, child: &str) -> Window {
+            let (_, master, told, program) = fork_script(stream, Runs::Link);
+            // Reaped by the window's watch, the thing under test.
+            #[expect(clippy::zombie_processes, reason = "the watch reaps it")]
+            let child = std::process::Command::new("/bin/sh")
+                .args(["-c", child])
+                .spawn()
+                .expect("the window's child");
+            let pid = crate::sys::Pid::try_from(child.id()).expect("a pid");
+            Window::over(master, pid, told, program)
+        }
+
+        fn over(
+            master: crate::sys::Fd,
+            pid: crate::sys::Pid,
+            told: crate::sys::Winsize,
+            program: Option<OsString>,
+        ) -> Window {
+            let (woke, wakes) = channel();
+            let woke_too = woke.clone();
+            let pty = Pty::reading(master, Some(pid), told, program, move || {
+                let _ = woke.send(());
+            });
+            let watch = crate::fg::Watch::start(pty.reaps(), move || {
+                let _ = woke_too.send(());
+            })
+            .expect("a kqueue");
+            Window {
+                pty,
+                _watch: watch,
+                wakes,
+                pid,
+            }
+        }
+
+        /// The stream as the driver's drain says it, and what the window
+        /// decides on it.
+        fn turn(&self) -> (Stream, crate::held::Decided) {
+            let stream = self.pty.drain().stream;
+            let held = match stream {
+                Stream::Open => crate::held::Stream::Open,
+                Stream::Closed => crate::held::Stream::Closed,
+            };
+            (stream, self.pty.decide(held))
+        }
+
+        /// Turns, each on a wake, until `done` says the window is where the
+        /// test wants it.
+        fn until(
+            &self,
+            what: &str,
+            done: impl Fn(Stream, &crate::held::Decided) -> bool,
+        ) -> crate::held::Decided {
+            loop {
+                let (stream, decided) = self.turn();
+                if done(stream, &decided) {
+                    return decided;
+                }
+                let got = self.wakes.recv_timeout(std::time::Duration::from_secs(60));
+                assert!(got.is_ok(), "no wake before {what}");
+            }
+        }
+
+        /// Whether the child's pid still names a process: a zombie does.
+        fn alive(&self) -> bool {
+            alive(self.pid)
+        }
+    }
+
+    /// What a test's window runs: a link's program, which holds its window
+    /// when it fails, or a shell, which never does.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Runs {
+        Link,
+        Shell,
+    }
+
+    /// **`script` forked on a pty as a link's window or a shell's runs
+    /// it**: its pid, the master, the size told, and the program a link's
+    /// window names.
+    fn fork_script(
+        script: &str,
+        kind: Runs,
+    ) -> (
+        crate::sys::Pid,
+        crate::sys::Fd,
+        crate::sys::Winsize,
+        Option<OsString>,
+    ) {
         let size = WinSize {
             ws_col: 80,
             ws_row: 24,
         };
         let told = text_area(&size, Px::of(8), Px::of(16));
-        let ended = |script: &str, link: bool| {
-            let argv = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
-            let run = crate::rules::Run::given(argv).expect("a program");
-            let start = ShellStart {
-                integration: crate::shell::Integration::Off,
-                program: None,
-                run: None,
-            }
-            .running(run.clone());
-            let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-            let (pid, master) =
-                Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
-                    .expect("forkpty");
-            let program = link.then(|| run.program().to_os_string());
-            let (woke, wakes) = channel();
-            let pty = Pty::reading(master, Some(pid), told, program, move || {
-                let _ = woke.send(());
-            });
-            let bound = std::time::Duration::from_secs(60);
-            // A shell window's reader ends with no wake, so a reader that
-            // has let go of its wake is drained again until the stream
-            // says so.
-            while pty.drain().stream == Stream::Open {
-                use std::sync::mpsc::RecvTimeoutError;
-                let got = wakes.recv_timeout(bound);
-                assert_ne!(got, Err(RecvTimeoutError::Timeout), "the reader ends");
-            }
-            pty.after_exit()
+        let argv = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
+        let run = crate::rules::Run::given(argv).expect("a program");
+        let start = ShellStart {
+            integration: crate::shell::Integration::Off,
+            program: None,
+            run: None,
+        }
+        .running(run.clone());
+        let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+        let (pid, master) =
+            Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
+                .expect("forkpty");
+        let program = (kind == Runs::Link).then(|| run.program().to_os_string());
+        (pid, master, told, program)
+    }
+
+    /// Whether `pid` names a process, a zombie included: `kill(pid, 0)`,
+    /// which answers `ESRCH` once it has been reaped.
+    fn alive(pid: crate::sys::Pid) -> bool {
+        // SAFETY: signal 0 is only the check.
+        if unsafe { crate::sys::kill(pid, 0) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(crate::sys::ESRCH)
+    }
+
+    /// **`pid` once it has exited, still unreaped**: `waitid` with
+    /// `WNOWAIT`, which waits for the exit and leaves the zombie.
+    #[cfg(target_os = "macos")]
+    fn exited_unreaped(pid: crate::sys::Pid) {
+        let mut info = [0u8; 256];
+        let id = core::ffi::c_uint::try_from(pid).expect("a pid");
+        // SAFETY: a buffer larger than either system's `siginfo_t`.
+        let r = unsafe {
+            crate::sys::waitid(
+                crate::sys::P_PID,
+                id,
+                info.as_mut_ptr().cast(),
+                crate::sys::WEXITED | crate::sys::WNOWAIT,
+            )
+        };
+        assert_eq!(r, 0, "waitid: {}", std::io::Error::last_os_error());
+    }
+
+    /// A fifo in a scratch directory of its own, removed by the caller.
+    fn fifo(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("baud-held-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let f = dir.join("go");
+        let made = std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&f)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        (dir, f)
+    }
+
+    /// Lets a child blocked on opening `f` read a line and go on.
+    fn release(f: &std::path::Path) {
+        use std::io::Write;
+        let mut w = std::fs::OpenOptions::new()
+            .write(true)
+            .open(f)
+            .expect("the fifo opens once its reader is there");
+        w.write_all(b"go\n").expect("written");
+    }
+
+    /// **A window's child is reaped by its watch, and its window decides
+    /// on how it ended**: real children on a real pty, run as a link's
+    /// window runs them. `exit 3` at once holds with its line; `exit 0`
+    /// closes; `kill -SEGV` of itself holds naming the signal; the same
+    /// failure in a shell window closes; and each child is gone from the
+    /// process table once its window has decided -- no zombie. Named break:
+    /// never reap -- no window ever decides.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_windows_child_is_reaped_by_its_watch_and_decides() {
+        use crate::held::Decided;
+        let ended = |script: &str, kind: Runs| {
+            let w = Window::of(script, kind);
+            let decided = w.until("a decision", |_, d| *d != Decided::Wait);
+            assert!(!w.alive(), "{script}: reaped, no zombie");
+            decided
         };
         assert_eq!(
-            ended("exit 3", true),
-            AfterExit::Hold("sh exited 3; any key closes".into())
+            ended("exit 3", Runs::Link),
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
         );
-        assert_eq!(ended("exit 0", true), AfterExit::Close);
+        assert_eq!(ended("exit 0", Runs::Link), Decided::Close);
         assert_eq!(
-            ended("kill -SEGV $$", true),
-            AfterExit::Hold("sh ended on signal 11; any key closes".into())
+            ended("ulimit -c 0; kill -SEGV $$", Runs::Link),
+            Decided::Hold("sh crashed (signal 11). Press any key to close.".into())
         );
-        assert_eq!(ended("exit 3", false), AfterExit::Close, "a shell window");
+        assert_eq!(
+            ended("exit 3", Runs::Shell),
+            Decided::Close,
+            "a shell window"
+        );
+    }
+
+    /// **A child that outlives its stream does not hang its window**: the
+    /// stream closes -- its process ends -- while the window's child lives
+    /// on, blocked on a fifo ([`Window::split`] for why two processes).
+    /// The window waits, deciding nothing; once the fifo lets the child
+    /// exit, its watch reaps it and the window holds. The order with the
+    /// stream first. Named break: the reader waits for the child once the
+    /// stream ends, as f721ba66's did -- the stream never closes while the
+    /// child lives, and the first wait times out.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_child_that_outlives_its_stream_does_not_hang_its_window() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("outlives");
+        let w = Window::split("exit 0", &format!("read x < '{}'; exit 3", f.display()));
+        let waiting = w.until("the stream closes", |s, _| s == Stream::Closed);
+        assert_eq!(waiting, Decided::Wait, "the stream alone decides nothing");
+        assert!(w.alive(), "the child lives on");
+        release(&f);
+        let decided = w.until("the child's end", |_, d| *d != Decided::Wait);
+        assert_eq!(
+            decided,
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        assert!(!w.alive(), "reaped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The other order: the child is reaped while the stream stays
+    /// open**, held by a process waiting on a fifo. The window sees the
+    /// status first and waits on the stream; once the fifo lets the stream
+    /// go, it closes and the window holds. Named break: decide on the
+    /// status alone -- the window holds while the stream is open.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_child_reaped_before_its_stream_closes_waits_for_the_stream() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("reaped-first");
+        let w = Window::split(&format!("read x < '{}'", f.display()), "exit 3");
+        // Reaped: the decision the stream's close would give is in.
+        w.until("the child is reaped", |_, _| {
+            w.pty.decide(crate::held::Stream::Closed) != Decided::Wait
+        });
+        let (stream, decided) = w.turn();
+        assert_eq!(stream, Stream::Open, "the stream is held open");
+        assert_eq!(decided, Decided::Wait, "the status alone decides nothing");
+        assert!(!w.alive(), "the child is reaped");
+        release(&f);
+        let decided = w.until("the stream closes", |s, _| s == Stream::Closed);
+        assert_eq!(
+            decided,
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A window's watch reaps its own child and no other**: the opener's
+    /// `Child` -- a program a link started -- exits first and is left a
+    /// zombie for its own `try_wait`, while the window's child still runs;
+    /// then the window's child ends. The window decides, and the opener's
+    /// child is still there for `try_wait` to reap with its own status,
+    /// though its `SIGCHLD` woke the window's watch first. Named break:
+    /// `waitpid(-1, ..)` -- the watch reaps the opener's child on its
+    /// signal, and its `try_wait` finds no such child.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_windows_watch_reaps_its_own_child_and_no_other() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("own-child");
+        let script = format!("read x < '{}'; exit 3", f.display());
+        let w = Window::of(&script, Runs::Link);
+        let mut opener = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 7"])
+            .spawn()
+            .expect("the opener's child");
+        let pid = crate::sys::Pid::try_from(opener.id()).expect("a pid");
+        exited_unreaped(pid);
+        assert!(alive(pid), "the control: a zombie, not yet reaped");
+        release(&f);
+        let decided = w.until("the window's child ends", |_, d| *d != Decided::Wait);
+        assert_eq!(
+            decided,
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        let status = opener.try_wait().expect("still the opener's to reap");
+        assert_eq!(status.and_then(|s| s.code()), Some(7));
+        drop(w);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A child that exited before its watch was added is reaped at once**:
+    /// its process watch answers `ESRCH`, its `SIGCHLD` was sent before the
+    /// signal watch was, and the one look after them reaps it. Named break:
+    /// drop that look -- nothing ever reaps it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_child_gone_before_its_watch_is_reaped_at_once() {
+        // Reaped by the window's watch, the thing under test.
+        #[expect(clippy::zombie_processes, reason = "the watch reaps it")]
+        let child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 5"])
+            .spawn()
+            .expect("a child");
+        let pid = crate::sys::Pid::try_from(child.id()).expect("a pid");
+        exited_unreaped(pid);
+        let slot = crate::held::Slot::default();
+        let watch = crate::fg::Watch::start(
+            Some(crate::fg::Child {
+                pid,
+                slot: Arc::clone(&slot),
+            }),
+            || {},
+        )
+        .expect("a kqueue");
+        let got = slot.get().expect("reaped as the watch started");
+        assert_eq!(got.status.and_then(|s| s.code()), Some(5));
+        assert!(!alive(pid), "no zombie");
+        drop(watch);
+    }
+
+    /// **A window closed before its child ended leaves no zombie**: a shell
+    /// window waiting on its terminal is closed -- its pty dropped, which
+    /// hangs the shell up, and its watch dropped -- and the watch's thread
+    /// still reaps the shell once the hangup ends it. Named break: the
+    /// watch's drop ends its thread at once -- the shell stays a zombie.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_window_closed_first_still_reaps_its_child() {
+        let w = Window::of("read x", Runs::Shell);
+        let slot = Arc::clone(&w.pty.ending.slot);
+        let pid = w.pid;
+        assert!(w.alive(), "the control: the shell runs");
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = slot.wait();
+            let _ = tx.send(());
+        });
+        drop(w);
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(60)).is_ok(),
+            "the closed window's child is reaped"
+        );
+        assert!(!alive(pid), "no zombie");
+    }
+
+    /// **A window over `script` as the Linux loop runs one**: the pty
+    /// polled, its child as a pidfd in the same poll.
+    #[cfg(target_os = "linux")]
+    struct Polled {
+        pty: Pty,
+        pid: crate::sys::Pid,
+        /// A stand-in for the compositor's socket, which the loop's wait
+        /// always has first.
+        socket: (
+            std::os::unix::net::UnixStream,
+            std::os::unix::net::UnixStream,
+        ),
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Polled {
+        fn of(script: &str, kind: Runs) -> Polled {
+            let (pid, master, told, program) = fork_script(script, kind);
+            Polled::over(master, pid, told, program)
+        }
+
+        /// **A window whose stream and whose child are two processes**, as
+        /// [`Window::split`] on macOS and for the same reason: Linux hangs
+        /// the terminal up as its session leader exits (`disassociate_ctty`),
+        /// so a grandchild holding it does not keep the stream open past the
+        /// child.
+        fn split(stream: &str, child: &str) -> Polled {
+            let (_, master, told, program) = fork_script(stream, Runs::Link);
+            // Reaped through its pidfd, the thing under test.
+            #[expect(clippy::zombie_processes, reason = "the pidfd reaps it")]
+            let child = std::process::Command::new("/bin/sh")
+                .args(["-c", child])
+                .spawn()
+                .expect("the window's child");
+            let pid = crate::sys::Pid::try_from(child.id()).expect("a pid");
+            Polled::over(master, pid, told, program)
+        }
+
+        fn over(
+            master: crate::sys::Fd,
+            pid: crate::sys::Pid,
+            told: crate::sys::Winsize,
+            program: Option<OsString>,
+        ) -> Polled {
+            make_nonblocking(master);
+            Polled {
+                pty: Pty::polled(master, pid, told, program),
+                pid,
+                socket: std::os::unix::net::UnixStream::pair().expect("a pair"),
+            }
+        }
+
+        /// **One turn of the loop's shape**: the wait over the master while
+        /// it is polled and the pidfd while the child is unreaped, the read
+        /// and the reap they say are ready, and the decision on both.
+        fn turn(&mut self) -> crate::held::Decided {
+            use std::os::fd::AsFd;
+            let (master, child) = {
+                let also: Vec<_> = self
+                    .pty
+                    .child_fd()
+                    .map(|fd| (fd, Interest::Read))
+                    .into_iter()
+                    .collect();
+                let (_, m, extra) = wait(
+                    self.socket.0.as_fd(),
+                    self.pty.polled_master(),
+                    Owed::Nothing,
+                    &also,
+                    Some(Duration::from_secs(60)),
+                )
+                .expect("the wait");
+                (m, extra.first().copied())
+            };
+            assert!(
+                master == Ready::Readable || child == Some(Ready::Readable),
+                "an event before the bound"
+            );
+            if master == Ready::Readable {
+                if let Chunk::Closed = self.pty.read_chunk() {
+                    self.pty.hung_up();
+                }
+            }
+            if child == Some(Ready::Readable) {
+                self.pty.reap();
+            }
+            self.pty.decide(self.pty.stream())
+        }
+
+        fn until(
+            &mut self,
+            done: impl Fn(&Polled, &crate::held::Decided) -> bool,
+        ) -> crate::held::Decided {
+            loop {
+                let d = self.turn();
+                if done(self, &d) {
+                    return d;
+                }
+            }
+        }
+    }
+
+    /// **The Linux loop reaps a window's child by its pidfd, and the window
+    /// decides on how it ended**: `exit 3` at once holds with its line,
+    /// `exit 0` closes, `kill -SEGV` of itself holds naming the signal, the
+    /// same failure in a shell window closes, and each child is gone from
+    /// the process table once its window has decided. Named break: leave
+    /// the pidfd out of the poll -- the window never decides, and the wait
+    /// runs out.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linux_windows_child_is_reaped_by_its_pidfd_and_decides() {
+        use crate::held::Decided;
+        let ended = |script: &str, kind: Runs| {
+            let mut w = Polled::of(script, kind);
+            assert!(w.pty.child_fd().is_some(), "the control: a pidfd");
+            let decided = w.until(|_, d| *d != Decided::Wait);
+            assert!(!alive(w.pid), "{script}: reaped, no zombie");
+            decided
+        };
+        assert_eq!(
+            ended("exit 3", Runs::Link),
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        assert_eq!(ended("exit 0", Runs::Link), Decided::Close);
+        assert_eq!(
+            ended("ulimit -c 0; kill -SEGV $$", Runs::Link),
+            Decided::Hold("sh crashed (signal 11). Press any key to close.".into())
+        );
+        assert_eq!(
+            ended("exit 3", Runs::Shell),
+            Decided::Close,
+            "a shell window"
+        );
+    }
+
+    /// **On Linux a child that closes its terminal and goes on outlives its
+    /// stream, and its window waits for it**: the master hangs up while
+    /// the child, blocked on a fifo, lives; the window decides nothing;
+    /// once the fifo lets it exit, its pidfd says so and the window holds.
+    /// The hung-up master is out of the poll by then. Named break: break
+    /// the loop on the hangup, as before -- the window closes unheld with
+    /// the child alive.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linux_child_that_outlives_its_stream_holds_its_window() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("linux-outlives");
+        let script = format!("exec 0<&- 1>&- 2>&-; read x < '{}'; exit 3", f.display());
+        let mut w = Polled::of(&script, Runs::Link);
+        let waiting = w.until(|w, _| w.pty.stream() == crate::held::Stream::Closed);
+        assert_eq!(waiting, Decided::Wait, "the stream alone decides nothing");
+        assert!(alive(w.pid), "the child lives on");
+        assert!(w.pty.polled_master().is_none(), "the master left the poll");
+        release(&f);
+        let decided = w.until(|_, d| *d != Decided::Wait);
+        assert_eq!(
+            decided,
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The other order on Linux: the child is reaped while the stream
+    /// stays open**, held by a process waiting on a fifo ([`Polled::split`]);
+    /// the window waits on the stream, and holds once the fifo lets it go
+    /// and the master hangs up. Named break: decide on the status alone --
+    /// the window holds while the stream is open.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linux_child_reaped_before_its_stream_closes_waits_for_the_stream() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("linux-reaped-first");
+        let mut w = Polled::split(&format!("read x < '{}'", f.display()), "exit 3");
+        let waiting = w.until(|w, _| w.pty.child_fd().is_none());
+        assert_eq!(waiting, Decided::Wait, "the status alone decides nothing");
+        assert_eq!(w.pty.stream(), crate::held::Stream::Open);
+        assert!(!alive(w.pid), "the child is reaped");
+        release(&f);
+        let decided = w.until(|_, d| *d != Decided::Wait);
+        assert_eq!(
+            decided,
+            Decided::Hold("sh stopped with error 3. Press any key to close.".into())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A hung-up master leaves the poll, so the loop does not spin on
+    /// it**: the control -- the hung-up master polled answers `POLLHUP` at
+    /// once, with nothing asked of it -- and then the loop's own set over
+    /// the same pty, which holds no record of it and waits out a timeout
+    /// with nothing ready. Named break: keep polling the master after the
+    /// hangup -- the wait answers at once on every turn.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_hung_up_master_leaves_the_poll() {
+        use std::os::fd::AsFd;
+        let mut w = Polled::of("exit 0", Runs::Shell);
+        w.until(|w, _| w.pty.stream() == crate::held::Stream::Closed);
+        let master = w.pty.as_fd().as_raw_fd();
+        let mut hup = [crate::sys::PollFd {
+            fd: master,
+            events: 0,
+            revents: 0,
+        }];
+        // SAFETY: one record and its count.
+        let n = unsafe { crate::sys::poll(hup.as_mut_ptr(), 1, 0) };
+        assert_eq!(n, 1, "the control: a hung-up master answers at once");
+        let set = poll_set(
+            w.socket.0.as_fd(),
+            w.pty.polled_master(),
+            Owed::Nothing,
+            &[],
+        );
+        assert!(
+            set.iter().all(|p| p.fd != master),
+            "no record of the master"
+        );
+        let (_, m, _) = wait(
+            w.socket.0.as_fd(),
+            w.pty.polled_master(),
+            Owed::Nothing,
+            &[],
+            Some(Duration::from_millis(50)),
+        )
+        .expect("the wait");
+        assert_eq!(m, Ready::Idle, "nothing ready: the wait ran out");
+    }
+
+    /// **With no pidfd the hangup is looked at once and then once more**:
+    /// a child that outlived its stream is not reaped at the hangup, a
+    /// second look is owed [`REAP_AGAIN`] after it, and that look, the
+    /// child still running, closes the window with no status -- the
+    /// system's to reap once the window's process ends. Named break: no
+    /// second look -- nothing is owed, and the window waits for ever.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn with_no_pidfd_a_hung_up_childs_end_is_looked_at_twice() {
+        use crate::held::Decided;
+        let (dir, f) = fifo("linux-no-pidfd");
+        let script = format!("exec 0<&- 1>&- 2>&-; read x < '{}'; exit 3", f.display());
+        let mut w = Polled::of(&script, Runs::Link);
+        w.pty.pidfd = None;
+        let before = std::time::Instant::now();
+        let waiting = w.until(|w, _| w.pty.stream() == crate::held::Stream::Closed);
+        assert_eq!(waiting, Decided::Wait);
+        let owed = w.pty.reap_owed().expect("a second look is owed");
+        assert!(owed >= before + REAP_AGAIN, "after the hangup's look");
+        w.pty.give_up();
+        assert_eq!(w.pty.decide(w.pty.stream()), Decided::Close);
+        assert_eq!(w.pty.reap_owed(), None, "nothing more is owed");
+        release(&f);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **A window's program runs on a real pty as its argv, with no shell
@@ -4745,7 +5463,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         {
             let (tx, rx) = std::sync::mpsc::channel();
-            let w = crate::fg::Watch::start(move || {
+            let w = crate::fg::Watch::start(None, move || {
                 let _ = tx.send(());
             })
             .expect("a kqueue");

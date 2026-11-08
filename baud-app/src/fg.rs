@@ -225,15 +225,75 @@ pub enum Moved {
 /// listed and watched, before the group is read, so a child that takes
 /// the terminal and execs after the read is seen by its `NOTE_EXEC`.
 ///
+/// **It reaps the window's own child** ([`Child`]), on the same kqueue and
+/// thread: `waitpid` on that pid alone, never `-1`, which would take the
+/// opener's children from under their own `try_wait`, and with `WNOHANG`,
+/// asked only on an event, so nothing waits in it. Two events, because the
+/// first can come too soon: XNU posts the child's `NOTE_EXIT` before it
+/// marks the child a zombie (`[[source: xnu-kern-exit]]` 2703-2704, then
+/// `p->p_stat = SZOMB` at 2773), so a `waitpid` on it can find nothing yet,
+/// and then sends the parent `SIGCHLD` (2779), whose `EVFILT_SIGNAL` event
+/// is posted before any check of the signal's action (`[[source:
+/// xnu-kern-sig]]` 2125-2127). Registered in that order -- the signal,
+/// then the process, then one `waitpid` -- every interleaving reaps: a
+/// child already gone when its process watch is added (`ESRCH`) or before
+/// either is, by the `waitpid` after them; one that ends after, by the
+/// signal. The signal comes for every child of the process, the opener's
+/// and the other windows' too, so it only asks after this one, and wakes
+/// nothing unless it was reaped.
+///
 /// **Dropped with its window, it takes its thread and kqueue with it**: a
 /// user event registered at the start is raised, the thread returns on
-/// it, the drop joins it and then closes the kqueue, which no thread waits
-/// on any more by then.
+/// it, the drop joins it, and the kqueue closes with the last of the two
+/// that hold it. A window closed before its child ended -- the hangup its
+/// close sends the shell takes a moment to end it -- leaves the thread to
+/// reap it first, waking no one, so a closed window leaves no zombie; a
+/// child that outlives its hangup keeps that thread and its kqueue until
+/// it ends.
 #[cfg(target_os = "macos")]
 pub struct Watch {
-    kq: Fd,
+    kq: std::sync::Arc<std::os::fd::OwnedFd>,
     moved: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    child: Option<Child>,
+}
+
+/// **The window's own child, for its watch to reap** (`Watch`): its pid,
+/// and where its status goes.
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+pub struct Child {
+    pub pid: Pid,
+    pub slot: crate::held::Slot,
+}
+
+#[cfg(target_os = "macos")]
+impl Child {
+    /// Reaped now if it has ended and is not yet; whether this call did.
+    fn reap(&self) -> Reaped {
+        if self.slot.get().is_some() {
+            return Reaped::Not;
+        }
+        match crate::pty::reap_now(self.pid) {
+            crate::pty::Reap::Running => Reaped::Not,
+            crate::pty::Reap::Reaped(r) => {
+                let _ = self.slot.set(r);
+                Reaped::Now
+            }
+        }
+    }
+
+    fn done(&self) -> bool {
+        self.slot.get().is_some()
+    }
+}
+
+/// Whether a call reaped the child.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reaped {
+    Not,
+    Now,
 }
 
 /// The ident of the user event a [`Watch`]'s drop raises; the process
@@ -275,33 +335,72 @@ fn wake_event(flags: core::ffi::c_ushort, fflags: core::ffi::c_uint) -> crate::s
     }
 }
 
+/// A process watch on `pid` for `fflags`.
+#[cfg(target_os = "macos")]
+fn proc_event(pid: Pid, fflags: core::ffi::c_uint) -> Option<crate::sys::Kevent> {
+    use crate::sys::{EV_ADD, EV_CLEAR, EVFILT_PROC, Kevent};
+    Some(Kevent {
+        ident: core::ffi::c_ulong::try_from(pid).ok()?,
+        filter: EVFILT_PROC,
+        flags: EV_ADD | EV_CLEAR,
+        fflags,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    })
+}
+
 #[cfg(target_os = "macos")]
 impl Watch {
     /// A kqueue and the thread that waits on it; `wake` runs after each
-    /// batch of events.
-    pub fn start(wake: impl Fn() + Send + 'static) -> Option<Watch> {
+    /// batch of events that moved a watched process or reaped `child`.
+    pub fn start(child: Option<Child>, wake: impl Fn() + Send + 'static) -> Option<Watch> {
+        use crate::sys::{
+            EV_ADD, EV_CLEAR, EVFILT_PROC, EVFILT_SIGNAL, Kevent, NOTE_EXIT, SIGCHLD,
+        };
         use std::sync::atomic::{AtomicBool, Ordering};
         // SAFETY: no arguments; a descriptor or -1.
-        let kq = unsafe { crate::sys::kqueue() };
-        if kq < 0 {
+        let raw = unsafe { crate::sys::kqueue() };
+        if raw < 0 {
             return None;
         }
         // SAFETY: the descriptor `kqueue` just gave, owned here and closed
-        // once, by this on a failure below or by the drop.
-        let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(kq) };
-        if change(
-            kq,
-            &wake_event(crate::sys::EV_ADD | crate::sys::EV_CLEAR, 0),
-        ) < 0
-        {
+        // once, with the last holder of it.
+        let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) };
+        let kq = std::sync::Arc::new(owned);
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&*kq);
+        if change(fd, &wake_event(EV_ADD | EV_CLEAR, 0)) < 0 {
             return None;
+        }
+        // The child's two events, the signal first, then one look: see the
+        // type's doc for why every order of the child's end reaps.
+        if let Some(c) = &child {
+            let signal = Kevent {
+                ident: SIGCHLD.unsigned_abs().into(),
+                filter: EVFILT_SIGNAL,
+                flags: EV_ADD | EV_CLEAR,
+                fflags: 0,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+            if change(fd, &signal) < 0 {
+                return None;
+            }
+            // `ESRCH` for a child already gone, which the look reaps.
+            if let Some(exit) = proc_event(c.pid, NOTE_EXIT) {
+                let _ = change(fd, &exit);
+            }
+            let _ = c.reap();
         }
         let moved = std::sync::Arc::new(AtomicBool::new(false));
         let flag = std::sync::Arc::clone(&moved);
+        let held = std::sync::Arc::clone(&kq);
+        let reaps = child.clone();
         let spawned = std::thread::Builder::new()
             .name("baud-fg-watch".into())
             .spawn(move || {
-                let mut events = [crate::sys::Kevent {
+                let kq = std::os::fd::AsRawFd::as_raw_fd(&*held);
+                let mut wake = Some(wake);
+                let mut events = [Kevent {
                     ident: 0,
                     filter: 0,
                     flags: 0,
@@ -328,43 +427,57 @@ impl Watch {
                         return;
                     }
                     let got = &events[..usize::try_from(n).unwrap_or(0)];
+                    let reaped = match (&reaps, got.is_empty()) {
+                        (Some(c), false) => c.reap(),
+                        _ => Reaped::Not,
+                    };
                     if got.iter().any(|e| e.filter == crate::sys::EVFILT_USER) {
-                        return;
+                        // The window has gone: its child, if it has not
+                        // ended, is still reaped here, and no one is woken.
+                        drop(wake.take());
+                        match &reaps {
+                            Some(c) if !c.done() => continue,
+                            _ => return,
+                        }
                     }
-                    if !got.is_empty() {
+                    if wake.is_none() {
+                        // Closed, and waiting only for the child.
+                        if reaps.as_ref().is_none_or(Child::done) {
+                            return;
+                        }
+                        continue;
+                    }
+                    let moves = got.iter().any(|e| e.filter == EVFILT_PROC);
+                    if moves {
                         flag.store(true, Ordering::Release);
-                        wake();
+                    }
+                    if moves || reaped == Reaped::Now {
+                        if let Some(w) = &wake {
+                            w();
+                        }
                     }
                 }
             });
         let thread = spawned.ok()?;
-        // The drop closes it, once the thread is joined.
-        let kq = std::os::fd::IntoRawFd::into_raw_fd(owned);
         Some(Watch {
             kq,
             moved,
             thread: Some(thread),
+            child,
         })
+    }
+
+    fn fd(&self) -> Fd {
+        std::os::fd::AsRawFd::as_raw_fd(&*self.kq)
     }
 
     /// Watch `pid` for a fork, an exec or an exit. A process gone, or one
     /// the user may not watch, is not watched, and says nothing.
     pub fn add(&self, pid: Pid) {
-        use crate::sys::{EV_ADD, EV_CLEAR, EVFILT_PROC, Kevent, NOTE_EXEC, NOTE_EXIT, NOTE_FORK};
-        let Ok(ident) = core::ffi::c_ulong::try_from(pid) else {
-            return;
-        };
-        let _ = change(
-            self.kq,
-            &Kevent {
-                ident,
-                filter: EVFILT_PROC,
-                flags: EV_ADD | EV_CLEAR,
-                fflags: NOTE_FORK | NOTE_EXEC | NOTE_EXIT,
-                data: 0,
-                udata: std::ptr::null_mut(),
-            },
-        );
+        use crate::sys::{NOTE_EXEC, NOTE_EXIT, NOTE_FORK};
+        if let Some(e) = proc_event(pid, NOTE_FORK | NOTE_EXEC | NOTE_EXIT) {
+            let _ = change(self.fd(), &e);
+        }
     }
 
     /// Watch every child of `parent`: the job a fork made, before it
@@ -393,21 +506,22 @@ impl Watch {
 
 #[cfg(target_os = "macos")]
 impl Drop for Watch {
-    /// The thread woken by the user event and joined, then the kqueue
-    /// closed: a closed window leaves no thread and no descriptor.
+    /// The thread woken by the user event, and joined unless it still has
+    /// the window's child to reap; the kqueue closes with the last of the
+    /// two that hold it. A closed window leaves no thread and no
+    /// descriptor once its child has been reaped.
     fn drop(&mut self) {
-        let raised = change(self.kq, &wake_event(0, crate::sys::NOTE_TRIGGER));
-        if let Some(t) = self.thread.take() {
-            // A thread the event could not reach is left waiting rather
-            // than joined forever; its kqueue is then kept open for it.
-            if raised < 0 {
-                return;
-            }
-            let _ = t.join();
+        let raised = change(self.fd(), &wake_event(0, crate::sys::NOTE_TRIGGER));
+        let Some(t) = self.thread.take() else {
+            return;
+        };
+        // A thread the event could not reach is left waiting rather than
+        // joined forever, its kqueue kept open for it; so is one still to
+        // reap the child, which returns once it has.
+        if raised < 0 || self.child.as_ref().is_some_and(|c| !c.done()) {
+            return;
         }
-        // SAFETY: the kqueue `start` opened, closed once, here; the thread
-        // that waited on it has returned.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(self.kq) });
+        let _ = t.join();
     }
 }
 
@@ -426,11 +540,11 @@ mod tests {
     fn a_dropped_process_watch_ends_its_thread_and_closes_its_kqueue() {
         let held = std::sync::Arc::new(());
         let in_thread = std::sync::Arc::clone(&held);
-        let watch = Watch::start(move || {
+        let watch = Watch::start(None, move || {
             let _ = &in_thread;
         })
         .expect("a kqueue and its thread");
-        let kq = watch.kq;
+        let kq = watch.fd();
         assert_eq!(
             std::sync::Arc::strong_count(&held),
             2,
