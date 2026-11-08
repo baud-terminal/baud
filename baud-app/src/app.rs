@@ -12971,6 +12971,11 @@ impl Responder for Driver {
         if let Some(path) = rig::take_click() {
             self.rig_click(path);
         }
+        // The event rig's line to the shell, sent as typed keys are.
+        #[cfg(feature = "effect-probe")]
+        if let Some(line) = rig::take_typed() {
+            self.app.outbox.push(&line);
+        }
         if self.app.frames.value() > 0
             && self.app.presenter.as_ref().map(Presenter::in_flight) != Some(InFlight::Busy)
         {

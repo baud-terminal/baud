@@ -98,6 +98,17 @@ enum Cause {
     /// A click on a printed path, the paths worker's answer on its wake,
     /// and the frame driven by `tick:` each pass, or never.
     PrintedPath(Rule, Ticks),
+    /// What a program writes: the shell runs this line, typed to it as
+    /// keys are sent, and its output comes back through the pty, under
+    /// this config; the frame never driven.
+    Program(Program),
+}
+
+/// A program's output, and the config it is read under.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Program {
+    line: &'static str,
+    config: &'static str,
 }
 
 /// What `[link.path]` makes of a printed path.
@@ -120,21 +131,24 @@ enum Ticks {
     DrivenInFrame,
 }
 
-/// What the row expects: the effect, exactly once an iteration, in a turn
-/// of its own with the responder free, its nested `wake:` delivered; or
-/// these effects, each so, in this order, every iteration.
+/// What the row expects: these effects, each exactly once an iteration
+/// and in this order, each in a turn of its own with the responder free,
+/// its nested `wake:` delivered; and any number of the `paced` kinds, each
+/// run so too. A paced effect is one baud holds to a pace of its own -- a
+/// program's copy is announced at most once per message's length
+/// (`copied.rs`) -- so how many fall in a run is not the row's to count.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Expect {
-    Effect(EffectKind),
-    Effects(&'static [EffectKind]),
+struct Expect {
+    each: &'static [EffectKind],
+    paced: &'static [EffectKind],
 }
 
 impl Expect {
-    /// The effects of one iteration, in order.
-    fn kinds(&self) -> &[EffectKind] {
-        match self {
-            Expect::Effect(k) => core::slice::from_ref(k),
-            Expect::Effects(ks) => ks,
+    /// One effect an iteration, nothing paced.
+    const fn effect(kind: &'static [EffectKind; 1]) -> Expect {
+        Expect {
+            each: kind,
+            paced: &[],
         }
     }
 }
@@ -190,17 +204,17 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 6] = [
+const SITES: [Site; 10] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
-        expect: Expect::Effect(EffectKind::Reveal),
+        expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Green,
     },
     Site {
         name: SiteName("a printed path's [link.path] command"),
         cause: Cause::PrintedPath(Rule::Command, Ticks::Driven),
-        expect: Expect::Effect(EffectKind::Command),
+        expect: Expect::effect(&[EffectKind::Command]),
         state: RowState::Green,
     },
     Site {
@@ -208,13 +222,16 @@ const SITES: [Site; 6] = [
         cause: Cause::PrintedPath(Rule::Copy, Ticks::Driven),
         // The copy, and the words VoiceOver is given for it (`say_copied`),
         // each in a turn of its own.
-        expect: Expect::Effects(&[EffectKind::Copy, EffectKind::Announce]),
+        expect: Expect {
+            each: &[EffectKind::Copy, EffectKind::Announce],
+            paced: &[],
+        },
         state: RowState::Green,
     },
     Site {
         name: SiteName("a printed path's reveal, with no tick at all"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::None),
-        expect: Expect::Effect(EffectKind::Reveal),
+        expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Green,
     },
     // **The control.** The reveal row with `link::later` handing over
@@ -227,7 +244,7 @@ const SITES: [Site; 6] = [
     Site {
         name: SiteName("a printed path's reveal, made inside the callback"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInline),
-        expect: Expect::Effect(EffectKind::Reveal),
+        expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Control(Failure::InCallback(EffectKind::Reveal, Nested::Never)),
     },
     // **The frame's control: the crash's own shape.** `link::later` parks
@@ -239,8 +256,62 @@ const SITES: [Site; 6] = [
     Site {
         name: SiteName("a printed path's reveal, made inside the frame"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInFrame),
-        expect: Expect::Effect(EffectKind::Reveal),
+        expect: Expect::effect(&[EffectKind::Reveal]),
         state: RowState::Control(Failure::InFrame(EffectKind::Reveal, Nested::Never)),
+    },
+    // **Stage 2's rows: what a program writes**, each pending until its
+    // site moves through the effect queue, its recorded failure what the
+    // probe saw when the row was first run.
+    Site {
+        name: SiteName("OSC 52's write to the pasteboard"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]52;c;aGk=\007'",
+            config: "",
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Pending {
+            stage: Stage::Two,
+            recorded: Failure::InCallback(EffectKind::Copy, Nested::Never),
+        },
+    },
+    Site {
+        name: SiteName("OSC 52's clear of the pasteboard"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]52;c;!\007'",
+            config: "",
+        }),
+        expect: Expect::effect(&[EffectKind::Clear]),
+        state: RowState::Pending {
+            stage: Stage::Two,
+            recorded: Failure::InCallback(EffectKind::Clear, Nested::Never),
+        },
+    },
+    Site {
+        name: SiteName("the bell's Dock bounce, mode 1042"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033[?1042h\007'",
+            config: "",
+        }),
+        expect: Expect::effect(&[EffectKind::Attention]),
+        state: RowState::Pending {
+            stage: Stage::Two,
+            recorded: Failure::InCallback(EffectKind::Attention, Nested::Never),
+        },
+    },
+    Site {
+        name: SiteName("the bell's raise, mode 1043"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033[?1043h\007'",
+            config: "",
+        }),
+        expect: Expect::effect(&[EffectKind::Front]),
+        state: RowState::Pending {
+            stage: Stage::Two,
+            recorded: Failure::InCallback(EffectKind::Front, Nested::Never),
+        },
     },
 ];
 
@@ -270,17 +341,29 @@ fn config(rule: Rule) -> &'static str {
 
 /// The row's cause in a child; what it came to.
 fn run(site: &Site, slug: &str) -> Observed {
-    let Cause::PrintedPath(rule, ticks) = site.cause;
-    let kinds = site.expect.kinds();
+    let expect = site.expect;
     let dir = scratch(slug);
-    let file = dir.join("clicked.txt");
-    std::fs::write(&file, b"x").expect("the file clicked");
     let conf = dir.join("config.toml");
-    std::fs::write(&conf, config(rule)).expect("the config");
+    let (act, arg, config, ticks) = match site.cause {
+        Cause::PrintedPath(rule, ticks) => {
+            let file = dir.join("clicked.txt");
+            std::fs::write(&file, b"x").expect("the file clicked");
+            let file = file.to_str().expect("a UTF-8 path").to_owned();
+            ("path", file, config(rule), ticks)
+        }
+        // Undriven: a program's output is read by whichever of the
+        // reader's `wake` and the frame comes first, so with the frame
+        // driven a row's site would be one or the other by timing. The
+        // frame reads it the same way, so the Tick arm's own guard covers
+        // that entry.
+        Cause::Program(p) => ("type", p.line.to_owned(), p.config, Ticks::None),
+    };
+    std::fs::write(&conf, config).expect("the config");
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
         .args([
             "--event-rig",
-            file.to_str().expect("a UTF-8 path"),
+            act,
+            &arg,
             ITERATIONS,
             match ticks {
                 Ticks::Driven => "tick",
@@ -293,17 +376,19 @@ fn run(site: &Site, slug: &str) -> Observed {
         .env("HOME", dir.join("home"))
         .env("ZDOTDIR", dir.join("home"))
         .env("SHELL", "/bin/sh")
+        .env("HISTFILE", "/dev/null")
         .env("PATH", "/usr/bin:/bin")
         .env("BAUD_CONFIG", &conf)
         .env("BAUD_TYPING", "off")
         .current_dir(&dir)
         .output()
         .expect("the child");
-    judge(kinds, &out, &dir)
+    judge(expect, &out, &dir)
 }
 
 /// What a child's output and exit say.
-fn judge(kinds: &[EffectKind], out: &std::process::Output, dir: &Path) -> Observed {
+fn judge(expect: Expect, out: &std::process::Output, dir: &Path) -> Observed {
+    let kinds = expect.each;
     use std::os::unix::process::ExitStatusExt;
     let text = String::from_utf8_lossy(&out.stdout);
     let _ = std::fs::write(dir.join("stdout"), &out.stdout);
@@ -321,11 +406,17 @@ fn judge(kinds: &[EffectKind], out: &std::process::Output, dir: &Path) -> Observ
         let Some(r) = Record::parse(line) else {
             return Observed::Failed(Failure::Child);
         };
-        let kind = kinds[records % kinds.len()];
-        records += 1;
-        if r.kind != kind {
-            return Observed::Failed(Failure::Times);
-        }
+        let kind = match expect.paced.contains(&r.kind) {
+            true => r.kind,
+            false => {
+                let kind = kinds[records % kinds.len()];
+                records += 1;
+                if r.kind != kind {
+                    return Observed::Failed(Failure::Times);
+                }
+                kind
+            }
+        };
         let want = Record {
             kind,
             at: Where::InTurn,
