@@ -801,6 +801,99 @@ fn without_takes_a_command_out_whole() {
     assert!(ff.contains(&Step::Run("btop")));
 }
 
+/// **The demo's link rules read as baud reads them, each in a window**:
+/// `examples/demo/links.toml`, which the demo writes into its config. Read
+/// by baud's own config reader its keys are all known, a web link opens
+/// `cha` with its pictures on in a window, and a file path
+/// `~/bin/demo-open` in a window; whether each program is there is this
+/// machine's, so its sections are read again against a home holding
+/// `bin/demo-open` and a `PATH` holding `cha`, as the demo gives baud, and
+/// then nothing is said. The control: the text with a key the rules do not
+/// have is refused whole, and says so. Perturbation: write `action =
+/// "windows"` in the file and the https rule is refused.
+#[test]
+fn the_demos_link_rules_open_their_windows() {
+    use crate::rules::{Act, PathAct, Section};
+    use std::os::unix::fs::PermissionsExt as _;
+    let text = include_str!("../../examples/demo/links.toml");
+    let mut c = crate::config::Config::defaults();
+    let said = c.apply(text);
+    assert!(
+        said.iter()
+            .all(|s| s.contains("is not a program that can run") || s.contains("is not on PATH")),
+        "{said:?}"
+    );
+    let r = &c.link.rules;
+    match r.rule_for("https").map(|(_, x)| x.act()) {
+        Some(Act::Window(argv)) => {
+            assert_eq!(argv.program(), "cha");
+            let said = format!("{argv:?}");
+            assert!(
+                said.contains("\"-o\", \"buffer.images=true\", \"{url}\""),
+                "{said}"
+            );
+        }
+        other => panic!("https opens {other:?}"),
+    }
+    match r.path_act() {
+        PathAct::Window(argv) => {
+            assert!(argv.program().ends_with("/bin/demo-open"), "{argv:?}");
+            assert!(format!("{argv:?}").contains("\"{path}\""), "{argv:?}");
+        }
+        other => panic!("a path opens {other:?}"),
+    }
+    // The same sections against the home and the PATH the demo gives baud.
+    let mut sections: Vec<Section> = Vec::new();
+    for line in text.lines() {
+        match line
+            .strip_prefix("[link.")
+            .and_then(|l| l.strip_suffix(']'))
+        {
+            Some(name) => sections.push(Section {
+                name: name.to_string(),
+                fields: Vec::new(),
+            }),
+            None => {
+                let (k, v) = line.split_once(" = ").expect("a key and its value");
+                let s = sections.last_mut().expect("a section");
+                s.fields.push((k.to_string(), v.to_string()));
+            }
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("demo-links-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (home, bin) = (dir.join("home"), dir.join("path"));
+    for exe in [home.join("bin/demo-open"), bin.join("cha")] {
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let (rules, said) = Section::read_all(&sections, Some(&home), Some(bin.as_os_str()));
+    assert_eq!(said, Vec::<String>::new());
+    assert!(matches!(
+        rules.rule_for("https").map(|(_, x)| x.act()),
+        Some(Act::Window(_))
+    ));
+    match rules.path_act() {
+        PathAct::Window(argv) => assert_eq!(
+            std::path::Path::new(argv.program()),
+            home.join("bin/demo-open"),
+            "~/ is the home given"
+        ),
+        other => panic!("a path opens {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut refused = crate::config::Config::defaults();
+    let said =
+        refused.apply(&text.replace("[link.https]\n", "[link.https]\nconfirm = \"always\"\n"));
+    assert!(
+        said.iter()
+            .any(|s| s.contains("[link.https]") && s.contains("confirm")),
+        "the control: {said:?}"
+    );
+    assert_eq!(refused.link.rules.rule_for("https"), None, "the control");
+}
+
 /// **A session with no window plays the tour without the link's window**:
 /// the Command-click, the picture, the wheel and Chawan's `q` with its
 /// hold are gone, the hover before them and helix's `:q` after them stay,

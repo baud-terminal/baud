@@ -1,0 +1,6 @@
+[link.path]
+action = "window"
+command = ["~/bin/demo-open", "{path}"]
+[link.https]
+action = "window"
+command = ["cha", "-o", "buffer.images=true", "{url}"]
