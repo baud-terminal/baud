@@ -2247,14 +2247,58 @@ mod tests {
             admit_owned(String::from("javascript:x"), NONE).map(|t| t.action()),
             admit(b"javascript:x", NONE).map(|t| t.action()),
         );
-        let door = concat!("AdmittedUri::", "checked(");
-        assert_eq!(include_str!("link.rs").matches(door).count(), 2);
-        for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
-            ("linux.rs", include_str!("linux.rs")),
-        ] {
-            assert!(!src.contains(door), "{name} admits nothing itself");
+    }
+
+    /// **Only the admission mints an `AdmittedUri`**, in every crate of the
+    /// workspace: the type is `pub` in baud-domain, so a door anywhere else
+    /// (baud-present-macos above all, which hands the URI to the OS) would
+    /// let an unchecked URI through. Every `.rs` under a `src` directory of
+    /// the repository is read; tests and benches outside `src` may mint one.
+    /// The control is link.rs's own two. Perturbation: call
+    /// `AdmittedUri::checked` in baud-present-macos/src/link.rs and this
+    /// names it.
+    #[test]
+    fn no_crate_but_the_admission_mints_an_admitted_uri() {
+        fn walk(
+            dir: &std::path::Path,
+            under_src: bool,
+            out: &mut Vec<(std::path::PathBuf, usize)>,
+        ) {
+            let door = concat!("AdmittedUri::", "checked(");
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if path.is_dir() {
+                    if matches!(&*name, "target" | ".git" | ".devenv" | ".claude" | "docs") {
+                        continue;
+                    }
+                    walk(&path, under_src || name == "src", out);
+                } else if under_src && name.ends_with(".rs") {
+                    let n = std::fs::read_to_string(&path).map_or(0, |s| s.matches(door).count());
+                    if n > 0 {
+                        out.push((path, n));
+                    }
+                }
+            }
         }
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the workspace");
+        let mut found = Vec::new();
+        walk(repo, false, &mut found);
+        let found: Vec<_> = found
+            .iter()
+            .map(|(p, n)| (p.strip_prefix(repo).unwrap_or(p).to_path_buf(), *n))
+            .collect();
+        assert_eq!(
+            found,
+            [(std::path::PathBuf::from("baud-app/src/link.rs"), 2)],
+            "only the admission mints one"
+        );
     }
 
     fn ok(uri: &str) -> Target<'_> {
