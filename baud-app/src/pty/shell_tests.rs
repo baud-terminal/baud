@@ -590,10 +590,16 @@ fn nothing_is_injected_with_integration_off(sh: Sh) {
     for borrowed in ["\nZDOTDIR=", "\nENV=", "BAUD_"] {
         assert!(!seen.contains(borrowed), "no {borrowed:?} in: {seen:?}");
     }
-    assert!(
-        std::fs::read_dir(&tmp).expect("tmp").next().is_none(),
-        "no script was written"
-    );
+    // fish 3 keeps its universal variables' notifier in `$TMPDIR/fish.$USER`
+    // when no XDG_RUNTIME_DIR is set: the shell's own file, where baud's
+    // scripts would be under `baud-<uid>`.
+    let written: Vec<String> = std::fs::read_dir(&tmp)
+        .expect("tmp")
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("baud"))
+        .collect();
+    assert!(written.is_empty(), "no script was written: {written:?}");
     s.finish();
 }
 
