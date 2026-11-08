@@ -57,13 +57,18 @@ fn starship_new_enough(version: &str) -> bool {
 /// in helix (`scratch::YAZI_TOML`), and Chawan, `cha`, shows a web page
 /// (`scratch::CHAWAN_TOML`); fastfetch, btop and the container's helix run
 /// in the container, from its image.
+///
+/// Each names its `out` output: `nix build` prints a path for every output
+/// it builds, and [`nix_out`] takes one. A package that grows a second
+/// installed output -- yt-dlp's manual, `man`, at [`NIXPKGS`] -- otherwise
+/// fails the session's first step.
 const PROGRAMS: [(&str, &str); 6] = [
-    ("helix", "hx"),
+    ("helix^out", "hx"),
     ("openssh^out", "ssh"),
-    ("kitty", "kitten"),
-    ("yt-dlp", "yt-dlp"),
-    ("yazi", "yazi"),
-    ("chawan", "cha"),
+    ("kitty^out", "kitten"),
+    ("yt-dlp^out", "yt-dlp"),
+    ("yazi^out", "yazi"),
+    ("chawan^out", "cha"),
 ];
 
 /// **The repository flake's mpv** (`nix/demo-mpv/`): nixpkgs' mpv at
@@ -1988,6 +1993,19 @@ mod tests {
         ] {
             assert!(nix.contains(check), "the build checks: {check}");
         }
+    }
+
+    /// **Every program names the one output `nix_out` takes**, `out`, so a
+    /// package with a second installed output, as yt-dlp's `man` at
+    /// `NIXPKGS`, still builds to one path. The control: a bare attribute
+    /// is caught. Perturbation: name `yt-dlp` bare and the check fails.
+    #[test]
+    fn every_program_names_its_out_output() {
+        let one = |attr: &str| attr.ends_with("^out");
+        for (attr, _) in super::PROGRAMS {
+            assert!(one(attr), "{attr} names no output");
+        }
+        assert!(!one("yt-dlp"), "the control");
     }
 
     /// **The repository's copy is exactly its paths, at `HEAD`**: the
