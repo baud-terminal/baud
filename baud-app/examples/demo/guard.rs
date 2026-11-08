@@ -268,12 +268,18 @@ pub fn space(current: Option<i64>) -> Result<(), Refused> {
     Ok(())
 }
 
-/// **`pid`'s largest window on screen**: its terminal window, rather than
-/// a tooltip or a panel.
+/// **`pid`'s frontmost ordinary window on screen**: the first of its
+/// windows on layer 0 in `all`, the on-screen list front to back
+/// (`kCGWindowListOptionOnScreenOnly`, "ordered from front to back",
+/// `[[source: macos-sdk-cgwindow-h]]`), as the keys' guard reads it -- its
+/// terminal window rather than a tooltip or a panel, whose layers are
+/// above 0. A link's window opens over the window clicked at the same
+/// frame, so the two are the same size and only the order tells them
+/// apart; the list `kCGWindowListOptionAll` gives has no order the header
+/// states.
 pub fn frame(pid: i32, all: &[Window]) -> Option<Rect> {
     all.iter()
-        .filter(|w| w.owner == pid && w.on_screen == OnScreen::Yes)
-        .max_by(|a, b| (a.bounds.w * a.bounds.h).total_cmp(&(b.bounds.w * b.bounds.h)))
+        .find(|w| w.owner == pid && w.layer == 0 && w.on_screen == OnScreen::Yes)
         .map(|w| w.bounds)
 }
 
@@ -628,17 +634,18 @@ mod tests {
         assert_eq!(space(main_space(&[])), Ok(()));
     }
 
-    /// **The centre is the largest of baud's windows on screen**, not its
-    /// tooltip, and nothing of another's.
+    /// **The centre is baud's frontmost ordinary window on screen**, not
+    /// its tooltip above it (layer 3), not one off screen, and nothing of
+    /// another's in front.
     #[test]
-    fn the_centre_is_baud_s_largest_window() {
+    fn the_centre_is_baud_s_frontmost_window() {
         let mut hidden = win(BAUD, 0, 0.0, 0.0, 4000.0, 4000.0);
         hidden.on_screen = OnScreen::No;
         let all = [
-            win(BAUD, 0, 120.0, 90.0, 200.0, 30.0),
-            win(BAUD, 0, 100.0, 100.0, 800.0, 600.0),
             win(OTHER, 0, 0.0, 0.0, 2000.0, 2000.0),
+            win(BAUD, 3, 120.0, 90.0, 200.0, 30.0),
             hidden,
+            win(BAUD, 0, 100.0, 100.0, 800.0, 600.0),
         ];
         assert_eq!(centre(BAUD, &all), Some((500.0, 400.0)));
         assert_eq!(centre(9, &all), None);
@@ -651,5 +658,19 @@ mod tests {
                 h: 600.0
             })
         );
+    }
+
+    /// **Of two windows of baud's the same size, the front one is the
+    /// frame**: a link's window opened over the window clicked, at its
+    /// size, comes first in the list front to back and wins, wherever each
+    /// lies; with the two the other way round, the other wins. The size
+    /// cannot tell them apart. Perturbation: pick the largest, and one of
+    /// the two orders gives the window behind.
+    #[test]
+    fn of_two_equal_windows_the_front_one_is_the_frame() {
+        let a = win(BAUD, 0, 100.0, 100.0, 800.0, 600.0);
+        let b = win(BAUD, 0, 140.0, 130.0, 800.0, 600.0);
+        assert_eq!(frame(BAUD, &[a.clone(), b.clone()]), Some(a.bounds));
+        assert_eq!(frame(BAUD, &[b.clone(), a.clone()]), Some(b.bounds));
     }
 }

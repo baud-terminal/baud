@@ -1829,20 +1829,20 @@ fn play(
                 std::thread::sleep(Duration::from_millis(u64::from(ms)));
             }
             Step::Wheel { turns, lines } => {
-                let c = guard::centre(pid, &mac::windows(false))
+                let c = guard::centre(pid, &mac::windows(true))
                     .ok_or("baud has no window on screen")?;
                 poster.wheel(c, turns, lines)?;
                 ev.line(&session::event(step, prompt));
             }
             Step::Hover(cell) => {
-                let w = guard::frame(pid, &mac::windows(false))
+                let w = guard::frame(pid, &mac::windows(true))
                     .ok_or("baud has no window on screen")?;
                 let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
                 poster.hover(at)?;
                 ev.line(&session::event(step, prompt));
             }
             Step::CmdClick(cell) => {
-                let w = guard::frame(pid, &mac::windows(false))
+                let w = guard::frame(pid, &mac::windows(true))
                     .ok_or("baud has no window on screen")?;
                 let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
                 log.refresh();
@@ -1851,7 +1851,7 @@ fn play(
                 ev.line(&session::event(step, prompt));
             }
             Step::Drag { from, to } => {
-                let w = guard::frame(pid, &mac::windows(false))
+                let w = guard::frame(pid, &mac::windows(true))
                     .ok_or("baud has no window on screen")?;
                 let place = |c, within| session::in_window(c, within, (w.x, w.y), (w.w, w.h));
                 let (press, release) = session::drag_ends();
