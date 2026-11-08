@@ -791,13 +791,15 @@ fn decrqcra_answers_the_same_with_a_line_up() {
     assert_ne!(checksum(&mut t), before, "the control: as cells it moves");
 }
 
-/// **A line at rest is in the text's own colour, and goes without a trace**:
-/// red text has a red line under it, an incremental frame is the full one, and
-/// with none the frame is the plain one. Perturbations: draw it in the default
-/// foreground, as the preview's underline; drop `lines_changed` from the
-/// convert's damage.
+/// **A line at rest is baud's amber, a hovered one as it was, and either goes
+/// without a trace**, on the CPU path, which the Linux driver draws with: red
+/// text has a `#F4A32C` line under it, on dark and on light; under the pointer
+/// with `"text"` the line is the text's own red; an incremental frame is the
+/// full one, and with none the frame is the plain one. Perturbations: draw
+/// it in the text's colour (`Renderer::line_colour`); draw the hovered line
+/// amber too; drop `lines_changed` from the convert's damage.
 #[test]
-fn a_line_at_rest_is_the_texts_colour_and_leaves_no_trace() {
+fn a_line_at_rest_is_amber_and_leaves_no_trace() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     let mut owned = Owned::new(&WS);
@@ -806,20 +808,26 @@ fn a_line_at_rest_is_the_texts_colour_and_leaves_no_trace() {
         &mut t,
         b"\x1b[?25lsee \x1b[38;2;255;0;0mhttps://example.org/x\x1b[m",
     );
+    for theme in [Theme::dark(), Theme::light()] {
+        a_line_at_rest_on(&mut t, theme, &faces);
+    }
+}
+
+fn a_line_at_rest_on(t: &mut Term<'_>, theme: Theme, faces: &[Face<'_>]) {
     let mut r = Renderer::new(
-        Stack::new(&faces).unwrap(),
+        Stack::new(faces).unwrap(),
         PxSize::of(14.0).unwrap(),
-        Theme::dark(),
+        theme,
         Blend::Native,
         Cols::of_index(80),
         Rows::of_index(24),
     )
     .unwrap();
-    r.fit(&t);
+    r.fit(t);
     let (w, h) = r.pixel_size();
     let n = usize::try_from(w.value() * h.value()).unwrap();
     let mut plain = vec![0u32; n];
-    paint(&mut r, &mut t, &mut plain, Damage::Full);
+    paint(&mut r, t, &mut plain, Damage::Full);
     let cell = t.view(Rows::ZERO).row(Row::ZERO)[4];
     let word = t.style_in(baud_domain::RowStyles::Live, cell);
     r.set_link_lines(
@@ -832,9 +840,9 @@ fn a_line_at_rest_is_the_texts_colour_and_leaves_no_trace() {
         LineStyle::Solid,
     );
     let mut shown = plain.clone();
-    paint(&mut r, &mut t, &mut shown, Damage::Incremental);
+    paint(&mut r, t, &mut shown, Damage::Incremental);
     let mut full = vec![0u32; n];
-    paint(&mut r, &mut t, &mut full, Damage::Full);
+    paint(&mut r, t, &mut full, Damage::Full);
     assert!(full == shown, "an incremental frame is the full one");
     let m = r.metrics();
     let (cw, stride) = (
@@ -842,11 +850,36 @@ fn a_line_at_rest_is_the_texts_colour_and_leaves_no_trace() {
         usize::try_from(w.value()).unwrap(),
     );
     let y = usize::try_from(m.underline.value()).unwrap();
+    let amber = Pair::BAUD.page.0 & 0x00FF_FFFF;
     assert!(
-        (4 * cw..25 * cw).all(|x| shown[y * stride + x] & 0x00FF_FFFF == 0x00FF_0000),
-        "the line is the text's own red, across its cells"
+        (4 * cw..25 * cw).all(|x| shown[y * stride + x] & 0x00FF_FFFF == amber),
+        "the line is #F4A32C across its cells, found {:06x}",
+        shown[y * stride + 4 * cw] & 0x00FF_FFFF
     );
+    // Under the pointer, `"text"`: the line as it was, the text's own red.
+    r.set_link_hover(Some(&LinkHover {
+        spans: vec![LinkSpan {
+            row: Row::ZERO,
+            from: Col::at_index(4),
+            to: Col::at_index(24),
+        }],
+        paint: HoverPaint::Text,
+    }));
+    let mut over = shown.clone();
+    paint(&mut r, t, &mut over, Damage::Full);
+    // Where no glyph's ink reaches the line's row in the plain frame.
+    let clear: Vec<usize> = (4 * cw..25 * cw)
+        .filter(|&x| plain[y * stride + x] == plain[y * stride + 30 * cw])
+        .collect();
+    assert!(clear.len() * 2 > 21 * cw, "most of the row is clear");
+    assert!(
+        clear
+            .iter()
+            .all(|&x| over[y * stride + x] & 0x00FF_FFFF == 0x00FF_0000),
+        "a hovered line is the text's own red"
+    );
+    r.set_link_hover(None);
     r.set_link_lines(&[], LineStyle::Solid);
-    paint(&mut r, &mut t, &mut shown, Damage::Incremental);
+    paint(&mut r, t, &mut shown, Damage::Incremental);
     assert!(shown == plain, "nothing of it is left behind");
 }

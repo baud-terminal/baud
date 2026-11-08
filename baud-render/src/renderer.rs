@@ -19,7 +19,9 @@ use crate::flash::{self, Strength};
 use crate::frozen::Words;
 use crate::guide::{self, GuideLook};
 use crate::instance::{Instance, Screen};
-use crate::linked::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkLook, MissingPaint};
+use crate::linked::{
+    HoverPaint, LineColour, LineStyle, LinkHover, LinkLine, LinkLook, MissingPaint,
+};
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
 use crate::picture::Pictures;
@@ -2560,6 +2562,7 @@ pub struct Renderer<'f, 'a> {
     link_lines: Vec<LinkLine>,
     last_link_lines: Vec<LinkLine>,
     line_style: LineStyle,
+    line_colour: LineColour,
     line_inst: Vec<Instance>,
     /// **A struck link** on this frame and the last: the runs at rest, then
     /// those the gesture's modifier strikes ([`Renderer::set_link_strikes`]),
@@ -3129,6 +3132,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             link_lines: Vec::new(),
             last_link_lines: Vec::new(),
             line_style: LineStyle::Solid,
+            line_colour: LineColour::Box,
             line_inst: Vec::new(),
             link_strikes: Vec::new(),
             last_link_strikes: Vec::new(),
@@ -4100,6 +4104,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.line_style = style;
     }
 
+    /// **The colour the lines at rest take**: `[message]`'s box colour, or,
+    /// under `[link] hover = "line"`, the text's own.
+    pub fn set_line_colour(&mut self, colour: LineColour) {
+        self.line_colour = colour;
+    }
+
     /// **The struck links for the next frames**: the scan's runs at rest,
     /// then the ones the gesture's modifier strikes over the link under the
     /// pointer, each a run of one rendition. Copied only when they changed,
@@ -4180,9 +4190,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The solids and fields of the frame's links, once its layout is
-    /// known**: each line at the cells the row's order draws it on, in the
-    /// colour its rendition resolves to now, so a palette or a video that
-    /// moved moves it, and the look of the link under the pointer. The
+    /// known**: each line at the cells the row's order draws it on, at rest
+    /// in the box's colour as this frame resolves it ([`LineColour`]) and,
+    /// under the pointer, in the colour its rendition resolves to now, so a
+    /// palette or a video that moved moves it; none where that text does
+    /// not draw; and the look of the link under the pointer. The
     /// instance and CPU paths call it from their convert, the cell path
     /// before its walk, which reads the look's fields as empty; `view` is
     /// the window as that path's cells name their renditions.
@@ -4221,6 +4233,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // no list is built for it.
         let plain = !self.bidi.orders().any() && self.bidi.orders().display().is_none();
         let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
+        // The box's colour as this frame resolves it, as the box itself
+        // takes it: `"none"` reads the selection's colours now.
+        let rest = match self.line_colour {
+            LineColour::Box => Some(
+                self.message_rendition(self.resolve_slot(term, Default::default()))
+                    .bg,
+            ),
+            LineColour::Text => None,
+        };
         let lines = core::mem::take(&mut self.link_lines);
         for l in &lines {
             let colour = match last {
@@ -4232,6 +4253,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             };
             let Some(colour) = colour else { continue };
+            // At rest, the box's colour; the link under the pointer keeps the
+            // line its look has always had, in the text's colour.
+            let colour = match (self.hovered_line(l), rest) {
+                (false, Some(rest)) => rest,
+                _ => colour,
+            };
             if self.line_style == LineStyle::Off {
                 continue;
             }
@@ -4354,9 +4381,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.line_inst = out;
     }
 
-    /// The colour a line at rest is drawn in over a cell of rendition `word`,
-    /// as an underline of that cell would be; none where its text does not
-    /// draw.
+    /// Whether line `l` lies under the link the pointer is over.
+    fn hovered_line(&self, l: &LinkLine) -> bool {
+        self.link_hover.as_ref().is_some_and(|h| {
+            h.spans
+                .iter()
+                .any(|s| s.row == l.row && s.from <= l.from && l.to <= s.to)
+        })
+    }
+
+    /// The colour a line over a cell of rendition `word` is drawn in under
+    /// the pointer, as an underline of that cell would be; none where its
+    /// text does not draw, where no line is drawn at rest either.
     fn line_colour(&self, term: &Term<'_>, word: baud_domain::StyleWord) -> Option<Argb> {
         let d = self.resolve_slot(term, word).drawn(Swaps {
             pictured: crate::picture::Pictured::No,

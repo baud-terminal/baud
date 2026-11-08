@@ -3350,6 +3350,8 @@ impl Driver {
                 );
                 self.renderer.set_link_lines(self.lines.lines(), style);
                 self.renderer
+                    .set_line_colour(self.link_config.line_colour());
+                self.renderer
                     .set_link_strikes(self.lines.struck(), self.seat.hover_struck());
             }
             None => {

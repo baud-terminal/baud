@@ -135,7 +135,7 @@ pub use lights::{
     line_lamps,
 };
 pub use linked::{
-    HoverPaint, LINK_TEXT_CONTRAST, LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan,
+    HoverPaint, LINK_TEXT_CONTRAST, LineColour, LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan,
     MISSING_CONTRAST, MissingPaint,
 };
 pub use message::{MessageColours, MessagePaint, Pair, SelectionPulse};

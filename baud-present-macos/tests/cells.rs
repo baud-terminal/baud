@@ -15358,7 +15358,7 @@ fn no_cursor_covers_an_address_on_any_arm() {
 /// the text look a page; drop a look's fields from the cell path's chrome.
 #[test]
 fn the_lines_and_the_looks_are_one_picture_on_every_arm() {
-    use baud_render::{HoverPaint, LineStyle, LinkHover, LinkLine, LinkSpan};
+    use baud_render::{HoverPaint, LineColour, LineStyle, LinkHover, LinkLine, LinkSpan};
     let read =
         |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
     let built = read("baud-app/fonts/built/Regular.ttf");
@@ -15410,6 +15410,13 @@ fn the_lines_and_the_looks_are_one_picture_on_every_arm() {
     assert!(differing(&solid, &dotted) > 0, "dotted is not solid");
     arms.line_style = LineStyle::Solid;
     for paint in [HoverPaint::Box, HoverPaint::Line, HoverPaint::Text] {
+        // The lines at rest as the driver sets them under this look
+        // (`config::Link::line_colour`).
+        arms.renderer.set_line_colour(match paint {
+            HoverPaint::Line => LineColour::Text,
+            HoverPaint::Box | HoverPaint::Text => LineColour::Box,
+        });
+        let rest = three_arms(&mut arms, &mut t, "at rest");
         arms.over = Some(LinkHover {
             spans: vec![LinkSpan {
                 row: Row::ZERO,
@@ -15419,11 +15426,146 @@ fn the_lines_and_the_looks_are_one_picture_on_every_arm() {
             paint,
         });
         let over = three_arms(&mut arms, &mut t, "a look");
-        assert!(differing(&solid, &over) > 0, "{paint:?} reached the pixels");
+        assert!(differing(&rest, &over) > 0, "{paint:?} reached the pixels");
         arms.over = None;
         let gone = three_arms(&mut arms, &mut t, "gone");
-        assert_eq!(differing(&solid, &gone), 0, "{paint:?} leaves nothing");
+        assert_eq!(differing(&rest, &gone), 0, "{paint:?} leaves nothing");
     }
+    arms.renderer.set_line_colour(LineColour::Box);
+}
+
+/// **An unhovered link's line is the box's colour on every arm, and a
+/// hovered link looks as it did**: the instance, cell and CPU arms draw every
+/// pixel of the line under two links of two text colours in `[message]`'s
+/// default box colour, `Pair::BAUD`'s `#F4A32C`; with the pointer over the
+/// first, `"text"` keeps its line in the text's own red and `"box"` covers
+/// it, as before, while the second stays amber; under `"line"` the lines at
+/// rest keep the text's colour, as before, and the hovered one is the box's.
+/// The control: the same lines under no look are not the text's colour.
+/// Perturbations: draw the line at rest in the text's colour (`rest` in
+/// `Renderer::place_links_with`); draw the hovered link's line amber too,
+/// which `"text"` shows; ignore `LineColour::Text`, which `"line"` shows.
+#[test]
+fn an_unhovered_line_is_amber_and_a_hovered_one_unchanged_on_every_arm() {
+    use baud_render::{HoverPaint, LineColour, LineStyle, LinkHover, LinkLine, LinkSpan, Pair};
+    let read =
+        |p: &str| std::fs::read(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR"))).expect("face");
+    let built = read("baud-app/fonts/built/Regular.ttf");
+    let faces = [Face::parse(&built).expect("parse")];
+    let (cols, rows) = (
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    );
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        cols,
+        rows,
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    feed(
+        &mut t,
+        b"\x1b[?25lsee \x1b[38;2;255;0;0mhttps://example.org/x\x1b[m and \
+          \x1b[38;2;0;255;0;44mhttps://b.example\x1b[m",
+    );
+    feed(&mut t, ENOUGH_GLYPHS);
+    let plain = three_arms(&mut arms, &mut t, "no lines");
+    let word = |x: usize| {
+        let c = t.view(Rows::ZERO).row(Row::ZERO)[x];
+        t.style_in(baud_domain::RowStyles::Live, c)
+    };
+    let (first, second) = ((4, 24), (30, 46));
+    arms.lines = [first, second]
+        .map(|(from, to)| LinkLine {
+            row: Row::ZERO,
+            from: Col::at_index(from),
+            to: Col::at_index(to),
+            word: word(from),
+        })
+        .to_vec();
+    arms.line_style = LineStyle::Solid;
+    let m = arms.renderer.metrics();
+    let w = usize::try_from(arms.renderer.whole_size().0.value()).unwrap();
+    let cw = usize::try_from(m.cell_w.value()).unwrap();
+    let y = usize::try_from(m.underline.value()).unwrap();
+    // The line's row of pixels over a span, where no glyph's ink reaches it
+    // in the frame with no lines: the pixels its cells' page fills there.
+    let rgb = |f: &[u32], (from, to): (usize, usize)| -> Vec<u32> {
+        let xs = from * cw..(to + 1) * cw;
+        let page = |x: usize| plain[y * w + x];
+        let mut seen: Vec<(u32, usize)> = Vec::new();
+        for x in xs.clone() {
+            match seen.iter_mut().find(|(p, _)| *p == page(x)) {
+                Some((_, n)) => *n += 1,
+                None => seen.push((page(x), 1)),
+            }
+        }
+        let most = seen.iter().max_by_key(|(_, n)| *n).map(|(p, _)| *p);
+        let clear: Vec<usize> = xs.filter(|&x| Some(page(x)) == most).collect();
+        assert!(
+            clear.len() * 2 > (to + 1 - from) * cw,
+            "most of the row is clear"
+        );
+        clear.iter().map(|&x| f[y * w + x] & 0x00FF_FFFF).collect()
+    };
+    let all = |v: &[u32], c: u32| v.iter().all(|&p| p == c);
+    let amber = Pair::BAUD.page.0 & 0x00FF_FFFF;
+    let rest = three_arms(&mut arms, &mut t, "at rest");
+    for (span, what) in [(first, "red text"), (second, "green text")] {
+        assert!(
+            all(&rgb(&rest, span), amber),
+            "{what}: the line at rest is #F4A32C on every arm, found {:06x?}",
+            &rgb(&rest, span)[..4]
+        );
+    }
+    assert!(!all(&rgb(&rest, first), 0xFF_0000), "the control");
+    let hovered = |paint| LinkHover {
+        spans: vec![LinkSpan {
+            row: Row::ZERO,
+            from: Col::at_index(first.0),
+            to: Col::at_index(first.1),
+        }],
+        paint,
+    };
+    arms.over = Some(hovered(HoverPaint::Text));
+    let text = three_arms(&mut arms, &mut t, "text");
+    assert!(
+        all(&rgb(&text, first), 0xFF_0000),
+        "\"text\": the hovered line is the text's red, found {:06x?}",
+        &rgb(&text, first)[..4]
+    );
+    assert!(
+        all(&rgb(&text, second), amber),
+        "\"text\": the other at rest"
+    );
+    arms.renderer.set_line_colour(LineColour::Text);
+    arms.over = Some(hovered(HoverPaint::Line));
+    let line = three_arms(&mut arms, &mut t, "line");
+    assert!(all(&rgb(&line, first), amber), "\"line\": the box's colour");
+    assert!(
+        all(&rgb(&line, second), 0x00_FF00),
+        "\"line\": the other at rest in its text's green"
+    );
+    arms.renderer.set_line_colour(LineColour::Box);
+    arms.over = Some(hovered(HoverPaint::Box));
+    let boxed = three_arms(&mut arms, &mut t, "box");
+    let kept = arms.lines.clone();
+    arms.lines = vec![kept[1]];
+    let bare = three_arms(&mut arms, &mut t, "box without the first line");
+    assert_eq!(
+        rgb(&boxed, first),
+        rgb(&bare, first),
+        "\"box\": the box covers the line under it"
+    );
+    assert!(
+        all(&rgb(&boxed, second), amber),
+        "\"box\": the other at rest"
+    );
+    arms.lines = kept;
+    arms.over = None;
 }
 /// The alaph of `word`, written from column 3 of row 2 after a clear, its
 /// cell's pixels on every arm: a letter, an erased cell and the alaph,

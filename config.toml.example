@@ -616,7 +616,9 @@
 # "off" checks nothing.
 # paths = "on"
 #
-# The line at rest, in the text's own colour: "solid", "dotted" or "off". A
+# The line at rest, in [message]'s box_color, baud's amber #F4A32C unless you
+# set it, and under the pointer, or with hover = "line", in the text's own
+# colour: "solid", "dotted" or "off". A
 # program's own underline stays, and an address that may have been cut, or that
 # a click would refuse, gets no line.
 # line = "solid"

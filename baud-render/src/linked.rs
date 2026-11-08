@@ -33,8 +33,10 @@ pub struct LinkLook {
 
 /// **One run of a link's cells underlined at rest**, in one rendition: the
 /// driver's scan (`baud-app`'s `lined.rs`) hands these over, and the line is
-/// drawn in the text's own colour, which this word resolves to. Nothing of it
-/// reaches a cell, so no query of the core's can read it back.
+/// drawn in `[message]`'s box colour ([`LineColour::Box`]), baud's amber by
+/// default, where the text this word resolves to draws; under the pointer,
+/// and under [`LineColour::Text`], in that text's colour.
+/// Nothing of it reaches a cell, so no query of the core's can read it back.
 ///
 /// **A struck run is the same shape in a list of its own**
 /// ([`crate::Renderer::set_link_strikes`]): struck through at the face's
@@ -59,6 +61,18 @@ pub enum LineStyle {
     /// `missing = "strike"`, for the struck runs, which are drawn whatever
     /// the line is.
     Off,
+}
+
+/// **What colour a link's line at rest takes.**
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LineColour {
+    /// `[message]`'s box colour as each frame resolves it: baud's amber,
+    /// `#F4A32C`, by default, on every theme.
+    #[default]
+    Box,
+    /// The text's own colour, which `[link] hover = "line"` keeps at rest,
+    /// since its look is a line in the box's colour.
+    Text,
 }
 
 /// `[link] hover`: how the link under the pointer is drawn.

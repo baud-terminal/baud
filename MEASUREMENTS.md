@@ -4274,6 +4274,37 @@ layer lifts it is not isolated. WCAG 2.3.1 is unmoved: `trail_flashes`
 and `splash_flashes` pass, and no red transition, the amber's linear R/(R+G+B)
 0.70 on both themes.
 
+## The link line in amber
+
+A link's or a printed path's line at rest takes `[message]`'s `box_color` as
+each frame resolves it: `"baud"`, the default, is the brand's `#F4A32C` on
+both built-in themes and on each reversed, never a darker shade, so the line,
+the box and the cursor are one colour. Under `[link] hover = "line"`, whose
+look is a line in that colour, the line at rest keeps the text's own colour;
+the link under the pointer keeps its line in the text's colour under
+`"box"` and `"text"`.
+
+**Contrast**, WCAG 2.2's ratio (`[[source: wcag22]]`), of the line's drawn
+pixels against the page drawn beside it, opaque, CPU renderer, pinned by
+`baud-render/tests/link_amber.rs`:
+
+| page | line | ratio |
+|---|---|---|
+| `#101010`, dark | `#F4A32C` | 9.17 |
+| `#EFEFEF`, light | `#F4A32C` | **1.80** |
+| `#D8D8D8`, dark reversed | `#F4A32C` | **1.46** |
+| `#272727`, light reversed | `#F4A32C` | 7.20 |
+
+1.80 and 1.46 are under the 3:1 that 1.4.11, Non-text Contrast, asks of what
+identifies a component, and the line is what tells a link from its text. The
+cost is taken by choice, for one amber across the line, the box and the
+cursor, and held by the test rather than hidden. `[message] box_color` buys
+it back: a colour of the user's moves the line with the box
+(`a_box_color_of_the_users_moves_the_line`), and `"none"` gives it the
+selection's colour, as each frame is drawn.
+
+**What moved.** No golden or pixel pin: the touched crates and their dependents pass with every pin unchanged.
+
 ## The README's logo repeats, and the plasma never rests
 
 `logo-{dark,light}.gif` and `.svg` play the plasma's whole ten-second chain and

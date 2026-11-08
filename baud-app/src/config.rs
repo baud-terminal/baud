@@ -698,6 +698,18 @@ impl Link {
         }
     }
 
+    /// **The colour of the line at rest**: `[message]`'s box colour, except
+    /// under `hover = "line"`, whose look is a line in that colour, so the
+    /// line at rest keeps the text's own.
+    pub fn line_colour(&self) -> baud_render::LineColour {
+        match self.hover {
+            baud_render::HoverPaint::Line => baud_render::LineColour::Text,
+            baud_render::HoverPaint::Box | baud_render::HoverPaint::Text => {
+                baud_render::LineColour::Box
+            }
+        }
+    }
+
     /// Whether a link baud knows would open nothing is struck.
     pub fn missing_read(&self) -> crate::paths::Turned {
         match self.missing {
@@ -5887,12 +5899,13 @@ mod reader {
     /// value's default, said. `urls` and `paths` both `"off"` leave nothing to
     /// scan, and `paths` alone keeps the scan for paths, with the look on
     /// them only. Perturbations: default `urls` or `paths` to off; read
-    /// `line = "off"` as solid; let `paths_read` ask with the line off.
+    /// `line = "off"` as solid; let `paths_read` ask with the line off;
+    /// give `hover = "line"` the box's colour at rest.
     #[test]
     fn the_link_section_reads_as_it_documents() {
         use crate::link::AtRest;
         use crate::paths::Turned;
-        use baud_render::{HoverPaint, LineStyle};
+        use baud_render::{HoverPaint, LineColour, LineStyle};
         let d = Config::defaults().link;
         assert_eq!(d.urls, LinkUrls::On);
         assert_eq!(d.paths, LinkPaths::On);
@@ -5900,6 +5913,14 @@ mod reader {
         assert_eq!(d.hover, HoverPaint::Box);
         assert_eq!(d.lines(), Some(LineStyle::Solid));
         assert_eq!(d.paths_read(), Turned::On);
+        assert_eq!(d.line_colour(), LineColour::Box, "the box's colour at rest");
+        let mut c = Config::defaults();
+        let _ = c.apply("[link]\nhover = \"line\"\n");
+        assert_eq!(
+            c.link.line_colour(),
+            LineColour::Text,
+            "\"line\" keeps the text's"
+        );
         let mut c = Config::defaults();
         let said = c.apply("[link]\nurls = \"off\"\nline = \"dotted\"\nhover = \"text\"\n");
         assert!(said.is_empty(), "{said:?}");
