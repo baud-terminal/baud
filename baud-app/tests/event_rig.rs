@@ -21,7 +21,7 @@
 //! commit before, so its red came from a perturbation: `link::later`
 //! made to hand over inline, under which it aborted the same way. That
 //! perturbation is now a standing control,
-//! [`the_rig_sees_an_effect_made_inside_a_callback`].
+//! the control row in [`SITES`].
 //!
 //! A row is green, or **pending** at a stage: expected to fail exactly as
 //! recorded until the stage that moves its site, red if it passes early,
@@ -52,10 +52,11 @@ const CURRENT: Stage = Stage::One;
 /// How a row fails.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Failure {
-    /// The effect ran inside the view's `frame`.
-    InFrame(EffectKind),
+    /// The effect ran inside the view's `frame`, and what its nested call
+    /// met: the window crate holds the `wake:` while the responder is busy.
+    InFrame(EffectKind, Nested),
     /// It ran inside another responder method.
-    InCallback(EffectKind),
+    InCallback(EffectKind, Nested),
     /// The child aborted.
     Aborted,
     /// No effect within the bound.
@@ -73,7 +74,13 @@ enum Failure {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum RowState {
     Green,
-    Pending { stage: Stage, recorded: Failure },
+    Pending {
+        stage: Stage,
+        recorded: Failure,
+    },
+    /// A control: fails as recorded on every run, at every stage, so a rig
+    /// that has gone blind passes it and goes red.
+    Control(Failure),
 }
 
 /// What makes the row's effect happen.
@@ -139,6 +146,8 @@ enum Verdict {
     PastItsStage,
     /// A pending row is left after the last stage.
     PendingAfterTheLast,
+    /// A control passed: the rig no longer sees what it was built to.
+    ControlPassed,
 }
 
 /// **The pending mechanism**: a row's state, what it came to, and the
@@ -147,6 +156,9 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     match (state, observed) {
         (RowState::Green, Observed::Passed) => Verdict::Pass,
         (RowState::Green, Observed::Failed(f)) => Verdict::Broke(f),
+        (RowState::Control(recorded), Observed::Failed(f)) if f == recorded => Verdict::Pass,
+        (RowState::Control(_), Observed::Failed(f)) => Verdict::FailedOtherwise(f),
+        (RowState::Control(_), Observed::Passed) => Verdict::ControlPassed,
         (RowState::Pending { .. }, _) if current == Stage::Done => Verdict::PendingAfterTheLast,
         (RowState::Pending { stage, .. }, _) if current > stage => Verdict::PastItsStage,
         (RowState::Pending { .. }, Observed::Passed) => Verdict::PassedWhilePending,
@@ -155,7 +167,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 4] = [
+const SITES: [Site; 5] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -179,6 +191,19 @@ const SITES: [Site; 4] = [
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::None),
         expect: Expect::Effect(EffectKind::Reveal),
         state: RowState::Green,
+    },
+    // **The control.** The reveal row with `link::later` handing over
+    // inline, as the reveal was handed over before it: the reveal runs
+    // inside the callback the click's answer arrives in -- the worker's
+    // `wake`, where f1ed2869 put it, not the frame -- with the responder
+    // held, and its nested `wake:` is held until the call returns
+    // (macos-liquid-glass 1.0.0-beta.9). On beta.8 the child aborted
+    // here, the crash.
+    Site {
+        name: SiteName("a printed path's reveal, made inside the callback"),
+        cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInline),
+        expect: Expect::Effect(EffectKind::Reveal),
+        state: RowState::Control(Failure::InCallback(EffectKind::Reveal, Nested::Never)),
     },
 ];
 
@@ -269,9 +294,9 @@ fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
             return Observed::Failed(Failure::Times);
         }
         match (r.at, r.responder) {
-            (Where::InFrame, _) => return Observed::Failed(Failure::InFrame(kind)),
+            (Where::InFrame, _) => return Observed::Failed(Failure::InFrame(kind, r.nested)),
             (Where::InCallback, _) | (_, Responder::Held) => {
-                return Observed::Failed(Failure::InCallback(kind));
+                return Observed::Failed(Failure::InCallback(kind, r.nested));
             }
             (Where::InTurn, Responder::Free) => {}
         }
@@ -289,9 +314,9 @@ fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
 }
 
 /// **Every row, each in a child of its own**, judged by [`verdict`] at
-/// [`CURRENT`].
+/// [`CURRENT`]: the green rows pass, and the control fails as recorded.
 #[test]
-fn every_effect_runs_in_a_turn_of_its_own() {
+fn every_row_comes_to_its_state() {
     let mut red = Vec::new();
     for (i, site) in SITES.iter().enumerate() {
         let observed = run(site, &format!("row{i}"));
@@ -308,10 +333,11 @@ fn every_effect_runs_in_a_turn_of_its_own() {
 /// break, run once and each failing here alone: a recorded failure judged
 /// `FailedOtherwise` (state 1); a pending row that passes judged `Pass`
 /// (2); any failure taken as the recorded one (3); the stage check
-/// dropped (4); the after-the-last check dropped (5).
+/// dropped (4); the after-the-last check dropped (5); a control's
+/// recorded failure judged `FailedOtherwise` (6).
 #[test]
 fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
-    let recorded = Failure::InFrame(EffectKind::Copy);
+    let recorded = Failure::InFrame(EffectKind::Copy, Nested::Never);
     let pending = RowState::Pending {
         stage: Stage::Two,
         recorded,
@@ -358,27 +384,21 @@ fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
         verdict(RowState::Green, Observed::Failed(recorded), Stage::One),
         Verdict::Broke(recorded)
     );
-}
-
-/// **The control: the rig sees an effect made inside the view's
-/// callback.** The reveal row's child with `link::later` handing over
-/// inline, as the reveal was handed over before it: every iteration's
-/// reveal is recorded inside the callback the click's answer arrives in,
-/// the worker's `wake`, with the responder held. Since macos-liquid-glass
-/// 1.0.0-beta.9 the child lives through it, the nested `wake:` held until
-/// the callback returns; on beta.8 it aborted, the crash. A rig that
-/// could not see where an effect runs would pass this row as green, and
-/// this fails.
-#[test]
-fn the_rig_sees_an_effect_made_inside_a_callback() {
-    let control = Site {
-        name: SiteName("a printed path's reveal, made inside the callback"),
-        cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInline),
-        expect: Expect::Effect(EffectKind::Reveal),
-        state: RowState::Green,
-    };
+    // A control, failing as recorded: passes, at every stage and after the
+    // last; passing, or failing otherwise: red.
+    let control = RowState::Control(recorded);
+    for stage in [Stage::One, Stage::Three, Stage::Done] {
+        assert_eq!(
+            verdict(control, Observed::Failed(recorded), stage),
+            Verdict::Pass
+        );
+    }
     assert_eq!(
-        run(&control, "control"),
-        Observed::Failed(Failure::InCallback(EffectKind::Reveal))
+        verdict(control, Observed::Passed, Stage::One),
+        Verdict::ControlPassed
+    );
+    assert_eq!(
+        verdict(control, Observed::Failed(Failure::Aborted), Stage::One),
+        Verdict::FailedOtherwise(Failure::Aborted)
     );
 }
