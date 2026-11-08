@@ -41,6 +41,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
+use baud_present_macos::rig_call::{EventRig, Iterations, RigAct, RigCall, RigTicks};
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -110,8 +111,9 @@ enum Cause {
 /// A gesture, the screen it is over and the config.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Gesture {
-    /// The child's act: `link`, `select` or `copy-menu`.
-    act: &'static str,
+    /// The child's act: a link's click, a selection, or the Edit menu's
+    /// copy.
+    act: RigAct,
     /// The shell line that draws the screen, `{file}` the row's own
     /// scratch file; it ends with an `OSC 52` clear, the sign it was read.
     setup: &'static str,
@@ -369,7 +371,7 @@ const SITES: [Site; 14] = [
     Site {
         name: SiteName("a selection, copied by the Edit menu"),
         cause: Cause::Gesture(Gesture {
-            act: "copy-menu",
+            act: RigAct::CopyMenu,
             setup: r"printf '\033[H\033[2JWORD\033]52;c;!\007'",
             config: "[clipboard]\ncopy_on_select = \"off\"\n",
         }),
@@ -385,7 +387,7 @@ const SITES: [Site; 14] = [
 ];
 
 /// Iterations a row runs in its child.
-const ITERATIONS: &str = "100";
+const ITERATIONS: Iterations = Iterations(100);
 
 /// The scratch directory a row's child lives in: its home, its config and
 /// the file it clicks.
@@ -422,14 +424,14 @@ fn run(site: &Site, slug: &str) -> Observed {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file clicked");
             let file = file.to_str().expect("a UTF-8 path").to_owned();
-            ("path", file, config(rule), ticks)
+            (RigAct::Path, file, config(rule), ticks)
         }
         // Undriven: a program's output is read by whichever of the
         // reader's `wake` and the frame comes first, so with the frame
         // driven a row's site would be one or the other by timing. The
         // frame reads it the same way, so the Tick arm's own guard covers
         // that entry.
-        Cause::Program(p) => ("type", p.line.to_owned(), p.config, Ticks::None),
+        Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, Ticks::None),
         Cause::Gesture(g) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file linked");
@@ -443,25 +445,21 @@ fn run(site: &Site, slug: &str) -> Observed {
         }
     };
     std::fs::write(&conf, config).expect("the config");
+    // The one call type the child's door parses (`rig_call.rs`).
+    let call = RigCall::Event(EventRig {
+        act,
+        arg,
+        iterations: ITERATIONS,
+        ticks: match ticks {
+            Ticks::Driven => RigTicks::Driven,
+            Ticks::None => RigTicks::None,
+            Ticks::DrivenInline => RigTicks::InCallback,
+            Ticks::DrivenInFrame => RigTicks::InFrame,
+        },
+        each: expect.each.to_vec(),
+    });
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
-        .args([
-            "--event-rig",
-            act,
-            &arg,
-            ITERATIONS,
-            match ticks {
-                Ticks::Driven => "tick",
-                Ticks::None => "no-tick",
-                Ticks::DrivenInline => "tick-inline",
-                Ticks::DrivenInFrame => "tick-in-frame",
-            },
-            &expect
-                .each
-                .iter()
-                .map(|k| k.word())
-                .collect::<Vec<_>>()
-                .join(","),
-        ])
+        .args(call.to_args())
         .env_clear()
         .env("HOME", dir.join("home"))
         .env("ZDOTDIR", dir.join("home"))
@@ -487,7 +485,7 @@ fn judge(expect: Expect, out: &std::process::Output, dir: &Path) -> Observed {
         return Observed::Failed(Failure::Aborted);
     }
     let lines: Vec<&str> = text.lines().collect();
-    let iterations: usize = ITERATIONS.parse().expect("a count");
+    let iterations = usize::from(ITERATIONS.0);
     let mut records = 0;
     for line in &lines {
         if *line == "none" {
@@ -621,4 +619,56 @@ fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
         verdict(control, Observed::Failed(Failure::Aborted), Stage::One),
         Verdict::FailedOtherwise(Failure::Aborted)
     );
+}
+
+/// **A probe build that is not called as a rig exits 2 at once**, before
+/// any application, window or Dock work (`rig_door.rs`): with no
+/// arguments, a plain launch's, and with one argument too few for the
+/// event rig, which is how a by-hand runner once fell through to a plain
+/// launch and showed a window. Each child is given 1 s and killed past it
+/// -- a launch would still be running -- and only calls the door refuses
+/// are made, so no window can come of this test. Perturbation: the door
+/// exits 3, and both fail on the code.
+#[test]
+fn a_probe_build_called_as_no_rig_exits_2_at_once() {
+    let short = RigCall::Event(EventRig {
+        act: RigAct::Path,
+        arg: "/nothing".to_owned(),
+        iterations: Iterations(1),
+        ticks: RigTicks::Driven,
+        each: vec![EffectKind::Reveal],
+    })
+    .to_args();
+    let short = &short[..short.len() - 1];
+    for args in [&[][..], short] {
+        let dir = scratch(&format!("door-{}", args.len()));
+        let mut child = Command::new(env!("CARGO_BIN_EXE_baud"))
+            .args(args)
+            .env_clear()
+            .env("HOME", dir.join("home"))
+            .env("PATH", "/usr/bin:/bin")
+            .env("BAUD_CONFIG", dir.join("config.toml"))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("the child");
+        let start = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("its status") {
+                break Some(status);
+            }
+            if start.elapsed() > std::time::Duration::from_secs(1) {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        let mut said = String::new();
+        let _ =
+            std::io::Read::read_to_string(&mut child.stderr.take().expect("its stderr"), &mut said);
+        let status = status.unwrap_or_else(|| panic!("{args:?}: still running after 1 s"));
+        assert_eq!(status.code(), Some(2), "{args:?}: {said}");
+        assert!(said.starts_with("baud: "), "{args:?}: {said}");
+    }
 }

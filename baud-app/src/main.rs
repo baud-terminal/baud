@@ -207,6 +207,9 @@ mod paths;
 mod probe;
 // `[link.*]`: your own link types and the printed-path forms, read whole or
 // refused whole, pure, so its tests run on every platform.
+// The door `main` opens first: a probe build runs only as a rig, and no
+// build takes a rig's flag for a plain launch.
+mod rig_door;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod rules;
 // The activity lights on their own line, as the Linux driver feeds them.
@@ -339,6 +342,9 @@ mod run_arg;
 mod wheel;
 
 fn main() {
+    // First, before anything else runs: a probe build is only ever a rig,
+    // and a rig's flag never reaches a plain launch (`rig_door.rs`).
+    let admitted = rig_door::admitted();
     if version::asks(std::env::args_os().skip(1)) {
         print!("{}", version::text(version::BUILD));
         return;
@@ -392,12 +398,13 @@ fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     std::thread::spawn(discover::Catalogue::system);
     log::init();
-    #[cfg(all(target_os = "macos", feature = "effect-probe"))]
-    if let Some(code) = app::rig::asked() {
-        std::process::exit(match code == std::process::ExitCode::SUCCESS {
-            true => 0,
-            false => 1,
-        });
+    match admitted {
+        rig_door::Admitted::App => {}
+        #[cfg(all(target_os = "macos", feature = "effect-probe"))]
+        rig_door::Admitted::Rig(call) => {
+            let code = app::rig::run_call(call);
+            std::process::exit(i32::from(code != std::process::ExitCode::SUCCESS));
+        }
     }
     #[cfg(target_os = "macos")]
     app::run();

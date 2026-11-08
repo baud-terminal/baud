@@ -53,6 +53,8 @@ pub mod print;
 #[allow(unsafe_code)]
 pub mod probe;
 pub mod redraw;
+#[cfg(feature = "effect-probe")]
+pub mod rig_call;
 pub mod screens;
 pub mod selection;
 pub mod settings;

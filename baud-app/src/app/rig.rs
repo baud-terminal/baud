@@ -2,10 +2,10 @@
 //! test-only `effect-probe` feature: a real `DrawableView` with baud's
 //! `Driver` as its responder, in a process that shows nothing.
 //!
-//! `baud --event-rig <path|type|link|select|copy-menu> <arg> <iterations>
-//! <tick|no-tick|tick-inline|tick-in-frame> <kind,kind...>` -- the last
-//! the effects each iteration waits for, by their probe words, and a call
-//! of any other shape exits 2 -- makes the window and never
+//! Its call is a `RigCall` (`baud_present_macos::rig_call`), parsed by
+//! `main`'s door before anything else runs, which exits 2 on anything
+//! else (`rig_door.rs`): an act, its argument, a count of iterations,
+//! the ticks, and the effects each iteration waits for. It makes the window and never
 //! orders it in, under the prohibited activation policy, so there is no
 //! Dock icon and nothing takes focus; after every iteration the window is
 //! checked never shown, never key, never minimised and never in full
@@ -29,7 +29,9 @@
 
 use super::*;
 use baud_present_macos::probe;
+use baud_present_macos::rig_call as probe_call;
 use macos_liquid_glass::objc2::sel;
+use probe_call::Iterations;
 use std::cell::RefCell;
 
 /// Whether each pass drives the view's frame.
@@ -80,10 +82,6 @@ pub(super) fn take_typed() -> Option<Vec<u8>> {
     TYPED.with(|c| c.borrow_mut().take())
 }
 
-/// How many times the rig clicks.
-#[derive(Clone, Copy)]
-struct Iterations(u16);
-
 /// The bound on one iteration: reaching it is that iteration's failure.
 const BOUND: Duration = Duration::from_secs(2);
 
@@ -96,77 +94,44 @@ const BOUND: Duration = Duration::from_secs(2);
 /// records, under [`BOUND`].
 const SPACING: Duration = Duration::from_millis(50);
 
-/// `--event-rig` and its arguments, or none when the process was not
-/// started as the rig.
-pub(crate) fn asked() -> Option<std::process::ExitCode> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [cause, arg, iterations, ticks, each] = match call(&args) {
-        Call::NotRig => return None,
-        Call::Malformed => return Some(std::process::ExitCode::from(2)),
-        Call::Rig(parts) => parts,
-    };
-    let act = match cause {
-        "path" => Act::Click(arg.as_bytes().to_vec()),
-        "type" => Act::Type([arg.as_bytes(), b"\n"].concat()),
-        "link" => Act::Gesture(Gesture::LinkClick, [arg.as_bytes(), b"\n"].concat()),
-        "select" => Act::Gesture(Gesture::Select, [arg.as_bytes(), b"\n"].concat()),
-        "copy-menu" => Act::Gesture(Gesture::CopyMenu, [arg.as_bytes(), b"\n"].concat()),
-        _ => return Some(std::process::ExitCode::from(2)),
+/// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
+/// already parsed into `RigCall`, the one type the parent builds too.
+pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
+    use probe_call::{RigAct, RigCall, RigTicks};
+    let RigCall::Event(probe_call::EventRig {
+        act,
+        arg,
+        iterations,
+        ticks,
+        each,
+    }) = call;
+    let line = || [arg.as_bytes(), b"\n"].concat();
+    let act = match act {
+        RigAct::Path => Act::Click(arg.as_bytes().to_vec()),
+        RigAct::Type => Act::Type(line()),
+        RigAct::Link => Act::Gesture(Gesture::LinkClick, line()),
+        RigAct::Select => Act::Gesture(Gesture::Select, line()),
+        RigAct::CopyMenu => Act::Gesture(Gesture::CopyMenu, line()),
     };
     let ticks = match ticks {
-        "tick" => Ticks::Driven,
-        "no-tick" => Ticks::None,
+        RigTicks::Driven => Ticks::Driven,
+        RigTicks::None => Ticks::None,
         // The controls: the hand-over made inline, in the callback, or in
         // the next frame.
-        "tick-inline" => {
+        RigTicks::InCallback => {
             probe::set_inline(probe::Inline::InCallback);
             Ticks::Driven
         }
-        "tick-in-frame" => {
+        RigTicks::InFrame => {
             probe::set_inline(probe::Inline::InFrame);
             Ticks::Driven
         }
-        _ => return Some(std::process::ExitCode::from(2)),
     };
-    let Ok(iterations) = iterations.parse().map(Iterations) else {
-        return Some(std::process::ExitCode::from(2));
-    };
-    // The effects each iteration waits for, by their words: `copy,announce`.
-    let Some(each) = each
-        .split(',')
-        .map(probe::EffectKind::of)
-        .collect::<Option<Vec<_>>>()
-    else {
-        return Some(std::process::ExitCode::from(2));
-    };
-    Some(run(act, iterations, ticks, &each))
+    run(act, iterations, ticks, &each)
 }
 
 /// A printed path's setup: a clear of the pasteboard, read by the shell.
 const READY: &[u8] = b"printf '\\033]52;c;!\\007'\n";
-
-/// What a process's arguments ask of the rig.
-#[derive(PartialEq, Eq, Debug)]
-enum Call<'a> {
-    /// Not a rig call: a plain launch.
-    NotRig,
-    /// `--event-rig` of the wrong shape: refused, never taken for a plain
-    /// launch, which would open a window.
-    Malformed,
-    /// Its five arguments.
-    Rig([&'a str; 5]),
-}
-
-fn call(args: &[String]) -> Call<'_> {
-    match args {
-        [flag, ..] if flag != "--event-rig" => Call::NotRig,
-        [] => Call::NotRig,
-        [_, cause, arg, iterations, ticks, each] => {
-            Call::Rig([cause, arg, iterations, ticks, each].map(String::as_str))
-        }
-        _ => Call::Malformed,
-    }
-}
 
 /// Which iteration a gesture is.
 #[derive(Clone, Copy)]
@@ -368,29 +333,5 @@ fn run(
     match failed {
         true => std::process::ExitCode::from(1),
         false => std::process::ExitCode::SUCCESS,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// **A rig call of the wrong shape never launches baud**: a child given
-    /// one argument too few or too many by a script that fell behind would
-    /// otherwise open a real window. The control is the plain launch and
-    /// the call of the right shape. Perturbation: answer `NotRig` for a
-    /// short call.
-    #[test]
-    fn a_malformed_rig_call_is_refused() {
-        let of = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(call(&of(&[])), Call::NotRig);
-        assert_eq!(call(&of(&["README.md"])), Call::NotRig);
-        let short = of(&["--event-rig", "path", "/a", "3", "tick"]);
-        assert_eq!(call(&short), Call::Malformed);
-        let long = of(&["--event-rig", "path", "/a", "3", "tick", "copy", "x"]);
-        assert_eq!(call(&long), Call::Malformed);
-        assert_eq!(call(&of(&["--event-rig"])), Call::Malformed);
-        let right = of(&["--event-rig", "path", "/a", "3", "tick", "copy"]);
-        assert_eq!(call(&right), Call::Rig(["path", "/a", "3", "tick", "copy"]));
     }
 }
