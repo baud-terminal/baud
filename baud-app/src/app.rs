@@ -12293,6 +12293,7 @@ impl Responder for Driver {
         self.key_kind = kind_of(key);
         self.keyed = None;
         self.handed = Handed::NONE;
+        // Caps Lock from the current event, wrong on a replay, until the crate's `Modifiers` has it.
         let flags = current_event_flags();
         self.downs.saw(flags);
         // A key without Command, or with Shift, says the link chord is not
@@ -12419,6 +12420,7 @@ impl Responder for Driver {
     /// instrument, the prediction and `?1011`'s snap leave it alone.
     fn key_released(&mut self, key: &KeyPress) {
         self.handed.up(VirtualKey(key.key_code));
+        // Caps Lock from the current event, wrong on a replay, until the crate's `Modifiers` has it.
         if let Some(e) = self.downs.up(key, current_event_flags()) {
             self.sent_alone(e);
         }
@@ -12437,6 +12439,7 @@ impl Responder for Driver {
             true => KeyEventKind::Press,
             false => KeyEventKind::Release,
         };
+        // Caps Lock from the current event, wrong on a replay, until the crate's `Modifiers` has it.
         let flags = current_event_flags();
         self.downs.saw(flags);
         let Some(e) = modifier_event(change.key, kind, change.modifiers, flags) else {
