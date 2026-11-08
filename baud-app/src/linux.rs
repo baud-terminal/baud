@@ -168,6 +168,8 @@ enum Later {
     Reveal(String),
     Command(std::process::Command),
     Copy(String),
+    /// A new baud running a link's window, in a folder (`windows::running_window`).
+    Window(crate::rules::Run, Option<std::path::PathBuf>),
 }
 
 struct Driver {
@@ -452,7 +454,7 @@ enum Said {
     Once,
 }
 
-pub fn run() {
+pub fn run(given: Option<crate::rules::Run>) {
     crate::warn!(
         "baud on Wayland: run only on headless compositors, where its pixels, keys, pointer and clipboard are checked; no screen has shown it"
     );
@@ -574,7 +576,11 @@ pub fn run() {
         &FIRST,
         renderer.metrics().cell_w,
         renderer.metrics().cell_h,
-        &crate::pty::ShellStart::of(&cfg),
+        // `baud -e`'s program in place of the shell, when it was given.
+        &crate::pty::ShellStart {
+            run: given,
+            ..crate::pty::ShellStart::of(&cfg)
+        },
     )
     .expect("pty");
     startup_mark("pty");
@@ -1753,11 +1759,31 @@ impl Driver {
                             }
                         }
                     }
-                    // A window of yours: refused, counted and said until the
-                    // driver starts `baud -e` on the next turn; nothing runs.
+                    // A window of yours: a new baud running the rule's argv
+                    // with `-e`, in this window's folder, started through the
+                    // opener on the loop's next turn (`Later`).
                     Click::Window => {
-                        self.report.links.refused.bump();
-                        crate::warn!("link refused (window: not built on Linux yet): {said}");
+                        let built = t
+                            .rule()
+                            .and_then(|ix| self.uris.rules().window(ix, t.as_str()));
+                        match built {
+                            Some(Ok(run)) => {
+                                let dir = crate::windows::inherited(
+                                    self.term.working_directory(),
+                                    std::slice::from_ref(&self.host),
+                                    self.derive.dir(),
+                                );
+                                self.later.push(Later::Window(run, dir));
+                            }
+                            Some(Err(why)) => {
+                                self.report.links.refused.bump();
+                                crate::warn!("link refused ({why:?}): {said}");
+                            }
+                            None => {
+                                self.report.links.refused.bump();
+                                crate::warn!("link refused (no command): {said}");
+                            }
+                        }
                     }
                     Click::Open => match self.opener.start(crate::opener::command(t.as_str())) {
                         Ok(()) => {
@@ -1963,11 +1989,21 @@ impl Driver {
                     self.later.push(Later::Copy(text));
                     return;
                 }
-                if let Found::Window(_) = does {
-                    self.report.links.refused.bump();
-                    crate::warn!(
-                        "printed path refused for [link.path]'s window (not built on Linux yet)"
-                    );
+                if let Found::Window(built) = does {
+                    match built {
+                        // In the file's own folder.
+                        Ok(run) => {
+                            use std::os::unix::ffi::OsStrExt;
+                            let dir = std::path::Path::new(std::ffi::OsStr::from_bytes(&path))
+                                .parent()
+                                .map(std::path::Path::to_path_buf);
+                            self.later.push(Later::Window(run, dir));
+                        }
+                        Err(why) => {
+                            self.report.links.refused.bump();
+                            crate::warn!("printed path refused for [link.path]'s window ({why:?})");
+                        }
+                    }
                     return;
                 }
                 if let Found::Command(built) = does {
@@ -2042,6 +2078,34 @@ impl Driver {
                     }
                 },
                 Later::Copy(text) => self.link_copied(text),
+                Later::Window(run, dir) => {
+                    // A program that is gone opens no window: asked here, as
+                    // the new baud would run it, before it starts.
+                    if run.found(std::env::var_os("PATH").as_deref())
+                        == crate::rules::Program::Missing
+                    {
+                        self.report.links.refused.bump();
+                        crate::warn!(
+                            "link not opened in a new window: {:?} is not a program that can run",
+                            run.program()
+                        );
+                        continue;
+                    }
+                    let started = std::env::current_exe().and_then(|exe| {
+                        self.opener
+                            .start(crate::windows::running_window(&exe, run, dir.as_deref()))
+                    });
+                    match started {
+                        Ok(()) => {
+                            self.report.links.opened.bump();
+                            crate::info!("link opened in a new window");
+                        }
+                        Err(e) => {
+                            self.report.links.refused.bump();
+                            crate::warn!("link not opened in a new window: baud -e: {e}");
+                        }
+                    }
+                }
             }
         }
         // Whatever the effects themselves asked for waits a turn.

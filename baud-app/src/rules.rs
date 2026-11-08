@@ -329,10 +329,33 @@ impl Argv {
 pub struct Run(Vec<std::ffi::OsString>);
 
 impl Run {
+    /// **An argv given whole**, `baud -e`'s: none when it names no program.
+    /// Its elements are taken as they are, never split or joined.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    pub fn given(argv: Vec<std::ffi::OsString>) -> Option<Run> {
+        match argv.first().is_some_and(|p| !p.is_empty()) {
+            true => Some(Run(argv)),
+            false => None,
+        }
+    }
+
     /// The program, as the rule wrote it or made absolute.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn program(&self) -> &OsStr {
         &self.0[0]
+    }
+
+    /// **Whether the program is there to run**, on `path_var`'s folders for a
+    /// bare name, as [`Argv::found`] asks of a rule: asked where a window
+    /// starts, before anything opens, so a program that is gone opens no
+    /// window. A metadata call: never on the frame path. A name that is
+    /// not UTF-8 is never one a rule wrote, and is not looked for.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    pub fn found(&self, path_var: Option<&OsStr>) -> Program {
+        match self.program().to_str() {
+            Some(p) => program_found(p, path_var),
+            None => Program::Missing,
+        }
     }
 
     /// Every element, the program first.
@@ -2413,5 +2436,29 @@ mod tests {
                 assert_eq!(reads, values.contains(&v), "[link.{name}] action {v}");
             }
         }
+    }
+
+    /// **W5: a window's program is looked for where the window starts**:
+    /// one that is gone, by its full path or as a name on none of `PATH`'s
+    /// folders, is missing, and both drivers open nothing for it; one that
+    /// is there, by either spelling, is found. Perturbation: answer found in
+    /// `Run::found` -- the missing editor opens a window that exits at once.
+    #[test]
+    fn a_windows_program_is_looked_for_where_it_starts() {
+        let run = |p: &str| Run::given(vec![p.into(), "/tmp/x".into()]).expect("a program");
+        let path_var = Some(OsStr::new("/usr/bin:/bin"));
+        assert_eq!(run("/no/such/editor").found(path_var), Program::Missing);
+        assert_eq!(run("no-such-editor").found(path_var), Program::Missing);
+        assert_eq!(
+            run("sh").found(None),
+            Program::Missing,
+            "no PATH to look on"
+        );
+        assert_eq!(
+            run("/bin/sh").found(path_var),
+            Program::Found,
+            "the control"
+        );
+        assert_eq!(run("sh").found(path_var), Program::Found);
     }
 }

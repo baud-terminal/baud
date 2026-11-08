@@ -1119,9 +1119,11 @@ mod tests {
                 "pub fn spawn_",
                 "window(dir: Option<&std::path::Path>) {"
             ))
-            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            // Its body and the two it shares its start with, `new_baud` and
+            // `running_window`, a link's window: all three, to the tests.
+            .and_then(|(_, rest)| rest.split_once("\n#[cfg(test)]\nmod tests"))
             .map(|(b, _)| b)
-            .expect("the new window's spawn");
+            .expect("the new windows' spawns");
         assert!(
             spawn.contains(concat!("cmd.env_", "remove(\"WAYLAND_SOCKET\");")),
             "the control: the spawn's environment"

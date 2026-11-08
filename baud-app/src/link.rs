@@ -3933,9 +3933,7 @@ mod tests {
         /// Refused, counted in `links.refused` and said; nothing runs, and
         /// nothing falls through to a reveal.
         Refused,
-        /// The window is asked for: the text is the ask. Unbuilt on both
-        /// drivers until their own commits.
-        #[allow(dead_code)]
+        /// The window is asked for: the text is the ask.
         Opens(&'static str),
     }
 
@@ -3960,7 +3958,11 @@ mod tests {
     fn a_window_click_is_refused_until_its_driver_opens_it() {
         let drivers: [(&str, &str, WindowClick); 2] = [
             ("app.rs", include_str!("app.rs"), WindowClick::Refused),
-            ("linux.rs", include_str!("linux.rs"), WindowClick::Refused),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                WindowClick::Opens("Later::Window("),
+            ),
         ];
         for (name, src, does) in drivers {
             for head in ["Click::Window => {", "if let Found::Window("] {

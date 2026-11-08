@@ -328,6 +328,10 @@ mod version;
 // `baud --credits`: the third-party notices the build embeds. Pure, and on
 // every platform.
 mod credits;
+// `baud -e PROGRAM [ARGS...]`: the arguments read, pure, and on every
+// platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod run_arg;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform, and both drivers scroll through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
@@ -345,6 +349,30 @@ fn main() {
         }
         return;
     }
+    // `baud -e PROGRAM [ARGS...]`: a window running PROGRAM, how a link's
+    // `action = "window"` opens one on Linux (`run_arg.rs`). macOS opens
+    // such a window in the running app, so a second process is refused
+    // there rather than started with a Dock icon of its own.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg_attr(target_os = "macos", allow(unused_variables))]
+    let run: Option<rules::Run> = match run_arg::asked(std::env::args_os().skip(1)) {
+        run_arg::Asked::Shell => None,
+        run_arg::Asked::NoProgram => {
+            eprintln!("baud: {} names no program to run", run_arg::FLAG);
+            std::process::exit(2);
+        }
+        #[cfg(target_os = "macos")]
+        run_arg::Asked::Run(_) => {
+            eprintln!(
+                "baud: {} is for Linux; on macOS a link's action = \"window\" opens its \
+                 window in the running baud",
+                run_arg::FLAG
+            );
+            std::process::exit(2);
+        }
+        #[cfg(target_os = "linux")]
+        run_arg::Asked::Run(r) => Some(r),
+    };
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     host::startup_begin();
     // The installed fonts are read on a thread of their own from the
@@ -364,7 +392,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     app::run();
     #[cfg(target_os = "linux")]
-    linux::run();
+    linux::run(run);
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     crate::warn!("baud-app presents on macOS and on Linux over Wayland, so far");
 }

@@ -137,7 +137,7 @@ mod tests {
             concat!("host::", "startup_begin()"),
             concat!("log::", "init()"),
             concat!("app::", "run()"),
-            concat!("linux::", "run()"),
+            concat!("linux::", "run("),
         ] {
             assert!(
                 asked < body.find(later).expect(later),

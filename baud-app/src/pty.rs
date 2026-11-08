@@ -738,11 +738,15 @@ fn shell_locale() -> Option<String> {
 /// **What `[shell]` says about the shell a window starts**: whether its
 /// prompts are marked (`integration`) and which program it is (`program`,
 /// [`crate::config::shell_program`]; `None` starts `$SHELL`, else the
-/// system's).
+/// system's) -- or, for a window a link's `action = "window"` or `baud -e`
+/// opened, the program it runs in place of any shell (`run`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellStart {
     pub integration: crate::shell::Integration,
     pub program: Option<String>,
+    /// The argv the window runs instead of a shell, with no shell between:
+    /// none for a shell window.
+    pub run: Option<crate::rules::Run>,
 }
 
 impl ShellStart {
@@ -751,6 +755,16 @@ impl ShellStart {
         ShellStart {
             integration: cfg.shell_integration,
             program: cfg.shell_program.clone(),
+            run: None,
+        }
+    }
+
+    /// This start, running `run` in place of the shell.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn running(self, run: crate::rules::Run) -> ShellStart {
+        ShellStart {
+            run: Some(run),
+            ..self
         }
     }
 }
@@ -761,6 +775,7 @@ impl From<crate::shell::Integration> for ShellStart {
         ShellStart {
             integration,
             program: None,
+            run: None,
         }
     }
 }
@@ -786,6 +801,36 @@ struct Exec {
 }
 
 impl Exec {
+    /// **`run` itself, with no shell between**: its program found on `PATH`
+    /// as a shell's is ([`resolve`]), else as written, so a program that is
+    /// not there fails at `execve` in the child and the window says how it
+    /// ended; its elements the child's argument list as they are, one
+    /// argument each, never split or joined. Nothing of shell integration
+    /// applies; `SHELL` is the configured `program` when `[shell]` names one,
+    /// as a shell window's is, so an editor's shell-out starts the shell the
+    /// config asks for. `None` when an element cannot be a C string.
+    fn running(run: &crate::rules::Run, program: Option<&str>) -> Option<Exec> {
+        let prog = run.program();
+        let path = prog
+            .to_str()
+            .and_then(resolve)
+            .map_or_else(|| prog.as_bytes().to_vec(), String::into_bytes);
+        let argv = run
+            .argv()
+            .iter()
+            .map(|a| CString::new(a.as_bytes()).ok())
+            .collect::<Option<Vec<_>>>()?;
+        Some(Exec {
+            path: CString::new(path).ok()?,
+            argv,
+            injection: None,
+            shell_var: match program {
+                Some(p) => Some(CString::new(format!("SHELL={p}")).ok()?),
+                None => None,
+            },
+        })
+    }
+
     /// `/bin/sh -c cmd` for a command, as `BAUD_CMD` runs one; otherwise
     /// a login shell, `program` when `[shell] program` names one, else
     /// `$SHELL` as `parent` has it (else the system's) ([`login_shell`]),
@@ -1389,7 +1434,10 @@ impl Pty {
         locale: impl FnOnce() -> Option<String>,
         shell: &ShellStart,
     ) -> Option<(Exec, Vec<CString>)> {
-        let exec = Exec::of(cmd, &parent, shell.integration, shell.program.as_deref())?;
+        let exec = match &shell.run {
+            Some(run) => Exec::running(run, shell.program.as_deref())?,
+            None => Exec::of(cmd, &parent, shell.integration, shell.program.as_deref())?,
+        };
         let mut stay = spawn_env(parent, locale);
         if let Some(v) = &exec.shell_var {
             set_var(&mut stay, v);
@@ -4291,6 +4339,7 @@ mod tests {
             let start = ShellStart {
                 integration: crate::shell::Integration::Off,
                 program,
+                run: None,
             };
             let (_, master) = Pty::fork_given(
                 text_area(&size, Px::of(8), Px::of(16)),
@@ -4316,6 +4365,75 @@ mod tests {
             "the control"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A window's program runs on a real pty as its argv, with no shell
+    /// between**: each element one argument whatever it holds -- a space, a
+    /// `--`, a `$`, a `;` and backquotes reach `printf` as written, where a
+    /// shell would have split, expanded or run them -- in the environment a
+    /// shell window gets, baud's `TERM` and `TERM_PROGRAM` in it and the
+    /// outer terminal's gone, and `SHELL` the configured shell, as a shell
+    /// window's is, with nothing of shell integration's start; a
+    /// `BAUD_CMD`-style command and the configured shell given beside it are
+    /// not run. Named breaks: build the exec as `/bin/sh -c` over the
+    /// elements joined, `BAUD_CMD`'s way -- the arguments come out split and
+    /// expanded; leave `SHELL` at the parent's -- the configured one is absent.
+    #[test]
+    fn a_windows_program_runs_its_argv_with_no_shell() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let run = |argv: &[&str]| {
+            let given = argv.iter().map(OsString::from).collect();
+            let start = ShellStart {
+                integration: crate::shell::Integration::On,
+                program: Some("/bin/zsh".into()),
+                run: None,
+            }
+            .running(crate::rules::Run::given(given).expect("a program"));
+            let parent = vec![
+                (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+                (OsString::from("LANG"), OsString::from("en_US.UTF-8")),
+                (
+                    OsString::from("TERM_PROGRAM"),
+                    OsString::from("Apple_Terminal"),
+                ),
+                (OsString::from("TERM_SESSION_ID"), OsString::from("outer")),
+                (OsString::from("x"), OsString::from("expanded")),
+            ];
+            let (_, master) = Pty::fork_given(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some("echo a shell ran".into()),
+                parent,
+                || None,
+                Parent::Other,
+                None,
+                &start,
+            )
+            .expect("forkpty");
+            String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n")
+        };
+        let out = run(&["printf", "%s|", "a b", "--", "$x;`y`", "{url}"]);
+        assert_eq!(out, "a b|--|$x;`y`|{url}|");
+        let env = run(&["env"]);
+        assert!(env.contains("TERM_PROGRAM=baud\n"), "{env}");
+        assert!(
+            env.contains(&format!("TERM={}\n", crate::bell::TERM)),
+            "{env}"
+        );
+        assert!(
+            !env.contains("Apple_Terminal") && !env.contains("TERM_SESSION_ID"),
+            "{env}"
+        );
+        assert!(
+            env.contains("SHELL=/bin/zsh\n"),
+            "the configured shell is its SHELL: {env}"
+        );
+        assert!(
+            !env.contains("ZDOTDIR="),
+            "no shell integration's start: {env}"
+        );
     }
 
     #[cfg(target_os = "macos")]

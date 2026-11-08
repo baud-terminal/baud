@@ -367,17 +367,7 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
             return;
         }
     };
-    let mut cmd = std::process::Command::new(exe);
-    // A directory that has gone since would fail the spawn, so the new
-    // window starts where a launch starts instead.
-    if let Some(d) = dir.filter(|d| d.is_dir()) {
-        cmd.current_dir(d).env("PWD", d);
-    }
-    // The socket number a compositor handed this process names nothing of
-    // the child's: libwayland unsets it once taken (`[[source:
-    // libwayland-93c04ad-client]]` 1379), and the child connects by
-    // `WAYLAND_DISPLAY`.
-    cmd.env_remove("WAYLAND_SOCKET");
+    let mut cmd = new_baud(&exe, dir);
     match cmd.spawn() {
         Ok(mut child) => {
             let spawned = std::thread::Builder::new()
@@ -391,6 +381,41 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
         }
         Err(e) => crate::warn!("new window: baud did not start: {e}"),
     }
+}
+
+/// **A new baud, `exe`, started in `dir`**: [`spawn_window`]'s and
+/// [`running_window`]'s one start.
+#[cfg(any(target_os = "linux", test))]
+fn new_baud(exe: &std::path::Path, dir: Option<&std::path::Path>) -> std::process::Command {
+    let mut cmd = std::process::Command::new(exe);
+    // A directory that has gone since would fail the spawn, so the new
+    // window starts where a launch starts instead.
+    if let Some(d) = dir.filter(|d| d.is_dir()) {
+        cmd.current_dir(d).env("PWD", d);
+    }
+    // The socket number a compositor handed this process names nothing of
+    // the child's: libwayland unsets it once taken (`[[source:
+    // libwayland-93c04ad-client]]` 1379), and the child connects by
+    // `WAYLAND_DISPLAY`.
+    cmd.env_remove("WAYLAND_SOCKET");
+    cmd
+}
+
+/// **The new baud a link's `action = "window"` starts on Linux**, whose
+/// driver runs one window per process: `exe` -- this program, as
+/// `current_exe` reads it -- with `-e` and `run`'s elements, each one
+/// argument and none re-split (`run_arg.rs`), started in `dir` as New
+/// Window starts one ([`new_baud`]), with no shell between. Started through
+/// the opener on the turn after the click, and reaped by it.
+#[cfg(any(target_os = "linux", test))]
+pub fn running_window(
+    exe: &std::path::Path,
+    run: crate::rules::Run,
+    dir: Option<&std::path::Path>,
+) -> std::process::Command {
+    let mut cmd = new_baud(exe, dir);
+    cmd.args(crate::run_arg::args(run));
+    cmd
 }
 
 #[cfg(test)]
@@ -651,5 +676,45 @@ mod tests {
         );
         assert_eq!(inherited(None, &hosts, None), None);
         assert_eq!(inherited(None, &hosts, Some(Path::new("rel"))), None);
+    }
+
+    /// **A link's window on Linux is this program again, `-e` and the
+    /// argv after it, with no shell**: the program the executable's path,
+    /// the arguments `-e` then each element as it was -- a space and a
+    /// `--` inside one included -- which `run_arg::asked` reads back to the
+    /// same argv, started in the folder given with `PWD` naming it, and
+    /// `WAYLAND_SOCKET` left out; a folder that is gone starts it where a
+    /// launch would. Named break: join the elements into one argument --
+    /// the arguments are two, not four.
+    #[test]
+    fn a_links_window_on_linux_is_this_program_with_dash_e() {
+        use std::ffi::{OsStr, OsString};
+        let argv: Vec<OsString> = ["hx", "/tmp/a b.rs", "--"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let run = crate::rules::Run::given(argv).expect("a program");
+        let dir = std::env::temp_dir();
+        let cmd = super::running_window(Path::new("/opt/baud/bin/baud"), run.clone(), Some(&dir));
+        assert_eq!(cmd.get_program(), "/opt/baud/bin/baud");
+        let args: Vec<&OsStr> = cmd.get_args().collect();
+        assert_eq!(args, ["-e", "hx", "/tmp/a b.rs", "--"]);
+        assert_eq!(
+            crate::run_arg::asked(args.iter().map(OsString::from)),
+            crate::run_arg::Asked::Run(run.clone()),
+            "the new process reads the argv it was given"
+        );
+        assert_eq!(cmd.get_current_dir(), Some(dir.as_path()));
+        let envs: Vec<(&OsStr, Option<&OsStr>)> = cmd.get_envs().collect();
+        assert!(
+            envs.contains(&(OsStr::new("PWD"), Some(dir.as_os_str()))),
+            "{envs:?}"
+        );
+        assert!(
+            envs.contains(&(OsStr::new("WAYLAND_SOCKET"), None)),
+            "{envs:?}"
+        );
+        let gone = super::running_window(Path::new("/b"), run, Some(Path::new("/no/such/dir")));
+        assert_eq!(gone.get_current_dir(), None, "a folder that is gone");
     }
 }

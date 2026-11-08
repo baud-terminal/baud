@@ -91,7 +91,7 @@ mod tests {
             concat!("log::", "init()"),
             concat!("discover::", "Catalogue"),
             concat!("app::", "run()"),
-            concat!("linux::", "run()"),
+            concat!("linux::", "run("),
         ] {
             assert!(
                 asked < body.find(later).expect(later),

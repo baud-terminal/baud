@@ -38,7 +38,7 @@ fn answers_first(asks: &str) -> bool {
         concat!("log::", "init()"),
         concat!("discover::", "Catalogue"),
         concat!("app::", "run()"),
-        concat!("linux::", "run()"),
+        concat!("linux::", "run("),
     ]
     .iter()
     .all(|later| body.find(later).is_some_and(|at| asked < at))
