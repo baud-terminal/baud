@@ -313,37 +313,56 @@ fn fade(slice: &mut [f32]) {
 /// demo, whose session opens baud's window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// `--sound ...`: [`main`] alone, which opens no window.
+    /// `--sound` anywhere: [`main`] alone, which opens no window.
     Sound,
     /// Anything else: the demo's own `main`, the session among it.
     Run,
 }
 
 /// **The mode of `args`**, the command line less the program: every line
-/// whose first argument is `--sound` is [`Mode::Sound`], a bad one too, and
-/// no other line is.
+/// with `--sound` anywhere in it is [`Mode::Sound`], a bad one too, and no
+/// other line is, so a line that also names the session's flags is never
+/// the session.
 pub fn mode(args: &[String]) -> Mode {
-    match args.first().map(String::as_str) {
-        Some("--sound") => Mode::Sound,
-        _ => Mode::Run,
+    match args.iter().any(|a| a == "--sound") {
+        true => Mode::Sound,
+        false => Mode::Run,
+    }
+}
+
+/// The sound command's one form, which [`job`] takes and nothing else.
+pub const USAGE: &str =
+    "usage: demo --sound FFMPEG_BIN TOUR.mp4 TOUR.timeline.tsv PACK/ [--unpinned]";
+
+/// **`args` read as [`USAGE`]'s form**, exactly: `--sound` first, four
+/// arguments none of which is a flag, then `--unpinned` or nothing. Any
+/// other line is `None`, one that adds a flag of the session's among them
+/// (`--dry`, `--record`), so a mixed line does neither.
+fn job(args: &[String]) -> Option<Job> {
+    let (pinned, four) = match args {
+        [s, four @ .., u] if s == "--sound" && u == "--unpinned" => (false, four),
+        [s, four @ ..] if s == "--sound" => (true, four),
+        _ => return None,
+    };
+    match four {
+        [bin, tour, tsv, dir] if four.iter().all(|a| !a.starts_with('-')) => Some(Job {
+            bin: PathBuf::from(bin),
+            tour: PathBuf::from(tour),
+            timeline: PathBuf::from(tsv),
+            pack: PathBuf::from(dir),
+            pinned,
+        }),
+        _ => None,
     }
 }
 
 /// **`--sound`**, [`Mode::Sound`]'s whole run: both versions made, or why
-/// not, and the exit code.
+/// not, and the exit code: 2 and [`USAGE`] for a line not of its form,
+/// before anything is read or run.
 pub fn main(args: &[String]) -> ExitCode {
-    let (unpinned, rest): (Vec<&String>, Vec<&String>) =
-        args.iter().skip(1).partition(|a| *a == "--unpinned");
-    let [bin, tour, tsv, dir] = rest.as_slice() else {
-        eprintln!("usage: demo --sound FFMPEG_BIN TOUR.mp4 TOUR.timeline.tsv PACK/ [--unpinned]");
+    let Some(job) = job(args) else {
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
-    };
-    let job = Job {
-        bin: PathBuf::from(bin),
-        tour: PathBuf::from(tour),
-        timeline: PathBuf::from(tsv),
-        pack: PathBuf::from(dir),
-        pinned: unpinned.is_empty(),
     };
     match run(&job) {
         Ok(said) => {
@@ -357,6 +376,7 @@ pub fn main(args: &[String]) -> ExitCode {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct Job {
     bin: PathBuf,
     tour: PathBuf,
@@ -905,8 +925,10 @@ mod tests {
 
     /// **`--sound` never reaches the session, so it opens no window and
     /// plays nothing**, shown without running the demo:
-    /// - [`mode`] makes every line whose first argument is `--sound`
-    ///   [`Mode::Sound`], a bad one too, and no other line;
+    /// - [`mode`] makes every line with `--sound` anywhere in it
+    ///   [`Mode::Sound`], `--dry --sound` and `--record x --sound` among
+    ///   them, and no other line; and [`main`] answers 2 for any of them
+    ///   not of [`USAGE`]'s exact form, before anything is read or run;
     /// - each `main` in `demo.rs` is the one `match` on it, whose `Sound`
     ///   arm is [`main`] and returns what it returns, and `run::main`, the
     ///   session that opens baud's window, is named in `demo.rs` on one
@@ -916,23 +938,59 @@ mod tests {
     ///   of the modules or APIs that open a window or play a sound.
     ///
     /// The controls: the source probes find the `Run` arm and this file's
-    /// spawns. Perturbation: map `--sound` to `Mode::Run`, or call
-    /// `run::main()` in the `Sound` arm, and an assertion fails; neither
-    /// break is ever run as the demo, only as this test.
+    /// spawns. Perturbation: map `--sound` to `Mode::Run`, or read it
+    /// only as the first argument, or let `job` take a flag among the
+    /// four, or call `run::main()` in the `Sound` arm, and an assertion
+    /// fails; no break is ever run as the demo, only as this test.
     #[test]
     fn sound_never_reaches_the_session() {
         let s = |v: &[&str]| v.iter().map(|a| a.to_string()).collect::<Vec<_>>();
-        for sound in [
+        // A line with `--sound` anywhere is the mixer's, and one that is not
+        // its exact form is refused there with 2, before anything is read
+        // or run: `job` is pure, and `main` returns before `run` for it.
+        for bad in [
             &["--sound"][..],
             &["--sound", "a", "b"],
-            &["--sound", "bin", "t.mp4", "t.tsv", "pack/", "--unpinned"],
+            &["--dry", "--sound"],
+            &["--record", "x", "--sound"],
+            &["--sound", "--dry"],
+            &["--sound", "bin", "t.mp4", "t.tsv", "pack/", "--dry"],
+            &["--sound", "bin", "t.mp4", "--dry", "pack/"],
+            &[
+                "--sound",
+                "bin",
+                "t.mp4",
+                "t.tsv",
+                "pack/",
+                "--unpinned",
+                "x",
+            ],
+            &["--sound", "--unpinned", "bin", "t.mp4", "t.tsv", "pack/"],
         ] {
-            assert_eq!(mode(&s(sound)), Mode::Sound, "{sound:?}");
+            assert_eq!(mode(&s(bad)), Mode::Sound, "{bad:?}");
+            assert_eq!(job(&s(bad)), None, "{bad:?}");
+            assert_eq!(main(&s(bad)), ExitCode::from(2), "{bad:?}");
         }
+        let good = ["--sound", "bin", "t.mp4", "t.tsv", "pack/"];
+        let want = Job {
+            bin: PathBuf::from("bin"),
+            tour: PathBuf::from("t.mp4"),
+            timeline: PathBuf::from("t.tsv"),
+            pack: PathBuf::from("pack/"),
+            pinned: true,
+        };
+        assert_eq!(mode(&s(&good)), Mode::Sound);
+        assert_eq!(job(&s(&good)), Some(want));
+        let loose = [&good[..], &["--unpinned"]].concat();
+        let got = job(&s(&loose)).expect("the form with --unpinned");
+        assert!(!got.pinned && got.pack == Path::new("pack/"));
+        assert!(
+            USAGE.contains("demo --sound FFMPEG_BIN TOUR.mp4 TOUR.timeline.tsv PACK/ [--unpinned]")
+        );
         for other in [
             &[][..],
             &["--record", "tour.mp4"],
-            &["--dry", "--sound"],
+            &["--dry"],
             &["--verify", "trailer.gif"],
         ] {
             assert_eq!(mode(&s(other)), Mode::Run, "{other:?}");
