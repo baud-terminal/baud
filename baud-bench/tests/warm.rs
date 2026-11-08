@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use baud_bench::warm::{self, PAUSE, Warm};
+use baud_bench::warm::{self, Warm};
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -66,6 +66,7 @@ fn an_unpaused_watcher_or_build_refuses_and_a_paused_one_does_not() {
 #[cfg(target_os = "macos")]
 #[test]
 fn a_live_build_refuses_a_measurement_until_warm_pause_stops_it() {
+    use baud_bench::warm::PAUSE;
     use std::process::{Child, Command, Stdio};
     use std::time::{Duration, Instant};
 
