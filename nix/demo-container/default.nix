@@ -1,7 +1,7 @@
 # **The container the README session ssh's into**
 # (`baud-app/examples/demo/container.rs`): busybox's tools, bash as the
 # login shell with starship drawing baud's prompt, OpenSSH's sshd,
-# fastfetch and btop, helix and w3m, from aarch64-linux nixpkgs, in an image made by
+# fastfetch, btop and helix, from aarch64-linux nixpkgs, in an image made by
 # nixpkgs' own `dockerTools.streamLayeredImage`, with baud's mark as a
 # picture for fastfetch to draw.
 #
@@ -9,7 +9,7 @@
 # revision the flake pins for aarch64-linux, the system colima's VM runs
 # on an Apple silicon Mac, with starship 1.27.0, the first release outside
 # advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp. The image takes
-# only eight packages from it, which cache.nixos.org holds, and makes
+# only seven packages from it, which cache.nixos.org holds, and makes
 # everything else -- its files,
 # its customisation layer, the mark's picture, the prompt's config, the
 # script that streams it -- with `pkgs`, so a Mac with no Linux builder
@@ -32,14 +32,13 @@
 # names the server while it is in.
 #
 # helix reads `helix.toml` beside this file, the config the demo's own
-# helix reads too: its defaults but soft wrap. w3m is the build without
-# inline images, a text browser for the links the session prints. The
-# files the session shows in the home -- the README, `hello.txt` and
-# `links.txt` -- are copied in as it starts (`container::home_files`), not
-# built in, so the image's pin does not follow every edit of the README.
+# helix reads too: its defaults but soft wrap. The files the session
+# shows in the home -- the README at the take's commit and `hello.txt` --
+# are copied in as it starts (`container::home_files`), not built in, so
+# the image's pin does not follow every edit of the README.
 { pkgs, linux }:
 let
-  inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive helix w3m-nographics;
+  inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive helix;
   starshipConfig = (pkgs.formats.toml { }).generate "starship.toml" (
     pkgs.lib.recursiveUpdate (pkgs.lib.importTOML ../../assets/starship/baud.toml) {
       username.disabled = true;
@@ -78,7 +77,6 @@ pkgs.dockerTools.streamLayeredImage {
     ln -s ${fastfetch-unwrapped}/bin/fastfetch usr/bin/fastfetch
     ln -s ${btop}/bin/btop usr/bin/btop
     ln -s ${helix}/bin/hx usr/bin/hx
-    ln -s ${w3m-nographics}/bin/w3m usr/bin/w3m
     ln -s ${openssh}/bin/sshd usr/sbin/sshd
   '';
   # The user's home, the user's: uid and gid 1000, as `passwd` names them.
@@ -91,5 +89,5 @@ pkgs.dockerTools.streamLayeredImage {
     "-e"
   ];
   # For the provenance file: each package's store path.
-  passthru.packages = { inherit busybox bashInteractive starship openssh fastfetch-unwrapped btop helix w3m-nographics; };
+  passthru.packages = { inherit busybox bashInteractive starship openssh fastfetch-unwrapped btop helix; };
 }

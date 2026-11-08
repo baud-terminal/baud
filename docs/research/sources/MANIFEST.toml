@@ -39657,3 +39657,21 @@ group  = "FM"
 # under the [SIL Open Font License](fonts/LICENSE). This documentation and all
 # tooling in this repository is licensed under the [Apache 2.0
 # License](LICENSE)."
+
+[sources.chawan-0-4-4-config]
+key    = "chawan-0-4-4-config"
+title  = "Chawan 0.4.4, doc/config.md (cha-config(5)) -- the config file search path and buffer.images, display.image-mode"
+author = "bptato"
+year   = 2026
+venue  = "git.sr.ht/~bptato/chawan at tag v0.4.4"
+url    = "https://git.sr.ht/~bptato/chawan/blob/v0.4.4/doc/config.md"
+file   = ""
+sha256 = "1c67abd26de558c77d417d5d551f8cc6f726afe0d166d0455d32097e2a3273cc"
+bytes  = 43350
+status = "external"
+group  = "FM"
+# Read 2026-11-08: the search path is "1. config file specified through -C
+# switch", "2. `$CHA_DIR` is set -> use `$CHA_DIR/config.toml`", "3.
+# `${XDG_CONFIG_HOME:-~/.config}/chawan/config.toml` exists -> use that";
+# `buffer.images` defaults to false, and `display.image-mode` "kitty" "uses
+# the Kitty image display protocol".

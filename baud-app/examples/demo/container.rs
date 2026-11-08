@@ -1,6 +1,6 @@
-//! **The container the session ssh's into**: a Linux of eight nixpkgs
-//! packages -- busybox, bash, starship, OpenSSH's sshd, fastfetch, btop,
-//! helix and w3m -- run by
+//! **The container the session ssh's into**: a Linux of seven nixpkgs
+//! packages -- busybox, bash, starship, OpenSSH's sshd, fastfetch, btop
+//! and helix -- run by
 //! docker in a colima VM of its own on this Mac ([`COLIMA_PROFILE`]), its
 //! host named [`HOST`] and its one user [`USER`]. fastfetch there prints
 //! its whole default card (`nix/demo-container/fastfetch.jsonc` lists its
@@ -13,8 +13,8 @@
 //! (`assets/starship/baud.toml`) as `~ ❯`; it marks each prompt as
 //! baud's shell does, shows the host as baud's badge while the session is
 //! in, and clears the badge on the way out. Its home is given the
-//! repository's README, `hello.txt` and a `links.txt` of two OSC 8 links as
-//! the session starts ([`home_files`]).
+//! repository's README at the take's commit and `hello.txt` as the session
+//! starts ([`home_files`]).
 //!
 //! **Made by Nix**: the image is the repository flake's `demo-container`
 //! (`nix/demo-container/`), nixpkgs' `dockerTools.streamLayeredImage` at
@@ -66,7 +66,7 @@ pub const USER: &str = "jordan";
 /// commit, for the container's: [`crate::run::NIXPKGS`] carries starship 1.26.0, which
 /// advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp cover, and this
 /// nixpkgs-unstable revision carries 1.27.0, the first release outside
-/// both. The container's eight Linux packages come from it too
+/// both. The container's seven Linux packages come from it too
 /// (`nix/demo-container/default.nix`), because the image's pin names their
 /// store paths and at the flake's own nixpkgs btop and fastfetch have other
 /// ones. The programs the demo's own shell runs still come from
@@ -84,7 +84,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 /// `nixpkgs-demo` for `aarch64-linux`, the system colima's VM runs on an
 /// Apple silicon Mac, and the script that streams them from the flake's
 /// `nixpkgs`.
-pub const IMAGE_SHA256: &str = "2442953fece46c0a676d5bb31158c84563a504f639040e84af6a2e15fae4166f";
+pub const IMAGE_SHA256: &str = "f731e6c73c3be93ffd44cab1951cf8bfb08cccf3c680d2d0f4a23f53de29bc3b";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.
@@ -228,47 +228,27 @@ pub fn home_dir() -> String {
     format!("/home/{USER}/")
 }
 
-/// **The container's `links.txt`**: two OSC 8 hyperlinks, each ended by
-/// ST, the terminator the specification encourages
-/// (`[[source: osc8-spec]]`): the README the session copies into the home,
-/// as a `file://` URI whose host is [`HOST`] -- the specification asks a
-/// program to fill the host in with what `gethostname()` returns, which in
-/// the container is the `--hostname` it is created with, so a terminal on
-/// another machine knows the file is not its own -- and baud's repository
-/// as an `https` one. Each shows its own short text.
-pub fn links() -> String {
-    let link = |uri: &str, text: &str| format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\\n");
-    format!(
-        "{}{}",
-        link(&format!("file://{HOST}/home/{USER}/README.md"), "README.md"),
-        link(
-            "https://github.com/baud-terminal/baud",
-            "github.com/baud-terminal/baud"
-        )
-    )
-}
-
 /// **The files the container's home is given as the session starts**, by
-/// name: the repository's README, `hello.txt` and [`links`]. Copied in
-/// rather than built into the image, so the image's pin
-/// ([`IMAGE_SHA256`]) does not follow every edit of the README.
-pub fn home_files() -> Vec<(&'static str, Vec<u8>)> {
+/// name: `readme`, the repository's README at the take's commit, and
+/// `hello.txt`. Copied in rather than built into the image, so the
+/// image's pin ([`IMAGE_SHA256`]) does not follow every edit of the
+/// README.
+pub fn home_files(readme: &[u8]) -> Vec<(&'static str, Vec<u8>)> {
     vec![
-        ("README.md", crate::scratch::README.as_bytes().to_vec()),
+        ("README.md", readme.to_vec()),
         ("hello.txt", crate::session::HELLO.as_bytes().to_vec()),
-        ("links.txt", links().into_bytes()),
     ]
 }
 
 /// **[`home_files`] written into `dir`**, for `docker cp`: each file's
 /// path, and each as written under the scratch root's `container/home`,
 /// for the names check.
-pub fn home(dir: &Path) -> Result<(Vec<PathBuf>, Written), String> {
+pub fn home(dir: &Path, readme: &[u8]) -> Result<(Vec<PathBuf>, Written), String> {
     let at = dir.join("home");
     fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
     let mut paths = Vec::new();
     let mut written = Vec::new();
-    for (name, bytes) in home_files() {
+    for (name, bytes) in home_files(readme) {
         let p = at.join(name);
         fs::write(&p, &bytes).map_err(|e| format!("{}: {e}", p.display()))?;
         paths.push(p);
@@ -1108,7 +1088,6 @@ mod tests {
             "ln -s ${btop}/bin/btop usr/bin/btop".to_string(),
             "ln -s ${openssh}/bin/sshd usr/sbin/sshd".to_string(),
             "ln -s ${helix}/bin/hx usr/bin/hx".to_string(),
-            "ln -s ${w3m-nographics}/bin/w3m usr/bin/w3m".to_string(),
             "install -m 0644 ${./helix.toml} home/jordan/.config/helix/config.toml".to_string(),
             "\"/usr/sbin/sshd\"".to_string(),
         ] {
@@ -1119,15 +1098,15 @@ mod tests {
         assert!(!NIX.contains("home/baud"), "the user's home is jordan's");
         assert!(NIX.contains(
             "inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive \
-             helix w3m-nographics;"
+             helix;"
         ));
         assert!(NIX.contains(
             "passthru.packages = { inherit busybox bashInteractive starship openssh \
-             fastfetch-unwrapped btop helix w3m-nographics; };"
+             fastfetch-unwrapped btop helix; };"
         ));
         // The home's files are copied in as the session starts, not built
         // in, so the pin does not follow the README.
-        for (name, _) in home_files() {
+        for (name, _) in home_files(b"") {
             let built = NIX
                 .lines()
                 .filter(|l| !l.trim_start().starts_with('#'))
@@ -1155,44 +1134,22 @@ mod tests {
         );
     }
 
-    /// **The container's home is given the README, `hello.txt` and its
-    /// links as the session starts**: the README byte for byte, the
-    /// languages file the tour prints, and `links.txt`'s two OSC 8 links,
-    /// each opened and closed by ST, the README's `file://` URI naming the
-    /// container's host and the user's home, the repository's `https`; all
-    /// three written into the scratch directory for `docker cp`, owned by
-    /// the user there. The control: a file URI with no host is not the one
-    /// written. Perturbation: end a link with BEL and its check fails.
+    /// **The container's home is given the README and `hello.txt` as the
+    /// session starts**: the README it is handed -- the take's commit's --
+    /// byte for byte, and the languages file the tour prints, both written
+    /// into the scratch directory for `docker cp`, into the user's home,
+    /// owned by the user's id. The control: another README handed in is
+    /// the one written. Perturbation: write the compiled-in README and the
+    /// control fails.
     #[test]
-    fn the_container_s_home_is_given_the_readme_and_its_links() {
-        let names: Vec<&str> = home_files().iter().map(|(n, _)| *n).collect();
-        assert_eq!(names, ["README.md", "hello.txt", "links.txt"]);
-        assert_eq!(
-            home_files()[0].1,
-            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md")).unwrap()
-        );
-        assert_eq!(home_files()[1].1, crate::session::HELLO.as_bytes());
-        let l = links();
-        assert_eq!(
-            l,
-            "\x1b]8;;file://demo/home/jordan/README.md\x1b\\README.md\x1b]8;;\x1b\\\n\
-             \x1b]8;;https://github.com/baud-terminal/baud\x1b\\github.com/baud-terminal/baud\
-             \x1b]8;;\x1b\\\n"
-        );
-        assert!(!l.contains('\x07'), "ST, not BEL");
-        assert!(!l.contains("file:///"), "the control: the host is named");
+    fn the_container_s_home_is_given_the_readme_and_hello() {
+        let readme = b"# a README at some commit\n";
+        let names: Vec<&str> = home_files(readme).iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["README.md", "hello.txt"]);
+        assert_eq!(home_files(readme)[0].1, readme);
+        assert_eq!(home_files(readme)[1].1, crate::session::HELLO.as_bytes());
+        assert_eq!(home_files(b"other")[0].1, b"other", "the control");
         assert_eq!(home_dir(), "/home/jordan/");
-        // The names check passes the container's home and nothing past it:
-        // `/home/` is a root it refuses, and the links name the home.
-        let n = crate::names::tests::qz();
-        let public = crate::names::public_path(env!("CARGO_PKG_REPOSITORY"));
-        let named = |b: &[u8]| crate::names::named_outside(b, &n, &[&public, &home_dir()]);
-        assert_eq!(named(l.as_bytes()), Vec::<String>::new());
-        assert!(
-            !crate::names::named_outside(l.as_bytes(), &n, &[&public]).is_empty(),
-            "the control: the home is a root's"
-        );
-        assert!(!named(b"/home/me/x").is_empty(), "another home is refused");
         assert_eq!(
             PASSWD
                 .lines()
@@ -1202,9 +1159,10 @@ mod tests {
         );
         let dir = std::env::temp_dir().join(format!("demo-home-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let (paths, written) = home(&dir).unwrap();
-        assert_eq!(paths.len(), 3);
-        for ((p, (rel, bytes)), (name, want)) in paths.iter().zip(&written).zip(home_files()) {
+        let (paths, written) = home(&dir, readme).unwrap();
+        assert_eq!(paths.len(), 2);
+        for ((p, (rel, bytes)), (name, want)) in paths.iter().zip(&written).zip(home_files(readme))
+        {
             assert_eq!(fs::read(p).unwrap(), want, "{name}");
             assert_eq!(*rel, format!("container/home/{name}"));
             assert_eq!(*bytes, want);

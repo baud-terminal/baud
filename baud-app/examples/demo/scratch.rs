@@ -99,8 +99,10 @@ pub const HELIX: &str = include_str!("../../../nix/demo-container/helix.toml");
 /// so yazi reads that one whatever else its lookup would find; set here,
 /// by `$HOME`, as starship's are, since a path under the scratch home spelt
 /// out in baud's environment would hold the `/home/` the names check
-/// refuses. Its `ssh` reads the scratch home's ssh config
-/// (`container::ZSH_SSH`).
+/// refuses. `CHA_DIR` names Chawan's the same way ([`CHAWAN`]), and
+/// `EDITOR` is helix, which yazi's `edit` opener runs for a text file
+/// (`${EDITOR:-vi} %s` in yazi 26.9.1's preset). Its `ssh` reads the
+/// scratch home's ssh config (`container::ZSH_SSH`).
 /// `interactive_comments` is set, so the tour's narration, each a line
 /// beginning `#` typed at the prompt, is a comment the shell skips: zsh has
 /// the option off in an interactive shell, where `# are you ready for
@@ -111,7 +113,8 @@ fn zshrc(path: &str) -> String {
         "export PATH={path}\nsetopt interactive_comments\n\
          export STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
          export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n\
-         export YAZI_CONFIG_HOME=\"$HOME/{YAZI}\"\n{}",
+         export YAZI_CONFIG_HOME=\"$HOME/{YAZI}\"\nexport CHA_DIR=\"$HOME/{CHAWAN}\"\n\
+         export EDITOR=hx\n{}",
         crate::container::ZSH_SSH
     )
 }
@@ -153,11 +156,87 @@ pub const YAZI_TOML: &str = "# yazi for the tour: a GIF opens in kitten, which s
                              [opener]\ngif = [{ run = \"kitten icat --hold %s\", block = true }]\n\
                              [open]\nprepend_rules = [{ url = \"*.gif\", use = \"gif\" }]\n";
 
-/// **The plasma logo yazi lists**, under the working directory, and the
-/// repository's file it is copied from: the README's logo for the dark
-/// page.
-pub const LOGO_GIF: &str = "logos/logo.gif";
-pub const LOGO_GIF_FROM: &str = "assets/readme/logo-dark.gif";
+/// **Where the scratch home holds Chawan's config**, which `CHA_DIR`
+/// names ([`zshrc`]) -- the first place Chawan 0.4.4 looks after a `-C`,
+/// and `~/.config/chawan` the next, with no `XDG_CONFIG_HOME` in baud's
+/// environment, so a `cha` started by baud rather than by the shell reads
+/// the same file (`[[source: chawan-0-4-4-config]]`).
+pub const CHAWAN: &str = ".config/chawan";
+
+/// **Chawan's config**, `config.toml`: its defaults, but for whether it
+/// draws a page's pictures, which is left to Chawan's default (off) until
+/// baud's check of kitty pictures in it is done.
+pub const CHAWAN_TOML: &str = "# Chawan for the tour: its defaults\n\
+                               [buffer]\n\
+                               # PLACEHOLDER images: on or off waits on baud's check of kitty pictures in Chawan;\n\
+                               # on is `images = true` here and `[display] image-mode = \"kitty\"`.\n";
+
+/// **The copy of the repository yazi opens**, under the working directory
+/// ([`REPO_AT`]), each path at the take's commit (`git archive HEAD`): the
+/// README and every file of the repository it links to, so each link a
+/// click follows finds its file. A path ending in `/` is a folder, whole.
+pub const REPO_COPY: [&str; 20] = [
+    "README.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSE",
+    "LICENSES/",
+    "THIRD_PARTY.md",
+    "assets/logo/baud-lockup-dark-tight.svg",
+    "assets/logo/baud-lockup-light-tight.svg",
+    "assets/readme/logo-dark.gif",
+    "assets/readme/logo-light.gif",
+    "budgets.toml",
+    "docs/README.md",
+    "docs/embedding.md",
+    "docs/guide/configuration.md",
+    "docs/guide/features.md",
+    "docs/guide/install.md",
+    "docs/guide/licensing.md",
+    "docs/guide/status.md",
+    "docs/roadmap.md",
+    "docs/vt-coverage.md",
+    "scripts/bounded",
+];
+
+/// Where the repository's copy goes, under the working directory: `cd
+/// baud` from `~/baud`.
+pub const REPO_AT: &str = "baud";
+
+/// **The files of the repository `readme` links to**, each once, in
+/// order: the targets of its markdown links, `](...)`, and of its HTML
+/// `src`, `srcset` and `href` attributes, without a web address, a
+/// fragment or a `mailto:`. For the test that holds [`REPO_COPY`] to the
+/// README.
+#[cfg(test)]
+pub fn linked(readme: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for open in ["](", "src=\"", "srcset=\"", "href=\""] {
+        let close = if open == "](" { ')' } else { '"' };
+        let mut rest = readme;
+        while let Some(at) = rest.find(open) {
+            rest = &rest[at + open.len()..];
+            let end = rest.find(close).unwrap_or(rest.len());
+            let value = &rest[..end];
+            let candidates: Vec<&str> = match open {
+                "srcset=\"" => value
+                    .split(',')
+                    .filter_map(|c| c.split_whitespace().next())
+                    .collect(),
+                _ => vec![value],
+            };
+            for c in candidates {
+                let c = c.split('#').next().unwrap_or("").trim();
+                if c.is_empty() || c.contains("://") || c.starts_with("mailto:") {
+                    continue;
+                }
+                if !out.iter().any(|o| o == c) {
+                    out.push(c.to_string());
+                }
+            }
+        }
+    }
+    out
+}
 
 /// Where the scratch home holds baud's starship preset, the repository's
 /// `assets/starship/baud.toml` byte for byte ([`PRESET`]).
@@ -252,6 +331,10 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
         (
             format!("home/{YAZI}/yazi.toml"),
             YAZI_TOML.as_bytes().to_vec(),
+        ),
+        (
+            format!("home/{CHAWAN}/config.toml"),
+            CHAWAN_TOML.as_bytes().to_vec(),
         ),
         (format!("home/{CONFIG}"), config(faces).into_bytes()),
     ]
@@ -433,6 +516,8 @@ mod tests {
              export STARSHIP_CACHE=\"$HOME/.cache/starship\"\n\
              eval \"$(starship init zsh)\"\n\
              export YAZI_CONFIG_HOME=\"$HOME/.config/yazi\"\n\
+             export CHA_DIR=\"$HOME/.config/chawan\"\n\
+             export EDITOR=hx\n\
              alias ssh='ssh -F ~/.ssh/config'\n"
         );
         let preset = files("/a/bin", &faces)
@@ -537,12 +622,71 @@ mod tests {
         assert_eq!(folder(&z), Some(written.0.clone()));
         let other = z.replace(".config/yazi", ".yazi");
         assert_ne!(folder(&other), Some(written.0), "the control");
-        // The plasma logo, a GIF the rule selects, copied from the
-        // repository's README logo.
-        assert!(LOGO_GIF.ends_with(".gif") && LOGO_GIF.starts_with("logos/"));
-        let gif =
-            std::fs::read(format!("{}/../{LOGO_GIF_FROM}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-        assert!(gif.starts_with(b"GIF89a"), "a GIF");
+        assert!(
+            z.lines().any(|l| l == "export EDITOR=hx"),
+            "Enter edits in helix"
+        );
+    }
+
+    /// **Chawan reads the scratch home's config alone**: the shell's
+    /// `CHA_DIR` names the folder its `config.toml` is written to, which is
+    /// also `~/.config/chawan`, where Chawan looks next with no
+    /// `XDG_CONFIG_HOME`, so a `cha` baud starts reads it too; and whether
+    /// it draws pictures is left a marked placeholder, no `images` set. The
+    /// control: a variable naming another folder is caught.
+    #[test]
+    fn chawan_reads_the_scratch_config() {
+        let written = files("/a/bin", &[])
+            .into_iter()
+            .find(|(f, _)| f.ends_with("/chawan/config.toml"))
+            .expect("Chawan's config in the scratch home");
+        assert_eq!(written.0, "home/.config/chawan/config.toml");
+        assert_eq!(written.1, CHAWAN_TOML.as_bytes());
+        let folder = |z: &str| {
+            z.lines()
+                .find_map(|l| l.strip_prefix("export CHA_DIR=\"$HOME/"))
+                .map(|d| format!("home/{}/config.toml", d.trim_end_matches('"')))
+        };
+        let z = zshrc("/a/bin");
+        assert_eq!(folder(&z), Some(written.0.clone()));
+        assert_ne!(
+            folder(&z.replace(".config/chawan", ".chawan")),
+            Some(written.0),
+            "the control"
+        );
+        assert!(CHAWAN_TOML.contains("# PLACEHOLDER images:"));
+        assert!(
+            !CHAWAN_TOML.lines().any(|l| l.starts_with("images")),
+            "images left to Chawan's default"
+        );
+    }
+
+    /// **The repository's copy is the README and every file it links
+    /// to**, exactly: [`REPO_COPY`] is the README and [`linked`]'s list of
+    /// it, each once, a folder named once with its `/`; and each is in the
+    /// repository. The controls: a README with one more relative link, or
+    /// with a web address, a fragment and a `srcset` of two, reads as it
+    /// should. Perturbation: drop a path from `REPO_COPY` and the
+    /// equality fails.
+    #[test]
+    fn the_repository_copy_is_the_readme_and_what_it_links_to() {
+        let mut want = linked(README);
+        want.push("README.md".to_string());
+        want.sort();
+        let mut have: Vec<String> = REPO_COPY.iter().map(|s| s.to_string()).collect();
+        have.sort();
+        assert_eq!(have, want);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for p in REPO_COPY {
+            assert!(root.join(p).exists(), "{p}");
+        }
+        assert_eq!(
+            linked(
+                "[a](docs/a.md) [w](https://x.org/y) [f](b.md#top) \
+                 <img srcset=\"c.gif 1x, d.gif 2x\"> [m](mailto:a@b) [a2](docs/a.md)"
+            ),
+            ["docs/a.md", "b.md", "c.gif", "d.gif"]
+        );
     }
 
     /// The btop configs `scripts/readme-film.sh` and

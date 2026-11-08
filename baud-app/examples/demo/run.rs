@@ -53,16 +53,18 @@ fn starship_new_enough(version: &str) -> bool {
 /// helix edits baud's config, OpenSSH's client ssh's into the container
 /// (`container.rs`), its manual pages left out, kitten draws the pictures,
 /// mpv plays the logo's film and, in the trailer, the tour, whose stream
-/// yt-dlp finds, and yazi lists the plasma logo's GIF and opens it with
-/// kitten (`scratch::YAZI_TOML`); fastfetch, btop, helix and w3m run in the
-/// container, from its image.
-const PROGRAMS: [(&str, &str); 6] = [
+/// yt-dlp finds, yazi lists the repository's copy and opens its README in
+/// helix (`scratch::YAZI_TOML`), and Chawan, `cha`, shows a web page
+/// (`scratch::CHAWAN_TOML`); fastfetch, btop and the container's helix run
+/// in the container, from its image.
+const PROGRAMS: [(&str, &str); 7] = [
     ("helix", "hx"),
     ("openssh^out", "ssh"),
     ("kitty", "kitten"),
     ("mpv", "mpv"),
     ("yt-dlp", "yt-dlp"),
     ("yazi", "yazi"),
+    ("chawan", "cha"),
 ];
 
 /// **The headless film's frame period**, in milliseconds: 100 frames a
@@ -653,9 +655,8 @@ enum Take {
 /// directory, never into the tree, by `tools/baud-pictures` in
 /// `tools/shell.nix`, which pins the C it links -- and
 /// [`session::UFO_LOGO`], scene 9's second picture, copied from
-/// [`session::UFO_LOGO_FROM`]; and [`scratch::LOGO_GIF`], the plasma logo
-/// yazi lists and kitten plays, copied from [`scratch::LOGO_GIF_FROM`].
-/// Returns each file's name and SHA-256, for the provenance file.
+/// [`session::UFO_LOGO_FROM`]. Returns each file's name and SHA-256, for
+/// the provenance file.
 fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String)>, String> {
     let out = at.root.join("logo");
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -682,17 +683,81 @@ fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String
     for (from, to) in [
         (out.join("logo-dark.mp4"), session::LOGO_MP4),
         (root.join(session::UFO_LOGO_FROM), session::UFO_LOGO),
-        (root.join(scratch::LOGO_GIF_FROM), scratch::LOGO_GIF),
     ] {
         let dest = work.join(to);
-        if let Some(dir) = dest.parent() {
-            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
         fs::copy(&from, &dest).map_err(|e| format!("{}: {e}", from.display()))?;
         pins.push((to.to_string(), provenance::sha256(&dest)?));
         println!("{:<13}{to}, from {}", "picture", from.display());
     }
     Ok(pins)
+}
+
+/// **`git archive`'s arguments for the repository's copy**: the take's
+/// commit, `HEAD`, never the working tree, and [`scratch::REPO_COPY`]'s
+/// paths alone.
+fn archive_args() -> Vec<&'static str> {
+    let mut a = vec!["archive", "--format=tar", "HEAD", "--"];
+    a.extend(scratch::REPO_COPY);
+    a
+}
+
+/// **A file of the take's commit**, `git show HEAD:path`.
+fn at_head(root: &Path, path: &str) -> Result<Vec<u8>, String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["show", &format!("HEAD:{path}")])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    match out.status.success() {
+        true => Ok(out.stdout),
+        false => Err(format!("git show HEAD:{path} failed")),
+    }
+}
+
+/// **The repository's copy, at the take's commit**: [`archive_args`]'s
+/// tar of the repository at `root`, unpacked into `dest`. Returns the
+/// files the archive held, by their paths, folders left out.
+fn copy_repo(root: &Path, dest: &Path) -> Result<Vec<String>, String> {
+    fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let tar = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(archive_args())
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("git archive: {e}"))?;
+    if !tar.status.success() {
+        return Err(format!(
+            "git archive of the repository's copy failed: {}",
+            String::from_utf8_lossy(&tar.stderr).trim()
+        ));
+    }
+    let run_tar = |args: &[&str]| -> Result<Vec<u8>, String> {
+        let mut t = Command::new("/usr/bin/tar")
+            .args(args)
+            .current_dir(dest)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("tar: {e}"))?;
+        if let Some(mut i) = t.stdin.take() {
+            std::io::Write::write_all(&mut i, &tar.stdout).map_err(|e| format!("tar: {e}"))?;
+        }
+        let out = t.wait_with_output().map_err(|e| format!("tar: {e}"))?;
+        match out.status.success() {
+            true => Ok(out.stdout),
+            false => Err(format!("tar {} failed", args.join(" "))),
+        }
+    };
+    let listed = run_tar(&["-tf", "-"])?;
+    run_tar(&["-xf", "-"])?;
+    Ok(String::from_utf8_lossy(&listed)
+        .lines()
+        .filter(|l| !l.ends_with('/'))
+        .map(str::to_string)
+        .collect())
 }
 
 /// What the session needs, made and checked: the scratch home, baud's
@@ -794,6 +859,17 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
     for (p, from) in PINNED.iter().zip(&faces) {
         fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
     }
+    // The repository's copy yazi opens, at the take's commit: the
+    // repository's own published files, so not among what the names check
+    // reads, which `THIRD_PARTY.md`'s `tinted-theming/home/` would trip.
+    let repo = provenance::repository();
+    let copied = copy_repo(&repo, &at.work().join(scratch::REPO_AT))?;
+    println!(
+        "{:<13}{} files at HEAD into ~/baud/{}",
+        "repository",
+        copied.len(),
+        scratch::REPO_AT
+    );
     // The container: its image, built by the repository's flake and its
     // stream checked against its pin, and the session's keys, the scratch
     // home's ssh files among what is checked.
@@ -805,7 +881,8 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
     let port = container::free_port()?;
     let (keys, ssh_files) = container::keys(&at.home(), &at.root.join("container"), &ssh, port)?;
     written.extend(ssh_files);
-    let (home, home_files) = container::home(&at.root.join("container"))?;
+    let readme = at_head(&repo, "README.md")?;
+    let (home, home_files) = container::home(&at.root.join("container"), &readme)?;
     written.extend(home_files);
     let image = container::image(
         &at.root.join("container"),
@@ -1068,9 +1145,8 @@ fn check_names(
         }
     }
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
-    let home = container::home_dir();
     for (rel, bytes) in written {
-        let hit = names::named_outside(bytes, &n, &[&public, &home]);
+        let hit = names::named_outside(bytes, &n, &[&public]);
         if !hit.is_empty() {
             return Err(format!("{rel} names this machine: {hit:?}"));
         }
@@ -1813,14 +1889,12 @@ fn check_config(at: &Layout) -> Result<(), String> {
 /// **Nothing baud was sent names this machine**, the scratch directory in
 /// every spelling and its own name alone included
 /// ([`names::with_scratch_leaf`]): what the programs printed is on film. The
-/// repository's address, which the README prints, aside, and the
-/// container's home, `container::home_dir`, which its `links.txt` names and
-/// which is the image's own, written in the repository, not this machine's.
+/// repository's address, which the README prints, aside.
 fn leaks(log: &Path, root: &Path) -> Result<(), String> {
     let bytes = fs::read(log).map_err(|e| format!("{}: {e}", log.display()))?;
     let n = names::with_scratch_leaf(machine_names(root)?, root);
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
-    let hit = names::named_outside(&bytes, &n, &[&public, &container::home_dir()]);
+    let hit = names::named_outside(&bytes, &n, &[&public]);
     if !hit.is_empty() {
         return Err(format!("the screen was sent this machine's names: {hit:?}"));
     }
@@ -1848,6 +1922,51 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    /// **The repository's copy is exactly its paths, at `HEAD`**: the
+    /// archive of the repository this test runs in holds each file of
+    /// `scratch::REPO_COPY`, a folder's every file at `HEAD`, and nothing
+    /// else; each unpacked is `HEAD`'s bytes; the arguments name `HEAD`
+    /// and the paths alone. The control: the README unpacked is the one
+    /// `git show HEAD:README.md` gives. Perturbation: name anything but
+    /// `HEAD`, and the arguments' check fails.
+    #[test]
+    fn the_repository_copy_is_exactly_its_paths_at_head() {
+        let a = super::archive_args();
+        assert_eq!(a[..4], ["archive", "--format=tar", "HEAD", "--"]);
+        assert_eq!(a[4..], crate::scratch::REPO_COPY);
+        let repo = crate::provenance::repository();
+        let dest = std::env::temp_dir().join(format!("demo-repo-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dest);
+        let mut got = super::copy_repo(&repo, &dest).unwrap();
+        got.sort();
+        let mut want: Vec<String> = Vec::new();
+        for p in crate::scratch::REPO_COPY {
+            match p.strip_suffix('/') {
+                Some(dir) => {
+                    let out = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&repo)
+                        .args(["ls-tree", "-r", "--name-only", "HEAD", "--", dir])
+                        .output()
+                        .unwrap();
+                    let files = String::from_utf8(out.stdout).unwrap();
+                    assert!(!files.is_empty(), "{dir} at HEAD");
+                    want.extend(files.lines().map(str::to_string));
+                }
+                None => want.push(p.to_string()),
+            }
+        }
+        want.sort();
+        assert_eq!(got, want);
+        let readme = std::fs::read(dest.join("README.md")).unwrap();
+        assert_eq!(
+            readme,
+            super::at_head(&repo, "README.md").unwrap(),
+            "the control"
+        );
+        std::fs::remove_dir_all(&dest).unwrap();
+    }
+
     /// **The leak search refuses the scratch directory however it is
     /// spelled**: as the root is made, through the temporary directory's own
     /// spelling, and by its name alone past a prompt's cut; and it passes
