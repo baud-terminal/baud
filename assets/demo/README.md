@@ -5,11 +5,9 @@ real session into baud's window at 40 ms a key and records it.
 
 | Piece | What it is | Made by |
 |---|---|---|
-| the tour | Take 1: baud in a real shell, seventeen scenes, every command typed, the `#` lines typed at the prompt as narration. An MP4 with sound, uploaded to YouTube and not kept here. | `cargo run --release --example demo -- --record assets/demo/tour.mp4 --forbidden LIST --controls FILE` |
+| the tour | Take 1: baud in a real shell, the storyline's scenes 6 to 16, every command typed, the `#` lines typed at the prompt as narration. An MP4 with sound, uploaded to YouTube and not kept here. | `cargo run --release --example demo -- --record assets/demo/tour.mp4 --forbidden LIST --controls FILE` |
 | the trailer | Take 2, `trailer.gif`, not filmed yet: baud plays a stretch of the tour from YouTube, at its own speed, in its own window with mpv and yt-dlp, about 20 s. The README's film. | `cargo run --release --example demo -- --trailer --tour URL --start T --end T --record assets/demo/trailer.gif --forbidden LIST --controls FILE`, the stretch from the README jumps to the dial-up lights read off the tour's take; the GIF must pass the WCAG 2.3.1 flash census or is removed |
-| the plasma logo | The README's logo film. mpv plays its MP4 in the tour's scene 10. | `baud-pictures logo`; its MP4, `baud-pictures logo --mp4 --out DIR`, which the demo runs into its own scratch directory |
-| the UFO logo | The second logo film, `ufo-logo-dark.gif` and `ufo-logo-light.gif`, which kitten draws in the tour's scene 9 (the dark one, `UFO_LOGO_FROM` in `baud-app/examples/demo/session.rs`): the ufo trail's saucer, in amber, threads the letters: it hovers behind the word, tilts and darts from gap to counter, in front of the letters and behind them, lights the `b` with its beam, beams the block up, streaks off left behind the word, comes back from the right and sets the block down. Its MP4s, `baud-pictures logo --ufo --mp4 --out DIR`. | `baud-pictures logo --ufo` |
-| the links | What the tour's scene 8 prints. | `links.txt` |
+| the UFO logo | The second logo film, `ufo-logo-dark.gif` and `ufo-logo-light.gif`: the ufo trail's saucer, in amber, threads the letters: it hovers behind the word, tilts and darts from gap to counter, in front of the letters and behind them, lights the `b` with its beam, beams the block up, streaks off left behind the word, comes back from the right and sets the block down. Its MP4s, `baud-pictures logo --ufo --mp4 --out DIR`. | `baud-pictures logo --ufo` |
 
 Until the trailer is filmed the README shows no film, only its logo.
 
@@ -24,8 +22,6 @@ Until the trailer is filmed the README shows no film, only its logo.
   `baud-pictures logo --ufo --check` makes both again and compares them
   byte for byte; `baud-bench/tests/ufo_logo_flashes.rs` takes the census
   of the committed GIFs.
-- `links.txt`: a web address and a file's, which the tour prints and points
-  at.
 - `trailer.gif`, written by the trailer's take: the README's film.
 - `trailer.gif.provenance.toml`, written by the same take: the commit
   filmed, every step with its time, each tool and pinned file. Checked by
@@ -44,25 +40,21 @@ over silence, from a directory it is given, by the timeline's rows.
 
 ## The tour, scene by scene
 
+The tour is the storyline's scenes 6 to 16; 1 to 5 are the README film's.
+
 | # | Typed | Seen |
 |---|---|---|
-| 1 | (baud opens) | the plasma splash carries the logo off; the nine lights in the title bar |
-| 2 | `# are you ready for this?` | the opening line |
-| 3 | `# baud's own config. watch the cursor.`, `hx ~/.config/baud/config.toml`, the arrows down four and up two, `ge` | each arrow leaves the plasma trail; the config shows `advertise_sixel = true` |
-| 4 | `/plasma`, `cliquid`, Escape, `:w`, `gg`, `ge` | one word saved, baud reloads, the trail is liquid |
-| 5 | `:open README.md`, `/character`, Ctrl-d three times, `ge`, `gg`, `:q` | the README read in helix |
-| 6 | `# every language. right to left too.`, `cat hello.txt` | six languages and emoji |
-| 7 | `# copy. paste.`, a drag over `copy`, Command-C, `# `, Command-V | the copy's words, then the word pasted at the prompt |
-| 8 | `# links and files you can click`, `cat links.txt` | both underlined; the pointer over the web address draws its box, Command shows where it goes |
-| 9 | `# pictures`, `kitten icat canazei.jpg`, `kitten icat ufo-logo.gif` | the photo, then the logo; FAX lit |
-| 10 | `# and video`, `mpv logo.mp4` | the plasma logo as video |
-| 11 | `# now dial out. watch the lights.`, `ssh demo` | OH, then CD, then RD and SD with the data |
-| 12 | `fastfetch` | the container's card, baud's mark as a picture |
-| 13 | `btop` | its CPU graphs |
-| 14 | `# one more thing`, the fireworks' `printf` | iTerm2's fireworks, over ssh |
-| 15 | `exit` | the badge clears, CD goes dark |
-| 16 | `# the finale`, `sed -i '' s/liquid/ufo/ ~/.config/baud/config.toml`, `clear` | the trail turns to the saucer by live reload, and it flies the cursor to the top |
-| 17 | `# that's baud. github.com/baud-terminal/baud` | held 2 s |
+| 6 | `# now dial out. watch the lights.`, `ssh demo` | OH, then CD, then RD and SD with the data |
+| 7 | `fastfetch` | the container's card, baud's mark as a picture |
+| 8 | `# watch the cursor.`, `hx README.md`, the arrows down four and up two, `/character`, Ctrl-d three times, `ge`, `gg` | the plasma trail down and up; the README's jumps |
+| 9 | `/Nix`, a Command-click on `https://nixos.org`, a short scroll, `q`, `:q` | nixos.org in Chawan, in a baud window of its own; back to helix, and helix closes |
+| 10 | `# every language. right to left too.`, `cat hello.txt` | six languages and emoji |
+| 11 | `# copy. paste.`, a drag over `copy`, Command-C, `# `, Command-V | the copy's words, then the word pasted at the prompt |
+| 12 | `btop` | its CPU graphs |
+| 13 | `# one more thing`, the fireworks' `printf` | iTerm2's fireworks, over ssh |
+| 14 | `exit` | the badge clears, CD goes dark |
+| 15 | `# the finale`, `sed -i '' s/plasma/ufo/ ~/.config/baud/config.toml`, `clear` | the trail turns to the saucer by live reload, and it flies the cursor to the top |
+| 16 | `# that's baud. github.com/baud-terminal/baud` | held 2 s |
 
 The steps themselves are `SESSION` in `baud-app/examples/demo/session.rs`,
 and `trailer` there builds the trailer's.

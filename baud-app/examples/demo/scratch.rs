@@ -101,8 +101,9 @@ pub const HELIX: &str = include_str!("../../../nix/demo-container/helix.toml");
 /// out in baud's environment would hold the `/home/` the names check
 /// refuses. `CHA_DIR` names Chawan's the same way ([`CHAWAN`]), and
 /// `EDITOR` is helix, which yazi's `edit` opener runs for a text file
-/// (`${EDITOR:-vi} %s` in yazi 26.9.1's preset). Its `ssh` reads the
-/// scratch home's ssh config (`container::ZSH_SSH`).
+/// (`${EDITOR:-vi} %s` in yazi 26.9.1's preset). `~/bin` ([`BIN`]), where
+/// the demo puts `demo-open`, comes first on the `PATH`, by `$HOME` too.
+/// Its `ssh` reads the scratch home's ssh config (`container::ZSH_SSH`).
 /// `interactive_comments` is set, so the tour's narration, each a line
 /// beginning `#` typed at the prompt, is a comment the shell skips: zsh has
 /// the option off in an interactive shell, where `# are you ready for
@@ -114,13 +115,17 @@ fn zshrc(path: &str) -> String {
          export STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
          export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n\
          export YAZI_CONFIG_HOME=\"$HOME/{YAZI}\"\nexport CHA_DIR=\"$HOME/{CHAWAN}\"\n\
-         export EDITOR=hx\n{}",
+         export EDITOR=hx\nexport PATH=\"$HOME/{BIN}:$PATH\"\n{}",
         crate::container::ZSH_SSH
     )
 }
 
+/// **Where the scratch home holds the tour's own programs**, `~/bin`:
+/// `demo-open` (`baud-app/examples/demo-open.rs`).
+pub const BIN: &str = "bin";
+
 /// **mpv's config in the scratch home**, `~/.config/mpv/mpv.conf`, so the
-/// tour's `mpv logo.mp4` and the trailer's `mpv URL` are typed with no
+/// trailer's `mpv URL`, and the README film's that replaces it, is typed with no
 /// option: its video in kitty's graphics protocol, each frame sent in the
 /// stream itself (`vo-kitty-use-shm=no`, mpv's default, written out:
 /// nixpkgs' mpv 0.41 names its shared memory without the leading `/` the
@@ -130,11 +135,6 @@ fn zshrc(path: &str) -> String {
 /// (`tests/recordings/README.md`, `kitty/mpv-logo-40x6.raw`).
 pub const MPV_CONF: &str = "# mpv for the tour and the trailer: video in kitty's protocol, in the stream\n\
                             vo=kitty\nvo-kitty-use-shm=no\naudio=no\nreally-quiet\n";
-
-/// **What scene 8 prints**, `assets/demo/links.txt`: a web address and a
-/// file's, each a URI baud underlines at rest (`baud-app/src/link.rs`), the
-/// file's a path that names nothing of this machine.
-pub const LINKS: &str = include_str!("../../../assets/demo/links.txt");
 
 /// **Where the scratch home holds yazi's config**, which
 /// `YAZI_CONFIG_HOME` names ([`zshrc`]), so yazi reads no config of the
@@ -163,13 +163,13 @@ pub const YAZI_TOML: &str = "# yazi for the tour: a GIF opens in kitten, which s
 /// the same file (`[[source: chawan-0-4-4-config]]`).
 pub const CHAWAN: &str = ".config/chawan";
 
-/// **Chawan's config**, `config.toml`: its defaults, but for whether it
-/// draws a page's pictures, which is left to Chawan's default (off) until
-/// baud's check of kitty pictures in it is done.
-pub const CHAWAN_TOML: &str = "# Chawan for the tour: its defaults\n\
-                               [buffer]\n\
-                               # PLACEHOLDER images: on or off waits on baud's check of kitty pictures in Chawan;\n\
-                               # on is `images = true` here and `[display] image-mode = \"kitty\"`.\n";
+/// **Chawan's config**, `config.toml`: its defaults but a page's pictures
+/// drawn, `buffer.images = true`, which is off by default, with
+/// `display.image-mode = "auto"`, Chawan's own detection, which finds
+/// kitty's protocol in baud (`[[source: chawan-0-4-4-config]]`).
+pub const CHAWAN_TOML: &str = "# Chawan for the tour: its defaults, a page's pictures drawn\n\
+                               [buffer]\nimages = true\n\
+                               [display]\nimage-mode = \"auto\"\n";
 
 /// **The copy of the repository yazi opens**, under the working directory
 /// ([`REPO_AT`]), each path at the take's commit (`git archive HEAD`): the
@@ -245,28 +245,23 @@ pub const STARSHIP: &str = ".config/starship.toml";
 /// **baud's starship preset**, the file the repository ships.
 pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 
-/// **The repository's README, unchanged**, the file the session opens in
-/// helix: the shell's working directory holds it, so the command names it
-/// bare.
+/// **The repository's README as this example was built**, for the checks
+/// made before a take: the word the tour's search finds and the files it
+/// links to. The take itself shows the README at its commit, `HEAD`.
 pub const README: &str = include_str!("../../../README.md");
 
-/// **baud's config**, as the tour shows it in helix: 22 lines, no more
-/// than the rows helix gives a file in a 24-row window, so the tour's
-/// jumps between its first line and its last cross most of the screen;
-/// `trail = "plasma"` the last line, and the word nowhere else, so `ge`
-/// lands on it and `/plasma` selects it, and once it is `liquid`, the
-/// finale's `sed` finds that word nowhere else either.
+/// **baud's config**: 22 lines, `trail = "plasma"` the last, and the word
+/// nowhere else, so the finale's `sed` changes that line alone.
 ///
 /// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
 ///   fonts: baud's own by family name on the list's first line, `baud Mono`
 ///   and `Symbols Nerd Font Mono`, then the pinned open
 ///   faces one a line, by paths beside this file, `fonts/<file>`, so no
 ///   path of the machine is on screen.
-/// - `[images] advertise_sixel = true`, so the tour's `kitten icat` is
-///   typed plain: kitten's detection asks the terminal what it is, gives
-///   up on baud's default answer after ten seconds, and passes once baud
-///   says it draws Sixel, which it does (`docs/guide/configuration.md`).
-///   Shown when helix opens the file, as the storyline asks.
+/// - `[images] advertise_sixel = true`, so `kitten icat` runs with no
+///   option: kitten's detection asks the terminal what it is, gives up on
+///   baud's default answer after ten seconds, and passes once baud says it
+///   draws Sixel, which it does (`docs/guide/configuration.md`).
 /// - `[screen] transition = "on"`: a full-screen program slides in and
 ///   out, as btop does.
 /// - The window solid, each by its own key
@@ -280,8 +275,8 @@ pub const README: &str = include_str!("../../../README.md");
 /// - `[cursor]`: the cursor blinking as baud's default blinks it,
 ///   `blink = "auto"`, at baud's shell's prompt and at the server's over
 ///   ssh -- `false` held it still in the whole film, the server's prompt
-///   among it -- and the plasma trail, which the session changes to
-///   liquid. A program that asks for a steady cursor, as helix does, has
+///   among it -- and the plasma trail, which the finale changes to the
+///   saucer. A program that asks for a steady cursor, as helix does, has
 ///   it steady until it gives the cursor back.
 ///
 /// The title strip above the grid stays the window's material: no key
@@ -315,15 +310,6 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
             "home/.config/helix/config.toml".to_string(),
             HELIX.as_bytes().to_vec(),
         ),
-        (
-            "home/baud/hello.txt".to_string(),
-            crate::session::HELLO.as_bytes().to_vec(),
-        ),
-        (
-            "home/baud/README.md".to_string(),
-            README.as_bytes().to_vec(),
-        ),
-        ("home/baud/links.txt".to_string(), LINKS.as_bytes().to_vec()),
         (
             "home/.config/mpv/mpv.conf".to_string(),
             MPV_CONF.as_bytes().to_vec(),
@@ -457,9 +443,8 @@ mod tests {
     /// **The config lists baud's own faces by name and the pinned ones by
     /// paths beside it**, at 14 points, the transition on, the window solid,
     /// Sixel said, and the cursor blinking with its plasma trail last, in 22
-    /// lines -- the rows helix gives a file in 24 -- with "plasma" on the
-    /// last alone, and the line the finale's `sed` changes once the word is
-    /// liquid the only one with "liquid" in it; the zsh file sets the
+    /// lines, with "plasma" on the last alone, the line the finale's `sed`
+    /// changes; the zsh file sets the
     /// `PATH`, comments at the prompt, starship's prompt from the preset in
     /// the scratch home, and ssh's config; and baud's environment is its
     /// list, no `XDG_*` among it. Perturbation: a blank line after the
@@ -485,11 +470,18 @@ mod tests {
         assert_eq!(c.lines().count(), 22, "{c}");
         assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
         assert_eq!(c.matches("plasma").count(), 1, "the word once");
-        let liquid = c.replace("plasma", "liquid");
+        // The finale's `sed`, its one substitution, changes the last line
+        // alone; the control, a second `plasma`, would change two.
+        assert!(crate::session::SED_UFO.contains(" s/plasma/ufo/ "));
+        let after = c.replacen("plasma", "ufo", 1);
+        assert_eq!(after.lines().last(), Some("trail = \"ufo\""));
+        let changed = |a: &str, b: &str| a.lines().zip(b.lines()).filter(|(x, y)| x != y).count();
+        assert_eq!(changed(&c, &after), 1, "one line changed");
+        let twice = format!("{c}# plasma\n");
         assert_eq!(
-            liquid.matches("liquid").count(),
-            1,
-            "the finale's word once"
+            changed(&twice, &twice.replace("plasma", "ufo")),
+            2,
+            "the control"
         );
         assert!(
             c.lines().all(|l| l.chars().count() < 60),
@@ -518,6 +510,7 @@ mod tests {
              export YAZI_CONFIG_HOME=\"$HOME/.config/yazi\"\n\
              export CHA_DIR=\"$HOME/.config/chawan\"\n\
              export EDITOR=hx\n\
+             export PATH=\"$HOME/bin:$PATH\"\n\
              alias ssh='ssh -F ~/.ssh/config'\n"
         );
         let preset = files("/a/bin", &faces)
@@ -532,14 +525,11 @@ mod tests {
             String::from_utf8_lossy(&helix.1).contains("[editor.soft-wrap]\nenable = true\n"),
             "no sideways scroll of the README"
         );
-        let readme = files("/a/bin", &faces)
-            .into_iter()
-            .find(|(f, _)| f == "home/baud/README.md")
-            .expect("the README in the working directory");
-        assert_eq!(
-            readme.1,
-            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md")).unwrap(),
-            "the repository's README, byte for byte"
+        assert!(
+            files("/a/bin", &faces)
+                .iter()
+                .all(|(f, _)| !f.starts_with("home/baud/")),
+            "the working directory's files come from the repository at HEAD"
         );
         assert_eq!(
             preset.1,
@@ -631,9 +621,9 @@ mod tests {
     /// **Chawan reads the scratch home's config alone**: the shell's
     /// `CHA_DIR` names the folder its `config.toml` is written to, which is
     /// also `~/.config/chawan`, where Chawan looks next with no
-    /// `XDG_CONFIG_HOME`, so a `cha` baud starts reads it too; and whether
-    /// it draws pictures is left a marked placeholder, no `images` set. The
-    /// control: a variable naming another folder is caught.
+    /// `XDG_CONFIG_HOME`, so a `cha` baud starts reads it too; and it draws
+    /// a page's pictures, `buffer.images` on, by the protocol it detects.
+    /// The control: a variable naming another folder is caught.
     #[test]
     fn chawan_reads_the_scratch_config() {
         let written = files("/a/bin", &[])
@@ -654,11 +644,8 @@ mod tests {
             Some(written.0),
             "the control"
         );
-        assert!(CHAWAN_TOML.contains("# PLACEHOLDER images:"));
-        assert!(
-            !CHAWAN_TOML.lines().any(|l| l.starts_with("images")),
-            "images left to Chawan's default"
-        );
+        assert!(CHAWAN_TOML.contains("[buffer]\nimages = true\n"));
+        assert!(CHAWAN_TOML.contains("[display]\nimage-mode = \"auto\"\n"));
     }
 
     /// **The repository's copy is the README and every file it links

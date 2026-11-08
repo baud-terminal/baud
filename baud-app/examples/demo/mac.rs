@@ -467,10 +467,19 @@ pub trait Desk {
     fn key(&self, k: Key, down: bool) -> Result<(), String>;
     fn pointer(&self, at: (f64, f64)) -> Result<(), String>;
     fn wheel(&self, at: (f64, f64), lines: i32) -> Result<(), String>;
-    /// The left button at `at`, pressed or let go.
-    fn button(&self, at: (f64, f64), down: bool) -> Result<(), String>;
+    /// The left button at `at`, pressed or let go, with `with` held.
+    fn button(&self, at: (f64, f64), down: bool, with: Click) -> Result<(), String>;
     /// The pointer moved to `at` with the left button held.
     fn dragged(&self, at: (f64, f64)) -> Result<(), String>;
+}
+
+/// **What a click holds down beside its button**: nothing, or Command, set
+/// on the button's events themselves as their flags, as a click made with
+/// the key held carries them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    Plain,
+    Command,
 }
 
 /// **This desktop**, through the HID event tap, with the U.S. layout's key
@@ -499,19 +508,19 @@ impl Desk for Live {
     }
 
     fn pointer(&self, at: (f64, f64)) -> Result<(), String> {
-        self.mouse(CGEventType::MouseMoved, at)
+        self.mouse(CGEventType::MouseMoved, at, Click::Plain)
     }
 
-    fn button(&self, at: (f64, f64), down: bool) -> Result<(), String> {
+    fn button(&self, at: (f64, f64), down: bool, with: Click) -> Result<(), String> {
         let kind = match down {
             true => CGEventType::LeftMouseDown,
             false => CGEventType::LeftMouseUp,
         };
-        self.mouse(kind, at)
+        self.mouse(kind, at, with)
     }
 
     fn dragged(&self, at: (f64, f64)) -> Result<(), String> {
-        self.mouse(CGEventType::LeftMouseDragged, at)
+        self.mouse(CGEventType::LeftMouseDragged, at, Click::Plain)
     }
 
     /// One wheel event, through `CGEventCreateScrollWheelEvent2`, the
@@ -533,8 +542,9 @@ impl Desk for Live {
 }
 
 impl Live {
-    /// One pointer event of `kind` at `at`, through the HID event tap.
-    fn mouse(&self, kind: CGEventType, at: (f64, f64)) -> Result<(), String> {
+    /// One pointer event of `kind` at `at`, `with`'s key in its flags,
+    /// through the HID event tap.
+    fn mouse(&self, kind: CGEventType, at: (f64, f64), with: Click) -> Result<(), String> {
         let e = CGEvent::new_mouse_event(
             Some(&self.source),
             kind,
@@ -542,6 +552,9 @@ impl Live {
             CGMouseButton::Left,
         )
         .ok_or("CoreGraphics made no pointer event")?;
+        if with == Click::Command {
+            CGEvent::set_flags(Some(&e), CGEventFlags::MaskCommand);
+        }
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&e));
         Ok(())
     }
@@ -791,7 +804,7 @@ impl<D: Desk> Poster<D> {
         self.desk.pointer(from)?;
         std::thread::sleep(Duration::from_millis(DRAG_PAUSE_MS));
         self.pointer_ok(from)?;
-        self.desk.button(from, true)?;
+        self.desk.button(from, true, Click::Plain)?;
         for i in 1..=DRAG_MOVES {
             let p = f64::from(i) / f64::from(DRAG_MOVES);
             let at = (from.0 + (to.0 - from.0) * p, from.1 + (to.1 - from.1) * p);
@@ -801,7 +814,31 @@ impl<D: Desk> Poster<D> {
         }
         std::thread::sleep(Duration::from_millis(DRAG_PAUSE_MS));
         self.pointer_ok(to)?;
-        self.desk.button(to, false)?;
+        self.desk.button(to, false, Click::Plain)?;
+        self.posted.set(self.posted.get() + 1);
+        Ok(())
+    }
+
+    /// **A Command-click at `at`**: the pointer moved there and let settle,
+    /// Command pressed, the button pressed and let go with Command in their
+    /// flags, and Command let go, the guard asked before every one. A
+    /// refusal posts nothing more, the key's up included, as [`Self::drag`]
+    /// leaves its press.
+    pub fn cmd_click(&self, at: (f64, f64)) -> Result<(), String> {
+        let settle = Duration::from_millis(WHEEL_SETTLE_MS);
+        self.pointer_ok(at)?;
+        self.desk.pointer(at)?;
+        std::thread::sleep(settle);
+        self.pointer_ok(at)?;
+        self.desk.key(crate::keys::COMMAND, true)?;
+        std::thread::sleep(settle);
+        for down in [true, false] {
+            self.pointer_ok(at)?;
+            self.desk.button(at, down, Click::Command)?;
+            std::thread::sleep(settle);
+        }
+        self.pointer_ok(at)?;
+        self.desk.key(crate::keys::COMMAND, false)?;
         self.posted.set(self.posted.get() + 1);
         Ok(())
     }
@@ -1012,9 +1049,13 @@ int main(void) {
         Wheel,
         Press,
         Release,
+        CommandPress,
+        CommandRelease,
         Dragged,
     }
-    use Did::{Down, Dragged, Pointer, Press, Read, Release, Up, Wheel};
+    use Did::{
+        CommandPress, CommandRelease, Down, Dragged, Pointer, Press, Read, Release, Up, Wheel,
+    };
 
     const BAUD: i32 = 500;
 
@@ -1087,10 +1128,13 @@ int main(void) {
             Ok(())
         }
 
-        fn button(&self, _: (f64, f64), down: bool) -> Result<(), String> {
-            self.did
-                .borrow_mut()
-                .push(if down { Press } else { Release });
+        fn button(&self, _: (f64, f64), down: bool, with: Click) -> Result<(), String> {
+            self.did.borrow_mut().push(match (down, with) {
+                (true, Click::Plain) => Press,
+                (false, Click::Plain) => Release,
+                (true, Click::Command) => CommandPress,
+                (false, Click::Command) => CommandRelease,
+            });
             Ok(())
         }
 
@@ -1191,6 +1235,49 @@ int main(void) {
             [Read, Pointer, Read, Press, Read, Dragged, Read],
             "no release"
         );
+    }
+
+    /// **A Command-click is Command down, the button down and up with
+    /// Command in their flags, and Command up, each event read first**, the
+    /// pointer moved there before; and a screen that locks partway posts
+    /// nothing more, Command's up included. The control: a drag's press and
+    /// release carry no Command. Perturbation: post the button with
+    /// `Click::Plain` and the order differs.
+    #[test]
+    fn a_command_click_holds_command_over_the_button() {
+        let at = (40.0, 40.0);
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.cmd_click(at), Ok(()));
+        assert_eq!(
+            *p.desk.did.borrow(),
+            [
+                Read,
+                Pointer,
+                Read,
+                Down,
+                Read,
+                CommandPress,
+                Read,
+                CommandRelease,
+                Read,
+                Up
+            ]
+        );
+        let p = Fake::locked_from(3);
+        assert!(p.cmd_click(at).is_err());
+        assert_eq!(
+            *p.desk.did.borrow(),
+            [Read, Pointer, Read, Down, Read, CommandPress, Read],
+            "no release, no Command up"
+        );
+        let p = Fake::locked_from(FOREVER);
+        assert_eq!(p.drag(at, (60.0, 60.0)), Ok(()));
+        let did = p.desk.did.borrow();
+        assert!(
+            did.contains(&Press) && did.contains(&Release),
+            "the control"
+        );
+        assert!(!did.contains(&CommandPress));
     }
 
     /// **A pasteboard no one else uses**, whose writes a test makes: what it

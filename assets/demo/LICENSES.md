@@ -5,9 +5,9 @@ the README's film, a GIF of the tour playing. This file lists every piece the
 tour shows and the licence each comes under. No trailer has been filmed yet,
 so none is in the repository; its row is added here once its take exists.
 
-Each third-party licence below was read on 2026-11-07 at the URL given. For
-the fonts the demo fetches, a copy of each licence file read is
-kept in `docs/research/sources/`, with its entry in
+Each third-party licence below was read at the URL given, on 2026-11-07 or
+the date its section gives. For the fonts the demo fetches, a copy of each
+licence file read is kept in `docs/research/sources/`, with its entry in
 `docs/research/sources/MANIFEST.toml` (group FM) and its row in
 `THIRD_PARTY.md`. A source marked `external` there was read and hashed but is
 not kept. The fonts embedded in the app keep their notices beside them under
@@ -184,17 +184,47 @@ notices below were read in the tree on 2026-11-07.
 - **YouTube:** allowed. None of these licences has a NonCommercial or a
   NoDerivatives term.
 
+## nixos.org, shown in Chawan
+
+- **Piece:** the page at <https://nixos.org>, which the tour's scene 9
+  opens from the README's Nix link and Chawan draws, its pictures on. It is
+  fetched live when the tour is filmed and is not in the repository.
+- **Licence:** CC BY-SA 4.0, for the site's content. The page's footer says
+  "Copyright © 2026 NixOS contributors" and links its licence, "CC-BY-SA-4.0",
+  to <https://github.com/NixOS/nixos-homepage/blob/main/LICENSES/CC-BY-SA-4.0.txt>.
+  Read 2026-11-08.
+- **The NixOS logo on it:** "Logo originally designed by Simon Frankau
+  (@simon-frankau) and revised by Tim Cuthbertson (@timbertson)", under a
+  CC-BY licence linked to CC BY 4.0, as the logo's README says,
+  <https://raw.githubusercontent.com/NixOS/nixos-artwork/master/logo/README.md>.
+  Read 2026-11-08.
+- **YouTube:** allowed with the credit below. Neither licence has a
+  NonCommercial or a NoDerivatives term; each asks for attribution and a
+  link to the licence, and CC BY-SA asks that adaptations of the material
+  carry the same licence. The video shows the page as Chawan draws it.
+
+## Chawan
+
+- **Piece:** the text-mode browser that draws nixos.org in scene 9, run on
+  the Mac from nixpkgs (`chawan` 0.4.4, in `PROGRAMS` in
+  `baud-app/examples/demo/run.rs`). Not in the repository.
+- **Licence:** the Unlicense. Its `UNLICENSE` at 0.4.4, in nixpkgs' source
+  of it, begins "This is free and unencumbered software released into the
+  public domain."; its README says "Chawan is dedicated to the public
+  domain. See the UNLICENSE file for details." nixpkgs gives its licence as
+  `Unlicense`. Read 2026-11-08.
+- **YouTube:** allowed. The Unlicense puts no condition on use.
+
 ## baud's own pieces
 
-- The plasma logo film, `assets/readme/logo-dark.gif`, and the MP4 that
-  `baud-pictures logo --mp4` makes from it, which mpv plays in the tour. Its
-  letters are JetBrains Mono's glyphs, under the OFL, as `THIRD_PARTY.md`'s
-  row for the README's logo says.
+- The plasma logo film, `assets/readme/logo-dark.gif`. Its letters are
+  JetBrains Mono's glyphs, under the OFL, as `THIRD_PARTY.md`'s row for the
+  README's logo says.
 - The UFO logo film, `assets/demo/ufo-logo-dark.gif` and
-  `ufo-logo-light.gif`, made by `baud-pictures logo --ufo`, which kitten
-  draws in the tour's scene 9: the ufo trail's saucer threading the logo's
-  letters. Its letters are JetBrains Mono's glyphs, under the
-  OFL, in the same `THIRD_PARTY.md` row as the README's logo.
+  `ufo-logo-light.gif`, made by `baud-pictures logo --ufo`: the ufo trail's
+  saucer threading the logo's letters. Its letters are JetBrains Mono's
+  glyphs, under the OFL, in the same `THIRD_PARTY.md` row as the README's
+  logo.
 - The tour itself, which the trailer plays from YouTube through mpv and
   yt-dlp.
 
@@ -222,4 +252,7 @@ kept the same way.
 
 ```text
 Fonts: JetBrains Mono, by The JetBrains Mono Project Authors (SIL OFL 1.1). baud's text face is JetBrains Mono with Hebrew from Cascadia Mono by Microsoft Corporation and with Noto Sans Devanagari by The Noto Project Authors (SIL OFL 1.1). STIX Two Math, by The STIX Fonts Project Authors (SIL OFL 1.1). Symbols Nerd Font Mono, by Ryan L McIntyre (Nerd Fonts, MIT), with each icon set under its own licence, among them Codicons by Microsoft Corporation (github.com/microsoft/vscode-codicons), as modified by Nerd Fonts, CC BY 4.0, creativecommons.org/licenses/by/4.0/. Noto Color Emoji, Copyright 2013 Google LLC (SIL OFL 1.1). Noto Sans CJK SC, by Adobe and Google (SIL OFL 1.1). Noto Naskh Arabic, Noto Sans Devanagari and Noto Sans Symbols 2, by The Noto Project Authors (SIL OFL 1.1).
+nixos.org shown in Chawan: content © 2026 NixOS contributors, CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+NixOS logo by Simon Frankau, revised by Tim Cuthbertson, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+Chawan: Unlicense.
 ```

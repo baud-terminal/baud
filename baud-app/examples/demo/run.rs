@@ -311,13 +311,9 @@ fn run(args: &Args) -> Result<(), String> {
         )?,
         Take::Tour => SESSION.to_vec(),
     };
-    let mut prep = prepare(&steps, take)?;
+    let prep = prepare(&steps, take)?;
     let names = machine_names(&prep.at.root)?;
     let profile = Profile::of_this_example()?;
-    if take == Take::Tour {
-        let pins = pictures(&profile, &prep.at, &root)?;
-        prep.pins.extend(pins);
-    }
     let command = profile.command(kept_out(std::env::args().skip(1)));
     let kit = match &args.record {
         Some(out) => {
@@ -341,6 +337,8 @@ fn run(args: &Args) -> Result<(), String> {
         true => println!("baud:    {}, with --features take", baud.display()),
         false => println!("baud:    {}", baud.display()),
     }
+    let opener = build_opener(&profile, &prep.at)?;
+    println!("opener:  {}", opener.display());
     let run = tree.as_ref().map(|t| record::Run {
         root: &root,
         command: command.clone(),
@@ -647,49 +645,6 @@ fn ran_one(stdout: &str) -> bool {
 enum Take {
     Tour,
     Trailer,
-}
-
-/// **The two pictures the tour draws that the repository makes**, into
-/// its working directory: [`session::LOGO_MP4`], scene 10's film, the dark
-/// half of `baud-pictures logo --mp4 --out DIR` -- made into the scratch
-/// directory, never into the tree, by `tools/baud-pictures` in
-/// `tools/shell.nix`, which pins the C it links -- and
-/// [`session::UFO_LOGO`], scene 9's second picture, copied from
-/// [`session::UFO_LOGO_FROM`]. Returns each file's name and SHA-256, for
-/// the provenance file.
-fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String)>, String> {
-    let out = at.root.join("logo");
-    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let quote = |s: &std::ffi::OsStr| format!("'{}'", s.to_string_lossy().replace('\'', "'\\''"));
-    let line = format!(
-        "{} run --release --manifest-path {} --target-dir {} --bin baud-pictures -- logo --mp4 \
-         --out {}",
-        quote(&cargo),
-        quote(root.join("tools/Cargo.toml").as_os_str()),
-        quote(p.target.join("tools").as_os_str()),
-        quote(out.as_os_str()),
-    );
-    let made = Command::new("nix-shell")
-        .arg(root.join("tools/shell.nix"))
-        .args(["--run", &line])
-        .status()
-        .map_err(|e| format!("nix-shell: {e}"))?;
-    if !made.success() {
-        return Err("baud-pictures logo --mp4 could not make the logo's film".to_string());
-    }
-    let work = at.work();
-    let mut pins = Vec::new();
-    for (from, to) in [
-        (out.join("logo-dark.mp4"), session::LOGO_MP4),
-        (root.join(session::UFO_LOGO_FROM), session::UFO_LOGO),
-    ] {
-        let dest = work.join(to);
-        fs::copy(&from, &dest).map_err(|e| format!("{}: {e}", from.display()))?;
-        pins.push((to.to_string(), provenance::sha256(&dest)?));
-        println!("{:<13}{to}, from {}", "picture", from.display());
-    }
-    Ok(pins)
 }
 
 /// **`git archive`'s arguments for the repository's copy**: the take's
@@ -1067,7 +1022,7 @@ fn covered(stack: &[(&str, &[u8])], what: &str, text: &str) -> Result<(), String
 }
 
 /// **No character the session shows from what it controls needs a system
-/// face**: `hello.txt`, the config and the README helix shows, `links.txt`,
+/// face**: `hello.txt`, the config and the README helix shows,
 /// both prompts and everything the take types -- the narration, the
 /// commands, the fireworks' request -- through the stack baud builds from
 /// the scratch config and baud-render's table. Then the control: without
@@ -1084,16 +1039,15 @@ fn check_fonts(faces: &[PathBuf], config: &str, steps: &[Step]) -> Result<(), St
         })
         .collect();
     let text = format!(
-        "{}{config}{}{}{}{}{typed}",
+        "{}{config}{}{}{}{typed}",
         session::HELLO,
         scratch::README,
-        scratch::LINKS,
         session::PROMPT_SHOWN,
         session::REMOTE_PROMPT,
     );
     covered(
         &stack,
-        "hello.txt, the config, the README, links.txt, both prompts and what the take types",
+        "hello.txt, the config, the README, both prompts and what the take types",
         &text,
     )?;
     let without: Vec<(&str, &[u8])> = stack
@@ -1355,6 +1309,41 @@ fn build_baud(p: &Profile, journal: bool) -> Result<Built, String> {
         bin,
         target: p.target.clone(),
     })
+}
+
+/// **`demo-open`, built and put on the shell's `PATH`**: the
+/// `demo-open` example (`baud-app/examples/demo-open.rs`), built as baud
+/// is, copied to `~/bin/demo-open` in the scratch home ([`scratch::BIN`]),
+/// which the `.zshrc` puts first on the `PATH`.
+fn build_opener(p: &Profile, at: &Layout) -> Result<PathBuf, String> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let status = Command::new(cargo)
+        .args([
+            "build",
+            "-p",
+            "baud",
+            "--example",
+            "demo-open",
+            "--manifest-path",
+        ])
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags())
+        .status()
+        .map_err(|e| format!("cargo: {e}"))?;
+    let built = p.dir.join("examples/demo-open");
+    if !status.success() || !built.is_file() {
+        return Err(format!(
+            "cargo build --example demo-open did not make {}",
+            built.display()
+        ));
+    }
+    let bin = at.home().join(scratch::BIN);
+    fs::create_dir_all(&bin).map_err(|e| format!("{}: {e}", bin.display()))?;
+    let to = bin.join("demo-open");
+    fs::copy(&built, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    Ok(to)
 }
 
 /// The pty log baud writes (`BAUD_PTYLOG`), read as it grows.
@@ -1850,6 +1839,15 @@ fn play(
                     .ok_or("baud has no window on screen")?;
                 let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
                 poster.hover(at)?;
+                ev.line(&session::event(step, prompt));
+            }
+            Step::CmdClick(cell) => {
+                let w = guard::frame(pid, &mac::windows(false))
+                    .ok_or("baud has no window on screen")?;
+                let at = session::in_window(cell, session::MIDDLE, (w.x, w.y), (w.w, w.h));
+                log.refresh();
+                typed_from = log.bytes.len();
+                poster.cmd_click(at)?;
                 ev.line(&session::event(step, prompt));
             }
             Step::Drag { from, to } => {

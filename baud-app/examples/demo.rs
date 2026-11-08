@@ -1,16 +1,15 @@
 //! **The tour and the trailer, played in baud's window**: a real
 //! interactive zsh and real programs at real speed, every command typed
-//! into the window key by key. The tour, take 1, is seventeen scenes, each
-//! narrated by a `#` line typed at the prompt as a shell comment: baud's
-//! own config opened in helix and the arrow keys' plasma trail, the trail
-//! changed to liquid by one word saved and baud's live reload, the
-//! repository's README read in that helix; baud defined in six languages
-//! and a line of emoji in `cat hello.txt`; a word selected, copied and
-//! pasted; a file of links, the pointer over one; a photo and a logo drawn
-//! by `kitten icat`; the plasma logo played by mpv; ssh into a container on
-//! this Mac, its system card there with baud's mark drawn as a picture,
-//! btop, and iTerm2's fireworks asked for by a `printf` typed in full;
-//! `exit`; the trail turned to the saucer by a `sed` and `clear`; and the
+//! into the window key by key. The tour, the film for YouTube, is the
+//! storyline's scenes 6 to 16, each narrated, where it has a line, by a
+//! `#` line typed at the prompt as a shell comment: ssh into a container
+//! on this Mac and its lights; its system card with baud's mark drawn as a
+//! picture; the repository's README in the container's helix, the arrow
+//! keys' plasma trail and its jumps; its Nix link Command-clicked, the
+//! page opened in Chawan on this Mac; baud defined in six languages and a
+//! line of emoji in `cat hello.txt`; a word selected, copied and pasted;
+//! btop; iTerm2's fireworks asked for by a `printf` typed in full; `exit`;
+//! the trail turned to the saucer by a `sed` and `clear`; and the
 //! repository's address. The trailer, take 2, plays the tour from YouTube
 //! in the window with mpv (`session::trailer`). With `--record` the same
 //! run films it: the tour as an MP4 for YouTube, the trailer as the
@@ -78,13 +77,10 @@
 //! at `~/.config/yazi/yazi.toml` (`scratch::YAZI_TOML`), which the
 //! `.zshrc`'s `YAZI_CONFIG_HOME` names, Chawan's at
 //! `~/.config/chawan/config.toml` (`scratch::CHAWAN_TOML`), which its
-//! `CHA_DIR` names, and the shell's working directory, `~/baud`, holding
-//! `hello.txt`, the repository's `README.md` unchanged, `links.txt`
-//! (`assets/demo/links.txt`), `logo.mp4`, the plasma logo's film that
-//! `baud-pictures logo --mp4` makes into the scratch directory,
-//! `ufo-logo.gif`, copied from `session::UFO_LOGO_FROM`, the UFO logo's
-//! GIF for the dark page, and `baud`, a copy of the repository at the
-//! take's commit -- the README and every file it links to
+//! `CHA_DIR` names, `~/bin/demo-open` (`baud-app/examples/demo-open.rs`),
+//! and the shell's working directory, `~/baud`, holding `baud`, a copy of
+//! the repository at the take's commit -- the README and every file it
+//! links to
 //! (`scratch::REPO_COPY`), by `git archive HEAD`; the README at that
 //! commit and `hello.txt` for the container's home, copied in as it starts
 //! (`container::home_files`); and the container's image, streamed by the
@@ -151,11 +147,12 @@
 //! **`--headless DIR`**: the session with no window, the container
 //! running: baud's own test of it (`film::session` in `baud-app/src/`)
 //! starts baud's login shell in the working directory told no `PWD`, as the
-//! window's is, types every step into it through baud's core, reads the
-//! config again when helix saves it, feeds the nine activity lights as the
-//! macOS driver does, and fails unless each lights, the trail is
-//! plasma at `ge` and liquid at `gg` and the second `ge`, and the jump
-//! `gg` lights a liquid; the last frame of every hold, drawn by baud's
+//! window's is, types every step into it through baud's core but the
+//! link's window, which it cannot open, reads the config again when the
+//! finale's `sed` changes it, feeds the nine activity lights as the macOS
+//! driver does, and fails unless each lights, the trail is plasma through
+//! the README's scene, each of its jumps lights a plasma and `clear` the
+//! saucer; the last frame of every hold, drawn by baud's
 //! CPU renderer on the opaque page, goes into DIR as a PNG. Every frame,
 //! 100 a second, goes into DIR as a lossless film, `session.mkv`, and
 //! baud-bench's flash census must

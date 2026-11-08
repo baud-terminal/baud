@@ -352,6 +352,11 @@ impl<'a> Player<'a> {
                         Some(Doing::Holding { until })
                     }
                 }
+                (Step::CmdClick(_), _) => panic!(
+                    "step {}: a Command-click opens a link's window, which a session with \
+                     no window has none of (`windowless` takes it out)",
+                    self.at.0
+                ),
                 (s, d) => panic!(
                     "step {} ({s:?}) in a state it cannot be in: {d:?}",
                     self.at.0
@@ -611,6 +616,34 @@ pub(crate) fn without(steps: &[Step], run: &str) -> Vec<Step> {
     v
 }
 
+/// **`steps` as a session with no window plays them**: each Command-click
+/// taken out with what is done in the window it opens -- the picture
+/// waited for, the wheel turned and the `q` that closes it -- through that
+/// `q` and the hold after it. A link's window is a new baud window running
+/// the program the config names for the link, which a session played
+/// without a window cannot open.
+pub(crate) fn windowless(steps: &[Step]) -> Vec<Step> {
+    let mut v = Vec::with_capacity(steps.len());
+    let mut i = 0;
+    while i < steps.len() {
+        if !matches!(steps[i], Step::CmdClick(_)) {
+            v.push(steps[i]);
+            i += 1;
+            continue;
+        }
+        let close = steps[i..]
+            .iter()
+            .position(|s| *s == Step::Keys("q"))
+            .map(|q| i + q)
+            .expect("a `q` that closes the link's window");
+        i = match steps.get(close + 1) {
+            Some(Step::Hold(_)) => close + 2,
+            _ => close + 1,
+        };
+    }
+    v
+}
+
 /// The scratch directory's `env`, a `KEY=value` a line, as the demo writes
 /// it for this test.
 fn env_of(text: &str) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
@@ -768,29 +801,55 @@ fn without_takes_a_command_out_whole() {
     assert!(ff.contains(&Step::Run("btop")));
 }
 
+/// **A session with no window plays the tour without the link's window**:
+/// the Command-click, the picture, the wheel and Chawan's `q` with its
+/// hold are gone, the hover before them and helix's `:q` after them stay,
+/// and nothing else moves. The control: btop's `q`, which closes no
+/// window of a link, stays. Perturbation: cut through the next `Prompt`
+/// rather than the `q` and helix's `:q` goes with it.
+#[test]
+fn a_windowless_session_skips_the_links_window() {
+    let s = SESSION;
+    let w = windowless(s);
+    let click = s
+        .iter()
+        .position(|t| matches!(t, Step::CmdClick(_)))
+        .unwrap();
+    assert!(w.iter().all(|t| !matches!(t, Step::CmdClick(_))));
+    assert!(w.iter().all(|t| !matches!(t, Step::Wheel { .. })));
+    assert_eq!(w[..click], s[..click], "everything before stays");
+    assert_eq!(
+        w[click..click + 2],
+        [Step::Line(":q"), Step::Prompt],
+        "helix's `:q` follows"
+    );
+    // CmdClick, Picture, Hold, Wheel, Hold, `q` and its hold.
+    assert_eq!(w.len(), s.len() - 7);
+    assert!(w.contains(&Step::Keys("q")), "the control: btop's `q`");
+}
+
 /// **The tour lights every light**, played without a
 /// window by `cargo run --example demo -- --headless DIR`, which makes the
 /// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
-/// runs this: the session's steps (`SESSION`) typed into baud's own login
-/// shell started as baud starts it, with that directory's `env` as baud's
-/// environment, the config where baud finds it with that environment --
-/// read again when helix saves it, as baud reads it -- and its 80x24 grid.
+/// runs this: the session's steps (`SESSION`), the link's window taken out
+/// ([`windowless`]), typed into baud's own login shell started as baud
+/// starts it, with that directory's `env` as baud's environment, the
+/// config where baud finds it with that environment -- read again when the
+/// finale's `sed` changes it, as baud reads it -- and its 80x24 grid.
 /// Each light's first lit moment is printed with the step it came in, and
 /// every one must light, CS from the first turn; when CS first went out,
-/// if it did, is printed too (the module's doc says why it rarely can). The
-/// trail the first `ge` draws must be plasma and the ones `gg` and the
-/// second `ge` draw liquid, after the edit saved between them, and `gg` or
-/// its hold must light a liquid: each ignition the film's trail lit is
-/// printed with its step. Every move of the README's scene, from `:open
-/// README.md` to `:q`, must begin in the liquid trail, and each of its
-/// jumps must light a liquid in its step or the hold after it; Ctrl-d is no
-/// jump, as it moves the page and the cursor together and leaves the cursor
-/// on its row, so its three are only printed. FAX must first light in the
-/// photo's shot, kitten's picture, before fastfetch's.
+/// if it did, is printed too (the module's doc says why it rarely can).
+/// Every move of the README's scene, from `hx README.md` to `:q`, must
+/// begin in the plasma trail, and each jump from `/character` to `gg` must
+/// light a plasma in its step or the hold after it; Ctrl-d is no jump, as
+/// it moves the page and the cursor together and leaves the cursor on its
+/// row, so its three are only printed; each ignition the film's trail lit
+/// is printed with its step. FAX must first light in fastfetch's shot, its
+/// mark.
 ///
 /// `BAUD_SESSION_WITHOUT` takes a command out ([`without`]), for a
-/// perturbation: without `ssh demo` CD stays dark, and without the photo
-/// FAX first lights in fastfetch, and the test fails.
+/// perturbation: without `ssh demo` CD stays dark, and without `fastfetch`
+/// FAX does not light in its shot, and the test fails.
 /// `BAUD_SESSION_POINTS` draws at another size, written into the config
 /// file first, and with `BAUD_SESSION_STILLS` and `BAUD_FILM_FFMPEG` the
 /// last frame of every hold is written there as a PNG, through baud's CPU
@@ -799,7 +858,7 @@ fn without_takes_a_command_out_whole() {
 /// at. With `BAUD_SESSION_FILM` every frame, composed so, goes into that
 /// file, lossless, at `BAUD_SESSION_PERIOD_MS` a frame (40 without it),
 /// and beside it `<file>.shots` names the frames of the trails' shot, the
-/// photo's, the fireworks' and the clear's, for the flash census
+/// card's, the fireworks' and the clear's, for the flash census
 /// (`baud-bench/tests/session_flashes.rs`), and `<file>.steps` each step's
 /// first frame.
 #[test]
@@ -840,8 +899,8 @@ fn the_readme_session_lights_every_light() {
         std::fs::write(&source, &config).expect("the config at the size asked for");
     }
     let steps = match std::env::var("BAUD_SESSION_WITHOUT") {
-        Ok(run) => without(SESSION, &run),
-        Err(_) => SESSION.to_vec(),
+        Ok(run) => without(&windowless(SESSION), &run),
+        Err(_) => windowless(SESSION),
     };
     let period = std::env::var("BAUD_SESSION_PERIOD_MS")
         .map(|v| Duration::from_millis(v.parse().expect("BAUD_SESSION_PERIOD_MS")))
@@ -995,64 +1054,31 @@ fn the_readme_session_lights_every_light() {
         Vec::<String>::new(),
         "the session names this machine"
     );
-    // The trail as each jump began: plasma down to the trail's line, liquid
-    // back up once the edit was saved, and down again. Each is found by its
-    // place from the one before, as the README's scene jumps by the same
-    // keys.
+    // The README's scene, in the container's helix: the trail plasma at
+    // every step of it, nothing changing it before the finale, and each
+    // jump's own plasma, from the search to `gg`, in its step or the hold
+    // after it; Ctrl-d is no jump, as it moves the page and the cursor
+    // together and leaves the cursor on its row.
     let at = |want: Step| steps.iter().position(|s| *s == want);
-    let again = at(Step::Keys("gg")).and_then(|up| {
-        steps[up..]
-            .iter()
-            .position(|s| *s == Step::Keys("ge"))
-            .map(|d| up + d)
-    });
-    if let (Some(down), Some(up)) = (at(Step::Keys("ge")), at(Step::Keys("gg"))) {
-        assert_eq!(
-            trail_as(&take.trails, StepAt(down)),
-            CursorTrail::Plasma,
-            "at `ge`"
-        );
-        assert_eq!(
-            trail_as(&take.trails, StepAt(up)),
-            CursorTrail::Liquid,
-            "at `gg`"
-        );
-        if let Some(again) = again.filter(|&a| a > up) {
-            assert_eq!(
-                trail_as(&take.trails, StepAt(again)),
-                CursorTrail::Liquid,
-                "at the second `ge`"
-            );
-        }
-        // And the jump up lights a liquid: an ignition in `gg` or the hold
-        // after it, which REIGNITE refuses within 334 ms of the last.
-        let jump = |s: &Option<usize>| s.is_some_and(|s| s == up || s == up + 1);
-        assert!(
-            take.ignitions
-                .iter()
-                .any(|(s, t, _)| jump(s) && *t == CursorTrail::Liquid),
-            "no liquid ignition at `gg`"
-        );
-    }
-    // The README's scene, in one helix: every move in the liquid trail as it
-    // began, and each jump's own liquid, in its step or the hold after it.
-    if let (Some(open), Some(quit)) = (at(Step::Line(":open README.md")), at(Step::Line(":q"))) {
+    if let (Some(open), Some(quit)) = (at(Step::Run("hx README.md")), at(Step::Line(":q"))) {
         for i in (open..=quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
             assert_eq!(
                 trail_as(&take.trails, StepAt(i)),
-                CursorTrail::Liquid,
+                CursorTrail::Plasma,
                 "at step {i} {:?}",
                 steps[i]
             );
         }
-        for i in (open..quit).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
+    }
+    if let (Some(search), Some(top)) = (at(Step::Line("/character")), at(Step::Keys("gg"))) {
+        for i in (search..=top).filter(|&i| !matches!(steps[i], Step::Hold(_))) {
             let lit = take.ignitions.iter().any(|(s, t, _)| {
-                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Liquid
+                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma
             });
-            println!("scene:   step {i} {:?}: liquid lit: {lit}", steps[i]);
+            println!("scene:   step {i} {:?}: plasma lit: {lit}", steps[i]);
             assert!(
                 lit || matches!(steps[i], Step::Ctrl(_)),
-                "no liquid ignition at step {i} {:?}",
+                "no plasma ignition at step {i} {:?}",
                 steps[i]
             );
         }
@@ -1063,8 +1089,9 @@ fn the_readme_session_lights_every_light() {
     // not, and helix's holds only whole -- helix sends `CSI 2 SP q` as it
     // draws, and its exit puts the shell's blinking cursor back
     // (`DECSCUSR` 0, and the alternate screen's end). Each hold is the one
-    // after a step's prompt: the launch, `cat`, the photo, fastfetch's
-    // in the container, the fireworks' there, and the clear's at the end.
+    // after a step's prompt: the launch, fastfetch's and `cat`'s in the
+    // container, the fireworks' there, and the clear's and the closing
+    // line's at the end.
     let hold_after = |want: Step| {
         let from = at(want)?;
         steps[from..]
@@ -1080,9 +1107,8 @@ fn the_readme_session_lights_every_light() {
     };
     let prompts = [
         Some(1),
-        hold_after(Step::Run("cat hello.txt")),
-        hold_after(Step::Run(steps::ICAT)),
         hold_after(Step::Run("fastfetch")),
+        hold_after(Step::Run("cat hello.txt")),
         hold_after(Step::Run(steps::FIREWORKS)),
         hold_after(Step::Run("clear")),
         hold_after(Step::Run(steps::CLOSING)),
@@ -1097,10 +1123,7 @@ fn the_readme_session_lights_every_light() {
             drawn(i, false)
         );
     }
-    if let (Some(open), Some(quit)) = (
-        at(Step::Run("hx ~/.config/baud/config.toml")),
-        at(Step::Line(":q")),
-    ) {
+    if let (Some(open), Some(quit)) = (at(Step::Run("hx README.md")), at(Step::Line(":q"))) {
         for i in (open + 1..quit).filter(|&i| matches!(steps[i], Step::Hold(_))) {
             assert_eq!(
                 drawn(i, true),
@@ -1110,19 +1133,17 @@ fn the_readme_session_lights_every_light() {
             );
         }
     }
-    // **Each arrow in the config's helix lights a plasma of its own**, in
-    // its step or the hold after it, the trail plasma then: each hold is
-    // past `REIGNITE`.
-    if let (Some(hx), Some(edit)) = (
-        at(Step::Run("hx ~/.config/baud/config.toml")),
-        at(Step::Keys("cliquid")),
-    ) {
-        for i in (hx..edit).filter(|&i| matches!(steps[i], Step::Arrow(_))) {
-            let lit = take.ignitions.iter().any(|(s, t, _)| {
-                s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma
-            });
-            assert!(lit, "no plasma ignition at step {i} {:?}", steps[i]);
-        }
+    // **The arrows down and the arrows up each light a plasma**: the first
+    // of each, in its step or the next, the trail plasma then; the first up
+    // comes past `REIGNITE` after the first down (`Show::ArrowTrail`).
+    let down = at(Step::Arrow(steps::Arrow::Down));
+    let up = at(Step::Arrow(steps::Arrow::Up));
+    for i in [down, up].into_iter().flatten() {
+        let lit = take
+            .ignitions
+            .iter()
+            .any(|(s, t, _)| s.is_some_and(|s| s == i || s == i + 1) && *t == CursorTrail::Plasma);
+        assert!(lit, "no plasma ignition at step {i} {:?}", steps[i]);
     }
     // **The finale's `sed` turns the trail to the saucer before `clear`**,
     // by baud's reading of the file again, and `clear` lights it.
@@ -1137,13 +1158,14 @@ fn the_readme_session_lights_every_light() {
         });
         assert!(flew, "no saucer at the finale's `clear`");
     }
-    // The photo lights FAX: first in its shot, kitten typed to the hold
-    // after its prompt, before fastfetch's picture.
+    // fastfetch's mark lights FAX: first in its shot, fastfetch typed to
+    // the hold after its prompt. The Nix link's page opens in a window of
+    // its own, which a session with no window does not open.
     let first = take.lit.first(Led::Fax).and_then(|(_, s)| s);
-    let icat = at(Step::Run(steps::ICAT));
+    let card = at(Step::Run("fastfetch"));
     assert!(
-        icat.is_some_and(|icat| first.is_some_and(|StepAt(i)| (icat..=icat + 2).contains(&i))),
-        "FAX first lit in step {first:?}, not in the photo's shot, from step {icat:?}"
+        card.is_some_and(|c| first.is_some_and(|StepAt(i)| (c..=c + 2).contains(&i))),
+        "FAX first lit in step {first:?}, not in fastfetch's shot, from step {card:?}"
     );
     assert_eq!(
         take.lit.dark(),
@@ -1167,28 +1189,22 @@ fn trail_as(
 }
 
 /// **The shots the flash census counts**, by their frames: the trails'
-/// (helix opened to the prompt after it), the pictures' (kitten typed to
-/// mpv), the video's (mpv typed to the `ssh` after it), the fireworks'
-/// (their request typed to the `exit` after it) and the clear's, the
-/// saucer's flight among it (to the end), a `name first last` line each
-/// after the film's `size W H` and `rate R`.
+/// (helix opened to `cat hello.txt`), the card's (fastfetch typed to helix),
+/// the fireworks' (their request typed to the `exit` after it) and the
+/// clear's, the saucer's flight among it (to the end), a `name first last`
+/// line each after the film's `size W H` and `rate R`.
 fn shots(steps: &[Step], frames: &[Option<usize>], (w, h): (u32, u32), period: Duration) -> String {
     let at = |want: Step| steps.iter().position(|s| *s == want);
     let ranges = [
         (
             "trails",
-            at(Step::Run("hx ~/.config/baud/config.toml")),
+            at(Step::Run("hx README.md")),
             at(Step::Run("cat hello.txt")),
         ),
         (
             "pictures",
-            at(Step::Run(steps::ICAT)),
-            at(Step::Run(steps::MPV)),
-        ),
-        (
-            "video",
-            at(Step::Run(steps::MPV)),
-            at(Step::Run("ssh demo")),
+            at(Step::Run("fastfetch")),
+            at(Step::Run("hx README.md")),
         ),
         (
             "fireworks",

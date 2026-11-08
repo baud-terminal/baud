@@ -230,7 +230,8 @@ pub fn keys_for(text: &str) -> Result<Vec<Key>, char> {
 
 /// **Every key a step presses, Return included**, or the first character
 /// no key types. A step that types nothing presses nothing; a peek presses
-/// Command alone, held as long as it says.
+/// Command alone, held as long as it says; a Command-click's Command is
+/// the pointer's to press (`mac::Poster::cmd_click`).
 pub fn presses(step: Step) -> Result<Vec<Key>, char> {
     match step {
         Step::Run(t) | Step::Line(t) => {
@@ -252,6 +253,7 @@ pub fn presses(step: Step) -> Result<Vec<Key>, char> {
         | Step::Picture
         | Step::Wheel { .. }
         | Step::Hover(_)
+        | Step::CmdClick(_)
         | Step::Drag { .. } => Ok(Vec::new()),
     }
 }

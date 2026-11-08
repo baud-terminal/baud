@@ -3,9 +3,9 @@
 //! film `cargo run --example demo -- --headless DIR` makes without a
 //! window, every frame baud's CPU renderer drew at the period it was drawn
 //! at, lossless, and the shots its `.shots` list names -- the trails' (the
-//! plasma trail down baud's config in helix and the liquid trails after
-//! it), the photo's (a picture drawn by kitten), the fireworks' and the
-//! clear's (the liquid trail to the top) -- each counted on its own, at 2
+//! plasma trail through the README in the container's helix), the card's
+//! (fastfetch's mark drawn as a picture), the fireworks' and the clear's
+//! (the saucer's flight to the top) -- each counted on its own, at 2
 //! pixels a point as the window is filmed, with the title strip the session
 //! composes over every frame (`baud-app/src/film/chrome.rs`).
 //!

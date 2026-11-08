@@ -222,11 +222,9 @@ pub type Written = Vec<(String, Vec<u8>)>;
 /// The user's ids in the container, as its `passwd` and `group` give them.
 pub const UID: u32 = 1000;
 
-/// **Where the container's home files go**: the user's home, which
-/// [`home_files`] fills as the session starts.
-pub fn home_dir() -> String {
-    format!("/home/{USER}/")
-}
+/// **Where the container's home files go**: [`USER`]'s home, as `passwd`
+/// gives it, which [`home_files`] fills as the session starts.
+pub const HOME_DIR: &str = "/home/jordan/";
 
 /// **The files the container's home is given as the session starts**, by
 /// name: `readme`, the repository's README at the take's commit, and
@@ -716,14 +714,14 @@ pub fn up(image: &Image, keys: &Keys, given: &[PathBuf], port: u16) -> Result<Ru
         &keys.user_pub,
         "authorized_keys",
         (0o644, 0),
-        &format!("/home/{USER}/.ssh/"),
+        &format!("{HOME_DIR}.ssh/"),
     )?;
     for file in given {
         let name = file
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| format!("{} has no name", file.display()))?;
-        copy_in(&run, tar, file, name, (0o644, UID), &home_dir())?;
+        copy_in(&run, tar, file, name, (0o644, UID), HOME_DIR)?;
     }
     run.docker(&["start", &run.undo.name])?;
     banner(port, &INTERRUPTED)?;
@@ -1149,7 +1147,7 @@ mod tests {
         assert_eq!(home_files(readme)[0].1, readme);
         assert_eq!(home_files(readme)[1].1, crate::session::HELLO.as_bytes());
         assert_eq!(home_files(b"other")[0].1, b"other", "the control");
-        assert_eq!(home_dir(), "/home/jordan/");
+        assert_eq!(HOME_DIR, format!("/home/{USER}/"));
         assert_eq!(
             PASSWD
                 .lines()

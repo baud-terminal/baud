@@ -1,15 +1,13 @@
-//! **The tour and the trailer, as data.** [`SESSION`] is the tour, take 1,
-//! scene by scene: edit it to change what is typed, what is waited for and
-//! how long each screen holds. Each of its seventeen scenes opens with a
-//! [`Step::Scene`] mark and, where the storyline gives the scene a line, the
-//! line typed at the prompt as a shell comment: the narration, which the
-//! shell does nothing with, so it reads with no sound. [`trailer`] is take
-//! 2, built around the tour's address on YouTube, which it refuses to be
-//! built without. [`HELLO`] is the languages file the tour prints.
-//!
-//! **Scene 9's second picture is the UFO logo**, the film `baud-pictures
-//! logo --ufo` makes for the dark page: [`UFO_LOGO_FROM`] names the file
-//! scene 9 draws as [`UFO_LOGO`].
+//! **The tour and the trailer, as data.** [`SESSION`] is the tour, the
+//! film for YouTube, scene by scene: edit it to change what is typed, what
+//! is waited for and how long each screen holds. Its scenes are the
+//! storyline's 6 to 16, the README film's 1 to 5 being a session of their
+//! own; each opens with a [`Step::Scene`] mark and, where the storyline
+//! gives the scene a line, the line typed at the prompt as a shell comment:
+//! the narration, which the shell does nothing with, so it reads with no
+//! sound. [`trailer`] is take 2, built around the tour's address on
+//! YouTube, which it refuses to be built without. [`HELLO`] is the
+//! languages file the tour prints, in the container.
 
 use std::time::Duration;
 
@@ -32,6 +30,10 @@ pub enum Step {
     Line(&'static str),
     /// Press Escape: the key, which baud encodes as the program on screen
     /// asked (`Term::key`), not an ESC typed as text.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no scene of the tour presses Escape")
+    )]
     Escape,
     /// Press Control and this letter's key, encoded the same way: a program
     /// that pushed kitty's keyboard flags, as helix does, hears the key
@@ -43,12 +45,8 @@ pub enum Step {
     Hold(u32),
     /// Turn the wheel at the centre of baud's window: `turns` events of
     /// `lines` lines each, [`WHEEL_GAP_MS`] apart. Positive shows earlier
-    /// lines, so it scrolls up into the history. No scene of the tour
-    /// turns it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no scene of the tour turns the wheel")
-    )]
+    /// lines, so it scrolls up into the history; negative scrolls a page
+    /// down.
     Wheel { turns: i32, lines: i32 },
     /// Rest the pointer on the middle of a cell of the grid, and leave it
     /// there.
@@ -66,7 +64,12 @@ pub enum Step {
     Paste,
     /// Hold Command down this many milliseconds, the pointer where it
     /// rests: over a link, the window's bar shows where it goes.
+    #[cfg_attr(not(test), expect(dead_code, reason = "no scene of the tour peeks"))]
     Peek(u32),
+    /// A left click with Command held, in the middle of a cell: a link's
+    /// open, which a program that tracks the mouse, as helix does, cannot
+    /// take for its own as it would a plain click.
+    CmdClick(Cell),
     /// Wait for the program on screen to show its first picture: a kitty
     /// graphics command, `ESC _ G`, in what it printed since the last
     /// typing began.
@@ -87,97 +90,65 @@ pub struct Cell {
     pub col: u16,
 }
 
-#[cfg(test)]
-use Step::Wheel;
 use Step::{
-    Arrow as Move, Ctrl, Drag, Escape, Hold, Hover, Keys, Line, Paste, Peek, Picture, Prompt, Run,
-    Scene,
+    Arrow as Move, CmdClick, Ctrl, Drag, Escape, Hold, Hover, Keys, Line, Paste, Peek, Picture,
+    Prompt, Run, Scene, Wheel,
 };
 
-/// **The tour's opening line**, scene 2's, and the trailer's.
+/// **The README film's opening line**, its scene 2's, and the trailer's.
 pub const OPENING: &str = "# are you ready for this?";
 
-/// **Where scene 7 copies from**: the word `copy` of its own line,
-/// `# copy. paste.`, typed at row 12 after the prompt's nine columns,
-/// `~/baud ❯ ` (`PROMPT_SHOWN`). Row 12 because the screen fills from the
-/// top with nothing scrolled: the launch's prompt and scene 2's line on
-/// row 0, scene 3's line on 1, helix's command on 2, scene 6's line on 3,
-/// `cat hello.txt` on 4 and its seven lines on 5 to 11. The words of a
-/// prompt after a long command, starship's duration, change only that
-/// prompt's row, 3.
-pub const COPY_FROM: Cell = Cell { row: 12, col: 11 };
-pub const COPY_TO: Cell = Cell { row: 12, col: 14 };
+/// **Where scene 11 copies from**: the word `copy` of its own line,
+/// `# copy. paste.`, typed at the container's prompt, `~ ❯ `
+/// ([`REMOTE_PROMPT`], four columns), so the word is columns 6 to 9. The
+/// row is the one the line lands on after fastfetch's card and helix, read
+/// off a take: **row 12 is a placeholder** until one is filmed.
+pub const COPY_FROM: Cell = Cell { row: 12, col: 6 };
+pub const COPY_TO: Cell = Cell { row: 12, col: 9 };
 pub const COPIED: &str = "copy";
 
-/// **Where scene 8's pointer rests**: inside the web address, the first
-/// line of `links.txt`, which `cat links.txt` prints on row 16 -- scene 7's
-/// paste on 13, scene 8's line on 14 and its command on 15.
-pub const LINK_AT: Cell = Cell { row: 16, col: 12 };
+/// **Where scene 9's click lands**: inside `https://nixos.org` on the
+/// README's line 29 (`[Nix](https://nixos.org)`), as helix shows it after
+/// `/Nix`, read off a take: **row 12, column 40 is a placeholder** until
+/// one is filmed.
+pub const NIX_AT: Cell = Cell { row: 12, col: 40 };
 
-/// **Where the pointer goes once scene 8 is over**: the grid's last cell,
-/// where it lies over no link of what the later scenes print.
-pub const AWAY: Cell = Cell { row: 23, col: 79 };
-
-/// **The tour**, take 1, the storyline's seventeen scenes in their order:
-/// about 60 s of holds and typing before what it waits for.
+/// **The tour**, the film for YouTube: the storyline's scenes 6 to 16 in
+/// their order, from ssh into the container to the closing line. It opens
+/// on the launch's prompt, which the first [`Prompt`] counts, so the first
+/// line typed is not typed before the shell is up.
 pub const SESSION: &[Step] = &[
-    // 1. The launch: the splash carried off, then the prompt; the nine
-    // lights in the title bar.
-    Scene(1),
+    // 6. ssh into a container on this machine: OH as ssh starts, CD once
+    // its connection is up, RD and SD with the data (`container.rs`); its
+    // shell marks each prompt as baud's does.
+    Scene(6),
     Prompt,
     Hold(600),
-    // 2. The opening line.
-    Scene(2),
-    Run(OPENING),
+    Run("# now dial out. watch the lights."),
     Prompt,
-    Hold(600),
-    // 3. baud's config in helix, `[images] advertise_sixel = true` among
-    // it, which scene 9's plain `kitten icat` needs. The arrows move the
-    // cursor line by line, each move past the 334 ms after the last lit a
-    // plasma, inside which a move lights nothing new (`REIGNITE` in
-    // `trail.rs`), so each leaves a plasma of its own; then `ge` to the
-    // last line, the trail's.
-    Scene(3),
-    Run("# baud's own config. watch the cursor."),
+    Run("ssh demo"),
     Prompt,
-    Run("hx ~/.config/baud/config.toml"),
-    Hold(500),
+    Hold(1500),
+    // 7. Its system card, baud's mark beside it as a picture.
+    Scene(7),
+    Run("fastfetch"),
+    Prompt,
+    Hold(1400),
+    // 8. baud's README in the container's helix, the take's commit's
+    // (`container::home_files`): the arrows' plasma trail, the word the
+    // tagline turns on, three half pages down, its end and its top.
+    Scene(8),
+    Run("# watch the cursor."),
+    Prompt,
+    Run("hx README.md"),
+    Hold(900),
     Move(Arrow::Down),
-    Hold(400),
     Move(Arrow::Down),
-    Hold(400),
     Move(Arrow::Down),
-    Hold(400),
     Move(Arrow::Down),
-    Hold(400),
+    Hold(300),
     Move(Arrow::Up),
-    Hold(400),
     Move(Arrow::Up),
-    Hold(400),
-    Keys("ge"),
-    Hold(600),
-    // 4. The word changed to liquid and saved, and the liquid trails up
-    // and down again, by baud's live reload of the file it reads. The hold
-    // after `:w` is past `REIGNITE` after the cursor's return from the
-    // command line lit the last plasma.
-    Scene(4),
-    Line("/plasma"),
-    Keys("cliquid"),
-    Escape,
-    Line(":w"),
-    Hold(400),
-    Keys("gg"),
-    Hold(600),
-    Keys("ge"),
-    Hold(500),
-    // 5. The repository's README in the same helix, in the liquid trail:
-    // the word the README's tagline turns on, three half pages down, its
-    // end and its top. Each hold is past `REIGNITE`, so a jump after it
-    // lights a liquid of its own. `:open` replaces the buffer in helix's
-    // one view, so `:q` closes that view with both buffers clean, and
-    // helix ends: `quit` and `should_close` in helix 25.07.1's source.
-    Scene(5),
-    Line(":open README.md"),
     Hold(450),
     Line("/character"),
     Hold(700),
@@ -191,20 +162,37 @@ pub const SESSION: &[Step] = &[
     Hold(450),
     Keys("gg"),
     Hold(400),
+    // 9. The Nix link Command-clicked in helix: nixos.org in Chawan on this
+    // Mac, a short scroll, Chawan's `q`, then helix closes.
+    Scene(9),
+    Line("/Nix"),
+    Hold(600),
+    Hover(NIX_AT),
+    Hold(400),
+    CmdClick(NIX_AT),
+    Picture,
+    Hold(1500),
+    Wheel {
+        turns: -1,
+        lines: 3,
+    },
+    Hold(1200),
+    Keys("q"),
+    Hold(400),
     Line(":q"),
     Prompt,
-    Hold(150),
-    // 6. Six languages and a line of emoji in the grid.
-    Scene(6),
+    Hold(300),
+    // 10. Six languages and a line of emoji in the grid.
+    Scene(10),
     Run("# every language. right to left too."),
     Prompt,
     Run("cat hello.txt"),
     Prompt,
     Hold(1100),
-    // 7. A word of the scene's own line selected, copied -- the copy's
+    // 11. A word of the scene's own line selected, copied -- the copy's
     // words in their box -- and pasted at the prompt after a `#`, so the
     // shell takes the pasted line as one more comment.
-    Scene(7),
+    Scene(11),
     Run("# copy. paste."),
     Prompt,
     Hold(300),
@@ -221,76 +209,30 @@ pub const SESSION: &[Step] = &[
     Line(""),
     Prompt,
     Hold(300),
-    // 8. A web address and a file's, each underlined at rest; the pointer
-    // over the first draws its box, and Command held shows where it goes
-    // in the bar. Nothing is opened.
-    Scene(8),
-    Run("# links and files you can click"),
-    Prompt,
-    Run("cat links.txt"),
-    Prompt,
-    Hold(600),
-    Hover(LINK_AT),
-    Hold(1000),
-    Peek(1500),
-    Hover(AWAY),
-    Hold(300),
-    // 9. The photo, then the logo flying in the grid, each drawn by kitten
-    // in kitty's graphics protocol, FAX lit while one is placed.
-    Scene(9),
-    Run("# pictures"),
-    Prompt,
-    Run(ICAT),
-    Prompt,
-    Hold(1200),
-    Run(UFO_LOGO_ICAT),
-    Prompt,
-    Hold(2500),
-    // 10. The plasma logo as video, played by mpv in kitty's protocol.
-    Scene(10),
-    Run("# and video"),
-    Prompt,
-    Run(MPV),
-    Prompt,
-    Hold(400),
-    // 11. ssh into a container on this machine: OH as ssh starts, CD once
-    // its connection is up, RD and SD with the data (`container.rs`); its
-    // shell marks each prompt as baud's does.
-    Scene(11),
-    Run("# now dial out. watch the lights."),
-    Prompt,
-    Run("ssh demo"),
-    Prompt,
-    Hold(1500),
-    // 12. Its system card, baud's mark beside it as a picture.
+    // 12. btop, its cpu box alone, drawn every 100 ms, sliding in and out.
     Scene(12),
-    Run("fastfetch"),
-    Prompt,
-    Hold(1400),
-    // 13. btop, its cpu box alone, drawn every 100 ms, sliding in and out.
-    Scene(13),
     Run("btop"),
     Hold(1200),
     Keys("q"),
     Prompt,
     Hold(150),
-    // 14. iTerm2's fireworks, asked for over the wire, the request typed
+    // 13. iTerm2's fireworks, asked for over the wire, the request typed
     // out.
-    Scene(14),
+    Scene(13),
     Run("# one more thing"),
     Prompt,
     Run(FIREWORKS),
     Prompt,
     Hold(1100),
-    // 15. Home: the badge cleared, CD dark.
-    Scene(15),
+    // 14. Home: the badge cleared, CD dark.
+    Scene(14),
     Run("exit"),
     Prompt,
     Hold(600),
-    // 16. The trail changed to the saucer by one `sed` and baud's live
-    // reload, then the cursor sent to the top, and the saucer flies it
-    // there.
-    Scene(16),
+    // 15. The trail, plasma until here, changed to the saucer by one `sed`
+    // and baud's live reload, then the cursor sent to the top, and the
+    // saucer flies it there.
+    Scene(15),
     Run("# the finale"),
     Prompt,
     Run(SED_UFO),
@@ -299,47 +241,20 @@ pub const SESSION: &[Step] = &[
     Run("clear"),
     Prompt,
     Hold(1500),
-    // 17. The end, held.
-    Scene(17),
+    // 16. The end, held.
+    Scene(16),
     Run(CLOSING),
     Prompt,
     Hold(2000),
 ];
 
-/// **The tour's last line**, scene 17's.
+/// **The tour's last line**, scene 16's.
 pub const CLOSING: &str = "# that's baud. github.com/baud-terminal/baud";
 
-/// **The photo's command**: kitten draws `canazei.jpg`, the pinned photo
-/// (`assets/demo/photo.toml`) at its width there, centred below the
-/// command, and moves the cursor to the line after it, where the next
-/// prompt comes. Typed plain: the tour's config says baud draws Sixel,
-/// `[images] advertise_sixel = true`, shown in scene 3, without which
-/// kitten's detection waits its ten seconds for baud's default answer and
-/// gives up. No `--place`: kitten's help says its trailing new line has no
-/// effect with it, and an earlier take moved the cursor below the photo
-/// itself, which a typed session cannot do unseen.
-pub const ICAT: &str = "kitten icat canazei.jpg";
-
-/// **The UFO logo as scene 9 draws it**: the file in the working directory
-/// and kitten's command for it.
-pub const UFO_LOGO: &str = "ufo-logo.gif";
-pub const UFO_LOGO_ICAT: &str = "kitten icat ufo-logo.gif";
-
-/// **The repository's file [`UFO_LOGO`] is copied from**, from the
-/// repository's root: the UFO logo's GIF for the dark page.
-pub const UFO_LOGO_FROM: &str = "assets/demo/ufo-logo-dark.gif";
-
-/// **Scene 10's command**: mpv plays `logo.mp4`, the plasma logo's film
-/// for the dark page, which `baud-pictures logo --mp4` makes into the tour's
-/// own directory. Its output and its quiet are the scratch home's mpv
-/// config's, not typed.
-pub const MPV: &str = "mpv logo.mp4";
-pub const LOGO_MP4: &str = "logo.mp4";
-
 /// **The finale's edit**: macOS's own `sed`, in place with no backup,
-/// turning the trail's one word to `ufo`, which baud reads again as it
-/// changes.
-pub const SED_UFO: &str = "sed -i '' s/liquid/ufo/ ~/.config/baud/config.toml";
+/// turning the trail's one word, `plasma`, to `ufo`, which baud reads again
+/// as it changes.
+pub const SED_UFO: &str = "sed -i '' s/plasma/ufo/ ~/.config/baud/config.toml";
 
 /// **The fireworks' request**, typed at the container's shell in full:
 /// `OSC 1337 ; RequestAttention=fireworks BEL`, iTerm2's, which the
@@ -350,8 +265,9 @@ pub const FIREWORKS: &str = "printf '\\e]1337;RequestAttention=fireworks\\a'";
 /// themselves by [`shows`], not declared beside them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Show {
-    /// A file of links printed, the pointer over one and Command held.
-    Links,
+    /// A link followed: the pointer rested on a cell, then a Command-click
+    /// on the same cell, and the picture of what it opened waited for.
+    LinkClick,
     /// The lights: ssh out, the connection held, and home again.
     Lights,
     /// The README opened in helix and jumped through: Ctrl-d, `ge`, `gg`.
@@ -360,14 +276,15 @@ pub enum Show {
     Fastfetch,
     /// A drag, Command-C and Command-V, in that order.
     CopyPaste,
-    /// The arrow keys moving helix's cursor while the trail is plasma,
-    /// each held past `REIGNITE`.
+    /// The arrow keys moving helix's cursor down and then up while the
+    /// trail is plasma, the first up past `REIGNITE` after the first down,
+    /// so each lights a plasma of its own.
     ArrowTrail,
 }
 
 impl Show {
     pub const ALL: [Show; 6] = [
-        Show::Links,
+        Show::LinkClick,
         Show::Lights,
         Show::ReadmeJumps,
         Show::Fastfetch,
@@ -391,18 +308,15 @@ pub fn shows(steps: &[Step]) -> Vec<Show> {
             .map(|i| from + i)
     };
     let mut out = Vec::new();
-    if let Some(cat) = at(Run("cat links.txt")) {
-        let next = after(cat + 1, Prompt).and_then(|p| {
-            steps[p..]
-                .iter()
-                .position(|s| matches!(s, Run(_)))
-                .map(|i| p + i)
+    let click = steps.iter().position(|s| matches!(s, CmdClick(_)));
+    if let Some(c) = click {
+        let rested = steps[..c].iter().rev().find_map(|s| match s {
+            Hover(cell) => Some(*cell),
+            _ => None,
         });
-        let scene = &steps[cat..next.unwrap_or(steps.len())];
-        let hover = scene.iter().position(|s| matches!(s, Hover(_)));
-        let peek = scene.iter().position(|s| matches!(s, Peek(_)));
-        if matches!((hover, peek), (Some(h), Some(p)) if h < p) {
-            out.push(Show::Links);
+        let same = matches!((rested, steps[c]), (Some(h), CmdClick(k)) if h == k);
+        if same && steps.get(c + 1) == Some(&Picture) {
+            out.push(Show::LinkClick);
         }
     }
     let ssh = at(Run("ssh demo"));
@@ -412,7 +326,8 @@ pub fn shows(steps: &[Step]) -> Vec<Show> {
             out.push(Show::Lights);
         }
     }
-    if let Some(open) = at(Line(":open README.md")) {
+    let hx = at(Run("hx README.md"));
+    if let Some(open) = hx {
         let quit = after(open, Line(":q")).unwrap_or(steps.len());
         let inside = &steps[open..quit];
         if [Ctrl('d'), Keys("ge"), Keys("gg")]
@@ -436,21 +351,14 @@ pub fn shows(steps: &[Step]) -> Vec<Show> {
             out.push(Show::CopyPaste);
         }
     }
-    if let (Some(hx), Some(edit)) = (
-        at(Run("hx ~/.config/baud/config.toml")),
-        at(Keys("cliquid")),
-    ) {
-        let arrows: Vec<usize> = (hx..edit)
-            .filter(|&i| matches!(steps[i], Move(_)))
-            .collect();
-        let held = arrows
-            .iter()
-            .all(|&i| matches!(steps.get(i + 1), Some(Hold(ms)) if *ms > REIGNITE_MS));
-        let both = [Arrow::Up, Arrow::Down]
-            .iter()
-            .all(|a| arrows.iter().any(|&i| steps[i] == Move(*a)));
-        if both && held {
-            out.push(Show::ArrowTrail);
+    if let (Some(hx), Some(search)) = (hx, at(Line("/character"))) {
+        let down = (hx..search).find(|&i| steps[i] == Move(Arrow::Down));
+        let up = (hx..search).find(|&i| steps[i] == Move(Arrow::Up));
+        if let (Some(d), Some(u)) = (down, up) {
+            let apart = duration(&steps[d..u]).as_millis();
+            if d < u && apart > u128::from(REIGNITE_MS) {
+                out.push(Show::ArrowTrail);
+            }
         }
     }
     out
@@ -837,7 +745,7 @@ pub fn duration(steps: &[Step]) -> Duration {
             Step::Wheel { turns, .. } => {
                 (WHEEL_SETTLE_MS + u64::from(turns.unsigned_abs()) * WHEEL_GAP_MS) as f64
             }
-            Hover(_) => WHEEL_SETTLE_MS as f64,
+            Hover(_) | CmdClick(_) => WHEEL_SETTLE_MS as f64,
             Step::Drag { .. } => (2 * DRAG_PAUSE_MS + u64::from(DRAG_MOVES) * DRAG_GAP_MS) as f64,
         })
         .sum();
@@ -863,6 +771,7 @@ pub fn describe(step: Step, prompt: usize) -> String {
             if turns > 0 { "up" } else { "down" }
         ),
         Hover(c) => format!("rest the pointer on row {}, column {}", c.row, c.col),
+        CmdClick(c) => format!("Command-click row {}, column {}", c.row, c.col),
         Drag { from, to } => format!(
             "drag from row {}, column {} to row {}, column {}",
             from.row, from.col, to.row, to.col
@@ -879,8 +788,8 @@ pub fn describe(step: Step, prompt: usize) -> String {
 /// as typing begins, `key Escape`, `key Ctrl-d`, `key Down`, `key Command-C`
 /// and `key Command-V` as each is pressed, `hold N ms` as a hold begins,
 /// `peek N ms` as Command goes down, `picture` once one is shown, `wheel T
-/// x L` once the wheel has turned, `hover R,C` and `drag R,C to R,C` once
-/// the pointer has done it, by row and column.
+/// x L` once the wheel has turned, `hover R,C`, `command-click R,C` and
+/// `drag R,C to R,C` once the pointer has done it, by row and column.
 pub fn event(step: Step, prompt: usize) -> String {
     match step {
         Scene(n) => format!("scene {n}"),
@@ -896,6 +805,7 @@ pub fn event(step: Step, prompt: usize) -> String {
         Picture => "picture".to_string(),
         Step::Wheel { turns, lines } => format!("wheel {turns} x {lines}"),
         Hover(c) => format!("hover {},{}", c.row, c.col),
+        CmdClick(c) => format!("command-click {},{}", c.row, c.col),
         Drag { from, to } => {
             format!("drag {},{} to {},{}", from.row, from.col, to.row, to.col)
         }
@@ -943,104 +853,83 @@ mod tests {
     /// **The storyline's tour, scene by scene**: each scene's number, the
     /// `#` line the storyline gives it or none, and what the scene types.
     #[allow(clippy::type_complexity)]
-    const STORYLINE: [(u8, Option<&str>, &[Step]); 17] = [
-        (1, None, &[Prompt]),
-        (2, Some("# are you ready for this?"), &[]),
+    const STORYLINE: [(u8, Option<&str>, &[Step]); 11] = [
         (
-            3,
-            Some("# baud's own config. watch the cursor."),
+            6,
+            Some("# now dial out. watch the lights."),
+            &[Prompt, Run("ssh demo")],
+        ),
+        (7, None, &[Run("fastfetch")]),
+        (
+            8,
+            Some("# watch the cursor."),
             &[
-                Run("hx ~/.config/baud/config.toml"),
+                Run("hx README.md"),
                 Move(Arrow::Down),
                 Move(Arrow::Up),
-                Keys("ge"),
-            ],
-        ),
-        (
-            4,
-            None,
-            &[
-                Line("/plasma"),
-                Keys("cliquid"),
-                Escape,
-                Line(":w"),
-                Keys("gg"),
-                Keys("ge"),
-            ],
-        ),
-        (
-            5,
-            None,
-            &[
-                Line(":open README.md"),
                 Line("/character"),
                 Ctrl('d'),
                 Keys("ge"),
                 Keys("gg"),
+            ],
+        ),
+        (
+            9,
+            None,
+            &[
+                Line("/Nix"),
+                Hover(NIX_AT),
+                CmdClick(NIX_AT),
+                Picture,
+                Wheel {
+                    turns: -1,
+                    lines: 3,
+                },
+                Keys("q"),
                 Line(":q"),
             ],
         ),
         (
-            6,
+            10,
             Some("# every language. right to left too."),
             &[Run("cat hello.txt")],
         ),
-        (7, Some("# copy. paste."), &[Step::Copy("copy"), Paste]),
+        (11, Some("# copy. paste."), &[Step::Copy("copy"), Paste]),
+        (12, None, &[Run("btop"), Keys("q")]),
+        (13, Some("# one more thing"), &[Run(FIREWORKS)]),
+        (14, None, &[Run("exit")]),
         (
-            8,
-            Some("# links and files you can click"),
-            &[Run("cat links.txt"), Hover(LINK_AT)],
-        ),
-        (
-            9,
-            Some("# pictures"),
-            &[
-                Run("kitten icat canazei.jpg"),
-                Run("kitten icat ufo-logo.gif"),
-            ],
-        ),
-        (10, Some("# and video"), &[Run("mpv logo.mp4")]),
-        (
-            11,
-            Some("# now dial out. watch the lights."),
-            &[Run("ssh demo")],
-        ),
-        (12, None, &[Run("fastfetch")]),
-        (13, None, &[Run("btop")]),
-        (14, Some("# one more thing"), &[Run(FIREWORKS)]),
-        (15, None, &[Run("exit")]),
-        (
-            16,
+            15,
             Some("# the finale"),
             &[
-                Run("sed -i '' s/liquid/ufo/ ~/.config/baud/config.toml"),
+                Run("sed -i '' s/plasma/ufo/ ~/.config/baud/config.toml"),
                 Run("clear"),
             ],
         ),
         (
-            17,
+            16,
             Some("# that's baud. github.com/baud-terminal/baud"),
             &[Hold(2000)],
         ),
     ];
 
-    /// **The tour is the storyline's seventeen scenes, in order, each with
-    /// its `#` line**: the marks number 1 to 17, each scene's first command
+    /// **The tour is the storyline's scenes 6 to 16, in order, each with
+    /// its `#` line**: the marks number 6 to 16, each scene's first command
     /// is its line where the storyline gives one and no comment where it
     /// gives none, each line is typed at a prompt and waited past, and each
-    /// scene types what the storyline says it does, inside it. The control:
-    /// a list with two scenes swapped is refused. Perturbation: swap scenes
-    /// 9 and 10 in `SESSION` and the numbers' order fails; drop scene 16's
-    /// line and its narration fails.
+    /// scene types what the storyline says it does, inside it. It opens on
+    /// the launch's prompt. The control: a list with two scenes swapped is
+    /// refused. Perturbation: swap scenes 9 and 10 in `SESSION` and the
+    /// numbers' order fails; drop scene 15's line and its narration fails.
     #[test]
-    fn the_tour_is_the_storylines_seventeen_scenes_in_order() {
+    fn the_tour_is_the_storylines_scenes_six_to_sixteen_in_order() {
         let got = scenes(SESSION);
         let numbers: Vec<u8> = got.iter().map(|s| s.0).collect();
-        assert_eq!(numbers, (1..=17).collect::<Vec<u8>>(), "the scenes' order");
+        assert_eq!(numbers, (6..=16).collect::<Vec<u8>>(), "the scenes' order");
         assert_eq!(
-            SESSION.first(),
-            Some(&Scene(1)),
-            "the tour opens on scene 1"
+            SESSION[..3],
+            [Scene(6), Prompt, Hold(600)],
+            "the tour opens on the launch's prompt"
         );
         for ((n, says, range), (want_n, want_says, types)) in got.iter().zip(STORYLINE) {
             assert_eq!(*n, want_n);
@@ -1058,18 +947,9 @@ mod tests {
                 assert!(inside.contains(step), "scene {n} has no {step:?}");
             }
         }
-        assert_eq!(
-            got[0].1, None,
-            "the launch types nothing before its first prompt"
-        );
-        let opening = SESSION.iter().find_map(|s| match s {
-            Run(t) => Some(*t),
-            _ => None,
-        });
-        assert_eq!(opening, Some(OPENING), "the first line typed");
         // The control: the same check refuses a tour with two scenes swapped.
         let mut swapped = SESSION.to_vec();
-        let (nine, ten) = (got[8].2.clone(), got[9].2.clone());
+        let (nine, ten) = (got[3].2.clone(), got[4].2.clone());
         let (a, b) = (
             SESSION[nine.clone()].to_vec(),
             SESSION[ten.clone()].to_vec(),
@@ -1077,16 +957,17 @@ mod tests {
         swapped.splice(ten, a);
         swapped.splice(nine, b);
         let order: Vec<u8> = scenes(&swapped).iter().map(|s| s.0).collect();
-        assert_ne!(order, (1..=17).collect::<Vec<u8>>(), "the control");
+        assert_ne!(order, (6..=16).collect::<Vec<u8>>(), "the control");
     }
 
-    /// **Everything the storyline must show is on screen**: links, the
-    /// lights, the README's jumps, fastfetch, copy and paste, and the arrow
-    /// keys' plasma trail, each found in the tour's steps by [`shows`]. The
-    /// controls: the tour without its drag shows no copy and paste, and
-    /// with its arrows' holds cut under `REIGNITE` no arrow trail.
-    /// Perturbation: delete the `Drag` from `SESSION` and the first
-    /// assertion fails.
+    /// **Everything the storyline must show is on screen**: a link
+    /// clicked, the lights, the README's jumps, fastfetch, copy and paste,
+    /// and the arrow keys' plasma trail, each found in the tour's steps by
+    /// [`shows`]. The controls: the tour without its drag shows no copy and
+    /// paste; with its first up arrow moved next to the first down, inside
+    /// `REIGNITE`, no arrow trail; and with the click on another cell than
+    /// the pointer rested on, no link. Perturbation: delete the `Drag` from
+    /// `SESSION` and the first assertion fails.
     #[test]
     fn every_must_show_item_is_in_some_step() {
         assert_eq!(shows(SESSION), Show::ALL, "what the tour shows");
@@ -1096,16 +977,28 @@ mod tests {
             .filter(|s| !matches!(s, Drag { .. }))
             .collect();
         assert!(!shows(&no_drag).contains(&Show::CopyPaste), "the control");
-        let mut quick = SESSION.to_vec();
-        let first = quick.iter().position(|s| matches!(s, Move(_))).unwrap();
-        quick[first + 1] = Hold(REIGNITE_MS);
-        assert!(!shows(&quick).contains(&Show::ArrowTrail), "the control");
-        let no_peek: Vec<Step> = SESSION
+        let quick: Vec<Step> = SESSION
             .iter()
             .copied()
-            .filter(|s| !matches!(s, Peek(_)))
+            .map(|s| match s {
+                Hold(300) => Move(Arrow::Up),
+                Move(Arrow::Up) => Hold(300),
+                s => s,
+            })
             .collect();
-        assert!(!shows(&no_peek).contains(&Show::Links), "the control");
+        assert!(!shows(&quick).contains(&Show::ArrowTrail), "the control");
+        let elsewhere: Vec<Step> = SESSION
+            .iter()
+            .copied()
+            .map(|s| match s {
+                CmdClick(c) => CmdClick(Cell {
+                    row: c.row + 1,
+                    col: c.col,
+                }),
+                s => s,
+            })
+            .collect();
+        assert!(!shows(&elsewhere).contains(&Show::LinkClick), "the control");
     }
 
     /// **The trailer is refused without the tour's address and its
@@ -1205,17 +1098,17 @@ mod tests {
         assert!(pictured(&more, log.len()));
     }
 
-    /// **The tour waits for 26 prompts**: the launch, one after each of
-    /// its 24 commands -- helix's after its `:q`, btop's after its `q` --
-    /// the five typed in the container among them, whose shell marks its
-    /// prompts as baud's does, and one after scene 7's pasted line.
+    /// **The tour waits for 18 prompts**: the launch, one after each of
+    /// its 16 lines -- helix's after its `:q`, btop's after its `q` -- the
+    /// ones typed in the container among them, whose shell marks its
+    /// prompts as baud's does, and one after scene 11's pasted line.
     /// Perturbation: drop the `Prompt` after `cat hello.txt` and the count
-    /// is 25.
+    /// is 17.
     #[test]
     fn the_session_waits_for_a_prompt_after_every_command() {
-        assert_eq!(prompts(SESSION), 26);
+        assert_eq!(prompts(SESSION), 18);
         let runs = SESSION.iter().filter(|s| matches!(s, Run(_))).count();
-        assert_eq!(runs, 24, "19 at baud's shell, five in the container");
+        assert_eq!(runs, 16);
         let at = SESSION.iter().position(|s| *s == Run("ssh demo")).unwrap();
         assert_eq!(
             &SESSION[at..at + 3],
@@ -1233,14 +1126,10 @@ mod tests {
         assert_eq!(
             commands,
             [
-                "hx ~/.config/baud/config.toml",
-                "cat hello.txt",
-                "cat links.txt",
-                ICAT,
-                UFO_LOGO_ICAT,
-                MPV,
                 "ssh demo",
                 "fastfetch",
+                "hx README.md",
+                "cat hello.txt",
                 "btop",
                 FIREWORKS,
                 "exit",
@@ -1248,94 +1137,94 @@ mod tests {
                 "clear"
             ]
         );
-        assert_eq!(
-            &SESSION[..2],
-            [Scene(1), Prompt],
-            "the launch's prompt first"
-        );
         assert_eq!(SESSION.last(), Some(&Hold(2000)), "the last line held 2 s");
     }
 
-    /// **The trail is changed by one visible edit, saved before the jump
-    /// that shows it**: `ge` to the config's last line, `/plasma` selects
-    /// the word, `c` replaces it with `liquid`, Escape leaves insert mode
-    /// and `:w` saves, and only then `gg`. The hold after `:w` is past
-    /// baud's reload and past the 334 ms after the cursor's return from
-    /// helix's command line lit its last plasma, inside which a liquid only
-    /// restarts the gel and lights nothing new (`REIGNITE` in `trail.rs`),
-    /// so `gg` lights a liquid of its own; at 150 ms, in the take that typed
-    /// fire, the headless session drew none there. The
-    /// control: the steps in that order, with the save before the jump
-    /// back. Perturbation: put `gg` before `:w` and the save's place fails.
+    /// **The finale turns the plasma trail to the saucer**: the config's
+    /// trail is `plasma` (the config's own test says it is the word's one
+    /// line), and nothing in the tour types over it before the finale's
+    /// `sed`, which turns that word to `ufo` before `clear`, typed at
+    /// baud's own shell after `exit`. Perturbation: put `liquid` back in
+    /// `SED_UFO` and its assertion fails.
     #[test]
-    fn the_trail_is_changed_by_one_saved_edit() {
-        let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
-        let edit = at(Line("/plasma"));
+    fn the_finale_turns_the_plasma_trail_to_the_saucer() {
         assert_eq!(
-            &SESSION[edit - 3..edit + 6],
-            [
-                Keys("ge"),
-                Hold(600),
-                Scene(4),
-                Line("/plasma"),
-                Keys("cliquid"),
-                Escape,
-                Line(":w"),
-                Hold(400),
-                Keys("gg"),
-            ]
+            SED_UFO,
+            "sed -i '' s/plasma/ufo/ ~/.config/baud/config.toml"
         );
-        assert!(at(Line(":w")) < at(Keys("gg")));
-        assert!(matches!(SESSION[at(Line(":w")) + 1], Hold(ms) if ms > 334));
+        let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
+        assert!(at(Run("exit")) < at(Run(SED_UFO)));
+        assert!(at(Run(SED_UFO)) < at(Run("clear")));
+        assert!(
+            SESSION
+                .iter()
+                .all(|s| !matches!(s, Keys(k) if k.contains("plasma"))),
+            "nothing types over the trail before the finale"
+        );
         assert_eq!(FIREWORKS, "printf '\\e]1337;RequestAttention=fireworks\\a'");
     }
 
-    /// **The README's scene follows the save, in the requested order, in
-    /// one helix**: the second `ge` on the config, `:open README.md`,
-    /// `/character`, Ctrl-d three times, `ge`, `gg` and `:q`, then the
-    /// shell's prompt, and every hold past the 334 ms inside which a liquid
-    /// lights nothing new. The control: the save comes before it, and no
-    /// `Run` falls inside it, so it is one program. Perturbation: swap `ge`
-    /// and `gg` and the slice fails; a 300 ms hold fails the holds' check.
+    /// **The README's scene is one helix, in the requested order**: `hx
+    /// README.md`, the arrows down four and up two, `/character`, Ctrl-d
+    /// three times, `ge`, `gg`, then the Nix link's `/Nix`, its click,
+    /// Chawan's `q` and `:q`, then the shell's prompt; and every hold after
+    /// a jump is past the 334 ms inside which a plasma lights nothing new.
+    /// The control: no `Run` falls inside it, so it is one program.
+    /// Perturbation: swap `ge` and `gg` and the slice fails; a 300 ms hold
+    /// after a jump fails the holds' check.
     #[test]
-    fn the_readme_scene_follows_the_save_in_its_order() {
+    fn the_readme_scene_is_one_helix_in_its_order() {
         let at = |step: Step| SESSION.iter().position(|s| *s == step).unwrap();
-        let open = at(Line(":open README.md"));
+        let open = at(Run("hx README.md"));
         let quit = at(Line(":q"));
         let moves: Vec<Step> = SESSION[open..=quit + 1]
             .iter()
             .copied()
-            .filter(|s| !matches!(s, Hold(_)))
+            .filter(|s| !matches!(s, Hold(_) | Scene(_)))
             .collect();
         assert_eq!(
             moves,
             [
-                Line(":open README.md"),
+                Run("hx README.md"),
+                Move(Arrow::Down),
+                Move(Arrow::Down),
+                Move(Arrow::Down),
+                Move(Arrow::Down),
+                Move(Arrow::Up),
+                Move(Arrow::Up),
                 Line("/character"),
                 Ctrl('d'),
                 Ctrl('d'),
                 Ctrl('d'),
                 Keys("ge"),
                 Keys("gg"),
+                Line("/Nix"),
+                Hover(NIX_AT),
+                CmdClick(NIX_AT),
+                Picture,
+                Wheel {
+                    turns: -1,
+                    lines: 3
+                },
+                Keys("q"),
                 Line(":q"),
                 Prompt,
             ]
         );
-        assert!(at(Line(":w")) < open, "after the save");
-        assert_eq!(SESSION[open - 3..open], [Keys("ge"), Hold(500), Scene(5)]);
-        for s in &SESSION[open..quit] {
+        let search = at(Line("/character"));
+        for (i, s) in SESSION[search..at(Line("/Nix"))].iter().enumerate() {
             if let Hold(ms) = s {
-                assert!(*ms > 334, "{s:?} is inside REIGNITE");
+                assert!(
+                    *ms > REIGNITE_MS,
+                    "step {} {s:?} is inside REIGNITE",
+                    search + i
+                );
             }
         }
         assert!(
-            SESSION[open..quit].iter().all(|s| !matches!(s, Run(_))),
+            SESSION[open + 1..quit].iter().all(|s| !matches!(s, Run(_))),
             "one helix"
         );
-        // Every move of the scene is followed by a hold, so a trail shows.
-        for pair in SESSION[open..quit].chunks(2) {
-            assert!(matches!(pair[1], Hold(_)), "{pair:?}");
-        }
     }
 
     /// **The README the film opens holds the scene**: `character` is found
@@ -1395,47 +1284,39 @@ mod tests {
         assert_eq!(key_event(Keys("d")), None);
     }
 
-    /// **The photo and the logo are drawn at baud's shell after scene 9's
-    /// line**, each command typed plain -- kitten and the file's bare
-    /// name, no path and no transfer mode, as the config's `advertise_sixel`
-    /// lets kitten's detection through -- and each held past its prompt;
-    /// the logo's command names the file the UFO logo is copied to. The
-    /// control: the step before is the line's prompt. Perturbation: put
-    /// `--transfer-mode=stream` back in and the command's check fails.
+    /// **The Nix link is followed by a Command-click where the pointer
+    /// rests, and the picture of the page waited for**: the hover and the
+    /// click on [`NIX_AT`], the click a step of its own that presses no key
+    /// here -- the player holds Command over the click -- logged as
+    /// `command-click R,C` and planned as a hover's settle. The control: a
+    /// hover presses nothing either. Perturbation: give `CmdClick` no line
+    /// of its own and the event's check fails.
     #[test]
-    fn the_pictures_are_drawn_plain_after_their_line() {
-        let at = SESSION.iter().position(|s| *s == Run(ICAT)).unwrap();
+    fn the_nix_link_is_command_clicked_where_the_pointer_rests() {
+        let at = SESSION.iter().position(|s| *s == CmdClick(NIX_AT)).unwrap();
         assert_eq!(
-            &SESSION[at - 2..at + 6],
-            [
-                Run("# pictures"),
-                Prompt,
-                Run(ICAT),
-                Prompt,
-                Hold(1200),
-                Run(UFO_LOGO_ICAT),
-                Prompt,
-                Hold(2500)
-            ]
+            SESSION[at - 2..at + 2],
+            [Hover(NIX_AT), Hold(400), CmdClick(NIX_AT), Picture]
         );
-        assert_eq!(ICAT, "kitten icat canazei.jpg");
-        assert_eq!(UFO_LOGO_ICAT, format!("kitten icat {UFO_LOGO}"));
-        assert!(
-            UFO_LOGO_FROM.ends_with(".gif"),
-            "a GIF, as kitten plays one"
+        let c = CmdClick(Cell { row: 3, col: 7 });
+        assert_eq!(event(c, 0), "command-click 3,7");
+        assert!(describe(c, 0).contains("Command-click row 3, column 7"));
+        assert_eq!(key_event(c), None);
+        assert_eq!(
+            key_event(Hover(Cell { row: 3, col: 7 })),
+            None,
+            "the control"
         );
-        for c in [ICAT, UFO_LOGO_ICAT, MPV] {
-            assert!(!c.contains('/'), "no path on screen: {c}");
-        }
-        assert_eq!(MPV, format!("mpv {LOGO_MP4}"));
+        let d = duration(&[c]).as_secs_f64();
+        assert!((d - WHEEL_SETTLE_MS as f64 / 1000.0).abs() < 1e-9, "{d}");
     }
 
     /// **The plan's duration is its holds, its keys and its wheel**: 1.5 s
     /// of holds, `ab` with its Return at 40 ms a key (0.12 s), `q` (0.04 s),
     /// `:q` and Return (0.12 s), and two wheels of 4 turns, each 30 ms
-    /// then 4 x 50 ms (0.46 s): 2.24 s. The whole tour is about 56.5 s
-    /// before its waits -- each program's start, mpv's ten-second film --
-    /// which bring it to the storyline's 60 to 75 s. Perturbation: count a
+    /// then 4 x 50 ms (0.46 s): 2.24 s. The whole tour is about 40 s
+    /// before its waits -- each program's start, the page Chawan loads.
+    /// Perturbation: count a
     /// wheel's turns signed and the second wheel takes nothing off, which
     /// the total catches.
     /// **A hover and a drag take their time and say what they did**, and a
@@ -1484,8 +1365,8 @@ mod tests {
         assert!((d - 2.24).abs() < 1e-9, "{d}");
         let whole = duration(SESSION).as_secs_f64();
         assert!(
-            (54.0..60.0).contains(&whole),
-            "the tour is about 56.5 s before its waits: {whole}"
+            (37.0..43.0).contains(&whole),
+            "the tour is about 40 s before its waits: {whole}"
         );
         let esc = duration(&[Escape]).as_secs_f64();
         assert!((esc - 0.04).abs() < 1e-9, "Escape is one key: {esc}");
@@ -1545,7 +1426,7 @@ mod tests {
         assert_eq!(event(Step::Copy("x"), 0), "key Command-C");
         assert_eq!(event(Peek(1500), 0), "peek 1500 ms");
         assert_eq!(describe(Ctrl('d'), 0), "press Ctrl-d");
-        assert_eq!(lines[..2], ["scene 1", "prompt 1"]);
+        assert_eq!(lines[..2], ["scene 6", "prompt 1"]);
         assert_eq!(lines.last().map(String::as_str), Some("hold 2000 ms"));
     }
 

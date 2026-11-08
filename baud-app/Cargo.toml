@@ -121,6 +121,13 @@ path = "src/main.rs"
 name = "demo"
 test = true
 
+# **The tour's opener for a clicked path** (`baud-app/examples/demo-open.rs`):
+# a GIF to `kitten icat --hold`, the rest to helix, by `exec`, no shell.
+# Its tests run with the package's.
+[[example]]
+name = "demo-open"
+test = true
+
 # **The event rig** (`tests/event_rig.rs`): every effect baud asks of the
 # OS runs in a turn of its own, checked in a child `baud` built with the
 # test-only `effect-probe` feature, so the test is built only with it.

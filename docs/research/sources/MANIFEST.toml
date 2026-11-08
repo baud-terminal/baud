@@ -39673,5 +39673,5 @@ group  = "FM"
 # Read 2026-11-08: the search path is "1. config file specified through -C
 # switch", "2. `$CHA_DIR` is set -> use `$CHA_DIR/config.toml`", "3.
 # `${XDG_CONFIG_HOME:-~/.config}/chawan/config.toml` exists -> use that";
-# `buffer.images` defaults to false, and `display.image-mode` "kitty" "uses
-# the Kitty image display protocol".
+# `buffer.images` defaults to false, and `display.image-mode` "auto" (the default)
+# "detects sixel or kitty support automatically".
