@@ -97,6 +97,23 @@ fn doc_and_code_files() -> Vec<PathBuf> {
     out
 }
 
+/// **`line` with its code spans taken out**: each run of text between a
+/// backtick and the next on the line. A backtick left unpaired keeps the
+/// rest of the line, so a span the line does not close hides nothing.
+fn outside_code_spans(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(open) = rest.find('\x60') {
+        let Some(close) = rest[open + 1..].find('\x60') else {
+            break;
+        };
+        out.push_str(&rest[..open]);
+        rest = &rest[open + 1 + close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn rel(p: &Path) -> String {
     p.strip_prefix(root())
         .unwrap_or(p)
@@ -120,7 +137,9 @@ fn every_relative_link_resolves() {
         };
         let dir = f.parent().unwrap().to_path_buf();
         // A fenced code block holds code, not links: a starship format's
-        // `[text]($style)` is not one.
+        // `[text]($style)` is not one. Nor does a code span on a line, which
+        // renders its brackets as they are written: a quoted README's
+        // "See `[LICENSE](LICENSE)`" is its text, not a link of this file's.
         let mut fenced = false;
         let prose: String = src
             .lines()
@@ -132,7 +151,7 @@ fn every_relative_link_resolves() {
                 }
                 !fenced
             })
-            .map(|l| format!("{l}\n"))
+            .map(|l| format!("{}\n", outside_code_spans(l)))
             .collect();
         // `](target)` — markdown inline links.
         let mut rest = prose.as_str();

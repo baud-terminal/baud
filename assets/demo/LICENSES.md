@@ -274,7 +274,7 @@ description carries the pack's credit. No audio is in the repository.
   (`[[source: mechvibes-license-v3-5-6]]`). Read 2026-11-08. The commit's git
   tree, listed whole through the GitHub API, has no licence file under
   `soundpacks/`, and the README's License section says "MIT License. See
-  [LICENSE](LICENSE) for details."
+  `[LICENSE](LICENSE)` for details."
 - **What it says:** "MIT License", then "Copyright (c) 2026 Hải Nguyễn", then
   "Permission is hereby granted, free of charge, to any person obtaining a
   copy of this software and associated documentation files (the
