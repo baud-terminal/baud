@@ -21,7 +21,8 @@
 //! commit before, so its red came from a perturbation: `link::later`
 //! made to hand over inline, under which it aborted the same way. That
 //! perturbation is now a standing control,
-//! the control row in [`SITES`].
+//! the two control rows in [`SITES`], one made in the callback and one in
+//! the frame.
 //!
 //! **Under load**, once: every row at 100 iterations while the gate's
 //! whole-workspace release build ran beside it, the 1-minute load
@@ -107,14 +108,16 @@ enum Rule {
     Copy,
 }
 
-/// Whether the frame is driven, and whether the hand-over is made inline
-/// in the callback that asked: the control, which puts a reveal back
-/// inside a responder call, where the crash had it.
+/// Whether the frame is driven, and whether the hand-over is made inline:
+/// the controls, which put a reveal back inside a responder call.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Ticks {
     Driven,
     None,
+    /// Inline, in the callback that asked: the click's answer, on `wake`.
     DrivenInline,
+    /// Parked, and made by the next `frame`: the crash's own shape.
+    DrivenInFrame,
 }
 
 /// What the row expects: the effect, exactly once an iteration, in a turn
@@ -175,7 +178,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 5] = [
+const SITES: [Site; 6] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -212,6 +215,18 @@ const SITES: [Site; 5] = [
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInline),
         expect: Expect::Effect(EffectKind::Reveal),
         state: RowState::Control(Failure::InCallback(EffectKind::Reveal, Nested::Never)),
+    },
+    // **The frame's control: the crash's own shape.** `link::later` parks
+    // the hand-over and baud's `frame` makes it, as the reveal was made in
+    // `frame` before it had a turn: the reveal runs inside the frame with
+    // the responder held, and its nested `wake:` is held until `frame`
+    // returns (macos-liquid-glass 1.0.0-beta.9). On beta.8 this was the
+    // abort.
+    Site {
+        name: SiteName("a printed path's reveal, made inside the frame"),
+        cause: Cause::PrintedPath(Rule::Reveal, Ticks::DrivenInFrame),
+        expect: Expect::Effect(EffectKind::Reveal),
+        state: RowState::Control(Failure::InFrame(EffectKind::Reveal, Nested::Never)),
     },
 ];
 
@@ -257,6 +272,7 @@ fn run(site: &Site, slug: &str) -> Observed {
                 Ticks::Driven => "tick",
                 Ticks::None => "no-tick",
                 Ticks::DrivenInline => "tick-inline",
+                Ticks::DrivenInFrame => "tick-in-frame",
             },
         ])
         .env_clear()

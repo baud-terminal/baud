@@ -12764,6 +12764,10 @@ impl Responder for Driver {
 
     fn frame(&mut self, target: f64) {
         let (began, start) = (host_now(), Instant::now());
+        // The event rig's frame control: what the probe parked runs here,
+        // inside the frame, as the reveal did before it had a turn.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::run_parked();
         self.expire_predictions();
         // The vsync this tick's work is due at, announced before anything
         // this tick presents so a surface set from here on is bounded by it.

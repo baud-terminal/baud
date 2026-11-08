@@ -152,12 +152,17 @@ impl Wakes {
     }
 }
 
-/// Whether `link::later` hands over inline: the rig's control, which
-/// puts the effect back inside the callback that asked.
+/// Whether `link::later` hands over inline: the rig's controls, which put
+/// the effect back where it was before the fix.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Inline {
+    /// On a main-queue turn of its own, as shipped.
     No,
-    Yes,
+    /// Inside the callback that asked: the click's answer, on `wake`.
+    InCallback,
+    /// Parked, and run by the next `frame` (`run_parked`): the crash's own
+    /// shape, the reveal made inside the frame.
+    InFrame,
 }
 
 /// The bound on the nested call: reaching it is a failure, never a wait.
@@ -169,6 +174,21 @@ thread_local! {
     static WAKER: Cell<Option<Waker>> = const { Cell::new(None) };
     static LOG: RefCell<Vec<Record>> = const { RefCell::new(Vec::new()) };
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
+    static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Hold `run` for the next frame ([`Inline::InFrame`]).
+pub fn park(run: Box<dyn FnOnce()>) {
+    PARKED.with_borrow_mut(|p| p.push(run));
+}
+
+/// Run what [`park`] held: called by the Driver's `frame`, under the probe
+/// only. Taken first, so an effect that parks another leaves it a frame.
+pub fn run_parked() {
+    let parked = PARKED.with_borrow_mut(core::mem::take);
+    for run in parked {
+        run();
+    }
 }
 
 /// Set whether `link::later` hands over inline.

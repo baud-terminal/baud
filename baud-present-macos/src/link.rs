@@ -148,12 +148,20 @@ pub fn later(
         let opened = hand(ask, url.as_str());
         done(opened, url);
     };
-    // The event rig's control: the hand-over made inline, as the reveal
-    // was before this function, so the rig sees an effect inside a frame.
+    // The event rig's controls: the hand-over made inline, in the callback
+    // that asked or in the next frame, where the reveal was before this
+    // function, so the rig sees an effect made there.
     #[cfg(feature = "effect-probe")]
-    if crate::probe::inline() == crate::probe::Inline::Yes {
-        run();
-        return Ok(());
+    match crate::probe::inline() {
+        crate::probe::Inline::No => {}
+        crate::probe::Inline::InCallback => {
+            run();
+            return Ok(());
+        }
+        crate::probe::Inline::InFrame => {
+            crate::probe::park(Box::new(run));
+            return Ok(());
+        }
     }
     dispatch2::DispatchQueue::main().exec_async(move || {
         crate::unwind::guard(SITE, (), run);

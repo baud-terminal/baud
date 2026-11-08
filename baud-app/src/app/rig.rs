@@ -59,9 +59,14 @@ pub(crate) fn asked() -> Option<std::process::ExitCode> {
     let ticks = match ticks.as_str() {
         "tick" => Ticks::Driven,
         "no-tick" => Ticks::None,
-        // The control: the hand-over made inline, in the callback.
+        // The controls: the hand-over made inline, in the callback, or in
+        // the next frame.
         "tick-inline" => {
-            probe::set_inline(probe::Inline::Yes);
+            probe::set_inline(probe::Inline::InCallback);
+            Ticks::Driven
+        }
+        "tick-in-frame" => {
+            probe::set_inline(probe::Inline::InFrame);
             Ticks::Driven
         }
         _ => return Some(std::process::ExitCode::from(2)),
