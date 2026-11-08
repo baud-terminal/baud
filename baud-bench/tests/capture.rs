@@ -20,19 +20,23 @@ mod exec;
 const TOOL: &str = "CAPTURE_TEST_TOOL";
 const ARGS: &str = "CAPTURE_TEST_ARGS";
 const LIBTEST_HEADER: &str = "\nrunning 1 test\n";
-#[cfg(target_os = "macos")]
 const LEAVES: &str = "CAPTURE_TEST_LEAVES";
 
 /// Not a check: this test binary run as a `SHELL` that hangs its terminal
 /// up and goes on running, the session's leader by `exec`. It ignores the
-/// hangup's `SIGHUP`, hangs the terminal up and sleeps 20 s. Unset, it does
-/// nothing.
-#[cfg(target_os = "macos")]
+/// hangup's `SIGHUP`, writes its pid to `$HOME/leaves.pid`, hangs the
+/// terminal up and sleeps 20 s. Unset, it does nothing.
 #[test]
 fn as_a_shell_that_leaves_its_terminal() {
     if std::env::var_os(LEAVES).is_none() {
         return;
     }
+    let home = std::env::var_os("HOME").expect("the tool gives the shell a HOME");
+    fs::write(
+        Path::new(&home).join("leaves.pid"),
+        std::process::id().to_string(),
+    )
+    .expect("the pid");
     // SAFETY: `SIG_IGN` for a signal this process may ignore.
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
@@ -62,6 +66,15 @@ fn hang_up_the_terminal() {
         revoke(path)
     };
     assert_eq!(got, 0, "revoke: {}", std::io::Error::last_os_error());
+}
+
+/// Linux's `TIOCNOTTY` from a session's leader gives the terminal up, and
+/// the descriptors the shell holds stay on it.
+#[cfg(not(target_os = "macos"))]
+fn hang_up_the_terminal() {
+    // SAFETY: `TIOCNOTTY` takes no argument.
+    let got = unsafe { libc::ioctl(0, libc::TIOCNOTTY) };
+    assert_eq!(got, 0, "TIOCNOTTY: {}", std::io::Error::last_os_error());
 }
 
 /// Not a check: this test binary run as a tool, because the tools are
@@ -1834,8 +1847,9 @@ fn a_shell_start_with_no_home_fails_before_the_exit_it_sends() {
 /// bound the tool waits out the sleep and calls it an exit. Darwin's alone:
 /// on Linux a read fails only once `readable` has seen the shell exit and
 /// let the slave go, so no shell still running reaches the wait, and one
-/// that hung its terminal up there is read until it ends, as this one was,
-/// 20 s and an exit of 0.
+/// that hung its terminal up there is read until it ends or the
+/// recording's seconds are up, then sent `exit` and killed after 2 s, as
+/// the next test holds.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_shell_that_leaves_its_terminal_is_killed_within_the_bound() {
@@ -1870,6 +1884,47 @@ fn a_shell_that_leaves_its_terminal_is_killed_within_the_bound() {
     );
     assert!(took < Duration::from_secs(15), "{took:?}");
     assert!(!Path::new(&out).exists());
+}
+
+/// **On Linux a shell that hangs its terminal up and goes on running is
+/// recorded for the seconds asked, then sent `exit` and killed after 2 s**:
+/// `TIOCNOTTY` leaves the shell's descriptors on the terminal, so no read
+/// fails, and the read loop stops at the recording's 1 s. The tool ends on
+/// its ordinary path, exit 0 with the file written, well before the
+/// helper's 20 s, and the helper is reaped, its pid gone.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_shell_that_hangs_its_terminal_up_is_recorded_for_the_seconds_asked() {
+    let s = Scratch::new("start-hung");
+    let shell = s.at("shell");
+    let me = std::env::current_exe().expect("this test binary");
+    exec::script(
+        Path::new(&shell),
+        &format!(
+            "#!/bin/sh\nexec '{}' --exact as_a_shell_that_leaves_its_terminal --test-threads=1\n",
+            me.display()
+        ),
+    );
+    let out = s.at("start.bin");
+    let started = Instant::now();
+    let r = tool_in(
+        "record-shell-start",
+        &words(&[&out, "1"]),
+        &[
+            ("SHELL", &shell),
+            ("HOME", s.0.to_str().unwrap()),
+            (LEAVES, "1"),
+        ],
+    );
+    let took = started.elapsed();
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    assert!(Path::new(&out).exists(), "the recording");
+    assert!(took < Duration::from_secs(6), "{took:?}");
+    let pid = fs::read_to_string(s.at("leaves.pid")).expect("the helper ran");
+    assert!(
+        !Path::new(&format!("/proc/{}", pid.trim())).exists(),
+        "the helper, pid {pid}, is reaped"
+    );
 }
 
 /// `os.execve` looks along no `PATH`: a `SHELL` with no directory is a name in
