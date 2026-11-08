@@ -160,7 +160,7 @@ mod lights;
 mod mark;
 // The title strip's accessories and the grid's top, windowed and in full
 // screen.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "effect-probe")))]
 mod full_screen_check;
 #[cfg(target_os = "macos")]
 mod strip;

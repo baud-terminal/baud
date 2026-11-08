@@ -346,6 +346,7 @@ pub(crate) struct Mark {
 impl Mark {
     /// The view of the leading accessory, the build's name's, and the
     /// lockup's with no plate (`full_screen_check.rs` reads it).
+    #[cfg_attr(feature = "effect-probe", allow(dead_code))]
     pub(crate) fn accessory_view(&self) -> Retained<NSView> {
         self.accessory.view.clone()
     }

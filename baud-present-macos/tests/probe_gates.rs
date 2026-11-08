@@ -51,6 +51,9 @@ const GATED: &[(&str, &str)] = &[
     ("src/notify.rs", ".dockTile()"),
     ("src/notify.rs", ".requestUserAttention("),
     ("src/notify.rs", ".cancelUserAttentionRequest("),
+    // The README filming run's full-screen check, whose arming is the
+    // only way to its `toggleFullScreen:`.
+    ("../baud-app/src/app.rs", "full_screen_check::arm("),
 ];
 
 /// The gate, its spaces taken out.

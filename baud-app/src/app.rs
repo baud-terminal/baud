@@ -13812,6 +13812,9 @@ impl Opening {
         // **The filming run's reading of full screen at rest**
         // (`full_screen_check.rs`): armed by its variable alone, which the
         // demo's `--record` sets and nothing else does, in the first window.
+        // Never in the effect probe's build, where an inherited variable
+        // would put the window in full screen for real.
+        #[cfg(not(feature = "effect-probe"))]
         if let Some(dir) = std::env::var_os(crate::full_screen_check::ENV)
             .filter(|_| crate::full_screen_check::step().is_none())
         {

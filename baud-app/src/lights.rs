@@ -396,6 +396,7 @@ impl Strip {
 
     /// The view of the accessory they are in, none until the window is
     /// shown (`full_screen_check.rs` reads it).
+    #[cfg_attr(feature = "effect-probe", allow(dead_code))]
     pub(crate) fn holder_view(
         &self,
     ) -> Option<Retained<macos_liquid_glass::objc2_app_kit::NSView>> {
