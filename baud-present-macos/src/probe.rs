@@ -85,10 +85,21 @@ pub enum EffectKind {
     Activate,
     /// The application's Dock icon set (`window::set_icon`).
     Icon,
+    /// A window restored from the Dock (`window::deminiaturize`).
+    Deminiaturize,
+    /// A window put in the Dock (`window::miniaturize`).
+    Miniaturize,
+    /// A window put behind the others (`window::order_back`).
+    Back,
+    /// A window into full screen or out of it
+    /// (`window::toggle_full_screen`).
+    FullScreen,
+    /// A window's frame set (`window::set_frame`).
+    Frame,
 }
 
 /// Each kind's word in a [`Record::line`], one table both ways.
-const KINDS: [(EffectKind, &str); 18] = [
+const KINDS: [(EffectKind, &str); 23] = [
     (EffectKind::Open, "open"),
     (EffectKind::Reveal, "reveal"),
     (EffectKind::Command, "command"),
@@ -107,6 +118,11 @@ const KINDS: [(EffectKind, &str); 18] = [
     (EffectKind::KeyFront, "key-front"),
     (EffectKind::Activate, "activate"),
     (EffectKind::Icon, "icon"),
+    (EffectKind::Deminiaturize, "deminiaturize"),
+    (EffectKind::Miniaturize, "miniaturize"),
+    (EffectKind::Back, "back"),
+    (EffectKind::FullScreen, "full-screen"),
+    (EffectKind::Frame, "frame"),
 ];
 
 impl EffectKind {
@@ -506,6 +522,11 @@ mod tests {
                 EffectKind::KeyFront => Place(15),
                 EffectKind::Activate => Place(16),
                 EffectKind::Icon => Place(17),
+                EffectKind::Deminiaturize => Place(18),
+                EffectKind::Miniaturize => Place(19),
+                EffectKind::Back => Place(20),
+                EffectKind::FullScreen => Place(21),
+                EffectKind::Frame => Place(22),
             }
         }
         for (i, (k, w)) in KINDS.iter().enumerate() {

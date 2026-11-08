@@ -8,7 +8,8 @@
 //! of any other shape exits 2 -- makes the window and never
 //! orders it in, under the prohibited activation policy, so there is no
 //! Dock icon and nothing takes focus; after every iteration the window is
-//! checked never shown and never key. Each iteration does the row's act,
+//! checked never shown, never key, never minimised and never in full
+//! screen. Each iteration does the row's act,
 //! taken on the view's `wake`:
 //! - `path`: clicks `arg` as a printed path, and the paths worker's real
 //!   thread checks the file and wakes the view with its answer;
@@ -338,13 +339,23 @@ fn run(
             println!("{}", r.line());
         }
         // Nothing reaches the screen: the window is never shown, never
-        // key, after every iteration.
-        if window.ns_window().isVisible() {
+        // key, never in the Dock and never in full screen, after every
+        // iteration -- the last two what a program's `CSI t` asks.
+        let w = window.ns_window();
+        if w.isVisible() {
             println!("the window was shown");
             failed = true;
         }
-        if window.ns_window().isKeyWindow() {
+        if w.isKeyWindow() {
             println!("the window was made key");
+            failed = true;
+        }
+        if w.isMiniaturized() {
+            println!("the window was minimised");
+            failed = true;
+        }
+        if w.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            println!("the window was put in full screen");
             failed = true;
         }
     }

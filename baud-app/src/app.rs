@@ -10701,14 +10701,15 @@ mod motion_tests {
             concat!(".ring_", "bell(volume)"),
             "bell::beep(",
             "Ask::Once)",
-            "window::order_front(",
         ] {
             assert_eq!(code.matches(call).count(), 1, "{call}");
         }
         // The bell's raise and `CSI 5 t`'s, the window operation's: the
-        // same call, which takes no focus; the bell's through baud's
-        // window module, whose body the effect probe replaces.
-        assert_eq!(code.matches("orderFrontRegardless(").count(), 1);
+        // same call, which takes no focus, each through baud's window
+        // module, whose body the effect probe replaces; AppKit's is named
+        // only there.
+        assert_eq!(code.matches("window::order_front(").count(), 2);
+        assert_eq!(code.matches("orderFrontRegardless(").count(), 0);
         // The beep is baud-present-macos's, which alone names AppKit's.
         assert_eq!(code.matches("NSBeep").count(), 0, "not called here");
 
@@ -20097,10 +20098,15 @@ mod tests {
     }
 
     /// **Every window operation's AppKit call runs on the main queue, after
-    /// the callback that asked.** No test opens a window, so the source is
-    /// held: `window_requests` hands every call but the redraw to
-    /// `window_later`, and each of the six calls is made inside its
-    /// main-queue block and nowhere else in the driver.
+    /// the callback that asked, and is the effect probe's under its
+    /// feature.** No test opens a window, so the source is held:
+    /// `window_requests` hands every call but the redraw to `window_later`,
+    /// each of the six is made inside its main-queue block through
+    /// baud-present-macos's `window` module and nowhere else in the driver,
+    /// and the driver names none of AppKit's six itself.
+    ///
+    /// Perturbation: a block that calls `w.miniaturize(None)` directly
+    /// fails here, as it would make the call under the probe.
     #[test]
     fn the_window_operations_run_after_the_callback_that_asked() {
         // The file less every test module, whose strings name the calls.
@@ -20123,19 +20129,27 @@ mod tests {
             .1;
         // Spelled apart, so the bell's count of its raise does not find
         // this test's.
-        for call in [
-            "w.deminiaturize(None)",
-            "w.miniaturize(None)",
-            concat!("w.orderFront", "Regardless()"),
-            "w.orderBack(None)",
-            "w.toggleFullScreen(None)",
-            "w.setFrame_display(",
+        for (call, appkit) in [
+            ("window::deminiaturize(w)", ".deminiaturize("),
+            ("window::miniaturize(w)", ".miniaturize("),
+            (
+                concat!("window::order_", "front(w)"),
+                concat!(".orderFront", "Regardless("),
+            ),
+            ("window::order_back(w)", ".orderBack("),
+            ("window::toggle_full_screen(w)", ".toggleFullScreen("),
+            ("window::set_frame(", ".setFrame_display("),
         ] {
             assert!(block.contains(call), "{call} in the block");
             let name = call.split_once('(').expect("a call").0;
-            let name = name.trim_start_matches("w.");
-            let elsewhere = code.matches(&format!(".{name}(")).count();
+            let elsewhere = code.matches(&format!("{name}(")).count();
+            let elsewhere = match name {
+                // The bell's raise is the other.
+                "window::order_front" => elsewhere - 1,
+                _ => elsewhere,
+            };
             assert_eq!(elsewhere, 1, "{name} called outside the block");
+            assert_eq!(code.matches(appkit).count(), 0, "{appkit} made here");
         }
         let request = code
             .split_once(concat!(
@@ -20817,9 +20831,12 @@ fn widen_later(window: &NSWindow, width: CGFloat) {
 /// "without changing either the key window or the main window" (`[[source:
 /// apple-nswindow-orderback]]`), `toggleFullScreen:` (`[[source:
 /// apple-nswindow-togglefullscreen]]`), and `setFrame:display:` (`[[source:
-/// apple-nswindow-setframe]]`) for a move, a resize and a maximise.
+/// apple-nswindow-setframe]]`) for a move, a resize and a maximise. Each
+/// is baud-present-macos's `window` module's, which the effect probe
+/// records in place of the call.
 fn window_later(window: &NSWindow, action: crate::winops::MacAction) {
     use crate::winops::MacAction;
+    use baud_present_macos::window;
     let w = dispatch2::MainThreadBound::new(window.retain(), window.mtm());
     dispatch2::DispatchQueue::main().exec_async(move || {
         let Some(mtm) = MainThreadMarker::new() else {
@@ -20827,14 +20844,14 @@ fn window_later(window: &NSWindow, action: crate::winops::MacAction) {
         };
         let w = w.get(mtm);
         match action {
-            MacAction::Deminiaturize => w.deminiaturize(None),
-            MacAction::Miniaturize => w.miniaturize(None),
-            MacAction::Front => w.orderFrontRegardless(),
-            MacAction::Back => w.orderBack(None),
-            MacAction::ToggleFullScreen => w.toggleFullScreen(None),
-            MacAction::Frame(f, _) => w.setFrame_display(
+            MacAction::Deminiaturize => window::deminiaturize(w),
+            MacAction::Miniaturize => window::miniaturize(w),
+            MacAction::Front => window::order_front(w),
+            MacAction::Back => window::order_back(w),
+            MacAction::ToggleFullScreen => window::toggle_full_screen(w),
+            MacAction::Frame(f, _) => window::set_frame(
+                w,
                 NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.w, f.h)),
-                true,
             ),
             MacAction::Redraw | MacAction::Nothing(_) => {}
         }

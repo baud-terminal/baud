@@ -48,15 +48,19 @@ use std::sync::{Arc, Mutex};
 
 use block2::{Block, RcBlock};
 use macos_liquid_glass::objc2::rc::Retained;
-use macos_liquid_glass::objc2::runtime::{AnyClass, AnyObject, Bool, NSObject, NSObjectProtocol};
+#[cfg(not(feature = "effect-probe"))]
+use macos_liquid_glass::objc2::runtime::Bool;
+use macos_liquid_glass::objc2::runtime::{AnyClass, AnyObject, NSObject, NSObjectProtocol};
 use macos_liquid_glass::objc2::{
     AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, extern_protocol,
     msg_send,
 };
 use macos_liquid_glass::objc2_app_kit::{NSApplication, NSBezierPath, NSColor, NSView};
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
+#[cfg(not(feature = "effect-probe"))]
+use macos_liquid_glass::objc2_foundation::NSSet;
 use macos_liquid_glass::objc2_foundation::{
-    NSArray, NSBundle, NSError, NSPoint, NSRect, NSSet, NSSize, NSString, NSURL,
+    NSArray, NSBundle, NSError, NSPoint, NSRect, NSSize, NSString, NSURL,
 };
 
 #[link(name = "UserNotifications", kind = "framework")]
@@ -82,6 +86,7 @@ extern_protocol!(
 const PRESENT: usize = (1 << 4) | (1 << 3) | (1 << 1);
 /// `UNAuthorizationOptionSound | UNAuthorizationOptionAlert`: no badge,
 /// which baud never sets.
+#[cfg(not(feature = "effect-probe"))]
 const AUTHORIZE: usize = (1 << 1) | (1 << 2);
 /// The identifier a click on the notification itself carries,
 /// `UNNotificationDefaultActionIdentifier`.
@@ -284,6 +289,9 @@ pub struct Center {
     delivered: Arc<Mutex<Option<Vec<String>>>>,
     asked: Cell<Permission>,
     waiting: RefCell<Vec<Post>>,
+    /// Every category registered, read only by what the probe configures
+    /// out.
+    #[cfg_attr(feature = "effect-probe", allow(dead_code))]
     categories: RefCell<Vec<(String, Retained<AnyObject>)>>,
 }
 
@@ -345,31 +353,30 @@ impl Center {
         self.asked.set(Permission::Asked);
         // Under the probe: recorded, and the answer is never asked for.
         #[cfg(feature = "effect-probe")]
+        crate::probe::record(crate::probe::EffectKind::Authorize);
+        #[cfg(not(feature = "effect-probe"))]
         {
-            crate::probe::record(crate::probe::EffectKind::Authorize);
-            return;
-        }
-        #[allow(unreachable_code)]
-        let shared = Arc::clone(&self.permission);
-        let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
-            crate::unwind::guard(
-                crate::unwind::SiteName("the notification permission's answer"),
-                (),
-                || {
-                    if let Ok(mut p) = shared.lock() {
-                        *p = match granted.as_bool() {
-                            true => Permission::Granted,
-                            false => Permission::Denied,
-                        };
-                    }
-                },
-            );
-        });
-        // SAFETY: `-requestAuthorizationWithOptions:completionHandler:`,
-        // the options an `NSUInteger`, the handler `void (^)(BOOL,
-        // NSError *)`.
-        unsafe {
-            let _: () = msg_send![&self.center, requestAuthorizationWithOptions: AUTHORIZE, completionHandler: &*done];
+            let shared = Arc::clone(&self.permission);
+            let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
+                crate::unwind::guard(
+                    crate::unwind::SiteName("the notification permission's answer"),
+                    (),
+                    || {
+                        if let Ok(mut p) = shared.lock() {
+                            *p = match granted.as_bool() {
+                                true => Permission::Granted,
+                                false => Permission::Denied,
+                            };
+                        }
+                    },
+                );
+            });
+            // SAFETY: `-requestAuthorizationWithOptions:completionHandler:`,
+            // the options an `NSUInteger`, the handler `void (^)(BOOL,
+            // NSError *)`.
+            unsafe {
+                let _: () = msg_send![&self.center, requestAuthorizationWithOptions: AUTHORIZE, completionHandler: &*done];
+            }
         }
     }
 
@@ -468,26 +475,28 @@ impl Center {
         {
             let _ = p;
             crate::probe::record(crate::probe::EffectKind::Notice);
-            return;
         }
-        #[allow(unreachable_code)]
-        let category = self.category(&p.buttons);
-        let Some(req) = request_of(p, category.as_deref()) else {
-            return;
-        };
-        // SAFETY: `-addNotificationRequest:withCompletionHandler:` with a
-        // nil handler, which the header allows.
-        unsafe {
-            let _: () = msg_send![
-                &self.center,
-                addNotificationRequest: &*req,
-                withCompletionHandler: Option::<&Block<dyn Fn(*mut NSError)>>::None
-            ];
+        #[cfg(not(feature = "effect-probe"))]
+        {
+            let category = self.category(&p.buttons);
+            let Some(req) = request_of(p, category.as_deref()) else {
+                return;
+            };
+            // SAFETY: `-addNotificationRequest:withCompletionHandler:` with a
+            // nil handler, which the header allows.
+            unsafe {
+                let _: () = msg_send![
+                    &self.center,
+                    addNotificationRequest: &*req,
+                    withCompletionHandler: Option::<&Block<dyn Fn(*mut NSError)>>::None
+                ];
+            }
         }
     }
 
     /// The category whose actions are these buttons, registered the first
     /// time they are seen; `None` with none.
+    #[cfg(not(feature = "effect-probe"))]
     fn category(&self, buttons: &[String]) -> Option<String> {
         if buttons.is_empty() {
             return None;
@@ -517,6 +526,7 @@ impl Center {
 /// **A post's request**, with its content -- title, subtitle, body,
 /// sound, level, category and image -- and no trigger, which delivers it
 /// now. Built without the center, so a test can build one.
+#[cfg_attr(feature = "effect-probe", allow(dead_code))]
 fn request_of(p: &Post, category: Option<&str>) -> Option<Retained<AnyObject>> {
     let content = new_of(c"UNMutableNotificationContent")?;
     // SAFETY: `UNMutableNotificationContent`'s setters, each with the type
@@ -565,6 +575,7 @@ fn request_of(p: &Post, category: Option<&str>) -> Option<Retained<AnyObject>> {
 }
 
 /// A category whose actions are `buttons`, `button-1` and on, under `key`.
+#[cfg_attr(feature = "effect-probe", allow(dead_code))]
 fn category_object(key: &str, buttons: &[String]) -> Option<Retained<AnyObject>> {
     let action_cls = AnyClass::get(c"UNNotificationAction")?;
     let cat_cls = AnyClass::get(c"UNNotificationCategory")?;
@@ -600,6 +611,7 @@ fn category_object(key: &str, buttons: &[String]) -> Option<Retained<AnyObject>>
 }
 
 /// `[Class new]`, by the class's name.
+#[cfg_attr(feature = "effect-probe", allow(dead_code))]
 fn new_of(name: &core::ffi::CStr) -> Option<Retained<AnyObject>> {
     let cls = AnyClass::get(name)?;
     // SAFETY: `+new`, which every `NSObject` class answers.
@@ -607,6 +619,7 @@ fn new_of(name: &core::ffi::CStr) -> Option<Retained<AnyObject>> {
 }
 
 /// An image file as an attachment, or `None` when the system refuses it.
+#[cfg_attr(feature = "effect-probe", allow(dead_code))]
 fn attachment(path: &std::path::Path) -> Option<Retained<AnyObject>> {
     let cls = AnyClass::get(c"UNNotificationAttachment")?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
@@ -629,14 +642,15 @@ fn remove(center: &AnyObject, id: &str) {
     {
         let _ = (center, id);
         crate::probe::record(crate::probe::EffectKind::Unnotice);
-        return;
     }
-    #[allow(unreachable_code)]
-    let ids = NSArray::from_retained_slice(&[NSString::from_str(id)]);
-    // SAFETY: the two removals, each an `NSArray<NSString *>`.
-    unsafe {
-        let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: &*ids];
-        let _: () = msg_send![center, removePendingNotificationRequestsWithIdentifiers: &*ids];
+    #[cfg(not(feature = "effect-probe"))]
+    {
+        let ids = NSArray::from_retained_slice(&[NSString::from_str(id)]);
+        // SAFETY: the two removals, each an `NSArray<NSString *>`.
+        unsafe {
+            let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: &*ids];
+            let _: () = msg_send![center, removePendingNotificationRequestsWithIdentifiers: &*ids];
+        }
     }
 }
 
@@ -647,15 +661,16 @@ pub fn remove_by_id(id: &str) {
     {
         let _ = id;
         crate::probe::record(crate::probe::EffectKind::Unnotice);
-        return;
     }
-    #[allow(unreachable_code)]
-    let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
-        return;
-    };
-    // SAFETY: `+currentNotificationCenter`, nonnull.
-    let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
-    remove(&center, id);
+    #[cfg(not(feature = "effect-probe"))]
+    {
+        let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
+            return;
+        };
+        // SAFETY: `+currentNotificationCenter`, nonnull.
+        let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
+        remove(&center, id);
+    }
 }
 
 /// A progress bar's look: its fill, and its colour by state.
@@ -728,27 +743,28 @@ pub fn show_bar(mtm: MainThreadMarker, bar: Option<Bar>) {
     {
         let _ = (mtm, bar);
         crate::probe::record(crate::probe::EffectKind::DockBar);
-        return;
     }
-    #[allow(unreachable_code)]
-    let app = NSApplication::sharedApplication(mtm);
-    let tile = app.dockTile();
-    match bar {
-        None => tile.setContentView(None),
-        Some(b) => TILE.with(|t| {
-            let mut t = t.borrow_mut();
-            let view = t.get_or_insert_with(|| {
-                let this = Tile::alloc(mtm).set_ivars(Cell::new(None));
-                // SAFETY: `NSView`'s `init`.
-                unsafe { msg_send![super(this), init] }
-            });
-            view.ivars().set(Some(b));
-            let size = tile.size();
-            view.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), size));
-            tile.setContentView(Some(view));
-        }),
+    #[cfg(not(feature = "effect-probe"))]
+    {
+        let app = NSApplication::sharedApplication(mtm);
+        let tile = app.dockTile();
+        match bar {
+            None => tile.setContentView(None),
+            Some(b) => TILE.with(|t| {
+                let mut t = t.borrow_mut();
+                let view = t.get_or_insert_with(|| {
+                    let this = Tile::alloc(mtm).set_ivars(Cell::new(None));
+                    // SAFETY: `NSView`'s `init`.
+                    unsafe { msg_send![super(this), init] }
+                });
+                view.ivars().set(Some(b));
+                let size = tile.size();
+                view.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), size));
+                tile.setContentView(Some(view));
+            }),
+        }
+        tile.display();
     }
-    tile.display();
 }
 
 /// How long the Dock icon asks for attention.
@@ -794,9 +810,8 @@ pub fn cancel_attention(mtm: MainThreadMarker, id: AttentionId) {
     {
         let _ = (mtm, id);
         crate::probe::record(crate::probe::EffectKind::Unattention);
-        return;
     }
-    #[allow(unreachable_code)]
+    #[cfg(not(feature = "effect-probe"))]
     NSApplication::sharedApplication(mtm).cancelUserAttentionRequest(id.0);
 }
 

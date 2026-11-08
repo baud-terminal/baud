@@ -218,7 +218,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 11] = [
+const SITES: [Site; 12] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -326,6 +326,22 @@ const SITES: [Site; 11] = [
             stage: Stage::Two,
             recorded: Failure::InCallback(EffectKind::Front, Nested::Never),
         },
+    },
+    // **A program's window operations, `CSI t`**: an iconify and a full
+    // screen's entry, each the probe's in a turn of its own after the read
+    // that asked (`window_later`); the child checks the window never
+    // minimised, never in full screen and never shown.
+    Site {
+        name: SiteName("XTWINOPS's iconify and full screen"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033[2t\033[10;1t'",
+            config: "",
+        }),
+        expect: Expect {
+            each: &[EffectKind::Miniaturize, EffectKind::FullScreen],
+            paced: &[],
+        },
+        state: RowState::Green,
     },
     // **Stage 2's rows: what a gesture asks**, a press or a menu item sent
     // to the view's own methods. The Cmd-click and copy-on-select rows wait

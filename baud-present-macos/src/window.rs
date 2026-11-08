@@ -1,6 +1,7 @@
 //! **What baud asks of a window and of the application**, beyond drawing:
-//! a window raised with or without focus, the application activated, its
-//! Dock icon set. Each is an effect on the desktop, so each is here, one
+//! a window raised with or without focus, put behind the others, into the
+//! Dock or out of it, into full screen or out of it, or given a frame; the
+//! application activated, its Dock icon set. Each is an effect on the desktop, so each is here, one
 //! function apiece, and under the test-only `effect-probe` feature each is
 //! recorded and the desktop left as it was.
 
@@ -8,6 +9,7 @@ use macos_liquid_glass::objc2::MainThreadMarker;
 #[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2_app_kit::NSApplication;
 use macos_liquid_glass::objc2_app_kit::{NSImage, NSWindow};
+use macos_liquid_glass::objc2_foundation::NSRect;
 
 #[cfg(feature = "effect-probe")]
 use crate::probe::{EffectKind, record};
@@ -56,4 +58,63 @@ pub fn set_icon(mtm: MainThreadMarker, icon: &NSImage) {
     }
     #[cfg(not(feature = "effect-probe"))]
     macos_liquid_glass::set_application_icon(&NSApplication::sharedApplication(mtm), icon);
+}
+
+/// `window` restored from the Dock, `deminiaturize:`: a program's `CSI 1 t`.
+pub fn deminiaturize(window: &NSWindow) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = window;
+        record(EffectKind::Deminiaturize);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    window.deminiaturize(None);
+}
+
+/// `window` put in the Dock, `miniaturize:`: a program's `CSI 2 t`.
+pub fn miniaturize(window: &NSWindow) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = window;
+        record(EffectKind::Miniaturize);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    window.miniaturize(None);
+}
+
+/// `window` put behind the others, `orderBack:`, "without changing either
+/// the key window or the main window": a program's `CSI 6 t`.
+pub fn order_back(window: &NSWindow) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = window;
+        record(EffectKind::Back);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    window.orderBack(None);
+}
+
+/// `window` into full screen or out of it, `toggleFullScreen:`: a
+/// program's `CSI 10 t`.
+pub fn toggle_full_screen(window: &NSWindow) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = window;
+        record(EffectKind::FullScreen);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    window.toggleFullScreen(None);
+}
+
+/// `window`'s frame, title bar included, set to `frame` and drawn,
+/// `setFrame:display:`: a program's move, resize or maximise, and the
+/// status line's rows.
+pub fn set_frame(window: &NSWindow, frame: NSRect) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (window, frame);
+        record(EffectKind::Frame);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    window.setFrame_display(frame, true);
 }
