@@ -62,7 +62,7 @@ baud-present-macos = { workspace = true }
 # asked returns (`widen_later`). The version `baud-present-macos` takes, with
 # only what `MainThreadBound` needs.
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
-macos-liquid-glass = { version = "1.0.0-beta.8", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.9", features = ["drawable"] }
 
 # The `demo` example's search of its session's bytes (`xtask::forbidden`).
 # By path alone, so cargo leaves it out of what it publishes: `include`

@@ -43,7 +43,7 @@ baud-present-macos = { path = "../baud-present-macos", default-features = false 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `drag` implements the presenter's `Wake`, whose surface type is the
 # window crate's.
-macos-liquid-glass = { version = "1.0.0-beta.8", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.9", features = ["drawable"] }
 
 # The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
 # it may ask the kernel. Target-gated the way `baud-core` gates its scans.
