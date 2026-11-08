@@ -1694,12 +1694,28 @@ impl Config {
         }
     }
 
+    /// [`apply_in`](Self::apply_in) under this process's `HOME` and `PATH`,
+    /// the environment baud runs in.
+    pub(crate) fn apply(&mut self, text: &str) -> Vec<String> {
+        let home = absolute_dir(std::env::var_os("HOME"));
+        let path_var = std::env::var_os("PATH");
+        self.apply_in(text, home.as_deref(), path_var.as_deref())
+    }
+
     /// Reads `text` over `self`, and returns what it could not act on, one
     /// sentence each: a key no arm knows in the section it is in, and a
     /// value that fell back to a default. `load` prints them; a test reads
     /// them, because a config whose every value equals its default reads
-    /// the same whether a line landed or was swallowed.
-    pub(crate) fn apply(&mut self, text: &str) -> Vec<String> {
+    /// the same whether a line landed or was swallowed. `home` is the
+    /// absolute home folder a `~/` program is taken against, and `path_var`
+    /// the `PATH` a rule's program is looked up on: a film reads its config
+    /// under the environment its baud is given.
+    pub(crate) fn apply_in(
+        &mut self,
+        text: &str,
+        home: Option<&std::path::Path>,
+        path_var: Option<&std::ffi::OsStr>,
+    ) -> Vec<String> {
         let mut said = Vec::new();
         // The stack is settled after the whole file, so `font_fallback`
         // counts wherever it sits relative to `fonts`.
@@ -2230,7 +2246,7 @@ impl Config {
                 ("shell", "program") => {
                     self.shell_program = shell_program(
                         value.trim().trim_matches('"'),
-                        absolute_dir(std::env::var_os("HOME")).as_deref(),
+                        home,
                         &mut said,
                     );
                 }
@@ -2763,11 +2779,7 @@ impl Config {
         // The rules, read whole, only from this file's text: a theme file is
         // read elsewhere and holds none.
         if !rule_sections.is_empty() {
-            let (rules, refused) = crate::rules::read(
-                &rule_sections,
-                absolute_dir(std::env::var_os("HOME")).as_deref(),
-                std::env::var_os("PATH").as_deref(),
-            );
+            let (rules, refused) = crate::rules::read(&rule_sections, home, path_var);
             self.link.rules = rules;
             said.extend(refused);
         }
@@ -7836,7 +7848,7 @@ mod guide {
     /// literal, so they are not read as keys.
     pub(super) fn reader_keys() -> BTreeSet<(String, String)> {
         let src = include_str!("config.rs");
-        let start = src.find("fn apply(").expect("Config::apply");
+        let start = src.find("fn apply_in(").expect("Config::apply_in");
         let body = &src[start..];
         let end = body
             .find("if let Some(mut faces) = named")

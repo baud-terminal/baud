@@ -220,7 +220,7 @@ struct Stage {
 
 impl Stage {
     fn new(f: &Film<'_>) -> Stage {
-        let mut cfg = configured(f.config, f.source);
+        let mut cfg = configured(f.config, f.source, &f.env);
         let read = cfg.clone();
         crate::host::resolved(&mut cfg);
         let (data, mut held) = crate::host::map_faces(&cfg);
@@ -281,12 +281,28 @@ impl Stage {
 }
 
 /// **A film's config**: [`BASE`], then `text` over it, its relative paths
-/// beside `source` when it was read from a file.
-fn configured(text: &str, source: Option<&Path>) -> crate::config::Config {
+/// beside `source` when it was read from a file. It is read under the
+/// `HOME` and `PATH` of `env`, the film's baud's, as that baud would read
+/// it, and this process's where `env` names neither: a session's `~/`
+/// program is in the session's home, and its bare names on its `PATH`.
+fn configured(
+    text: &str,
+    source: Option<&Path>,
+    env: &[(OsString, OsString)],
+) -> crate::config::Config {
+    let var = |k: &str| {
+        env.iter()
+            .rev()
+            .find(|(n, _)| n == k)
+            .map(|(_, v)| v.clone())
+            .or_else(|| std::env::var_os(k))
+    };
+    let home = crate::config::absolute_dir(var("HOME"));
+    let path_var = var("PATH");
     let mut cfg = crate::config::Config::defaults();
     // Two reads, so the film's lines start outside BASE's last table.
-    let mut said = cfg.apply(BASE);
-    said.extend(cfg.apply(text));
+    let mut said = cfg.apply_in(BASE, home.as_deref(), path_var.as_deref());
+    said.extend(cfg.apply_in(text, home.as_deref(), path_var.as_deref()));
     assert!(said.is_empty(), "the film's config: {said:?}");
     if let Some(p) = source {
         cfg.beside(p);
@@ -762,7 +778,7 @@ fn play(
                 Event::Step(i) => step = Some(i),
                 Event::Reload(text) => {
                     use crate::live::Part;
-                    let new = configured(&text, f.source);
+                    let new = configured(&text, f.source, &f.env);
                     let parts = crate::live::between(&read, &new, crate::live::FaceFiles::Same);
                     for part in parts {
                         match part {
@@ -1151,6 +1167,44 @@ fn a_config_file_changed_in_the_take_changes_the_trail() {
         [(None, CursorTrail::Plasma)],
         "the same text is no change"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// **A film's config is read under its baud's `HOME` and `PATH`**, as the
+/// README session's baud reads its own: a `[link.path]` program under `~/`
+/// in the film's home and a `[link.https]` program named bare on the
+/// film's `PATH`, neither of them in this process's. Read under this
+/// process's, both are refused and `configured` fails on what it said.
+#[test]
+fn a_films_config_is_read_under_its_own_home_and_path() {
+    use crate::rules::{Act, PathAct};
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("baud-film-env-{}", std::process::id()));
+    let home = dir.join("home");
+    let path = dir.join("path");
+    for (folder, program) in [(home.join("bin"), "opener"), (path.clone(), "viewer")] {
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let p = folder.join(program);
+        std::fs::write(&p, "#!/bin/sh\n").expect("a program");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    }
+    let text = "[link.path]\naction = \"window\"\ncommand = [\"~/bin/opener\", \"{path}\"]\n\
+                [link.https]\naction = \"window\"\ncommand = [\"viewer\", \"{url}\"]\n";
+    let env = [
+        (OsString::from("HOME"), home.clone().into_os_string()),
+        (OsString::from("PATH"), path.into_os_string()),
+    ];
+    let cfg = configured(text, None, &env);
+    let opener = home.join("bin/opener");
+    let rules = &cfg.link.rules;
+    match rules.path_act() {
+        PathAct::Window(a) => assert_eq!(Some(a.program()), opener.to_str()),
+        other => panic!("the path rule is {other:?}"),
+    }
+    match rules.rule_for("https").map(|(_, r)| r.act()) {
+        Some(Act::Window(a)) => assert_eq!(a.program(), "viewer"),
+        other => panic!("the https rule is {other:?}"),
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -2162,7 +2162,7 @@ mod tests {
         // The control: the call is in `apply`, which a load runs over the
         // file it found.
         let config = include_str!("config.rs");
-        let (_, apply) = config.split_once("fn apply(").expect("apply");
+        let (_, apply) = config.split_once("fn apply_in(").expect("apply_in");
         let (apply, _) = apply.split_once("\n    }\n").expect("its end");
         assert!(apply.contains(call), "the call is apply's");
     }
