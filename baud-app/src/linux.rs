@@ -1753,6 +1753,12 @@ impl Driver {
                             }
                         }
                     }
+                    // A window of yours: refused, counted and said until the
+                    // driver starts `baud -e` on the next turn; nothing runs.
+                    Click::Window => {
+                        self.report.links.refused.bump();
+                        crate::warn!("link refused (window: not built on Linux yet): {said}");
+                    }
                     Click::Open => match self.opener.start(crate::opener::command(t.as_str())) {
                         Ok(()) => {
                             self.report.links.opened.bump();
@@ -1955,6 +1961,13 @@ impl Driver {
                     let text = String::from_utf8(path)
                         .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
                     self.later.push(Later::Copy(text));
+                    return;
+                }
+                if let Found::Window(_) = does {
+                    self.report.links.refused.bump();
+                    crate::warn!(
+                        "printed path refused for [link.path]'s window (not built on Linux yet)"
+                    );
                     return;
                 }
                 if let Found::Command(built) = does {

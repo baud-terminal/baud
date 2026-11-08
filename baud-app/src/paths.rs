@@ -946,7 +946,7 @@ impl Paths {
     /// A rule's copy is never struck: a click copies, whatever opens the kind.
     pub fn target_mark(&self, target: &Target<'_>) -> Mark {
         match self.rule_act(target) {
-            Some(crate::rules::Act::Command(argv)) => {
+            Some(crate::rules::Act::Command(argv) | crate::rules::Act::Window(argv)) => {
                 self.program_mark(&Program::Command(argv.program().to_owned()))
             }
             Some(crate::rules::Act::Copy) => Mark::Line,
@@ -1425,17 +1425,22 @@ pub enum Found {
     Copy,
     /// `[link.path]`'s command, built for the path.
     Command(Result<std::process::Command, crate::link::Refused>),
+    /// `[link.path] action = "window"`: the argv a new window runs for the
+    /// path, built for it as a command's is.
+    Window(
+        #[cfg_attr(not(test), allow(dead_code))] Result<crate::rules::Run, crate::link::Refused>,
+    ),
     /// Shown in the file manager, through `admit` again.
     Reveal,
 }
 
 /// **What a click asked again does, its file found**: a printed path takes
-/// `[link.path]`'s copy or command, else it is revealed; a link takes its
-/// own action, a reveal (a rule's copy or command runs before any asking,
-/// `link::click`, and the reader refuses a file opened by the system), and
-/// never `[link.path]`'s, which is for printed paths. No found file is
-/// opened by the system. `host` is what `admit` reads a `file://` host
-/// against.
+/// `[link.path]`'s copy, command or window, else it is revealed; a link
+/// takes its own action, a reveal (a rule's copy, command or window runs
+/// before any asking, `link::click`, and the reader refuses a file opened
+/// by the system), and never `[link.path]`'s, which is for printed paths.
+/// No found file is opened by the system. `host` is what `admit` reads a
+/// `file://` host against.
 pub fn on_found(asked: &Asked, path: &[u8], host: crate::link::Host<'_>, rules: &Rules) -> Found {
     let Asked::Printed(lc) = asked else {
         return Found::Reveal;
@@ -1444,11 +1449,14 @@ pub fn on_found(asked: &Asked, path: &[u8], host: crate::link::Host<'_>, rules: 
         return Found::Copy;
     }
     let uri = file_uri(path);
-    match crate::link::admit(uri.as_bytes(), host)
-        .ok()
-        .and_then(|_| rules.path_command(path, &lc.line, &lc.col))
-    {
-        Some(built) => Found::Command(built),
+    if crate::link::admit(uri.as_bytes(), host).is_err() {
+        return Found::Reveal;
+    }
+    if let Some(built) = rules.path_command(path, &lc.line, &lc.col) {
+        return Found::Command(built);
+    }
+    match rules.path_window(path, &lc.line, &lc.col) {
+        Some(built) => Found::Window(built),
         None => Found::Reveal,
     }
 }
@@ -1623,7 +1631,10 @@ impl PathsAt for Paths {
             }
             s => match (self.rule_act(target), self.target_mark(target)) {
                 (_, Mark::Line) => None,
-                (Some(crate::rules::Act::Command(_)), Mark::Struck) => Some(Gone::NoCommand),
+                (
+                    Some(crate::rules::Act::Command(_) | crate::rules::Act::Window(_)),
+                    Mark::Struck,
+                ) => Some(Gone::NoCommand),
                 (_, Mark::Struck) => Some(Gone::NoApp(s)),
             },
         }
@@ -2511,10 +2522,12 @@ mod tests {
     enum Came {
         Copy,
         Command,
+        Window,
         Open,
         Reveal,
         PathCopy,
         PathCommand,
+        PathWindow,
         SaidGone,
     }
 
@@ -2523,12 +2536,14 @@ mod tests {
         match click(t, p) {
             Click::Copy => Came::Copy,
             Click::Command => Came::Command,
+            Click::Window => Came::Window,
             Click::Open => Came::Open,
             Click::Reveal => Came::Reveal,
             Click::Again(path) => match again {
                 Probe::Exists => match on_found(&Asked::Link, &path, Host(HERE), rules) {
                     Found::Copy => Came::PathCopy,
                     Found::Command(_) => Came::PathCommand,
+                    Found::Window(_) => Came::PathWindow,
                     Found::Reveal => Came::Reveal,
                 },
                 _ => Came::SaidGone,
@@ -2696,6 +2711,33 @@ mod tests {
             matches!(printed, Found::Command(Ok(_))),
             "the control: a printed path runs [link.path]'s command: {printed:?}"
         );
+        let link = on_found(&Asked::Link, b"/etc/hosts", Host(""), rules);
+        assert!(matches!(link, Found::Reveal), "a link reveals: {link:?}");
+    }
+
+    /// **A printed path asked again under `[link.path] action = "window"`,
+    /// its file found, comes to the window's argv**, filled with the path
+    /// and its `:line:col`, and a link asked again still reveals; neither
+    /// runs a command. Named break: in `on_found`, take a window rule as no
+    /// command at all -- the path is revealed.
+    #[test]
+    fn a_found_printed_path_comes_to_its_window() {
+        let mut c = crate::config::Config::defaults();
+        let said = c.apply(
+            "[link.path]\nline_col = \"on\"\naction = \"window\"\n\
+             command = [\"/bin/echo\", \"{path}:{line}\"]\n",
+        );
+        assert!(said.is_empty(), "{said:?}");
+        let rules = &c.link.rules;
+        let lc = LineCol {
+            line: "7".into(),
+            col: String::new(),
+        };
+        let printed = on_found(&Asked::Printed(lc), b"/etc/hosts", Host(""), rules);
+        let Found::Window(Ok(run)) = printed else {
+            panic!("a window: {printed:?}");
+        };
+        assert_eq!(run.argv(), ["/bin/echo", "/etc/hosts:7"]);
         let link = on_found(&Asked::Link, b"/etc/hosts", Host(""), rules);
         assert!(matches!(link, Found::Reveal), "a link reveals: {link:?}");
     }
@@ -3136,36 +3178,42 @@ mod tests {
         );
     }
 
-    /// **Under the chord, a command rule's link whose program is missing
-    /// says why**: `gone` names the missing command, which the bar reads as
-    /// "no app for its command"; found, it is not gone. Named break: in
-    /// `gone`, take a command rule's strike as `Gone::NoApp`, which names
-    /// no command.
+    /// **Under the chord, a command or window rule's link whose program is
+    /// missing says why**: `gone` names the missing command, which the bar
+    /// reads as "no app for its command"; found, it is not gone. A window
+    /// rule's program is drawn and said as a command's, since a click runs
+    /// it the same. Named breaks: in `gone`, take a command rule's strike as
+    /// `Gone::NoApp`, which names no command; in `target_mark`, draw a
+    /// window rule's link by its scheme -- the window case is never struck.
     #[test]
     fn a_missing_command_says_why_under_the_chord() {
-        let mut c = crate::config::Config::defaults();
-        let said = c.apply("[link.tel]\ncommand = [\"/no/such/dialer\", \"{url}\"]\n");
-        assert!(
-            !said.is_empty(),
-            "the reader says the program is not there: {said:?}"
-        );
-        let mut p = Paths::new(None, Forms::DEFAULT);
-        p.set(Turned::On);
-        p.set_rules(c.link.rules.clone());
-        let gone = Program::Command("/no/such/dialer".to_owned());
-        let t =
-            crate::link::admit_with(b"tel:+15550100", Host(""), &c.link.rules).expect("the rule's");
-        assert_eq!(PathsAt::gone(&p, &t), None, "the control: not asked yet");
-        let _ = p.set_programs(vec![(gone.clone(), Handler::Missing)]);
-        let g = PathsAt::gone(&p, &t).expect("gone");
-        assert_eq!(g, Gone::NoCommand);
-        let words = crate::link::refusal_words(match g {
-            Gone::NoCommand => crate::link::Refused::NoCommand,
-            other => panic!("{other:?}"),
-        });
-        assert_eq!(words, "no app for its command");
-        let _ = p.set_programs(vec![(gone, Handler::Found)]);
-        assert_eq!(PathsAt::gone(&p, &t), None, "found: not gone");
+        for action in ["", "action = \"window\"\n"] {
+            let mut c = crate::config::Config::defaults();
+            let said = c.apply(&format!(
+                "[link.tel]\n{action}command = [\"/no/such/dialer\", \"{{url}}\"]\n"
+            ));
+            assert!(
+                !said.is_empty(),
+                "the reader says the program is not there: {said:?}"
+            );
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_rules(c.link.rules.clone());
+            let gone = Program::Command("/no/such/dialer".to_owned());
+            let t = crate::link::admit_with(b"tel:+15550100", Host(""), &c.link.rules)
+                .expect("the rule's");
+            assert_eq!(PathsAt::gone(&p, &t), None, "the control: not asked yet");
+            let _ = p.set_programs(vec![(gone.clone(), Handler::Missing)]);
+            let g = PathsAt::gone(&p, &t).expect("gone");
+            assert_eq!(g, Gone::NoCommand);
+            let words = crate::link::refusal_words(match g {
+                Gone::NoCommand => crate::link::Refused::NoCommand,
+                other => panic!("{other:?}"),
+            });
+            assert_eq!(words, "no app for its command");
+            let _ = p.set_programs(vec![(gone, Handler::Found)]);
+            assert_eq!(PathsAt::gone(&p, &t), None, "found: not gone");
+        }
     }
 
     /// **A strike survives every batch while its link is on the screen, and

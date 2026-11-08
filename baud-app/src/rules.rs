@@ -68,6 +68,13 @@ pub const RULE_KEYS: [&str; 3] = ["scheme", "action", "command"];
 /// **The keys of `[link.path]`**, the printed-path rule.
 pub const PATH_KEYS: [&str; 5] = ["forms", "line_col", "spaces", "action", "command"];
 
+/// **The values of a `[link.NAME]` rule's `action`**, the one list the
+/// reader's refusal, the guide and the example are held to.
+pub const ACTIONS: [&str; 5] = ["open", "command", "window", "copy", "off"];
+
+/// **The values of `[link.path]`'s `action`**.
+pub const PATH_ACTIONS: [&str; 5] = ["reveal", "command", "window", "copy", "off"];
+
 /// The name the printed-path rule is read under; no scheme rule takes it.
 pub const PATH_RULE: &str = "path";
 
@@ -249,6 +256,11 @@ pub enum Act {
     Open,
     /// Your program.
     Command(Argv),
+    /// Your program, in a new baud window of its own: the same argv as a
+    /// command, read by the same reader and refused for the same things, run
+    /// in the window's terminal in place of its shell
+    /// ([`Rules::window`]).
+    Window(Argv),
     /// Nothing: no line at rest, and a click opens nothing; the bar says
     /// it is off by your config. A default's scheme can be turned off too.
     Off,
@@ -265,6 +277,9 @@ pub enum PathAct {
     #[default]
     Reveal,
     Command(Argv),
+    /// Your program, in a new baud window, its folder the file's own
+    /// ([`Rules::path_window`]).
+    Window(Argv),
     /// No printed path read at all, no lookup and no worker: what `[link]
     /// paths = "off"` does (`config::Link::paths_read`).
     Off,
@@ -301,6 +316,65 @@ impl Argv {
     /// which for a baud started from the Dock is launchd's short one.
     pub fn found(&self, path_var: Option<&OsStr>) -> Program {
         program_found(self.program(), path_var)
+    }
+}
+
+/// **The argv a new window runs in place of its shell**: a rule's
+/// [`Argv`] with its placeholders replaced by the link or the path and
+/// checked where they landed, as a command's are ([`landed`]), built once
+/// per click and moved into the window's start. No shell is between: the
+/// first element is the program, the rest its arguments, each one argument
+/// whatever it holds.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Run(Vec<std::ffi::OsString>);
+
+impl Run {
+    /// The program, as the rule wrote it or made absolute.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn program(&self) -> &OsStr {
+        &self.0[0]
+    }
+
+    /// Every element, the program first.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn argv(&self) -> &[std::ffi::OsString] {
+        &self.0
+    }
+
+    /// The elements, moved out, the program first.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn into_argv(self) -> Vec<std::ffi::OsString> {
+        self.0
+    }
+}
+
+/// **What a rule runs a click with**, the two actions that run your program:
+/// a command, with no terminal, or a window, in a terminal of its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Runs {
+    Command,
+    Window,
+}
+
+impl Act {
+    /// The argv a click runs, and how, for the two actions that run one.
+    fn runs(&self) -> Option<(&Argv, Runs)> {
+        match self {
+            Act::Command(a) => Some((a, Runs::Command)),
+            Act::Window(a) => Some((a, Runs::Window)),
+            Act::Open | Act::Off | Act::Copy => None,
+        }
+    }
+}
+
+impl PathAct {
+    /// [`Act::runs`] for a printed path.
+    fn runs(&self) -> Option<(&Argv, Runs)> {
+        match self {
+            PathAct::Command(a) => Some((a, Runs::Command)),
+            PathAct::Window(a) => Some((a, Runs::Window)),
+            PathAct::Reveal | PathAct::Off | PathAct::Copy => None,
+        }
     }
 }
 
@@ -475,36 +549,31 @@ impl Rules {
         })
     }
 
-    /// **The programs your `[link.NAME]` rules run**: each `command` rule's
-    /// `command[0]`, as [`Argv::program`] spells it, in file order, for the
-    /// worker to look up. `[link.path]`'s is not among them.
+    /// **The programs your `[link.NAME]` rules run**: each `command` or
+    /// `window` rule's `command[0]`, as [`Argv::program`] spells it, in file
+    /// order, for the worker to look up. `[link.path]`'s is not among them.
     pub fn command_programs(&self) -> impl Iterator<Item = &str> {
-        self.list.iter().filter_map(|r| match r.act() {
-            Act::Command(argv) => Some(argv.program()),
-            Act::Open | Act::Off | Act::Copy => None,
-        })
+        self.list
+            .iter()
+            .filter_map(|r| r.act().runs().map(|(argv, _)| argv.program()))
     }
 
     /// **The program a click on scheme `name`'s links would run, and whether
-    /// it is there** -- none where no rule of yours runs a command for it.
-    /// The strike's question: a metadata call, so never on the frame path,
-    /// and asked by the worker that probes paths, which no driver has wired
-    /// to it yet.
+    /// it is there** -- none where no rule of yours runs a command or a
+    /// window for it. The strike's question: a metadata call, so never on the
+    /// frame path, and asked by the worker that probes paths, which no driver
+    /// has wired to it yet.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn command_found(&self, name: &str, path_var: Option<&OsStr>) -> Option<Program> {
-        match self.rule_for(name)?.1.act() {
-            Act::Command(argv) => Some(argv.found(path_var)),
-            Act::Open | Act::Off | Act::Copy => None,
-        }
+        let (argv, _) = self.rule_for(name)?.1.act().runs()?;
+        Some(argv.found(path_var))
     }
 
     /// [`Rules::command_found`] for a click on a printed path.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn path_command_found(&self, path_var: Option<&OsStr>) -> Option<Program> {
-        match &self.path {
-            PathAct::Command(argv) => Some(argv.found(path_var)),
-            PathAct::Reveal | PathAct::Off | PathAct::Copy => None,
-        }
+        let (argv, _) = self.path.runs()?;
+        Some(argv.found(path_var))
     }
 
     /// **The command a click on `uri`, admitted under rule `ix`, runs**:
@@ -512,10 +581,22 @@ impl Rules {
     /// null device. The link's bytes are checked again where they land
     /// ([`landed`]); none if the rule runs no command.
     pub fn command(&self, ix: RuleIx, uri: &str) -> Option<Result<Command, Refused>> {
-        let Act::Command(argv) = self.at(ix)?.act() else {
+        let (argv, Runs::Command) = self.at(ix)?.act().runs()? else {
             return None;
         };
-        Some(build(argv, &[(URL, uri.as_bytes(), Value::Uri)]))
+        Some(filled(argv, &[(URL, uri.as_bytes(), Value::Uri)]).map(command_of))
+    }
+
+    /// **The argv a new window runs for a click on `uri`, admitted under rule
+    /// `ix`**: [`Rules::command`]'s substitution and checks, the same bytes
+    /// refused for the same reasons, handed to the window's terminal rather
+    /// than to a process with no terminal; none if the rule opens no window.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn window(&self, ix: RuleIx, uri: &str) -> Option<Result<Run, Refused>> {
+        let (argv, Runs::Window) = self.at(ix)?.act().runs()? else {
+            return None;
+        };
+        Some(filled(argv, &[(URL, uri.as_bytes(), Value::Uri)]))
     }
 
     /// **The command a click on printed path `path` runs**, the `:line:col`
@@ -527,23 +608,21 @@ impl Rules {
         line: &str,
         col: &str,
     ) -> Option<Result<Command, Refused>> {
-        let PathAct::Command(argv) = &self.path else {
+        let (argv, Runs::Command) = self.path.runs()? else {
             return None;
         };
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        let line = if digits(line) { line } else { "1" };
-        let col = if digits(col) { col } else { "1" };
-        if path.first() != Some(&b'/') {
-            return Some(Err(Refused::Host));
-        }
-        Some(build(
-            argv,
-            &[
-                (PATH, path, Value::Path),
-                (LINE, line.as_bytes(), Value::Uri),
-                (COL, col.as_bytes(), Value::Uri),
-            ],
-        ))
+        Some(path_filled(argv, path, line, col).map(command_of))
+    }
+
+    /// **The argv a new window runs for a click on printed path `path`**,
+    /// as [`Rules::path_command`] builds a command's; none when a click does
+    /// not open a window.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn path_window(&self, path: &[u8], line: &str, col: &str) -> Option<Result<Run, Refused>> {
+        let (argv, Runs::Window) = self.path.runs()? else {
+            return None;
+        };
+        Some(path_filled(argv, path, line, col))
     }
 
     /// **What baud says once a load reads these rules**, a line each, for the
@@ -563,6 +642,13 @@ impl Rules {
                     r.scheme,
                     a.program()
                 ),
+                Act::Window(a) => format!(
+                    "config: [link.{}] opens {}: links from program output in a new window \
+                     running {}",
+                    r.name,
+                    r.scheme,
+                    a.program()
+                ),
                 Act::Off => format!("config: [link.{}] turns {}: links off", r.name, r.scheme),
                 Act::Copy => format!(
                     "config: [link.{}] copies a clicked {}: link to the clipboard",
@@ -573,6 +659,10 @@ impl Rules {
         match &self.path {
             PathAct::Command(a) => out.push(format!(
                 "config: [link.path] sends a clicked printed path to {}",
+                a.program()
+            )),
+            PathAct::Window(a) => out.push(format!(
+                "config: [link.path] opens a clicked printed path in a new window running {}",
                 a.program()
             )),
             PathAct::Off => out.push("config: [link.path] turns printed paths off".into()),
@@ -627,9 +717,43 @@ fn bidi_control(c: char) -> bool {
     matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
-/// `argv` with each placeholder replaced by its value, checked, as a
-/// [`Command`] with no shell and null standard streams.
-fn build(argv: &Argv, values: &[(&str, &[u8], Value)]) -> Result<Command, Refused> {
+/// `run` as a [`Command`] with no shell and null standard streams: what a
+/// rule's command starts, with no terminal.
+fn command_of(run: Run) -> Command {
+    let mut argv = run.into_argv().into_iter();
+    // `filled` never returns an empty argv: the reader refused a command
+    // naming no program.
+    let mut c = Command::new(argv.next().unwrap_or_default());
+    c.args(argv)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    c
+}
+
+/// `argv` filled for printed path `path`, `line` and `col` the digits
+/// printed after it, `1` where none were; a path that is not absolute is
+/// refused, as the reader admits no other.
+fn path_filled(argv: &Argv, path: &[u8], line: &str, col: &str) -> Result<Run, Refused> {
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let line = if digits(line) { line } else { "1" };
+    let col = if digits(col) { col } else { "1" };
+    if path.first() != Some(&b'/') {
+        return Err(Refused::Host);
+    }
+    filled(
+        argv,
+        &[
+            (PATH, path, Value::Path),
+            (LINE, line.as_bytes(), Value::Uri),
+            (COL, col.as_bytes(), Value::Uri),
+        ],
+    )
+}
+
+/// `argv` with each placeholder replaced by its value, checked where it
+/// landed: the one substitution a command and a window share.
+fn filled(argv: &Argv, values: &[(&str, &[u8], Value)]) -> Result<Run, Refused> {
     use std::os::unix::ffi::OsStringExt;
     for (_, v, what) in values {
         landed(v, *what)?;
@@ -650,12 +774,7 @@ fn build(argv: &Argv, values: &[(&str, &[u8], Value)]) -> Result<Command, Refuse
         }
         out.push(std::ffi::OsString::from_vec(bytes));
     }
-    let mut c = Command::new(&out[0]);
-    c.args(&out[1..])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    Ok(c)
+    Ok(Run(out))
 }
 
 /// An argument holding a substituted value: UTF-8, no control and no
@@ -778,7 +897,7 @@ pub fn read(
                 Ok((forms, act)) => {
                     rules.forms = forms;
                     rules.path = act;
-                    if let PathAct::Command(a) = &rules.path {
+                    if let Some((a, _)) = rules.path.runs() {
                         missing(&at, a, path_var, &mut said);
                     }
                 }
@@ -801,7 +920,7 @@ pub fn read(
                     ));
                     continue;
                 }
-                if let Act::Command(a) = &rule.act {
+                if let Some((a, _)) = rule.act.runs() {
                     missing(&at, a, path_var, &mut said);
                 }
                 if rule.suffix.is_some() {
@@ -1125,14 +1244,17 @@ fn scheme_rule(s: &Section, home: Option<&Path>) -> Result<Rule, String> {
         Some("command") | None if named.is_some() => {
             Act::Command(command(named.unwrap_or_default(), &[URL], URL, home)?)
         }
+        Some("window") if named.is_some() => {
+            Act::Window(command(named.unwrap_or_default(), &[URL], URL, home)?)
+        }
         Some(a @ ("open" | "off" | "copy")) => {
             return Err(format!("names a command with action {a:?}"));
         }
-        Some("command") => return Err("has action \"command\" and no command".to_string()),
+        Some(a @ ("command" | "window")) => {
+            return Err(format!("has action {a:?} and no command"));
+        }
         Some(other) => {
-            return Err(format!(
-                "action {other:?} is not open, command, copy or off"
-            ));
+            return Err(format!("action {other:?} is not {}", one_of(&ACTIONS)));
         }
         None => unreachable!("both arms of a command named or not are above"),
     };
@@ -1153,6 +1275,15 @@ fn scheme_rule(s: &Section, home: Option<&Path>) -> Result<Rule, String> {
         act,
         suffix,
     })
+}
+
+/// `a, b, c or d`, for a sentence naming the values a key takes.
+fn one_of(values: &[&str]) -> String {
+    match values.split_last() {
+        Some((last, [])) => (*last).to_string(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => String::new(),
+    }
 }
 
 /// `"on"` or `"off"`.
@@ -1207,14 +1338,20 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
             PATH,
             home,
         )?),
+        Some("window") if named.is_some() => PathAct::Window(command(
+            named.unwrap_or_default(),
+            &[PATH, LINE, COL],
+            PATH,
+            home,
+        )?),
         Some(a @ ("reveal" | "off" | "copy")) => {
             return Err(format!("names a command with action {a:?}"));
         }
-        Some("command") => return Err("has action \"command\" and no command".to_string()),
+        Some(a @ ("command" | "window")) => {
+            return Err(format!("has action {a:?} and no command"));
+        }
         Some(other) => {
-            return Err(format!(
-                "action {other:?} is not reveal, command, copy or off"
-            ));
+            return Err(format!("action {other:?} is not {}", one_of(&PATH_ACTIONS)));
         }
         None => unreachable!("both arms of a command named or not are above"),
     };
@@ -2006,5 +2143,275 @@ mod tests {
         let (_, apply) = config.split_once("fn apply(").expect("apply");
         let (apply, _) = apply.split_once("\n    }\n").expect("its end");
         assert!(apply.contains(call), "the call is apply's");
+    }
+
+    /// Commands the command reader refuses, one reason each, `{url}`
+    /// standing for the rule's own placeholder: a script of a shell or an
+    /// interpreter, under a wrapper and versioned; an operand that is a
+    /// program; what follows a remote shell's destination; a program that is
+    /// a placeholder or a relative path; a control; a placeholder the rule
+    /// has no value for; none at all; and what is not a list of strings.
+    const REFUSED_COMMANDS: [&str; 16] = [
+        "[\"sh\", \"-c\", \"open {url}\"]",
+        "[\"/usr/bin/env\", \"zsh\", \"-c\", \"open {url}\"]",
+        "[\"/usr/bin/env\", \"-S\", \"sh -c {url}\"]",
+        "[\"osascript\", \"-e\", \"open location {url}\"]",
+        "[\"/usr/bin/python3.12\", \"-c\", \"{url}\"]",
+        "[\"deno\", \"run\", \"{url}\"]",
+        "[\"awk\", \"{url}\"]",
+        "[\"/usr/bin/ssh\", \"host\", \"open\", \"{url}\"]",
+        "[\"{url}\", \"{url}\"]",
+        "[\"bin/w3m\", \"{url}\"]",
+        "[\"w3m\", \"\u{1b}\", \"{url}\"]",
+        "[\"w3m\", \"{nope}\", \"{url}\"]",
+        "[\"w3m\", \"-dump\"]",
+        "[]",
+        "\"w3m {url}\"",
+        "[w3m, \"{url}\"]",
+    ];
+
+    /// Commands the reader reads.
+    const READ_COMMANDS: [&str; 4] = [
+        "[\"w3m\", \"{url}\"]",
+        "[\"~/bin/open-link\", \"{url}\"]",
+        "[\"/usr/bin/env\", \"w3m\", \"-o\", \"x=1\", \"{url}\"]",
+        "[\"sh\", \"-c\", \"exec w3m $1\", \"sh\", \"{url}\"]",
+    ];
+
+    /// **W1: `action = "window"` reads its command through a command's own
+    /// reader**, on a scheme rule and on `[link.path]`: every command a
+    /// `command` rule refuses, a `window` rule refuses with the same
+    /// sentence, and every command one reads the other reads to the same
+    /// argv, its program made absolute the same. Perturbation: read a
+    /// window's command with `list` alone, skipping `command`'s checks --
+    /// every refused case is read.
+    #[test]
+    fn a_window_reads_its_command_as_a_command_does() {
+        let (control, said) = rules(&[section(
+            "tel",
+            &[
+                ("action", "\"window\""),
+                ("command", "[\"/bin/sh\", \"{url}\"]"),
+            ],
+        )]);
+        assert_eq!(said, Vec::<String>::new());
+        assert!(
+            matches!(
+                control.rule_for("tel").map(|(_, r)| r.act()),
+                Some(Act::Window(_))
+            ),
+            "the control: a window rule is read"
+        );
+        for (name, holder) in [("tel", URL), (PATH_RULE, PATH)] {
+            let read_as = |action: &str, cmd: &str| {
+                let cmd = cmd.replace(URL, holder);
+                rules(&[section(
+                    name,
+                    &[("action", &format!("\"{action}\"")), ("command", &cmd)],
+                )])
+            };
+            for cmd in REFUSED_COMMANDS {
+                let (c, c_said) = read_as("command", cmd);
+                let (w, w_said) = read_as("window", cmd);
+                assert_eq!(c_said.len(), 1, "[link.{name}] command {cmd}: {c_said:?}");
+                assert_eq!(w_said, c_said, "[link.{name}] window {cmd}");
+                assert_eq!(
+                    (c, w),
+                    (Rules::NONE, Rules::NONE),
+                    "[link.{name}] {cmd}: read"
+                );
+            }
+            for cmd in READ_COMMANDS {
+                let (c, c_said) = read_as("command", cmd);
+                let (w, w_said) = read_as("window", cmd);
+                assert_eq!(w_said, c_said, "[link.{name}] {cmd}: said the same");
+                assert!(
+                    c != Rules::NONE && w != Rules::NONE,
+                    "[link.{name}] {cmd}: refused"
+                );
+                let (a, b) = match name {
+                    PATH_RULE => match (c.path_act(), w.path_act()) {
+                        (PathAct::Command(a), PathAct::Window(b)) => (a.clone(), b.clone()),
+                        other => panic!("[link.path] {cmd}: {other:?}"),
+                    },
+                    _ => match (c.list()[0].act(), w.list()[0].act()) {
+                        (Act::Command(a), Act::Window(b)) => (a.clone(), b.clone()),
+                        other => panic!("[link.{name}] {cmd}: {other:?}"),
+                    },
+                };
+                assert_eq!(a, b, "[link.{name}] {cmd}: the same argv");
+            }
+        }
+    }
+
+    /// **W2: a window's argv is filled as a command's is**: `{url}`, and
+    /// `{path}`, `{line}` and `{col}`, each replaced in one pass, the program
+    /// literal and no shell between, the same elements a command rule would
+    /// hand its process; a dashed link, a control byte and a path that is
+    /// not absolute refused as a command's are; and neither builder answers
+    /// for the other's action. Perturbation: return the rule's argv unfilled
+    /// from `Rules::window` -- the first assertion fails.
+    #[test]
+    fn a_window_fills_its_argv_as_a_command_does() {
+        let w = |s: &str, cmd: &str| {
+            rules(&[section(s, &[("action", "\"window\""), ("command", cmd)])]).0
+        };
+        let c = |s: &str, cmd: &str| rules(&[section(s, &[("command", cmd)])]).0;
+        let uri = "https://github.com/x/y?a=1&b=$(z)";
+        let https = w("https", "[\"w3m\", \"{url}\"]");
+        let (ix, _) = https.rule_for("https").expect("the rule");
+        let run = https.window(ix, uri).expect("a window").expect("built");
+        assert_eq!(run.argv(), ["w3m", uri]);
+        assert_eq!(run.program(), "w3m");
+        let cmd = c("https", "[\"w3m\", \"{url}\"]");
+        let (cix, _) = cmd.rule_for("https").expect("the rule");
+        let built = cmd.command(cix, uri).expect("a command").expect("built");
+        assert_eq!(
+            core::iter::once(built.get_program())
+                .chain(built.get_args())
+                .collect::<Vec<_>>(),
+            run.argv(),
+            "the elements a command would run"
+        );
+        assert!(
+            https.command(ix, uri).is_none(),
+            "a window rule builds no command"
+        );
+        assert!(
+            cmd.window(cix, uri).is_none(),
+            "a command rule builds no window"
+        );
+        assert_eq!(https.window(ix, "-x"), Some(Err(Refused::Dash)));
+        assert_eq!(
+            https.window(ix, "https://x/\u{7f}"),
+            Some(Err(Refused::Byte))
+        );
+
+        let path = w(PATH_RULE, "[\"hx\", \"{path}:{line}:{col}\"]");
+        let run = path
+            .path_window(b"/tmp/a b;$x.rs", "12", "")
+            .expect("a window");
+        assert_eq!(run.expect("built").argv(), ["hx", "/tmp/a b;$x.rs:12:1"]);
+        assert!(path.path_command(b"/tmp/a", "", "").is_none(), "no command");
+        assert!(
+            c(PATH_RULE, "[\"hx\", \"{path}\"]")
+                .path_window(b"/tmp/a", "", "")
+                .is_none(),
+            "a command builds no window"
+        );
+        assert_eq!(path.path_window(b"rel/a", "", ""), Some(Err(Refused::Host)));
+        assert_eq!(
+            path.path_window(b"/a\x01", "", ""),
+            Some(Err(Refused::Byte))
+        );
+        assert_eq!(
+            path.path_window(b"/a\xff", "", ""),
+            Some(Err(Refused::Byte))
+        );
+    }
+
+    /// **W3: a window rule is a whole rule, admitted, looked up, struck and
+    /// said as a command's is**: `"window"` with no command is refused and
+    /// said; an unknown action's sentence names every value, `window`
+    /// among them; a window rule's link is admitted as `Action::Window`, its
+    /// program is one the worker looks up and the strike asks about, a
+    /// missing one is said at read, and the load says what it does.
+    /// Perturbation: leave `Act::Window` out of `Act::runs` -- the program is
+    /// never looked up and nothing is said for a missing one.
+    #[test]
+    fn a_window_rule_is_admitted_looked_up_and_said() {
+        for name in ["tel", PATH_RULE] {
+            let (r, said) = rules(&[section(name, &[("action", "\"window\"")])]);
+            assert_eq!(r, Rules::NONE, "[link.{name}]");
+            assert!(
+                said[0].contains("has action \"window\" and no command"),
+                "{said:?}"
+            );
+            let (_, said) = rules(&[section(name, &[("action", "\"windows\"")])]);
+            let values = match name {
+                PATH_RULE => "reveal, command, window, copy or off",
+                _ => "open, command, window, copy or off",
+            };
+            assert!(said[0].contains(values), "{said:?}");
+        }
+        let (r, said) = rules(&[
+            section(
+                "tel",
+                &[
+                    ("action", "\"window\""),
+                    ("command", "[\"w3m\", \"{url}\"]"),
+                ],
+            ),
+            section(
+                PATH_RULE,
+                &[
+                    ("action", "\"window\""),
+                    ("command", "[\"hx\", \"{path}\"]"),
+                ],
+            ),
+        ]);
+        assert_eq!(
+            said.len(),
+            2,
+            "neither program is on the fake PATH: {said:?}"
+        );
+        assert!(
+            said.iter().all(|s| s.contains("is not on PATH")),
+            "{said:?}"
+        );
+        let t = admit_with(b"tel:+1555", NONE, &r).expect("admitted");
+        assert_eq!(t.action(), crate::link::Action::Window);
+        assert_eq!(r.command_programs().collect::<Vec<_>>(), ["w3m"]);
+        let path_var = Some(OsStr::new("/usr/bin:/bin"));
+        assert_eq!(r.command_found("tel", path_var), Some(Program::Missing));
+        assert_eq!(r.path_command_found(path_var), Some(Program::Missing));
+        assert_eq!(
+            r.told(),
+            [
+                "config: [link.tel] opens tel: links from program output in a new window running w3m",
+                "config: [link.path] opens a clicked printed path in a new window running hx",
+            ]
+        );
+        let (sh, said) = rules(&[section(
+            "tel",
+            &[
+                ("action", "\"window\""),
+                ("command", "[\"/bin/sh\", \"{url}\"]"),
+            ],
+        )]);
+        assert_eq!(
+            said,
+            Vec::<String>::new(),
+            "the control: found, nothing said"
+        );
+        assert_eq!(sh.command_found("tel", path_var), Some(Program::Found));
+    }
+
+    /// **W4: every value `ACTIONS` and `PATH_ACTIONS` list is one the reader
+    /// takes, and the reader takes no other**: each read alone, or beside a
+    /// command where it runs one, is a rule said nothing about, and a value
+    /// spelled once more makes none. The guide and the example are held to
+    /// the same lists (`config.rs`). Perturbation: drop `"window"` from
+    /// `ACTIONS` -- the reader takes a value the list does not name.
+    #[test]
+    fn the_action_lists_are_the_readers() {
+        let cmd = |name: &str| match name {
+            PATH_RULE => "[\"/bin/sh\", \"{path}\"]",
+            _ => "[\"/bin/sh\", \"{url}\"]",
+        };
+        for (name, values) in [("tel", &ACTIONS), (PATH_RULE, &PATH_ACTIONS)] {
+            for v in [
+                "open", "reveal", "command", "window", "copy", "off", "launch",
+            ] {
+                let quoted = format!("\"{v}\"");
+                let alone = rules(&[section(name, &[("action", &quoted)])]);
+                let with = rules(&[section(
+                    name,
+                    &[("action", &quoted), ("command", cmd(name))],
+                )]);
+                let reads = alone.1.is_empty() || with.1.is_empty();
+                assert_eq!(reads, values.contains(&v), "[link.{name}] action {v}");
+            }
+        }
     }
 }

@@ -5065,7 +5065,7 @@ fn open_from_about(url: &str) {
                 Action::Open => Ask::Open,
                 Action::Reveal => Ask::Reveal,
                 // `admit` reads no `[link.*]` rule: nothing is handed over.
-                Action::Command | Action::Copy => {
+                Action::Command | Action::Window | Action::Copy => {
                     crate::warn!("link refused ({:?}): {url}", Opened::Declined);
                     return;
                 }
@@ -14238,6 +14238,15 @@ impl Driver {
                     self.link_copied(text);
                     return;
                 }
+                if let Found::Window(_) = does {
+                    // Refused, counted and said until a later main-queue turn
+                    // can open a window; nothing runs.
+                    self.app.links.refused.bump();
+                    crate::warn!(
+                        "printed path refused for [link.path]'s window (not built on macOS yet)"
+                    );
+                    return;
+                }
                 if let Found::Command(built) = does {
                     match built {
                         Ok(cmd) => self.start_later(cmd),
@@ -15705,6 +15714,13 @@ impl Driver {
                             }
                         }
                     }
+                    // A window of yours: its argv opens a window on macOS once a
+                    // later main-queue turn can open one; until then the click is
+                    // refused, counted and said, and nothing runs.
+                    Click::Window => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link refused (window: not built on macOS yet): {shown}");
+                    }
                     // A file the worker found gone is asked about again, as a
                     // printed path's click is: revealed if it came back, said
                     // if not.
@@ -15760,7 +15776,7 @@ impl Driver {
                             }
                         }
                         // Taken by the arms above: nothing is handed over.
-                        Action::Command | Action::Copy => {
+                        Action::Command | Action::Window | Action::Copy => {
                             self.app.links.refused.bump();
                             crate::warn!("link refused (Declined): {shown}");
                         }

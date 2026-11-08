@@ -98,6 +98,9 @@ pub enum Action {
     /// Run the program a `[link.*]` rule of yours names, with no shell
     /// (`rules.rs`, `Rules::command`).
     Command,
+    /// Run the program a `[link.*]` rule of yours names, in a new baud
+    /// window of its own (`rules.rs`, `Rules::window`).
+    Window,
     /// Put the link's text on the clipboard, as a copy of a selection is,
     /// and open nothing: a `[link.*]` rule's `action = "copy"`.
     Copy,
@@ -292,6 +295,7 @@ pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Ta
                 crate::rules::Act::Open if r.scheme() == "file" => Action::Reveal,
                 crate::rules::Act::Open | crate::rules::Act::Off => Action::Open,
                 crate::rules::Act::Command(_) => Action::Command,
+                crate::rules::Act::Window(_) => Action::Window,
                 crate::rules::Act::Copy => Action::Copy,
             },
         )),
@@ -1554,6 +1558,8 @@ pub enum Click {
     Copy,
     /// A rule's command, with the link.
     Command,
+    /// A rule's window, running its program with the link.
+    Window,
     /// Its file, which the worker found gone, asked about again, as a
     /// printed path's click is: revealed if it came back
     /// (`paths::on_found`), said if not.
@@ -1574,6 +1580,7 @@ pub fn click(target: &Target<'_>, paths: &dyn PathsAt) -> Click {
     match target.action() {
         Action::Copy => Click::Copy,
         Action::Command => Click::Command,
+        Action::Window => Click::Window,
         Action::Open => Click::Open,
         Action::Reveal => match paths.gone(target) {
             Some(Gone::File(path)) => Click::Again(path),
@@ -3917,5 +3924,68 @@ mod tests {
             &NoPaths,
         );
         assert_eq!(h.look(), None);
+    }
+
+    /// What a driver does with a click on a window rule, link or printed
+    /// path, in the commit at hand.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum WindowClick {
+        /// Refused, counted in `links.refused` and said; nothing runs, and
+        /// nothing falls through to a reveal.
+        Refused,
+        /// The window is asked for: the text is the ask. Unbuilt on both
+        /// drivers until their own commits.
+        #[allow(dead_code)]
+        Opens(&'static str),
+    }
+
+    /// The text of the arm starting at `head`, through the line that closes
+    /// it at `head`'s own indent.
+    fn arm<'a>(src: &'a str, head: &str) -> &'a str {
+        let at = src.find(head).unwrap_or_else(|| panic!("no {head:?}"));
+        let line = src[..at].rfind('\n').map_or(0, |n| n + 1);
+        let close = format!("\n{}}}\n", &src[line..at]);
+        let end = src[at..]
+            .find(&close)
+            .unwrap_or_else(|| panic!("{head:?} never closes"));
+        &src[at..at + end]
+    }
+
+    /// **A click on a window rule is refused on a driver until that
+    /// driver's own commit opens the window**: each driver's link arm and
+    /// printed-path arm either refuse, count and say, with no reveal and no
+    /// window, or ask for the window. Named breaks: let a printed path's
+    /// arm fall through to a reveal; leave the count out.
+    #[test]
+    fn a_window_click_is_refused_until_its_driver_opens_it() {
+        let drivers: [(&str, &str, WindowClick); 2] = [
+            ("app.rs", include_str!("app.rs"), WindowClick::Refused),
+            ("linux.rs", include_str!("linux.rs"), WindowClick::Refused),
+        ];
+        for (name, src, does) in drivers {
+            for head in ["Click::Window => {", "if let Found::Window("] {
+                let body = arm(src, head);
+                match does {
+                    WindowClick::Refused => {
+                        assert!(
+                            body.contains("links.refused.bump()"),
+                            "{name} {head}: uncounted"
+                        );
+                        assert!(body.contains("warn!("), "{name} {head}: unsaid");
+                        // A printed path's arm is an `if let`: without its
+                        // own return the click goes on to the reveal below.
+                        let ends = head.starts_with("if let") && !body.contains("return;");
+                        assert!(!ends, "{name} {head}: falls through");
+                        for opens in ["Reveal", "OpenWindow", "Later::Window", "open_window("] {
+                            assert!(!body.contains(opens), "{name} {head}: {opens}");
+                        }
+                    }
+                    WindowClick::Opens(ask) => {
+                        assert!(body.contains(ask), "{name} {head}: no {ask}");
+                        assert!(!body.contains("Reveal"), "{name} {head}: a reveal");
+                    }
+                }
+            }
+        }
     }
 }
