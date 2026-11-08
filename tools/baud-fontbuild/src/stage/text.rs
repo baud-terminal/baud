@@ -10,7 +10,7 @@
 //! style Regular
 //! head.modified 2398377600
 //! os2.ulUnicodeRange1 0xa00228ff
-//! name 1 3 1 0x0409 "Proto Hebrew Mono C"
+//! name 1 3 1 0x0409 "baud Mono"
 //! glyph uni05D0 advance 600 class 1 unicode 05D0
 //! contour 52,0 52,98,off ...
 //! instructions 00b0

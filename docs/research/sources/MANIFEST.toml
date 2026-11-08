@@ -30811,7 +30811,7 @@ group  = "J"
 
 [sources.ms-opentype-name]
 key    = "ms-opentype-name"
-title  = "name -- Naming Table: the record layout, nameID 1 (Font Family name) and 16 (Typographic Family name, 'If name ID 16 is absent, then name ID 1 is considered to be the typographic family name'), the platform and encoding IDs, 'Strings for the Unicode platform must be encoded in UTF-16BE'"
+title  = "name -- Naming Table: the record layout, nameID 1 (Font Family name), 4 (Full font name, 'generally a combination of name IDs 1 and 2', 'Regular' omitted only for a non-regular font whose name ID 2 is 'Regular') and 16 (Typographic Family name, 'If name ID 16 is absent, then name ID 1 is considered to be the typographic family name'), the platform and encoding IDs, 'Strings for the Unicode platform must be encoded in UTF-16BE'"
 author = "Microsoft Typography"
 year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
@@ -30825,6 +30825,8 @@ text_bytes  = 31693
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b121) for OSC 50's family names. Read, not copied:
+# Read again 2026-11-07 for nameID 4, the embedded font's full names; its article text
+# still hashed as pinned.
 # a vendor HTML page whose spec text is a fraction of its chrome.
 # Checked by its article text, hashed 2026-11-01; `cargo xtask page-text` reproduces it. Its
 # gitcommit meta names its revision as a commit of MicrosoftDocs/typography, which answers 404, and the page's updated_at,

@@ -125,10 +125,10 @@ mod tests {
                 .expect("a head table")
         };
         for (e, len, hash, style) in [
-            (REGULAR, 604_368, 0x165b_1e3c_403a_ba3e_u64, 0),
-            (BOLD, 611_108, 0xd326_a321_3ed7_0355, 1),
-            (ITALIC, 608_032, 0xf1c0_dff1_6c51_c85e, 2),
-            (BOLD_ITALIC, 613_952, 0x8743_ef7f_78ef_3b78, 3),
+            (REGULAR, 604_228, 0x63ae_c7c3_24cf_ba25_u64, 0),
+            (BOLD, 610_952, 0xd7a3_22b3_aed8_3787, 1),
+            (ITALIC, 607_852, 0x31c5_5a61_151f_746f, 2),
+            (BOLD_ITALIC, 613_756, 0xdd4a_a8a6_781c_5a26, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
             (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
@@ -162,10 +162,10 @@ mod tests {
         // Name, which binds the built font as a modified version.
         let manifest = std::fs::read_to_string(format!("{dir}/built/MANIFEST")).unwrap();
         for out in [
-            "output 69b154115da5ee894ac6aab6a531875cbe17d31a474563fc8be4e830e78a7a6f baud-app/fonts/built/Regular.ttf",
-            "output ce3630a8c2f25c2879e4dd102e9aa9527f6583333266531a27de5b83c757db4c baud-app/fonts/built/Bold.ttf",
-            "output 2c528a8d216e2b14eecc231fea857e7cca623d413de0bb384ae6040af702f2db baud-app/fonts/built/Italic.ttf",
-            "output 8a5b9de6ebd2a772f02527c107d66ae0691233ceef1a74e93e97608d1957d77e baud-app/fonts/built/BoldItalic.ttf",
+            "output 25856f2405fc07b469c39cc3ebd37d2912e4cb90e6a60c595a26094798f622e4 baud-app/fonts/built/Regular.ttf",
+            "output ce20774ef74a685ea2a5165d3102315c315d61a862810e929cea4026eb650d77 baud-app/fonts/built/Bold.ttf",
+            "output 5f1bcc0e3207c08dc2150f0d19aa83ff6a9a60181dc70b9307b80dfb41efb0cd baud-app/fonts/built/Italic.ttf",
+            "output c2ce797363915571617a0fb1408b430ee53c02c8f0c775e9f968fadd6b37200b baud-app/fonts/built/BoldItalic.ttf",
         ] {
             assert!(manifest.contains(out), "MANIFEST: {out}");
         }
@@ -227,6 +227,88 @@ mod tests {
         let regular = family(REGULAR).expect("a family name");
         for e in [BOLD, ITALIC, BOLD_ITALIC] {
             assert_eq!(family(e).as_deref(), Some(regular.as_str()), "{}", e.name);
+        }
+    }
+
+    /// Every record of a face's `name` table, `(platform, nameID, text)`,
+    /// read here from the table directory rather than through baud-font:
+    /// platforms 0 and 3 decoded as UTF-16BE, platform 1 byte for byte
+    /// (`[[source: ms-opentype-name]]`).
+    fn name_records(b: &[u8]) -> Vec<(u16, u16, String)> {
+        let be16 = |at: usize| u16::from_be_bytes([b[at], b[at + 1]]);
+        let be32 = |at: usize| u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+        let table = (0..usize::from(be16(4)))
+            .map(|i| 12 + 16 * i)
+            .find(|&rec| &b[rec..rec + 4] == b"name")
+            .map(|rec| usize::try_from(be32(rec + 8)).unwrap())
+            .expect("a name table");
+        let strings = table + usize::from(be16(table + 4));
+        (0..usize::from(be16(table + 2)))
+            .map(|i| {
+                let rec = table + 6 + 12 * i;
+                let (platform, id) = (be16(rec), be16(rec + 6));
+                let at = strings + usize::from(be16(rec + 10));
+                let raw = &b[at..at + usize::from(be16(rec + 8))];
+                let text = match platform {
+                    0 | 3 => String::from_utf16(
+                        &raw.as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|p| u16::from_be_bytes(*p))
+                            .collect::<Vec<_>>(),
+                    )
+                    .expect("UTF-16BE"),
+                    _ => raw.iter().map(|&c| char::from(c)).collect(),
+                };
+                (platform, id, text)
+            })
+            .collect()
+    }
+
+    /// **No shipped face is named for a prototype**: no record of any
+    /// embedded face's `name` table, in any platform or language, carries
+    /// "Proto", the built font's name before it was baud Mono; and no
+    /// name the four built faces answer to (nameIDs 1, 3, 4, 6, 16, 17)
+    /// carries "Cascadia", its Reserved Font Name (OFL 1.1, condition 3).
+    /// The control: the same reader finds JetBrains' trademark notice in
+    /// each built face's nameID 7, so a decode that read nothing fails
+    /// here rather than passing. Every face the binary carries is in the
+    /// list: as many as this file has `include_bytes!` calls.
+    #[test]
+    fn no_shipped_face_is_named_for_a_prototype() {
+        let all = [REGULAR, BOLD, ITALIC, BOLD_ITALIC, SYMBOLS, STIX];
+        let source = include_str!("embedded.rs");
+        let includes = source.matches(concat!("include_bytes", "!(")).count();
+        assert_eq!(includes, all.len(), "every embedded face is checked");
+        for e in all {
+            let names = name_records(e.bytes);
+            assert!(!names.is_empty(), "{}", e.name);
+            for (platform, id, text) in &names {
+                assert!(
+                    !text.contains("Proto"),
+                    "{}: platform {platform} nameID {id}: {text:?}",
+                    e.name
+                );
+            }
+        }
+        for e in [REGULAR, BOLD, ITALIC, BOLD_ITALIC] {
+            let names = name_records(e.bytes);
+            for (platform, id, text) in &names {
+                if [1, 3, 4, 6, 16, 17].contains(id) {
+                    assert!(
+                        !text.contains("Cascadia"),
+                        "{}: platform {platform} nameID {id}: {text:?}",
+                        e.name
+                    );
+                }
+            }
+            assert!(
+                names.iter().any(|(p, id, t)| *p == 3
+                    && *id == 7
+                    && t.contains("JetBrains Mono is a trademark")),
+                "the control: {}'s nameID 7",
+                e.name
+            );
         }
     }
 

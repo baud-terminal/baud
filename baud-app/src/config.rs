@@ -3853,7 +3853,7 @@ mod named {
         use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, STIX, SYMBOLS};
         use baud_render::{FaceRole, FaceStyle};
         let none = Catalogue::scan(&[]);
-        let mut c = read("fonts = [\"proto HEBREW mono c\", \"Symbols Nerd Font Mono\"]\n");
+        let mut c = read("fonts = [\"BAUD mono\", \"Symbols Nerd Font Mono\"]\n");
         let said = c.resolve(&none);
         assert!(said.is_empty(), "{said:?}");
         assert_eq!(c.stack, StackFrom::Configured);

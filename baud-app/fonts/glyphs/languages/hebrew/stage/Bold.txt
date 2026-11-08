@@ -11,10 +11,10 @@ os2.ulUnicodeRange1 0xa0040aff
 os2.ulUnicodeRange2 0x5200f9fb
 os2.ulCodePageRange1 0x200001bf
 name 0 3 1 0x0409 "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) Hebrew glyphs derived from Cascadia Mono (GitHub release v2407.24): Copyright (c) 2019 - Present, Microsoft Corporation, with Reserved Font Name Cascadia Code (the source file states: (c) 2021 Microsoft Corporation). Modified 2026 (re-weighted, re-fitted, points redrawn) as a prototype."
-name 1 3 1 0x0409 "Proto Hebrew Mono C"
-name 3 3 1 0x0409 "ProtoHebrewMonoC-Bold;prototype-bi-bold2-A-L2-Bold"
-name 4 3 1 0x0409 "Proto Hebrew Mono C Bold"
-name 6 3 1 0x0409 "ProtoHebrewMonoC-Bold"
+name 1 3 1 0x0409 "baud Mono"
+name 3 3 1 0x0409 "baudMono-Bold"
+name 4 3 1 0x0409 "baud Mono Bold"
+name 6 3 1 0x0409 "baudMono-Bold"
 name 7 3 1 0x0409 "JetBrains Mono is a trademark of JetBrains s.r.o. Cascadia Code is a trademark of the Microsoft group of companies."
 glyph heb_05D0 advance 600 class 1 unicode 05D0
 contour 194,368 194,369 194,368,off 193,368 193,369 192,368,off 192,368 192,369 190,363,off 189,357 188,353,off 187,348 182,315,off 182,255 182,114 257,114 257,0 62,0 62,128 62,193,off 74,306,off 109,393,off 143,419 146,421,off 149,423 147,426 148,427,off 149,428 147,431 148,432,off 149,432 147,436 148,436,off 149,437 147,440 148,441,off 149,442 147,445 148,446,off 149,446 147,450 148,450,off 149,451 147,454 148,455,off 149,456 147,459 148,460,off 149,460 54,630 192,630 362,328 363,328 363,328 364,328 364,328 365,328 365,328 366,328 366,328 367,328 368,328 368,328 369,328 369,328 370,328 370,328,off 370,328 371,328 385,341,off 392,365 401,395,off 403,446 404,462,off 405,479 405,479 405,482,off 405,484 405,484 405,486,off 405,489 405,489 405,491,off 405,493 405,493 405,496,off 405,498 405,498 405,500,off 405,503 405,503 405,505,off 405,507 405,507 405,510,off 405,512 405,512 405,514,off 405,516 339,516 339,630 532,630 532,603,off 531,573 529,523,off 527,488 523,421,off 486,332,off 455,306 435,288,off 411,278 413,274 412,274,off 411,273 413,269 412,269,off 411,268 413,265 412,264,off 411,264 413,260 412,260,off 411,259 413,256 412,255,off 411,255 413,251 412,250,off 411,250 413,246 412,246,off 411,245 413,242 412,241,off 411,241 547,0 407,0 206,358 200,369 200,368,off 200,368 199,369 199,368,off 199,368 198,369 198,368,off 198,368 197,369 197,368,off 197,368 196,369 196,368,off 196,368 195,369 195,368,off

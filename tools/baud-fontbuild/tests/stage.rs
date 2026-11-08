@@ -200,7 +200,7 @@ fn a_dropped_code_point_is_named_in_cmap() {
 
 #[test]
 fn a_changed_name_record_is_named() {
-    let d = perturbed("name 1 3 1 ", |l| l.replace("Proto", "Proto2"));
+    let d = perturbed("name 1 3 1 ", |l| l.replace("baud Mono", "baud Mono2"));
     names(&d, "name", "");
 }
 

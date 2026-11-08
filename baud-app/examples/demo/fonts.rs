@@ -78,7 +78,7 @@ pub const PINNED: [Pinned; 5] = [
 ];
 
 /// baud's own faces, the files the binary embeds (`baud-app/src/embedded.rs`):
-/// the text face, which the config names `Proto Hebrew Mono C`, the icon
+/// the text face, which the config names `baud Mono`, the icon
 /// face, and STIX Two Math, which a configured stack keeps last.
 pub const REGULAR: &[u8] = include_bytes!("../../fonts/built/Regular.ttf");
 pub const SYMBOLS: &[u8] =
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn baud_s_own_faces_draw_the_readme_and_a_cjk_character_is_a_gap() {
         let own = [
-            ("Proto Hebrew Mono C", REGULAR),
+            ("baud Mono", REGULAR),
             ("Symbols Nerd Font Mono", SYMBOLS),
             ("STIX Two Math", STIX),
         ];

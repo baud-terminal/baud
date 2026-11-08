@@ -20627,25 +20627,25 @@ mod deferred_tests {
     }
 
     /// **Naming the face in force replaces a face that waits**: with
-    /// Proto Hebrew Mono C leading at 13 points and a frame in flight,
-    /// `OSC 50 ; STIX Two Math` and then `OSC 50 ; Proto Hebrew Mono C`
-    /// leave Proto leading, and so does `#+1 Proto Hebrew Mono C`, at 14.
+    /// baud Mono leading at 13 points and a frame in flight,
+    /// `OSC 50 ; STIX Two Math` and then `OSC 50 ; baud Mono`
+    /// leave baud Mono leading, and so does `#+1 baud Mono`, at 14.
     /// Performed, the face in force is dropped and only the size changes.
     #[test]
     fn naming_the_face_in_force_replaces_a_waiting_one() {
-        let (stix, proto) = (crate::fonts::Slot::TEST, crate::fonts::Slot::FIRST);
-        let leads = |f| f == proto;
+        let (stix, mono) = (crate::fonts::Slot::TEST, crate::fonts::Slot::FIRST);
+        let leads = |f| f == mono;
         let wait = Some(Reshape::Wait);
         let stix_waits = Deferred::Font(Some(stix), 13.0);
         for to in [13.0, 14.0] {
-            let got = refont_step(stix_waits, wait, Some(proto), to, 13.0, leads);
+            let got = refont_step(stix_waits, wait, Some(mono), to, 13.0, leads);
             assert!(
-                matches!(got, Refont::Wait(Deferred::Font(Some(f), p)) if f == proto && p == to),
+                matches!(got, Refont::Wait(Deferred::Font(Some(f), p)) if f == mono && p == to),
                 "at {to}"
             );
         }
         let now = Some(Reshape::Now);
-        let done = |to| refont_step(Deferred::Nothing, now, Some(proto), to, 13.0, leads);
+        let done = |to| refont_step(Deferred::Nothing, now, Some(mono), to, 13.0, leads);
         assert!(matches!(done(13.0), Refont::Nothing));
         assert!(matches!(done(14.0), Refont::Now(None)));
         assert!(matches!(

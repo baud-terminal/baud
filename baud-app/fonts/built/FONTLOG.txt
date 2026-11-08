@@ -47,8 +47,9 @@ The Hebrew stage's Regular and Bold are the gated final3 files (note AC 4b; ea07
 conformance fixes in the CHANGELOG and, since 2026-10-24, one redrawn letter, dalet,
 since 2026-10-25 Bold's zayin with square head ends (CHANGELOG), since 2026-10-25
 the glyphs baud draws itself (BAUD'S OWN GLYPHS), since 2026-10-26 meteg kept in
-its cell (CHANGELOG), and since 2026-10-28 zayin's head narrowed from the left
-(CHANGELOG), and nothing else.
+its cell (CHANGELOG), since 2026-10-28 zayin's head narrowed from the left
+(CHANGELOG), and since 2026-11-07 nameIDs 1, 3, 4 and 6 in the family's name, baud
+Mono (CHANGELOG), and nothing else.
 Before the dalet: take the 6-byte hebr script record out of GSUB and of GPOS and both
 tables were final3's byte for byte, and every other table but name (nameID 7) and head
 (its checksum) was final3's. The dalet changes that glyph's outline, its anchors in
@@ -61,8 +62,10 @@ The Hebrew stage is now merged from the stage sources by tools/baud-fontbuild, t
 Noto instances are baud-font's own partial bake, and the Devanagari merge is
 tools/baud-fontbuild's, whose writers lay the tables out in another order than
 fontTools. The four files are those bytes: each is held equal to the one above, by
-`baud-fontbuild compare`, in every glyph, mapping, metric, field and lookup, and
-differs from it in the bytes of cmap, GDEF, GPOS, GSUB, gvar, HVAR and head's checksum.
+`baud-fontbuild compare`, in every glyph, mapping, metric, field and lookup but
+nameIDs 1, 3, 4 and 6, which carry the family's name since 2026-11-07 (CHANGELOG), and
+differs from it in the bytes of cmap, GDEF, GPOS, GSUB, gvar, HVAR, name and head's
+checksum.
 The build pins each stage's, each instance's and each file's sha256, and each Noto
 instance compared equal to fontTools' instance of the same file when its hash was
 pinned; MANIFEST names both by sha256. Running scripts/build-fonts.sh --check rebuilds
@@ -111,9 +114,14 @@ fontTools 4.63.0; THE DEVANAGARI says what the merge adds to it and changes in i
 - OS/2 sets the Hebrew Unicode range bit (ulUnicodeRange1 bit 11), the Alphabetic
   Presentation Forms range bit (bit 62, ulUnicodeRange2 bit 30) and the Hebrew code
   page bit (ulCodePageRange1 bit 5).
-- In the name table, the family is "Proto Hebrew Mono C", and the same in Italic.ttf
-  and BoldItalic.ttf (below). nameID 3 carries the
-  prototype tag. nameID 0 carries JetBrains' copyright line followed by Microsoft's,
+- In the name table, the family (nameID 1) is "baud Mono", and the same in Italic.ttf
+  and BoldItalic.ttf (below). The full names (nameID 4) are "baud Mono Regular",
+  "baud Mono Bold", "baud Mono Italic" and "baud Mono Bold Italic": nameIDs 1 and 2
+  together, as the OpenType name table describes nameID 4 ("generally a combination
+  of name IDs 1 and 2"; it leaves out "Regular" only for a font that is not
+  typographically regular). The PostScript names (nameID 6), which nameID 3 repeats,
+  are baudMono-Regular, baudMono-Bold, baudMono-Italic and baudMono-BoldItalic.
+  nameID 0 carries JetBrains' copyright line followed by Microsoft's,
   with the Reserved Font Name Cascadia Code. nameID 7 carries both trademark notices,
   each as its source font has it: "JetBrains Mono is a trademark of JetBrains s.r.o.
   Cascadia Code is a trademark of the Microsoft group of companies." (OFL-FAQ
@@ -121,8 +129,7 @@ fontTools 4.63.0; THE DEVANAGARI says what the merge adds to it and changes in i
   nameIDs 8, 9, 11 and 12 are still JetBrains' manufacturer, designers and URLs, and
   nameID 13 is still JetBrains Mono's OFL sentence. baud draws nothing from the name
   table; since 2026-10-20 it reads the family to answer a program that asks which
-  font is in use (xterm's OSC 50), and the answer is this family. The family name
-  is an open call; see below.
+  font is in use (xterm's OSC 50), and the answer is this family.
 
 
 THE DEVANAGARI
@@ -242,7 +249,7 @@ Stems keep their horizontal width, as JetBrains Mono's italic keeps them.
 Each merges into JetBrains Mono's own Italic or Bold Italic, under this family's name:
 its family and style records are those the stock italics renamed into the family
 carried, nameIDs 0 and 7 are as in Regular.ttf and Bold.ttf, and nameID 3 is this
-style's own build tag (WHAT CHANGED).
+style's PostScript name (WHAT CHANGED).
 
 
 BAUD'S OWN GLYPHS
@@ -389,8 +396,8 @@ INTERIM PICKS
   premise. Weighed again with both gaps and the standards' text, a departure
   from the standard or the licence is a defect, so both were fixed now
   (CHANGELOG). The rest of the name table
-  (the prototype family name, nameID 3's tag) stays until decision 11, and is renamed
-  once then.
+  (the prototype family name, nameID 3's tag) stayed until decision 11, and was
+  renamed once then: the family is "baud Mono" (CHANGELOG).
 - Release: settled on 2026-11-03. The four styles ship under the OFL 1.1 (the
   licence question below, answered).
 - Configured stacks: INCLUDE_REGULAR_FOLLOW, interim. The decision is that a configured font list gets this Regular appended after
@@ -446,11 +453,12 @@ each with its licence and source. baud-font/tests/licences.rs fails if a font in
 tree is neither baud's own nor in a row of docs/research/third-party.toml with its
 licence beside it.
 
-Name. Decision 11 in note AC is the family's name. It may not use the Reserved Font
-Name Cascadia Code, nor either of its words (SIL's OFL-FAQ 1.1-update7, Q5.4: "You may
-not use individual words from the Reserved Font Names"), and it should not be
-"JetBrains Mono", which is JetBrains' trademark. The prototype name and JetBrains'
-nameIDs 8, 9, 11 and 12 stay until then; nameID 7 keeps both trademark notices.
+Name. Answered (decision 11 in note AC): the family is "baud Mono". A name here may
+not use the Reserved Font Name Cascadia Code, nor either of its words (SIL's OFL-FAQ
+1.1-update7, Q5.4: "You may not use individual words from the Reserved Font Names"),
+and it should not be "JetBrains Mono", which is JetBrains' trademark; "baud Mono" is
+neither. JetBrains' nameIDs 8, 9, 11 and 12 stay; nameID 7 keeps both trademark
+notices.
 
 Shear or optical italic. Answered: the italics are optically corrected as JetBrains
 Mono's italic corrects its rounds (THE ITALICS), the reading taken of the request for
@@ -699,3 +707,11 @@ CHANGELOG
   HVAR and head's checksum is that file's byte for byte. Stock JetBrains Mono's GSUB
   lookups stay its bytes. The built-face lines of the shape fixtures change only in
   their file digest (6,574 lines in eleven files). OTS 9.3.0 passes all four.
+2026-11-07 (i-am-logger, baud): the family is now "baud Mono", in all four files.
+  nameID 1 is "baud Mono"; nameID 4 is "baud Mono Regular", "baud Mono Bold", "baud
+  Mono Italic" and "baud Mono Bold Italic"; nameIDs 3 and 6 are baudMono-Regular,
+  baudMono-Bold, baudMono-Italic and baudMono-BoldItalic, and nameID 3 carries no
+  prototype tag. nameIDs 0, 7, 13 and 14 are unchanged. Every table but name is the
+  file before's byte for byte, head but for its checkSumAdjustment. The built-face
+  lines of the shape fixtures change only in their file digest (6,574 lines in
+  eleven files).

@@ -955,7 +955,7 @@ fn fetch(p: &fonts::Pinned, cache: &Path) -> Result<PathBuf, String> {
 /// four pinned faces, STIX Two Math.
 fn stack(faces: &[Vec<u8>]) -> Vec<(&'static str, &[u8])> {
     let mut stack: Vec<(&str, &[u8])> = vec![
-        ("Proto Hebrew Mono C", fonts::REGULAR),
+        ("baud Mono", fonts::REGULAR),
         ("Symbols Nerd Font Mono", fonts::SYMBOLS),
     ];
     stack.extend(

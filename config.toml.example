@@ -889,12 +889,12 @@
 # Whether a program can change the font (xterm's OSC 50): name one of the
 # faces baud has loaded -- the embedded font or a font this file lists
 # above -- by its family, full or PostScript name, as `fonts` does (the
-# embedded font's family is "Proto Hebrew Mono C" for now, its bold
-# "ProtoHebrewMonoC-Bold"), or make the text bigger or smaller a step at
-# a time, within 6 to 72 points (on Linux, which has no size keys, the
-# step and the bounds are in pixels of the configured size). "on" by
-# default; "off" refuses every change. A program can ask which font is in
-# use either way, and gets back the name it set.
+# embedded font's family is "baud Mono", its bold "baudMono-Bold"), or
+# make the text bigger or smaller a step at a time, within 6 to 72
+# points (on Linux, which has no size keys, the step and the bounds are in
+# pixels of the configured size). "on" by default; "off" refuses every
+# change. A program can ask which font is in use either way, and gets back
+# the name it set.
 # [font]
 # changes = "on"
 

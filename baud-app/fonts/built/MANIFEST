@@ -2,19 +2,19 @@
 # Written by scripts/build-fonts.sh. 'scripts/build-fonts.sh --check' rebuilds and compares
 # every line that does not start with '#'; '#' lines are the building machine's facts.
 # system Darwin arm64
-# rustc rustc 1.96.0-nightly (02c7f9bec 2026-04-10)
+# rustc rustc 1.101.0-nightly (249c1e4e3 2026-11-05)
 epoch 315532800, stamped into head.modified as SOURCE_DATE_EPOCH was
 step stage baud-fontbuild stage JetBrainsMono-<style>.ttf hebrew/stage/<style>.txt <style>-hebrew.ttf, once per style
 step instance-noto baud-fontbuild instance NotoSansDevanagari[wdth,wght].ttf 400 315532800 noto400.ttf; baud-fontbuild instance NotoSansDevanagari[wdth,wght].ttf 700 315532800 noto700.ttf
 step merge baud-fontbuild merge <style>-hebrew.ttf noto<weight>.ttf <style> 315532800 <style>.ttf, once per style (Regular, Italic: noto400; Bold, Bold Italic: noto700)
 step cmp built/<style>.ttf <style>.ttf, once per style (each must be the same bytes)
 input eba0142e50ef608bccdea8ba6dfa0438c16d4e94cd40eaaa60d4f16101ad7cf9 baud-app/fonts/glyphs/languages/devanagari/SOURCE
-input e398ca11984f83d9ffd80c2455ec4c2053d17e317db57c53bddcf54045dc853f baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt
-input 698b0432595b0f675afd556baf038b8a6acee7813d98b0e9d5bcb20f9c43c6fc baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt
+input a2e19fa9192f8f15af8244d1cb1402bf2e6cc1a2787081b24cc11b49fcb8ce49 baud-app/fonts/glyphs/languages/hebrew/stage/Bold.txt
+input e4a82b43dbfa8078985a6503661c82cfee8f722338ae99508301eef57e887af2 baud-app/fonts/glyphs/languages/hebrew/stage/BoldItalic.txt
 input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/stage/CascadiaMono-OFL.txt
-input 271744c8c38d13bee1d6127c51a9b48c7a4231e0c28f7ab98b2ccdcfd570dc07 baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt
+input 8a25fe32e92909bf0cd5b035d7104424d3afa7122cc5f541e14c882d555d4930 baud-app/fonts/glyphs/languages/hebrew/stage/Italic.txt
 input 30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad baud-app/fonts/glyphs/languages/hebrew/stage/JetBrainsMono-OFL.txt
-input 48af9a8e51554cd9741d1479f4928bf3c02ad4d5064d6c51a6b7c906f62ced4f baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt
+input 45c3761b7ecba42a1b6741a7fad21a72706c7ce4ecc87624f36163892bdedd08 baud-app/fonts/glyphs/languages/hebrew/stage/Regular.txt
 input 09dbb6fe51fb7d88a7886646edd605a5080a312225aede85579ff744e152cff6 baud-font/src/bake.rs
 input 4ae5387f14c84e06064b5a3416a0d43a36530d51052a7cebe3a32a15484b9d9b baud-font/src/bake/partial.rs
 input 374228bbd2eaed8e3387d43fc5d55afe5f64bfda450b2d0b5234fc3eb34146ff tools/Cargo.lock
@@ -32,7 +32,7 @@ input 25b5695bfb16c03f767750d862edb9d56a04ec40b56ae7f6eab30edb7da0d43e tools/bau
 input fdb6e35ddf9e2daecd26814cf9eedc13e10eca6cf5775e0070bc86e614aee781 tools/baud-fontbuild/src/stage/build.rs
 input ec699af8923e5554f6dfa75ad41bd6e4d8813c07bf31f6f13ce072db3e578324 tools/baud-fontbuild/src/stage/extract.rs
 input ac8a2c1ddb1868e6f95c652fe2d6a28cbb5b4589f3472840cd565cd4e1ea0a3a tools/baud-fontbuild/src/stage/mod.rs
-input 4e043f3dc5b636b82c68477c8a36301bc8b854ac867c65aa76fc49669ffc2bb8 tools/baud-fontbuild/src/stage/text.rs
+input adc2e7bbfb294f466697d44864f24a3d23b86bab5e0b919173c198a49313b15e tools/baud-fontbuild/src/stage/text.rs
 input 2a54fa30ef207cf3583a9012470ac00589f790d70dbfaa027c35e42e90861caf tools/baud-fontbuild/src/var.rs
 fetched 9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7 https://raw.githubusercontent.com/notofonts/notofonts.github.io/noto-monthly-release-2026.10.01/fonts/NotoSansDevanagari/unhinted/variable-ttf/NotoSansDevanagari%5Bwdth%2Cwght%5D.ttf (cached outside the repository; not committed)
 input a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
@@ -43,11 +43,11 @@ intermediate e2569116e656d46710fe1133548fcbcda9decdc94ec5d3c3219213a046d13da7 no
 oracle 92cde87d462bf2a8a9e4cccb51c02c9aeaf6ef4e99db06af0ebc0e7c5e82f64b fontTools 4.63.0's noto400.ttf, which noto400.ttf compared equal to when it was pinned (not committed)
 intermediate 7eea4776889a270ad2cdf4afa89b169ab3b513990abb838fc702cb03aa6052bb noto700.ttf (Noto Sans Devanagari at wght 700, its width axis kept; not committed)
 oracle f3e9be2b943be49cc1683f30456b9dba068422a917a4918677e8cb0dc652cdc4 fontTools 4.63.0's noto700.ttf, which noto700.ttf compared equal to when it was pinned (not committed)
-intermediate 6a0971d77c2309368c5c3bd9f5319065582d47d88090af60f6e016a361485fe3 Regular-hebrew.ttf (the Hebrew stage; not committed)
-intermediate 764c571091997e2a024df6dfc3df4c2aa5f18d5875d4c7e71a9a3b65858bc40f Bold-hebrew.ttf (the Hebrew stage; not committed)
-intermediate 2bbd7e0ca1b26ecc5da38b6f82a8acd428dbfe4af70d1bf4dbf809893bffb123 Italic-hebrew.ttf (the Hebrew stage; not committed)
-intermediate dbeee069e7552ff3dd611aca816c02a7ec02f6768da1bba0eb457d58d38da1ae BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
-output 69b154115da5ee894ac6aab6a531875cbe17d31a474563fc8be4e830e78a7a6f baud-app/fonts/built/Regular.ttf
-output ce3630a8c2f25c2879e4dd102e9aa9527f6583333266531a27de5b83c757db4c baud-app/fonts/built/Bold.ttf
-output 2c528a8d216e2b14eecc231fea857e7cca623d413de0bb384ae6040af702f2db baud-app/fonts/built/Italic.ttf
-output 8a5b9de6ebd2a772f02527c107d66ae0691233ceef1a74e93e97608d1957d77e baud-app/fonts/built/BoldItalic.ttf
+intermediate 171d0c179a18ec98d9aa7205162fdcf187220135bf9bfe9240b1ec69899f6da3 Regular-hebrew.ttf (the Hebrew stage; not committed)
+intermediate a16f22743b13785aef4d325d6fdcb984e0e51ef43dfbabbfd07bbba43ae37fa3 Bold-hebrew.ttf (the Hebrew stage; not committed)
+intermediate c141a5e379548f59a938db9819c82d32aa03184f06cbf418dfe34d0c71b056b8 Italic-hebrew.ttf (the Hebrew stage; not committed)
+intermediate 900240529d0cc10a0a190499af943ab0beceb3f01c6709a018dfe50233be9a99 BoldItalic-hebrew.ttf (the Hebrew stage; not committed)
+output 25856f2405fc07b469c39cc3ebd37d2912e4cb90e6a60c595a26094798f622e4 baud-app/fonts/built/Regular.ttf
+output ce20774ef74a685ea2a5165d3102315c315d61a862810e929cea4026eb650d77 baud-app/fonts/built/Bold.ttf
+output 5f1bcc0e3207c08dc2150f0d19aa83ff6a9a60181dc70b9307b80dfb41efb0cd baud-app/fonts/built/Italic.ttf
+output c2ce797363915571617a0fb1408b430ee53c02c8f0c775e9f968fadd6b37200b baud-app/fonts/built/BoldItalic.ttf

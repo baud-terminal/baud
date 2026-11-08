@@ -147,8 +147,8 @@ pub const README: &str = include_str!("../../../README.md");
 /// finale's `sed` finds that word nowhere else either.
 ///
 /// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
-///   fonts: baud's own by family name on the list's first line, `Proto
-///   Hebrew Mono C` and `Symbols Nerd Font Mono`, then the pinned open
+///   fonts: baud's own by family name on the list's first line, `baud Mono`
+///   and `Symbols Nerd Font Mono`, then the pinned open
 ///   faces one a line, by paths beside this file, `fonts/<file>`, so no
 ///   path of the machine is on screen.
 /// - `[images] advertise_sixel = true`, so the tour's `kitten icat` is
@@ -181,7 +181,7 @@ pub fn config(faces: &[&str]) -> String {
         .map(|f| format!("  \"fonts/{f}\",\n"))
         .collect();
     format!(
-        "font_size = {POINTS}\nfonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\",\n\
+        "font_size = {POINTS}\nfonts = [\"baud Mono\", \"Symbols Nerd Font Mono\",\n\
          {list}]\n{TABLES}"
     )
 }
@@ -403,7 +403,7 @@ mod tests {
         let c = config(&faces);
         assert!(
             c.starts_with(
-                "font_size = 14\nfonts = [\"Proto Hebrew Mono C\", \"Symbols Nerd Font Mono\",\n  \
+                "font_size = 14\nfonts = [\"baud Mono\", \"Symbols Nerd Font Mono\",\n  \
                  \"fonts/NotoColorEmoji.ttf\",\n"
             ),
             "{c}"

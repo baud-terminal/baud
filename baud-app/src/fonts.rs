@@ -14,8 +14,7 @@
 //! face found by its PostScript or full name may be a styled one, the
 //! embedded Bold among them; it leads the chain as the regular face, as a
 //! config's face named alone does. The embedded Regular's table names it
-//! "Proto Hebrew Mono C", the built font's name while its family name is
-//! open (`fonts/built/FONTLOG.txt`). The face named leads the chain, the
+//! "baud Mono" (`fonts/built/FONTLOG.txt`). The face named leads the chain, the
 //! rest follow in the config's order, and the other styled faces of its
 //! family come with it; the embedded faces stay behind it as they stay
 //! behind a configured stack. A name baud has not loaded leaves the font as
@@ -467,7 +466,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
         );
-        let names: [&[u8]; 2] = [b"ProtoHebrewMonoC-Bold", b"Proto Hebrew Mono C Bold"];
+        let names: [&[u8]; 2] = [b"baudMono-Bold", b"baud Mono Bold"];
         let f = fonts(&format!("font_fallback = false\nfonts = [\"{fira}\"]\n"));
         assert!(
             f.specs.iter().any(|s| s.1 == FaceRole::Badge),
@@ -515,15 +514,13 @@ mod tests {
     /// own face**, in any ASCII case; a family baud has not loaded does
     /// not resolve, and neither does "JetBrains Mono", which no loaded
     /// face's nameID 1, 4, 6 or 16 carries. The four embedded text faces
-    /// are the built font, whose `name` table says "Proto Hebrew Mono C"
+    /// are the built font, whose `name` table says "baud Mono"
     /// (`fonts/built/FONTLOG.txt`), the stock Italic and Bold Italic too.
     #[test]
     fn the_default_stack_names_its_families() {
         let f = fonts("");
-        assert_eq!(f.family(), "Proto Hebrew Mono C");
-        let jb = f
-            .resolve(b"proto hebrew mono c")
-            .expect("the embedded Regular");
+        assert_eq!(f.family(), "baud Mono");
+        let jb = f.resolve(b"baud mono").expect("the embedded Regular");
         assert!(f.leads(jb));
         let nerd = f.resolve(b"Symbols Nerd Font Mono").expect("the icon face");
         let stix = f.resolve(b"STIX Two Math").expect("the math face");
@@ -562,7 +559,7 @@ mod tests {
         };
         use crate::embedded::{BOLD, REGULAR, STIX, SYMBOLS};
         for (e, family) in [
-            (REGULAR, "Proto Hebrew Mono C"),
+            (REGULAR, "baud Mono"),
             (STIX, "STIX Two Math"),
             (SYMBOLS, "Symbols Nerd Font Mono"),
         ] {
@@ -579,13 +576,13 @@ mod tests {
         let (ps, full) = names(BOLD.bytes);
         let bold = f.resolve(ps.as_bytes()).expect("the embedded Bold");
         assert_eq!(f.resolve(full.as_bytes()), Some(bold), "{full}");
-        let regular = f.resolve(b"Proto Hebrew Mono C").unwrap();
+        let regular = f.resolve(b"baud Mono").unwrap();
         assert!(bold != regular && !f.leads(bold));
         let b = f.stack(bold).expect("its stack");
         assert_eq!(b.roles[0], FaceRole::Fallback, "it leads as the regular");
         let mut out = [0u8; 64];
         let first = b.faces[0].family().unwrap();
-        assert_eq!(first.utf8(&mut out), Some(&b"Proto Hebrew Mono C"[..]));
+        assert_eq!(first.utf8(&mut out), Some(&b"baud Mono"[..]));
         use baud_render::FaceStyle::{Bold, BoldItalic, Italic};
         let styles: Vec<_> = b
             .roles
@@ -599,7 +596,7 @@ mod tests {
             .collect();
         assert_eq!(styles, [Italic, BoldItalic], "no {Bold:?} beside itself");
         assert!(baud_render::Stack::with_roles(b.faces, &b.roles).is_some());
-        assert_eq!(f.resolve(b"ProtoHebrewMonoCBold"), None, "no name of it");
+        assert_eq!(f.resolve(b"baudMonoBold"), None, "no name of it");
     }
 
     /// **The query answers the name a program set, as it sent it**, while
@@ -624,14 +621,14 @@ mod tests {
                 );
                 String::from_utf8(t.reply().to_vec()).unwrap()
             };
-            assert_eq!(query(t), "\x1b]50;Proto Hebrew Mono C\x07");
-            let c = change(t, b"protohebrewmonoc-regular");
+            assert_eq!(query(t), "\x1b]50;baud Mono\x07");
+            let c = change(t, b"baudmono-regular");
             let plan = crate::host::plan_font(t, &mut f, &c, 13.0, 13.0, 13.0);
             assert!(plan.is_some_and(|p| p.face.is_some_and(|s| f.leads(s))));
-            assert_eq!(query(t), "\x1b]50;protohebrewmonoc-regular\x07");
+            assert_eq!(query(t), "\x1b]50;baudmono-regular\x07");
             let c = change(t, b"stixtwomath-regular");
             let stix = f.plan(&c, 13.0, 13.0).unwrap().face.unwrap();
-            assert_eq!(f.answer(), "protohebrewmonoc-regular", "not yet led");
+            assert_eq!(f.answer(), "baudmono-regular", "not yet led");
             f.set(stix);
             assert_eq!(f.answer(), "stixtwomath-regular");
             assert_eq!(f.resolve(f.answer().as_bytes()), Some(stix), "sent back");
@@ -646,9 +643,9 @@ mod tests {
             assert_eq!(f.answer(), "Symbols Nerd Font Mono");
             f.set(stix);
             assert_eq!(f.answer(), "stixtwomath-regular", "its own name again");
-            let regular = f.resolve(b"Proto Hebrew Mono C").unwrap();
+            let regular = f.resolve(b"baud Mono").unwrap();
             f.set(regular);
-            assert_eq!(f.answer(), "protohebrewmonoc-regular");
+            assert_eq!(f.answer(), "baudmono-regular");
         });
     }
 
@@ -660,14 +657,14 @@ mod tests {
         with_term(|t| {
             t.set_font_changes(baud_domain::FontChanges::Off);
             crate::host::tell_font(t, &f, 13.0, 13.0);
-            let b = b"\x1b]50;ProtoHebrewMonoC-Bold\x07\x1b]50;?\x07";
+            let b = b"\x1b]50;baudMono-Bold\x07\x1b]50;?\x07";
             t.write_at(baud_core::BytePos::ZERO, b);
             t.feed(
                 baud_core::BytePos::ZERO,
                 baud_core::ReadLen::from_index(b.len()),
             );
             assert!(t.font_requests().is_empty());
-            assert_eq!(t.reply(), b"\x1b]50;Proto Hebrew Mono C\x07");
+            assert_eq!(t.reply(), b"\x1b]50;baud Mono\x07");
         });
     }
 
@@ -706,7 +703,7 @@ mod tests {
         assert!(baud_render::Stack::with_roles(b.faces, &b.roles).is_some());
         let again = f.stack(stix).unwrap();
         assert!(core::ptr::eq(again.faces, b.faces), "made once");
-        let jb = f.resolve(b"Proto Hebrew Mono C").unwrap();
+        let jb = f.resolve(b"baud Mono").unwrap();
         let back = f.stack(jb).unwrap();
         assert_eq!(
             back.faces.len() - narrower(&back),
@@ -889,7 +886,7 @@ mod tests {
     fn a_reset_plans_the_configured_font() {
         let mut f = fonts("");
         with_term(|t| {
-            let c = change(t, b"protohebrewmonoc-regular");
+            let c = change(t, b"baudmono-regular");
             let first = f.plan(&c, 13.0, 13.0).expect("planned");
             assert_eq!(first.face, Some(Slot(0)));
             let stix = f.resolve(b"STIX Two Math").expect("loaded");
@@ -911,7 +908,7 @@ mod tests {
                 }
             );
             f.set(Slot(0));
-            assert_eq!(f.answer(), "Proto Hebrew Mono C", "the configured family");
+            assert_eq!(f.answer(), "baud Mono", "the configured family");
         });
     }
 }

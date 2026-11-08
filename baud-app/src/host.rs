@@ -2430,7 +2430,7 @@ mod tests {
             super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
             feed(&mut t, b"\x1b]50;Menlo\x07\x1b]50;?\x07");
             assert_eq!(t.font_requests().len(), queued, "{text:?}");
-            assert_eq!(t.reply(), b"\x1b]50;Proto Hebrew Mono C\x07", "{text:?}");
+            assert_eq!(t.reply(), b"\x1b]50;baud Mono\x07", "{text:?}");
         }
         for (driver, src, setting, told, drain, perform) in [
             (
@@ -2497,7 +2497,7 @@ mod tests {
             (b"#+100", false),
             (b"#-100", false),
             (b"#+1", true),
-            (b"Proto Hebrew Mono C", true),
+            (b"baud Mono", true),
         ] {
             feed(&mut t, &[&b"\x1b]50;"[..], pt, b"\x07"].concat());
             let asked = t.font_requests().to_vec();
