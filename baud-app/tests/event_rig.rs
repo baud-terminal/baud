@@ -23,6 +23,14 @@
 //! perturbation is now a standing control,
 //! the control row in [`SITES`].
 //!
+//! **Under load**, once: every row at 100 iterations while the gate's
+//! whole-workspace release build ran beside it, the 1-minute load
+//! average 37.33 before the run and 34.59 after on this 18-core Mac;
+//! every green row passed, the reveal row's 100 reveals each in a turn of
+//! its own with its nested wake delivered, and the control failed as
+//! recorded. The rows wait on counts, never on time, so load moves only
+//! how long a row takes.
+//!
 //! A row is green, or **pending** at a stage: expected to fail exactly as
 //! recorded until the stage that moves its site, red if it passes early,
 //! fails another way, or outlives its stage ([`verdict`]).
