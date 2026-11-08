@@ -44,6 +44,9 @@ fn written(text: &str) -> Written {
 /// base64 nor `?` asks for -- `[[source: ctlseqs]]`, "the selection is
 /// cleared".
 pub fn clear() {
+    #[cfg(feature = "effect-probe")]
+    crate::probe::record(crate::probe::EffectKind::Clear);
+    #[cfg(not(feature = "effect-probe"))]
     NSPasteboard::generalPasteboard().clearContents();
 }
 
@@ -75,6 +78,18 @@ pub fn read_find() -> Option<String> {
 /// Replace the find pasteboard's string with `text`, the query a find
 /// field holds.
 pub fn write_find(text: &str) -> Written {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = text;
+        crate::probe::record(crate::probe::EffectKind::FindText);
+        Written::Taken
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    found(text)
+}
+
+#[cfg(not(feature = "effect-probe"))]
+fn found(text: &str) -> Written {
     let board = find_board();
     board.clearContents();
     let kind = NSString::from_str(STRING_TYPE);

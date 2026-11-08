@@ -7,17 +7,31 @@
 #![allow(unsafe_code)]
 
 use macos_liquid_glass::objc2::MainThreadMarker;
+#[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2::runtime::AnyObject;
+#[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2_app_kit::{
     NSAccessibilityAnnouncementKey, NSAccessibilityAnnouncementRequestedNotification,
     NSAccessibilityPostNotificationWithUserInfo, NSAccessibilityPriorityKey,
     NSAccessibilityPriorityLevel, NSApplication,
 };
+#[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2_foundation::{NSDictionary, NSNumber, NSString};
 
 /// **`words` spoken**, at high priority so a quick copy's words are not lost
 /// behind whatever VoiceOver was saying. The caller paces it (`copied.rs`).
 pub fn announce(mtm: MainThreadMarker, words: &str) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (mtm, words);
+        crate::probe::record(crate::probe::EffectKind::Announce);
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    said(mtm, words);
+}
+
+#[cfg(not(feature = "effect-probe"))]
+fn said(mtm: MainThreadMarker, words: &str) {
     let app = NSApplication::sharedApplication(mtm);
     let words = NSString::from_str(words);
     let priority = NSNumber::new_isize(NSAccessibilityPriorityLevel::High.0);

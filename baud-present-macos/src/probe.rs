@@ -49,10 +49,79 @@ pub enum Responder {
 /// What an effect was.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EffectKind {
+    /// A link opened (`link::workspace`).
     Open,
+    /// A file revealed in Finder (`link::workspace`).
     Reveal,
+    /// A `[link.*]` command started.
     Command,
+    /// The pasteboard written (`clipboard::write_text`).
     Copy,
+    /// The pasteboard emptied (`clipboard::clear`).
+    Clear,
+    /// The find pasteboard written (`clipboard::write_find`).
+    FindText,
+    /// Words to VoiceOver (`announce::announce`).
+    Announce,
+    /// Permission to notify asked (`notify::Center`).
+    Authorize,
+    /// A notification posted.
+    Notice,
+    /// A notification removed.
+    Unnotice,
+    /// The Dock tile's bar shown or taken down.
+    DockBar,
+    /// The Dock icon asked to bounce (`notify::attention`).
+    Attention,
+    /// That request cancelled (`notify::cancel_attention`).
+    Unattention,
+    /// The system beep (`bell::beep`).
+    Beep,
+    /// A window raised, no focus taken (`window::order_front`).
+    Front,
+    /// A window raised and made key (`window::make_key_and_order_front`).
+    KeyFront,
+    /// The application activated (`window::activate`).
+    Activate,
+    /// The application's Dock icon set (`window::set_icon`).
+    Icon,
+}
+
+/// Each kind's word in a [`Record::line`], one table both ways.
+const KINDS: [(EffectKind, &str); 18] = [
+    (EffectKind::Open, "open"),
+    (EffectKind::Reveal, "reveal"),
+    (EffectKind::Command, "command"),
+    (EffectKind::Copy, "copy"),
+    (EffectKind::Clear, "clear"),
+    (EffectKind::FindText, "find-text"),
+    (EffectKind::Announce, "announce"),
+    (EffectKind::Authorize, "authorize"),
+    (EffectKind::Notice, "notice"),
+    (EffectKind::Unnotice, "unnotice"),
+    (EffectKind::DockBar, "dock-bar"),
+    (EffectKind::Attention, "attention"),
+    (EffectKind::Unattention, "unattention"),
+    (EffectKind::Beep, "beep"),
+    (EffectKind::Front, "front"),
+    (EffectKind::KeyFront, "key-front"),
+    (EffectKind::Activate, "activate"),
+    (EffectKind::Icon, "icon"),
+];
+
+impl EffectKind {
+    /// The kind's word.
+    pub fn word(self) -> &'static str {
+        KINDS
+            .iter()
+            .find(|(k, _)| *k == self)
+            .map_or("?", |(_, w)| w)
+    }
+
+    /// The kind a word names.
+    pub fn of(word: &str) -> Option<EffectKind> {
+        KINDS.iter().find(|(_, w)| *w == word).map(|(k, _)| *k)
+    }
 }
 
 /// What the nested call met: the wake queued before it, delivered inside
@@ -76,12 +145,7 @@ impl Record {
     /// The record as one line of text, for a child process to print and
     /// its parent to read back with [`Record::parse`].
     pub fn line(&self) -> String {
-        let kind = match self.kind {
-            EffectKind::Open => "open",
-            EffectKind::Reveal => "reveal",
-            EffectKind::Command => "command",
-            EffectKind::Copy => "copy",
-        };
+        let kind = self.kind.word();
         let at = match self.at {
             Where::InFrame => "in-frame",
             Where::InCallback => "in-callback",
@@ -104,13 +168,7 @@ impl Record {
         if w.next()? != "effect" {
             return None;
         }
-        let kind = match w.next()? {
-            "open" => EffectKind::Open,
-            "reveal" => EffectKind::Reveal,
-            "command" => EffectKind::Command,
-            "copy" => EffectKind::Copy,
-            _ => return None,
-        };
+        let kind = EffectKind::of(w.next()?)?;
         let at = match w.next()? {
             "in-frame" => Where::InFrame,
             "in-callback" => Where::InCallback,
@@ -335,5 +393,50 @@ impl Ticker {
 impl Drop for Ticker {
     fn drop(&mut self) {
         self.link.invalidate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every kind is in the table once, and its word reads back as it.
+    /// The match has no `_` arm, so a new kind does not compile until it
+    /// has a place here.
+    #[test]
+    fn every_kind_has_one_word() {
+        fn place(k: EffectKind) -> usize {
+            match k {
+                EffectKind::Open => 0,
+                EffectKind::Reveal => 1,
+                EffectKind::Command => 2,
+                EffectKind::Copy => 3,
+                EffectKind::Clear => 4,
+                EffectKind::FindText => 5,
+                EffectKind::Announce => 6,
+                EffectKind::Authorize => 7,
+                EffectKind::Notice => 8,
+                EffectKind::Unnotice => 9,
+                EffectKind::DockBar => 10,
+                EffectKind::Attention => 11,
+                EffectKind::Unattention => 12,
+                EffectKind::Beep => 13,
+                EffectKind::Front => 14,
+                EffectKind::KeyFront => 15,
+                EffectKind::Activate => 16,
+                EffectKind::Icon => 17,
+            }
+        }
+        for (i, (k, w)) in KINDS.iter().enumerate() {
+            assert_eq!(place(*k), i, "{k:?}");
+            assert_eq!((k.word(), EffectKind::of(w)), (*w, Some(*k)));
+        }
+        let r = Record {
+            kind: EffectKind::KeyFront,
+            at: Where::InTurn,
+            responder: Responder::Free,
+            nested: Nested::Delivered,
+        };
+        assert_eq!(Record::parse(&r.line()), Some(r));
     }
 }

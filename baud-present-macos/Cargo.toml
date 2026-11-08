@@ -70,6 +70,12 @@ path = "tests/on_screen.rs"
 harness = false
 
 # The same, for a view's callback handing a link to the OS.
+# **Every desktop effect's body is the probe's under its feature**
+# (`tests/probe_gates.rs`): a source check, so it runs in every build.
+[[test]]
+name = "probe_gates"
+path = "tests/probe_gates.rs"
+
 [[test]]
 name = "deferred_link"
 path = "tests/deferred_link.rs"

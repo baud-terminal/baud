@@ -121,10 +121,22 @@ enum Ticks {
 }
 
 /// What the row expects: the effect, exactly once an iteration, in a turn
-/// of its own with the responder free, its nested `wake:` delivered.
+/// of its own with the responder free, its nested `wake:` delivered; or
+/// these effects, each so, in this order, every iteration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Expect {
     Effect(EffectKind),
+    Effects(&'static [EffectKind]),
+}
+
+impl Expect {
+    /// The effects of one iteration, in order.
+    fn kinds(&self) -> &[EffectKind] {
+        match self {
+            Expect::Effect(k) => core::slice::from_ref(k),
+            Expect::Effects(ks) => ks,
+        }
+    }
 }
 
 /// One row.
@@ -194,7 +206,9 @@ const SITES: [Site; 6] = [
     Site {
         name: SiteName("a printed path's copy"),
         cause: Cause::PrintedPath(Rule::Copy, Ticks::Driven),
-        expect: Expect::Effect(EffectKind::Copy),
+        // The copy, and the words VoiceOver is given for it (`say_copied`),
+        // each in a turn of its own.
+        expect: Expect::Effects(&[EffectKind::Copy, EffectKind::Announce]),
         state: RowState::Green,
     },
     Site {
@@ -257,7 +271,7 @@ fn config(rule: Rule) -> &'static str {
 /// The row's cause in a child; what it came to.
 fn run(site: &Site, slug: &str) -> Observed {
     let Cause::PrintedPath(rule, ticks) = site.cause;
-    let Expect::Effect(kind) = site.expect;
+    let kinds = site.expect.kinds();
     let dir = scratch(slug);
     let file = dir.join("clicked.txt");
     std::fs::write(&file, b"x").expect("the file clicked");
@@ -285,11 +299,11 @@ fn run(site: &Site, slug: &str) -> Observed {
         .current_dir(&dir)
         .output()
         .expect("the child");
-    judge(kind, &out, &dir)
+    judge(kinds, &out, &dir)
 }
 
 /// What a child's output and exit say.
-fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
+fn judge(kinds: &[EffectKind], out: &std::process::Output, dir: &Path) -> Observed {
     use std::os::unix::process::ExitStatusExt;
     let text = String::from_utf8_lossy(&out.stdout);
     let _ = std::fs::write(dir.join("stdout"), &out.stdout);
@@ -297,12 +311,6 @@ fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
     if out.status.signal().is_some() {
         return Observed::Failed(Failure::Aborted);
     }
-    let want = Record {
-        kind,
-        at: Where::InTurn,
-        responder: Responder::Free,
-        nested: Nested::Delivered,
-    };
     let lines: Vec<&str> = text.lines().collect();
     let iterations: usize = ITERATIONS.parse().expect("a count");
     let mut records = 0;
@@ -313,10 +321,17 @@ fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
         let Some(r) = Record::parse(line) else {
             return Observed::Failed(Failure::Child);
         };
+        let kind = kinds[records % kinds.len()];
         records += 1;
         if r.kind != kind {
             return Observed::Failed(Failure::Times);
         }
+        let want = Record {
+            kind,
+            at: Where::InTurn,
+            responder: Responder::Free,
+            nested: Nested::Delivered,
+        };
         match (r.at, r.responder) {
             (Where::InFrame, _) => return Observed::Failed(Failure::InFrame(kind, r.nested)),
             (Where::InCallback, _) | (_, Responder::Held) => {
@@ -328,7 +343,7 @@ fn judge(kind: EffectKind, out: &std::process::Output, dir: &Path) -> Observed {
             return Observed::Failed(Failure::Lost(kind));
         }
     }
-    if records != iterations {
+    if records != iterations * kinds.len() {
         return Observed::Failed(Failure::Times);
     }
     match out.status.success() {

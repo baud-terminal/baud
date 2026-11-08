@@ -36,6 +36,7 @@
 
 pub mod about;
 pub mod announce;
+pub mod bell;
 pub mod clipboard;
 pub mod closing;
 pub mod full_screen;
@@ -56,6 +57,7 @@ pub mod screens;
 pub mod selection;
 pub mod settings;
 pub mod unwind;
+pub mod window;
 
 pub use journal::Landing;
 pub use metal::{

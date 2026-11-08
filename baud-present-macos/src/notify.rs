@@ -343,6 +343,13 @@ impl Center {
             return;
         }
         self.asked.set(Permission::Asked);
+        // Under the probe: recorded, and the answer is never asked for.
+        #[cfg(feature = "effect-probe")]
+        {
+            crate::probe::record(crate::probe::EffectKind::Authorize);
+            return;
+        }
+        #[allow(unreachable_code)]
         let shared = Arc::clone(&self.permission);
         let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
             crate::unwind::guard(
@@ -457,6 +464,13 @@ impl Center {
     }
 
     fn send(&self, p: &Post) {
+        #[cfg(feature = "effect-probe")]
+        {
+            let _ = p;
+            crate::probe::record(crate::probe::EffectKind::Notice);
+            return;
+        }
+        #[allow(unreachable_code)]
         let category = self.category(&p.buttons);
         let Some(req) = request_of(p, category.as_deref()) else {
             return;
@@ -611,6 +625,13 @@ fn attachment(path: &std::path::Path) -> Option<Retained<AnyObject>> {
 }
 
 fn remove(center: &AnyObject, id: &str) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (center, id);
+        crate::probe::record(crate::probe::EffectKind::Unnotice);
+        return;
+    }
+    #[allow(unreachable_code)]
     let ids = NSArray::from_retained_slice(&[NSString::from_str(id)]);
     // SAFETY: the two removals, each an `NSArray<NSString *>`.
     unsafe {
@@ -622,6 +643,13 @@ fn remove(center: &AnyObject, id: &str) {
 /// **Close one by its identifier from any turn**: for an expiry scheduled
 /// on the main queue, which holds the identifier and not the center.
 pub fn remove_by_id(id: &str) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = id;
+        crate::probe::record(crate::probe::EffectKind::Unnotice);
+        return;
+    }
+    #[allow(unreachable_code)]
     let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
         return;
     };
@@ -696,6 +724,13 @@ thread_local! {
 
 /// **The Dock tile shows `bar`**, or the plain icon for `None`.
 pub fn show_bar(mtm: MainThreadMarker, bar: Option<Bar>) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (mtm, bar);
+        crate::probe::record(crate::probe::EffectKind::DockBar);
+        return;
+    }
+    #[allow(unreachable_code)]
     let app = NSApplication::sharedApplication(mtm);
     let tile = app.dockTile();
     match bar {
@@ -731,13 +766,22 @@ pub enum Ask {
 /// attention request", and "Sending requestUserAttention(_:) to an app that
 /// is already active has no effect". The request's id, to cancel it.
 pub fn attention(mtm: MainThreadMarker, ask: Ask) -> AttentionId {
-    use macos_liquid_glass::objc2_app_kit::NSRequestUserAttentionType as T;
-    AttentionId(
-        NSApplication::sharedApplication(mtm).requestUserAttention(match ask {
-            Ask::UntilActive => T::CriticalRequest,
-            Ask::Once => T::InformationalRequest,
-        }),
-    )
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (mtm, ask);
+        crate::probe::record(crate::probe::EffectKind::Attention);
+        AttentionId(0)
+    }
+    #[cfg(not(feature = "effect-probe"))]
+    {
+        use macos_liquid_glass::objc2_app_kit::NSRequestUserAttentionType as T;
+        AttentionId(
+            NSApplication::sharedApplication(mtm).requestUserAttention(match ask {
+                Ask::UntilActive => T::CriticalRequest,
+                Ask::Once => T::InformationalRequest,
+            }),
+        )
+    }
 }
 
 /// A request [`attention`] made, to cancel.
@@ -746,6 +790,13 @@ pub struct AttentionId(isize);
 
 /// Cancel a request `attention` made: "no to cancel a previous request".
 pub fn cancel_attention(mtm: MainThreadMarker, id: AttentionId) {
+    #[cfg(feature = "effect-probe")]
+    {
+        let _ = (mtm, id);
+        crate::probe::record(crate::probe::EffectKind::Unattention);
+        return;
+    }
+    #[allow(unreachable_code)]
     NSApplication::sharedApplication(mtm).cancelUserAttentionRequest(id.0);
 }
 

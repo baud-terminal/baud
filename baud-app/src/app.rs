@@ -65,9 +65,9 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage,
-    NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
-    NSWindowAnimationBehavior, NSWindowOcclusionState, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage, NSScreen,
+    NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowAnimationBehavior,
+    NSWindowOcclusionState, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -10767,22 +10767,18 @@ mod motion_tests {
         for call in [
             ".hear(",
             concat!(".ring_", "bell(volume)"),
-            "NSBeep(",
-            "requestUserAttention(",
+            "bell::beep(",
+            "Ask::Once)",
+            "window::order_front(",
         ] {
             assert_eq!(code.matches(call).count(), 1, "{call}");
         }
         // The bell's raise and `CSI 5 t`'s, the window operation's: the
-        // same call, which takes no focus.
-        assert_eq!(code.matches("orderFrontRegardless(").count(), 2);
-        // `NSBeep` is AppKit's: imported from it, and named nowhere else.
-        let kit = SRC
-            .split_once("objc2_app_kit::{")
-            .and_then(|(_, r)| r.split_once("};"))
-            .map(|(names, _)| bare(names))
-            .expect("the AppKit import");
-        assert!(kit.split(',').any(|n| n == "NSBeep"), "{kit}");
-        assert_eq!(code.matches("NSBeep").count(), 2, "imported and called");
+        // same call, which takes no focus; the bell's through baud's
+        // window module, whose body the effect probe replaces.
+        assert_eq!(code.matches("orderFrontRegardless(").count(), 1);
+        // The beep is baud-present-macos's, which alone names AppKit's.
+        assert_eq!(code.matches("NSBeep").count(), 0, "not called here");
 
         let pump = SRC
             .split_once(PUMP)
@@ -10880,19 +10876,20 @@ mod motion_tests {
                 self.app.term.bell_is_urgent(), self.app.term.pop_on_bell(),
                 volume,
             );
-            if ring.sound == Sound::Beep { NSBeep(); }
+            if ring.sound == Sound::Beep { baud_present_macos::bell::beep(); }
             if ring.shown == Shown::Flash {
                 self.app.bell.ring();
                 self.app.pending = Pending::Dirty;
             }
             if ring.attention == Attention::Request {
                 if let Some(mtm) = MainThreadMarker::new() {
-                    NSApplication::sharedApplication(mtm)
-                        .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+                    let _ = baud_present_macos::notify::attention(
+                        mtm, baud_present_macos::notify::Ask::Once,
+                    );
                 }
             }
             if ring.raise == Raise::Front {
-                if let Some(w) = &window { w.orderFrontRegardless(); }
+                if let Some(w) = &window { baud_present_macos::window::order_front(w); }
             }
         "#;
         assert_eq!(bare(&shim), bare(SHIM), "the shim is this, and only this");
@@ -12777,7 +12774,7 @@ impl Responder for Driver {
         self.app.latency.announced(|| HostTime::of_secs(target));
         startup_first("first tick", &FIRST_TICK);
         if let (Some(img), Some(mtm)) = (self.dock_icon.take(), MainThreadMarker::new()) {
-            macos_liquid_glass::set_application_icon(&NSApplication::sharedApplication(mtm), &img);
+            baud_present_macos::window::set_icon(mtm, &img);
             startup_mark("dock icon");
         }
         if self.app.caret_read == Done::No {
@@ -13234,7 +13231,7 @@ pub fn run() {
         startup_mark("launched");
         opening.show(mtm, scale, None);
     });
-    ns_app.activate();
+    baud_present_macos::window::activate(mtm);
     startup_mark("activated");
     ns_app.run();
 }
@@ -14580,10 +14577,10 @@ impl Driver {
             };
             if button.is_none() && self.app.term.notice_focuses(token) {
                 if let Some(mtm) = MainThreadMarker::new() {
-                    NSApplication::sharedApplication(mtm).activate();
+                    baud_present_macos::window::activate(mtm);
                 }
                 if let Some(w) = self.view.window() {
-                    w.makeKeyAndOrderFront(None);
+                    baud_present_macos::window::make_key_and_order_front(&w);
                 }
             }
             let outbox = &mut self.app.outbox;
@@ -14631,7 +14628,7 @@ impl Driver {
             volume,
         );
         if ring.sound == Sound::Beep {
-            NSBeep();
+            baud_present_macos::bell::beep();
         }
         if ring.shown == Shown::Flash {
             self.app.bell.ring();
@@ -14639,13 +14636,15 @@ impl Driver {
         }
         if ring.attention == Attention::Request {
             if let Some(mtm) = MainThreadMarker::new() {
-                NSApplication::sharedApplication(mtm)
-                    .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+                let _ = baud_present_macos::notify::attention(
+                    mtm,
+                    baud_present_macos::notify::Ask::Once,
+                );
             }
         }
         if ring.raise == Raise::Front {
             if let Some(w) = &window {
-                w.orderFrontRegardless();
+                baud_present_macos::window::order_front(w);
             }
         }
     }
@@ -20150,8 +20149,7 @@ mod tests {
             let name = call.split_once('(').expect("a call").0;
             let name = name.trim_start_matches("w.");
             let elsewhere = code.matches(&format!(".{name}(")).count();
-            let want = if name == "orderFrontRegardless" { 2 } else { 1 };
-            assert_eq!(elsewhere, want, "{name} called outside the block");
+            assert_eq!(elsewhere, 1, "{name} called outside the block");
         }
         let request = code
             .split_once(concat!(
