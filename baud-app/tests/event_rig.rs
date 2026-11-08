@@ -416,6 +416,12 @@ fn run(site: &Site, slug: &str) -> Observed {
                 Ticks::DrivenInline => "tick-inline",
                 Ticks::DrivenInFrame => "tick-in-frame",
             },
+            &expect
+                .each
+                .iter()
+                .map(|k| k.word())
+                .collect::<Vec<_>>()
+                .join(","),
         ])
         .env_clear()
         .env("HOME", dir.join("home"))
