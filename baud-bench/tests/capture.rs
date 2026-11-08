@@ -1778,10 +1778,10 @@ fn a_shell_start_records_each_read_with_its_time() {
 }
 
 /// A home it cannot enter ends the child on its pty, with the reason there,
-/// and Darwin answers the `exit` with `EIO`, which ended the script too.
-#[cfg(target_os = "macos")]
+/// and the tool fails on that end before it sends `exit`, on Darwin and
+/// Linux alike, not on the write, which only Darwin refuses.
 #[test]
-fn a_shell_start_with_no_home_dies_at_the_exit_it_sends() {
+fn a_shell_start_with_no_home_fails_before_the_exit_it_sends() {
     let s = Scratch::new("start-home");
     let out = s.at("start.bin");
     let r = tool_in(
@@ -1790,12 +1790,12 @@ fn a_shell_start_with_no_home_dies_at_the_exit_it_sends() {
         &[("SHELL", "/bin/sh"), ("HOME", "/no/such/home")],
     );
     assert_eq!(r.code, Some(1), "{}", r.err);
-    assert!(r.err.starts_with("write: "), "{}", r.err);
+    assert!(r.err.starts_with("start: the shell ended"), "{}", r.err);
     assert!(!Path::new(&out).exists());
 }
 
 /// `os.execve` looks along no `PATH`: a `SHELL` with no directory is a name in
-/// the directory it runs in, so `sh` does not start.
+/// the directory it runs in, so `sh` does not start, and the tool fails.
 #[test]
 fn a_shell_with_no_directory_is_not_looked_for() {
     let s = Scratch::new("start-bare");
@@ -1810,7 +1810,7 @@ fn a_shell_with_no_directory_is_not_looked_for() {
         ],
     );
     assert_eq!(r.code, Some(1), "{}", r.err);
-    assert!(r.err.starts_with("write: "), "{}", r.err);
+    assert!(r.err.starts_with("start: the shell ended"), "{}", r.err);
     assert!(!Path::new(&out).exists());
 }
 

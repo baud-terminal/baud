@@ -103,6 +103,7 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
 
     let mut reads: Vec<(f64, Vec<u8>)> = Vec::new();
     let end = start + seconds;
+    let mut gone = false;
     loop {
         let left = end - clock();
         if left.is_nan() || left <= 0.0 {
@@ -113,8 +114,26 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
         }
         match child.read(4096) {
             Ok(b) if !b.is_empty() => reads.push((clock() - start, b)),
-            _ => break,
+            _ => {
+                gone = true;
+                break;
+            }
         }
+    }
+    // **A shell that ended before it was sent `exit` fails the recording**:
+    // a `SHELL` whose exec or `chdir` was refused said why on the terminal
+    // and exited with the spawn's code. Its reads end before the time,
+    // and only once the shell's side of the pty is gone: on Linux after
+    // `readable` saw it exit and let go of the slave, on Darwin when its
+    // exit hung the terminal up, which comes before its parent can see the
+    // exit. So the wait is for a shell that is ending, and returns. The
+    // write below is no test of it: Darwin refuses a write to a pty no
+    // process holds, and Linux takes it into the buffer and answers success.
+    if gone || child.exited() {
+        let code = child.wait()?;
+        return Err(format!(
+            "start: the shell ended before it was sent exit, with {code}"
+        ));
     }
     // The shell's last output is read and dropped: a shell exits only once
     // the tty has drained what it wrote, and closing the pty first ends it.
