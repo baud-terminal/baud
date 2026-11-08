@@ -284,6 +284,7 @@ fn spread(mut v: Vec<Duration>) -> String {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let arm = match args.next().as_deref() {
         Some("rows") => Arm::Rows,

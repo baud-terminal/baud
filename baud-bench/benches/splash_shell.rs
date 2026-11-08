@@ -195,6 +195,7 @@ fn life(
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let path = args.next().expect("splash_shell <recording> [rounds]");
     let rounds: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(5);

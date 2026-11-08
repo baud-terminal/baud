@@ -239,6 +239,7 @@ fn close(pass: &mut Vec<Held>, c: &mut Count) {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let list = |a: Option<String>| a.filter(|s| s != "all");
     let sizes: Vec<f32> = list(args.next())

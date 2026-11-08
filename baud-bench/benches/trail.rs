@@ -242,6 +242,7 @@ fn life(faces: &[Face<'_>], size: &Size, mv: Move, kind: Kind, damage: Damage) -
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let rounds: usize = baud_bench::args()
         .next()
         .and_then(|a| a.parse().ok())

@@ -2,6 +2,10 @@ mod cores;
 mod ffi;
 mod report;
 mod transport;
+// The guard every measurement in this repository runs first, a file of
+// baud-bench's: this workspace links nothing from that one.
+#[path = "../../../baud-bench/src/warm.rs"]
+mod warm;
 
 use cores::*;
 
@@ -34,6 +38,7 @@ const CORES: &[&str] = &[
 ];
 
 fn main() {
+    warm::refuse_while_warm();
     let total = 32usize << 20;
 
     let mut stream = Vec::new();

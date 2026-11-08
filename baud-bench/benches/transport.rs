@@ -131,6 +131,7 @@ fn null_ceiling(payload: &[u8], total: Bytes, tr: Tr) -> (f64, u64, u64) {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "utf8/btop.raw".into());
     let mb: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(48);

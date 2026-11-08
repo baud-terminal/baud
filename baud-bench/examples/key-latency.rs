@@ -5,6 +5,7 @@
 //! and this one launches the app and posts keys to its window.
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let args: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())

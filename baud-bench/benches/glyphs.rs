@@ -45,6 +45,7 @@ const FACES: [&str; 4] = [
 ];
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let rounds: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(7);
     let px: f32 = args.next().and_then(|a| a.parse().ok()).unwrap_or(14.0);

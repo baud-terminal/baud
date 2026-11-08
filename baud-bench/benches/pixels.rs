@@ -43,6 +43,7 @@ use std::io::Write as _;
 const IMAGE_BUDGET: ImageBudget = ImageBudget { pixels: 95 << 18 };
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let (Some(input), Some(out)) = (args.next(), args.next()) else {
         eprintln!("usage: pixels <stream> <out.pam>");

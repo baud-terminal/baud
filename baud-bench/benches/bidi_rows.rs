@@ -168,6 +168,7 @@ fn shapes() -> Vec<Shape> {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let rounds: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(5);
     let reps: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(200);

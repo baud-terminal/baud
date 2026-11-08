@@ -82,6 +82,7 @@ fn best<F: FnMut() -> usize>(name: &str, mut f: F, unit_mb: bool) {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     println!("reference ceilings -- isolated loops, not a terminal");
     if let Ok(s) = std::process::Command::new("pmset")
         .arg("-g")

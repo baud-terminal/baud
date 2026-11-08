@@ -67,6 +67,7 @@
 
 #[cfg(target_os = "macos")]
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     // Imported here rather than at the top of the file: this bench is macOS
     // only, so a top-level `use` is unused on every other target and `-D
     // warnings` makes that an error. A lint for Linux sees it; one on a Mac
@@ -1499,5 +1500,6 @@ the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     eprintln!("frame_gpu draws through Metal and runs on macOS only");
 }

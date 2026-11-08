@@ -7,6 +7,7 @@
 use baud_bench::host::{self, Live};
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let args: Vec<String> = host::py_args();
     let env: Vec<_> = std::env::vars_os().collect();
     let code = host::startup::run(&args, &env, &mut Live::new(), &mut std::io::stdout());

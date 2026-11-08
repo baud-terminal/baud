@@ -254,6 +254,7 @@ fn allocations() -> u64 {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "btop".to_string());
     let reps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);

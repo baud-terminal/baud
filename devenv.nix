@@ -15,6 +15,13 @@ let
   # not a default member cannot quietly drop out of the check suite.
   scope = "--workspace";
 
+  # `test:unit`'s test build and run, and with `--no-run` the warm process's
+  # build: one string, so the two cannot build with different RUSTFLAGS or a
+  # different profile, and the gate finds the watcher's artifacts current.
+  # `baud-bench/tests/warm.rs` holds both sites to it. Not `--no-fail-fast`,
+  # which nextest refuses beside `--no-run`; `test:unit` adds it.
+  unitBuild = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet ${scope}";
+
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`
   # feature; a green build on the host proves neither.
@@ -55,7 +62,34 @@ in
     # `test:changelog` reads the history through git-cliff
     # (`scripts/check-changelog.sh`).
     pkgs.git-cliff
+    # The `warm` process watches the tree through watchexec
+    # (`scripts/warm.sh watch`).
+    pkgs.watchexec
   ];
+
+  # **The release test build, kept warm while you work.** `devenv up` starts
+  # a watcher that runs `test:unit`'s build, `--no-run`, through
+  # `scripts/bounded` at nice 10, 2 s after the last save, so the gate and a
+  # re-run after a small fix find nothing left to compile. `warm-pause`
+  # stops the build in flight and starts no other until `warm-resume`, and
+  # every bench and timing example refuses to measure beside an unpaused
+  # watcher (`baud-bench/src/warm.rs`). `scripts/warm.sh` has the rest.
+  #
+  # **Not under `devenv test`**, which starts every process before it runs
+  # `enterTest` and stops them all after (devenv 2.4.0, `test` in
+  # devenv/src/devenv/mod.rs): the gate would start a build beside its own,
+  # and stop the `devenv up` already running.
+  processes = lib.mkIf (!config.devenv.isTesting) {
+    warm.exec = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg "${unitBuild} --no-run"}";
+  };
+
+  scripts.warm-pause.exec = ''
+    bash "$DEVENV_ROOT/scripts/warm.sh" pause
+  '';
+
+  scripts.warm-resume.exec = ''
+    bash "$DEVENV_ROOT/scripts/warm.sh" resume
+  '';
 
   # Development scripts
   #
@@ -181,6 +215,8 @@ in
       echo "  dev-audit     - Run the type-system audit gate"
       echo "  dev-bench     - Ingest throughput in memory (cargo bench, ingest2)"
       echo "  dev-build     - Build the workspace"
+      echo "  warm-pause    - Stop the warm build (devenv up) before a measurement"
+      echo "  warm-resume   - Let the warm build start again at the next save"
       echo ""
     } >&2
   '';
@@ -352,7 +388,7 @@ in
       # nextest rather than `cargo test`, since 2026-10-07; why is at
       # `pkgs.cargo-nextest` above. It builds the same test binaries, with
       # the same profile and flags, through `cargo test --no-run`.
-      exec = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet --no-fail-fast ${scope}; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ]";
+      exec = "${unitBuild} --no-fail-fast; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ]";
       after = [ "test:check" ];
     };
 

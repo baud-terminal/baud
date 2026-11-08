@@ -157,6 +157,7 @@ fn capture(name: &str, text: &str) {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
     println!("threshold: {PICTURE_COLOURS} colours; geometry 200x50, reads of {CHUNK}");
     for r in [

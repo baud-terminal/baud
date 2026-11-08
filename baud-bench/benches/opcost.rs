@@ -98,6 +98,7 @@ fn payload(s: &Shape) -> Vec<u8> {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let ws = WinSize {
         ws_row: 50,
         ws_col: 200,

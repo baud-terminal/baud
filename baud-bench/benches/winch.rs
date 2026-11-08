@@ -456,6 +456,7 @@ fn cost(path: &str, steps: &[Step], reps: usize) {
 }
 
 fn main() {
+    baud_bench::warm::refuse_while_warm();
     let mut argv = baud_bench::args();
     let path = argv
         .next()
