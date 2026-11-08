@@ -10715,6 +10715,37 @@ group  = "C"
 # three bytes `?6c`, which `[[source: kitty-icat-detect]]`'s `len(payload)
 # > 3` refuses, while ctlseqs lists `CSI ? 6 c` as the VT102's answer.
 
+[sources.kitty-tui-hold]
+key    = "kitty-tui-hold"
+title  = "kitty v0.49.2, tools/tui/hold.go -- what `kitten icat --hold` waits for"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/hold.go"
+file   = ""
+sha256 = "7684cc26088c731f54b5e4bf2308022b1eca2bc58fa5cbabcc2c2a39457f5225"
+bytes  = 1594
+status = "external"
+group  = "C"
+# `HoldTillEnter` prints "Press Enter or Esc to exit" and quits on a press
+# or repeat of enter, kp_enter, esc, ctrl+c or ctrl+d, and on no other key.
+
+[sources.kitty-tui-loop-read]
+key    = "kitty-tui-loop-read"
+title  = "kitty v0.49.2, tools/tui/loop/read.go -- the Primary DA a kitten's loop waits on as it exits"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/loop/read.go"
+file   = ""
+sha256 = "0d8e0ce91eee9669351f52c29dc6c24e18a0e45c4afebf2c283e1d5f871265aa"
+bytes  = 3072
+status = "external"
+group  = "C"
+# `do_roundtrip_to_terminal` sends `CSI c` and waits, up to its timeout, for
+# a reply `has_da1_response` matches, `\x1b\[\?[0-9:;]+c`: `CSI ? 6 c` is
+# one, unlike `[[source: kitty-icat-detect]]`'s test at the start.
+
 [sources.kitty-graphics-c]
 key    = "kitty-graphics-c"
 title  = "kitty v0.49.2, kitty/graphics.c -- the reference implementation of the graphics protocol: replies, deletes, the put command"
