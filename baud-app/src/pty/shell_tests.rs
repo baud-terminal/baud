@@ -828,7 +828,12 @@ fn fish_startup_runs_as_without_baud() {
 /// mark sent again and no `C` or `D` between, a shell that marked no
 /// input lost the list (`tests/completion/`). The list's names are still
 /// on the screen above the prompt the shell drew again, the line as
-/// typed on it.
+/// typed on it. Typed in the files' directory, so the line is `ls file`
+/// whatever the scratch directory's path: a path typed whole wraps in the
+/// 40-column window at a column set by the temporary directory's length and
+/// the pid's digits, and the line the prompt is on then ends inside it.
+/// zsh's sixty names take twelve rows of the 40 by 12 window, so they
+/// never fit below the line, which fifty did once the line was one row.
 fn a_completion_list_stays(sh: Sh, files: std::ops::RangeInclusive<usize>, tabs: &str, last: &str) {
     let Some((mut s, dir)) = stock_session(sh, &format!("list-{}", sh.name()), Integration::On)
     else {
@@ -838,8 +843,9 @@ fn a_completion_list_stays(sh: Sh, files: std::ops::RangeInclusive<usize>, tabs:
     for i in files.clone() {
         put(&d, &format!("file{i:02}"), "");
     }
+    s.run(&format!("cd '{}'", d.display()));
     s.run(lines_first(sh));
-    let typed = format!("ls {}/file", d.display());
+    let typed = "ls file";
     s.outbox.push(typed.as_bytes());
     s.outbox.push(tabs.as_bytes());
     let _ = write_some(s.master, &mut s.outbox);
@@ -876,7 +882,7 @@ fn a_completion_list_stays(sh: Sh, files: std::ops::RangeInclusive<usize>, tabs:
 
 #[test]
 fn a_zsh_completion_list_stays() {
-    a_completion_list_stays(Sh::Zsh, 1..=50, "\t", "file50");
+    a_completion_list_stays(Sh::Zsh, 1..=60, "\t", "file60");
 }
 
 #[test]
