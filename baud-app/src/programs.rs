@@ -440,22 +440,49 @@ impl Drop for Under<'_, '_> {
 pub(crate) fn screen(t: &Term<'_>) -> Vec<String> {
     let v = t.window();
     (0..v.rows().index())
-        .map(|y| row_text(v.row(Row::from_index(y))))
+        .map(|y| row_text(t, v.row(Row::from_index(y))))
         .collect()
 }
 
-fn row_text(cells: &[baud_domain::PackedCell]) -> String {
+/// A row's text: each cell's base, read through the cluster store, and the
+/// codepoints attached to it; a cell with none, a wide character's tail
+/// among them, a space.
+fn row_text(t: &Term<'_>, cells: &[baud_domain::PackedCell]) -> String {
     cells
         .iter()
-        .map(|c| {
-            c.content
-                .as_codepoint()
-                .and_then(|cp| char::from_u32(cp.value()))
-                .unwrap_or(' ')
+        .flat_map(|c| {
+            let base = t.base_of(*c).as_codepoint().map(|cp| cp.value());
+            std::iter::once(base.and_then(char::from_u32).unwrap_or(' '))
+                .chain(t.cluster_marks(*c).filter_map(char::from_u32))
         })
         .collect::<String>()
         .trim_end()
         .to_string()
+}
+
+/// **The screen's text holds a cluster whole**: a pointed Hebrew word,
+/// each letter with its points, and a Hindi conjunct come back from
+/// [`screen`] as they were written, not as blanks where a cell holds more
+/// than one codepoint. The control: plain ASCII after them is as written.
+/// Perturbation: read only a cell's own codepoint and the word is blanks.
+#[test]
+fn the_screen_text_holds_a_cluster_whole() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let line = "בּוֹד प्र ok";
+    crate::reads::feed(
+        &mut t,
+        [line.as_bytes()],
+        |_| {},
+        |_| {},
+        &mut crate::hostlog::NoLog,
+    );
+    assert!(
+        screen(&t)[0].ends_with(" ok"),
+        "the control: {:?}",
+        screen(&t)[0]
+    );
+    assert_eq!(screen(&t)[0], line);
 }
 
 const NONE: Modifiers = Modifiers::NONE;
