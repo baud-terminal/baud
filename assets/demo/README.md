@@ -9,7 +9,6 @@ real session into baud's window at 40 ms a key and records it.
 | the trailer | Take 2, `trailer.gif`, not filmed yet: baud plays a stretch of the tour from YouTube, at its own speed, in its own window with mpv and yt-dlp, about 20 s. The README's film. | `cargo run --release --example demo -- --trailer --tour URL --start T --end T --record assets/demo/trailer.gif --forbidden LIST --controls FILE`, the stretch from the README jumps to the dial-up lights read off the tour's take; the GIF must pass the WCAG 2.3.1 flash census or is removed |
 | the plasma logo | The README's logo film. mpv plays its MP4 in the tour's scene 10. | `baud-pictures logo`; its MP4, `baud-pictures logo --mp4 --out DIR`, which the demo runs into its own scratch directory |
 | the UFO logo | The second logo film, `ufo-logo-dark.gif` and `ufo-logo-light.gif`, which kitten draws in the tour's scene 9 (the dark one, `UFO_LOGO_FROM` in `baud-app/examples/demo/session.rs`): the ufo trail's saucer, in amber, threads the letters: it hovers behind the word, tilts and darts from gap to counter, in front of the letters and behind them, lights the `b` with its beam, beams the block up, streaks off left behind the word, comes back from the right and sets the block down. Its MP4s, `baud-pictures logo --ufo --mp4 --out DIR`. | `baud-pictures logo --ufo` |
-| the photo | "Canazei Granite Ridges", elementary OS's wallpaper, CC0. Not stored here: the demo fetches it by the address in `photo.toml` and refuses it unless it hashes to the pin there. | `photo.toml` |
 | the links | What the tour's scene 8 prints. | `links.txt` |
 
 Until the trailer is filmed the README shows no film, only its logo.
@@ -19,7 +18,6 @@ Until the trailer is filmed the README shows no film, only its logo.
 - `README.md`, this file.
 - `LICENSES.md`: each piece the films show, its licence, the page it was
   read at, and the credit line for the video's description.
-- `photo.toml`: the photo's address, hash, width and licence.
 - `ufo-logo-dark.gif` and `ufo-logo-light.gif`, the UFO logo, each with
   its `.provenance.toml`: the GIF's SHA-256, the flight's, the walls'
   pin, the encoder and its settings, and WCAG 2.3.1's census of the GIF.

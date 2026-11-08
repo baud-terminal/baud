@@ -1,6 +1,6 @@
-//! **The container the session ssh's into**: a Linux of six nixpkgs
-//! packages -- busybox, bash, starship, OpenSSH's sshd, fastfetch and
-//! btop -- run by
+//! **The container the session ssh's into**: a Linux of eight nixpkgs
+//! packages -- busybox, bash, starship, OpenSSH's sshd, fastfetch, btop,
+//! helix and w3m -- run by
 //! docker in a colima VM of its own on this Mac ([`COLIMA_PROFILE`]), its
 //! host named [`HOST`] and its one user [`USER`]. fastfetch there prints
 //! its whole default card (`nix/demo-container/fastfetch.jsonc` lists its
@@ -12,7 +12,9 @@
 //! its prompt starship's, drawn from the repository's preset
 //! (`assets/starship/baud.toml`) as `~ ❯`; it marks each prompt as
 //! baud's shell does, shows the host as baud's badge while the session is
-//! in, and clears the badge on the way out.
+//! in, and clears the badge on the way out. Its home is given the
+//! repository's README, `hello.txt` and a `links.txt` of two OSC 8 links as
+//! the session starts ([`home_files`]).
 //!
 //! **Made by Nix**: the image is the repository flake's `demo-container`
 //! (`nix/demo-container/`), nixpkgs' `dockerTools.streamLayeredImage` at
@@ -64,7 +66,7 @@ pub const USER: &str = "jordan";
 /// commit, for the container's: [`crate::run::NIXPKGS`] carries starship 1.26.0, which
 /// advisories GHSA-679r-jwc5-r5m3 and GHSA-x486-6jjc-phfp cover, and this
 /// nixpkgs-unstable revision carries 1.27.0, the first release outside
-/// both. The container's six Linux packages come from it too
+/// both. The container's eight Linux packages come from it too
 /// (`nix/demo-container/default.nix`), because the image's pin names their
 /// store paths and at the flake's own nixpkgs btop and fastfetch have other
 /// ones. The programs the demo's own shell runs still come from
@@ -82,7 +84,7 @@ pub const FLAKE_OUTPUT: &str = "demo-container";
 /// `nixpkgs-demo` for `aarch64-linux`, the system colima's VM runs on an
 /// Apple silicon Mac, and the script that streams them from the flake's
 /// `nixpkgs`.
-pub const IMAGE_SHA256: &str = "6ddfec1858299137e11eefb39ac153fb08755223c4fca2972609268fe3615fe9";
+pub const IMAGE_SHA256: &str = "2442953fece46c0a676d5bb31158c84563a504f639040e84af6a2e15fae4166f";
 
 /// **Set by Ctrl-C**: the handler (`mac::catch_interrupt`) stores to it and
 /// does nothing else, and the session's waits stop on it.
@@ -216,6 +218,64 @@ pub fn free_port() -> Result<u16, String> {
 /// Files written into the scratch directory, each by its path under the
 /// root, for the names check.
 pub type Written = Vec<(String, Vec<u8>)>;
+
+/// The user's ids in the container, as its `passwd` and `group` give them.
+pub const UID: u32 = 1000;
+
+/// **Where the container's home files go**: the user's home, which
+/// [`home_files`] fills as the session starts.
+pub fn home_dir() -> String {
+    format!("/home/{USER}/")
+}
+
+/// **The container's `links.txt`**: two OSC 8 hyperlinks, each ended by
+/// ST, the terminator the specification encourages
+/// (`[[source: osc8-spec]]`): the README the session copies into the home,
+/// as a `file://` URI whose host is [`HOST`] -- the specification asks a
+/// program to fill the host in with what `gethostname()` returns, which in
+/// the container is the `--hostname` it is created with, so a terminal on
+/// another machine knows the file is not its own -- and baud's repository
+/// as an `https` one. Each shows its own short text.
+pub fn links() -> String {
+    let link = |uri: &str, text: &str| format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\\n");
+    format!(
+        "{}{}",
+        link(&format!("file://{HOST}/home/{USER}/README.md"), "README.md"),
+        link(
+            "https://github.com/baud-terminal/baud",
+            "github.com/baud-terminal/baud"
+        )
+    )
+}
+
+/// **The files the container's home is given as the session starts**, by
+/// name: the repository's README, `hello.txt` and [`links`]. Copied in
+/// rather than built into the image, so the image's pin
+/// ([`IMAGE_SHA256`]) does not follow every edit of the README.
+pub fn home_files() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("README.md", crate::scratch::README.as_bytes().to_vec()),
+        ("hello.txt", crate::session::HELLO.as_bytes().to_vec()),
+        ("links.txt", links().into_bytes()),
+    ]
+}
+
+/// **[`home_files`] written into `dir`**, for `docker cp`: each file's
+/// path, and each as written under the scratch root's `container/home`,
+/// for the names check.
+pub fn home(dir: &Path) -> Result<(Vec<PathBuf>, Written), String> {
+    let at = dir.join("home");
+    fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
+    let mut paths = Vec::new();
+    let mut written = Vec::new();
+    for (name, bytes) in home_files() {
+        let p = at.join(name);
+        fs::write(&p, &bytes).map_err(|e| format!("{}: {e}", p.display()))?;
+        paths.push(p);
+        written.push((format!("container/home/{name}"), bytes));
+    }
+    Ok((paths, written))
+}
 
 /// The keys a session makes: the host's, which the container gets, and the
 /// user's, whose public half it gets; the scratch home holds the user's
@@ -572,8 +632,9 @@ fn socket(status: &str) -> Option<String> {
 /// **The container up**, its sshd answering on `port`: the session's VM
 /// started as [`COLIMA_PROFILE`] in its own directory ([`ColimaHome`]) with
 /// every CPU of this Mac, the image loaded from its checked stream, the host
-/// key and the user's public key copied in owned by root, and the container
-/// started; then the banner read through colima's port forward. Nothing is
+/// key and the user's public key copied in owned by root, the `given` files
+/// ([`home_files`]) copied into the user's home owned by the user, and the
+/// container started; then the banner read through colima's port forward. Nothing is
 /// started while a directory of a session that did not end is there
 /// ([`leftover`]), nor unless colima is using this one: it made `_lima` there
 /// when told no `LIMA_HOME` and lists no profile in it yet.
@@ -581,7 +642,7 @@ fn socket(status: &str) -> Option<String> {
 /// before that -- the undo exists before the VM's start, so a start
 /// Ctrl-C cut short is deleted too. Ctrl-C ends the wait for the banner
 /// ([`INTERRUPTED`]).
-pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
+pub fn up(image: &Image, keys: &Keys, given: &[PathBuf], port: u16) -> Result<Running, String> {
     let tar = image.gnutar.as_path();
     let context = say("docker", &["context", "show"], &[]).ok();
     let base = fs::canonicalize(COLIMA_BASE).map_err(|e| format!("{COLIMA_BASE}: {e}"))?;
@@ -666,7 +727,7 @@ pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
         tar,
         &keys.host,
         "ssh_host_ed25519_key",
-        0o600,
+        (0o600, 0),
         "/etc/ssh/",
     )?;
     copy_in(
@@ -674,24 +735,32 @@ pub fn up(image: &Image, keys: &Keys, port: u16) -> Result<Running, String> {
         tar,
         &keys.user_pub,
         "authorized_keys",
-        0o644,
+        (0o644, 0),
         &format!("/home/{USER}/.ssh/"),
     )?;
+    for file in given {
+        let name = file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("{} has no name", file.display()))?;
+        copy_in(&run, tar, file, name, (0o644, UID), &home_dir())?;
+    }
     run.docker(&["start", &run.undo.name])?;
     banner(port, &INTERRUPTED)?;
     println!("demo:    sshd answers on 127.0.0.1:{port}, in container {HOST}");
     Ok(run)
 }
 
-/// `file` into the container's `dir` as `name`, owned by root at `mode`,
-/// through a tar on docker's input: `docker cp` of a file keeps the
-/// user id it has on this Mac, which sshd refuses for a key.
+/// `file` into the container's `dir` as `name`, at `mode` and owned by
+/// `uid` as its user and group, through a tar on docker's input: `docker cp`
+/// of a file keeps the user id it has on this Mac, which sshd refuses for a
+/// key.
 fn copy_in(
     run: &Running,
     tar: &Path,
     file: &Path,
     name: &str,
-    mode: u32,
+    (mode, uid): (u32, u32),
     dir: &str,
 ) -> Result<(), String> {
     let stage = file.with_extension("in");
@@ -701,14 +770,9 @@ fn copy_in(
     fs::copy(file, &to).map_err(|e| format!("{}: {e}", file.display()))?;
     fs::set_permissions(&to, fs::Permissions::from_mode(mode)).map_err(|e| format!("{e}"))?;
     let mut t = Command::new(tar)
-        .args([
-            "--owner=0",
-            "--group=0",
-            "--numeric-owner",
-            "-cf",
-            "-",
-            "-C",
-        ])
+        .arg(format!("--owner={uid}"))
+        .arg(format!("--group={uid}"))
+        .args(["--numeric-owner", "-cf", "-", "-C"])
         .arg(&stage)
         .arg(name)
         .stdout(Stdio::piped())
@@ -1043,15 +1107,39 @@ mod tests {
             "ln -s ${fastfetch-unwrapped}/bin/fastfetch usr/bin/fastfetch".to_string(),
             "ln -s ${btop}/bin/btop usr/bin/btop".to_string(),
             "ln -s ${openssh}/bin/sshd usr/sbin/sshd".to_string(),
+            "ln -s ${helix}/bin/hx usr/bin/hx".to_string(),
+            "ln -s ${w3m-nographics}/bin/w3m usr/bin/w3m".to_string(),
+            "install -m 0644 ${./helix.toml} home/jordan/.config/helix/config.toml".to_string(),
             "\"/usr/sbin/sshd\"".to_string(),
         ] {
             assert!(has(NIX, &line), "{line}");
         }
         assert!(NIX.contains("install -d -m 0755 etc etc/ssh home home/jordan"));
+        assert!(NIX.contains("home/jordan/.config/helix"));
         assert!(!NIX.contains("home/baud"), "the user's home is jordan's");
         assert!(NIX.contains(
-            "inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive;"
+            "inherit (linux) busybox openssh fastfetch-unwrapped btop starship bashInteractive \
+             helix w3m-nographics;"
         ));
+        assert!(NIX.contains(
+            "passthru.packages = { inherit busybox bashInteractive starship openssh \
+             fastfetch-unwrapped btop helix w3m-nographics; };"
+        ));
+        // The home's files are copied in as the session starts, not built
+        // in, so the pin does not follow the README.
+        for (name, _) in home_files() {
+            let built = NIX
+                .lines()
+                .filter(|l| !l.trim_start().starts_with('#'))
+                .any(|l| l.contains(name));
+            assert!(!built, "{name} is copied in, not built in");
+        }
+        assert!(!NIX.contains("../../README.md"));
+        assert_eq!(
+            crate::scratch::HELIX,
+            include_str!("../../../nix/demo-container/helix.toml"),
+            "one helix config, on this Mac and in the container"
+        );
         let wide = NIX.replace("-m 0600 ${./shadow}", "-m 0644 ${./shadow}");
         assert!(
             !has(&wide, "install -m 0600 ${./shadow} etc/shadow"),
@@ -1065,6 +1153,63 @@ mod tests {
             socket(r#"{"arch":"aarch64","docker_socket":"unix:///x/docker.sock","k":1}"#),
             Some("unix:///x/docker.sock".to_string())
         );
+    }
+
+    /// **The container's home is given the README, `hello.txt` and its
+    /// links as the session starts**: the README byte for byte, the
+    /// languages file the tour prints, and `links.txt`'s two OSC 8 links,
+    /// each opened and closed by ST, the README's `file://` URI naming the
+    /// container's host and the user's home, the repository's `https`; all
+    /// three written into the scratch directory for `docker cp`, owned by
+    /// the user there. The control: a file URI with no host is not the one
+    /// written. Perturbation: end a link with BEL and its check fails.
+    #[test]
+    fn the_container_s_home_is_given_the_readme_and_its_links() {
+        let names: Vec<&str> = home_files().iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, ["README.md", "hello.txt", "links.txt"]);
+        assert_eq!(
+            home_files()[0].1,
+            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../README.md")).unwrap()
+        );
+        assert_eq!(home_files()[1].1, crate::session::HELLO.as_bytes());
+        let l = links();
+        assert_eq!(
+            l,
+            "\x1b]8;;file://demo/home/jordan/README.md\x1b\\README.md\x1b]8;;\x1b\\\n\
+             \x1b]8;;https://github.com/baud-terminal/baud\x1b\\github.com/baud-terminal/baud\
+             \x1b]8;;\x1b\\\n"
+        );
+        assert!(!l.contains('\x07'), "ST, not BEL");
+        assert!(!l.contains("file:///"), "the control: the host is named");
+        assert_eq!(home_dir(), "/home/jordan/");
+        // The names check passes the container's home and nothing past it:
+        // `/home/` is a root it refuses, and the links name the home.
+        let n = crate::names::tests::qz();
+        let public = crate::names::public_path(env!("CARGO_PKG_REPOSITORY"));
+        let named = |b: &[u8]| crate::names::named_outside(b, &n, &[&public, &home_dir()]);
+        assert_eq!(named(l.as_bytes()), Vec::<String>::new());
+        assert!(
+            !crate::names::named_outside(l.as_bytes(), &n, &[&public]).is_empty(),
+            "the control: the home is a root's"
+        );
+        assert!(!named(b"/home/me/x").is_empty(), "another home is refused");
+        assert_eq!(
+            PASSWD
+                .lines()
+                .find(|l| l.starts_with("jordan:"))
+                .map(|l| { l.split(':').nth(2).unwrap().parse::<u32>().unwrap() }),
+            Some(UID)
+        );
+        let dir = std::env::temp_dir().join(format!("demo-home-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (paths, written) = home(&dir).unwrap();
+        assert_eq!(paths.len(), 3);
+        for ((p, (rel, bytes)), (name, want)) in paths.iter().zip(&written).zip(home_files()) {
+            assert_eq!(fs::read(p).unwrap(), want, "{name}");
+            assert_eq!(*rel, format!("container/home/{name}"));
+            assert_eq!(*bytes, want);
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// **The image's prompt is the preset with only what it shows over

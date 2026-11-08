@@ -1,0 +1,3 @@
+# helix's defaults but soft wrap, for the README session
+[editor.soft-wrap]
+enable = true

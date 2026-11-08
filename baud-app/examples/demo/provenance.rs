@@ -1087,7 +1087,7 @@ mod tests {
     #[test]
     fn the_tour_record_names_the_commit_the_feature_and_the_credits() {
         let credits = credit_line(LICENSES).expect("the credit line");
-        assert!(credits.contains("Canazei"), "{credits}");
+        assert!(credits.contains("JetBrains Mono"), "{credits}");
         let tree = Tree {
             commit: "0123456789abcdef0123456789abcdef01234567".to_string(),
             dirty: Vec::new(),

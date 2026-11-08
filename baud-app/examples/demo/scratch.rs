@@ -85,17 +85,22 @@ pub fn path(bins: &[String]) -> String {
 /// sideways: helix searches as each key is typed, `/ch` lands on `scheme` at
 /// the right edge of the README's fourth line, and the offset stays when the
 /// search moves on, so the first headless take read "e terminal with
-/// character".
-const HELIX: &str = "# helix's defaults but soft wrap, for the README session\n\
-                     [editor.soft-wrap]\nenable = true\n";
+/// character". The same file the container's helix reads
+/// (`nix/demo-container/default.nix`).
+pub const HELIX: &str = include_str!("../../../nix/demo-container/helix.toml");
 
 /// **The zsh startup file.** `PATH` is set here and not only in the
 /// environment: baud starts a login shell, and on macOS `/etc/zprofile`
 /// runs path_helper, which reorders `PATH`, before `.zshrc` is read. The
 /// prompt is starship's, the pinned one on that `PATH`
 /// (`container::STARSHIP_NIXPKGS`), drawn from baud's preset as the scratch
-/// home holds it ([`STARSHIP`]), its cache in the scratch home too. Its
-/// `ssh` reads the scratch home's ssh config (`container::ZSH_SSH`).
+/// home holds it ([`STARSHIP`]), its cache in the scratch home too.
+/// `YAZI_CONFIG_HOME` names the folder of yazi's config there ([`YAZI`]),
+/// so yazi reads that one whatever else its lookup would find; set here,
+/// by `$HOME`, as starship's are, since a path under the scratch home spelt
+/// out in baud's environment would hold the `/home/` the names check
+/// refuses. Its `ssh` reads the scratch home's ssh config
+/// (`container::ZSH_SSH`).
 /// `interactive_comments` is set, so the tour's narration, each a line
 /// beginning `#` typed at the prompt, is a comment the shell skips: zsh has
 /// the option off in an interactive shell, where `# are you ready for
@@ -105,7 +110,8 @@ fn zshrc(path: &str) -> String {
     format!(
         "export PATH={path}\nsetopt interactive_comments\n\
          export STARSHIP_CONFIG=\"$HOME/{STARSHIP}\"\n\
-         export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n{}",
+         export STARSHIP_CACHE=\"$HOME/.cache/starship\"\neval \"$(starship init zsh)\"\n\
+         export YAZI_CONFIG_HOME=\"$HOME/{YAZI}\"\n{}",
         crate::container::ZSH_SSH
     )
 }
@@ -126,6 +132,32 @@ pub const MPV_CONF: &str = "# mpv for the tour and the trailer: video in kitty's
 /// file's, each a URI baud underlines at rest (`baud-app/src/link.rs`), the
 /// file's a path that names nothing of this machine.
 pub const LINKS: &str = include_str!("../../../assets/demo/links.txt");
+
+/// **Where the scratch home holds yazi's config**, which
+/// `YAZI_CONFIG_HOME` names ([`zshrc`]), so yazi reads no config of the
+/// person's.
+pub const YAZI: &str = ".config/yazi";
+
+/// **yazi's config**, `yazi.toml`, for yazi 26.9.1: a GIF opens in kitten,
+/// `kitten icat --hold`, which sends the GIF's frames for baud to animate
+/// and waits for a key -- not mpv, which would draw a transparent GIF on
+/// black. The opener blocks, so yazi gives kitten the screen until it
+/// exits, and names the file by `%s`, which yazi splices in escaped: it
+/// runs an opener as `sh -c` with no arguments
+/// (`yazi-scheduler/src/process/shell.rs`, `yazi-fs/src/splatter.rs`), so a
+/// `"$@"` would name nothing. The rule is put before yazi's own by
+/// `prepend_rules`, where `rules` would replace them
+/// (`yazi-config/src/open/open.rs`), and selects by `url`, which with
+/// `mime` is all a rule's selector reads (`yazi-config/src/selector.rs`).
+pub const YAZI_TOML: &str = "# yazi for the tour: a GIF opens in kitten, which sends its frames for baud to animate\n\
+                             [opener]\ngif = [{ run = \"kitten icat --hold %s\", block = true }]\n\
+                             [open]\nprepend_rules = [{ url = \"*.gif\", use = \"gif\" }]\n";
+
+/// **The plasma logo yazi lists**, under the working directory, and the
+/// repository's file it is copied from: the README's logo for the dark
+/// page.
+pub const LOGO_GIF: &str = "logos/logo.gif";
+pub const LOGO_GIF_FROM: &str = "assets/readme/logo-dark.gif";
 
 /// Where the scratch home holds baud's starship preset, the repository's
 /// `assets/starship/baud.toml` byte for byte ([`PRESET`]).
@@ -193,51 +225,6 @@ const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndi
                       [images]\nadvertise_sixel = true\n\
                       [cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n";
 
-/// **The photo's pin**, `assets/demo/photo.toml`: the elementary OS
-/// wallpaper "Canazei Granite Ridges", an Unsplash photograph published
-/// before 8 June 2017 and so CC0, as elementary's `debian/copyright`
-/// records (`assets/demo/LICENSES.md`), fetched once by its URL at the
-/// wallpapers' tag `8.0.0` into the faces' cache and refused unless it
-/// hashes to the pin.
-pub const PHOTO_TOML: &str = include_str!("../../../assets/demo/photo.toml");
-
-/// **The photo scene 9 draws, read from its pin**, with the width the
-/// working directory holds it at: 850 pixels, 50 of the film's 17-pixel
-/// columns at 14 points, the width an earlier take's `--place` gave it,
-/// which kitten draws a pixel a pixel. Its 5472-pixel original took kitten
-/// a second to decode (`scripts/readme-capture.sh`). The file's strings
-/// are kept for the process's life, as a pin's fields are `'static`.
-pub fn photo() -> Result<(crate::fonts::Pinned, u32), String> {
-    let doc =
-        crate::provenance::read(PHOTO_TOML).map_err(|e| format!("assets/demo/photo.toml: {e}"))?;
-    let field = |k: &str| -> Result<&'static str, String> {
-        let v = doc
-            .text_of("", k)
-            .ok_or_else(|| format!("assets/demo/photo.toml has no {k}"))?;
-        Ok(Box::leak(v.to_string().into_boxed_str()))
-    };
-    let width = field("width")?
-        .parse::<u32>()
-        .map_err(|_| "assets/demo/photo.toml's width is not a number of pixels".to_string())?;
-    let sha256 = field("sha256")?;
-    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err("assets/demo/photo.toml's sha256 is not 64 hex digits".to_string());
-    }
-    Ok((
-        crate::fonts::Pinned {
-            name: field("name")?,
-            url: field("url")?,
-            sha256,
-            draws: "the photo, scene 9",
-        },
-        width,
-    ))
-}
-
-/// Where the photo is, under the scratch root: the shell's working
-/// directory, so the command names it bare.
-pub const PHOTO_AT: &str = "home/baud/canazei.jpg";
-
 /// **Every text file of the scratch directory**, each a path under the
 /// root and its bytes. The faces are copied in beside the config; they are
 /// the pinned files, the same bytes on every machine.
@@ -261,6 +248,10 @@ pub fn files(path: &str, faces: &[&str]) -> Vec<(String, Vec<u8>)> {
         (
             "home/.config/mpv/mpv.conf".to_string(),
             MPV_CONF.as_bytes().to_vec(),
+        ),
+        (
+            format!("home/{YAZI}/yazi.toml"),
+            YAZI_TOML.as_bytes().to_vec(),
         ),
         (format!("home/{CONFIG}"), config(faces).into_bytes()),
     ]
@@ -441,6 +432,7 @@ mod tests {
              export STARSHIP_CONFIG=\"$HOME/.config/starship.toml\"\n\
              export STARSHIP_CACHE=\"$HOME/.cache/starship\"\n\
              eval \"$(starship init zsh)\"\n\
+             export YAZI_CONFIG_HOME=\"$HOME/.config/yazi\"\n\
              alias ssh='ssh -F ~/.ssh/config'\n"
         );
         let preset = files("/a/bin", &faces)
@@ -508,6 +500,49 @@ mod tests {
         let windows = include_str!("../../src/windows.rs");
         assert!(windows.contains("pub const SCREEN: &str = \"BAUD_SCREEN\";"));
         assert!(windows.contains("Some(v) if v == \"primary\" => Ok(Screen::Primary),"));
+    }
+
+    /// **yazi reads the scratch home's config alone, and opens a GIF with
+    /// kitten**: the shell's `YAZI_CONFIG_HOME` names the folder its
+    /// `yazi.toml` is written to, so no config of the person's is read; the
+    /// opener blocks, so yazi gives kitten the screen until a key ends
+    /// `--hold`, and names the files by `%s`, which yazi 26.9.1 splices in
+    /// escaped -- it runs an opener as `sh -c` with no arguments, so a
+    /// `"$@"` would name none -- and the rule is prepended to yazi's own by
+    /// `url`, the key its rule selector reads beside `mime`. The control: a
+    /// variable naming another folder than the file's is caught.
+    /// Perturbation: spell the opener `"$@"` and its assertion fails.
+    #[test]
+    fn yazi_reads_the_scratch_config_and_opens_a_gif_with_kitten() {
+        let written = files("/a/bin", &[])
+            .into_iter()
+            .find(|(f, _)| f.ends_with("/yazi.toml"))
+            .expect("yazi's config in the scratch home");
+        assert_eq!(written.0, "home/.config/yazi/yazi.toml");
+        assert_eq!(written.1, YAZI_TOML.as_bytes());
+        assert!(
+            YAZI_TOML
+                .contains("[opener]\ngif = [{ run = \"kitten icat --hold %s\", block = true }]\n")
+        );
+        assert!(
+            YAZI_TOML.contains("[open]\nprepend_rules = [{ url = \"*.gif\", use = \"gif\" }]\n")
+        );
+        assert!(!YAZI_TOML.contains("$@") && !YAZI_TOML.contains("name ="));
+        let folder = |z: &str| {
+            z.lines()
+                .find_map(|l| l.strip_prefix("export YAZI_CONFIG_HOME=\"$HOME/"))
+                .map(|d| format!("home/{}/yazi.toml", d.trim_end_matches('"')))
+        };
+        let z = zshrc("/a/bin");
+        assert_eq!(folder(&z), Some(written.0.clone()));
+        let other = z.replace(".config/yazi", ".yazi");
+        assert_ne!(folder(&other), Some(written.0), "the control");
+        // The plasma logo, a GIF the rule selects, copied from the
+        // repository's README logo.
+        assert!(LOGO_GIF.ends_with(".gif") && LOGO_GIF.starts_with("logos/"));
+        let gif =
+            std::fs::read(format!("{}/../{LOGO_GIF_FROM}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert!(gif.starts_with(b"GIF89a"), "a GIF");
     }
 
     /// The btop configs `scripts/readme-film.sh` and

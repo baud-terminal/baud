@@ -44,7 +44,7 @@
 //!
 //! **What it needs**: nix, which every program comes from, at the nixpkgs
 //! revision `scripts/readme-film.sh` pins; network once, for the five open
-//! faces and the photo it caches; colima and docker, for the container
+//! faces it caches; colima and docker, for the container
 //! (`demo/container.rs`), whose image the repository's flake makes with
 //! nixpkgs' `dockerTools` from packages cache.nixos.org holds, so no Linux
 //! builder -- in a VM of its own, colima's profile `baud-demo` in a directory
@@ -74,16 +74,19 @@
 //! the screen transition on, the window solid (opaque under either
 //! appearance, its font and its size not a program's to change), the
 //! cursor still with the plasma trail -- and the pinned faces beside it,
-//! mpv's config at `~/.config/mpv/mpv.conf` (`scratch::MPV_CONF`), and
-//! the shell's working directory, `~/baud`, holding `hello.txt`, the
-//! repository's `README.md` unchanged, `links.txt`
-//! (`assets/demo/links.txt`), `canazei.jpg`, the photo
-//! `assets/demo/photo.toml` pins, scaled to its width there, `logo.mp4`,
-//! the plasma logo's film that `baud-pictures logo --mp4` makes into the
-//! scratch directory, and `ufo-logo.gif`, copied from
-//! `session::UFO_LOGO_FROM`, the UFO logo's GIF for the dark page; and
-//! the container's image, streamed by the repository flake's
-//! `demo-container` and pinned by its SHA-256. baud is started with
+//! mpv's config at `~/.config/mpv/mpv.conf` (`scratch::MPV_CONF`), yazi's
+//! at `~/.config/yazi/yazi.toml` (`scratch::YAZI_TOML`), which the
+//! `.zshrc`'s `YAZI_CONFIG_HOME` names, and the shell's working directory,
+//! `~/baud`, holding `hello.txt`, the repository's `README.md` unchanged,
+//! `links.txt` (`assets/demo/links.txt`), `logo.mp4`, the plasma logo's
+//! film that `baud-pictures logo --mp4` makes into the scratch directory,
+//! `ufo-logo.gif`, copied from `session::UFO_LOGO_FROM`, the UFO logo's
+//! GIF for the dark page, and `logos/logo.gif`, the plasma logo's GIF,
+//! copied from `scratch::LOGO_GIF_FROM`; the README, `hello.txt` and a
+//! `links.txt` of OSC 8 links for the container's home, copied in as it
+//! starts (`container::home_files`); and the container's image, streamed
+//! by the repository flake's `demo-container` and pinned by its SHA-256.
+//! baud is started with
 //! nothing of this environment but `HOME`, `ZDOTDIR`, `SHELL`, `PATH`,
 //! `LANG`, `TMPDIR`, `NOSYSZSHRC` and its own (`BAUD_GRID`,
 //! `BAUD_SCREEN`, `BAUD_MOTION`, `BAUD_SCROLLER`, `BAUD_LOG`,

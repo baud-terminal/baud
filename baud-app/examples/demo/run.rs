@@ -53,13 +53,16 @@ fn starship_new_enough(version: &str) -> bool {
 /// helix edits baud's config, OpenSSH's client ssh's into the container
 /// (`container.rs`), its manual pages left out, kitten draws the pictures,
 /// mpv plays the logo's film and, in the trailer, the tour, whose stream
-/// yt-dlp finds; fastfetch and btop run in the container, from its image.
-const PROGRAMS: [(&str, &str); 5] = [
+/// yt-dlp finds, and yazi lists the plasma logo's GIF and opens it with
+/// kitten (`scratch::YAZI_TOML`); fastfetch, btop, helix and w3m run in the
+/// container, from its image.
+const PROGRAMS: [(&str, &str); 6] = [
     ("helix", "hx"),
     ("openssh^out", "ssh"),
     ("kitty", "kitten"),
     ("mpv", "mpv"),
     ("yt-dlp", "yt-dlp"),
+    ("yazi", "yazi"),
 ];
 
 /// **The headless film's frame period**, in milliseconds: 100 frames a
@@ -401,7 +404,12 @@ fn run(args: &Args) -> Result<(), String> {
     // The trailer plays the tour from YouTube and goes nowhere over ssh, so
     // it starts no VM.
     let up = match take {
-        Take::Tour => Some(container::up(&prep.image, &prep.keys, prep.port)?),
+        Take::Tour => Some(container::up(
+            &prep.image,
+            &prep.keys,
+            &prep.home,
+            prep.port,
+        )?),
         Take::Trailer => None,
     };
     if let Some(stills) = &args.headless {
@@ -645,8 +653,9 @@ enum Take {
 /// directory, never into the tree, by `tools/baud-pictures` in
 /// `tools/shell.nix`, which pins the C it links -- and
 /// [`session::UFO_LOGO`], scene 9's second picture, copied from
-/// [`session::UFO_LOGO_FROM`]. Returns each file's name and SHA-256, for
-/// the provenance file.
+/// [`session::UFO_LOGO_FROM`]; and [`scratch::LOGO_GIF`], the plasma logo
+/// yazi lists and kitten plays, copied from [`scratch::LOGO_GIF_FROM`].
+/// Returns each file's name and SHA-256, for the provenance file.
 fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String)>, String> {
     let out = at.root.join("logo");
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -673,8 +682,12 @@ fn pictures(p: &Profile, at: &Layout, root: &Path) -> Result<Vec<(String, String
     for (from, to) in [
         (out.join("logo-dark.mp4"), session::LOGO_MP4),
         (root.join(session::UFO_LOGO_FROM), session::UFO_LOGO),
+        (root.join(scratch::LOGO_GIF_FROM), scratch::LOGO_GIF),
     ] {
         let dest = work.join(to);
+        if let Some(dir) = dest.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
         fs::copy(&from, &dest).map_err(|e| format!("{}: {e}", from.display()))?;
         pins.push((to.to_string(), provenance::sha256(&dest)?));
         println!("{:<13}{to}, from {}", "picture", from.display());
@@ -692,6 +705,8 @@ struct Prep {
     pins: Vec<(String, String)>,
     image: container::Image,
     keys: container::Keys,
+    /// The files the container's home is given (`container::home_files`).
+    home: Vec<PathBuf>,
     port: u16,
     /// The pinned faces, in the cache, for the check of what was printed.
     faces: Vec<PathBuf>,
@@ -779,26 +794,6 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
     for (p, from) in PINNED.iter().zip(&faces) {
         fs::copy(from, at.fonts().join(p.file())).map_err(|e| format!("{}: {e}", p.file()))?;
     }
-    // The photo kitten draws, from the cache at the width it is shown at,
-    // scaled by the pinned ffmpeg; the trailer shows none.
-    let (pin, width) = scratch::photo()?;
-    if take == Take::Tour {
-        let photo = fetch(&pin, &cache)?;
-        let ffmpeg = store("ffmpeg-headless.bin")?.join("bin/ffmpeg");
-        let shown = at.root.join(scratch::PHOTO_AT);
-        let scaled = Command::new(&ffmpeg)
-            .args(["-v", "error", "-y", "-i"])
-            .arg(&photo)
-            .args(["-vf", &format!("scale={width}:-2")])
-            .args(["-q:v", "2"])
-            .arg(&shown)
-            .status()
-            .map_err(|e| format!("ffmpeg: {e}"))?;
-        if !scaled.success() {
-            return Err(format!("ffmpeg could not scale {}", photo.display()));
-        }
-        println!("{:<13}{} ({})", "photo", pin.name, pin.draws);
-    }
     // The container: its image, built by the repository's flake and its
     // stream checked against its pin, and the session's keys, the scratch
     // home's ssh files among what is checked.
@@ -810,6 +805,8 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
     let port = container::free_port()?;
     let (keys, ssh_files) = container::keys(&at.home(), &at.root.join("container"), &ssh, port)?;
     written.extend(ssh_files);
+    let (home, home_files) = container::home(&at.root.join("container"))?;
+    written.extend(home_files);
     let image = container::image(
         &at.root.join("container"),
         &flake_out,
@@ -823,11 +820,7 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
     // without a window (`--headless`).
     let lines: String = env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
     fs::write(at.root.join("env"), lines).map_err(|e| format!("env: {e}"))?;
-    let shown_pins: Vec<&fonts::Pinned> = match take {
-        Take::Tour => PINNED.iter().chain([&pin]).collect(),
-        Take::Trailer => PINNED.iter().collect(),
-    };
-    let pins: Vec<(String, String)> = shown_pins
+    let pins: Vec<(String, String)> = PINNED
         .iter()
         .map(|p| (p.file().to_string(), p.sha256.to_string()))
         .collect();
@@ -843,6 +836,7 @@ fn prepare(steps: &[Step], take: Take) -> Result<Prep, String> {
         pins,
         image,
         keys,
+        home,
         port,
         faces,
     })
@@ -1074,8 +1068,9 @@ fn check_names(
         }
     }
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
+    let home = container::home_dir();
     for (rel, bytes) in written {
-        let hit = names::named_outside(bytes, &n, &[&public]);
+        let hit = names::named_outside(bytes, &n, &[&public, &home]);
         if !hit.is_empty() {
             return Err(format!("{rel} names this machine: {hit:?}"));
         }
@@ -1818,12 +1813,14 @@ fn check_config(at: &Layout) -> Result<(), String> {
 /// **Nothing baud was sent names this machine**, the scratch directory in
 /// every spelling and its own name alone included
 /// ([`names::with_scratch_leaf`]): what the programs printed is on film. The
-/// repository's address, which the README prints, aside.
+/// repository's address, which the README prints, aside, and the
+/// container's home, `container::home_dir`, which its `links.txt` names and
+/// which is the image's own, written in the repository, not this machine's.
 fn leaks(log: &Path, root: &Path) -> Result<(), String> {
     let bytes = fs::read(log).map_err(|e| format!("{}: {e}", log.display()))?;
     let n = names::with_scratch_leaf(machine_names(root)?, root);
     let public = names::public_path(env!("CARGO_PKG_REPOSITORY"));
-    let hit = names::named_outside(&bytes, &n, &[&public]);
+    let hit = names::named_outside(&bytes, &n, &[&public, &container::home_dir()]);
     if !hit.is_empty() {
         return Err(format!("the screen was sent this machine's names: {hit:?}"));
     }
