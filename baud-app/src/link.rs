@@ -2259,11 +2259,13 @@ mod tests {
     /// names it.
     #[test]
     fn no_crate_but_the_admission_mints_an_admitted_uri() {
-        fn walk(
-            dir: &std::path::Path,
-            under_src: bool,
-            out: &mut Vec<(std::path::PathBuf, usize)>,
-        ) {
+        /// Whether a directory is under a crate's `src`.
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Within {
+            Src,
+            Outside,
+        }
+        fn walk(dir: &std::path::Path, within: Within, out: &mut Vec<(std::path::PathBuf, usize)>) {
             let door = concat!("AdmittedUri::", "checked(");
             let Ok(entries) = std::fs::read_dir(dir) else {
                 return;
@@ -2276,8 +2278,12 @@ mod tests {
                     if matches!(&*name, "target" | ".git" | ".devenv" | ".claude" | "docs") {
                         continue;
                     }
-                    walk(&path, under_src || name == "src", out);
-                } else if under_src && name.ends_with(".rs") {
+                    let within = match (within, &*name) {
+                        (Within::Src, _) | (_, "src") => Within::Src,
+                        _ => Within::Outside,
+                    };
+                    walk(&path, within, out);
+                } else if within == Within::Src && name.ends_with(".rs") {
                     let n = std::fs::read_to_string(&path).map_or(0, |s| s.matches(door).count());
                     if n > 0 {
                         out.push((path, n));
@@ -2289,7 +2295,7 @@ mod tests {
             .parent()
             .expect("the workspace");
         let mut found = Vec::new();
-        walk(repo, false, &mut found);
+        walk(repo, Within::Outside, &mut found);
         let found: Vec<_> = found
             .iter()
             .map(|(p, n)| (p.strip_prefix(repo).unwrap_or(p).to_path_buf(), *n))

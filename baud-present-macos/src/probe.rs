@@ -482,30 +482,33 @@ mod tests {
     /// has a place here.
     #[test]
     fn every_kind_has_one_word() {
-        fn place(k: EffectKind) -> usize {
+        /// A kind's place in the table.
+        #[derive(PartialEq, Eq, Debug)]
+        struct Place(usize);
+        fn place(k: EffectKind) -> Place {
             match k {
-                EffectKind::Open => 0,
-                EffectKind::Reveal => 1,
-                EffectKind::Command => 2,
-                EffectKind::Copy => 3,
-                EffectKind::Clear => 4,
-                EffectKind::FindText => 5,
-                EffectKind::Announce => 6,
-                EffectKind::Authorize => 7,
-                EffectKind::Notice => 8,
-                EffectKind::Unnotice => 9,
-                EffectKind::DockBar => 10,
-                EffectKind::Attention => 11,
-                EffectKind::Unattention => 12,
-                EffectKind::Beep => 13,
-                EffectKind::Front => 14,
-                EffectKind::KeyFront => 15,
-                EffectKind::Activate => 16,
-                EffectKind::Icon => 17,
+                EffectKind::Open => Place(0),
+                EffectKind::Reveal => Place(1),
+                EffectKind::Command => Place(2),
+                EffectKind::Copy => Place(3),
+                EffectKind::Clear => Place(4),
+                EffectKind::FindText => Place(5),
+                EffectKind::Announce => Place(6),
+                EffectKind::Authorize => Place(7),
+                EffectKind::Notice => Place(8),
+                EffectKind::Unnotice => Place(9),
+                EffectKind::DockBar => Place(10),
+                EffectKind::Attention => Place(11),
+                EffectKind::Unattention => Place(12),
+                EffectKind::Beep => Place(13),
+                EffectKind::Front => Place(14),
+                EffectKind::KeyFront => Place(15),
+                EffectKind::Activate => Place(16),
+                EffectKind::Icon => Place(17),
             }
         }
         for (i, (k, w)) in KINDS.iter().enumerate() {
-            assert_eq!(place(*k), i, "{k:?}");
+            assert_eq!(place(*k), Place(i), "{k:?}");
             assert_eq!((k.word(), EffectKind::of(w)), (*w, Some(*k)));
         }
         let r = Record {
