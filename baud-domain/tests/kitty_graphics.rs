@@ -3,6 +3,7 @@
 //! where absent, and what makes a command malformed.
 
 use baud_domain::*;
+use proptest::prelude::*;
 
 #[test]
 fn every_key_is_read_and_every_absent_key_takes_its_default() {
@@ -161,8 +162,8 @@ fn a_lent_reader_serves_the_file_mediums_and_ris_keeps_it() {
 }
 
 /// **How many bytes a file medium reads**, decided before reading: `S`
-/// when given and the object holds it, the rest of the object otherwise,
-/// and past the limit the limit or a refusal.
+/// when given, no more than the object holds, the rest of the object
+/// otherwise, and past the limit the limit or a refusal.
 #[test]
 fn the_read_length_follows_o_s_and_the_limit() {
     let req = |offset, size, limit, past| KittyFileRequest {
@@ -181,10 +182,59 @@ fn the_read_length_follows_o_s_and_the_limit() {
     assert_eq!(req(0, 30, 100, refuse).read_len(40), Ok(30), "S");
     assert_eq!(
         req(0, 41, 100, refuse).read_len(40),
-        Err(KittyFileFailed),
-        "smaller than the client claimed"
+        Ok(40),
+        "a claim past the object is a bound, as kitty reads it"
     );
     assert_eq!(req(0, 0, 20, stop).read_len(40), Ok(20), "to the limit");
     assert_eq!(req(0, 0, 20, refuse).read_len(40), Err(KittyFileFailed));
     assert_eq!(req(0, 0, 40, refuse).read_len(40), Ok(40), "at the limit");
+}
+
+/// kitty's read of a file medium (`[[source: kitty-graphics-c]]`
+/// `read_img_file`): `S`, or the bytes after `O` when it is zero, no more
+/// than `max_to_read`, then a read that stops at the end of the object.
+fn kittys_read(offset: u64, size: u64, len: u64, max_to_read: u64) -> u64 {
+    let available = len.saturating_sub(offset);
+    let sz = match size {
+        0 => available,
+        s => s,
+    };
+    sz.min(max_to_read).min(available)
+}
+
+proptest! {
+    /// **The read length is kitty's**, for `S` below, at and above the
+    /// bytes after `O`, and `O` inside and past the end: where the limit
+    /// stops a read, exactly kitty's count, and where it refuses one,
+    /// kitty's count wherever the limit is not passed.
+    #[test]
+    fn the_read_length_is_kittys_clamp(
+        len in 0u64..64,
+        o_past in 0u64..80,
+        s_past in 0u64..80,
+        limit in 0usize..80,
+    ) {
+        let offset = o_past.min(len + 16);
+        let available = len.saturating_sub(offset);
+        // `S` from none through the bytes there to past them.
+        let size = s_past.min(available + 16);
+        let req = |past| KittyFileRequest {
+            medium: KittyMedium::TempFile,
+            path: b"/tmp/tty-graphics-protocol-x",
+            offset: u32::try_from(offset).unwrap(),
+            size: u32::try_from(size).unwrap(),
+            limit,
+            past,
+        };
+        let r = req(KittyPastLimit::Stop);
+        prop_assert_eq!(r.available(len), available);
+        let kitty = usize::try_from(kittys_read(offset, size, len, u64::try_from(limit).unwrap())).unwrap();
+        prop_assert_eq!(r.read_len(available), Ok(kitty));
+        let unbounded = usize::try_from(kittys_read(offset, size, len, u64::MAX)).unwrap();
+        let refused = req(KittyPastLimit::Refuse).read_len(available);
+        match unbounded > limit {
+            true => prop_assert_eq!(refused, Err(KittyFileFailed)),
+            false => prop_assert_eq!(refused, Ok(kitty)),
+        }
+    }
 }

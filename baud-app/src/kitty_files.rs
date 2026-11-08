@@ -103,7 +103,9 @@ pub enum Refusal {
     Directory,
     /// The descriptor is not the file the check saw, or not regular.
     Swapped,
-    /// "smaller than the client claimed", or past the store's bound.
+    /// Past the store's bound where the request refuses it
+    /// ([`KittyPastLimit::Refuse`]); `S` past the object is a bound, not
+    /// this.
     Size,
     /// The read failed, or ended short: the file shrank while read.
     Read,
@@ -741,7 +743,9 @@ mod tests {
             (bytes_of(&fifo), Err(Refusal::NotRegular)),
             (bytes_of(&sock), Err(Refusal::NotRegular)),
             (b"/dev/null", Err(Refusal::Sensitive)),
-            (bytes_of(&short), Err(Refusal::Size)),
+            // `S` past the object reads the three bytes there, as kitty
+            // reads it; the image they leave short is the one reply below.
+            (bytes_of(&short), Ok(())),
         ];
         let mut f = d.files();
         for (path, why) in cases {
@@ -1155,9 +1159,11 @@ mod tests {
     /// `memory` and `detect` each run against a terminal reading through
     /// [`LocalFiles`], its replies written back, and the picture is placed,
     /// by `t=f` and `t=s` where those were asked for. Under `detect`
-    /// kitten's `t=t` query carries `S` as its path's length, which the
-    /// text's "smaller than the client claimed" refuses, and kitten sends
-    /// `t=d`. kitten runs on a pty of 24x80 cells of 10x20 pixels, and this
+    /// kitten's `t=t` query carries `S` as its path's length, a bound, as
+    /// kitty reads it, so the probe answers `OK` and kitten sends the PNG
+    /// it holds as a file by `t=f` (`[[source: kitty-icat-transmit]]`
+    /// `transmit_image`: shared memory only for bytes it made itself).
+    /// kitten runs on a pty of 24x80 cells of 10x20 pixels, and this
     /// test holds the manager. Not in the suite: it needs kitten, named by
     /// `BAUD_KITTEN`. Prints the control data kitten sent.
     #[test]
@@ -1236,12 +1242,11 @@ mod tests {
             let (_, p) = t.images().placements().next().unwrap();
             assert!(t.images().image(p.image).is_some(), "{mode}: decoded");
             // The picture's own command: `t=f` and `t=s` as asked; under
-            // `detect`, whatever kitten picked from the answers.
+            // `detect`, the file, its `t=t` probe answered.
             let sent = keys.iter().rev().find(|k| k.contains("a=T")).unwrap();
             match mode {
-                "file" => assert!(sent.contains("t=f"), "{sent}"),
                 "memory" => assert!(sent.contains("t=s"), "{sent}"),
-                _ => {}
+                _ => assert!(sent.contains("t=f"), "{mode}: {sent}"),
             }
         }
     }
@@ -1300,12 +1305,12 @@ mod tests {
     /// query** (`[[source: kitty-icat-detect]]`): `t=d`, then a `t=t`
     /// temporary file holding the three bytes of a 1x1 RGB pixel with `S`
     /// set to the length of its path, then `t=s`, unpadded base64 as
-    /// kitten writes it, then `CSI c`. The text refuses an object
-    /// "smaller than the client claimed" with "a single, identical, error
-    /// response", so the `t=t` answer is byte for byte a missing file's,
-    /// the file is deleted, and the DA comes last, in a whole read, in
-    /// reads of every size and split at every byte. The same file
-    /// claimed at its own size answers `OK`.
+    /// kitten writes it, then `CSI c`. With no file there the `t=t` answer
+    /// is the one file error. With the file there, `S` past it is a bound,
+    /// as kitty reads it (`[[source: kitty-graphics-c]]` `read_img_file`),
+    /// so the probe answers `OK` and the file is deleted, and the DA comes
+    /// last, in a whole read, in reads of every size and split at every
+    /// byte. The same file claimed at its own size answers the same.
     #[test]
     fn kittens_detection_burst_gets_one_reply_a_query() {
         let d = Dir::new();
@@ -1332,6 +1337,7 @@ mod tests {
         let expect = format!("\x1b_Gi=1;OK\x1b\\{}{}\x1b[?1;2c", err(2), err(3));
         let missing = replies_in_reads(d.files(), &kitten, &[]);
         assert_eq!(String::from_utf8_lossy(&missing), expect, "no file there");
+        let ok = format!("\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\{}\x1b[?1;2c", err(3));
         let mut reads: Vec<Vec<usize>> = vec![vec![]];
         reads.extend((1..kitten.len()).map(|k| vec![k]));
         reads.extend((1..kitten.len()).map(|n| (n..kitten.len()).step_by(n).collect()));
@@ -1339,14 +1345,14 @@ mod tests {
             d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
             let got = replies_in_reads(d.files(), &kitten, cuts);
             assert_eq!(
-                got, missing,
-                "the short file answers as a missing one, {cuts:?}"
+                String::from_utf8_lossy(&got),
+                ok,
+                "S past the file is a bound, {cuts:?}"
             );
             assert!(!probe.exists(), "the probe is deleted, {cuts:?}");
         }
         d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
         let own = replies_in_reads(d.files(), &burst(&path, 3), &[]);
-        let ok = format!("\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\{}\x1b[?1;2c", err(3));
         assert_eq!(String::from_utf8_lossy(&own), ok, "claimed at its size");
     }
 }

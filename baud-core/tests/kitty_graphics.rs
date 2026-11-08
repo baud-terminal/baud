@@ -2633,8 +2633,10 @@ fn an_animation_frame_reads_through_a_file_medium() {
 }
 
 /// **`O` and `S` choose the bytes**: "read 80 bytes starting from the
-/// offset 10" ("Local client"), and an object "smaller than the client
-/// claimed" is the single error.
+/// offset 10" ("Local client"). `S` past the object is a bound, as kitty
+/// reads it (`[[source: kitty-graphics-c]]` `read_img_file`), so the
+/// pixels after `O` are read and placed; an image the bytes after `O`
+/// leave short is the single error.
 #[test]
 fn o_and_s_choose_the_bytes_read_and_a_short_object_is_the_one_error() {
     let rgb = bytes(4 * 2 * 3, 91);
@@ -2651,10 +2653,21 @@ fn o_and_s_choose_the_bytes_read_and_a_short_object_is_the_one_error() {
         assert_eq!(placed_pixels(t), rgb_pixels(&rgb));
     });
     assert_eq!((m.asked()[0].req.offset, m.asked()[0].req.size), (10, 24));
-    // S past the object, O past its end, and S short of the pixels: each
-    // the one error, and nothing stored or placed.
+    let m = Mem::new(&[(name, &padded)], 5);
+    with_files(256, &m, |t| {
+        let mut r = Vec::new();
+        feed(
+            t,
+            &apc("a=T,i=1,t=f,f=24,s=4,v=2,O=10,S=999", &b64(name)),
+            &mut r,
+        );
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\", "S past the object: a bound");
+        assert_eq!(placed_pixels(t), rgb_pixels(&rgb));
+    });
+    assert_eq!(m.handed(), 24, "the pixels, and no further");
+    // O past its end, and S short of the pixels: each the one error, and
+    // nothing stored or placed.
     for keys in [
-        "a=T,i=1,t=f,f=24,s=4,v=2,O=10,S=999",
         "a=T,i=1,t=f,f=24,s=4,v=2,O=999",
         "a=T,i=1,t=f,f=24,s=4,v=2,O=10,S=23",
     ] {
@@ -3774,4 +3787,65 @@ fn a_reflow_keeps_a_picture_past_the_far_end_and_drops_it_with_its_rows() {
             }
         });
     }
+}
+
+/// A reply as text, for a readable failure.
+fn lossy(r: &[u8]) -> String {
+    String::from_utf8_lossy(r).into_owned()
+}
+
+/// **`S` past the object reads what the object holds, as kitty reads
+/// it**: `if (sz > max_to_read) sz = max_to_read` and then a read to the
+/// end of the file (`[[source: kitty-graphics-c]]` `read_img_file`), so a
+/// claim longer than the file is a bound and not a refusal. kitten's own
+/// `t=t` probe, from a capture of `kitten icat` (`[[source:
+/// kitty-icat-detect]]`), claims `S=43`, its path's length, of a file of
+/// the three bytes of one RGB pixel, and is answered `OK`.
+#[test]
+fn kittens_temp_file_probe_claiming_its_paths_length_is_answered_ok() {
+    let path: &[u8] = b"/tmp/kitty-tty-graphics-protocol-3621482139";
+    assert_eq!(path.len(), 43);
+    let m = Mem::new(&[(path, &[1, 2, 3])], 4096);
+    let probe = b"\x1b_Ga=q,f=24,t=t,s=1,v=1,S=43,i=2;L3RtcC9raXR0eS10dHktZ3JhcGhpY3MtcHJvdG9jb2wtMzYyMTQ4MjEzOQ\x1b\\";
+    let r = with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, probe, &mut r);
+        settle(t, &mut r);
+        r
+    });
+    assert_eq!(lossy(&r), "\x1b_Gi=2;OK\x1b\\");
+    assert_eq!(m.handed(), 3, "the three bytes there are");
+}
+
+/// **A claim past a short file is a bound, and the image it leaves short
+/// is the one file error**: three bytes claimed as ten answer a 1x1 RGB
+/// query `OK`, and a 2x1 RGB image, six bytes wanted, the reply every
+/// file failure gives. kitty answers a short file image so rather than
+/// ENODATA, which "is the size of the file the client asked kitty to
+/// read, which it must not learn" (`[[source: kitty-graphics-c]]`
+/// `ABRT_INSUFFICIENT_DATA`); nothing is kept.
+#[test]
+fn a_claim_past_a_short_file_is_a_bound_and_a_short_image_the_file_error() {
+    let m = Mem::new(&[(b"/f", &[1, 2, 3])], 4096);
+    let run = |keys: &str| {
+        with_files(64, &m, |t| {
+            let mut r = Vec::new();
+            feed(t, &apc(keys, &b64(b"/f")), &mut r);
+            settle(t, &mut r);
+            (
+                lossy(&r),
+                t.images()
+                    .kitty_image(baud_domain::KittyId::of(1))
+                    .is_some(),
+            )
+        })
+    };
+    assert_eq!(
+        run("a=q,i=1,t=f,f=24,s=1,v=1,S=10"),
+        ("\x1b_Gi=1;OK\x1b\\".to_string(), false)
+    );
+    assert_eq!(
+        run("a=T,i=1,t=f,f=24,s=2,v=1,S=10"),
+        (lossy(FILE_ERR), false)
+    );
 }

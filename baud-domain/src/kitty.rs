@@ -840,18 +840,20 @@ impl KittyFileRequest<'_> {
     }
 
     /// **How many bytes to read** from `available` bytes past `O`, decided
-    /// before reading: `S` when given, refused when the object is "smaller
-    /// than the client claimed"; the rest of the object otherwise; and past
+    /// before reading: `S` when given, no more than the object holds; the
+    /// rest of the object otherwise; and past
     /// [`KittyFileRequest::limit`], the limit or a refusal as
-    /// [`KittyFileRequest::past`] says. kitty reads `S` as a bound and
-    /// judges the claim against the image (`read_img_file`), and kitten's
-    /// detection leans on that, sending `S` as the payload's length -- 87
-    /// for a three-byte `t=t` pixel. The text's plain reading stands.
+    /// [`KittyFileRequest::past`] says. A claim past the object is a
+    /// bound, as kitty reads it: `if (sz > max_to_read) sz = max_to_read`
+    /// and a read that stops at the end of the file
+    /// (`[[source: kitty-graphics-c]]` `read_img_file`), the image the
+    /// bytes leave short judged after, the one file error. kitten's
+    /// detection leans on it, sending `S` as its `t=t` path's length, 43
+    /// for a three-byte pixel (`[[source: kitty-icat-detect]]`).
     pub fn read_len(&self, available: u64) -> Result<usize, KittyFileFailed> {
         let want = match self.size {
             0 => available,
-            s if available < u64::from(s) => return Err(KittyFileFailed),
-            s => u64::from(s),
+            s => u64::from(s).min(available),
         };
         let want = usize::try_from(want).unwrap_or(usize::MAX);
         match (want > self.limit, self.past) {
@@ -2083,10 +2085,11 @@ impl KittyStream {
                     .size_of(image)
                     .map_or(0, |(w, h)| w.index() * h.index());
                 if n < total {
-                    // A file "smaller than the client claimed" is the
-                    // single error, which `reply` makes of this; a direct
-                    // one is kitty's ENODATA with the bytes it came to,
-                    // the pixel in progress included.
+                    // An image the file's bytes leave short is the
+                    // single error, which `reply` makes of this, as
+                    // kitty's `ABRT_INSUFFICIENT_DATA` makes it for a file;
+                    // a direct one is kitty's ENODATA with the bytes it
+                    // came to, the pixel in progress included.
                     store.free(image);
                     let bpp = cmd.format.bytes_per_pixel();
                     self.short = Shortfall::Bytes {
