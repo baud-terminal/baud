@@ -30,9 +30,16 @@
 //! `localhost` names no machine (`[[source: rfc8089]]` § 2 calls both local,
 //! and a program on another machine can send either). A row printed before
 //! the last `cd` gets no `./` line, and two reports in one read cannot be told
-//! apart: the rows that read wrote are above the line, so they get none. A
-//! `./` on the alternate screen gets none, since a full-screen program has a
-//! folder of its own.
+//! apart: the rows that read wrote are above the line, so they get none.
+//!
+//! **On the alternate screen a relative path is read against the folder of
+//! the program in front** ([`ProgramDir`]), since a full-screen program has
+//! a folder of its own and reports none: the worker reads it for the
+//! foreground group, on its thread, while that group is named local, and it
+//! goes with the alternate screen and when another group comes in front
+//! (`probe.rs`). A document's links are relative to the document, not the
+//! program's folder; the two are one for `hx README.md`, and where they are
+//! not, a path that is not there gets no line, never a line on another file.
 //!
 //! **Output not known to be on this machine gets no mark at all.** The
 //! worker names the program in front before it looks anything up: under
@@ -397,6 +404,13 @@ pub fn starts(tail: [u8; 8], forms: &Forms) -> bool {
         || (forms.parent == Turned::On && at(1) == b'.' && at(2) == b'.' && opens(3))
 }
 
+/// **What a relative path with no prefix may start with**: a letter, a
+/// digit, or one of `_.-@+`, as a file's name does -- never the `!`, `[` or
+/// `(` of the Markdown around one, whose path starts after them.
+fn names(u: &Unit) -> bool {
+    matches!(u, Unit::Char(c) if c.is_alphanumeric() || "_.-@+".contains(*c))
+}
+
 /// The form of a path starting at the first of `rest`, after `before`, the
 /// unit before it (none at the line's start): none when nothing that `forms`
 /// reads starts there.
@@ -414,7 +428,7 @@ fn start_at(before: Option<Unit>, rest: &[Unit], forms: &Forms) -> Option<Form> 
         Form::Dot
     } else if is(u(0), '.') && is(u(1), '.') && is(u(2), '/') && first(3) {
         Form::Parent
-    } else if u(0).is_some_and(|&x| part(x) == Part::In && !is(Some(&x), '/')) {
+    } else if u(0).is_some_and(names) {
         Form::Bare
     } else {
         return None;
@@ -422,11 +436,33 @@ fn start_at(before: Option<Unit>, rest: &[Unit], forms: &Forms) -> Option<Form> 
     (forms.of(form) == Turned::On).then_some(form)
 }
 
+/// **Whether `u` is a closing bracket `run` did not open**: as many of its
+/// closers in `run` as openers, or more.
+fn unopened(run: &[Unit], u: Unit) -> bool {
+    let Some(open) = (match u {
+        Unit::Char(')') => Some('('),
+        Unit::Char(']') => Some('['),
+        Unit::Char('}') => Some('{'),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let count = |c: char| run.iter().filter(|x| is(Some(x), c)).count();
+    count(open)
+        <= count(match u {
+            Unit::Char(c) => c,
+            _ => open,
+        })
+}
+
 /// **The paths in a line's text**, each once, in order: from a start
 /// [`start_at`] reads, over path characters, to the first that ends one, its
 /// trailing prose cut off. A path the walk's end touches, one past `MAX`
 /// characters, one with a character it must not hold, or a bare one with no
-/// `/` inside or a `:` (`host:path` names another machine) is none.
+/// `/` inside or a `:` (`host:path` names another machine) is none. A bare
+/// one starts at a name's character ([`names`]) and ends at a closing
+/// bracket it did not open ([`unopened`]), so a Markdown link's path is read
+/// without the brackets around it.
 pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &mut Vec<Token>) {
     out.clear();
     let n = units.len();
@@ -445,8 +481,12 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
         };
         let mut end = i;
         let mut refused = false;
+        // A relative path with no prefix ends at a closing bracket it did
+        // not open: `[t](docs/a.md)`'s `]`, whose wrapper's path the scan
+        // reads from there.
         while end < n {
             match part(units[end]) {
+                Part::In if form == Form::Bare && unopened(&units[i..end], units[end]) => break,
                 Part::In => end += 1,
                 Part::Space if quote.is_some() => end += 1,
                 Part::Refuse => {
@@ -752,6 +792,31 @@ impl State {
     }
 }
 
+/// **The folder of the program in front**, as the worker read it for the
+/// foreground group (`probe.rs`): what a relative path on the alternate
+/// screen is read against, since a full-screen program reports no folder of
+/// its own. An absolute path, kept only while the alternate screen is up.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ProgramDir(pub Vec<u8>);
+
+/// **Which folder a relative path is read against**: the one the shell
+/// reported, on the normal screen, or the program's in front, on the
+/// alternate screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Resolve {
+    Reported,
+    Program,
+}
+
+impl Resolve {
+    fn on(screen: Screen) -> Resolve {
+        match screen {
+            Screen::Normal => Resolve::Reported,
+            Screen::Alternate => Resolve::Program,
+        }
+    }
+}
+
 /// The reported folder, as baud keeps it: the last report's bytes, and the
 /// line where it took effect.
 #[derive(Default, Debug)]
@@ -787,6 +852,8 @@ pub struct Paths {
     home: Option<Vec<u8>>,
     names: Vec<String>,
     dir: Dir,
+    /// The folder of the program in front, while the alternate screen is up.
+    program_dir: Option<ProgramDir>,
     geometry: Option<(Cols, Rows)>,
     known: HashMap<Vec<u8>, State>,
     /// `OSC 8` `file://` links' answers, kept apart from printed paths' so
@@ -1070,6 +1137,11 @@ impl Paths {
         }
         let cursor = scrolled.line(Rows::ZERO, term.cursor().0);
         let mut moved = Moved::No;
+        // The program's folder goes with its screen: the next full-screen
+        // program's is read for it.
+        if term.screen() == Screen::Normal && self.set_program_dir(None) == Moved::Yes {
+            moved = Moved::Yes;
+        }
         let geometry = term.geometry();
         if self.geometry != Some(geometry) {
             self.geometry = Some(geometry);
@@ -1114,6 +1186,22 @@ impl Paths {
             }
         }
         moved
+    }
+
+    /// **The folder of the program in front**, as the worker read it, or
+    /// none: the rows are read again against it, and a batch is owed so a
+    /// screen that does not change is asked about too. One that is not an
+    /// absolute path is none.
+    pub fn set_program_dir(&mut self, dir: Option<ProgramDir>) -> Moved {
+        let dir = dir.filter(|d| d.0.first() == Some(&b'/'));
+        if self.program_dir == dir {
+            return Moved::No;
+        }
+        self.program_dir = dir;
+        self.generation = self.generation.next();
+        self.changed();
+        self.update_reads();
+        Moved::Yes
     }
 
     /// **What the worker named in front**, at the line the cursor was on
@@ -1278,16 +1366,29 @@ impl Paths {
         if !form.relative() {
             return true;
         }
-        screen == Screen::Normal
-            && self.front != Front::Multiplexer
-            && !self.multiplexed_through.is_some_and(|t| first <= t)
-            && self.dir.local.is_some()
-            && self.dir.from.is_some_and(|f| first >= f)
+        if self.front == Front::Multiplexer || self.multiplexed_through.is_some_and(|t| first <= t)
+        {
+            return false;
+        }
+        match Resolve::on(screen) {
+            Resolve::Reported => {
+                self.dir.local.is_some() && self.dir.from.is_some_and(|f| first >= f)
+            }
+            Resolve::Program => self.program_dir.is_some(),
+        }
     }
 
-    /// The path `token` names, resolved, into `self.key`; false when it
-    /// cannot be: no home, no folder.
-    fn resolve(&mut self, units: &[Unit], token: &Token) -> bool {
+    /// The folder a relative path on `screen` is read against, if any.
+    fn folder(&self, screen: Screen) -> Option<&[u8]> {
+        match Resolve::on(screen) {
+            Resolve::Reported => self.dir.local.as_deref(),
+            Resolve::Program => self.program_dir.as_ref().map(|d| d.0.as_slice()),
+        }
+    }
+
+    /// The path `token` names on `screen`, resolved, into `self.key`; false
+    /// when it cannot be: no home, no folder.
+    fn resolve(&mut self, units: &[Unit], token: &Token, screen: Screen) -> bool {
         self.key.clear();
         let text = &units[token.path.clone()];
         match token.form {
@@ -1299,7 +1400,13 @@ impl Paths {
                 return true;
             }
             Form::Dot | Form::Parent | Form::Bare => {
-                let Some(d) = &self.dir.local else {
+                // `Paths::folder`, spelled over the fields: `self.key` is
+                // borrowed beside it.
+                let folder = match Resolve::on(screen) {
+                    Resolve::Reported => self.dir.local.as_deref(),
+                    Resolve::Program => self.program_dir.as_ref().map(|d| d.0.as_slice()),
+                };
+                let Some(d) = folder else {
                     return false;
                 };
                 self.key.extend_from_slice(d);
@@ -1337,7 +1444,7 @@ impl Paths {
                 }
                 continue;
             }
-            if !self.resolve(text.units, t) {
+            if !self.resolve(text.units, t, text.screen) {
                 continue;
             }
             looked += 1;
@@ -1686,7 +1793,7 @@ impl PathsAt for Paths {
                 push_utf8(&body[1..], &mut key);
             }
             Form::Dot | Form::Parent | Form::Bare => {
-                key.extend_from_slice(self.dir.local.as_deref()?);
+                key.extend_from_slice(self.folder(screen)?);
                 if key.last() != Some(&b'/') {
                     key.push(b'/');
                 }
@@ -1917,6 +2024,45 @@ mod tests {
             found("open \"/tmp/a b/c\" now", &d),
             ["/tmp/a"],
             "off: a space ends it"
+        );
+    }
+
+    /// **A Markdown link's or image's relative path is the path alone, its
+    /// brackets left out**, as a README writes them: `![x](assets/baud.gif)`
+    /// and `[t](docs/a.md)` are `assets/baud.gif` and `docs/a.md`, and an
+    /// HTML `srcset="assets/readme/logo-dark.gif"` the quoted path; a
+    /// relative path starts at a letter, a digit or one of `_.-@+`, never
+    /// at the `!` or `[` before it, and ends at a closing bracket it did not
+    /// open, whose wrapper's path the scan then reads; one with its own
+    /// brackets keeps them. The prefixed forms are not changed. Named
+    /// breaks: start a relative path anywhere -- the image reads as
+    /// `![x](assets/baud.gif)`; end it only at a space -- the link reads as
+    /// `t](docs/a.md`.
+    #[test]
+    fn a_markdown_links_relative_path_is_read_without_its_brackets() {
+        let rel = Forms {
+            bare: Turned::On,
+            ..Forms::DEFAULT
+        };
+        assert_eq!(found("![x](assets/baud.gif)", &rel), ["assets/baud.gif"]);
+        assert_eq!(found("see [t](docs/a.md).", &rel), ["docs/a.md"]);
+        assert_eq!(
+            found("<img srcset=\"assets/readme/logo-dark.gif\">", &rel),
+            ["assets/readme/logo-dark.gif"]
+        );
+        assert_eq!(
+            found("[guide](docs/guide/features.md) and [x](./a/b.md)", &rel),
+            ["docs/guide/features.md", "./a/b.md"]
+        );
+        assert_eq!(found("src/f(1)/x.rs", &rel), ["src/f(1)/x.rs"], "its own");
+        assert_eq!(
+            found("@types/node .github/ci.yml", &rel),
+            ["@types/node", ".github/ci.yml"]
+        );
+        assert_eq!(
+            found("![x](/abs/a.gif) [t](~/b.md)", &Forms::DEFAULT),
+            ["/abs/a.gif", "~/b.md"],
+            "the prefixed forms, as before"
         );
     }
 

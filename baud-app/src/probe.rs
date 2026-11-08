@@ -113,7 +113,8 @@ use baud_render::{AbsLine, Scrolled};
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
-    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, Probe, Program, Turned,
+    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, Probe, Program,
+    ProgramDir, Turned,
 };
 use crate::sys::Pid;
 
@@ -176,6 +177,12 @@ pub trait Fs: Send {
     /// The names of the program leading the group in front: argv[0]'s and
     /// its executable's (`fg.rs`).
     fn program(&mut self, group: Pid) -> Vec<String>;
+    /// **The folder `group`'s leader is in**, an absolute path, or none
+    /// when it cannot be read (`fg::dir`): what a relative path on the
+    /// alternate screen is read against.
+    fn folder(&mut self, _group: Pid) -> Option<Vec<u8>> {
+        None
+    }
     /// Run on the worker's thread before anything else.
     fn prepare(&mut self) {}
     /// **Whether an app opens `address`**, a fixed address of one kind of
@@ -697,6 +704,9 @@ pub struct Answer {
     /// For [`Kind::Programs`]: what each was found to be; none for a batch
     /// left for a newer one.
     pub programs: Option<Vec<(Program, Handler)>>,
+    /// The folder of the group asked about, when it was named local and
+    /// the folder could be read.
+    pub folder: Option<ProgramDir>,
     pub calls: u64,
 }
 
@@ -713,6 +723,7 @@ fn left(ask: &Ask) -> Answer {
         seen: Vec::new(),
         probes: Vec::new(),
         programs: None,
+        folder: None,
         calls: 0,
     }
 }
@@ -959,6 +970,16 @@ fn answer(
             named.remove(g);
         }
     }
+    // The folder of a group named local, read here on the worker's thread:
+    // what a relative path on its full screen is read against.
+    let folder = match (front, ask.group) {
+        (Front::Local, Some(g)) => {
+            calls += 1;
+            beat();
+            fs.folder(g).map(ProgramDir)
+        }
+        _ => None,
+    };
     let through = |f: Front| seen.iter().filter(|s| s.0 == f).map(|s| s.1.last()).max();
     let (elsewhere, multiplexed) = (through(Front::Elsewhere), through(Front::Multiplexer));
     let mut probes = Vec::new();
@@ -994,6 +1015,7 @@ fn answer(
         seen,
         probes,
         programs: None,
+        folder,
         calls,
     }
 }
@@ -1172,6 +1194,13 @@ pub struct Probes<T> {
     click: Option<Id>,
     /// The group in front when the worker last named it not local.
     elsewhere: Option<Pid>,
+    /// The group last seen in front, at a read or a batch, and the group
+    /// the program's folder in [`Paths`] was read for: a folder answered
+    /// for another group than the one in front is not taken, and one kept
+    /// goes when another group comes in front, so a reused pid or a later
+    /// program never reads against an earlier one's folder.
+    front_group: Option<Pid>,
+    dir_group: Option<Pid>,
     /// Each group seen at a read since the last batch, with the lines it
     /// wrote, and the lines written past [`GROUPS`] of them.
     seen: Vec<(Pid, LineSpan)>,
@@ -1196,6 +1225,8 @@ impl<T: Moment> Probes<T> {
             answered: Id::default(),
             click: None,
             elsewhere: None,
+            front_group: None,
+            dir_group: None,
             seen: Vec::new(),
             unnamed: None,
             programs: Vec::new(),
@@ -1255,6 +1286,7 @@ impl<T: Moment> Probes<T> {
         let Some(g) = group else {
             return;
         };
+        self.front_group = Some(g);
         let kept = match paths.marks() {
             Marks::On => true,
             Marks::Off => linked == Linked::Yes,
@@ -1386,6 +1418,16 @@ impl<T: Moment> Probes<T> {
                     s.paths.trim_spans(crate::keep::oldest(s.term, s.scrolled));
                 }
                 s.paths.set_front(front, a.cursor);
+                // The program's folder, for the group still in front; on
+                // the normal screen it is none, which `Paths::observe` keeps.
+                if a.group.is_some() && a.group == self.front_group {
+                    let dir = match s.term.screen() {
+                        baud_core::Screen::Alternate => a.folder,
+                        baud_core::Screen::Normal => None,
+                    };
+                    self.dir_group = dir.as_ref().and(a.group);
+                    let _ = s.paths.set_program_dir(dir);
+                }
                 let clicked = (a.kind == Kind::Click && self.click == Some(a.id)).then(|| {
                     self.click = None;
                     match a.probes.first() {
@@ -1585,6 +1627,18 @@ impl<T: Moment> Probes<T> {
                 }
             };
         }
+        // Another group in front than the folder's: the folder goes, and
+        // the rows read against it are read again.
+        if let Some(g) = ask.group {
+            self.front_group = Some(g);
+            if self.dir_group.is_some_and(|d| d != g) {
+                self.dir_group = None;
+                if paths.set_program_dir(None) == Moved::Yes {
+                    lines.forget();
+                    turn.frame = Owed::Yes;
+                }
+            }
+        }
         let Slot::Running(w) = &self.slot else {
             return false;
         };
@@ -1683,6 +1737,11 @@ impl Fs for System {
             .collect()
     }
 
+    fn folder(&mut self, group: Pid) -> Option<Vec<u8>> {
+        use std::os::unix::ffi::OsStringExt;
+        crate::fg::dir(group).map(|p| p.into_os_string().into_vec())
+    }
+
     /// On macOS, no File Provider placeholder fetched by this thread's
     /// lookups (`sys::no_dataless_fetch`).
     fn prepare(&mut self) {
@@ -1760,6 +1819,7 @@ mod tests {
     use super::*;
     use crate::paths::{Forms, Origin};
     use baud_core::Owned;
+    use baud_core::Screen;
     use baud_domain::{BytePos, ReadLen, WinSize};
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -1784,6 +1844,8 @@ mod tests {
         /// What the system says opens each address, and every address asked.
         handlers: HashMap<String, Handler>,
         asked: Arc<Mutex<Vec<String>>>,
+        /// The folder each group's leader is in, where it has one.
+        folders: HashMap<Pid, Vec<u8>>,
     }
 
     #[derive(Default)]
@@ -1864,6 +1926,14 @@ mod tests {
                 .get(&group)
                 .cloned()
                 .unwrap_or_else(|| self.program.clone())
+        }
+
+        fn folder(&mut self, group: Pid) -> Option<Vec<u8>> {
+            self.log
+                .lock()
+                .unwrap()
+                .push(format!("folder {group}").into_bytes());
+            self.folders.get(&group).cloned()
         }
 
         fn handler(&mut self, address: &str) -> Handler {
@@ -2001,7 +2071,8 @@ mod tests {
     }
 
     /// **The program in front is named first, and under ssh nothing is
-    /// looked up**; under a multiplexer only `./` is left out. Perturbation:
+    /// looked up**, its folder included; a local one's folder is read
+    /// before its paths; under a multiplexer only `./` is left out. Perturbation:
     /// walk before `front_of`; drop the relative test.
     #[test]
     fn ssh_in_front_looks_nothing_up() {
@@ -2045,6 +2116,7 @@ mod tests {
                 Some(Front::Local),
                 2,
                 vec![
+                    "folder 7".into(),
                     "/etc".into(),
                     "/etc/hosts".into(),
                     "/w".into(),
@@ -2738,6 +2810,252 @@ mod tests {
             "the program, the table and the walk: {}",
             pr.counts.calls
         );
+    }
+
+    /// **A README on a full-screen program's screen, as `hx README.md`
+    /// leaves it**: the program's group seen at its read, and `text` on the
+    /// alternate screen (or the normal one, `alt` off), with relative paths
+    /// read. The turns run over 4 s of the test's clock, each batch's answer
+    /// waited for by the worker's wake, so nothing races; `front` is the
+    /// group the terminal names in front at each 100 ms step. Returns the
+    /// lines drawn and the worker's calls.
+    fn on_screen(
+        fs: Fake,
+        alt: Screen,
+        text: &[u8],
+        front: impl Fn(u32) -> Pid,
+    ) -> (usize, Vec<String>, Option<Vec<u8>>) {
+        let log = fs.clone();
+        let (woke, wakes) = std::sync::mpsc::channel();
+        let mut fs = Some(fs);
+        let mut pr: Probes<Instant> = Probes::new(Box::new(move || {
+            let woke = woke.clone();
+            Worker::start(
+                Box::new(fs.take().expect("started once")),
+                Box::new(move || {
+                    let _ = woke.send(());
+                }),
+            )
+        }));
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut bytes = match alt {
+            Screen::Alternate => b"\x1b[?1049h".to_vec(),
+            Screen::Normal => Vec::new(),
+        };
+        bytes.extend_from_slice(text);
+        t.write_at(BytePos::ZERO, &bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let mut paths = Paths::new(
+            None,
+            Forms {
+                bare: Turned::On,
+                ..Forms::DEFAULT
+            },
+        );
+        paths.set(Turned::On);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let line = s.line(Rows::ZERO, t.cursor().0);
+        pr.read_taken(
+            &mut paths,
+            Some(front(0)),
+            LineSpan::of(line, line),
+            Linked::No,
+        );
+        let t0 = Instant::now();
+        for step in 0..40 {
+            let now = t0 + Duration::from_millis(100 * u64::from(step));
+            // Another group in front writes: a read of its, on the last row.
+            if step > 0 && front(step) != front(step - 1) {
+                let b = b"\x1b[4;1Hx";
+                t.write_at(BytePos::ZERO, b);
+                t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+                let line = s.line(Rows::ZERO, t.cursor().0);
+                pr.read_taken(
+                    &mut paths,
+                    Some(front(step)),
+                    LineSpan::of(line, line),
+                    Linked::No,
+                );
+            }
+            let before = pr.counts.batches;
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.turn(now, seen, || Some(front(step)));
+            let _ = paths.observe(&t, s);
+            let _ = lines.scan(
+                &t,
+                s,
+                &mut Links {
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                },
+            );
+            for _ in before..pr.counts.batches {
+                wakes
+                    .recv_timeout(Duration::from_secs(60))
+                    .expect("the worker answers every batch");
+            }
+        }
+        // What a hover over the path on the first row reads, as a click does.
+        let row = String::from_utf8_lossy(text);
+        let row = row.trim_end();
+        let units: Vec<crate::link::Unit> = row.chars().map(crate::link::Unit::Char).collect();
+        let at = row.find("docs/").expect("the path");
+        let first = s.line(Rows::ZERO, baud_domain::Row::from_index(0));
+        let edges = (crate::link::Edge::Line, crate::link::Edge::Line);
+        let hovered = crate::paths::PathsAt::at(
+            &paths,
+            &units,
+            crate::link::Ix(at),
+            edges,
+            (first, first),
+            alt,
+        )
+        .map(|p| p.path);
+        (lines.lines().len(), log.logged(), hovered)
+    }
+
+    /// The README's tree, under `/work/hx`, and an empty folder beside it.
+    fn readme_tree() -> Fake {
+        let mut f = Fake::with(&[
+            ("/work", Entry::Dir),
+            ("/work/hx", Entry::Dir),
+            ("/work/hx/docs", Entry::Dir),
+            ("/work/hx/docs/guide", Entry::Dir),
+            ("/work/hx/docs/guide/features.md", Entry::File),
+            ("/work/empty", Entry::Dir),
+        ]);
+        f.groups.insert(7, vec!["hx".into()]);
+        f.folders.insert(7, b"/work/hx".to_vec());
+        f
+    }
+
+    const README: &[u8] = b"see [guide](docs/guide/features.md)\r\n";
+    const FEATURES: &str = "/work/hx/docs/guide/features.md";
+
+    /// **A relative path on a full-screen program's screen is read against
+    /// the folder the program in front is in**: helix's README,
+    /// its link `docs/guide/features.md`, gets a line once the worker has
+    /// read helix's folder and found the file there, with no byte fed
+    /// between, and a hover or a click over it reads it there; the folder
+    /// is read on the worker's thread, in its answer.
+    /// Named breaks: answer no folder -- no line; take the program's folder
+    /// on the normal screen too, at each of its three refusals -- the
+    /// control below draws one.
+    #[test]
+    fn a_relative_path_on_the_alternate_screen_reads_against_the_programs_folder() {
+        let (drawn, log, hovered) = on_screen(readme_tree(), Screen::Alternate, README, |_| 7);
+        assert!(log.iter().any(|l| l == "folder 7"), "{log:?}");
+        assert!(log.iter().any(|l| l == FEATURES), "looked up: {log:?}");
+        assert_eq!(drawn, 1, "a line, with no byte fed: {log:?}");
+        assert_eq!(
+            hovered.as_deref(),
+            Some(FEATURES.as_bytes()),
+            "a hover and a click read it there"
+        );
+        // The normal screen reads a relative path against the shell's
+        // reported folder alone, and none was reported.
+        let (drawn, log, _) = on_screen(readme_tree(), Screen::Normal, README, |_| 7);
+        assert_eq!(drawn, 0, "{log:?}");
+        assert!(!log.iter().any(|l| l == FEATURES), "{log:?}");
+    }
+
+    /// **A wrong folder draws no line, and nothing is read against a
+    /// folder that is not this machine's or cannot be read**: the folder
+    /// empty -- the path is looked up there and found gone; no folder read;
+    /// a multiplexer in front, whose pane's folder baud cannot see; `ssh`
+    /// in front. Named breaks: draw a path the walk found gone; read a
+    /// folder whatever is in front -- the multiplexer's is looked under.
+    #[test]
+    fn a_relative_path_gets_no_line_from_a_wrong_or_unknown_folder() {
+        let mut empty = readme_tree();
+        empty.folders.insert(7, b"/work/empty".to_vec());
+        let (drawn, log, _) = on_screen(empty, Screen::Alternate, README, |_| 7);
+        assert!(
+            log.iter().any(|l| l == "/work/empty/docs"),
+            "looked up: {log:?}"
+        );
+        assert_eq!(drawn, 0, "gone, so no line");
+        let mut unread = readme_tree();
+        unread.folders.clear();
+        let (drawn, log, _) = on_screen(unread, Screen::Alternate, README, |_| 7);
+        assert_eq!(drawn, 0, "{log:?}");
+        for (front, names) in [("a multiplexer", "tmux"), ("ssh", "ssh")] {
+            let mut f = readme_tree();
+            f.groups.insert(7, vec![names.into()]);
+            let (drawn, log, _) = on_screen(f, Screen::Alternate, README, |_| 7);
+            assert_eq!(drawn, 0, "{front}: {log:?}");
+            assert!(
+                !log.iter().any(|l| l.starts_with("folder")),
+                "{front}: no folder read: {log:?}"
+            );
+        }
+    }
+
+    /// **A folder read for one group is never read against for another**:
+    /// helix's folder is taken while helix is in front, and once another
+    /// group is in front at a batch it goes, and its line with it, before
+    /// any answer for the new group. Named break: keep the folder whoever
+    /// is in front -- the line stays under a program whose folder no one
+    /// read.
+    #[test]
+    fn a_programs_folder_goes_when_another_group_comes_in_front() {
+        let (drawn, _, _) = on_screen(readme_tree(), Screen::Alternate, README, |_| 7);
+        assert_eq!(drawn, 1, "the control: helix's");
+        // Group 8, a program with no folder to read, in front from 2 s.
+        let mut f = readme_tree();
+        f.groups.insert(8, vec!["less".into()]);
+        let (drawn, log, _) =
+            on_screen(
+                f,
+                Screen::Alternate,
+                README,
+                |step| {
+                    if step < 20 { 7 } else { 8 }
+                },
+            );
+        assert!(log.iter().any(|l| l == "folder 8"), "{log:?}");
+        assert_eq!(drawn, 0, "{log:?}");
+    }
+
+    /// **The system's folder read is this machine's own answer**: this
+    /// process's folder, as the kernel resolves it (`fg::dir`), and none for
+    /// a pid no process has. And it is made only in the worker's answer, on
+    /// its thread: the one call outside the tests is in `answer`, so no
+    /// frame, tick or callback reads a folder. Named breaks: answer the
+    /// folder as the bytes of something else -- the first assertion; call
+    /// it anywhere else, even on the worker -- the count.
+    #[test]
+    fn a_programs_folder_is_read_by_the_system_on_the_worker_only() {
+        use std::os::unix::ffi::OsStrExt;
+        let me = Pid::try_from(std::process::id()).expect("a pid");
+        let here = std::env::current_dir()
+            .and_then(std::fs::canonicalize)
+            .expect("this folder");
+        assert_eq!(
+            System.folder(me).as_deref(),
+            Some(here.as_os_str().as_bytes())
+        );
+        assert_eq!(System.folder(Pid::MAX), None, "no such process");
+        let src = include_str!("probe.rs");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").expect("the tests")];
+        let calls: Vec<usize> = code
+            .match_indices(concat!("fs.", "folder("))
+            .map(|(i, _)| i)
+            .collect();
+        let answer = code.find("\nfn answer(").expect("answer");
+        let after = answer + code[answer..].find("\n}\n").expect("its end");
+        assert_eq!(calls.len(), 1, "one call");
+        assert!(calls.iter().all(|&c| answer < c && c < after), "in answer");
     }
 
     /// **No path reaches a log line**: the worker's and the drivers' log
