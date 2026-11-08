@@ -126,10 +126,23 @@ fn record(out: &OsString, seconds: f64) -> Result<(), String> {
     // and only once the shell's side of the pty is gone: on Linux after
     // `readable` saw it exit and let go of the slave, on Darwin when its
     // exit hung the terminal up, which comes before its parent can see the
-    // exit. So the wait is for a shell that is ending, and returns. The
-    // write below is no test of it: Darwin refuses a write to a pty no
-    // process holds, and Linux takes it into the buffer and answers success.
+    // exit. So the wait is for a shell that is ending, and returns. One that
+    // hung its terminal up and goes on running is given 2 s, as the shell is
+    // after `exit`, and then killed. The write below is no test of it: Darwin
+    // refuses a write to a pty no process holds, and Linux takes it into the
+    // buffer and answers success.
     if gone || child.exited() {
+        if !child.exited_within(2.0) {
+            child.close();
+            match child.kill(libc::SIGKILL) {
+                Err(e) if e.raw_os_error() != Some(libc::ESRCH) => {
+                    return Err(format!("kill: {e}"));
+                }
+                _ => {}
+            }
+            child.wait()?;
+            return Err("start: the shell left its terminal without exiting".to_string());
+        }
         let code = child.wait()?;
         return Err(format!(
             "start: the shell ended before it was sent exit, with {code}"

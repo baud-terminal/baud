@@ -399,6 +399,21 @@ impl Child {
         })
     }
 
+    /// Whether the child exits within `seconds`, asked each [`TICK`]: the
+    /// bound on a wait for a child that may never end.
+    pub fn exited_within(&self, seconds: f64) -> bool {
+        let until = clock() + seconds;
+        loop {
+            if self.exited() {
+                return true;
+            }
+            if clock() >= until {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_secs_f64(TICK));
+        }
+    }
+
     /// Whether the child has exited, left to be reaped: `wait`, `reap` and
     /// `kill` find what they would have found. One already reaped has exited.
     pub fn exited(&self) -> bool {

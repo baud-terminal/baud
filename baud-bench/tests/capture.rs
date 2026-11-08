@@ -20,6 +20,54 @@ mod exec;
 const TOOL: &str = "CAPTURE_TEST_TOOL";
 const ARGS: &str = "CAPTURE_TEST_ARGS";
 const LIBTEST_HEADER: &str = "\nrunning 1 test\n";
+const LEAVES: &str = "CAPTURE_TEST_LEAVES";
+
+/// Not a check: this test binary run as a `SHELL` that hangs its terminal
+/// up and goes on running, the session's leader by `exec`. It ignores the
+/// hangup's `SIGHUP`, hangs the terminal up and sleeps 20 s. Unset, it does
+/// nothing.
+#[test]
+fn as_a_shell_that_leaves_its_terminal() {
+    if std::env::var_os(LEAVES).is_none() {
+        return;
+    }
+    // SAFETY: `SIG_IGN` for a signal this process may ignore.
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+    hang_up_the_terminal();
+    std::thread::sleep(Duration::from_secs(20));
+}
+
+/// Darwin refuses `TIOCNOTTY` of a session's leader; `revoke` of the
+/// terminal's path hangs it up, every descriptor of it with it.
+#[cfg(target_os = "macos")]
+fn hang_up_the_terminal() {
+    unsafe extern "C" {
+        /// `int revoke(const char *path)`, from `<unistd.h>`.
+        fn revoke(path: *const libc::c_char) -> libc::c_int;
+    }
+    // SAFETY: `ttyname` answers a NUL-terminated path or null, and the path
+    // is read by `revoke` before anything else could reuse its buffer.
+    let got = unsafe {
+        let path = libc::ttyname(0);
+        assert!(
+            !path.is_null(),
+            "ttyname: {}",
+            std::io::Error::last_os_error()
+        );
+        revoke(path)
+    };
+    assert_eq!(got, 0, "revoke: {}", std::io::Error::last_os_error());
+}
+
+/// Linux hangs a terminal up when its session's leader gives it up.
+#[cfg(not(target_os = "macos"))]
+fn hang_up_the_terminal() {
+    // SAFETY: `TIOCNOTTY` takes no argument.
+    let got = unsafe { libc::ioctl(0, libc::TIOCNOTTY) };
+    assert_eq!(got, 0, "TIOCNOTTY: {}", std::io::Error::last_os_error());
+}
 
 /// Not a check: this test binary run as a tool, because the tools are
 /// examples and a test can name no example's path. Unset, it does nothing.
@@ -1782,6 +1830,45 @@ fn a_shell_start_with_no_home_fails_before_the_exit_it_sends() {
     );
     assert_eq!(r.code, Some(1), "{}", r.err);
     assert!(r.err.starts_with("start: the shell ended"), "{}", r.err);
+    assert!(!Path::new(&out).exists());
+}
+
+/// **A shell that hangs its terminal up and goes on running is killed after
+/// 2 s**, and the tool says so: the `SHELL` is this binary as
+/// [`as_a_shell_that_leaves_its_terminal`], which sleeps 20 s, and with no
+/// bound the tool waits out the sleep and calls it an exit.
+#[test]
+fn a_shell_that_leaves_its_terminal_is_killed_within_the_bound() {
+    let s = Scratch::new("start-left");
+    let shell = s.at("shell");
+    let me = std::env::current_exe().expect("this test binary");
+    exec::script(
+        Path::new(&shell),
+        &format!(
+            "#!/bin/sh\nexec '{}' --exact as_a_shell_that_leaves_its_terminal --test-threads=1\n",
+            me.display()
+        ),
+    );
+    let out = s.at("start.bin");
+    let started = Instant::now();
+    let r = tool_in(
+        "record-shell-start",
+        &words(&[&out, "30"]),
+        &[
+            ("SHELL", &shell),
+            ("HOME", s.0.to_str().unwrap()),
+            (LEAVES, "1"),
+        ],
+    );
+    let took = started.elapsed();
+    assert_eq!(r.code, Some(1), "{}", r.err);
+    assert!(
+        r.err
+            .starts_with("start: the shell left its terminal without exiting"),
+        "{}",
+        r.err
+    );
+    assert!(took < Duration::from_secs(15), "{took:?}");
     assert!(!Path::new(&out).exists());
 }
 
