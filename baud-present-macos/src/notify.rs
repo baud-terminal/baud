@@ -46,7 +46,9 @@
 use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
 
-use block2::{Block, RcBlock};
+use block2::Block;
+#[cfg(not(feature = "effect-probe"))]
+use block2::RcBlock;
 use macos_liquid_glass::objc2::rc::Retained;
 #[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2::runtime::Bool;
@@ -57,11 +59,11 @@ use macos_liquid_glass::objc2::{
 };
 use macos_liquid_glass::objc2_app_kit::{NSApplication, NSBezierPath, NSColor, NSView};
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
-#[cfg(not(feature = "effect-probe"))]
-use macos_liquid_glass::objc2_foundation::NSSet;
 use macos_liquid_glass::objc2_foundation::{
-    NSArray, NSBundle, NSError, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSArray, NSError, NSPoint, NSRect, NSSize, NSString, NSURL,
 };
+#[cfg(not(feature = "effect-probe"))]
+use macos_liquid_glass::objc2_foundation::{NSBundle, NSSet};
 
 #[link(name = "UserNotifications", kind = "framework")]
 unsafe extern "C" {}
@@ -282,6 +284,10 @@ pub enum PostSound {
 /// **The notification center**, with its delegate and what waits for
 /// permission.
 pub struct Center {
+    /// UserNotifications' center. **Not in the probe build**, so a method
+    /// that would message it there does not compile: each one's probe arm
+    /// records or answers in its place.
+    #[cfg(not(feature = "effect-probe"))]
     center: Retained<AnyObject>,
     delegate: Retained<Delegate>,
     permission: Arc<Mutex<Permission>>,
@@ -293,32 +299,53 @@ pub struct Center {
     /// out.
     #[cfg_attr(feature = "effect-probe", allow(dead_code))]
     categories: RefCell<Vec<(String, Retained<AnyObject>)>>,
+    /// Under the probe, the answer to an ask not yet given: written into
+    /// `permission` at the next [`Center::turn`], after the call that
+    /// asked has returned, as the system's handler writes it later.
+    #[cfg(feature = "effect-probe")]
+    owed: Cell<Option<Permission>>,
 }
 
 impl Center {
-    /// The center, the process's delegate set, or why not.
+    /// The center, the process's delegate set, or why not. **Under the
+    /// effect probe there is no center**: the bundle is not asked and
+    /// nothing is sent to UserNotifications, so the event rig's unbundled
+    /// child has a `Center` whose methods record or answer in place of the
+    /// framework.
     pub fn open(_mtm: MainThreadMarker) -> Result<Center, Unavailable> {
-        // An identifier, and a bundle that is an app's: a binary run on
-        // its own has neither, and an `Info.plist` linked into one would
-        // give it the first.
-        let bundle = NSBundle::mainBundle();
-        if bundle.bundleIdentifier().is_none() || !bundle.bundlePath().to_string().ends_with(".app")
-        {
-            return Err(Unavailable::NoBundle);
-        }
-        let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
-            return Err(Unavailable::NoCenter);
+        Center::opened()
+    }
+
+    /// [`Center::open`]'s body, which reads no marker, so a test off the
+    /// main thread can ask it.
+    fn opened() -> Result<Center, Unavailable> {
+        #[cfg(not(feature = "effect-probe"))]
+        let center: Retained<AnyObject> = {
+            // An identifier, and a bundle that is an app's: a binary run
+            // on its own has neither, and an `Info.plist` linked into one
+            // would give it the first.
+            let bundle = NSBundle::mainBundle();
+            if bundle.bundleIdentifier().is_none()
+                || !bundle.bundlePath().to_string().ends_with(".app")
+            {
+                return Err(Unavailable::NoBundle);
+            }
+            let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
+                return Err(Unavailable::NoCenter);
+            };
+            // SAFETY: `+currentNotificationCenter`, nonnull.
+            unsafe { msg_send![cls, currentNotificationCenter] }
         };
-        // SAFETY: `+currentNotificationCenter`, nonnull.
-        let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
         let delegate = shared_delegate();
         // SAFETY: `delegate` is `id <UNUserNotificationCenterDelegate>`,
         // held weakly by the center and strongly here and by the process
         // ([`DELEGATE`]); setting the same one again changes nothing.
+        #[cfg(not(feature = "effect-probe"))]
         unsafe {
             let _: () = msg_send![&center, setDelegate: &*delegate];
         }
         Ok(Center {
+            #[cfg(not(feature = "effect-probe"))]
             center,
             delegate,
             permission: Arc::new(Mutex::new(Permission::NotAsked)),
@@ -326,6 +353,8 @@ impl Center {
             asked: Cell::new(Permission::NotAsked),
             waiting: RefCell::new(Vec::new()),
             categories: RefCell::new(Vec::new()),
+            #[cfg(feature = "effect-probe")]
+            owed: Cell::new(None),
         })
     }
 
@@ -351,9 +380,14 @@ impl Center {
             return;
         }
         self.asked.set(Permission::Asked);
-        // Under the probe: recorded, and the answer is never asked for.
+        // Under the probe: recorded, and a grant owed, given at the next
+        // turn from another thread, as the system's handler answers: never
+        // inside the call that asked, so a second post there waits too.
         #[cfg(feature = "effect-probe")]
-        crate::probe::record(crate::probe::EffectKind::Authorize);
+        {
+            crate::probe::record(crate::probe::EffectKind::Authorize);
+            self.owed.set(Some(Permission::Granted));
+        }
         #[cfg(not(feature = "effect-probe"))]
         {
             let shared = Arc::clone(&self.permission);
@@ -384,6 +418,10 @@ impl Center {
     /// permission came, or dropped when it was refused, their identifiers
     /// given back; and the answer, said once.
     pub fn turn(&self) -> Turn {
+        #[cfg(feature = "effect-probe")]
+        if let Some(answer) = self.owed.take() {
+            answered_elsewhere(&self.permission, answer);
+        }
         let p = self.permission();
         let waiting: Vec<Post> = match p {
             Permission::Granted | Permission::Denied => {
@@ -419,37 +457,44 @@ impl Center {
     /// of your app's delivered notifications that are still present in
     /// Notification Center", answered later through [`Center::delivered`].
     pub fn ask_delivered(&self) {
-        let shared = Arc::clone(&self.delivered);
-        let done = RcBlock::new(move |list: core::ptr::NonNull<NSArray<AnyObject>>| {
-            crate::unwind::guard(
-                crate::unwind::SiteName("the delivered notifications' answer"),
-                (),
-                || {
-                    // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
-                    let list = unsafe { list.as_ref() };
-                    let ids: Vec<String> = list
-                        .iter()
-                        .map(|n| {
-                            // SAFETY: a notification's `request` and its
-                            // `identifier`, each nonnull.
-                            unsafe {
-                                let req: Retained<AnyObject> = msg_send![&n, request];
-                                let id: Retained<NSString> = msg_send![&req, identifier];
-                                id.to_string()
-                            }
-                        })
-                        .collect();
-                    if let Ok(mut d) = shared.lock() {
-                        *d = Some(ids);
-                    }
-                },
-            );
-        });
-        // SAFETY: `-getDeliveredNotificationsWithCompletionHandler:`, the
-        // handler `void (^)(NSArray<UNNotification *> *)`.
-        unsafe {
-            let _: () =
-                msg_send![&self.center, getDeliveredNotificationsWithCompletionHandler: &*done];
+        // Under the probe: no center to ask, and the answer, an empty
+        // list, comes as the handler's would, from another thread.
+        #[cfg(feature = "effect-probe")]
+        answered_elsewhere(&self.delivered, Some(Vec::new()));
+        #[cfg(not(feature = "effect-probe"))]
+        {
+            let shared = Arc::clone(&self.delivered);
+            let done = RcBlock::new(move |list: core::ptr::NonNull<NSArray<AnyObject>>| {
+                crate::unwind::guard(
+                    crate::unwind::SiteName("the delivered notifications' answer"),
+                    (),
+                    || {
+                        // SAFETY: the handler's `NSArray<UNNotification *> *`, nonnull.
+                        let list = unsafe { list.as_ref() };
+                        let ids: Vec<String> = list
+                            .iter()
+                            .map(|n| {
+                                // SAFETY: a notification's `request` and its
+                                // `identifier`, each nonnull.
+                                unsafe {
+                                    let req: Retained<AnyObject> = msg_send![&n, request];
+                                    let id: Retained<NSString> = msg_send![&req, identifier];
+                                    id.to_string()
+                                }
+                            })
+                            .collect();
+                        if let Ok(mut d) = shared.lock() {
+                            *d = Some(ids);
+                        }
+                    },
+                );
+            });
+            // SAFETY: `-getDeliveredNotificationsWithCompletionHandler:`, the
+            // handler `void (^)(NSArray<UNNotification *> *)`.
+            unsafe {
+                let _: () =
+                    msg_send![&self.center, getDeliveredNotificationsWithCompletionHandler: &*done];
+            }
         }
     }
 
@@ -467,6 +512,12 @@ impl Center {
 
     /// **Close one**: removed from Notification Center, or before it shows.
     pub fn remove(&self, id: &str) {
+        #[cfg(feature = "effect-probe")]
+        {
+            let _ = id;
+            crate::probe::record(crate::probe::EffectKind::Unnotice);
+        }
+        #[cfg(not(feature = "effect-probe"))]
         remove(&self.center, id);
     }
 
@@ -637,21 +688,30 @@ fn attachment(path: &std::path::Path) -> Option<Retained<AnyObject>> {
     }
 }
 
+/// The two removals from `center`; built only without the probe, whose
+/// callers record the removal in its place.
+#[cfg(not(feature = "effect-probe"))]
 fn remove(center: &AnyObject, id: &str) {
-    #[cfg(feature = "effect-probe")]
-    {
-        let _ = (center, id);
-        crate::probe::record(crate::probe::EffectKind::Unnotice);
+    let ids = NSArray::from_retained_slice(&[NSString::from_str(id)]);
+    // SAFETY: the two removals, each an `NSArray<NSString *>`.
+    unsafe {
+        let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: &*ids];
+        let _: () = msg_send![center, removePendingNotificationRequestsWithIdentifiers: &*ids];
     }
-    #[cfg(not(feature = "effect-probe"))]
-    {
-        let ids = NSArray::from_retained_slice(&[NSString::from_str(id)]);
-        // SAFETY: the two removals, each an `NSArray<NSString *>`.
-        unsafe {
-            let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: &*ids];
-            let _: () = msg_send![center, removePendingNotificationRequestsWithIdentifiers: &*ids];
+}
+
+/// **The probe's answer, given as UserNotifications gives one**: written
+/// into `shared` by another thread, and joined, so the read after it sees
+/// it.
+#[cfg(feature = "effect-probe")]
+fn answered_elsewhere<T: Send + 'static>(shared: &Arc<Mutex<T>>, answer: T) {
+    let shared = Arc::clone(shared);
+    let _ = std::thread::spawn(move || {
+        if let Ok(mut s) = shared.lock() {
+            *s = answer;
         }
-    }
+    })
+    .join();
 }
 
 /// **Close one by its identifier from any turn**: for an expiry scheduled
@@ -936,5 +996,74 @@ mod tests {
         assert_eq!(n, 2);
         let d = Delegate::new();
         assert!(d.ivars().clicks.lock().expect("unpoisoned").is_empty());
+    }
+
+    /// **Outside an app's bundle there is no center**, in every build but
+    /// the probe's: the test process is a bare binary, so the bundle check
+    /// refuses it before anything is sent to UserNotifications.
+    /// Perturbation: drop the check's `return` and the test process asks
+    /// the framework for a center it has no bundle for.
+    #[cfg(not(feature = "effect-probe"))]
+    #[test]
+    fn a_bare_binary_has_no_center() {
+        assert!(matches!(Center::opened(), Err(Unavailable::NoBundle)));
+    }
+
+    /// **Under the probe the answer comes as the system's does: read on a
+    /// later turn, never in the call that asked.** A bare binary has a
+    /// center; the first post records the ask alone, both posts wait with
+    /// no answer yet, and the next turn has the grant, says it once and
+    /// sends what waited. Then a post goes at once, each removal records
+    /// one removal, and the delivered list is empty, once. Breaks: the
+    /// grant given inside `ask` (the second post sends at once), and no
+    /// grant (the turn says nothing).
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn under_the_probe_the_grant_is_read_on_a_later_turn() {
+        use crate::probe::{EffectKind, take};
+        // Off the main thread, so a record runs no nested AppKit call.
+        assert!(MainThreadMarker::new().is_none(), "off the main thread");
+        let kinds = || take().iter().map(|r| r.kind).collect::<Vec<_>>();
+        let post = |id: &str| Post {
+            id: id.into(),
+            title: "Build".into(),
+            subtitle: String::new(),
+            body: "done".into(),
+            sound: PostSound::Silent,
+            level: Level::Passive,
+            buttons: Vec::new(),
+            image: None,
+        };
+        let _ = take();
+        let c = Center::opened().expect("a center under the probe");
+        c.post(post("a"));
+        c.post(post("b"));
+        assert_eq!(kinds(), [EffectKind::Authorize], "asked once, nothing sent");
+        assert_eq!(
+            c.allowed(),
+            Permission::NotAsked,
+            "no answer inside the asking call"
+        );
+        let t = c.turn();
+        assert_eq!(
+            (t.answer, t.refused.len()),
+            (Some(Permission::Granted), 0),
+            "said on the turn"
+        );
+        assert_eq!(
+            kinds(),
+            [EffectKind::Notice, EffectKind::Notice],
+            "what waited, sent"
+        );
+        assert_eq!(c.turn().answer, None, "said once");
+        c.post(post("c"));
+        assert_eq!(kinds(), [EffectKind::Notice], "granted: sent at once");
+        c.remove("c");
+        remove_by_id("c");
+        assert_eq!(kinds(), [EffectKind::Unnotice, EffectKind::Unnotice]);
+        c.ask_delivered();
+        assert_eq!(c.delivered(), Some(Vec::new()), "an empty list");
+        assert_eq!(c.delivered(), None, "once");
+        assert!(kinds().is_empty(), "asking what is delivered is no effect");
     }
 }

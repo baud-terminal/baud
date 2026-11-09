@@ -38,6 +38,15 @@ const GATED: &[(&str, &str)] = &[
         "src/announce.rs",
         "NSAccessibilityPostNotificationWithUserInfo(",
     ),
+    // The center itself: a field the probe build does not have, and the
+    // three messages that find it and give it the delegate, or ask it.
+    ("src/notify.rs", "center: Retained<AnyObject>,"),
+    ("src/notify.rs", "currentNotificationCenter]"),
+    ("src/notify.rs", "setDelegate:"),
+    (
+        "src/notify.rs",
+        "getDeliveredNotificationsWithCompletionHandler:",
+    ),
     ("src/notify.rs", "requestAuthorizationWithOptions:"),
     ("src/notify.rs", "addNotificationRequest:"),
     ("src/notify.rs", "setNotificationCategories:"),
@@ -288,6 +297,31 @@ fn each_desktop_effect_is_built_only_without_the_probe() {
             let line = code[..at].lines().count();
             assert!(gated, "{file}:{line}: {call} is built into the probe");
         }
+    }
+}
+
+/// **Every use of the notification center is built only without the
+/// probe, and listed**: found by its spelling rather than from a table, so
+/// a new one cannot slip past, and counted, so a new one is named here when
+/// it comes. The probe build has no center field, so a site there would not
+/// compile; this holds the default build to it too. Perturbation: take the
+/// gate off `Center::remove`'s call.
+#[test]
+fn every_use_of_the_center_is_built_only_without_the_probe() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let src = read_to_string(format!("{root}/src/notify.rs")).expect("notify.rs");
+    let code = src
+        .split_once("\n#[cfg(test)]\nmod tests")
+        .map_or(src.as_str(), |(c, _)| c);
+    let found = sites(code, "self.center");
+    // `ask`, `ask_delivered`, `remove`, `send` and `category`.
+    assert_eq!(found.len(), 5, "the five uses of the center");
+    for (at, gated) in found {
+        let line = code[..at].lines().count();
+        assert!(
+            gated,
+            "notify.rs:{line}: the center is used in the probe build"
+        );
     }
 }
 
