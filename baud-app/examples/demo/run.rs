@@ -497,9 +497,10 @@ fn full_screen_name(gif: &str) -> String {
 /// (`programs::chawan_draws_a_pages_picture_by_kittys_protocol`). What the
 /// programs printed is
 /// then checked for a character no face draws, and searched as a film's
-/// is, and kept beside the stills as `heard.log`: every byte the session
-/// read from the shell, ssh's session among them, for a replay through
-/// baud's core.
+/// is, as the session showed it ([`shown_log`]), which is kept beside the
+/// stills as `heard.shown.log`. Every byte the session read from the shell,
+/// ssh's session among them, for a replay through baud's core, is kept raw
+/// in cargo's target directory ([`keep_raw`]), never beside the stills.
 fn headless(
     p: &Profile,
     prep: &Prep,
@@ -597,14 +598,55 @@ fn headless(
     }
     let heard = prep.at.root.join("heard.log");
     check_printed(&prep.faces, &heard)?;
-    leaks(&heard, &prep.at.root)?;
+    // Searched as the session showed it, each folder report as the title
+    // shows its folder (`shown_log`); that copy beside the stills, the raw
+    // bytes in cargo's target directory, never beside them.
+    let shown = shown_log(&heard, &prep.at.home(), &stills.join(HEARD_SHOWN))?;
+    leaks(&shown, &prep.at.root)?;
     if let Some(f) = forbidden {
-        f.search(std::slice::from_ref(&heard))?;
+        f.search(std::slice::from_ref(&shown))?;
     }
-    let kept = stills.join("heard.log");
-    fs::copy(&heard, &kept).map_err(|e| format!("{}: {e}", kept.display()))?;
+    let raw = keep_raw(&heard, &p.target)?;
+    println!(
+        "heard:   {} (as shown), {} (raw)",
+        shown.display(),
+        raw.display()
+    );
     println!("stills:  {}", stills.display());
     Ok(())
+}
+
+/// The name of what a headless session showed, beside its stills.
+const HEARD_SHOWN: &str = "heard.shown.log";
+
+/// The name of the raw heard bytes, in cargo's target directory.
+const HEARD_RAW: &str = "heard.raw.log";
+
+/// **What a session showed, of the bytes at `raw`**, written to `to`: each
+/// shell folder report (`OSC 7`) as the window's title shows its folder,
+/// relative to `home`, the session's, and everything else as it came
+/// (`undrawn.rs`). The core draws no report, and the title never shows the
+/// host one names, so this is what the searches for this machine's names
+/// and for what must never be filmed read.
+fn shown_log(raw: &Path, home: &Path, to: &Path) -> Result<PathBuf, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = fs::read(raw).map_err(|e| format!("{}: {e}", raw.display()))?;
+    let home = fs::canonicalize(home).map_err(|e| format!("{}: {e}", home.display()))?;
+    let shown = crate::undrawn::shown_bytes(&bytes, Some(home.as_os_str().as_bytes()));
+    fs::write(to, shown).map_err(|e| format!("{}: {e}", to.display()))?;
+    Ok(to.to_path_buf())
+}
+
+/// **The raw heard bytes kept in cargo's target directory**, as
+/// `demo/heard.raw.log`: never beside the stills, which may be anywhere,
+/// and never untracked in the repository, as `keep_full_screen` keeps its
+/// reading. The scratch root's own copy goes with the root on success.
+fn keep_raw(heard: &Path, target: &Path) -> Result<PathBuf, String> {
+    let dir = target.join("demo");
+    fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let to = dir.join(HEARD_RAW);
+    fs::copy(heard, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    Ok(to)
 }
 
 /// **What must never be filmed**, as a list kept outside the repository:
@@ -1700,10 +1742,13 @@ fn live(
     close(&mut child, pid);
     drop(board);
     let first = played?;
-    leaks(&at.pty_log(), &at.root)?;
+    // Searched as the session showed it (`shown_log`), the raw log left in
+    // the scratch root, which goes on success.
+    let shown = shown_log(&at.pty_log(), &at.home(), &at.root.join("pty.shown.log"))?;
+    leaks(&shown, &at.root)?;
     check_printed(&prep.faces, &at.pty_log())?;
     if let Some(f) = forbidden {
-        f.search(&[at.pty_log()])?;
+        f.search(std::slice::from_ref(&shown))?;
     }
     let (Some(said), Some(display)) = (said, display) else {
         return Ok(None);
@@ -1997,6 +2042,9 @@ fn kept_out(args: impl Iterator<Item = String>) -> impl Iterator<Item = String> 
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::Path;
+
     /// **The demo's mpv is the flake's, at [`MPV_REV`], on the Mac's
     /// nixpkgs**: no mpv among nixpkgs' [`PROGRAMS`]; the flake's
     /// [`MPV_OUTPUT`] imports `nix/demo-mpv` with the input pinned at
@@ -2304,5 +2352,128 @@ mod tests {
             "running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored\n"
         ));
         assert!(!super::ran_one("test result: FAILED. 0 passed; 1 failed\n"));
+    }
+
+    /// **What a session showed is searched, at both call sites, and a
+    /// folder report's scratch path is not what it showed**: the bytes the
+    /// headless run and the live take search ([`super::shown_log`]) hold
+    /// each shell folder report as the title shows its folder, so a scratch
+    /// path inside one names nothing, while the same path printed still
+    /// does. A heard log and a pty log alike. The control: the raw bytes
+    /// name the root. Named break: search the raw bytes.
+    #[test]
+    fn leaks_reads_what_the_session_showed() {
+        let root = std::env::temp_dir().join(format!("baud-demo-shown-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let home = root.join("home");
+        fs::create_dir_all(home.join("src")).expect("the scratch home");
+        let real = fs::canonicalize(&home).expect("the home");
+        let report = format!("\x1b]7;file://example-host{}/src\x07ok\r\n", real.display());
+        for raw_name in ["heard.log", "pty.log"] {
+            let raw = root.join(raw_name);
+            fs::write(&raw, &report).expect("the raw log");
+            assert!(
+                super::leaks(&raw, &root).is_err(),
+                "the control: the raw log names the root"
+            );
+            let shown = super::shown_log(&raw, &home, &root.join("shown.log")).expect("shown");
+            assert_eq!(
+                super::leaks(&shown, &root),
+                Ok(()),
+                "{raw_name}: a report shows as ~/src"
+            );
+            fs::write(&raw, format!("{}/src\r\n", real.display())).expect("printed");
+            let shown = super::shown_log(&raw, &home, &root.join("shown.log")).expect("shown");
+            assert!(
+                super::leaks(&shown, &root).is_err(),
+                "{raw_name}: a printed path is found"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The references a Markdown or HTML text makes: each `](target)`, and
+    /// each `src`, `href` and `srcset` value, a `srcset`'s every entry.
+    fn references(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (at, _) in text.match_indices("](") {
+            let rest = &text[at + 2..];
+            if let Some(end) = rest.find(')') {
+                out.push(
+                    rest[..end]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                );
+            }
+        }
+        for attr in ["src=\"", "href=\"", "srcset=\""] {
+            for (at, _) in text.match_indices(attr) {
+                let rest = &text[at + attr.len()..];
+                let Some(end) = rest.find('"') else { continue };
+                for entry in rest[..end].split(',') {
+                    out.push(entry.split_whitespace().next().unwrap_or("").to_string());
+                }
+            }
+        }
+        out
+    }
+
+    /// What the README must never point at: the raw and shown logs, a
+    /// stills folder, the link layer's dumps, cargo's target directory.
+    const UNPUBLISHED: [&str; 8] = [
+        "heard.log",
+        "heard.shown.log",
+        "heard.raw.log",
+        "pty.log",
+        "pty.shown.log",
+        "stills",
+        "links/",
+        "target/",
+    ];
+
+    /// **Nothing the README references, nor any document it leads to in
+    /// this repository, points at a session's logs, a stills folder or the
+    /// link layer's dumps**: those stay on the machine that made them, and
+    /// what is published is the film and the frames chosen from it. The
+    /// site is kept outside this repository and is not read here. The
+    /// controls: the README's own references are read, and a reference to a
+    /// still or a dump is caught. Named break: an empty list.
+    #[test]
+    fn the_readme_points_at_no_session_log() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let caught = |r: &str| UNPUBLISHED.iter().any(|u| r.contains(u));
+        let made = "![a still](demo/run11/stills/02-launch.png) [dump](run11/links/05-step.txt)";
+        assert!(
+            references(made).iter().all(|r| caught(r)),
+            "the control: {made}"
+        );
+        let mut todo = vec![root.join("README.md")];
+        let mut seen = std::collections::BTreeSet::new();
+        let mut found = Vec::new();
+        while let Some(doc) = todo.pop() {
+            let Ok(real) = fs::canonicalize(&doc) else {
+                continue;
+            };
+            if !seen.insert(real.clone()) {
+                continue;
+            }
+            let text = fs::read_to_string(&real).unwrap_or_default();
+            for r in references(&text) {
+                if caught(&r) {
+                    found.push(format!("{}: {r}", doc.display()));
+                }
+                let local = r.split('#').next().unwrap_or("");
+                if local.ends_with(".md") && !local.contains("://") {
+                    todo.push(real.parent().expect("a folder").join(local));
+                }
+            }
+        }
+        assert!(
+            seen.len() > 1,
+            "the control: the README leads to its documents"
+        );
+        assert_eq!(found, Vec::<String>::new());
     }
 }

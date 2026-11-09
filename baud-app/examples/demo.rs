@@ -227,6 +227,15 @@ mod no_appkit;
 #[cfg(all(test, target_os = "macos"))]
 #[path = "demo/no_window.rs"]
 mod no_window;
+// What a session showed, of what its programs sent: the bytes the searches
+// for this machine's names read, each shell folder report as the title shows
+// its folder (`src/undrawn.rs`, `src/folder.rs`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[path = "../src/folder.rs"]
+mod folder;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[path = "../src/undrawn.rs"]
+mod undrawn;
 
 #[cfg(any(target_os = "macos", test))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

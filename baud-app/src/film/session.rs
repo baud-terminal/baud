@@ -1189,13 +1189,24 @@ fn the_readme_session_lights_every_light() {
         assert_eq!(failed, Vec::<String>::new(), "the link checks");
     }
     // What the programs printed and what was sent them, for the demo's
-    // search of what must never be filmed, and searched here for the
-    // machine's names as a film's are.
+    // search of what must never be filmed, written as it came; and searched
+    // here for the machine's names as a film's are, each shell folder
+    // report as the title shows its folder (`undrawn.rs`): the core draws
+    // none of it, and the title never shows the host it names.
     let bytes = [&take.heard[..], &take.answers[..]].concat();
     std::fs::write(root.join("heard.log"), &bytes).expect("heard.log");
+    let home = std::fs::canonicalize(root.join("home")).expect("the session's home");
+    let shown = [
+        &crate::undrawn::shown_bytes(
+            &take.heard,
+            Some(std::os::unix::ffi::OsStrExt::as_bytes(home.as_os_str())),
+        )[..],
+        &take.answers[..],
+    ]
+    .concat();
     let names = super::machine_names(&[]);
     assert_eq!(
-        super::named(&bytes, &names),
+        super::named(&shown, &names),
         Vec::<String>::new(),
         "the session names this machine"
     );

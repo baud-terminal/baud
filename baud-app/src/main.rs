@@ -325,6 +325,13 @@ mod trail;
 // a cursor carried with its line: pure, and both drivers take it through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod carried;
+// A folder as the title spells it: the title's and the demo's.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod folder;
+// What a session showed, of what its programs sent: the bytes the README
+// session's search for this machine's names reads, and the demo's.
+#[cfg(test)]
+mod undrawn;
 // What a program's title becomes on the window: pure, so its tests run on
 // every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
