@@ -107,8 +107,56 @@ pub enum Osc<'a> {
     /// whole only when it is `21` alone, which asks nothing, or when a test
     /// or an embedder without the core hands it.
     ColorControl(&'a [u8]),
+    /// A body cut at the bound its keeper holds, under a code whose value is
+    /// one setting -- `OSC 22`'s pointer, `50`'s font, `60` to `62`'s allow
+    /// query: the value is not the one sent, so it is not acted on
+    /// ([`OscBody::Cut`]).
+    Cut,
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// **An OSC body as its keeper holds it: whole, or cut at its bound.** A
+/// cut spec is still a well-formed spec -- `rgb:80/80/8` reads as a third
+/// colour -- so the cut is carried with the bytes, and [`Osc::parse`] takes
+/// nothing else. Cut, a colour list keeps the items whose `;` arrived and
+/// a value that is one setting is [`Osc::Cut`] (`Osc::parse` says which).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OscBody<'a> {
+    Whole(&'a [u8]),
+    Cut(&'a [u8]),
+}
+
+impl<'a> OscBody<'a> {
+    /// The bytes kept, whole or not.
+    pub fn bytes(self) -> &'a [u8] {
+        match self {
+            OscBody::Whole(b) | OscBody::Cut(b) => b,
+        }
+    }
+}
+
+/// **The whole UTF-8 characters of a run cut at its end**: `b` without a
+/// sequence the cut fell inside, so cut text shows the characters that
+/// arrived and never a U+FFFD for the half of one. Bytes before the last
+/// lead byte are left as they are: only the cut is this function's.
+pub fn whole_chars(b: &[u8]) -> &[u8] {
+    // A sequence is at most four bytes, so its lead is among the last four.
+    let from = b.len().saturating_sub(4);
+    let Some(lead) = b[from..].iter().rposition(|&x| x & 0xc0 != 0x80) else {
+        return b;
+    };
+    let at = from + lead;
+    let need = match b[at] {
+        0xc0..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf7 => 4,
+        _ => 1,
+    };
+    match at + need > b.len() {
+        true => &b[..at],
+        false => b,
+    }
 }
 
 /// What an `OSC 46` names: a file, or one of the two `Pt`s xterm takes for
@@ -1483,8 +1531,10 @@ impl Iterator for ColorResets<'_> {
 
 impl<'a> Osc<'a> {
     /// Resolve an OSC payload -- the bytes between the introducer and the
-    /// string terminator, with neither included.
-    pub fn parse(payload: &'a [u8]) -> Osc<'a> {
+    /// string terminator, with neither included -- whole or cut
+    /// ([`OscBody`]).
+    pub fn parse(body: OscBody<'a>) -> Osc<'a> {
+        let payload = body.bytes();
         let mut it = Split::new(payload, b';');
         let Some(ps) = it.next() else {
             return Osc::Unsupported;
@@ -1492,6 +1542,27 @@ impl<'a> Osc<'a> {
         let rest = match payload.len() > ps.len() {
             true => &payload[ps.len() + 1..],
             false => &payload[payload.len()..],
+        };
+        // **Cut, a list keeps the items whose `;` arrived**: the last may
+        // have been cut anywhere, and a pair left without its spec walks to
+        // its malformed item. A prompt mark is a list too, its kind and the
+        // options whose `;` arrived. A value that is one setting -- a
+        // pointer, a font, an allow query -- is not the one sent, and is
+        // [`Osc::Cut`]. The rest take the body as it is, and the core
+        // tells the cut: text shown to the user -- a title, an `OSC 3`
+        // name, a notification -- is shown to its last whole character
+        // ([`whole_chars`]), and a link, a directory, a log file and
+        // iTerm2's read the cut themselves.
+        let rest = match body {
+            OscBody::Whole(_) => rest,
+            OscBody::Cut(_) => match ps {
+                b"4" | b"5" | b"6" | b"106" | b"104" | b"105" | b"10" | b"11" | b"12" | b"13"
+                | b"14" | b"15" | b"16" | b"17" | b"18" | b"19" | b"133" => {
+                    &rest[..rest.iter().rposition(|&b| b == b';').unwrap_or(0)]
+                }
+                b"22" | b"50" | b"60" | b"61" | b"62" => return Osc::Cut,
+                _ => rest,
+            },
         };
         match ps {
             b"0" => Osc::SetIconAndTitle(rest),

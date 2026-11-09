@@ -275,8 +275,10 @@ impl Paint<'_, '_> {
     /// hexadecimal changes nothing and is counted. The encoding the bytes
     /// are in is kept beside them ([`crate::window::label_encoding`]), so
     /// the embedder reads a name as it was sent rather than in whatever
-    /// encoding is in force later.
-    fn set_labels(&mut self, t: &[u8], which: Labels) {
+    /// encoding is in force later. **A body cut at `OSC_MAX` is clipped
+    /// to its last whole character** in UTF-8, as `string_truncations`
+    /// counts it: a half character would draw as U+FFFD.
+    fn set_labels(&mut self, t: &[u8], which: Labels, cut: crate::logging::Body) {
         let mut decoded = [0u8; OSC_MAX / 2];
         let sent = match self.strs.title_modes.has(TitleMode::SetHex) {
             false => crate::window::Spelled::Text,
@@ -292,8 +294,18 @@ impl Paint<'_, '_> {
                 }
             },
         };
+        // Clipped before the encoding is decided, which asks whether the
+        // bytes are UTF-8: a half character would make them ISO 8859-1.
+        let clipped = match cut {
+            crate::logging::Body::Cut => whole_chars(bytes),
+            crate::logging::Body::Whole => bytes,
+        };
         let enc =
-            crate::window::label_encoding(self.cold.str_enc, self.strs.title_modes, sent, bytes);
+            crate::window::label_encoding(self.cold.str_enc, self.strs.title_modes, sent, clipped);
+        let bytes = match enc {
+            InputEncoding::Utf8 => clipped,
+            InputEncoding::Latin1 => bytes,
+        };
         if which != Labels::Icon {
             self.title_len = copy_bounded(self.strs.title, bytes);
             self.strs.title_enc = enc;
@@ -315,8 +327,10 @@ impl Paint<'_, '_> {
     /// (`[[source: xterm-misc]]`). A bare name deletes the property, which
     /// leaves the window or its icon unnamed. **Refused and counted while
     /// the window operations are off**, as xterm gates it under
-    /// `allowWindowOps` (`AllowWindowOps(xw, ewSetXprop)`).
-    fn set_property(&mut self, p: XProperty<'_>) {
+    /// `allowWindowOps` (`AllowWindowOps(xw, ewSetXprop)`). **A value cut
+    /// at `OSC_MAX` is clipped as a title is**: a `UTF8_STRING` to its last
+    /// whole character, a `STRING` anywhere, one byte being one character.
+    fn set_property(&mut self, p: XProperty<'_>, cut: crate::logging::Body) {
         if self.strs.window_asks.ops == WindowOps::Off {
             self.strs.window_asks.refuse();
             return;
@@ -325,6 +339,10 @@ impl Paint<'_, '_> {
             XProperty::Set(name, value) => (name, value),
             XProperty::Delete(name) => (name, &b""[..]),
             XProperty::Unmapped => return self.drop_property(),
+        };
+        let value = match (cut, name.encoding()) {
+            (crate::logging::Body::Cut, PropertyType::Utf8String) => whole_chars(value),
+            _ => value,
         };
         let enc = match name.encoding() {
             PropertyType::String => InputEncoding::Latin1,
@@ -640,7 +658,14 @@ impl Paint<'_, '_> {
         // each is applied. The payload is lent out of `strs` for the match
         // and put back after it; no arm returns early.
         let pending = core::mem::take(&mut self.strs.pending);
-        match Osc::parse(&pending[..n]) {
+        // **A body that reached `OSC_MAX` was cut there** (`keep_pending`
+        // counts every byte past it), and is parsed as cut: a cut colour
+        // spec is still a spec, of another colour (`OscBody`).
+        let (body, cut) = match n >= OSC_MAX {
+            true => (OscBody::Cut(&pending[..n]), crate::logging::Body::Cut),
+            false => (OscBody::Whole(&pending[..n]), crate::logging::Body::Whole),
+        };
+        match Osc::parse(body) {
             // **No trailing-NUL trim, because a NUL cannot get here.**
             // `baud-core2` carried a `clip` helper for emitters that put a NUL
             // before the real terminator, and this core had one too until the
@@ -649,9 +674,9 @@ impl Paint<'_, '_> {
             // Neutering the helper changed no row of the differential, which
             // is a function that cannot fire -- the shape this repo has now
             // recorded seven times.
-            Osc::SetTitle(t) => self.set_labels(t, Labels::Title),
-            Osc::SetIcon(t) => self.set_labels(t, Labels::Icon),
-            Osc::SetIconAndTitle(t) => self.set_labels(t, Labels::Both),
+            Osc::SetTitle(t) => self.set_labels(t, Labels::Title, cut),
+            Osc::SetIcon(t) => self.set_labels(t, Labels::Icon, cut),
+            Osc::SetIconAndTitle(t) => self.set_labels(t, Labels::Both, cut),
             // Each pair in turn, a query answered where it stands, so a set
             // before it is what it reports.
             Osc::SetColors(pairs) => {
@@ -761,7 +786,7 @@ impl Paint<'_, '_> {
                 let len = uri.len();
                 if len == 0 {
                     self.link = LinkId::NONE;
-                } else if len > LINK_MAX || n >= OSC_MAX {
+                } else if len > LINK_MAX || cut == crate::logging::Body::Cut {
                     // A link whose URI may be cut is not a link. The body is
                     // clipped at `OSC_MAX` *before* the URI is split out of
                     // it, so a long `id=` leaves a URI under `LINK_MAX` that
@@ -859,34 +884,18 @@ impl Paint<'_, '_> {
                     }
                 };
             }
-            Osc::SetProperty(p) => self.set_property(p),
-            Osc::LogFile(f) => self.log_file(
-                f,
-                match n >= OSC_MAX {
-                    true => crate::logging::Body::Cut,
-                    false => crate::logging::Body::Whole,
-                },
-            ),
+            Osc::SetProperty(p) => self.set_property(p, cut),
+            Osc::LogFile(f) => self.log_file(f, cut),
             Osc::Font(req) => self.font_request(req, term),
-            Osc::WorkingDirectory(report) => self.report_directory(
-                report,
-                match n >= OSC_MAX {
-                    true => crate::logging::Body::Cut,
-                    false => crate::logging::Body::Whole,
-                },
-            ),
-            Osc::Notify9(o) => self.osc9(o),
-            Osc::Notify777(o) => self.osc777(o),
+            Osc::WorkingDirectory(report) => self.report_directory(report, cut),
+            Osc::Notify9(o) => self.osc9(o, cut),
+            Osc::Notify777(o) => self.osc777(o, cut),
             Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload),
-            Osc::Iterm(o) => self.osc1337(
-                o,
-                match n >= OSC_MAX {
-                    true => crate::logging::Body::Cut,
-                    false => crate::logging::Body::Whole,
-                },
-                term,
-            ),
+            Osc::Iterm(o) => self.osc1337(o, cut, term),
             Osc::ColorControl(rest) => self.colour_whole(rest),
+            // A value cut at the bound, refused: `string_truncations` counted
+            // the cut, and this the request not honoured.
+            Osc::Cut => self.unsupported_total += 1,
             Osc::KittyNotifyMalformed | Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;

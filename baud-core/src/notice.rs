@@ -105,12 +105,13 @@ impl Paint<'_, '_> {
     }
 
     /// `OSC 9`: a notification, a progress report, or a ConEmu form refused.
-    pub(crate) fn osc9(&mut self, o: Osc9<'_>) {
+    /// A message cut at `OSC_MAX` is shown to its last whole character and
+    /// ends in `…` ([`shown_cut`]).
+    pub(crate) fn osc9(&mut self, o: Osc9<'_>, cut: crate::logging::Body) {
         match o {
             Osc9::Notify(text) => {
-                let mut t = [0u8; crate::storage::OSC_MAX];
-                let n = text.len();
-                t[..n].copy_from_slice(text);
+                let mut t = [0u8; CUT_SHOWN];
+                let n = shown_cut(text, cut, &mut t).index();
                 let end =
                     self.strs
                         .notices
@@ -128,14 +129,20 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// `OSC 777`: `notify` published, any other extension refused.
-    pub(crate) fn osc777(&mut self, o: Osc777<'_>) {
+    /// `OSC 777`: `notify` published, any other extension refused. Cut at
+    /// `OSC_MAX`, the part the cut fell in, the body or a title with none,
+    /// is shown as `OSC 9`'s message is.
+    pub(crate) fn osc777(&mut self, o: Osc777<'_>, cut: crate::logging::Body) {
         match o {
             Osc777::Notify { title, body } => {
-                let mut t = [0u8; crate::storage::OSC_MAX];
-                let (tl, bl) = (title.len(), body.len());
-                t[..tl].copy_from_slice(title);
-                t[tl..tl + bl].copy_from_slice(body);
+                let mut t = [0u8; CUT_SHOWN];
+                let whole = crate::logging::Body::Whole;
+                let (title_cut, body_cut) = match body.is_empty() {
+                    true => (cut, whole),
+                    false => (whole, cut),
+                };
+                let tl = shown_cut(title, title_cut, &mut t).index();
+                let bl = shown_cut(body, body_cut, &mut t[tl..]).index();
                 let (title, body) = t[..tl + bl].split_at(tl);
                 let end = self.strs.notices.simple(
                     self.strs.notice_area,
@@ -151,6 +158,27 @@ impl Paint<'_, '_> {
             }
         }
     }
+}
+
+/// Room for a notification's text and the `…` a cut one ends in.
+const CUT_SHOWN: usize = crate::storage::OSC_MAX + ELLIPSIS.len();
+
+/// What a cut notification ends in, U+2026.
+const ELLIPSIS: &[u8] = "\u{2026}".as_bytes();
+
+/// **`text` into `out` as a notification shows it**, and how long it is:
+/// whole as it came, or cut at `OSC_MAX` -- its last whole character
+/// ([`whole_chars`]) and `…`, so a message the user may act on shows that
+/// it was cut.
+fn shown_cut(text: &[u8], cut: crate::logging::Body, out: &mut [u8]) -> ByteLen {
+    let (text, tail) = match cut {
+        crate::logging::Body::Whole => (text, &b""[..]),
+        crate::logging::Body::Cut => (whole_chars(text), ELLIPSIS),
+    };
+    let n = text.len();
+    out[..n].copy_from_slice(text);
+    out[n..n + tail.len()].copy_from_slice(tail);
+    ByteLen::from_index(n + tail.len())
 }
 
 /// A count of the reports a terminal has taken, as a reading to compare: an

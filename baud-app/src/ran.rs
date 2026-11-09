@@ -81,10 +81,36 @@ enum Named {
 }
 
 impl Named {
-    /// What the `C` mark with `fields` names.
-    fn of(fields: &[u8]) -> Named {
-        command_line(fields).map_or(Named::Nothing, |line| names(&line))
+    /// What the `C` mark with `fields` names: the command line of the
+    /// first `cmdline` or `cmdline_url` field, cut where `tail` says the
+    /// last field was.
+    fn of(fields: &[u8], tail: Tail) -> Named {
+        let cut_from = match tail {
+            Tail::Cut => fields.iter().rposition(|&b| b == b';').map_or(0, |i| i + 1),
+            Tail::Whole => fields.len() + 1,
+        };
+        let mut at = 0;
+        for f in fields.split(|&b| b == b';') {
+            let line_tail = match at >= cut_from {
+                true => Tail::Cut,
+                false => Tail::Whole,
+            };
+            at += f.len() + 1;
+            if let Some(line) = field_line(f) {
+                return names(&line, line_tail);
+            }
+        }
+        Named::Nothing
     }
+}
+
+/// **Whether a body, or the command line read from it, reached the bound
+/// and was cut there**: a word that runs to a cut end is not the word
+/// sent, and names nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tail {
+    Whole,
+    Cut,
 }
 
 /// Whether a command the shell named not local is running, and the token
@@ -212,11 +238,22 @@ impl Commands {
             Some(i) => (&rest[..i], &rest[i + 1..]),
             None => (rest, &rest[rest.len()..]),
         };
-        let token = options(fields)
+        // **A body at the bound was cut there**, the core's `OSC_MAX`: its
+        // last field is not the one sent, so a token in it is not read, and
+        // a command line in it names nothing past its whole words.
+        let tail = match body.len() >= BODY {
+            true => Tail::Cut,
+            false => Tail::Whole,
+        };
+        let whole = match tail {
+            Tail::Cut => &fields[..fields.iter().rposition(|&b| b == b';').unwrap_or(0)],
+            Tail::Whole => fields,
+        };
+        let token = options(whole)
             .find(|(name, v)| *name == b"baud_token" && !v.is_empty())
             .map(|(_, v)| Token::of(v));
         match letter {
-            b"C" => self.started(token, Named::of(fields)),
+            b"C" => self.started(token, Named::of(fields, tail)),
             b"D" => self.done(token),
             _ => {}
         }
@@ -267,15 +304,24 @@ fn options(fields: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     })
 }
 
-/// **The command line a `C` mark's fields carry**, decoded: kitty's
-/// `cmdline=`, "encoded by %q", one shell word read back, or its
-/// `cmdline_url=`, "UTF-8 URL %-escaped text". None without either.
+/// The command line of the first of a `C` mark's fields that carries one
+/// ([`field_line`]), as the shell tests read it back.
+#[cfg(test)]
 pub(crate) fn command_line(fields: &[u8]) -> Option<Vec<u8>> {
-    options(fields).find_map(|(name, v)| match name {
+    fields.split(|&b| b == b';').find_map(field_line)
+}
+
+/// **The command line one of a `C` mark's fields carries**, decoded:
+/// kitty's `cmdline=`, "encoded by %q", one shell word read back, or its
+/// `cmdline_url=`, "UTF-8 URL %-escaped text". None for any other field.
+fn field_line(f: &[u8]) -> Option<Vec<u8>> {
+    let eq = f.iter().position(|&b| b == b'=')?;
+    let v = &f[eq + 1..];
+    match &f[..eq] {
         b"cmdline_url" => Some(url_decoded(v)),
         b"cmdline" => Some(first_word(v).unwrap_or_default()),
         _ => None,
-    })
+    }
 }
 
 /// `v` with each `%XX` decoded: kitty's "cmdline as UTF-8 URL %-escaped
@@ -314,11 +360,16 @@ const PREFIXES: [&[u8]; 6] = [b"command", b"exec", b"env", b"nice", b"time", b"s
 /// **What the command line `line` names**: its program, the first word past
 /// `NAME=value` assignments, the [`PREFIXES`] and the options after one,
 /// unquoted as the shell would, its last path component named by the paths
-/// worker's list (`probe::front_of`); nothing if it has none.
-fn names(line: &[u8]) -> Named {
+/// worker's list (`probe::front_of`); nothing if it has none, or if the
+/// word it would be runs to a cut end (`tail`), a quoting left open there
+/// included.
+fn names(line: &[u8], tail: Tail) -> Named {
     let mut rest = line;
     let mut after_prefix = false;
     while let Some((word, next)) = word_at(rest) {
+        if tail == Tail::Cut && next.is_empty() {
+            return Named::Nothing;
+        }
         rest = next;
         if is_assignment(&word) {
             continue;
@@ -640,7 +691,11 @@ mod tests {
         for shape in shapes {
             for (p, want) in [("ssh", true), ("mosh", true), ("ls", false)] {
                 let line = shape.replace("{p}", p);
-                assert_eq!(names(line.as_bytes()) == Named::Elsewhere, want, "{line:?}");
+                assert_eq!(
+                    names(line.as_bytes(), Tail::Whole) == Named::Elsewhere,
+                    want,
+                    "{line:?}"
+                );
                 // kitty's two encodings of the line, read back.
                 let url: String = line
                     .bytes()
@@ -652,7 +707,7 @@ mod tests {
                     })
                     .collect();
                 assert_eq!(
-                    names(&url_decoded(url.as_bytes())) == Named::Elsewhere,
+                    names(&url_decoded(url.as_bytes()), Tail::Whole) == Named::Elsewhere,
                     want,
                     "{url}"
                 );
@@ -671,10 +726,14 @@ mod tests {
                 assert_eq!(back, line.as_bytes(), "%q of {line:?}: {q}");
             }
         }
-        assert_eq!(names(b""), Named::Nothing, "nothing");
-        assert_eq!(names(b"FOO=ssh"), Named::Nothing, "an assignment alone");
+        assert_eq!(names(b"", Tail::Whole), Named::Nothing, "nothing");
+        assert_eq!(
+            names(b"FOO=ssh", Tail::Whole),
+            Named::Nothing,
+            "an assignment alone"
+        );
         assert!(
-            names("caf\u{e9}=1 ssh h".as_bytes()) == Named::Here,
+            names("caf\u{e9}=1 ssh h".as_bytes(), Tail::Whole) == Named::Here,
             "not a variable's name: the program itself"
         );
         assert_eq!(
@@ -726,6 +785,30 @@ mod tests {
                 Marked::Elsewhere
             );
             assert_eq!(scan.read(b"$ "), Marked::Nothing, "closed by the shell's D");
+        }
+    }
+
+    /// **A program word cut at [`BODY`] names nothing**: a `C` whose program
+    /// path runs past the bound, `/usr/a...a/ssh`, ends no remote command,
+    /// where its cut word, `a...a`, was read as a program here and ended
+    /// the `ssh` the same shell had opened. The control: a short local
+    /// path ends it. Named break: name the cut word.
+    #[test]
+    fn a_cut_program_word_names_nothing() {
+        for (path, closed) in [
+            (String::from("/usr/a/ls"), true),
+            (format!("/usr/{}/ssh", "a".repeat(BODY)), false),
+        ] {
+            let mut scan = Commands::default();
+            let open = scan.read(b"\x1b]133;C;baud_token=t;cmdline=ssh\x07");
+            assert_eq!(open, Marked::Elsewhere, "opened");
+            let c = format!("\x1b]133;C;baud_token=t;cmdline={path}\x07");
+            scan.read(c.as_bytes());
+            let after = match closed {
+                true => Marked::Nothing,
+                false => Marked::Elsewhere,
+            };
+            assert_eq!(scan.read(b"$ "), after, "{} bytes of C", c.len());
         }
     }
 }
