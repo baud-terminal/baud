@@ -89,11 +89,63 @@ pub enum Mark {
     Struck,
 }
 
-/// **A link a reader found**: its units in the line's text, and its mark.
+/// **A link a reader found**: its units in the line's text, its mark, and
+/// whether its line waits on an answer.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Run {
     pub units: Range<usize>,
     pub mark: Mark,
+    pub key: Key,
+}
+
+/// **Whether a run's line waits on an answer**: a URI's never does; a
+/// printed path's is drawn only while the worker found its file, so the
+/// scan keeps it, drawn or not, with the path it was looked up as, and a
+/// batch of answers redraws it with no row read ([`Lines::answered`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Key {
+    Fixed,
+    /// The path, as the reader's [`Reader::key`] spells it, and whether
+    /// its answer draws it now.
+    Path {
+        at: Range<usize>,
+        drawn: Drawn,
+    },
+}
+
+/// Whether a printed path's line is drawn: its file found, or not (yet).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Drawn {
+    Yes,
+    No,
+}
+
+/// Whether a kept path's run crosses a row its writer ended, which a link
+/// across a join takes from the reads of each line alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Crosses {
+    No,
+    Yes,
+}
+
+/// **A printed path's run the scan keeps**: the path, in [`Lines`]'s keys,
+/// the pieces of line it draws on the window, in its pieces, and whether
+/// they are drawn.
+#[derive(Clone, Debug)]
+struct Wait {
+    key: Range<usize>,
+    pieces: Range<usize>,
+    drawn: Drawn,
+    crosses: Crosses,
+}
+
+/// Whether a batch of answers came since the last scan, whose waiting runs
+/// it redraws.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Answers {
+    #[default]
+    None,
+    Came,
 }
 
 /// Where an `OSC 8` run is: its line and the screen it is on, which say
@@ -128,6 +180,16 @@ pub trait Reader {
     /// next, as `PathsAt::joins` says: yes with nothing to go by.
     fn joins(&self, _above: AbsLine) -> Joins {
         Joins::Yes
+    }
+
+    /// The path a [`Key::Path`] run the last `read` found was looked up as.
+    fn key(&self, _at: Range<usize>) -> &[u8] {
+        &[]
+    }
+
+    /// Whether the answer kept for `key` draws its line now.
+    fn drawn(&self, _key: &[u8]) -> Drawn {
+        Drawn::No
     }
 }
 
@@ -261,6 +323,7 @@ impl Uris {
                         found.push(Run {
                             units: span,
                             mark: mark(&t),
+                            key: Key::Fixed,
                         });
                     }
                     self.bytes = bytes;
@@ -287,6 +350,12 @@ pub struct Scan {
     pub spans: usize,
     /// Runs struck this scan added.
     pub struck: usize,
+    /// Printed paths' runs a batch of answers drew or took away, with no
+    /// row read.
+    pub remarks: usize,
+    /// Batches of answers that read every row again instead: one changed a
+    /// run across a row its writer ended.
+    pub rereads: usize,
 }
 
 /// How far the window moved over the lines since the last scan, in rows.
@@ -315,8 +384,20 @@ pub struct Lines {
     epochs: Option<(LinkEpoch, ClusterEpoch)>,
     /// Which rows this scan reads.
     again: Vec<Read>,
+    /// The runs to underline, as [`Lines::lines`] hands them out: the
+    /// fixed ones and the waiting ones drawn, by row and column.
     lines: Vec<LinkLine>,
+    /// The runs whose line waits on no answer: URIs' and `OSC 8` links'.
+    fixed: Vec<LinkLine>,
     struck: Vec<LinkLine>,
+    /// Printed paths' runs, drawn or not, and the paths and pieces of line
+    /// they hold.
+    waits: Vec<Wait>,
+    keys: Vec<u8>,
+    pieces: Vec<LinkLine>,
+    /// One run's pieces, before they are kept.
+    run_pieces: Vec<LinkLine>,
+    answers: Answers,
     /// The count and the view the last scan numbered its rows by: what a
     /// row's line was then, so a row moved since is compared with what its
     /// line held.
@@ -438,7 +519,14 @@ impl Lines {
         if ran_on && keep > 0 {
             self.cells[..cols].fill(PackedCell::EMPTY);
         }
-        for runs in [&mut self.lines, &mut self.struck] {
+        self.keep_waits(|r| {
+            match up {
+                true => r.index().checked_sub(k),
+                false => Some(r.index() + k).filter(|&y| y < rows),
+            }
+            .map(Row::from_index)
+        });
+        for runs in [&mut self.fixed, &mut self.struck] {
             runs.retain_mut(|l| {
                 let y = l.row.index();
                 let moved = match up {
@@ -460,7 +548,11 @@ impl Lines {
     /// memory is kept, since a config read again may turn it back on.
     pub fn off(&mut self) {
         self.lines.clear();
+        self.fixed.clear();
         self.struck.clear();
+        self.waits.clear();
+        self.keys.clear();
+        self.pieces.clear();
         self.forget();
     }
 
@@ -488,6 +580,60 @@ impl Lines {
         false
     }
 
+    /// **A batch of answers came**, with no cell changed: the next scan
+    /// draws or takes away each printed path's run it keeps by the answer
+    /// kept for its path, and reads no row for it.
+    pub fn answered(&mut self) {
+        self.answers = Answers::Came;
+    }
+
+    /// **The kept paths' runs moved by `moved`**, a row to where it is now
+    /// or none for one off the window: a run with no piece left goes, and
+    /// the paths and pieces are packed down over what went, in place.
+    fn keep_waits(&mut self, mut moved: impl FnMut(Row) -> Option<Row>) {
+        let (mut w, mut k, mut p) = (0, 0, 0);
+        for i in 0..self.waits.len() {
+            let wait = self.waits[i].clone();
+            let from = p;
+            for j in wait.pieces.clone() {
+                let mut piece = self.pieces[j];
+                if let Some(row) = moved(piece.row) {
+                    piece.row = row;
+                    self.pieces[p] = piece;
+                    p += 1;
+                }
+            }
+            if p == from {
+                continue;
+            }
+            let len = wait.key.len();
+            self.keys.copy_within(wait.key, k);
+            self.waits[w] = Wait {
+                key: k..k + len,
+                pieces: from..p,
+                ..wait
+            };
+            (w, k) = (w + 1, k + len);
+        }
+        self.waits.truncate(w);
+        self.keys.truncate(k);
+        self.pieces.truncate(p);
+    }
+
+    /// **The runs to underline, made again**: the fixed ones and the kept
+    /// paths' runs drawn, by row and column.
+    fn publish(&mut self) {
+        self.lines.clear();
+        self.lines.extend_from_slice(&self.fixed);
+        for w in &self.waits {
+            if w.drawn == Drawn::Yes {
+                self.lines.extend_from_slice(&self.pieces[w.pieces.clone()]);
+            }
+        }
+        self.lines
+            .sort_unstable_by_key(|l| (l.row.index(), l.from.index()));
+    }
+
     /// **The scan**, on the view shown now, `scrolled` the driver's count of
     /// lines retired. Allocates nothing once its buffers have grown to the
     /// window and to the longest line read.
@@ -512,7 +658,11 @@ impl Lines {
             self.past_cells.clear();
             self.past_rows.clear();
             self.lines.clear();
+            self.fixed.clear();
             self.struck.clear();
+            self.waits.clear();
+            self.keys.clear();
+            self.pieces.clear();
             self.epochs = None;
             self.at = None;
         }
@@ -520,6 +670,8 @@ impl Lines {
         // that retired lines or by a look back: what the last scan saw of a
         // line is moved to the row showing it now, its lines with it.
         let window = Rows::of_index(rows);
+        // Whether the runs handed out change this scan with no row read.
+        let mut moved = false;
         if let Some((was, was_back)) = self.at {
             let top = scrolled.line(back, Row::ZERO);
             let was_top = was.line(was_back, Row::ZERO);
@@ -527,11 +679,15 @@ impl Lines {
                 was.window_row(was_back, top, window),
                 scrolled.window_row(back, was_top, window),
             ) {
-                (Some(up), _) if up.index() > 0 => self.shift(Shift::Up(up.index())),
+                (Some(up), _) if up.index() > 0 => {
+                    self.shift(Shift::Up(up.index()));
+                    moved = true;
+                }
                 (_, Some(down)) if down.index() > 0 => {
                     self.shift(Shift::Down(down.index()));
                     self.past = (down.index() < rows)
                         .then(|| scrolled.line(back, Row::from_index(rows - 1)).below());
+                    moved = true;
                 }
                 // Not moved, or a window or more: each row is compared with
                 // what the same row held, as cells alone say what a row's
@@ -616,7 +772,35 @@ impl Lines {
             }
         }
         let mut scan = Scan::default();
+        // A batch of answers came: each printed path's run kept is drawn by
+        // the answer kept for its path, with no row read. One across a row
+        // its writer ended took its cells from the reads of each line alone,
+        // which only a read again gives back, so a change to one reads
+        // every row.
+        if self.answers == Answers::Came {
+            self.answers = Answers::None;
+            let mut across = Crosses::No;
+            for w in &mut self.waits {
+                let drawn = reader.drawn(&self.keys[w.key.clone()]);
+                if drawn != w.drawn {
+                    w.drawn = drawn;
+                    scan.remarks += 1;
+                    moved = true;
+                    if w.crosses == Crosses::Yes {
+                        across = Crosses::Yes;
+                    }
+                }
+            }
+            if across == Crosses::Yes {
+                self.again.fill(Read::Again);
+                scan.rereads += 1;
+                any = true;
+            }
+        }
         if !any {
+            if moved {
+                self.publish();
+            }
             return scan;
         }
         reader.changed();
@@ -653,8 +837,13 @@ impl Lines {
             self.again[g.clone()].fill(Read::Again);
         }
         let again = &self.again;
-        self.lines.retain(|l| again[l.row.index()] == Read::Kept);
+        self.fixed.retain(|l| again[l.row.index()] == Read::Kept);
         self.struck.retain(|l| again[l.row.index()] == Read::Kept);
+        // A run on a row read again is found again there; one with a piece
+        // on such a row has all of them on its logical line, read whole.
+        let again = core::mem::take(&mut self.again);
+        self.drop_waits_on(&again);
+        self.again = again;
         let mut found = core::mem::take(&mut self.found);
         for g in &groups {
             let rows = (g.start, g.end - 1);
@@ -662,11 +851,30 @@ impl Lines {
         }
         self.found = found;
         self.groups = groups;
-        self.lines
+        self.fixed
             .sort_unstable_by_key(|l| (l.row.index(), l.from.index()));
         self.struck
             .sort_unstable_by_key(|l| (l.row.index(), l.from.index()));
+        self.publish();
         scan
+    }
+
+    /// The kept paths' runs with a piece on a row `again` reads, taken out.
+    fn drop_waits_on(&mut self, again: &[Read]) {
+        let pieces = &self.pieces;
+        let read = |w: &Wait| {
+            pieces[w.pieces.clone()]
+                .iter()
+                .any(|l| again[l.row.index()] == Read::Again)
+        };
+        if !self.waits.iter().any(read) {
+            return;
+        }
+        let mut keep = core::mem::take(&mut self.waits);
+        keep.retain(|w| !read(w));
+        self.waits = keep;
+        // Packed down over what went, every row where it is.
+        self.keep_waits(Some);
     }
 
     /// One logical line's links: rows `top..=bottom` of the window, and as
@@ -807,8 +1015,18 @@ impl Lines {
                     continue;
                 };
                 if run.mark == Mark::Line && crosses_a_join(term, scrolled, from, to) {
-                    self.taken.push((from, to));
-                    self.push_run(term, scrolled, back, run, scan);
+                    // A path not drawn takes nothing; kept, it reads every
+                    // row again once an answer draws it.
+                    if !matches!(
+                        run.key,
+                        Key::Path {
+                            drawn: Drawn::No,
+                            ..
+                        }
+                    ) {
+                        self.taken.push((from, to));
+                    }
+                    self.push_run(term, scrolled, back, run, reader, Crosses::Yes, scan);
                 }
             }
         }
@@ -838,7 +1056,7 @@ impl Lines {
                     })
                 });
                 if !taken {
-                    self.push_run(term, scrolled, back, run, scan);
+                    self.push_run(term, scrolled, back, run, reader, Crosses::No, scan);
                 }
             }
             if b == last {
@@ -919,13 +1137,18 @@ impl Lines {
     }
 
     /// One run a reader found, its cells on the window lined or struck; none
-    /// for one a program may have cut (`may_be_cut`).
-    fn push_run(
+    /// for one a program may have cut (`may_be_cut`). A printed path's is
+    /// kept with its path, drawn or not, `crosses` saying whether it runs
+    /// across a row its writer ended.
+    #[allow(clippy::too_many_arguments)]
+    fn push_run<R: Reader>(
         &mut self,
         term: &Term<'_>,
         scrolled: Scrolled,
         back: Rows,
         run: &Run,
+        reader: &R,
+        crosses: Crosses,
         scan: &mut Scan,
     ) {
         let window = Rows::of_index(self.size.1);
@@ -936,6 +1159,13 @@ impl Lines {
         if may_be_cut(term, scrolled, end) {
             return;
         }
+        let mut pieces = core::mem::take(&mut self.run_pieces);
+        pieces.clear();
+        let mut counted = Scan::default();
+        let (lines, counts) = match run.key {
+            Key::Fixed => (&mut self.fixed, &mut *scan),
+            Key::Path { .. } => (&mut pieces, &mut counted),
+        };
         for k in span.clone() {
             let Some(&p) = self.points.get(k) else {
                 continue;
@@ -952,16 +1182,33 @@ impl Lines {
             let styles = row_styles_of(term, scrolled, p.line);
             let size = self.sizes[y.index()];
             match run.mark {
-                Mark::Line => {
-                    push_cell(&mut self.lines, term, styles, (y, p.col, cell), size, scan)
-                }
+                Mark::Line => push_cell(lines, term, styles, (y, p.col, cell), size, counts),
                 Mark::Struck => {
                     if push_struck(&mut self.struck, term, styles, (y, p.col, cell), size) {
-                        scan.struck += 1;
+                        counts.struck += 1;
                     }
                 }
             }
         }
+        if let Key::Path { at, drawn } = &run.key {
+            if !pieces.is_empty() {
+                let key = reader.key(at.clone());
+                let k = self.keys.len();
+                self.keys.extend_from_slice(key);
+                let p = self.pieces.len();
+                self.pieces.extend_from_slice(&pieces);
+                self.waits.push(Wait {
+                    key: k..k + key.len(),
+                    pieces: p..p + pieces.len(),
+                    drawn: *drawn,
+                    crosses,
+                });
+                if *drawn == Drawn::Yes {
+                    scan.spans += counted.spans;
+                }
+            }
+        }
+        self.run_pieces = pieces;
     }
 
     /// The `OSC 8` runs on rows `top..=bottom`, each link's target admitted
@@ -1002,7 +1249,7 @@ impl Lines {
                 let at = (r, Col::at_index(x), cell);
                 match mark {
                     Some(Mark::Line) => {
-                        push_cell(&mut self.lines, term, styles, at, self.sizes[y], scan);
+                        push_cell(&mut self.fixed, term, styles, at, self.sizes[y], scan);
                     }
                     Some(Mark::Struck) => {
                         if push_struck(&mut self.struck, term, styles, at, self.sizes[y]) {
@@ -2034,6 +2281,7 @@ mod tests {
                     found.push(Run {
                         units: i..e,
                         mark: Mark::Line,
+                        key: Key::Fixed,
                     });
                 }
                 i = e;
@@ -2137,6 +2385,226 @@ mod tests {
         let _ = fresh.scan(&t, at, &mut found());
         assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
         assert_eq!(runs(&l), runs(&fresh));
+    }
+
+    /// **A reader of URIs and of printed paths `/p<digits>`, and of names
+    /// `<digits>`**, after a space or the line's start and before a space or
+    /// its end, each drawn while `found` holds it, as `paths.rs`'s `Links`
+    /// draws one the worker found. A name begins the row a path runs on
+    /// into across a row its writer ended, as a relative path does.
+    #[derive(Default)]
+    struct Answering {
+        uris: Uris,
+        found: Vec<Vec<u8>>,
+        keys: Vec<u8>,
+    }
+
+    impl Answering {
+        /// `path` found if it was not, and not if it was.
+        fn toggle(&mut self, path: &str) {
+            match self.found.iter().position(|f| f == path.as_bytes()) {
+                Some(i) => {
+                    self.found.remove(i);
+                }
+                None => self.found.push(path.as_bytes().to_vec()),
+            }
+        }
+    }
+
+    impl Reader for Answering {
+        fn wants(&self, tail: Tail) -> bool {
+            self.uris.wants(tail) || matches!(tail.0 & 0xff, 0x2f..=0x39)
+        }
+
+        fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
+            let n = self.uris.read(text, found).0;
+            let uris = found.len();
+            self.keys.clear();
+            let u = text.units;
+            let ch = |k: usize| match u.get(k) {
+                Some(Unit::Char(c)) => Some(*c),
+                _ => None,
+            };
+            let space = |k: Option<usize>| k.is_none_or(|k| k >= u.len() || ch(k) == Some(' '));
+            let digit = |k: usize| ch(k).is_some_and(|c| c.is_ascii_digit());
+            let mut i = 0;
+            while i < u.len() {
+                let digits = match (ch(i), ch(i + 1)) {
+                    (Some('/'), Some('p')) => i + 2,
+                    _ if digit(i) => i,
+                    _ => {
+                        i += 1;
+                        continue;
+                    }
+                };
+                if !space(i.checked_sub(1)) {
+                    i = digits.max(i + 1);
+                    while digit(i) {
+                        i += 1;
+                    }
+                    continue;
+                }
+                let mut e = digits;
+                while digit(e) {
+                    e += 1;
+                }
+                let shown = i < text.shown.1 && text.shown.0 < e;
+                let over = found[..uris]
+                    .iter()
+                    .any(|f| f.units.start < e && i < f.units.end);
+                if e > digits && space(Some(e)) && shown && !over {
+                    let k = self.keys.len();
+                    self.keys
+                        .extend((i..e).filter_map(ch).filter_map(|c| u8::try_from(c).ok()));
+                    let key = &self.keys[k..];
+                    let drawn = match self.found.iter().any(|f| f == key) {
+                        true => Drawn::Yes,
+                        false => Drawn::No,
+                    };
+                    found.push(Run {
+                        units: i..e,
+                        mark: Mark::Line,
+                        key: Key::Path {
+                            at: k..self.keys.len(),
+                            drawn,
+                        },
+                    });
+                }
+                i = e;
+            }
+            found.sort_unstable_by_key(|r| r.units.start);
+            crate::paths::Looked(n)
+        }
+
+        fn marked(&mut self, uri: &[u8], at: At) -> Option<Mark> {
+            self.uris.marked(uri, at)
+        }
+
+        fn key(&self, at: Range<usize>) -> &[u8] {
+            self.keys.get(at).unwrap_or_default()
+        }
+
+        fn drawn(&self, key: &[u8]) -> Drawn {
+            match self.found.iter().any(|f| f == key) {
+                true => Drawn::Yes,
+                false => Drawn::No,
+            }
+        }
+    }
+
+    /// The links and strikes a scan of `t` from nothing finds, by `reader`'s
+    /// answers.
+    fn fresh_by(
+        t: &Term<'_>,
+        scrolled: Scrolled,
+        reader: &Answering,
+    ) -> (Vec<LinkLine>, Vec<LinkLine>) {
+        let mut l = Lines::default();
+        let mut again = Answering {
+            found: reader.found.clone(),
+            ..Answering::default()
+        };
+        let _ = l.scan(t, scrolled, &mut again);
+        (l.lines().to_vec(), l.struck().to_vec())
+    }
+
+    /// **A batch of answers redraws the printed paths' runs and reads no
+    /// row**: two paths on a row, one found, then the other, then the
+    /// first gone, each scan reading nothing and drawing what a scan from
+    /// nothing draws. Named break: read every row again on an answer
+    /// (`answered` as `forget`) -- the scan reads the row.
+    #[test]
+    fn an_answer_redraws_paths_and_reads_no_row() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        fed(&mut t, &mut at, b"see /p1 and /p2 ok\r\nplain");
+        let (mut l, mut r) = (Lines::default(), Answering::default());
+        let s = l.scan(&t, at, &mut r);
+        assert!(s.rows > 0, "the control: the first scan reads");
+        assert_eq!(l.lines(), &[] as &[LinkLine], "nothing found yet");
+        for (path, lit) in [
+            ("/p1", &[(4, 6)][..]),
+            ("/p2", &[(4, 6), (12, 14)]),
+            ("/p1", &[(12, 14)]),
+        ] {
+            r.toggle(path);
+            l.answered();
+            let s = l.scan(&t, at, &mut r);
+            assert_eq!((s.rows, s.remarks, s.rereads), (0, 1, 0), "{path}");
+            let runs: Vec<_> = l
+                .lines()
+                .iter()
+                .map(|x| (x.from.index(), x.to.index()))
+                .collect();
+            assert_eq!(runs, lit, "{path}");
+            assert_eq!(
+                (l.lines().to_vec(), l.struck().to_vec()),
+                fresh_by(&t, at, &r)
+            );
+        }
+        let s = l.scan(&t, at, &mut r);
+        assert_eq!(s, Scan::default(), "no answer, nothing done");
+    }
+
+    /// **The lines a scan keeps follow answers as a scan from nothing
+    /// finds them**, over 4,000 steps from fixed seeds of output that
+    /// scrolls and is written over, printed paths alone and across a row
+    /// their writer ended, looks back, and answers that find a path or take
+    /// it away. Named break: redraw a run across an ended row by its answer
+    /// alone (no read of every row) -- a link the reads of each line alone
+    /// kept stays under it.
+    #[test]
+    fn kept_lines_follow_answers_as_a_fresh_scan() {
+        for seed in [3u64, 11, 99, 2027] {
+            let mut x = seed;
+            let mut next = |m: usize| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                usize::try_from(x % u64::try_from(m).unwrap_or(1)).unwrap_or(0)
+            };
+            let mut owned = Owned::with_history(
+                &WS,
+                &baud_domain::CacheGeometry::UNKNOWN,
+                baud_domain::Depth::of(8),
+            );
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut at = at();
+            let (mut l, mut r) = (Lines::default(), Answering::default());
+            for step in 0..1000 {
+                let bytes = match next(9) {
+                    0 | 1 => format!("\r\nfile /p{} and /p{} ok", next(20), next(20)),
+                    2 => format!("\r\nsee https://s{}.example/ /p{}", next(9), next(20)),
+                    // A row the writer ended at the last column in a path,
+                    // and the row it runs on into.
+                    3 => format!("\r\n{:>40}\r\n{} ok /p{}", "/p1", next(10), next(20)),
+                    4 => format!("\x1b[{};1H\x1b[2K/p{}", 1 + next(6), next(20)),
+                    5 => {
+                        t.set_window_back(Rows::of_count(next(4)));
+                        String::new()
+                    }
+                    6 => "\x1b[2J\x1b[H".to_string(),
+                    _ => {
+                        for _ in 0..1 + next(3) {
+                            match next(3) {
+                                0 => r.toggle(&format!("{}", next(10))),
+                                _ => r.toggle(&format!("/p{}", next(20))),
+                            }
+                        }
+                        l.answered();
+                        String::new()
+                    }
+                };
+                fed(&mut t, &mut at, bytes.as_bytes());
+                let _ = l.scan(&t, at, &mut r);
+                assert_eq!(
+                    (l.lines().to_vec(), l.struck().to_vec()),
+                    fresh_by(&t, at, &r),
+                    "seed {seed}, step {step}: {bytes:?}"
+                );
+            }
+        }
     }
 
     /// The links and strikes a scan of `t` from nothing finds.

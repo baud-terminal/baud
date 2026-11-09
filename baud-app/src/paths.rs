@@ -104,7 +104,7 @@ use baud_core::{FileHost, Screen, Term};
 use baud_domain::{Cols, Rows};
 use baud_render::{AbsLine, Scrolled, row_of};
 
-use crate::lined::{At, Mark, Reader, Run, Text, Uris};
+use crate::lined::{At, Drawn, Key, Lines, Mark, Reader, Run, Text, Uris};
 use crate::link::{Edge, Host, Ix, Joins, MAX, Scheme, Target, Unit, admit_with};
 use crate::rules::{NO_RULES, Rules};
 
@@ -758,6 +758,17 @@ pub fn opens_as_uri(path: &[u8]) -> bool {
     path.first() == Some(&b'/') && len <= MAX
 }
 
+/// **What a batch's answers changed**, in rising order: nothing; only
+/// printed paths' answers, which redraw the runs the scan keeps; or what
+/// reads every row again: an `OSC 8` link's answer, or the reading of
+/// printed paths started over a row read without it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Answered {
+    Nothing,
+    Printed,
+    Everything,
+}
+
 /// **The answers' generation**: moved by every change a read of the link
 /// under the pointer must see, which comes with no byte.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -784,6 +795,15 @@ enum Over {
 /// by the collection.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Reads {
+    #[default]
+    No,
+    Yes,
+}
+
+/// Whether a scan read a row while printed paths were not read
+/// ([`Paths::changed`]), since the last collection.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Unread {
     #[default]
     No,
     Yes,
@@ -988,6 +1008,9 @@ pub struct Paths {
     owed: Owed,
     collect: Option<Collect>,
     reads: Reads,
+    /// Whether a scan read a row while printed paths were not read, since
+    /// the last collection read every row: a row it kept no run for.
+    unread: Unread,
     /// What is in front, and the last line written while what is in front
     /// now, or anything not known to be local, was.
     front: Front,
@@ -1001,6 +1024,9 @@ pub struct Paths {
     origins: Generation,
     key: Vec<u8>,
     tokens: Vec<Token>,
+    /// The paths the last read found runs for, each run's [`Key::Path`] a
+    /// range of it.
+    read_keys: Vec<u8>,
     /// Your `[link.*]` rules, the forms among them, which a read of the link
     /// under the pointer goes by ([`PathsAt::rules`]).
     rules: Rules,
@@ -1087,6 +1113,9 @@ impl Paths {
     fn changed(&mut self) {
         if self.marks == Marks::On {
             self.owed = Owed::Yes;
+        }
+        if self.reads == Reads::No {
+            self.unread = Unread::Yes;
         }
     }
 
@@ -1482,6 +1511,7 @@ impl Paths {
     /// and the rest go.
     pub fn begin_collect(&mut self) {
         self.collect = Some(Collect::default());
+        self.unread = Unread::No;
         self.update_reads();
     }
 
@@ -1518,26 +1548,68 @@ impl Paths {
     /// **A batch's answers**: each kept where it was asked, and the
     /// generation moved when one changed, so the lines and the link under the
     /// pointer are read again once a batch. An answer to a path the screen no
-    /// longer holds is dropped.
+    /// longer holds is dropped. The driver tells the lines too
+    /// ([`Paths::merge_into`]).
+    #[cfg(test)]
     pub fn merge(&mut self, probes: impl IntoIterator<Item = (Vec<u8>, Probe)>) -> Moved {
-        let mut moved = Moved::No;
+        match self.merged(probes) {
+            Answered::Nothing => Moved::No,
+            Answered::Printed | Answered::Everything => Moved::Yes,
+        }
+    }
+
+    /// **A batch's answers, and `lines` told what they change**: a printed
+    /// path's answer redraws the runs `lines` keeps, with no row read
+    /// ([`Lines::answered`]); an `OSC 8` link's reads every row again, and so
+    /// do answers that start the reading of printed paths ([`Reads`]) after
+    /// a row was read since the collection while they were not, since that
+    /// row kept no run for them.
+    pub fn merge_into(
+        &mut self,
+        probes: impl IntoIterator<Item = (Vec<u8>, Probe)>,
+        lines: &mut Lines,
+    ) -> Moved {
+        match self.merged(probes) {
+            Answered::Nothing => Moved::No,
+            Answered::Printed => {
+                lines.answered();
+                Moved::Yes
+            }
+            Answered::Everything => {
+                lines.forget();
+                Moved::Yes
+            }
+        }
+    }
+
+    /// [`Paths::merge`], saying which answers changed.
+    fn merged(&mut self, probes: impl IntoIterator<Item = (Vec<u8>, Probe)>) -> Answered {
+        let (reads, mut answered) = (self.reads, Answered::Nothing);
         for (path, probe) in probes {
-            for map in [&mut self.known, &mut self.marked] {
+            for (map, changes) in [
+                (&mut self.known, Answered::Printed),
+                (&mut self.marked, Answered::Everything),
+            ] {
                 if let Some(s) = map.get_mut(&path) {
                     // An answer asked again that came back the same moves
                     // nothing drawn.
                     if s.probe() != Some(probe) {
-                        moved = Moved::Yes;
+                        answered = answered.max(changes);
                     }
                     *s = State::Is(probe);
                 }
             }
         }
-        if moved == Moved::Yes {
+        if answered != Answered::Nothing {
             self.generation = self.generation.next();
             self.update_reads();
+            // Printed paths read from now, with a row read since the
+            // collection while they were not: it kept no run to draw.
+            if (reads, self.reads, self.unread) == (Reads::No, Reads::Yes, Unread::Yes) {
+                answered = Answered::Everything;
+            }
         }
-        moved
+        answered
     }
 
     /// **The rows a path on a logical line from `first` to `last` may be
@@ -1616,6 +1688,7 @@ impl Paths {
     /// or, in a collection, asked. Called only while [`Reads`] is yes. A path over a URI already found is not
     /// one. Returns how many it looked at.
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> Looked {
+        self.read_keys.clear();
         let mut toks = core::mem::take(&mut self.tokens);
         tokens(text.units, (text.head, text.tail), &self.forms, &mut toks);
         let uris = found.len();
@@ -1685,17 +1758,31 @@ impl Paths {
                     }
                 }
             }
-            match state.and_then(State::probe) {
-                Some(Probe::Exists) if !self.forms.at_rest(t.form) => {}
-                Some(Probe::Exists) if opens_as_uri(&self.key) => {
-                    found.push(Run {
-                        units: t.span.clone(),
-                        mark: Mark::Line,
-                    });
-                }
-                Some(_) => {}
-                None if self.collect.is_none() && state.is_none() => self.owed = Owed::Yes,
-                None => {}
+            let probe = state.and_then(State::probe);
+            if probe.is_none() && self.collect.is_none() && state.is_none() {
+                self.owed = Owed::Yes;
+            }
+            // Drawn where the worker found it; kept either way, so an answer
+            // draws it with no row read (`Lines::answered`). Only one with an
+            // answer kept or asked for can get one: a path asked for later is
+            // asked by a collection, which reads every row again.
+            if (state.is_some() || self.collect.is_some())
+                && self.forms.at_rest(t.form)
+                && opens_as_uri(&self.key)
+            {
+                let k = self.read_keys.len();
+                self.read_keys.extend_from_slice(&self.key);
+                found.push(Run {
+                    units: t.span.clone(),
+                    mark: Mark::Line,
+                    key: Key::Path {
+                        at: k..self.read_keys.len(),
+                        drawn: match probe {
+                            Some(Probe::Exists) => Drawn::Yes,
+                            _ => Drawn::No,
+                        },
+                    },
+                });
             }
         }
         self.tokens = toks;
@@ -2095,6 +2182,17 @@ impl Reader for Links<'_> {
         PathsAt::joins(&*self.paths, above)
     }
 
+    fn key(&self, at: Range<usize>) -> &[u8] {
+        self.paths.read_keys.get(at).unwrap_or_default()
+    }
+
+    fn drawn(&self, key: &[u8]) -> Drawn {
+        match self.paths.known.get(key).and_then(|s| s.probe()) {
+            Some(Probe::Exists) => Drawn::Yes,
+            _ => Drawn::No,
+        }
+    }
+
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> Looked {
         let mut n = 0;
         if self.urls == Turned::On {
@@ -2202,9 +2300,7 @@ mod tests {
             let there = exists.iter().any(|e| e.as_bytes() == c.path.as_slice());
             (c.path, if there { Probe::Exists } else { Probe::Missing })
         });
-        if p.merge(answers) == Moved::Yes {
-            l.forget();
-        }
+        let _ = p.merge_into(answers, &mut l);
         let _ = l.scan(
             &t,
             at(),
@@ -2952,11 +3048,97 @@ mod tests {
             .iter()
             .map(|a| (a.clone(), answer(a)))
             .collect::<Vec<_>>();
-        if p.merge(answers) == Moved::Yes {
-            l.forget();
-        }
+        let _ = p.merge_into(answers, &mut l);
         links(&mut p, &mut l);
         (runs(&l), struck(&l), asked, p)
+    }
+
+    /// **A batch of answers redraws the printed paths with no row read,
+    /// once paths are read**: the first answer that finds one starts the
+    /// reading of paths, and every row is read again, the row printed since
+    /// the collection among them; later answers draw and take away runs
+    /// with no row read, each as a scan from nothing draws. Named breaks:
+    /// read every row again on any answer (`merge_into` forgetting) -- a
+    /// later answer reads the rows; redraw on the answer that starts the
+    /// reading -- the row printed since is not drawn.
+    #[test]
+    fn an_answer_redraws_printed_paths_with_no_row_read() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"/etc/hosts /etc/passwd\r\n");
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = p.observe(&t, at());
+        let asked = collect(&t, &mut p, &mut l, &mut u);
+        assert_eq!(paths_of(&asked), ["/etc/hosts", "/etc/passwd"]);
+        feed(&mut t, b"/etc/hosts again\r\n");
+        frame(&t, &mut p, &mut l, &mut u);
+        let mut scan = |p: &mut Paths, l: &mut Lines| {
+            l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            )
+        };
+        let fresh = |p: &mut Paths| {
+            let mut l = Lines::default();
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut Uris::default(),
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+            runs(&l)
+        };
+        let answer = |path: &str, probe| [(path.as_bytes().to_vec(), probe)];
+        let _ = p.merge_into(
+            [
+                (b"/etc/hosts".to_vec(), Probe::Exists),
+                (b"/etc/passwd".to_vec(), Probe::Missing),
+            ],
+            &mut l,
+        );
+        let s = scan(&mut p, &mut l);
+        assert!(s.rows >= 2, "reads start: every row read again: {s:?}");
+        assert_eq!(
+            runs(&l),
+            [(0, 0, 9), (1, 0, 9)],
+            "the row printed since too"
+        );
+        assert_eq!(runs(&l), fresh(&mut p));
+        for (path, probe, lit, remarks) in [
+            (
+                "/etc/passwd",
+                Probe::Exists,
+                &[(0, 0, 9), (0, 11, 21), (1, 0, 9)][..],
+                1,
+            ),
+            ("/etc/hosts", Probe::Missing, &[(0, 11, 21)], 2),
+        ] {
+            assert_eq!(p.merge_into(answer(path, probe), &mut l), Moved::Yes);
+            let s = scan(&mut p, &mut l);
+            assert_eq!((s.rows, s.remarks, s.rereads), (0, remarks, 0), "{path}");
+            assert_eq!(runs(&l), lit, "{path}");
+            assert_eq!(runs(&l), fresh(&mut p), "{path}");
+        }
+        assert_eq!(
+            p.merge_into(answer("/etc/hosts", Probe::Missing), &mut l),
+            Moved::No,
+            "the same answer again"
+        );
+        assert_eq!(
+            scan(&mut p, &mut l),
+            crate::lined::Scan::default(),
+            "and nothing done"
+        );
     }
 
     /// **An `OSC 8` `file://` link naming this machine, its file gone, is
@@ -4779,9 +4961,7 @@ mod joined_rows {
             let there = c.path.starts_with(b"/usr/");
             (c.path, if there { Probe::Exists } else { Probe::Missing })
         });
-        if p.merge(answers) == Moved::Yes {
-            l.forget();
-        }
+        let _ = p.merge_into(answers, l);
         once(p, l);
         l.lines()
             .iter()

@@ -1652,9 +1652,13 @@ impl<T: Moment> Probes<T> {
                         Some((_, Probe::Unknown)) | None => Clicked::Unchecked,
                     }
                 });
-                let _ = s.paths.merge(a.probes);
-                if s.paths.generation() != before {
+                // What moved before the answers reads every row again; the
+                // answers say themselves what they redraw (`merge_into`).
+                let moved = s.paths.generation() != before;
+                if moved {
                     s.lines.forget();
+                }
+                if s.paths.merge_into(a.probes, s.lines) == Moved::Yes || moved {
                     turn.frame = Owed::Yes;
                 }
                 // A program named may join or part two rows: the scan asks
@@ -2967,11 +2971,13 @@ mod tests {
         assert_eq!(run(9), (false, 0), "ssh's: not looked up, not marked");
     }
 
-    /// **A result arrives with no cell changed, and the lines read again once
-    /// for it**: the batch's answer moves the lines, and a turn with no answer
-    /// owes nothing. Perturbation: drop `lines.forget()` on an answer.
+    /// **A result arrives with no cell changed, and the lines are drawn
+    /// again once for it, no row read**: the batch's answer redraws the path
+    /// the collection kept, and a turn with no answer owes nothing.
+    /// Perturbation: merge the answer without telling the lines
+    /// (`merge_into` as `merge`) -- the path is never drawn.
     #[test]
-    fn an_answer_reads_the_lines_again_once() {
+    fn an_answer_redraws_the_lines_once() {
         let f = Fake::with(&[("/etc", Entry::Dir), ("/etc/hosts", Entry::File)]);
         let (mut pr, _) = probes(f);
         let mut owned = Owned::new(&WS);
@@ -3044,7 +3050,7 @@ mod tests {
                 paths: &mut paths,
             },
         );
-        assert!(scan.rows > 0, "read again");
+        assert_eq!((scan.rows, scan.remarks), (0, 1), "redrawn, no row read");
         assert_eq!(lines.lines().len(), 1, "and drawn");
         let seen = Seen {
             term: &t,

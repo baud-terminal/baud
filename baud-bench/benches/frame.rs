@@ -452,6 +452,12 @@ fn main() {
         reads: baud_render::Tally,
         /// Paths a `paths-exist` collection asked about, answered as there.
         asked: baud_render::Tally,
+        /// Rows the collections' own scans read; rows the scan read on the
+        /// frame after a batch of answers; and the runs underlined, summed
+        /// over the frames, which the renderer draws each frame.
+        collect_rows: baud_render::Tally,
+        answer_rows: baud_render::Tally,
+        marks: baud_render::Tally,
         /// Each frame's time, and its allocations.
         times: Vec<Duration>,
         allocs: Vec<u64>,
@@ -496,6 +502,9 @@ fn main() {
             scan_time: Duration::ZERO,
             reads: baud_render::Tally::default(),
             asked: baud_render::Tally::default(),
+            collect_rows: baud_render::Tally::default(),
+            answer_rows: baud_render::Tally::default(),
+            marks: baud_render::Tally::default(),
             times: Vec::with_capacity(data.len() / 4096 + 1),
             allocs: Vec::with_capacity(data.len() / 4096 + 1),
         };
@@ -548,6 +557,8 @@ fn main() {
         // The frame of the last collection: a frame that owes one collects
         // at once the first time and after 60 frames since.
         let mut collected: Option<usize> = None;
+        // The frame after a batch of answers, whose scan reads what they moved.
+        let mut after_answers: Option<usize> = None;
         let mut at = 0usize;
         let mut hash = PixelHash::START;
         let t0 = std::time::Instant::now();
@@ -597,7 +608,7 @@ fn main() {
                         collected = Some(frame);
                         printed.begin_collect();
                         lines.forget();
-                        let _ = lines.scan(
+                        let c = lines.scan(
                             &t,
                             scrolled,
                             &mut paths::Links {
@@ -606,6 +617,7 @@ fn main() {
                                 paths: &mut printed,
                             },
                         );
+                        rep.collect_rows.add(baud_render::Tally::of(c.rows));
                         let asked = printed.end_collect();
                         rep.asked.add(baud_render::Tally::of(asked.len()));
                         let probe = match links {
@@ -613,8 +625,8 @@ fn main() {
                             _ => paths::Probe::Missing,
                         };
                         let answers = asked.into_iter().map(|c| (c.path, probe));
-                        if printed.merge(answers) == paths::Moved::Yes {
-                            lines.forget();
+                        if printed.merge_into(answers, &mut lines) == paths::Moved::Yes {
+                            after_answers = Some(rep.frames + 1);
                         }
                     }
                     if links == Links::Hover {
@@ -637,6 +649,12 @@ fn main() {
                     rep.scans.candidates += s.candidates;
                     rep.scans.spans += s.spans;
                     rep.scans.struck += s.struck;
+                    rep.scans.remarks += s.remarks;
+                    rep.scans.rereads += s.rereads;
+                    if after_answers == Some(frame) {
+                        rep.answer_rows.add(baud_render::Tally::of(s.rows));
+                    }
+                    rep.marks.add(baud_render::Tally::of(lines.lines().len()));
                     rep.widest.rows = rep.widest.rows.max(s.rows);
                     rep.widest.cells = rep.widest.cells.max(s.cells);
                     rep.widest.candidates = rep.widest.candidates.max(s.candidates);
@@ -1270,6 +1288,9 @@ fn main() {
         scan_time,
         reads,
         asked,
+        collect_rows,
+        answer_rows,
+        marks,
         times,
         allocs,
     } = best.unwrap();
@@ -1328,6 +1349,14 @@ fn main() {
             );
         }
         println!("  struck runs added {}", scans.struck);
+        println!(
+            "  answers: remarks {} rereads {}; rows read by collections {}, on the frame after a batch {}; runs underlined {:.2} a frame",
+            scans.remarks,
+            scans.rereads,
+            collect_rows.value(),
+            answer_rows.value(),
+            marks.value() as f64 / frames as f64,
+        );
     }
     let mut sorted = times;
     sorted.sort_unstable();
