@@ -22,7 +22,8 @@ use block2::RcBlock;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use macos_liquid_glass::objc2_app_kit::{
-    NSWindow, NSWindowDidChangeOcclusionStateNotification, NSWindowWillCloseNotification,
+    NSWindow, NSWindowDidBecomeKeyNotification, NSWindowDidChangeOcclusionStateNotification,
+    NSWindowDidResignKeyNotification, NSWindowWillCloseNotification,
 };
 use macos_liquid_glass::objc2_foundation::{
     NSNotification, NSNotificationCenter, NSNotificationName,
@@ -54,10 +55,30 @@ pub fn when_occlusion_changes(window: &NSWindow, then: impl Fn() + 'static) -> C
     )
 }
 
+/// **Calls `then` each time `window` becomes or resigns the key window**:
+/// `NSWindowDidBecomeKeyNotification`, "a notification that the window
+/// object became the key window", and `NSWindowDidResignKeyNotification`,
+/// "a notification that the window object resigned its status as key
+/// window", whose object is the window in each
+/// (`[[source: apple-nswindow-didbecomekeynotification]]`,
+/// `[[source: apple-nswindow-didresignkeynotification]]`); until the
+/// returned pair drops.
+pub fn when_key_changes(window: &NSWindow, then: impl Fn() + Clone + 'static) -> [Closing; 2] {
+    // SAFETY: framework constants, valid strings for the process's life.
+    [
+        hear(
+            window,
+            unsafe { NSWindowDidBecomeKeyNotification },
+            then.clone(),
+        ),
+        hear(window, unsafe { NSWindowDidResignKeyNotification }, then),
+    ]
+}
+
 fn hear(window: &NSWindow, name: &NSNotificationName, then: impl Fn() + 'static) -> Closing {
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
         crate::unwind::guard(
-            crate::unwind::SiteName("a window's close or occlusion observer"),
+            crate::unwind::SiteName("a window's close, occlusion or key observer"),
             (),
             &then,
         );
@@ -81,4 +102,27 @@ impl Drop for Closing {
         // object the centre registered.
         unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer) };
     }
+}
+
+/// **The frame rig's window told it became or resigned the key window**
+/// (`rig_call::RigWindow`; its other events post nothing): the notification AppKit posts, posted to the
+/// window's observers with the window as its object, as AppKit's names it
+/// (`[[source: apple-nswindow-didbecomekeynotification]]`,
+/// `[[source: apple-nswindow-didresignkeynotification]]`). The window is
+/// not made key; the rig checks it never is.
+#[cfg(feature = "effect-probe")]
+pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
+    use crate::rig_call::RigWindow;
+    // SAFETY: framework constants, valid strings for the process's life.
+    let name = match told {
+        RigWindow::Untold | RigWindow::Restyled | RigWindow::Refocused => return,
+        RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
+        RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
+    };
+    let object: &AnyObject = window;
+    // SAFETY: a notification with this window as its object, posted on the
+    // main thread, where its observers expect it.
+    unsafe {
+        NSNotificationCenter::defaultCenter().postNotificationName_object(name, Some(object))
+    };
 }

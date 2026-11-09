@@ -4911,6 +4911,8 @@ struct Driver {
     /// character, until `text` answers: the base layout key of a key the
     /// input manager types as itself (`typed_text`).
     keyed: Option<Keyed>,
+    /// The window's key changes, heard (`KeyHeard`).
+    key_heard: KeyHeard,
     /// The key handed to the input manager, until the `text` or
     /// `command` it answers with (`Handed`).
     handed: Handed,
@@ -5390,6 +5392,35 @@ impl Responder for Gone {
             w: 0.0,
             h: 0.0,
         }
+    }
+}
+
+/// **The window's key changes, heard** (`closing::when_key_changes`):
+/// AppKit's two notifications mark the cell and wake the view, and the
+/// pump reads the window's focus on the turn it woke, so no tick polls
+/// for it. It starts marked, so the opening pump reads the focus the
+/// window has. Dropping it removes the observers.
+struct KeyHeard {
+    heard: std::rc::Rc<std::cell::Cell<Heard>>,
+    _observers: [baud_present_macos::closing::Closing; 2],
+}
+
+impl KeyHeard {
+    fn new(window: &NSWindow, view: &DrawableView) -> KeyHeard {
+        let heard = std::rc::Rc::new(std::cell::Cell::new(Heard::Changed));
+        let (mark, waker) = (heard.clone(), view.waker());
+        // The block runs inside AppKit's change, which may be inside one
+        // of the view's own callbacks: it marks and wakes, nothing more.
+        let _observers = baud_present_macos::closing::when_key_changes(window, move || {
+            mark.set(Heard::Changed);
+            waker.wake();
+        });
+        KeyHeard { heard, _observers }
+    }
+
+    /// Whether a change was heard since the last take.
+    fn take(&self) -> Heard {
+        self.heard.replace(Heard::Unchanged)
     }
 }
 
@@ -7135,8 +7166,9 @@ mod alt_window_tests {
         let pump = body(PUMP);
         let tick = pump.split(TICK).nth(1).expect("the tick branch");
         let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
-        let (focus, call) = (tick.find(FOCUS), tick.find(CALL));
-        assert!(call.is_some(), "the tick does not poll the hover");
+        assert!(tick.contains(CALL), "the tick does not poll the hover");
+        let (focus, call) = (pump.find(FOCUS), pump.find(CALL));
+        assert!(focus.is_some(), "the pump does not read the focus");
         assert!(focus < call, "the hover is polled before the focus");
         assert_eq!(SRC.matches(CALL).count(), 1, "and nowhere else");
         let poll = body(POLL);
@@ -11045,7 +11077,10 @@ mod motion_tests {
             .and_then(|(_, rest)| rest.split_once('}'))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
-        assert!(tick.contains("self.poll_focus();"), "the control: {tick}");
+        assert!(
+            tick.contains(concat!("self.poll_", "hover();")),
+            "the control: {tick}"
+        );
         assert!(tick.contains("self.poll_motion();"), "{tick}");
     }
 
@@ -12197,13 +12232,17 @@ impl Driver {
             self.front.moved();
             crate::link_layer::moved(&mut self.app.probes, &mut self.app.paths);
         }
+        // The window's focus, on the turn its key change woke and at
+        // opening (`KeyHeard`), before the hover, which reads it.
+        if self.key_heard.take() == Heard::Changed {
+            self.poll_focus();
+        }
         if let Trigger::Tick = trigger {
             self.title_check();
             self.link_host_check();
             self.paths_turn();
             self.app.commands.reap();
             self.notice_turn();
-            self.poll_focus();
             self.poll_hover();
             self.poll_motion();
             self.poll_display();
@@ -13497,15 +13536,14 @@ impl Responder for Driver {
     /// `mouse_report` does -- and vim, which asks on its first line, uses it
     /// to redraw its status line. This was an empty body, and the request the
     /// corpus sends was dropped uncounted, until the sfte survey named it.
-    fn focus(&mut self, focus: Focus) {
+    fn focus(&mut self, _: Focus) {
         // The crate reports the *view's* first-responder status, which
         // changes once -- at `show()`, before this driver is installed --
-        // and never on an app switch. `poll_focus` is the source that
-        // reaches the driver; this arm keeps the two in agreement.
-        self.set_focus(match focus {
-            Focus::Gained => baud_core::Focus::Gained,
-            Focus::Lost => baud_core::Focus::Lost,
-        });
+        // and never on an app switch, so what it says is not the answer:
+        // whether the *window* is key is, read now, as on the turn a key
+        // change woke (`KeyHeard`). A view made first responder in a
+        // window that is not key leaves the focus lost.
+        self.poll_focus();
     }
 
     fn cursor_rect(&self) -> Rect {
@@ -14059,6 +14097,7 @@ impl Opening {
         // The cell the observer writes and `pump` reads; cloned into both.
         let style = PendingStyle::default();
         let hiding = crate::hide::Hiding::new(&probe.term);
+        let key_heard = KeyHeard::new(window.ns_window(), &view);
         let mut driver = Driver {
             app: probe,
             view: view.clone(),
@@ -14070,6 +14109,7 @@ impl Opening {
             buttons: LocatorButtons::NONE,
             key_kind: KeyEventKind::Press,
             keyed: None,
+            key_heard,
             handed: Handed::NONE,
             downs: Downs::NONE,
             click: Click::Ours,
@@ -14597,8 +14637,7 @@ impl Driver {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
             Holder::A17Splash => self.app.splash.waiting(),
-            Holder::A2Focus
-            | Holder::A3Hover
+            Holder::A3Hover
             | Holder::A4Motion
             | Holder::A5Notices
             | Holder::A9Front
@@ -15202,9 +15241,10 @@ impl Driver {
     /// `?1004` never reported. The crate's hook is the view's
     /// first-responder status, which a single-view window changes once;
     /// what a terminal reports is whether its *window* is key, and the
-    /// window knows. One message send, on the tick and before a mouse
-    /// event, so a transition is seen within a frame and never after a
-    /// click that depends on it.
+    /// window knows. One message send, on the turn the window's key change
+    /// woke (`KeyHeard`), at opening and before a mouse event, so a
+    /// transition is seen on its own turn and never after a click that
+    /// depends on it.
     fn poll_focus(&mut self) {
         let key = self.view.window().is_some_and(|w| w.isKeyWindow());
         // Under the probe only, the event rig's focus door: a row may have
@@ -16042,6 +16082,12 @@ impl Driver {
     /// Record a focus transition and report it if the application asked.
     /// Only a *change* reaches the core, so polling cannot repeat `CSI I`.
     fn set_focus(&mut self, f: baud_core::Focus) {
+        // What the frame rig prints, under the probe only.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::focused(match f {
+            baud_core::Focus::Gained => baud_present_macos::probe::Focused::Gained,
+            baud_core::Focus::Lost => baud_present_macos::probe::Focused::Lost,
+        });
         // Checked on every poll, not only on a change: a window that never
         // had the keyboard starts `Lost` with no change to see.
         if (f == baud_core::Focus::Lost) != self.app.renderer.inactive_selection().is_some() {

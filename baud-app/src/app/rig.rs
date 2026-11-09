@@ -451,7 +451,8 @@ fn restyle(window: &NSWindow) {
 /// only while the door's state is `Run` (`probe::Ticker`). Printed: the link's state at the end, the ticks
 /// delivered and the door's sends over the offered ticks, the links made
 /// in all, the polls the last settle found still the tick's, what it
-/// found owed, and the palettes applied over the ticks.
+/// found owed, the palettes applied over the ticks, and the focus baud
+/// last set.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     use probe_call::{RigFocus, RigHolders, RigKeys, RigWindow};
     let Some(mtm) = MainThreadMarker::new() else {
@@ -484,8 +485,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);
-    view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
+    // The view made first responder before its responder is set, as
+    // `show` does: the view's hook then tells no one, and the focus the
+    // window opens with is the opening pump's reading (`KeyHeard`).
     let _ = window.ns_window().makeFirstResponder(Some(&view));
+    view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
     probe::set_waker(view.waker());
     let ticker = probe::Ticker::new(&view);
     // Each offered tick due a frame after now, on the display link's clock
@@ -529,16 +533,25 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             post(view.waker());
         }
     }
-    // The window told, after the act.
+    // The window told, after the act: a key change with the focus door
+    // set to agree, then the notification AppKit would post.
     match rig.window {
         RigWindow::Untold => {}
         RigWindow::Restyled => restyle(window.ns_window()),
+        RigWindow::BecameKey => probe::set_key(probe::Key::Yes),
+        RigWindow::ResignedKey => probe::set_key(probe::Key::No),
+        RigWindow::Refocused => {
+            let w = window.ns_window();
+            let _ = w.makeFirstResponder(None);
+            let _ = w.makeFirstResponder(Some(&view));
+        }
     }
+    baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     offer(rig.attempts.0);
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -553,6 +566,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         },
         probe::owes().replace(' ', ""),
         probe::styled().0.saturating_sub(styled.0),
+        match probe::focus() {
+            probe::Focused::Unset => "unset",
+            probe::Focused::Gained => "gained",
+            probe::Focused::Lost => "lost",
+        },
     );
     let _ = probe::take();
     let w = window.ns_window();

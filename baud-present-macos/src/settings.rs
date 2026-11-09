@@ -154,7 +154,8 @@ fn flashing_name() -> &'static NSNotificationName {
     unsafe { kMADimFlashingLightsChangedNotification }
 }
 
-/// Whether a setting's notification arrived since it was last taken.
+/// Whether a notification was heard since the last take: a setting's, or
+/// the window's key change (baud-app's `KeyHeard`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Heard {
     Changed,

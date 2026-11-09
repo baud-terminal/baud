@@ -258,6 +258,8 @@ thread_local! {
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
     static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
+    /// The focus baud last set (`Focused`).
+    static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// The state the display link's door last sent (`display_link.rs`),
     /// and how many times it sent one.
     static LINK: Cell<(crate::display_link::LinkState, Sends)> =
@@ -319,6 +321,28 @@ pub fn set_key(key: Key) {
 /// Whether baud believes its window is key.
 pub fn key() -> Key {
     KEY.with(Cell::get)
+}
+
+/// **The focus baud last set**, as the frame rig prints it: none before
+/// the first, and then what each `set_focus` was given.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Focused {
+    /// None set yet.
+    Unset,
+    /// The window's keyboard gained.
+    Gained,
+    /// The window's keyboard lost.
+    Lost,
+}
+
+/// Record the focus baud set.
+pub fn focused(f: Focused) {
+    FOCUSED.with(|c| c.set(f));
+}
+
+/// The focus baud last set.
+pub fn focus() -> Focused {
+    FOCUSED.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.

@@ -37700,6 +37700,38 @@ group  = "WN"
 # documentation). It was read as willclosenotification.json, and the digest is of that copy.
 # Fetched 2026-10-31: how baud hears a window close with no window delegate.
 
+[sources.apple-nswindow-didbecomekeynotification]
+key    = "apple-nswindow-didbecomekeynotification"
+title  = "NSWindow.didBecomeKeyNotification -- 'A notification that the window object became the key window'; its object is 'the NSWindow object that has become the key window' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didbecomekeynotification.json"
+file   = ""
+sha256 = "7466e594b96d8ff615fafee1f02b8bc253d749f26734732a22d506e81b2ac819"
+bytes  = 37509
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as didbecomekeynotification.json, and the digest is of that copy.
+# Fetched 2026-11-09: how baud hears its window become key, with no tick to poll it.
+
+[sources.apple-nswindow-didresignkeynotification]
+key    = "apple-nswindow-didresignkeynotification"
+title  = "NSWindow.didResignKeyNotification -- 'A notification that the window object resigned its status as key window'; its object is 'the NSWindow object that resigned its key window status' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didresignkeynotification.json"
+file   = ""
+sha256 = "a83c3f949c633bee4d940ad1fd858c4a489745d9da1d81766b9398613a94f4b4"
+bytes  = 37550
+status = "external"
+group  = "WN"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as didresignkeynotification.json, and the digest is of that copy.
+# Fetched 2026-11-09: how baud hears its window resign key, with no tick to poll it.
+
 [sources.apple-nswindow-cascadetopleftfrompoint]
 key    = "apple-nswindow-cascadetopleftfrompoint"
 title  = "NSWindow.cascadeTopLeft(from:) -- 'The returned point can be passed to a subsequent invocation ... to position the next window so the title bars of both windows are fully visible' (documentation JSON)"

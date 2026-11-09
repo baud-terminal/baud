@@ -73,7 +73,9 @@ const HOLDERS: [(RigHolders, &str); 2] = [
 ];
 
 /// **What the frame rig's window is told**, after the act and before the
-/// ticks, as AppKit tells it; the window is never shown.
+/// ticks, as AppKit tells it; the window is never shown, and never made
+/// key: a key change is AppKit's notification posted to the window's
+/// observers with the probe's focus door set to agree (`closing::rig_post`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RigWindow {
     /// Nothing.
@@ -82,11 +84,22 @@ pub enum RigWindow {
     /// as a light/dark flip gives it: AppKit tells the view, and the view
     /// its responder.
     Restyled,
+    /// That it became the key window, the focus door set key.
+    BecameKey,
+    /// That it resigned the key window, the focus door set not key.
+    ResignedKey,
+    /// Its view made first responder again, resigned and taken back, as a
+    /// field that takes the keys and hands them back does: the view's own
+    /// first-responder hook, heard after the responder is set.
+    Refocused,
 }
 
-const WINDOW: [(RigWindow, &str); 2] = [
+const WINDOW: [(RigWindow, &str); 5] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
+    (RigWindow::BecameKey, "became-key"),
+    (RigWindow::ResignedKey, "resigned-key"),
+    (RigWindow::Refocused, "refocused"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

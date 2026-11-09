@@ -643,7 +643,7 @@ const SITES: [Site; 27] = [
             act: RigAct::CopyMenu,
             setup: r"printf '\033[H\033[2JWORD\033]52;c;!\007'",
             config: "[clipboard]\ncopy_on_select = \"off\"\n",
-            focus: RigFocus::Real,
+            focus: RigFocus::Believed,
             shape: READ,
         }),
         expect: Expect {
@@ -1117,9 +1117,16 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
 const HOLDERS: &[&str] = &[
-    "FS-A2", "FS-A3", "FS-A4", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16",
-    "FS-A17",
+    "FS-A3", "FS-A4", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
 ];
+
+/// The focus baud last set, as a frame rig's child printed it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FocusSeen {
+    Unset,
+    Gained,
+    Lost,
+}
 
 /// The display link's state as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1130,8 +1137,8 @@ enum LinkSeen {
 
 /// **What a frame rig's child printed**: the link's state at the end, the
 /// ticks delivered, the door's sends and the frames drawn over the offered
-/// ticks, the links made in all, and the polls still the tick's, what the
-/// last settle found owed, and the palettes applied.
+/// ticks, the links made in all, the polls still the tick's, what the last
+/// settle found owed, the palettes applied, and the focus baud last set.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Counters {
     link: LinkSeen,
@@ -1142,6 +1149,7 @@ struct Counters {
     holders: Vec<String>,
     owed: String,
     styled: u32,
+    focus: FocusSeen,
 }
 
 impl Counters {
@@ -1168,6 +1176,12 @@ impl Counters {
             },
             owed: field("owed")?.to_owned(),
             styled: count("styled")?,
+            focus: match field("focus")? {
+                "unset" => FocusSeen::Unset,
+                "gained" => FocusSeen::Gained,
+                "lost" => FocusSeen::Lost,
+                _ => return None,
+            },
         })
     }
 }
@@ -1199,6 +1213,9 @@ enum Settles {
     /// **A light/dark flip drawn while the link was paused**: a palette
     /// applied, a frame drawn, and paused again at the end.
     Restyled,
+    /// **The window's key change heard with the link paused**: the focus
+    /// baud set is this, and the link paused at the end.
+    Focused(FocusSeen),
 }
 
 impl Settles {
@@ -1221,6 +1238,7 @@ impl Settles {
                 c.link == LinkSeen::Pause && c.delivered >= 1 && c.sends >= 2 && c.owed == "Nothing"
             }
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
+            Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
         }
     }
 }
@@ -1254,10 +1272,15 @@ struct FrameSite {
 /// own that these rows are not about.
 const NO_SPLASH: &str = "[cursor]\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n";
 
+/// **[`NO_SPLASH`], the caret steady**: a focused window's caret blinks by
+/// default, and its flips would run the link, a tick that polls what
+/// these rows hear.
+const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n";
+
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 8] = [
+const FRAME_SITES: [FrameSite; 12] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1398,6 +1421,80 @@ const FRAME_SITES: [FrameSite; 8] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Still,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **FS-A2**: the window made key is heard with the link paused, from
+    // its notification, and no tick polls for it.
+    FrameSite {
+        name: SiteName("a window made key is heard with the link paused"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::BecameKey,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Focused(FocusSeen::Gained),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **FS-A2**: and the key window resigned, the other notification.
+    FrameSite {
+        name: SiteName("a window that resigns key is heard with the link paused"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::ResignedKey,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Focused(FocusSeen::Lost),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **FS-A2, the opening's reading**: the frame rig opens as `show` does,
+    // the view made first responder before its responder is set, so the
+    // focus a window not key opens with is the opening pump's reading of
+    // the window, which `KeyHeard` starts marked for.
+    FrameSite {
+        name: SiteName("a window opened not key starts with its focus lost"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Focused(FocusSeen::Lost),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **FS-A2, the view's hook**: a first-responder change heard once the
+    // responder is set reads the window, not the hook's word, so a window
+    // not key keeps its focus lost.
+    FrameSite {
+        name: SiteName("a first-responder change in a window not key leaves its focus lost"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Refocused,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Focused(FocusSeen::Lost),
         state: RowState::Pending {
             stage: Stage::Three,
             recorded: Failure::Held,
