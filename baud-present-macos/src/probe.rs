@@ -260,6 +260,10 @@ thread_local! {
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
+    /// What baud reads of the display options (`Access`).
+    static ACCESS: Cell<Access> = const { Cell::new(Access::System) };
+    /// The changes of the motion preference and the display settings taken.
+    static TAKEN: Cell<(Taken, Taken)> = const { Cell::new((Taken(0), Taken(0))) };
     /// The state the display link's door last sent (`display_link.rs`),
     /// and how many times it sent one.
     static LINK: Cell<(crate::display_link::LinkState, Sends)> =
@@ -343,6 +347,91 @@ pub fn focused(f: Focused) {
 /// The focus baud last set.
 pub fn focus() -> Focused {
     FOCUSED.with(Cell::get)
+}
+
+/// **What baud reads of the accessibility display options**: the frame
+/// rig's door. What the system says, or what the rig set in its place --
+/// Reduce Motion and Reduce Transparency each on or off, whatever this Mac
+/// is set to -- so a row's start and its change are the rig's on every
+/// machine, which cannot be changed in System Settings by a test. Read in
+/// baud-app's two readers alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Access {
+    /// What the system says, alone.
+    System,
+    /// These, in place of what the system says.
+    Set {
+        motion: Turned,
+        transparency: Turned,
+    },
+}
+
+/// A display option the rig set on or off.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Turned {
+    Off,
+    On,
+}
+
+impl Access {
+    /// Reduce Motion as baud reads it, the system saying `system`.
+    pub fn motion(self, system: Turned) -> Turned {
+        match self {
+            Access::System => system,
+            Access::Set { motion, .. } => motion,
+        }
+    }
+
+    /// Reduce Transparency as baud reads it, the system saying `system`.
+    pub fn transparency(self, system: Turned) -> Turned {
+        match self {
+            Access::System => system,
+            Access::Set { transparency, .. } => transparency,
+        }
+    }
+}
+
+/// Set what baud reads of the display options.
+pub fn set_access(a: Access) {
+    ACCESS.with(|c| c.set(a));
+}
+
+/// What baud reads of the display options.
+pub fn access() -> Access {
+    ACCESS.with(Cell::get)
+}
+
+/// A display option whose change baud took.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DisplayOption {
+    /// The motion preference (`poll_motion`).
+    Motion,
+    /// Reduce Transparency or Increase Contrast (`poll_display`).
+    Display,
+}
+
+/// How many changes of an option baud took.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Taken(pub u32);
+
+/// **A change of `o` taken**, counted for the frame rig.
+pub fn took(o: DisplayOption) {
+    TAKEN.with(|t| {
+        let (m, d) = t.get();
+        t.set(match o {
+            DisplayOption::Motion => (Taken(m.0.saturating_add(1)), d),
+            DisplayOption::Display => (m, Taken(d.0.saturating_add(1))),
+        });
+    });
+}
+
+/// The changes of `o` taken.
+pub fn taken(o: DisplayOption) -> Taken {
+    let (m, d) = TAKEN.with(Cell::get);
+    match o {
+        DisplayOption::Motion => m,
+        DisplayOption::Display => d,
+    }
 }
 
 /// Set whether a turn's door hands over inline.
@@ -700,6 +789,30 @@ pub fn menu(view: &DrawableView, action: macos_liquid_glass::objc2::runtime::Sel
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The rig's door replaces the system's answer**: set off, a system
+    /// that says on reads off, and set on, one that says off reads on; with
+    /// no door the system's answer is read. Break: the door or'd with the
+    /// system, and a Mac with Reduce Motion on reads on whatever the rig set.
+    #[test]
+    fn the_access_door_replaces_the_systems_answer() {
+        let off = Access::Set {
+            motion: Turned::Off,
+            transparency: Turned::Off,
+        };
+        let on = Access::Set {
+            motion: Turned::On,
+            transparency: Turned::On,
+        };
+        for system in [Turned::Off, Turned::On] {
+            assert_eq!(off.motion(system), Turned::Off, "{system:?}");
+            assert_eq!(off.transparency(system), Turned::Off, "{system:?}");
+            assert_eq!(on.motion(system), Turned::On, "{system:?}");
+            assert_eq!(on.transparency(system), Turned::On, "{system:?}");
+            assert_eq!(Access::System.motion(system), system);
+            assert_eq!(Access::System.transparency(system), system);
+        }
+    }
 
     /// Every kind is in the table once, and its word reads back as it.
     /// The match has no `_` arm, so a new kind does not compile until it

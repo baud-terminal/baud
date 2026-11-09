@@ -1,8 +1,9 @@
 //! **The system settings the window follows the moment they change**: a
-//! setting AppKit announces with a notification is heard here, and the
-//! app's next display-link tick acts on it. Nothing is polled and nothing
-//! waits: the observer marks the setting heard, and the tick that takes the
-//! mark reads the new value and lays the window out again.
+//! setting AppKit announces with a notification is heard here. Nothing is
+//! polled and nothing waits: the observer marks the setting heard and wakes
+//! the window, and the driver that takes the mark reads the new value --
+//! the display options on the turn the wake runs, the others still on the
+//! display link's tick.
 //!
 //! * **"Show scroll bars"**: `preferredScrollerStyle` "may therefore change
 //!   over time, and applications should be prepared to adapt their user
@@ -50,9 +51,18 @@
 //!   (`[[source: apple-accessibility-animated-images]]`), so it is
 //!   observed there, where the tests below post it.
 //!
-//! **Observed on the default centre with no queue**, so the block runs on
-//! the thread that posts, and does nothing there but set the mark: no
-//! AppKit call is made from it, whichever thread that is.
+//! * **The accessibility display options** -- Reduce Motion, Reduce
+//!   Transparency, Increase Contrast: "A notification that the workspace
+//!   posts when any of the accessibility display options change", observed
+//!   on the workspace's own centre: "If you use a different notification
+//!   center to register", the page goes on, the notification does not come
+//!   (`[[source: apple-nsworkspace-display-options-notification]]`). Its
+//!   values are read through the window crate when the mark is taken.
+//!
+//! **Observed with no queue**, so the block runs on the thread that posts,
+//! and does nothing there but set the mark and wake the window, which posts
+//! to the main queue: no AppKit call is made from it, whichever thread
+//! that is.
 //!
 //! `unsafe` is allowed here for the calls the bindings mark so -- the
 //! observer's registration, whose block is `Send` and `Sync` because it
@@ -67,9 +77,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use block2::RcBlock;
+use macos_liquid_glass::objc2::Message;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::runtime::{NSObjectProtocol, ProtocolObject};
-use macos_liquid_glass::objc2_app_kit::NSPreferredScrollerStyleDidChangeNotification;
+use macos_liquid_glass::objc2_app_kit::{
+    NSPreferredScrollerStyleDidChangeNotification, NSWorkspace,
+    NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,
+};
 use macos_liquid_glass::objc2_foundation::{
     NSNotification, NSNotificationCenter, NSNotificationName,
 };
@@ -83,6 +97,9 @@ pub enum Setting {
     DimFlashingLights,
     /// Accessibility's Animated Images.
     AnimatedImages,
+    /// The accessibility display options: Reduce Motion, Reduce
+    /// Transparency and Increase Contrast, posted as one.
+    DisplayOptions,
 }
 
 /// What the system asks of flashing on screen: Dim Flashing Lights on is
@@ -168,6 +185,7 @@ struct Marks {
     scroller: AtomicBool,
     flashing: AtomicBool,
     animated: AtomicBool,
+    display: AtomicBool,
 }
 
 impl Marks {
@@ -176,29 +194,60 @@ impl Marks {
             Setting::Scroller => &self.scroller,
             Setting::DimFlashingLights => &self.flashing,
             Setting::AnimatedImages => &self.animated,
+            Setting::DisplayOptions => &self.display,
         }
     }
 }
 
-/// **The observers, for as long as the window lives**: one on the default
-/// notification centre for each [`Setting`], removed when this is dropped.
+/// **The observers, for as long as the window lives**: one for each
+/// [`Setting`], on the centre its notification is posted to, removed when
+/// this is dropped.
 pub struct Watch {
     marks: Arc<Marks>,
-    observers: Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>,
+    observers: Vec<Observer>,
 }
 
+/// An observer's centre and the token it was registered under.
+type Observer = (
+    Retained<NSNotificationCenter>,
+    Retained<ProtocolObject<dyn NSObjectProtocol>>,
+);
+
+/// What an observer calls once it has marked its setting: the window's
+/// wake.
+type Wake = Arc<dyn Fn() + Send + Sync>;
+
 impl Watch {
-    /// Observe every setting from now on.
-    pub fn start() -> Watch {
+    /// Observe every setting from now on, each notification heard marking
+    /// its setting, then calling `wake`.
+    pub fn start(wake: impl Fn() + Send + Sync + 'static) -> Watch {
         let marks = Arc::new(Marks::default());
+        let wake: Wake = Arc::new(wake);
         let center = NSNotificationCenter::defaultCenter();
+        let workspace = NSWorkspace::sharedWorkspace().notificationCenter();
+        // SAFETY: an AppKit constant, a valid `NSString` for the process's
+        // life.
+        let display = unsafe { NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification };
         // SAFETY: an AppKit constant, a valid `NSString` for the process's
         // life.
         let scroller = unsafe { NSPreferredScrollerStyleDidChangeNotification };
         let observers = vec![
-            observe(&center, scroller, &marks, Setting::Scroller),
-            observe(&center, flashing_name(), &marks, Setting::DimFlashingLights),
-            observe(&center, animated_name(), &marks, Setting::AnimatedImages),
+            observe(&center, scroller, &marks, &wake, Setting::Scroller),
+            observe(
+                &center,
+                flashing_name(),
+                &marks,
+                &wake,
+                Setting::DimFlashingLights,
+            ),
+            observe(
+                &center,
+                animated_name(),
+                &marks,
+                &wake,
+                Setting::AnimatedImages,
+            ),
+            observe(&workspace, display, &marks, &wake, Setting::DisplayOptions),
         ];
         Watch { marks, observers }
     }
@@ -216,32 +265,54 @@ impl Watch {
 
 impl Drop for Watch {
     fn drop(&mut self) {
-        let center = NSNotificationCenter::defaultCenter();
-        for o in &self.observers {
+        for (center, o) in &self.observers {
             // SAFETY: each is a token `addObserverForName:...` returned on
-            // this centre, removed once.
+            // its centre, removed once.
             unsafe { center.removeObserver(o.as_ref()) };
         }
     }
 }
 
-/// An observer of `name` on `center` that marks `s` heard.
+/// An observer of `name` on `center` that marks `s` heard, then wakes.
 fn observe(
     center: &NSNotificationCenter,
     name: &NSNotificationName,
     marks: &Arc<Marks>,
+    wake: &Wake,
     s: Setting,
-) -> Retained<ProtocolObject<dyn NSObjectProtocol>> {
-    let marks = Arc::clone(marks);
+) -> Observer {
+    let (marks, wake) = (Arc::clone(marks), Arc::clone(wake));
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
         crate::unwind::guard(crate::unwind::SiteName("a setting's observer"), (), || {
             marks.of(s).store(true, Ordering::Release);
+            wake();
         });
     });
     // SAFETY: no object filter and no queue, so the block runs on the
     // posting thread; it captures an `Arc` of atomics, which is `Send` and
-    // `Sync`, so running there is sound.
-    unsafe { center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block) }
+    // `Sync`, and a wake that is too, so running there is sound.
+    let token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
+    };
+    (center.retain(), token)
+}
+
+/// **The frame rig's display options changed** (`rig_call::RigWindow`):
+/// the notification posted on the workspace's centre, as the workspace
+/// posts it, with the workspace as its object; the values the driver then
+/// reads are the probe's door (`probe::Access`).
+#[cfg(feature = "effect-probe")]
+pub fn rig_post_display_options() {
+    let workspace = NSWorkspace::sharedWorkspace();
+    let object: &macos_liquid_glass::objc2::runtime::AnyObject = &workspace;
+    // SAFETY: an AppKit constant, a valid `NSString` for the process's
+    // life; posted on the main thread, where its observers expect it.
+    unsafe {
+        workspace.notificationCenter().postNotificationName_object(
+            NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,
+            Some(object),
+        )
+    };
 }
 
 #[cfg(test)]
@@ -281,7 +352,7 @@ mod tests {
     #[test]
     fn the_scroller_notification_is_heard_once_a_tick() {
         let _one = alone();
-        let watch = Watch::start();
+        let watch = Watch::start(|| {});
         assert_eq!(watch.take(Setting::Scroller), Heard::Unchanged);
         post(&NSString::from_str("BaudNotTheScrollerStyle"));
         assert_eq!(
@@ -304,7 +375,7 @@ mod tests {
     #[test]
     fn a_dropped_watch_stops_observing() {
         let _one = alone();
-        let watch = Watch::start();
+        let watch = Watch::start(|| {});
         let marks = Arc::clone(&watch.marks);
         drop(watch);
         post(scroller_name());
@@ -320,7 +391,7 @@ mod tests {
     #[test]
     fn the_flashing_lights_notification_marks_its_own_setting() {
         let _one = alone();
-        let watch = Watch::start();
+        let watch = Watch::start(|| {});
         post(flashing_name());
         assert_eq!(watch.take(Setting::DimFlashingLights), Heard::Changed);
         assert_eq!(
@@ -343,7 +414,7 @@ mod tests {
     fn a_local_centre_post_reaches_the_default_centre() {
         use objc2_core_foundation::{CFNotificationCenter, CFString};
         let _one = alone();
-        let watch = Watch::start();
+        let watch = Watch::start(|| {});
         // SAFETY: no object; the centre is this test's, which nothing
         // observes.
         unsafe { NSNotificationCenter::new().postNotificationName_object(flashing_name(), None) };
@@ -369,7 +440,7 @@ mod tests {
     #[test]
     fn the_animated_images_notification_marks_its_own_setting() {
         let _one = alone();
-        let watch = Watch::start();
+        let watch = Watch::start(|| {});
         post(animated_name());
         assert_eq!(watch.take(Setting::AnimatedImages), Heard::Changed);
         assert_eq!(watch.take(Setting::AnimatedImages), Heard::Unchanged);
@@ -399,5 +470,43 @@ mod tests {
     #[test]
     fn the_flashing_lights_setting_reads() {
         let _ = flashing();
+    }
+
+    /// **The display options are heard on the workspace's centre only, and
+    /// each heard notification wakes the window**: posted there, the mark
+    /// is set and the wake called; posted on the default centre -- the
+    /// control -- nothing is, since Apple's page says a different centre
+    /// does not receive it. Break: observe it on the default centre, and
+    /// the workspace's post marks nothing.
+    #[test]
+    fn the_display_options_are_heard_on_the_workspace_centre_and_wake() {
+        use std::sync::atomic::AtomicUsize;
+        let _one = alone();
+        let woken = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&woken);
+        let watch = Watch::start(move || {
+            count.fetch_add(1, Ordering::AcqRel);
+        });
+        // SAFETY: as in `Watch::start`.
+        let name = unsafe { NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification };
+        post(name);
+        assert_eq!(
+            watch.take(Setting::DisplayOptions),
+            Heard::Unchanged,
+            "the control: the default centre's post is not heard"
+        );
+        assert_eq!(woken.load(Ordering::Acquire), 0);
+        // SAFETY: no object; the workspace posts with itself, which the
+        // observer does not filter on.
+        unsafe {
+            NSWorkspace::sharedWorkspace()
+                .notificationCenter()
+                .postNotificationName_object(name, None)
+        };
+        assert_eq!(watch.take(Setting::DisplayOptions), Heard::Changed);
+        assert_eq!(watch.take(Setting::Scroller), Heard::Unchanged);
+        assert_eq!(woken.load(Ordering::Acquire), 1, "woken once");
+        post(scroller_name());
+        assert_eq!(woken.load(Ordering::Acquire), 2, "every setting wakes");
     }
 }

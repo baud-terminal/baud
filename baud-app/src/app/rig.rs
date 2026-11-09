@@ -451,8 +451,8 @@ fn restyle(window: &NSWindow) {
 /// only while the door's state is `Run` (`probe::Ticker`). Printed: the link's state at the end, the ticks
 /// delivered and the door's sends over the offered ticks, the links made
 /// in all, the polls the last settle found still the tick's, what it
-/// found owed, the palettes applied over the ticks, and the focus baud
-/// last set.
+/// found owed, the palettes applied over the ticks, the focus baud last
+/// set, and the display options' changes taken.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     use probe_call::{RigFocus, RigHolders, RigKeys, RigWindow};
     let Some(mtm) = MainThreadMarker::new() else {
@@ -465,6 +465,13 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     probe::set_lift(match rig.holders {
         RigHolders::Kept => probe::Lift::Kept,
         RigHolders::Lifted => probe::Lift::Lifted,
+    });
+    // Reduce Motion and Reduce Transparency off, whatever this Mac is set
+    // to: every row starts from the rig's display options, not the
+    // machine's (`probe::Access`).
+    probe::set_access(probe::Access::Set {
+        motion: probe::Turned::Off,
+        transparency: probe::Turned::Off,
     });
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
@@ -522,6 +529,10 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let delivered = probe::delivered();
     let drawn = probe::frames();
     let styled = probe::styled();
+    let (motions, displays) = (
+        probe::taken(probe::DisplayOption::Motion),
+        probe::taken(probe::DisplayOption::Display),
+    );
     match (rig.act.is_empty(), rig.keys) {
         (true, _) => {}
         (false, RigKeys::Line) => {
@@ -545,13 +556,20 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             let _ = w.makeFirstResponder(None);
             let _ = w.makeFirstResponder(Some(&view));
         }
+        RigWindow::DisplayOptions => {
+            probe::set_access(probe::Access::Set {
+                motion: probe::Turned::On,
+                transparency: probe::Turned::On,
+            });
+            baud_present_macos::settings::rig_post_display_options();
+        }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     offer(rig.attempts.0);
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -571,6 +589,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::Focused::Gained => "gained",
             probe::Focused::Lost => "lost",
         },
+        probe::taken(probe::DisplayOption::Motion)
+            .0
+            .saturating_sub(motions.0),
+        probe::taken(probe::DisplayOption::Display)
+            .0
+            .saturating_sub(displays.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

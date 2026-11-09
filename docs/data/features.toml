@@ -1688,7 +1688,7 @@ name = "Reduce Transparency and Increase Contrast"
 does = "With Reduce Transparency on, the text area turns solid; with Increase Contrast on, text too close to its background is lifted further. They are read when baud starts and checked again while it runs."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/app.rs::reduce_transparency_draws_every_background_opaque", "baud-app/src/app.rs::increase_contrast_makes_the_floor_stricter", "baud-app/src/app.rs::the_tick_and_the_launch_read_the_display_settings"]
+tests = ["baud-app/src/app.rs::reduce_transparency_draws_every_background_opaque", "baud-app/src/app.rs::increase_contrast_makes_the_floor_stricter", "baud-app/src/app.rs::the_launch_reads_the_display_settings"]
 
 [[feature]]
 id = "panels-and-pictures"
@@ -1923,7 +1923,7 @@ name = "Reduce Motion respected"
 does = "With macOS's Reduce Motion on there is no default cursor trail, a plain blink, still blinking text, no flash for the bell and fireworks that hold still and fade, and switching it takes effect within a frame."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/config.rs::reduce_motion_turns_the_default_off_and_leaves_a_named_trail", "baud-app/src/caret.rs::reduce_motion_draws_a_hard_blink", "baud-app/src/app.rs::the_tick_polls_the_motion_preference", "baud-render/tests/fireworks.rs::a_still_show_draws_the_same_records_fainter", "baud-app/src/fireworks.rs::requests_hold_a_show_or_start_another"]
+tests = ["baud-app/src/config.rs::reduce_motion_turns_the_default_off_and_leaves_a_named_trail", "baud-app/src/caret.rs::reduce_motion_draws_a_hard_blink", "baud-app/src/app.rs::the_display_options_are_read_on_the_turn_they_woke", "baud-render/tests/fireworks.rs::a_still_show_draws_the_same_records_fainter", "baud-app/src/fireworks.rs::requests_hold_a_show_or_start_another"]
 
 [[feature]]
 id = "screen-fade"

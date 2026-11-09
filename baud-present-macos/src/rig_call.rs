@@ -92,14 +92,19 @@ pub enum RigWindow {
     /// field that takes the keys and hands them back does: the view's own
     /// first-responder hook, heard after the responder is set.
     Refocused,
+    /// That the accessibility display options changed: the workspace's
+    /// notification posted with the probe's access door turned from both
+    /// off to both on (`settings::rig_post_display_options`).
+    DisplayOptions,
 }
 
-const WINDOW: [(RigWindow, &str); 5] = [
+const WINDOW: [(RigWindow, &str); 6] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
     (RigWindow::ResignedKey, "resigned-key"),
     (RigWindow::Refocused, "refocused"),
+    (RigWindow::DisplayOptions, "display-options"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

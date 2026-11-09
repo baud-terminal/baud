@@ -1117,7 +1117,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
 const HOLDERS: &[&str] = &[
-    "FS-A3", "FS-A4", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
+    "FS-A3", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
 ];
 
 /// The focus baud last set, as a frame rig's child printed it.
@@ -1138,7 +1138,8 @@ enum LinkSeen {
 /// **What a frame rig's child printed**: the link's state at the end, the
 /// ticks delivered, the door's sends and the frames drawn over the offered
 /// ticks, the links made in all, the polls still the tick's, what the last
-/// settle found owed, the palettes applied, and the focus baud last set.
+/// settle found owed, the palettes applied, the focus baud last set, and
+/// the display options' changes taken.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Counters {
     link: LinkSeen,
@@ -1150,6 +1151,8 @@ struct Counters {
     owed: String,
     styled: u32,
     focus: FocusSeen,
+    motion: u32,
+    display: u32,
 }
 
 impl Counters {
@@ -1182,6 +1185,8 @@ impl Counters {
                 "lost" => FocusSeen::Lost,
                 _ => return None,
             },
+            motion: count("motion")?,
+            display: count("display")?,
         })
     }
 }
@@ -1216,6 +1221,10 @@ enum Settles {
     /// **The window's key change heard with the link paused**: the focus
     /// baud set is this, and the link paused at the end.
     Focused(FocusSeen),
+    /// **The display options' change heard with the link paused**: the
+    /// motion preference and the display settings each taken, and the link
+    /// paused at the end.
+    Accessed,
 }
 
 impl Settles {
@@ -1239,6 +1248,7 @@ impl Settles {
             }
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
             Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
+            Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
         }
     }
 }
@@ -1280,7 +1290,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 12] = [
+const FRAME_SITES: [FrameSite; 13] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1495,6 +1505,25 @@ const FRAME_SITES: [FrameSite; 12] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Lost),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **FS-A4**: Reduce Motion and Reduce Transparency turned on are heard
+    // with the link paused, from the workspace's notification, and no tick
+    // polls for them.
+    FrameSite {
+        name: SiteName("the display options changed are heard with the link paused"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::DisplayOptions,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Accessed,
         state: RowState::Pending {
             stage: Stage::Three,
             recorded: Failure::Held,

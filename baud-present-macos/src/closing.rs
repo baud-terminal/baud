@@ -115,7 +115,10 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
     use crate::rig_call::RigWindow;
     // SAFETY: framework constants, valid strings for the process's life.
     let name = match told {
-        RigWindow::Untold | RigWindow::Restyled | RigWindow::Refocused => return,
+        RigWindow::Untold
+        | RigWindow::Restyled
+        | RigWindow::Refocused
+        | RigWindow::DisplayOptions => return,
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
     };

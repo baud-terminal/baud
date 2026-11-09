@@ -20367,14 +20367,17 @@ year   = 2026
 venue  = "developer.apple.com/documentation/appkit"
 url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayoptionsdidchangenotification.json"
 file   = ""
-sha256 = "5b812b502d87254733d47d1ae5c92bc34bd3d296da3b391bd38e30724119337c"
-bytes  = 37346
+sha256 = "1ab19f029994cb3c52d0c6cd79d5931696fb8874375e038dd0a90e7d157635b5"
+bytes  = 37242
 status = "external"
 group  = "AJ"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as
 # apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json, and
 # the digest is of that copy.
+# Re-pinned 2026-11-09 to the copy fetched that day, from 5b812b50 (37346
+# bytes), whose copy is not held: the settings watch quotes two sentences
+# of it, which must match the pinned bytes.
 
 [sources.apple-understanding-hangs]
 key    = "apple-understanding-hangs"

@@ -20,9 +20,6 @@ use baud_domain::HostTime;
 pub(crate) enum Holder {
     /// FS-A3: `poll_hover`, until the modifier and pointer events.
     A3Hover,
-    /// FS-A4: `poll_motion` and `poll_display`, until the accessibility
-    /// display options notification.
-    A4Motion,
     /// FS-A5: `notice_turn`, until the notification center's callbacks
     /// wake the window.
     A5Notices,
@@ -46,9 +43,8 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 10] = [
+    pub(crate) const ALL: [Holder; 9] = [
         Holder::A3Hover,
-        Holder::A4Motion,
         Holder::A5Notices,
         Holder::A9Front,
         Holder::A12Title,
@@ -64,7 +60,6 @@ impl Holder {
     pub(crate) fn word(self) -> &'static str {
         match self {
             Holder::A3Hover => "FS-A3",
-            Holder::A4Motion => "FS-A4",
             Holder::A5Notices => "FS-A5",
             Holder::A9Front => "FS-A9",
             Holder::A12Title => "FS-A12",
@@ -548,19 +543,18 @@ mod tests {
         fn place(h: Holder) -> Place {
             match h {
                 Holder::A3Hover => Place(0),
-                Holder::A4Motion => Place(1),
-                Holder::A5Notices => Place(2),
-                Holder::A9Front => Place(3),
-                Holder::A12Title => Place(4),
-                Holder::A13Hosts => Place(5),
-                Holder::A14Paths => Place(6),
-                Holder::A15Reap => Place(7),
-                Holder::A16Settings => Place(8),
-                Holder::A17Splash => Place(9),
+                Holder::A5Notices => Place(1),
+                Holder::A9Front => Place(2),
+                Holder::A12Title => Place(3),
+                Holder::A13Hosts => Place(4),
+                Holder::A14Paths => Place(5),
+                Holder::A15Reap => Place(6),
+                Holder::A16Settings => Place(7),
+                Holder::A17Splash => Place(8),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=9).map(Place).collect();
+        let want: Vec<Place> = (0..=8).map(Place).collect();
         assert_eq!(places, want);
     }
 

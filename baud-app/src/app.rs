@@ -4951,7 +4951,7 @@ struct Driver {
     /// Both palettes, built at launch.
     themes: Themes,
     /// The Accessibility Display settings the theme in force was drawn
-    /// for, read on the tick (`poll_display`).
+    /// for, read when the display options change (`poll_display`).
     display: Display,
     /// The observers of the settings AppKit announces a change of, whose
     /// marks the tick takes (`follow_settings`).
@@ -10752,7 +10752,7 @@ mod ride_tests {
 mod motion_tests {
     //! Reduce Motion: no trail, unless the config names one, and blinking
     //! text held shown. The decisions are pure and gated here;
-    //! `poll_motion`, the tick and the launch read are AppKit-bound, held
+    //! `poll_motion`, the heard turn and the launch read are AppKit-bound, held
     //! by the source gates at the end.
     use super::{MotionSource, Owes, motion_change, motion_override, retrail, system_motion};
     use crate::config::{CursorTrail as T, SystemMotion as M, TrailPick as P};
@@ -11068,37 +11068,43 @@ mod motion_tests {
         );
     }
 
-    /// **The tick polls the motion preference**: `pump` is AppKit-bound, so
-    /// the one thing that can fail on a removed call is its source.
+    /// **The display options are read on the turn their notification woke,
+    /// not on the tick**: `pump` is AppKit-bound, so the one thing that can
+    /// fail on a moved call is its source.
     #[test]
-    fn the_tick_polls_the_motion_preference() {
+    fn the_display_options_are_read_on_the_turn_they_woke() {
         const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test does not match its own source first.
         let tick = SRC
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
-            .and_then(|(_, rest)| rest.split_once('}'))
+            .and_then(|(_, rest)| rest.split_once("\n        }\n"))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
         assert!(
             tick.contains(concat!("self.poll_", "hover();")),
             "the control: {tick}"
         );
-        assert!(tick.contains("self.poll_motion();"), "{tick}");
+        assert!(!tick.contains(concat!("self.poll_", "motion();")), "{tick}");
+        assert!(
+            !tick.contains(concat!("self.poll_", "display();")),
+            "{tick}"
+        );
+        let heard = concat!(
+            "if self.settings.take(Setting::",
+            "DisplayOptions) == Heard::Changed {\n",
+            "            self.poll_",
+            "motion();\n",
+            "            self.poll_",
+            "display();\n"
+        );
+        assert_eq!(SRC.matches(heard).count(), 1, "read where it is heard");
     }
 
-    /// **The tick polls the display settings, and the launch reads them
-    /// before the first frame**: both are AppKit-bound, so the source is
-    /// what can fail.
+    /// **The launch reads the display settings before the first frame**:
+    /// AppKit-bound, so the source is what can fail.
     #[test]
-    fn the_tick_and_the_launch_read_the_display_settings() {
+    fn the_launch_reads_the_display_settings() {
         const SRC: &str = include_str!("app.rs");
-        let tick = SRC
-            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
-            .and_then(|(_, rest)| rest.split_once('}'))
-            .map(|(arm, _)| arm)
-            .expect("the tick arm");
-        assert!(tick.contains("self.poll_motion();"), "the control: {tick}");
-        assert!(tick.contains("self.poll_display();"), "{tick}");
         let read = SRC
             .find(concat!("driver.poll_", "display();"))
             .expect("the launch read");
@@ -11148,7 +11154,10 @@ mod motion_tests {
             .and_then(|(_, rest)| rest.split_once('}'))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
-        assert!(tick.contains("self.poll_display();"), "the control: {tick}");
+        assert!(
+            tick.contains(concat!("self.poll_", "hover();")),
+            "the control: {tick}"
+        );
         assert!(
             tick.contains(concat!("self.follow_", "settings();")),
             "{tick}"
@@ -11156,7 +11165,7 @@ mod motion_tests {
         assert_eq!(
             SRC.matches(concat!(
                 "settings: baud_present_macos::settings::Watch::",
-                "start(),"
+                "start(move || waker.wake()),"
             ))
             .count(),
             1,
@@ -12239,6 +12248,12 @@ impl Driver {
         if self.key_heard.take() == Heard::Changed {
             self.poll_focus();
         }
+        // The accessibility display options, on the turn their notification
+        // woke (`settings::Setting::DisplayOptions`).
+        if self.settings.take(Setting::DisplayOptions) == Heard::Changed {
+            self.poll_motion();
+            self.poll_display();
+        }
         if let Trigger::Tick = trigger {
             self.title_check();
             self.link_host_check();
@@ -12246,8 +12261,6 @@ impl Driver {
             self.app.commands.reap();
             self.notice_turn();
             self.poll_hover();
-            self.poll_motion();
-            self.poll_display();
             self.follow_settings();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
@@ -14100,6 +14113,7 @@ impl Opening {
         let style = PendingStyle::default();
         let hiding = crate::hide::Hiding::new(&probe.term);
         let key_heard = KeyHeard::new(window.ns_window(), &view);
+        let waker = view.waker();
         let mut driver = Driver {
             app: probe,
             view: view.clone(),
@@ -14124,7 +14138,7 @@ impl Opening {
             glass_cfg,
             themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
             display: Display::default(),
-            settings: baud_present_macos::settings::Watch::start(),
+            settings: baud_present_macos::settings::Watch::start(move || waker.wake()),
             window_facts: baud_core::WindowFacts::UNKNOWN,
             status_took: crate::winops::StatusChange::Resize,
             saved_frame: None,
@@ -14196,6 +14210,9 @@ impl Opening {
         // **The display settings before the first frame**, pinned theme or
         // not, so a launch under Reduce Transparency never draws a dim frame.
         driver.poll_display();
+        // And the motion preference, read at the app's start, read again
+        // now the watch hears its change: none between is missed.
+        driver.poll_motion();
         Responder::resized(&mut driver, view.frame().size, scale);
         startup_mark("laid out");
         Opening {
@@ -14640,7 +14657,6 @@ impl Driver {
         Holder::ALL.into_iter().filter(|h| match h {
             Holder::A17Splash => self.app.splash.waiting(),
             Holder::A3Hover
-            | Holder::A4Motion
             | Holder::A5Notices
             | Holder::A9Front
             | Holder::A12Title
@@ -15574,6 +15590,9 @@ impl Driver {
             return;
         }
         self.app.motion = m;
+        // What the frame rig counts, under the probe only.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::took(baud_present_macos::probe::DisplayOption::Motion);
         // The blink's animation follows the preference whatever the config
         // named: Reduce Motion always means a hard blink.
         self.app
@@ -15597,14 +15616,10 @@ impl Driver {
         }
     }
 
-    /// The Accessibility Display settings, read on the tick beside Reduce
-    /// Motion and on the same terms: AppKit's own observer of the
-    /// display-options notification invalidates the cached answers, which
-    /// the Reduce Motion design probed for that setting, so baud adds no
-    /// observer of its own for these (`follow_settings` observes others);
-    /// that a live toggle of these two reads fresh within a frame is
-    /// checked by hand, not by a test, and the cost of these two reads is
-    /// carried over from Reduce Motion's, not measured for them. **Not
+    /// The Accessibility Display settings, read beside Reduce Motion on the
+    /// turn the display options' notification woke
+    /// (`settings::Setting::DisplayOptions`), which the workspace posts
+    /// when any of them changes. **Not
     /// through `apply_style`**, whose early return for a pinned theme
     /// would leave a pinned reader's cells as they were: this rebuilds
     /// whichever theme is in force. The core is told nothing, because the
@@ -15615,6 +15630,9 @@ impl Driver {
             return;
         }
         self.display = display;
+        // What the frame rig counts, under the probe only.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::took(baud_present_macos::probe::DisplayOption::Display);
         crate::info!("display: {display:?}");
         self.show_theme(in_force(self.theme_choice, self.palette_for));
         self.app.next_damage = Damage::Full;
@@ -20003,6 +20021,51 @@ mod tests {
         assert!((start..end).contains(at), "the read is in poll_focus");
     }
 
+    /// **The frame rig's access door has two readers**, the system's
+    /// Reduce Motion and Reduce Transparency as baud reads them, so every
+    /// other decision comes from what those two return. Every file under
+    /// `src/` is read. Break: a third read in `poll_display`.
+    #[test]
+    fn the_access_door_is_read_only_in_its_two_readers() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).expect("a source folder") {
+                let p = e.expect("an entry").path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let read = concat!("probe::", "access()");
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let mut readers = Vec::new();
+        for f in &files {
+            let text = std::fs::read_to_string(f).expect("a source file");
+            for (at, _) in text.match_indices(read) {
+                let head = text[..at].rfind("\nfn ").expect("a function");
+                let name = &text[head + 4..];
+                readers.push((
+                    f.file_name().map(|n| n.to_string_lossy().into_owned()),
+                    name[..name.find('(').expect("its name")].to_owned(),
+                ));
+            }
+        }
+        readers.sort();
+        let app = Some("app.rs".to_owned());
+        assert_eq!(
+            readers,
+            [
+                (app.clone(), "reduce_motion".to_owned()),
+                (app, "reduce_transparency".to_owned()),
+            ]
+        );
+    }
+
     /// **A modifier key alone reaches the core as kitty's functional key**,
     /// under "report all keys" and nowhere else: Left Shift `57441`, the
     /// modifiers held after the change -- Shift set on its press, clear on
@@ -21367,13 +21430,35 @@ fn os_at_least_15() -> bool {
 
 /// macOS's Reduce Motion, from the window crate's safe getter.
 fn reduce_motion() -> bool {
-    macos_liquid_glass::accessibility::reduce_motion()
+    let on = macos_liquid_glass::accessibility::reduce_motion();
+    // Under the probe only, the frame rig's door (`probe::Access`).
+    #[cfg(feature = "effect-probe")]
+    let on = {
+        use baud_present_macos::probe::Turned;
+        let system = match on {
+            true => Turned::On,
+            false => Turned::Off,
+        };
+        baud_present_macos::probe::access().motion(system) == Turned::On
+    };
+    on
 }
 
 /// macOS's Reduce Transparency, from the window crate's safe getter
 /// ([[source: mlg-accessibility]] 58-60).
 fn reduce_transparency() -> bool {
-    macos_liquid_glass::accessibility::reduce_transparency()
+    let on = macos_liquid_glass::accessibility::reduce_transparency();
+    // Under the probe only, the frame rig's door (`probe::Access`).
+    #[cfg(feature = "effect-probe")]
+    let on = {
+        use baud_present_macos::probe::Turned;
+        let system = match on {
+            true => Turned::On,
+            false => Turned::Off,
+        };
+        baud_present_macos::probe::access().transparency(system) == Turned::On
+    };
+    on
 }
 
 /// macOS's Increase Contrast, from the window crate's safe getter
