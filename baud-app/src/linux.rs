@@ -735,6 +735,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             seat.paths.set_rules(cfg.link.rules.clone());
             seat.paths.set(cfg.link.paths_read());
             let _ = seat.paths.set_missing(cfg.link.missing_read());
+            let _ = seat.paths.set_join(cfg.link.join_read());
             seat.paths.set_names(vec![crate::opener::host_name()]);
             seat
         },
@@ -2450,6 +2451,7 @@ impl Driver {
                     self.seat.paths.set_rules(c.link.rules.clone());
                     self.seat.paths.set(c.link.paths_read());
                     let _ = self.seat.paths.set_missing(c.link.missing_read());
+                    let _ = self.seat.paths.set_join(c.link.join_read());
                     self.probes.set_programs(c.link.programs());
                     self.probes.owe_programs();
                     self.lines.forget();

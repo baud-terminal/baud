@@ -7,7 +7,9 @@
 //! last scan saw them and reads a row only when its cells, its wrap or its
 //! line size differ, with the rest of the logical line it belongs to, since a
 //! URI runs across the rows a soft wrap joined. A frame that moved only the
-//! cursor reads nothing. This is a record of what changed, and nothing is
+//! cursor reads no row; it asks again only whether a row running on into the
+//! next joins it (`Below`), two cells and a provenance a row so ended, since a
+//! program is named after it wrote. This is a record of what changed, and nothing is
 //! kept against a row's content: a scroll moves every row's cells, and every
 //! row is read again.
 //!
@@ -56,8 +58,8 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, MAX, Target, Unit, admit_with, class, found_in, may_be_cut, scheme_at,
-    scheme_ends, unit,
+    Class, Edge, Host, Joins, MAX, Target, Unit, admit_with, class, found_in, may_be_cut, runs_on,
+    scheme_at, scheme_ends, unit,
 };
 use crate::rules::{Rules, Tail};
 
@@ -118,6 +120,12 @@ pub trait Reader {
     /// A scan found a row of the window changed: called once a scan, before
     /// any row is read, so it costs a frame one call however many changed.
     fn changed(&mut self) {}
+
+    /// Whether the row the writer ended at `above` may be read on into the
+    /// next, as `PathsAt::joins` says: yes with nothing to go by.
+    fn joins(&self, _above: AbsLine) -> Joins {
+        Joins::Yes
+    }
 }
 
 /// **URIs, by `crate::link`'s rules**: `find`'s for what one is and `admit`'s
@@ -301,6 +309,22 @@ pub struct Lines {
     points: Vec<Point>,
     found: Vec<Run>,
     groups: Vec<Range<usize>>,
+    /// How each row of the window met the next as the last scan read it.
+    below: Vec<Below>,
+    /// The links a read across joined rows kept, first and last cell.
+    taken: Vec<(Point, Point)>,
+}
+
+/// **How a row the writer ended meets the next**, as a scan read it: not
+/// running on in a URI's characters (`link::runs_on`), running on and joined,
+/// or running on and held apart by `[link] join_rows` or provenance -- which
+/// a later scan asks again, since a program is named after it wrote.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Below {
+    #[default]
+    Apart,
+    Joined,
+    Held,
 }
 
 impl Lines {
@@ -345,6 +369,8 @@ impl Lines {
             self.sizes.resize(rows, LineRendition::Single);
             self.again.clear();
             self.again.resize(rows, Read::Kept);
+            self.below.clear();
+            self.below.resize(rows, Below::Apart);
             self.lines.clear();
             self.struck.clear();
             self.epochs = None;
@@ -382,15 +408,46 @@ impl Lines {
                 any = true;
             }
         }
+        // A row running on into the next is asked again whether it joins,
+        // with no change to either: the program that wrote it may have been
+        // named since, and a remote row never joins a local one.
+        let meets = |reader: &R, y: usize| {
+            let line = scrolled.line(back, Row::from_index(y));
+            match runs_on(term, scrolled, line) {
+                false => Below::Apart,
+                true => match reader.joins(line) {
+                    Joins::Yes => Below::Joined,
+                    Joins::No => Below::Held,
+                },
+            }
+        };
+        for y in 0..rows.saturating_sub(1) {
+            let kept = self.again[y] == Read::Kept && self.again[y + 1] == Read::Kept;
+            if kept && self.below[y] != Below::Apart && meets(reader, y) != self.below[y] {
+                self.again[y] = Read::Again;
+                self.again[y + 1] = Read::Again;
+                any = true;
+            }
+        }
         let mut scan = Scan::default();
         if !any {
             return scan;
         }
         reader.changed();
+        for y in 0..rows.saturating_sub(1) {
+            if self.again[y] == Read::Again || self.again[y + 1] == Read::Again {
+                self.below[y] = meets(reader, y);
+            }
+        }
+        if let Some(b) = self.below.last_mut() {
+            *b = Below::Apart;
+        }
         // A logical line with a changed row is read whole, and so is the one
-        // just above one: whether its URI may have been cut reads this row's
-        // first cell (`may_be_cut`).
-        let continues = |y: usize| self.wraps[y] == Wrap::Continues;
+        // just above one: whether its URI may have been cut, or runs on into
+        // this row, reads this row's first cell (`may_be_cut`, `runs_on`). Rows
+        // the writer ended that join are one line here, as a soft wrap's are.
+        let continues =
+            |y: usize| self.wraps[y] == Wrap::Continues || self.below[y] == Below::Joined;
         let mut top = 0;
         let mut groups = core::mem::take(&mut self.groups);
         groups.clear();
@@ -428,6 +485,11 @@ impl Lines {
 
     /// One logical line's links: rows `top..=bottom` of the window, and as
     /// much of it past the window as a URI on it could reach.
+    ///
+    /// **Rows the writer ended that join** (`link::joins_below`) are read
+    /// twice: across the join, where only a link that crosses it is kept,
+    /// and each line alone, as if never joined, for everything else. So a
+    /// join changes nothing but a link that runs across it and admits there.
     #[allow(clippy::too_many_arguments)]
     fn read_group<R: Reader>(
         &mut self,
@@ -440,17 +502,23 @@ impl Lines {
         scan: &mut Scan,
     ) {
         let (_, rows) = self.size;
-        let window = Rows::of_index(rows);
         let first_row = scrolled.line(back, Row::from_index(top));
         let last_row = scrolled.line(back, Row::from_index(bottom));
+        // Whether the line runs on from `l` into the next.
+        let on = |reader: &R, l: AbsLine, wrap: Wrap| {
+            wrap == Wrap::Continues || (runs_on(term, scrolled, l) && reader.joins(l) == Joins::Yes)
+        };
         // Past the window's top, while the rows above run into it.
         let (mut first, mut head) = (first_row, Edge::Line);
         if top == 0 {
             let mut read = 0;
             while let Some(up) = first.above() {
-                let Some((cells, Wrap::Continues)) = row_of(term, scrolled, up) else {
+                let Some((cells, wrap)) = row_of(term, scrolled, up) else {
                     break;
                 };
+                if !on(reader, up, wrap) {
+                    break;
+                }
                 if read > MAX {
                     head = Edge::Cut;
                     break;
@@ -463,7 +531,10 @@ impl Lines {
         let (mut last, mut tail) = (last_row, Edge::Line);
         if bottom + 1 == rows {
             let mut read = 0;
-            while let Some((cells, Wrap::Continues)) = row_of(term, scrolled, last) {
+            while let Some((cells, wrap)) = row_of(term, scrolled, last) {
+                if !on(reader, last, wrap) {
+                    break;
+                }
                 if read > MAX {
                     tail = Edge::Cut;
                     break;
@@ -476,10 +547,12 @@ impl Lines {
                 last = down;
             }
         }
-        // The one compare a cell, across the rows.
+        // The one compare a cell, across the rows; and whether the writer
+        // ended any of them, which a join read on past.
         let (mut wanted, mut linked, mut bytes) = (false, false, 0u64);
+        let mut joined = false;
         let mut line = first;
-        while let Some((cells, _)) = row_of(term, scrolled, line) {
+        while let Some((cells, wrap)) = row_of(term, scrolled, line) {
             scan.rows += 1;
             scan.cells += cells.len();
             for c in cells {
@@ -499,6 +572,7 @@ impl Lines {
             if line == last {
                 break;
             }
+            joined |= wrap != Wrap::Continues;
             line = line.below();
         }
         if linked {
@@ -507,12 +581,90 @@ impl Lines {
         if !wanted {
             return;
         }
+        let window = (first_row, last_row);
+        self.taken.clear();
+        if joined {
+            // Across the joins: a link that crosses one and opens, and nothing
+            // else; one struck there is read as if never joined, as the
+            // pointer reads it (`link::read_under`).
+            self.read_text(
+                term,
+                scrolled,
+                (first, last),
+                (head, tail),
+                window,
+                reader,
+                found,
+                scan,
+            );
+            for run in found.iter() {
+                let ends = (run.units.start, run.units.end.saturating_sub(1));
+                let (Some(&from), Some(&to)) = (self.points.get(ends.0), self.points.get(ends.1))
+                else {
+                    continue;
+                };
+                if run.mark == Mark::Line && crosses_a_join(term, scrolled, from, to) {
+                    self.taken.push((from, to));
+                    self.push_run(term, scrolled, back, run, scan);
+                }
+            }
+        }
+        // Each line alone, as if never joined: all of it, but what a link
+        // across a join already took.
+        let mut a = first;
+        loop {
+            let mut b = a;
+            while b < last {
+                match row_of(term, scrolled, b) {
+                    Some((_, Wrap::Continues)) => b = b.below(),
+                    _ => break,
+                }
+            }
+            let edges = (
+                if a == first { head } else { Edge::Line },
+                if b == last { tail } else { Edge::Line },
+            );
+            self.read_text(term, scrolled, (a, b), edges, window, reader, found, scan);
+            for run in found.iter() {
+                let taken = run.units.clone().any(|k| {
+                    self.points.get(k).is_some_and(|&p| {
+                        self.taken.iter().any(|&(from, to)| {
+                            (from.line, from.col.index()) <= (p.line, p.col.index())
+                                && (p.line, p.col.index()) <= (to.line, to.col.index())
+                        })
+                    })
+                });
+                if !taken {
+                    self.push_run(term, scrolled, back, run, scan);
+                }
+            }
+            if b == last {
+                break;
+            }
+            a = b.below();
+        }
+    }
+
+    /// The text of lines `a..=b` into the units and their points, read by
+    /// `reader` into `found`; `window` the lines the window shows.
+    #[allow(clippy::too_many_arguments)]
+    fn read_text<R: Reader>(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        (a, b): (AbsLine, AbsLine),
+        (head, tail): (Edge, Edge),
+        (first_row, last_row): (AbsLine, AbsLine),
+        reader: &mut R,
+        found: &mut Vec<Run>,
+        scan: &mut Scan,
+    ) {
         // The text, with where each unit was read from, and which of it the
         // window shows.
         self.units.clear();
         self.points.clear();
         let mut shown = (usize::MAX, 0);
-        let mut line = first;
+        let mut line = a;
         while let Some((cells, _)) = row_of(term, scrolled, line) {
             let on_window = line >= first_row && line <= last_row;
             if on_window && shown.0 == usize::MAX {
@@ -529,7 +681,7 @@ impl Lines {
             if on_window {
                 shown.1 = self.units.len();
             }
-            if line == last {
+            if line == b {
                 break;
             }
             line = line.below();
@@ -545,43 +697,54 @@ impl Lines {
                     head,
                     tail,
                     shown,
-                    lines: (first, last),
+                    lines: (a, b),
                     screen: term.screen(),
                 },
                 found,
             )
             .0;
-        for run in found.iter() {
-            let span = &run.units;
-            let Some(&end) = span.end.checked_sub(1).and_then(|e| self.points.get(e)) else {
+    }
+
+    /// One run a reader found, its cells on the window lined or struck; none
+    /// for one a program may have cut (`may_be_cut`).
+    fn push_run(
+        &mut self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        back: Rows,
+        run: &Run,
+        scan: &mut Scan,
+    ) {
+        let window = Rows::of_index(self.size.1);
+        let span = &run.units;
+        let Some(&end) = span.end.checked_sub(1).and_then(|e| self.points.get(e)) else {
+            return;
+        };
+        if may_be_cut(term, scrolled, end) {
+            return;
+        }
+        for k in span.clone() {
+            let Some(&p) = self.points.get(k) else {
                 continue;
             };
-            if may_be_cut(term, scrolled, end) {
+            let Some(y) = scrolled.window_row(back, p.line, window) else {
                 continue;
-            }
-            for k in span.clone() {
-                let Some(&p) = self.points.get(k) else {
-                    continue;
-                };
-                let Some(y) = scrolled.window_row(back, p.line, window) else {
-                    continue;
-                };
-                let Some((cells, _)) = row_of(term, scrolled, p.line) else {
-                    continue;
-                };
-                let Some(&cell) = cells.get(p.col.index()) else {
-                    continue;
-                };
-                let styles = row_styles_of(term, scrolled, p.line);
-                let size = self.sizes[y.index()];
-                match run.mark {
-                    Mark::Line => {
-                        push_cell(&mut self.lines, term, styles, (y, p.col, cell), size, scan)
-                    }
-                    Mark::Struck => {
-                        if push_struck(&mut self.struck, term, styles, (y, p.col, cell), size) {
-                            scan.struck += 1;
-                        }
+            };
+            let Some((cells, _)) = row_of(term, scrolled, p.line) else {
+                continue;
+            };
+            let Some(&cell) = cells.get(p.col.index()) else {
+                continue;
+            };
+            let styles = row_styles_of(term, scrolled, p.line);
+            let size = self.sizes[y.index()];
+            match run.mark {
+                Mark::Line => {
+                    push_cell(&mut self.lines, term, styles, (y, p.col, cell), size, scan)
+                }
+                Mark::Struck => {
+                    if push_struck(&mut self.struck, term, styles, (y, p.col, cell), size) {
+                        scan.struck += 1;
                     }
                 }
             }
@@ -638,6 +801,19 @@ impl Lines {
             }
         }
     }
+}
+
+/// Whether a link from `from` to `to` runs across a row its writer ended.
+fn crosses_a_join(term: &Term<'_>, scrolled: Scrolled, from: Point, to: Point) -> bool {
+    let mut l = from.line;
+    while l < to.line {
+        match row_of(term, scrolled, l) {
+            Some((_, Wrap::Continues)) => l = l.below(),
+            Some(_) => return true,
+            None => return false,
+        }
+    }
+    false
 }
 
 /// The underlines a cell may carry of its own (`Attrs::UNDERLINES`, one each).
@@ -756,6 +932,22 @@ mod tests {
         runs(&l)
     }
 
+    /// A scan as the driver makes it with `[link] join_rows = "off"`: through
+    /// `paths::Links`, its `Paths` holding every row the writer ended apart.
+    fn scan_apart(l: &mut Lines, t: &Term<'_>, u: &mut Uris) -> Scan {
+        let mut p = crate::paths::Paths::default();
+        let _ = p.set_join(crate::paths::Turned::Off);
+        l.scan(
+            t,
+            at(),
+            &mut crate::paths::Links {
+                uris: u,
+                urls: crate::paths::Turned::On,
+                paths: &mut p,
+            },
+        )
+    }
+
     /// **What a URI in the text is, at rest, is what a click reads**: the
     /// four schemes get a line over their own cells, and every near-miss gets
     /// none: a longer scheme, a scheme alone, a `%` with no hex, a bracket out
@@ -848,7 +1040,8 @@ mod tests {
 
     /// **A wrap that ends takes the line off the row below it**, whose cells
     /// did not change: it is a line of its own now, with no URI on it. `LF`
-    /// ends the row it leaves and writes no cell. Perturbation: drop
+    /// ends the row it leaves and writes no cell. Read with `join_rows` off,
+    /// which would otherwise join the full row the wrap left to the next. Perturbation: drop
     /// `wrap_moved` from `scan`; the `LF` half fails, the second row keeping
     /// its line. The erase after it holds with the wrap kept as well, and is
     /// no check of `wrap_moved`.
@@ -862,7 +1055,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         wrapped(&mut t);
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = scan_apart(&mut l, &t, &mut u);
         assert_eq!(runs(&l), [(0, 4, 39), (1, 0, 11)], "the control");
         assert_eq!(t.view(Rows::ZERO).wrapped(Row::ZERO), Wrap::Continues);
         feed(&mut t, b"\x1b[1;1H\n");
@@ -871,7 +1064,7 @@ mod tests {
             Wrap::Ended,
             "the control: the wrap is gone, with no cell written"
         );
-        let s = l.scan(&t, at(), &mut u);
+        let s = scan_apart(&mut l, &t, &mut u);
         assert_eq!(runs(&l), [], "cut by the line's end, and a fragment below");
         assert_eq!(s.rows, 2, "the row whose wrap went, and the one below");
         // An erase of the first row, by whichever wrap it leaves: the fragment
@@ -1096,12 +1289,13 @@ mod tests {
         }
     }
 
-    /// **A URI a program may have cut is not drawn whole**: one reaching the
-    /// last column with a line break after it and more URI characters on the
-    /// next row gets no line. The controls: the same URI with a blank next row
-    /// does, and so does one a soft wrap carried. A change on the next row
-    /// reads the one above. Perturbation: drop `may_be_cut` from `read_group`;
-    /// drop the `under` arm in `scan`.
+    /// **With `join_rows` off, a URI a program may have cut is not drawn
+    /// whole**: one reaching the last column with a line break after it and
+    /// more URI characters on the next row gets no line. The controls: the
+    /// same URI with a blank next row does, and so does one a soft wrap
+    /// carried. A change on the next row reads the one above. Perturbation:
+    /// drop `may_be_cut` from `push_run`; drop the `under` arm in `scan`; let
+    /// `Paths` join with `join_rows` off -- the first assertion lines both.
     #[test]
     fn a_uri_a_program_cut_is_not_drawn_whole() {
         let edge = format!("https://a.example/{}", "b".repeat(22));
@@ -1111,13 +1305,97 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, cut.as_bytes());
         let (mut l, mut u) = (Lines::default(), Uris::default());
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = scan_apart(&mut l, &t, &mut u);
         assert_eq!(runs(&l), [], "cut by the program");
         feed(&mut t, b"\x1b[2;1H\x1b[2K");
-        let _ = l.scan(&t, at(), &mut u);
+        let _ = scan_apart(&mut l, &t, &mut u);
         assert_eq!(runs(&l), [(0, 0, 39)], "the next row blank: it was whole");
         let spaced = format!("{edge}\x1b[2;1H continued");
         assert_eq!(scanned(spaced.as_bytes()), [(0, 0, 39)]);
+    }
+
+    /// **A row the writer ended at the last column is read on into the
+    /// next**, where that row starts in a URI's characters: the address over
+    /// both rows is lined on both, whether the writer moved the cursor or
+    /// sent CR LF, and real `fold -w 40` output reads so too. A change on the
+    /// lower row alone reads the pair again. Perturbation: hold the rows
+    /// apart at rest, `scan` grouping and `read_group` walking soft wraps
+    /// alone -- nothing is lined.
+    #[test]
+    fn a_row_the_writer_ended_at_the_last_column_joins_the_next() {
+        let edge = format!("https://a.example/{}", "b".repeat(22));
+        for ends in ["\x1b[2;1H", "\r\n"] {
+            let bytes = format!("{edge}{ends}continued ok");
+            assert_eq!(
+                scanned(bytes.as_bytes()),
+                [(0, 0, 39), (1, 0, 8)],
+                "{ends:?}"
+            );
+        }
+        let fold =
+            b"see https://example.com/a/very/long/path\r\n/to/some/resource/index.html ok\r\n";
+        assert_eq!(scanned(fold), [(0, 4, 39), (1, 0, 27)], "fold -w 40");
+        // The spaced control: the next row starts in a space.
+        let spaced = format!("{edge}\x1b[2;1H continued");
+        assert_eq!(scanned(spaced.as_bytes()), [(0, 0, 39)]);
+        // A change on the lower row: the pair is read again.
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, format!("{edge}\x1b[2;1Hcontinued").as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(0, 0, 39), (1, 0, 8)]);
+        feed(&mut t, b"\x1b[2;1H ");
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(
+            runs(&l),
+            [(0, 0, 39)],
+            "apart once the row starts in a space"
+        );
+    }
+
+    /// **A row that does not run on into the next is read alone**: a change
+    /// on a row reads it and the row above, whatever the rows around end in,
+    /// where the row ends short of the last column or the next starts in a
+    /// space. Perturbations: drop `runs_on`'s last-cell test -- the change on
+    /// row 1 reads three rows; drop its first-cell test -- the change on row
+    /// 4 does; join every row the writer ended -- both do.
+    #[test]
+    fn a_row_that_does_not_run_on_is_read_alone() {
+        let full = "w".repeat(40);
+        let screen = format!("see https://a.example/x\r\n/to/more ok\r\n{full}\r\n spaced\r\nnext");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, screen.as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at(), &mut u);
+        assert_eq!(runs(&l), [(0, 4, 22)], "the control");
+        feed(&mut t, b"\x1b[2;20Hx");
+        assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 1 and the row above");
+        feed(&mut t, b"\x1b[5;20Hx");
+        assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 4 and the row above");
+    }
+
+    /// **A row the writer ended short of the last column never joins**,
+    /// whatever the next row starts with; nor does a URI the join would
+    /// refuse, which reads as unjoined -- cut, so no line -- and a URI that
+    /// starts the next row after a word reaching the last column is that
+    /// row's own. Perturbations: drop `may_be_cut` from `push_run` -- the
+    /// refused join lines its cut row; read only across the join in
+    /// `read_group`, never each line alone -- the third case lines nothing.
+    #[test]
+    fn a_join_holds_only_where_its_conditions_do() {
+        let short = "see https://a.example/x\r\n/to/more ok";
+        assert_eq!(
+            scanned(short.as_bytes()),
+            [(0, 4, 22)],
+            "short of the last column"
+        );
+        let edge = format!("https://a.example/{}", "b".repeat(22));
+        let refused = format!("{edge}\r\n%zz");
+        assert_eq!(scanned(refused.as_bytes()), [], "the join refused: cut");
+        let word = format!("{}\r\nhttps://e.example/x", "w".repeat(40));
+        assert_eq!(scanned(word.as_bytes()), [(1, 0, 18)], "the next row's own");
     }
 
     /// **The window looking back reads the rows it shows, by their own

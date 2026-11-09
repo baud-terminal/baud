@@ -113,7 +113,7 @@ use baud_render::{AbsLine, Scrolled};
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
-    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, Probe, Program,
+    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, PathsAt, Probe, Program,
     ProgramDir, Turned,
 };
 use crate::sys::Pid;
@@ -1553,7 +1553,7 @@ impl<T: Moment> Probes<T> {
                     Front::Elsewhere => self.elsewhere = a.group,
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
-                let before = s.paths.generation();
+                let (before, origins) = (s.paths.generation(), s.paths.origins());
                 for &(f, span) in &a.seen {
                     s.paths.written_under(f, span);
                 }
@@ -1584,6 +1584,12 @@ impl<T: Moment> Probes<T> {
                 let _ = s.paths.merge(a.probes);
                 if s.paths.generation() != before {
                     s.lines.forget();
+                    turn.frame = Owed::Yes;
+                }
+                // A program named may join or part two rows: the scan asks
+                // again on its own (`Lines::scan`), and the look under a
+                // still pointer reads again (`Hover`), on this frame.
+                if s.paths.origins() != origins {
                     turn.frame = Owed::Yes;
                 }
                 if clicked.is_some() {
@@ -2955,6 +2961,74 @@ mod tests {
             "the program, the table and the walk: {}",
             pr.counts.calls
         );
+    }
+
+    /// **A program named local owes a frame though nothing else moved**: a
+    /// naming may join two rows the writer ended, or part them
+    /// (`PathsAt::joins`), and the line at rest and the look under a still
+    /// pointer are read again only on a frame. The shell's group, read at a
+    /// line holding a link with printed paths off, named local: no answer,
+    /// no mark and no front moves, and the turn that brings the naming owes
+    /// the frame.
+    /// Perturbation: drop the provenance arm from `turn` -- that turn owes
+    /// nothing.
+    #[test]
+    fn a_program_named_owes_a_frame() {
+        let mut f = Fake::with(&[]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"plain\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(7));
+        // Paths off, the read linked: its group is named for a link's
+        // origin alone, nothing looked up.
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(1)),
+            crate::paths::LineSpan::of(printed, printed),
+            Linked::Yes,
+        );
+        assert_eq!(
+            paths.origin(printed),
+            crate::paths::Origin::Unknown,
+            "the control"
+        );
+        let t0 = Instant::now();
+        let generation = paths.generation();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut step = 0;
+        let frame = loop {
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            // Met at the first, the batch sent at the second, then waited for.
+            let r = pr.turn(t0 + Duration::from_millis(step), seen, || Some(1));
+            step = match step {
+                0 => 200,
+                _ => 300,
+            };
+            if paths.origin(printed) == crate::paths::Origin::Local {
+                break r.frame;
+            }
+            assert!(Instant::now() < deadline, "never named");
+            std::thread::yield_now();
+        };
+        assert_eq!(
+            paths.generation(),
+            generation,
+            "the control: no answer moved"
+        );
+        assert_eq!(frame, Owed::Yes);
     }
 
     /// **A README on a full-screen program's screen, as `hx README.md`

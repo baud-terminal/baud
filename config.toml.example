@@ -616,6 +616,16 @@
 # "off" checks nothing.
 # paths = "on"
 #
+# "on" or "off". A link a program cut at the edge of the window itself, as a
+# multiplexer repainting a full-width pane a row at a time does, is read on
+# into the next row: where the row ends in the link at the last column and the
+# next row starts in the link's characters, written by the same kind of
+# program, here or over ssh. The whole address is underlined, shown under the
+# pointer and opened, as across a line that wraps. "off" reads each row alone,
+# and an address cut that way gets no line. A pane narrower than the window
+# has no edge baud can see, and is never joined.
+# join_rows = "on"
+#
 # The line at rest, in [message]'s box_color, baud's amber #F4A32C unless you
 # set it, and under the pointer, or with hover = "line", in the text's own
 # colour: "solid", "dotted" or "off". A

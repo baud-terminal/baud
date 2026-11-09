@@ -96,7 +96,7 @@ use baud_domain::{Cols, Rows};
 use baud_render::{AbsLine, Scrolled, row_of};
 
 use crate::lined::{At, Mark, Reader, Run, Text, Uris};
-use crate::link::{Edge, Host, Ix, MAX, Scheme, Target, Unit, admit_with};
+use crate::link::{Edge, Host, Ix, Joins, MAX, Scheme, Target, Unit, admit_with};
 use crate::rules::{NO_RULES, Rules};
 
 /// What the bar calls this machine.
@@ -861,6 +861,9 @@ pub struct Paths {
     marked: HashMap<Vec<u8>, State>,
     /// `[link] missing`: whether anything is struck.
     missing: Turned,
+    /// `[link] join_rows`: whether a row the writer ended is read on into
+    /// the next.
+    join: Turned,
     /// What the worker last found for each program it was asked about.
     programs: Vec<(Program, Handler)>,
     generation: Generation,
@@ -875,6 +878,9 @@ pub struct Paths {
     /// The lines each named program wrote, in order, adjacent ones of one
     /// origin merged, each local or remote ([`Paths::origin`]).
     spans: Vec<(Origin, LineSpan)>,
+    /// Moved by every span named, which may join or part two rows
+    /// ([`PathsAt::origins`]).
+    origins: Generation,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// Your `[link.*]` rules, the forms among them, which a read of the link
@@ -1005,6 +1011,18 @@ impl Paths {
             .get(path)
             .or_else(|| self.marked.get(path))
             .and_then(|s| s.probe())
+    }
+
+    /// **`[link] join_rows`**: off, no read joins a row the writer ended to
+    /// the next ([`PathsAt::joins`]). Whether it changed, which reads every
+    /// row again.
+    pub fn set_join(&mut self, join: Turned) -> Moved {
+        if self.join == join {
+            return Moved::No;
+        }
+        self.join = join;
+        self.generation = self.generation.next();
+        Moved::Yes
     }
 
     /// **`[link] missing`**: off strikes nothing and asks nothing for it.
@@ -1248,6 +1266,7 @@ impl Paths {
             Front::Elsewhere => Origin::Remote,
             Front::Local | Front::Multiplexer => Origin::Local,
         };
+        let was = self.spans.last().copied();
         match self.spans.last_mut() {
             Some((o, s))
                 if *o == origin && span.first <= s.last.below() && s.first <= span.last =>
@@ -1255,6 +1274,9 @@ impl Paths {
                 *s = s.joined(span);
             }
             _ => self.spans.push((origin, span)),
+        }
+        if self.spans.last().copied() != was {
+            self.origins = self.origins.next();
         }
     }
 
@@ -1265,11 +1287,15 @@ impl Paths {
     /// the shell's started, `git pull`'s ssh among them, and the paths above
     /// what it wrote keep their marks.
     pub fn written_remote(&mut self, span: LineSpan) {
+        let was = self.spans.last().copied();
         match self.spans.last_mut() {
             Some((Origin::Remote, s)) if span.first <= s.last.below() && s.first <= span.last => {
                 *s = s.joined(span);
             }
             _ => self.spans.push((Origin::Remote, span)),
+        }
+        if self.spans.last().copied() != was {
+            self.origins = self.origins.next();
         }
     }
 
@@ -1729,6 +1755,20 @@ pub trait PathsAt {
         &NO_RULES
     }
 
+    /// **Whether a read may join the row the writer ended at `above` to the
+    /// next**, where it runs on in a URI's characters (`link::runs_on`):
+    /// `[link] join_rows`, and the two rows' provenance. Yes with nothing to
+    /// go by, as `join_rows` is on by default.
+    fn joins(&self, _above: AbsLine) -> Joins {
+        Joins::Yes
+    }
+
+    /// Moved whenever a line's provenance may have, which may move
+    /// [`PathsAt::joins`] with no byte and no answer of the worker's.
+    fn origins(&self) -> Generation {
+        Generation::default()
+    }
+
     /// The path at unit `at` of a click's window of text, `lines` its first
     /// and last line, on `screen`, if the worker found it or found it gone.
     fn at(
@@ -1781,6 +1821,20 @@ impl PathsAt for NoPaths {
 impl PathsAt for Paths {
     fn generation(&self) -> Generation {
         self.generation
+    }
+
+    /// On, both rows of one provenance: written while the same kind of
+    /// program was in front, this machine's, another's or one not named
+    /// yet ([`Paths::origin`]), so a remote line never runs into a local one.
+    fn origins(&self) -> Generation {
+        self.origins
+    }
+
+    fn joins(&self, above: AbsLine) -> Joins {
+        match self.join {
+            Turned::On if self.origin(above) == self.origin(above.below()) => Joins::Yes,
+            Turned::On | Turned::Off => Joins::No,
+        }
     }
 
     fn rules(&self) -> &Rules {
@@ -1884,6 +1938,10 @@ impl Reader for Links<'_> {
     #[inline]
     fn wants(&self, tail: crate::rules::Tail) -> bool {
         (self.urls == Turned::On && self.uris.wants(tail)) || self.paths.wants(tail.0.to_be_bytes())
+    }
+
+    fn joins(&self, above: AbsLine) -> Joins {
+        PathsAt::joins(&*self.paths, above)
     }
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> Looked {
@@ -4092,5 +4150,573 @@ mod tests {
         p.trim_spans(l(3));
         assert_eq!(p.origin(l(1)), Origin::Unknown, "gone with its history");
         assert_eq!(p.origin(l(3)), Origin::Remote);
+    }
+}
+
+/// **A link across a row its writer ended**, read the four ways a link is
+/// read -- the line at rest, the look under the pointer, the chord's
+/// preview and a click -- through `Paths`, which holds `[link] join_rows`
+/// and the rows' provenance (`PathsAt::joins`).
+#[cfg(test)]
+mod joined_rows {
+    use super::*;
+    use crate::lined::Lines;
+    use crate::link::{
+        AtRest, Chord, Clicks, Gesture, Hover, Press, Spot, Under, gesture, under_with,
+    };
+    use baud_core::{Focus, Owned};
+    use baud_domain::{BytePos, Col, Cols, ReadLen, Row, WinSize};
+
+    type Runs = Vec<(usize, usize, usize)>;
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        for c in bytes.chunks(4096) {
+            t.write_at(BytePos::ZERO, c);
+            t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+        }
+    }
+
+    fn at() -> Scrolled {
+        Scrolled::START.advanced(Rows::of_count(1_000))
+    }
+
+    fn line(y: Row) -> AbsLine {
+        at().line(Rows::ZERO, y)
+    }
+
+    fn paths() -> Paths {
+        let mut p = Paths::new(Some(b"/home/user".to_vec()), Forms::DEFAULT);
+        p.set(Turned::On);
+        p
+    }
+
+    /// The scan as the driver makes it, every path asked answered: there
+    /// if it starts `/usr/`.
+    fn scan(t: &Term<'_>, p: &mut Paths, l: &mut Lines) -> Runs {
+        let mut u = Uris::default();
+        let mut once = |p: &mut Paths, l: &mut Lines| {
+            let _ = l.scan(
+                t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+        };
+        let _ = p.observe(t, at());
+        p.begin_collect();
+        once(p, l);
+        let asked = p.end_collect();
+        let answers = asked.into_iter().map(|c| {
+            let there = c.path.starts_with(b"/usr/");
+            (c.path, if there { Probe::Exists } else { Probe::Missing })
+        });
+        if p.merge(answers) == Moved::Yes {
+            l.forget();
+        }
+        once(p, l);
+        l.lines()
+            .iter()
+            .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+            .collect()
+    }
+
+    fn spans(s: &[baud_render::LinkSpan]) -> Runs {
+        s.iter()
+            .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+            .collect()
+    }
+
+    /// The look under the pointer at `(row, col)`, the chord's preview there,
+    /// and what a Cmd-click there opens.
+    fn pointed(t: &Term<'_>, p: &Paths, (row, col): (Row, Col)) -> (Runs, Runs, Option<Vec<u8>>) {
+        let cell = Some((row, col));
+        let mut h = Hover::default();
+        h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
+        let _ = h.update_with(t, cell, at(), Chord::Other, Focus::Gained, Host(""), p);
+        let over = h.over().map(|o| spans(&o.spans)).unwrap_or_default();
+        let mut h = Hover::default();
+        let _ = h.update_with(t, cell, at(), Chord::Cmd, Focus::Gained, Host(""), p);
+        let chord = h.look().map(|o| spans(&o.spans)).unwrap_or_default();
+        let spot = Spot {
+            scrolled: at(),
+            back: Rows::ZERO,
+            row,
+            col,
+        };
+        let down = under_with(t, spot, Press::Down, Chord::Cmd, Focus::Gained, None, p);
+        let opens = match gesture(
+            Press::Down,
+            Chord::Cmd,
+            Clicks::Single,
+            Focus::Gained,
+            None,
+            down.as_ref(),
+        ) {
+            Gesture::Arm(a) => {
+                let up = under_with(t, spot, Press::Up, Chord::Other, Focus::Gained, Some(&a), p);
+                match gesture(
+                    Press::Up,
+                    Chord::Other,
+                    Clicks::Single,
+                    Focus::Gained,
+                    Some(&a),
+                    up.as_ref(),
+                ) {
+                    Gesture::Open(Under::Bare(b)) => b.uri().ok().map(<[u8]>::to_vec),
+                    Gesture::Open(Under::Path(q)) => Some(q.uri().as_bytes().to_vec()),
+                    Gesture::Open(Under::Osc8(o)) => o.uri(t).map(<[u8]>::to_vec),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        (over, chord, opens)
+    }
+
+    fn expand(runs: &[(usize, usize, usize)]) -> Vec<(usize, usize)> {
+        let mut v: Vec<_> = runs
+            .iter()
+            .flat_map(|&(r, a, b)| (a..=b).map(move |c| (r, c)))
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
+    const URL: &str = "see https://example.com/a/very/long/path/to/some/resource/index.html ok";
+
+    /// A multiplexer's full-width pane of `w` columns: each row of `text`
+    /// written after a cursor move of its own, so the terminal never wraps.
+    fn pane(text: &str, w: Cols) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (y, chunk) in text.as_bytes().chunks(w.index()).enumerate() {
+            out.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+            out.extend_from_slice(chunk);
+        }
+        out
+    }
+
+    /// **A link over two rows a multiplexer repainted reads the same four
+    /// ways**: lined on both rows at rest, the look and the chord over both
+    /// from a pointer on either row, and a click there opens the whole
+    /// address -- a URI, and a printed path whose file is there. A pane
+    /// beside a sidebar, narrower than the screen, is not joined: its rows
+    /// end short of the last column, or the next starts in a space. The
+    /// controls are the soft-wrapped twins. Perturbations: drop the join
+    /// from `read_window` -- the look, the chord and the click take one row;
+    /// drop it from `read_group` -- the line at rest does.
+    #[test]
+    fn a_link_across_a_row_the_writer_ended_reads_the_same_four_ways() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let path = "see /usr/share/doc/some-package/examples/a-long-file-name.txt ok";
+        let cases: [(&str, Vec<u8>, Runs, &[u8]); 4] = [
+            (
+                "url, soft",
+                URL.as_bytes().to_vec(),
+                vec![(0, 4, 39), (1, 0, 27)],
+                b"https://example.com/a/very/long/path/to/some/resource/index.html",
+            ),
+            (
+                "url, pane",
+                pane(URL, Cols::of_index(40)),
+                vec![(0, 4, 39), (1, 0, 27)],
+                b"https://example.com/a/very/long/path/to/some/resource/index.html",
+            ),
+            (
+                "path, soft",
+                path.as_bytes().to_vec(),
+                vec![(0, 4, 39), (1, 0, 20)],
+                b"file:///usr/share/doc/some-package/examples/a-long-file-name.txt",
+            ),
+            (
+                "path, pane",
+                pane(path, Cols::of_index(40)),
+                vec![(0, 4, 39), (1, 0, 20)],
+                b"file:///usr/share/doc/some-package/examples/a-long-file-name.txt",
+            ),
+        ];
+        for (name, bytes, want, uri) in cases {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            feed(&mut t, &bytes);
+            let (mut p, mut l) = (paths(), Lines::default());
+            assert_eq!(scan(&t, &mut p, &mut l), want, "{name}: at rest");
+            for (row, col) in [(0, 10), (1, 5)] {
+                let (over, chord, opens) =
+                    pointed(&t, &p, (Row::from_index(row), Col::at_index(col)));
+                assert_eq!(over, want, "{name} ({row}, {col}): the look");
+                assert_eq!(chord, want, "{name} ({row}, {col}): the chord");
+                assert_eq!(
+                    opens.as_deref(),
+                    Some(uri),
+                    "{name} ({row}, {col}): the click"
+                );
+            }
+        }
+        // A pane beside a sidebar: the rows below the first take no line.
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut bytes = Vec::new();
+        for (y, chunk) in URL.as_bytes().chunks(31).enumerate() {
+            bytes.extend_from_slice(
+                format!("\x1b[{};1H sidebar \x1b[{};10H", y + 1, y + 1).as_bytes(),
+            );
+            bytes.extend_from_slice(chunk);
+        }
+        feed(&mut t, &bytes);
+        let (mut p, mut l) = (paths(), Lines::default());
+        let rest = scan(&t, &mut p, &mut l);
+        assert!(
+            rest.iter().all(|r| r.0 == 0),
+            "a narrower pane is not joined: {rest:?}"
+        );
+        assert!(
+            pointed(&t, &p, (Row::from_index(1), Col::at_index(12)))
+                .0
+                .is_empty(),
+            "nor read on under the pointer"
+        );
+    }
+
+    /// **Rows of another provenance never join, and `join_rows = "off"`
+    /// joins nothing**: a row a remote program wrote above one a local
+    /// program wrote stays apart, cut, so no line and a click opens what the
+    /// row holds; two local rows join. A program named after the scan moves
+    /// the join with no row changed. The config's key reaches `Paths` as the
+    /// drivers hand it over. Perturbations: drop the origin compare from
+    /// `Paths::joins` -- the remote row joins; drop the scan's asking again
+    /// in `Lines::scan` -- the late naming keeps the join; ignore
+    /// `set_join` -- off joins.
+    #[test]
+    fn provenance_and_join_rows_hold_rows_apart() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let whole: &[u8] = b"https://example.com/a/very/long/path/to/some/resource/index.html";
+        let cut: &[u8] = b"https://example.com/a/very/long/path";
+        let both = vec![(0, 4, 39), (1, 0, 27)];
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, &pane(URL, Cols::of_index(40)));
+        // Another provenance: apart.
+        let (mut p, mut l) = (paths(), Lines::default());
+        p.written_under(
+            Front::Elsewhere,
+            LineSpan::of(line(Row::ZERO), line(Row::ZERO)),
+        );
+        p.written_under(
+            Front::Local,
+            LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
+        );
+        assert_eq!(scan(&t, &mut p, &mut l), [], "remote above local: cut");
+        assert_eq!(
+            pointed(&t, &p, (Row::from_index(0), Col::at_index(10)))
+                .2
+                .as_deref(),
+            Some(cut)
+        );
+        // One provenance: joined.
+        let (mut p, mut l) = (paths(), Lines::default());
+        p.written_under(
+            Front::Local,
+            LineSpan::of(line(Row::ZERO), line(Row::from_index(1))),
+        );
+        assert_eq!(scan(&t, &mut p, &mut l), both, "both local");
+        assert_eq!(
+            pointed(&t, &p, (Row::from_index(1), Col::at_index(5)))
+                .2
+                .as_deref(),
+            Some(whole)
+        );
+        // Named after the scan: the next scan, with no row changed, parts them.
+        let (mut p, mut l) = (paths(), Lines::default());
+        assert_eq!(scan(&t, &mut p, &mut l), both, "neither named yet");
+        p.written_under(
+            Front::Elsewhere,
+            LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
+        );
+        assert_eq!(scan(&t, &mut p, &mut l), [], "the lower row named remote");
+        // `join_rows = "off"`, read by the config and handed to `Paths`.
+        let mut c = crate::config::Config::defaults();
+        assert!(c.apply("[link]\njoin_rows = \"off\"\n").is_empty());
+        let (mut p, mut l) = (paths(), Lines::default());
+        assert_eq!(p.set_join(c.link.join_read()), Moved::Yes);
+        assert_eq!(scan(&t, &mut p, &mut l), [], "off: cut");
+        let (over, chord, opens) = pointed(&t, &p, (Row::from_index(0), Col::at_index(10)));
+        assert_eq!(
+            (over, chord),
+            (vec![], vec![(0, 4, 39)]),
+            "off: the chord marks the row, the look nothing"
+        );
+        assert_eq!(
+            opens.as_deref(),
+            Some(cut),
+            "off: a click opens the row's part"
+        );
+    }
+
+    /// **An `OSC 8` link a multiplexer repainted a row at a time is one
+    /// link**: each row placed by its own cursor move and opening the link
+    /// again, the same URI and no `id`, as a multiplexer that forwards a
+    /// program's links but not their `id` sends it. Every cell names one
+    /// slot of the core's link table, keyed by `id` and URI, so the line at
+    /// rest, the look and the chord cover every row and a click opens the
+    /// URI, with `join_rows` on or off: it is the link table's tie, not the
+    /// join. `[[source: osc8-spec]]` ties cells by `id`, and leaves cells
+    /// without one to the terminal's heuristics. Perturbation: span only the
+    /// pointer's row in `link_spans_into` -- the look and the chord take one
+    /// row.
+    #[test]
+    fn an_osc8_link_reopened_on_each_row_is_one_link() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let text = "a-long-file-name-that-runs-over-three-rows";
+        let mut bytes = Vec::new();
+        for (y, chunk) in text.as_bytes().chunks(20).enumerate() {
+            bytes.extend_from_slice(
+                format!("\x1b[{};1H\x1b]8;;https://e.example/f\x1b\\", y + 1).as_bytes(),
+            );
+            bytes.extend_from_slice(chunk);
+            bytes.extend_from_slice(b"\x1b]8;;\x1b\\");
+        }
+        let want = vec![(0, 0, 19), (1, 0, 19), (2, 0, 1)];
+        for join in [Turned::On, Turned::Off] {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            feed(&mut t, &bytes);
+            let wraps: Vec<_> = (0..3)
+                .map(|y| t.view(Rows::ZERO).wrapped(Row::from_index(y)))
+                .collect();
+            assert_eq!(
+                wraps,
+                [baud_domain::Wrap::Ended; 3],
+                "the control: every row the writer's"
+            );
+            let (mut p, mut l) = (paths(), Lines::default());
+            let _ = p.set_join(join);
+            let mut u = Uris::default();
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: &mut p,
+                },
+            );
+            let rest: Runs = l
+                .lines()
+                .iter()
+                .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+                .collect();
+            assert_eq!(rest, want, "{join:?}: at rest");
+            for (row, col) in [(0, 3), (1, 7), (2, 1)] {
+                let (over, chord, opens) =
+                    pointed(&t, &p, (Row::from_index(row), Col::at_index(col)));
+                assert_eq!(over, want, "{join:?} ({row}, {col}): the look");
+                assert_eq!(chord, want, "{join:?} ({row}, {col}): the chord");
+                assert_eq!(
+                    opens.as_deref(),
+                    Some(&b"https://e.example/f"[..]),
+                    "{join:?}: the click"
+                );
+            }
+        }
+    }
+
+    /// **The look under a still pointer follows a program named after it
+    /// wrote**: over two writer-ended rows neither named yet, joined, the
+    /// look covers both; the lower row alone named, local, a frame's refresh
+    /// with no byte, no move and no answer reads again and the look goes, the
+    /// rows of two provenances and the address cut.
+    /// The job watch's remote naming (`Paths::written_remote`) moves the
+    /// provenance as a naming does. Perturbations: key the read under the
+    /// pointer on the answers alone, not `PathsAt::origins` -- the refresh
+    /// keeps the joined look; drop the move from `written_remote`.
+    #[test]
+    fn the_look_follows_a_program_named_late() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, &pane(URL, Cols::of_index(40)));
+        let mut p = paths();
+        let mut h = Hover::default();
+        h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
+        let at_cell = Some((Row::from_index(1), Col::at_index(5)));
+        let _ = h.update_with(&t, at_cell, at(), Chord::Other, Focus::Gained, Host(""), &p);
+        let over = h.over().map(|o| spans(&o.spans));
+        assert_eq!(
+            over,
+            Some(vec![(0, 4, 39), (1, 0, 27)]),
+            "neither named: joined"
+        );
+        // Named local, which moves no answer: only the provenance tells.
+        let g = p.generation();
+        p.written_under(
+            Front::Local,
+            LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
+        );
+        assert_eq!(p.generation(), g, "the control: no answer moved");
+        let moved = h.refresh_with(&t, at(), Chord::Other, Focus::Gained, Host(""), &p);
+        assert!(moved, "read again");
+        assert_eq!(h.over(), None, "parted: the cut address has no look");
+        // The job watch's remote naming moves the provenance too.
+        let o = PathsAt::origins(&p);
+        p.written_remote(LineSpan::of(line(Row::ZERO), line(Row::ZERO)));
+        assert_ne!(PathsAt::origins(&p), o, "written_remote moves it");
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Writer {
+        Soft,
+        CupPerRow,
+        CrLf,
+    }
+
+    /// The printable bytes of `bytes` cut every `w` columns, each row after
+    /// the first begun by `writer`; escapes (`ESC ] ... ESC \`) copied whole.
+    fn recut(bytes: &[u8], w: Cols, writer: Writer) -> Vec<u8> {
+        let (w, mut out) = (w.index(), Vec::new());
+        let (mut col, mut row, mut i) = (0, 0, 0);
+        while i < bytes.len() {
+            if bytes[i] == 0x1b {
+                let end = bytes[i..]
+                    .windows(2)
+                    .position(|p| p == b"\x1b\\")
+                    .map_or(bytes.len(), |e| i + e + 2);
+                out.extend_from_slice(&bytes[i..end]);
+                i = end;
+                continue;
+            }
+            if col == w {
+                (row, col) = (row + 1, 0);
+                match writer {
+                    Writer::CupPerRow => {
+                        out.extend_from_slice(format!("\x1b[{};1H", row + 1).as_bytes())
+                    }
+                    Writer::CrLf => out.extend_from_slice(b"\r\n"),
+                    Writer::Soft => {}
+                }
+            }
+            out.push(bytes[i]);
+            col += 1;
+            i += 1;
+        }
+        out
+    }
+
+    /// **A generator over kind, width, length, offset and how the writer
+    /// ends its rows**: a URI, an `OSC 8` link or a printed path, cut at the
+    /// width by a soft wrap, a cursor move or CR LF, is lined on every row it
+    /// covers, at rest, in the look and the chord from a pointer on its
+    /// second cell and its last, and a click there opens all of it. With
+    /// `join_rows = "off"`, a link the writer cut is never lined whole: the
+    /// soft wraps and `OSC 8` are the control. Perturbations: hold every row
+    /// the writer ended apart -- the cut writers fail; ignore `join_rows` in
+    /// `Paths::joins` -- the "off" half fails.
+    #[test]
+    fn a_generator_over_widths_and_row_ends() {
+        let mut checked = 0;
+        for kind in 0..3 {
+            for writer in [Writer::Soft, Writer::CupPerRow, Writer::CrLf] {
+                for w in [12usize, 20, 33, 40, 80] {
+                    for len in [w + 1, 2 * w - 3, 2 * w + 5, 3 * w + 1] {
+                        for x0 in [0, 2, w / 3] {
+                            let letters: String =
+                                (0..len).map(|i| char::from(b"abcdefgh/"[i % 9])).collect();
+                            let (link, uri) = match kind {
+                                0 => {
+                                    let s = format!(
+                                        "https://e.example/{}",
+                                        &letters[..len.saturating_sub(18).max(1)]
+                                    );
+                                    (s.clone(), Some(s))
+                                }
+                                1 => {
+                                    let s = format!(
+                                        "/usr/{}",
+                                        &letters[..len.saturating_sub(5).max(1)]
+                                    );
+                                    let s = s.trim_end_matches('/').to_string();
+                                    let u = format!("file://{s}");
+                                    (s, Some(u))
+                                }
+                                _ => {
+                                    let s = letters.replace('/', "x");
+                                    (
+                                        format!(
+                                            "\x1b]8;;https://e.example/t\x1b\\{s}\x1b]8;;\x1b\\"
+                                        ),
+                                        None,
+                                    )
+                                }
+                            };
+                            let n = match kind {
+                                2 => len,
+                                _ => link.len(),
+                            };
+                            if x0 + n > 6 * w || (x0 + n - 1) / w == 0 {
+                                continue;
+                            }
+                            let mut bytes = vec![b' '; x0];
+                            bytes.extend_from_slice(link.as_bytes());
+                            bytes.extend_from_slice(b" ok");
+                            let bytes = match writer {
+                                Writer::Soft => bytes,
+                                _ => recut(&bytes, Cols::of_index(w), writer),
+                            };
+                            let ws = WinSize {
+                                ws_col: u16::try_from(w).expect("a width"),
+                                ws_row: 8,
+                            };
+                            let mut owned = Owned::new(&ws);
+                            let mut t = Term::new(owned.storage(), &ws);
+                            feed(&mut t, &bytes);
+                            let want: Vec<_> = (x0..x0 + n).map(|i| (i / w, i % w)).collect();
+                            let (mut p, mut l) = (paths(), Lines::default());
+                            let case = format!("kind {kind} {writer:?} w{w} n{n} x{x0}");
+                            assert_eq!(expand(&scan(&t, &mut p, &mut l)), want, "{case}: at rest");
+                            for &(r, c) in [want[1], want[n - 1]].iter() {
+                                let (over, chord, opens) =
+                                    pointed(&t, &p, (Row::from_index(r), Col::at_index(c)));
+                                assert_eq!(expand(&over), want, "{case} ({r}, {c}): the look");
+                                assert_eq!(expand(&chord), want, "{case} ({r}, {c}): the chord");
+                                if let Some(u) = &uri {
+                                    assert_eq!(
+                                        opens.as_deref(),
+                                        Some(u.as_bytes()),
+                                        "{case} ({r}, {c}): the click"
+                                    );
+                                }
+                            }
+                            // Off: a cut link is never lined whole.
+                            let (mut p, mut l) = (paths(), Lines::default());
+                            let _ = p.set_join(Turned::Off);
+                            let rest = expand(&scan(&t, &mut p, &mut l));
+                            match (writer, kind) {
+                                (Writer::Soft, _) | (_, 2) => assert_eq!(rest, want, "{case}: off"),
+                                _ => assert!(
+                                    rest.iter().all(|&(r, _)| r == 0) && rest != want,
+                                    "{case}: off {rest:?}"
+                                ),
+                            }
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 300, "{checked} cases");
     }
 }

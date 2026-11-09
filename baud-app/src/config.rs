@@ -639,6 +639,17 @@ pub enum LinkUrls {
     Off,
 }
 
+/// `[link] join_rows`: whether a link is read on across a row its writer
+/// ended at the last column into a next row starting in a URI's characters, as
+/// a program wrapping by itself at the width leaves it (`link::runs_on`). Off
+/// reads each such row alone, and a URI cut there gets no line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinkJoinRows {
+    #[default]
+    On,
+    Off,
+}
+
 /// `[link] paths`: whether a file path printed as plain text is underlined
 /// when the file exists. Off asks nothing of the file system and starts no
 /// worker (`probe.rs`).
@@ -674,6 +685,7 @@ pub enum LinkLineKey {
 pub struct Link {
     pub urls: LinkUrls,
     pub paths: LinkPaths,
+    pub join_rows: LinkJoinRows,
     pub line: LinkLineKey,
     pub hover: baud_render::HoverPaint,
     /// `[link.NAME]` and `[link.path]`, read whole or refused whole.
@@ -761,6 +773,14 @@ impl Link {
         match self.urls {
             LinkUrls::On => crate::paths::Turned::On,
             LinkUrls::Off => crate::paths::Turned::Off,
+        }
+    }
+
+    /// Whether a read joins a row the writer ended to the next.
+    pub fn join_read(&self) -> crate::paths::Turned {
+        match self.join_rows {
+            LinkJoinRows::On => crate::paths::Turned::On,
+            LinkJoinRows::Off => crate::paths::Turned::Off,
         }
     }
 
@@ -2586,6 +2606,19 @@ impl Config {
                                  using the default, on"
                             ));
                             LinkUrls::On
+                        }
+                    };
+                }
+                ("link", "join_rows") => {
+                    self.link.join_rows = match value.trim().trim_matches('"') {
+                        "on" => LinkJoinRows::On,
+                        "off" => LinkJoinRows::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [link] join_rows {other:?} is not on or off; \
+                                 using the default, on"
+                            ));
+                            LinkJoinRows::On
                         }
                     };
                 }
@@ -5930,9 +5963,11 @@ mod reader {
     /// **`[link]` reads as it documents**: the defaults, each value, and a bad
     /// value's default, said. `urls` and `paths` both `"off"` leave nothing to
     /// scan, and `paths` alone keeps the scan for paths, with the look on
-    /// them only. Perturbations: default `urls` or `paths` to off; read
+    /// them only. `join_rows` is on, and off or a bad value reads as it
+    /// says. Perturbations: default `urls` or `paths` to off; read
     /// `line = "off"` as solid; let `paths_read` ask with the line off;
-    /// give `hover = "line"` the box's colour at rest.
+    /// give `hover = "line"` the box's colour at rest; default `join_rows`
+    /// to off, or read its `"off"` as on.
     #[test]
     fn the_link_section_reads_as_it_documents() {
         use crate::link::AtRest;
@@ -5946,6 +5981,17 @@ mod reader {
         assert_eq!(d.lines(), Some(LineStyle::Solid));
         assert_eq!(d.paths_read(), Turned::On);
         assert_eq!(d.line_colour(), LineColour::Box, "the box's colour at rest");
+        assert_eq!((d.join_rows, d.join_read()), (LinkJoinRows::On, Turned::On));
+        let mut c = Config::defaults();
+        assert!(c.apply("[link]\njoin_rows = \"off\"\n").is_empty());
+        assert_eq!(
+            (c.link.join_rows, c.link.join_read()),
+            (LinkJoinRows::Off, Turned::Off)
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[link]\njoin_rows = \"sometimes\"\n");
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert_eq!(c.link.join_read(), Turned::On, "a bad value: the default");
         let mut c = Config::defaults();
         let _ = c.apply("[link]\nhover = \"line\"\n");
         assert_eq!(

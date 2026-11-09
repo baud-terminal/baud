@@ -1587,6 +1587,7 @@ impl App {
                 p.set_rules(link_config.rules.clone());
                 p.set(link_config.paths_read());
                 let _ = p.set_missing(link_config.missing_read());
+                let _ = p.set_join(link_config.join_read());
                 p
             },
             // The worker wakes the view after each answer, and the answers
@@ -15312,6 +15313,7 @@ impl Driver {
                     self.app.paths.set_rules(c.link.rules.clone());
                     self.app.paths.set(c.link.paths_read());
                     let _ = self.app.paths.set_missing(c.link.missing_read());
+                    let _ = self.app.paths.set_join(c.link.join_read());
                     self.app.probes.set_programs(c.link.programs());
                     self.app.probes.owe_programs();
                     self.app.lines.forget();

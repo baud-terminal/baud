@@ -62,11 +62,20 @@
 //!   refusal above holds at rest as at a click: a URI refused is drawn as no
 //!   link. [`Hover::over`] is the look of the link under the pointer.
 //!
+//! * A row the writer ended at the last column, the next starting in a URI's
+//!   characters -- what a program wrapping by itself at the width leaves, as a
+//!   multiplexer repainting a full-width pane a row at a time does -- is read
+//!   on into the next ([`joins_below`]) while `[link] join_rows` is on and
+//!   both rows are of one provenance, and what that finds is kept only where
+//!   it crosses the row and admits ([`read_under`]).
+//!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break. It gets no line
-//! where that break is at the row's last column and the next row carries on in
-//! a URI's characters ([`may_be_cut`]), the mark of a program wrapping by
-//! itself; a click there still opens what is read, and the bar shows it.
+//! across any other hard line break is read only up to the break. It gets no
+//! line where that break is at the row's last column and the next row carries
+//! on in a URI's characters ([`may_be_cut`]) but no join holds; a click there
+//! still opens what is read, and the bar shows it. A program that wraps short
+//! of the last column, as a pane beside another in a multiplexer does, leaves
+//! no edge to see, and a URI it cut reads as whole.
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, PointerShape, Term};
@@ -667,6 +676,24 @@ pub struct Window {
     at: Ix,
     head: Edge,
     tail: Edge,
+    /// The rows the writer ended that the read joined to the next
+    /// ([`joins_below`]), each by its line.
+    joined: Vec<AbsLine>,
+}
+
+impl Window {
+    /// Whether a link from `from` to `to` runs across a row the read joined.
+    fn crosses(&self, from: Point, to: Point) -> bool {
+        self.joined.iter().any(|&l| from.line <= l && l < to.line)
+    }
+}
+
+/// **Whether a row the writer ended may be read on into the next**, as
+/// `[link] join_rows` and the rows' provenance say ([`PathsAt::joins`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Joins {
+    Yes,
+    No,
 }
 
 /// A URI found in a [`Window`]: its units, and whether it may be opened.
@@ -893,9 +920,11 @@ impl Found {
 /// own line break and not a soft wrap, and the next row starts in a URI's
 /// characters. A program that wraps by itself leaves exactly this, and a line
 /// under the first row's part would call a cut address whole; a click still
-/// reads what is written and the bar shows it. What this cannot see, stated: a
-/// program that wraps short of the last column, as a pane inside a
-/// multiplexer does.
+/// reads what is written and the bar shows it. Where the rows join
+/// ([`joins_below`]) the read runs on past the cut, and only a URI that ends
+/// at such a row anyway, the join read short of it, is met here. What this
+/// cannot see, stated: a program that wraps short of the last column, as a
+/// pane beside another in a multiplexer does.
 pub(crate) fn may_be_cut(term: &Term<'_>, scrolled: Scrolled, to: Point) -> bool {
     let Some((cells, wrap)) = row_of(term, scrolled, to.line) else {
         return false;
@@ -911,6 +940,44 @@ pub(crate) fn may_be_cut(term: &Term<'_>, scrolled: Scrolled, to: Point) -> bool
         let styles = row_styles_of(term, scrolled, below);
         class(unit(term, styles, cell)).has(Class::URI)
     })
+}
+
+/// **Whether the row at `above`, which its writer ended, runs on into the
+/// next in a URI's characters**: it ends by the writer's own line break and
+/// not a soft wrap, its last cell is a URI's character, so it reaches the last
+/// column, and the next row's first cell is one too. What a program wrapping
+/// by itself at the width leaves, as a multiplexer repainting a full-width
+/// pane a row at a time does; a row ending short of the last column, or a next
+/// row starting in a space, never runs on.
+pub(crate) fn runs_on(term: &Term<'_>, scrolled: Scrolled, above: AbsLine) -> bool {
+    let Some((cells, wrap)) = row_of(term, scrolled, above) else {
+        return false;
+    };
+    if wrap == Wrap::Continues {
+        return false;
+    }
+    let below = above.below();
+    let Some((next, _)) = row_of(term, scrolled, below) else {
+        return false;
+    };
+    let uri = |line: AbsLine, cell: PackedCell| {
+        class(unit(term, row_styles_of(term, scrolled, line), cell)).has(Class::URI)
+    };
+    cells.last().is_some_and(|&c| uri(above, c)) && next.first().is_some_and(|&c| uri(below, c))
+}
+
+/// **Whether a read joins the row at `above` to the next** ([`runs_on`]),
+/// as `paths` lets it: `[link] join_rows` on, and both rows of one
+/// provenance. A read keeps what it finds across such a row only where it
+/// crosses the row and admits ([`read_under`], `lined.rs`), and otherwise
+/// reads as if never joined.
+pub(crate) fn joins_below(
+    term: &Term<'_>,
+    scrolled: Scrolled,
+    above: AbsLine,
+    paths: &dyn PathsAt,
+) -> bool {
+    runs_on(term, scrolled, above) && paths.joins(above) == Joins::Yes
 }
 
 /// A URI read from the text: the cells it spans, both ends inclusive, by
@@ -938,18 +1005,14 @@ impl Bare {
 
 impl Window {
     /// The URI around the clicked cell, with its cells. The drivers read
-    /// through [`Window::bare_with`], so only tests call it.
+    /// through [`under_with`] and [`Hover`], so only tests call it.
     #[cfg(test)]
     pub fn bare(&self) -> Option<Bare> {
         self.bare_in(&mut Vec::new(), &NO_RULES)
     }
 
-    /// [`Window::bare`], a scheme a rule of yours added read too.
-    pub fn bare_with(&self, rules: &Rules) -> Option<Bare> {
-        self.bare_in(&mut Vec::new(), rules)
-    }
-
-    /// [`Window::bare`], its bytes in `text`'s buffer, taken only for a URI.
+    /// [`Window::bare`], its bytes in `text`'s buffer, taken only for a URI,
+    /// a scheme a rule of yours added read too.
     fn bare_in(&self, text: &mut Vec<u8>, rules: &Rules) -> Option<Bare> {
         let f = find_with(self, rules)?;
         let (from, to) = (
@@ -995,10 +1058,13 @@ pub(crate) fn unit(term: &Term<'_>, styles: baud_domain::RowStyles<'_>, cell: Pa
 /// A wide character's tail adds nothing; a click on one is a click on its
 /// lead. Bounded by `LINK_MAX`, not by the line: a URI longer than that is
 /// refused whatever is past it, so a line a megabyte long costs a click
-/// what a short one does.
+/// what a short one does. The drivers read through [`under_with`] and
+/// [`Hover`], which join the rows [`joins_below`] lets them, so only tests
+/// call it.
+#[cfg(test)]
 pub fn window(term: &Term<'_>, scrolled: Scrolled, line: AbsLine, col: Col) -> Option<Window> {
     let mut read = Reading::default();
-    read_window(term, scrolled, line, col, &mut read)?;
+    read_window(term, scrolled, line, col, &mut read, None)?;
     Some(read.window)
 }
 
@@ -1015,13 +1081,15 @@ struct Reading {
     struck: Vec<baud_render::LinkLine>,
 }
 
-/// [`window`], into `read`'s window.
+/// [`window`], into `read`'s window. With `across`, a row the writer ended is read on into the
+/// next where [`joins_below`] says, and each such row is kept in the window.
 fn read_window(
     term: &Term<'_>,
     scrolled: Scrolled,
     line: AbsLine,
     col: Col,
     read: &mut Reading,
+    across: Option<&dyn PathsAt>,
 ) -> Option<()> {
     let (row, wrap) = row_of(term, scrolled, line)?;
     let mut c = col.index().min(row.len().checked_sub(1)?);
@@ -1036,6 +1104,8 @@ fn read_window(
     } = read;
     left.clear();
     right.clear();
+    window.joined.clear();
+    let joins = |above: AbsLine| across.is_some_and(|p| joins_below(term, scrolled, above, p));
     let mut head = Edge::Line;
     let (mut l, mut cells, mut i) = (line, row, c);
     'left: loop {
@@ -1059,6 +1129,10 @@ fn read_window(
             Some((prev, Wrap::Continues)) => {
                 (l, cells, i) = (up, prev, prev.len());
             }
+            Some((prev, Wrap::Ended)) if joins(up) => {
+                window.joined.push(up);
+                (l, cells, i) = (up, prev, prev.len());
+            }
             _ => break,
         }
     }
@@ -1080,7 +1154,10 @@ fn read_window(
             i += 1;
         }
         if wraps != Wrap::Continues {
-            break;
+            if !joins(l) {
+                break;
+            }
+            window.joined.push(l);
         }
         let down = l.below();
         let Some((next, w)) = row_of(term, scrolled, down) else {
@@ -1155,12 +1232,7 @@ pub fn under_with(
     if !read {
         return None;
     }
-    let line = spot.scrolled.line(spot.back, spot.row);
-    let w = window(term, spot.scrolled, line, spot.col)?;
-    match w.bare_with(paths.rules()) {
-        Some(b) => Some(Under::Bare(b)),
-        None => printed_in(term, &w, paths).map(Under::Path),
-    }
+    read_under(term, spot, &mut Reading::default(), paths)
 }
 
 /// **A printed path under a click or the pointer**: the path at the window's
@@ -1646,8 +1718,43 @@ fn hovered_in(
     if link.uri(term).is_some() {
         return Some(Under::Osc8(link));
     }
+    read_under(term, spot, read, paths)
+}
+
+/// **The URI or printed path the text at `spot` reads as**, a click's and
+/// the pointer's one read. Read first across the rows the writer ended that
+/// [`joins_below`] joins; what that finds is kept only where it crosses a
+/// joined row and admits, so a URI the join would cut short, swallow into a
+/// word or refuse reads as it did unjoined, by a second read.
+fn read_under(
+    term: &Term<'_>,
+    spot: Spot,
+    read: &mut Reading,
+    paths: &dyn PathsAt,
+) -> Option<Under> {
     let line = spot.scrolled.line(spot.back, spot.row);
-    read_window(term, spot.scrolled, line, spot.col, read)?;
+    read_window(term, spot.scrolled, line, spot.col, read, Some(paths))?;
+    if !read.window.joined.is_empty() {
+        let joined = found_under(term, read, paths);
+        let kept = match &joined {
+            Some(Under::Bare(b)) => b.verdict.is_ok() && read.window.crosses(b.from, b.to),
+            Some(Under::Path(p)) => p.verdict.is_ok() && read.window.crosses(p.from, p.to),
+            Some(Under::Osc8(_)) | None => false,
+        };
+        if kept {
+            return joined;
+        }
+        // The bytes a URI read across the join took go back to the buffer.
+        if let Some(Under::Bare(b)) = joined {
+            read.text = b.text;
+        }
+        read_window(term, spot.scrolled, line, spot.col, read, None)?;
+    }
+    found_under(term, read, paths)
+}
+
+/// The URI in `read`'s window, or else the printed path `paths` answers for.
+fn found_under(term: &Term<'_>, read: &mut Reading, paths: &dyn PathsAt) -> Option<Under> {
     match read.window.bare_in(&mut read.text, paths.rules()) {
         Some(b) => Some(Under::Bare(b)),
         None => printed_in(term, &read.window, paths).map(Under::Path),
@@ -1860,8 +1967,9 @@ struct ReadOf {
     bytes: Taken,
     epoch: LinkEpoch,
     host: String,
-    /// The printed paths' answers, which move with no byte.
-    paths: crate::paths::Generation,
+    /// The printed paths' answers, and the lines' provenance, which move
+    /// with no byte.
+    paths: (crate::paths::Generation, crate::paths::Generation),
 }
 
 impl ReadOf {
@@ -1870,7 +1978,7 @@ impl ReadOf {
         term: &Term<'_>,
         (at, scrolled, chord, focus): (Option<(Row, Col)>, Scrolled, Chord, Focus),
         host: Host<'_>,
-        paths: crate::paths::Generation,
+        paths: (crate::paths::Generation, crate::paths::Generation),
     ) -> bool {
         self.at == at
             && self.scrolled == scrolled
@@ -1983,7 +2091,7 @@ impl Hover {
     ) -> bool {
         self.at = at;
         let inputs = (at, scrolled, chord, focus);
-        let generation = paths.generation();
+        let generation = (paths.generation(), paths.origins());
         if self
             .read
             .as_ref()
@@ -2707,6 +2815,7 @@ mod tests {
             at: Ix(at.expect("a ‸ in the text")),
             head: Edge::Line,
             tail: Edge::Line,
+            joined: Vec::new(),
         }
     }
 
@@ -2948,7 +3057,12 @@ mod tests {
     /// The press and release the driver would make of a Cmd-click at
     /// `down` and `up`: what the release does.
     fn click(t: &Term<'_>, down: Spot, up: Spot) -> Gesture {
-        let under_down = under(t, down, Press::Down, Chord::Cmd, Focus::Gained, None);
+        click_with(t, down, up, &NoPaths)
+    }
+
+    /// [`click`], read through `paths`.
+    fn click_with(t: &Term<'_>, down: Spot, up: Spot, paths: &dyn PathsAt) -> Gesture {
+        let under_down = under_with(t, down, Press::Down, Chord::Cmd, Focus::Gained, None, paths);
         let armed = match gesture(
             Press::Down,
             Chord::Cmd,
@@ -2960,7 +3074,15 @@ mod tests {
             Gesture::Arm(a) => a,
             other => return other,
         };
-        let under_up = under(t, up, Press::Up, Chord::Other, Focus::Gained, Some(&armed));
+        let under_up = under_with(
+            t,
+            up,
+            Press::Up,
+            Chord::Other,
+            Focus::Gained,
+            Some(&armed),
+            paths,
+        );
         gesture(
             Press::Up,
             Chord::Other,
@@ -3033,20 +3155,85 @@ mod tests {
         assert_eq!(read("\"‸http://h/a"), Some(Err(Refused::Length)));
     }
 
-    /// A hard line break ends the URI: the next row is not joined.
-    /// Perturbation: join every row -- `bcd` is read on.
+    /// **A hard line break ends the URI where the row ends short of the last
+    /// column**, or where `[link] join_rows` is off: the next row is not
+    /// joined. Perturbation: ignore `[link] join_rows` in `Paths::joins` --
+    /// the second case reads `bcd` on.
     #[test]
     fn a_hard_line_break_ends_the_uri() {
+        let s = Scrolled::START;
+        let at = spot(s, Row::from_index(0), Col::at_index(9));
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"https://example.c/a\r\nbcd");
+        assert_eq!(
+            opened(&click(&t, at, at)).as_deref(),
+            Some(&b"https://example.c/a"[..])
+        );
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"https://example.co/a\r\nbcd");
-        let s = Scrolled::START;
-        let g = click(
-            &t,
-            spot(s, Row::from_index(0), Col::at_index(9)),
-            spot(s, Row::from_index(0), Col::at_index(9)),
+        let mut apart = crate::paths::Paths::default();
+        let _ = apart.set_join(crate::paths::Turned::Off);
+        assert_eq!(
+            opened(&click_with(&t, at, at, &apart)).as_deref(),
+            Some(&b"https://example.co/a"[..]),
+            "join_rows off"
         );
-        assert_eq!(opened(&g).as_deref(), Some(&b"https://example.co/a"[..]));
+    }
+
+    /// **A row the writer ended at the last column, the next starting in a
+    /// URI's characters, is read on**: a click on either row opens the whole
+    /// address, as a multiplexer repainting a full-width pane a row at a time
+    /// leaves it -- a cursor move per row, or CR LF. Perturbation: drop the
+    /// join from `read_window`'s walks -- the clicks open the first row's part
+    /// or nothing.
+    #[test]
+    fn a_row_the_writer_ended_at_the_last_column_is_read_on() {
+        let s = Scrolled::START;
+        for ends in [&b"\x1b[2;1H"[..], b"\r\n"] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut bytes = b"https://example.co/a".to_vec();
+            bytes.extend_from_slice(ends);
+            bytes.extend_from_slice(b"bcd ok");
+            feed(&mut t, &bytes);
+            for (row, col) in [(0, 9), (1, 1)] {
+                let at = spot(s, Row::from_index(row), Col::at_index(col));
+                assert_eq!(
+                    opened(&click(&t, at, at)).as_deref(),
+                    Some(&b"https://example.co/abcd"[..]),
+                    "{ends:?} at ({row}, {col})"
+                );
+            }
+        }
+    }
+
+    /// **What a join reads is kept only where it crosses the join and
+    /// admits**: a URI starting the next row, after a word reaching the last
+    /// column, is read as the next row's own; and a URI the join would make
+    /// refused opens as it did unjoined, its cut part. Perturbation: keep
+    /// whatever the joined read finds in `read_under`, crossing or not and
+    /// refused or not -- red.
+    #[test]
+    fn a_join_that_does_not_cross_or_admit_reads_as_unjoined() {
+        let s = Scrolled::START;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"twenty-letters-words\r\nhttps://e.example/x");
+        let at = spot(s, Row::from_index(1), Col::at_index(10));
+        assert_eq!(
+            opened(&click(&t, at, at)).as_deref(),
+            Some(&b"https://e.example/x"[..])
+        );
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"https://example.co/a\r\n%zz");
+        let at = spot(s, Row::from_index(0), Col::at_index(9));
+        assert_eq!(
+            opened(&click(&t, at, at)).as_deref(),
+            Some(&b"https://example.co/a"[..])
+        );
     }
 
     /// A URL whose first rows have scrolled into the history is read whole
