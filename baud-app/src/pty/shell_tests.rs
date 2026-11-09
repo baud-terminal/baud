@@ -43,8 +43,9 @@ const PARAGRAPH: &str = "Every finished paragraph is drawn at its words, so a wo
 const READS: &[u8] = b"\x1b[?2004h";
 
 /// The prompts the stock startup files set, blanks trimmed: zsh's `%# `,
-/// bash's `$ `, fish's `> `.
-const PROMPTS: [&str; 3] = ["%", "$", ">"];
+/// bash's `$ `, fish's `> `. zsh draws `%#` as `#` in a shell with
+/// privileges, as the tests run as root in a container.
+const PROMPTS: [&str; 4] = ["%", "#", "$", ">"];
 
 /// How many times the shell has written something ([`Session::written`]).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -410,7 +411,7 @@ fn paragraph(lines: &[String]) -> Vec<String> {
     };
     lines[first..]
         .iter()
-        .take_while(|l| !l.is_empty() && !matches!(l.chars().next(), Some('%' | '$' | '>')))
+        .take_while(|l| !l.is_empty() && !PROMPTS.iter().any(|p| l.starts_with(p)))
         .cloned()
         .collect()
 }

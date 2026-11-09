@@ -807,10 +807,10 @@ fn without_takes_a_command_out_whole() {
 /// `cha` with its pictures on in a window, and a file path
 /// `~/bin/demo-open` in a window, a relative one such as a README's
 /// `assets/readme/logo-dark.gif` among the paths read, beside the three
-/// prefixes read by default; whether each program is there is this
-/// machine's, so its sections are read again against a home holding
+/// prefixes read by default. It is read against a home holding
 /// `bin/demo-open` and a `PATH` holding `cha`, as the demo gives baud, and
-/// then nothing is said. The control: the text with a key the rules do not
+/// not this machine's, and nothing is said; its sections are read again
+/// by the rules' own reader against the same. The control: the text with a key the rules do not
 /// have is refused whole, and says so. Perturbation: write `action =
 /// "windows"` in the file and the https rule is refused.
 #[test]
@@ -818,13 +818,21 @@ fn the_demos_link_rules_open_their_windows() {
     use crate::rules::{Act, PathAct, Section};
     use std::os::unix::fs::PermissionsExt as _;
     let text = include_str!("../../examples/demo/links.toml");
+    let dir = std::env::temp_dir().join(format!("demo-links-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (home, bin) = (dir.join("home"), dir.join("path"));
+    for exe in [home.join("bin/demo-open"), bin.join("cha")] {
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let env = crate::config::ConfigEnv {
+        home: Some(home.clone()),
+        path: Some(bin.clone().into_os_string()),
+    };
     let mut c = crate::config::Config::defaults();
-    let said = c.apply(text);
-    assert!(
-        said.iter()
-            .all(|s| s.contains("is not a program that can run") || s.contains("is not on PATH")),
-        "{said:?}"
-    );
+    let said = c.apply_in(text, &env);
+    assert_eq!(said, Vec::<String>::new());
     let r = &c.link.rules;
     match r.rule_for("https").map(|(_, x)| x.act()) {
         Some(Act::Window(argv)) => {
@@ -868,14 +876,6 @@ fn the_demos_link_rules_open_their_windows() {
                 s.fields.push((k.to_string(), v.to_string()));
             }
         }
-    }
-    let dir = std::env::temp_dir().join(format!("demo-links-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let (home, bin) = (dir.join("home"), dir.join("path"));
-    for exe in [home.join("bin/demo-open"), bin.join("cha")] {
-        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
-        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
-        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     let (rules, said) = Section::read_all(&sections, Some(&home), Some(bin.as_os_str()));
     assert_eq!(said, Vec::<String>::new());
