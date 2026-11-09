@@ -270,6 +270,40 @@ pub fn without_tests(code: &str) -> String {
     cut_tests(code, Marked::Cut)
 }
 
+/// **Whether `t`, a line past its indent, opens an item that can have a
+/// body**: a fn, a module, an impl, a type or a trait, past its
+/// visibility and qualifiers.
+fn starts_item(t: &str) -> bool {
+    let mut t = t;
+    for p in ["pub(crate) ", "pub(super) ", "pub "] {
+        t = t.strip_prefix(p).unwrap_or(t);
+    }
+    loop {
+        let rest = ["const ", "async ", "unsafe ", "extern \"C\" "]
+            .iter()
+            .find_map(|q| t.strip_prefix(q));
+        match rest {
+            Some(r) => t = r,
+            None => break,
+        }
+    }
+    [
+        "fn ", "mod ", "impl ", "impl<", "struct ", "enum ", "trait ", "union ",
+    ]
+    .iter()
+    .any(|k| t.starts_with(k))
+}
+
+/// **The body of the one fn whose signature starts `head` in `src`**, from
+/// its opening brace through its closing one, a brace in a comment or a
+/// literal not counting: what a source check is scoped to.
+pub fn fn_body<'a>(src: &'a str, head: &str) -> &'a str {
+    assert_eq!(src.matches(head).count(), 1, "one {head}");
+    let at = src.find(head).expect("the fn");
+    let open = at + src[at..].find('{').expect("its body");
+    &src[open..block_end(src, Offset(open)).0]
+}
+
 /// `code` with every `mod NAME {` block whose name ends in `tests` cut,
 /// every module `#[cfg(test)]` marks, and, as `marked_items` says, every
 /// other item with a body that it marks.
@@ -285,13 +319,15 @@ fn cut_tests(code: &str, marked_items: Marked) -> String {
         let t = t.strip_prefix("pub(crate) ").unwrap_or(t);
         let head = t.strip_prefix("mod ").map(ident);
         let is_tests = head.is_some_and(|n| n.ends_with("tests")) && t.trim_end().ends_with('{');
-        // The item a `#[cfg(test)]` marks, when it has a body: its first
-        // `{` comes before any `;`.
+        // The item a `#[cfg(test)]` marks, when it is an item that can
+        // have a body and has one: its first `{` comes before any `;`. A
+        // marked field, statement or match arm is no item, and the brace
+        // after it is the next item's.
         // A walk of test code follows the items, and still cuts a module
         // of tests, whatever its name.
         let cut = marked_items == Marked::Cut || head.is_some();
         let body = match (
-            marked && !attribute && cut,
+            marked && !attribute && cut && starts_item(t),
             code[at..].find('{'),
             code[at..].find(';'),
         ) {

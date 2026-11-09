@@ -1449,6 +1449,18 @@ fn the_launch_path_names_no_appkit() {
         !caught(&format!("mod tests {{\n{marker}}}\n")),
         "a tests block is cut"
     );
+    // An item `#[cfg(test)]` marks is cut; a marked field is no item, and
+    // the code after it stays.
+    assert!(
+        !caught(&format!("#[cfg(test)]\n{marker}")),
+        "a marked fn is cut"
+    );
+    assert!(
+        caught(&format!(
+            "struct S {{\n    #[cfg(test)]\n    f: u8,\n}}\n{marker}"
+        )),
+        "a marked field cuts nothing after it"
+    );
     assert!(
         caught(&format!("mod tests {{\n    let s = \"{{\";\n}}\n{marker}")),
         "a brace in a string ends no block early, nor hides the code after it"

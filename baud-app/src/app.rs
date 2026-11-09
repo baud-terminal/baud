@@ -12095,13 +12095,7 @@ impl Driver {
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             self.derive.moved();
             self.front.moved();
-            // A job that ended may have made what is struck, or installed an
-            // app: asked again at the next batch, and the apps only while
-            // one was found missing, since a build forks on every tick.
-            self.app.paths.recheck();
-            if self.app.paths.programs_missing() {
-                self.app.probes.owe_programs();
-            }
+            crate::link_layer::moved(&mut self.app.probes, &mut self.app.paths);
         }
         if let Trigger::Tick = trigger {
             self.title_check();
@@ -14752,8 +14746,7 @@ impl Driver {
         let note = match done {
             crate::probe::Clicked::Exists(path) => {
                 let asked = crate::paths::asked_for(clicked, &path);
-                let host = Host(self.app.uris.host());
-                let does = crate::paths::on_found(&asked, &path, host, self.app.uris.rules());
+                let does = crate::link_layer::decide_found(&asked, &path, &self.app.uris);
                 // Each of the three is asked of the effect queue
                 // (`os_effect.rs`), and what it did comes back on a wake.
                 if let Found::Copy = does {
@@ -22110,18 +22103,35 @@ mod mark_tests {
             gate < turns && turns < paths && paths < tick,
             "drained before the tick arm, behind the gate"
         );
-        let (_, paths_turn) = src
-            .split_once(concat!("    fn paths_", "turn(&mut self) {"))
-            .expect("paths_turn");
-        let (paths_turn, _) = paths_turn.split_once("\n    }\n").expect("its end");
+        // The tick's body and the shared tick it calls, each scoped to its
+        // fn: the call made through its arguments, and no answer taken in
+        // either, by a method or by the shared `answers`.
+        let paths_turn =
+            crate::no_appkit::fn_body(src, concat!("    fn paths_", "turn(&mut self) {"));
         assert!(
             paths_turn.contains(concat!(
-                "link_layer::tick(",
-                "&mut app.probes, &mut layer, host_now(),"
+                "crate::link_layer::tick(",
+                "&mut app.probes, &mut layer, host_now(), master);"
             )),
             "{paths_turn}"
         );
-        assert!(!paths_turn.contains(".answers("), "no answer on the tick");
+        let layer_tick = crate::no_appkit::fn_body(
+            include_str!("link_layer.rs"),
+            concat!("pub(crate) fn ", "tick<T: Moment>("),
+        );
+        assert!(
+            layer_tick.contains(concat!(
+                "probes.tick(",
+                "now, layer.seen(), || crate::fg::group(master))"
+            )),
+            "{layer_tick}"
+        );
+        for body in [paths_turn, layer_tick] {
+            assert!(
+                !body.contains(concat!("answers", "(")),
+                "no answer on the tick: {body}"
+            );
+        }
         assert!(
             !paths_turn.contains("path_checked"),
             "no click acted on the tick"

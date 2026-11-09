@@ -5,6 +5,13 @@
 //! records is the app's own sequence, in its order and with its arguments --
 //! the job watch's verdict among them, which a copy could drop.
 //!
+//! **A turn of the app's loop** (`App::pump`) runs them in this order, its
+//! other work between them: off the display link's tick, the worker's
+//! [`answers`]; on the process watch's move, [`moved`]; on the tick, the
+//! clock's [`tick`]. The gate stays in the pump, whose own work runs
+//! between the three. The tap's turn is a frame, a wake and a tick at
+//! once, and runs all three in that order, then the [`frame`].
+//!
 //! Nothing here opens anything: a link's [`decide`] says what a click comes
 //! to, and the driver acts on it.
 
@@ -89,6 +96,18 @@ pub(crate) fn tick<T: Moment>(
 pub(crate) fn answers<T: Moment>(probes: &mut Probes<T>, layer: &mut Layer<'_, '_>) -> Turn {
     let mut seen = layer.seen();
     probes.answers(&mut seen)
+}
+
+/// **A process the window watches forked, exec'd or exited**
+/// (`fg::Watch::take`): a job that ended may have made what is struck, or
+/// installed an app, so what is struck is asked about again at the next
+/// batch, and the apps only while one was found missing, since a build
+/// forks on every tick.
+pub(crate) fn moved<T: Moment>(probes: &mut Probes<T>, paths: &mut Paths) {
+    paths.recheck();
+    if paths.programs_missing() {
+        probes.owe_programs();
+    }
 }
 
 /// **The lines at rest for a frame** (`lined.rs`): the reported folder
@@ -186,9 +205,76 @@ pub(crate) fn decide<'a>(
     Decision::Read { uri, then }
 }
 
+/// **What a click on a printed path comes to, its file found**: `[link.path]`'s
+/// copy, command or window, else a reveal (`paths::on_found`), read
+/// against the host and the rules the window's lines take (`uris`).
+/// `asked` is what the click asked about (`paths::asked_for`).
+pub(crate) fn decide_found(
+    asked: &crate::paths::Asked,
+    path: &[u8],
+    uris: &Uris,
+) -> crate::paths::Found {
+    crate::paths::on_found(asked, path, Host(uris.host()), uris.rules())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::probe::{Linked, Sampler, WatchCell, Watched};
+
+    /// **A turn's link part is the app's and the tap's alike**: the app's
+    /// pump takes the worker's answers off the tick, asks again on the
+    /// process watch's move through [`super::moved`] and nothing of its
+    /// own, and ticks the clock on the tick; the tap's frame runs the three
+    /// in that order, the move on its own watch's verdict. Each read in its
+    /// fn. Named break: the pump's own `recheck` in place of the shared
+    /// `moved`.
+    #[test]
+    fn a_turns_link_part_is_the_apps_and_the_taps() {
+        let body = crate::no_appkit::fn_body;
+        let pump = body(
+            include_str!("app.rs"),
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let tap = body(
+            include_str!("film/tap.rs"),
+            concat!("    pub(crate) fn ", "turn("),
+        );
+        let moved = concat!("crate::link_layer::", "moved(&mut ");
+        let order = |body: &str, calls: [&str; 3]| {
+            let at: Vec<usize> = calls
+                .iter()
+                .map(|c| body.find(c).unwrap_or_else(|| panic!("{c} in {body}")))
+                .collect();
+            assert!(at[0] < at[1] && at[1] < at[2], "{calls:?} in order: {body}");
+        };
+        order(
+            pump,
+            [
+                concat!("self.paths_", "answered();"),
+                concat!(
+                    "crate::link_layer::",
+                    "moved(&mut self.app.probes, &mut self.app.paths);"
+                ),
+                concat!("self.paths_", "turn();"),
+            ],
+        );
+        assert!(
+            !pump.contains(concat!(".re", "check()")),
+            "the pump asks again only through the shared fn"
+        );
+        order(
+            tap,
+            [
+                concat!("crate::link_layer::", "answers("),
+                moved,
+                concat!("crate::link_layer::", "tick("),
+            ],
+        );
+        assert!(tap.contains(concat!(
+            "self.watch.as_ref().map(crate::fg::Watch::take) == ",
+            "Some(crate::fg::Moved::Moved)"
+        )));
+    }
 
     /// **A read carries the process watch's verdict, taken**: what the
     /// app's reader and the film's tap both pass on, which a copy of the

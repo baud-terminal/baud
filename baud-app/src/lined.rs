@@ -1575,16 +1575,23 @@ mod tests {
             "this machine's opens, another's does not"
         );
         let src = include_str!("app.rs");
-        for start in [
-            concat!("fn scan_", "lines(&mut self) {"),
-            concat!(
-                "fn read_hover_",
-                "as(&mut self, chord: crate::link::Chord) -> bool {"
+        let layer = include_str!("link_layer.rs");
+        // The app's scan and hover, and the shared frame and click the app
+        // and the tap run, each read in its own fn.
+        for (src, start) in [
+            (src, concat!("fn scan_", "lines(&mut self) {")),
+            (
+                src,
+                concat!(
+                    "fn read_hover_",
+                    "as(&mut self, chord: crate::link::Chord) -> bool {"
+                ),
             ),
+            (layer, concat!("pub(crate) fn ", "frame(")),
+            (layer, concat!("pub(crate) fn ", "decide<'a>(")),
         ] {
-            let (_, body) = src.split_once(start).expect(start);
-            let (body, _) = body.split_once("\n    }\n").expect("its end");
-            assert!(!body.is_empty(), "the control");
+            let body = crate::no_appkit::fn_body(src, start);
+            assert!(body.len() > 2, "the control");
             assert!(!body.contains(concat!("host_", "name(")), "{start}");
         }
         let (_, at_tick) = src
@@ -1603,12 +1610,22 @@ mod tests {
             !src.contains(concat!("opener::", "host_name(")),
             "a click reads no name"
         );
+        // The click's call, through its last argument: the window's own
+        // `uris`, whose host the lines took; and the shared click admits
+        // against that host, in its own fn.
+        let open = crate::no_appkit::fn_body(
+            src,
+            concat!("fn open_", "link(&mut self, link: &crate::link::Under,"),
+        );
+        let decide = crate::no_appkit::fn_body(layer, concat!("pub(crate) fn ", "decide<'a>("));
         assert!(
-            src.contains(concat!("crate::link_layer::", "decide(link, line,"))
-                && include_str!("link_layer.rs").contains(concat!(
-                    "admit_printed(uri, Host(uris.",
-                    "host()), uris.rules(), origin)"
-                )),
+            open.contains(concat!(
+                "crate::link_layer::decide(link, line, &self.app.term, ",
+                "&self.app.paths, &self.app.uris);"
+            )) && decide.contains(concat!(
+                "admit_printed(uri, Host(uris.",
+                "host()), uris.rules(), origin)"
+            )),
             "a click admits against the name the lines do"
         );
         let unknown = Uris::default();
@@ -1675,19 +1692,45 @@ mod tests {
         assert!(!l.lines().is_empty());
         l.off();
         assert!(l.lines().is_empty());
-        // The app's frame is the shared one (`link_layer::frame`).
-        assert!(include_str!("app.rs").contains(concat!("crate::link_layer::", "frame(")));
-        for (name, src, config) in [
+        // The app's frame is the shared one (`link_layer::frame`), given
+        // the window's config, and scans nothing of its own; the shared
+        // frame and Linux's each scan behind the config's answer, each
+        // read in its own fn.
+        let body = crate::no_appkit::fn_body;
+        let app = body(
+            include_str!("app.rs"),
+            concat!("    fn scan_", "lines(&mut self) {"),
+        );
+        assert!(
+            app.contains(concat!("crate::link_layer::", "frame(")),
+            "{app}"
+        );
+        assert!(
+            app.contains(concat!("config: &self.", "link_config,")),
+            "{app}"
+        );
+        assert!(!app.contains(concat!(".lines.", "scan(")), "{app}");
+        for (name, body, config) in [
             (
                 "link_layer.rs",
-                include_str!("link_layer.rs"),
+                body(
+                    include_str!("link_layer.rs"),
+                    concat!("pub(crate) fn ", "frame("),
+                ),
                 "layer.config.",
             ),
-            ("linux.rs", include_str!("linux.rs"), "self.link_config."),
+            (
+                "linux.rs",
+                body(
+                    include_str!("linux.rs"),
+                    concat!("    fn ", "present(&mut self) {"),
+                ),
+                "self.link_config.",
+            ),
         ] {
             let lines = format!("{config}{}", concat!("lines", "()"));
-            let at = src.find(lines.as_str()).expect(name);
-            let scan = src.find(concat!(".lines.", "scan(")).expect(name);
+            let at = body.find(lines.as_str()).expect(name);
+            let scan = body.find(concat!(".lines.", "scan(")).expect(name);
             assert!(at < scan, "{name}: the scan is behind the config's answer");
         }
     }

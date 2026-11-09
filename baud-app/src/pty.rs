@@ -995,8 +995,6 @@ fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (Strin
     }
 }
 
-/// `PATH` as `parent` has it, the first entry of the name, as `getenv`
-/// reads it.
 /// **The program a window started for `run` executes**, resolved as
 /// `Exec::running` resolves it on `parent`'s `PATH`
 /// (`exec::Program::of`), or none when it is not there: what the film's
@@ -1011,6 +1009,8 @@ pub(crate) fn window_program(
         .map(str::to_string)
 }
 
+/// `PATH` as `parent` has it, the first entry of the name, as `getenv`
+/// reads it.
 fn path_var(parent: &[(OsString, OsString)]) -> Option<&OsStr> {
     parent
         .iter()

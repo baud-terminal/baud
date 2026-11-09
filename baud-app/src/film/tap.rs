@@ -25,7 +25,7 @@ use baud_core::{Focus, Term};
 use baud_domain::{Col, Row, Rows};
 use baud_render::{AbsLine, LinkLine, Scrolled};
 
-use crate::link::{Chord, Host, Press, Spot, Under};
+use crate::link::{Chord, Press, Spot, Under};
 use crate::link_layer::{Decision, Layer, Then};
 use crate::paths::{Asked, Found, Origin};
 use crate::probe::{Linked, Writers};
@@ -186,7 +186,9 @@ pub(crate) struct Tap {
     probes: crate::probe::Probes<Instant>,
     sampler: crate::probe::Sampler,
     watched: crate::probe::WatchCell,
-    _watch: Option<crate::fg::Watch>,
+    /// The process watch on the child, whose verdict each read takes and
+    /// whose moves ask what is struck again, as the app's pump does.
+    watch: Option<crate::fg::Watch>,
     master: crate::sys::Fd,
     /// The session's environment, whose `PATH` a link's window would find
     /// its program on.
@@ -194,7 +196,7 @@ pub(crate) struct Tap {
     /// What a dump writes in place of each machine path, longest first.
     redact: Vec<(String, &'static str)>,
     frame: FrameNo,
-    lit: BTreeMap<AbsLine, (String, Cells)>,
+    lit: BTreeMap<AbsLine, (String, Spans)>,
     step: Option<StepAt>,
     pub(crate) report: Report,
 }
@@ -255,7 +257,7 @@ impl Tap {
             probes,
             sampler: crate::probe::Sampler::default(),
             watched,
-            _watch: watch,
+            watch,
             master,
             env: env.to_vec(),
             redact,
@@ -306,7 +308,8 @@ impl Tap {
         }
     }
 
-    /// **One turn of the take, a frame**: the worker's answers merged, its
+    /// **One turn of the take, a frame**: the worker's answers merged, what
+    /// is struck asked about again when the process watch saw a move, its
     /// clock ticked, the lines at rest scanned, as the app does each; then
     /// what changed written down. `step` is the session's step now, and a
     /// change of it keeps the screen as the step before it left it.
@@ -326,6 +329,9 @@ impl Tap {
             config: &self.config,
         };
         let answered = crate::link_layer::answers(&mut self.probes, &mut layer);
+        if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
+            crate::link_layer::moved(&mut self.probes, layer.paths);
+        }
         let _ = crate::link_layer::tick(&mut self.probes, &mut layer, Instant::now(), self.master);
         let _ = crate::link_layer::frame(&mut layer);
         self.frame = FrameNo(self.frame.0 + 1);
@@ -360,19 +366,19 @@ impl Tap {
     fn changes(&mut self, term: &Term<'_>, scrolled: Scrolled, at: Duration) {
         let text = crate::programs::screen(term);
         let screen = term.screen();
-        let mut now: BTreeMap<AbsLine, (String, Cells)> = BTreeMap::new();
+        let mut now: BTreeMap<AbsLine, (String, Spans)> = BTreeMap::new();
         for (r, t) in text.iter().enumerate() {
             let line = scrolled.line(Rows::ZERO, Row::from_index(r));
-            let cells = lit_cells(self.lines.lines(), Row::from_index(r));
-            now.insert(line, (t.clone(), cells));
+            let spans = lit_spans(self.lines.lines(), Row::from_index(r));
             let seen = self
                 .report
                 .seen
                 .entry(t.trim_end().to_string())
                 .or_insert((self.frame, None));
-            if cells > Cells(0) && seen.1.is_none() {
+            if !spans.is_empty() && seen.1.is_none() {
                 seen.1 = Some(self.frame);
             }
+            now.insert(line, (t.clone(), spans));
         }
         let (changes, darkened) = lit_changes(&self.lit, &now, screen, (self.frame, self.step, at));
         self.report.changes.extend(changes);
@@ -447,12 +453,10 @@ impl Tap {
         match crate::link_layer::decide(&under, line, term, &self.paths, &self.uris) {
             Decision::Path => match &under {
                 Under::Path(p) => {
-                    let host = Host(self.uris.host());
                     let found = match self.paths.result(p.path()) {
                         Some(crate::paths::Probe::Exists) => {
                             let asked = Asked::Printed(p.line_col().clone());
-                            match crate::paths::on_found(&asked, p.path(), host, self.uris.rules())
-                            {
+                            match crate::link_layer::decide_found(&asked, p.path(), &self.uris) {
                                 Found::Window(Ok(run)) => {
                                     format!("window {:?}", window_argv(&run, &self.env))
                                 }
@@ -570,22 +574,26 @@ impl Tap {
     }
 }
 
-/// **A row's lit cells, against the frame before**, each row by its line:
-/// every change of a row's count, and those that are a row going darker
-/// while its text stays and it stays on the normal screen. A row that
-/// left the window, or whose text changed, or the alternate screen's,
-/// is no darkening. Each change carries the frame, the step and the take's
-/// time it was seen at.
+/// A row's lit runs, each `(from, to)`, by their first column.
+type Spans = Vec<(Col, Col)>;
+
+/// **A row's lit runs, against the frame before**, each row by its line:
+/// every change of a row's runs, and those that are a row going darker --
+/// a run lit before and not now -- while its text stays and it stays on
+/// the normal screen, however many cells other runs lit in the same frame.
+/// A row that left the window, or whose text changed, or the alternate
+/// screen's, is no darkening. Each change carries the frame, the step and
+/// the take's time it was seen at, and the row's lit cells before and now.
 fn lit_changes(
-    before: &BTreeMap<AbsLine, (String, Cells)>,
-    now: &BTreeMap<AbsLine, (String, Cells)>,
+    before: &BTreeMap<AbsLine, (String, Spans)>,
+    now: &BTreeMap<AbsLine, (String, Spans)>,
     screen: Screen,
     (frame, step, at): (FrameNo, Option<StepAt>, Duration),
 ) -> (Vec<Change>, Vec<Change>) {
     let (mut changes, mut darkened) = (Vec::new(), Vec::new());
-    for (line, (t, cells)) in now {
-        let was = before.get(line).map_or(Cells(0), |(_, c)| *c);
-        if was == *cells {
+    for (line, (t, spans)) in now {
+        let was = before.get(line).map_or(&[][..], |(_, s)| s.as_slice());
+        if was == spans.as_slice() {
             continue;
         }
         let change = Change {
@@ -594,12 +602,13 @@ fn lit_changes(
             at,
             line: *line,
             text: t.trim_end().to_string(),
-            was,
-            now: *cells,
+            was: lit_count(was),
+            now: lit_count(spans),
             screen,
         };
         let same = before.get(line).is_some_and(|(old, _)| old == t);
-        if *cells < was && same && screen == Screen::Normal {
+        let lost = was.iter().any(|s| !spans.contains(s));
+        if lost && same && screen == Screen::Normal {
             darkened.push(change.clone());
         }
         changes.push(change);
@@ -641,12 +650,23 @@ fn cell_of(rows: &[Vec<char>], text: &str) -> Option<(Row, Col)> {
     })
 }
 
-/// How many cells of `row` the runs light.
-fn lit_cells(set: &[LinkLine], row: Row) -> Cells {
+/// The runs of `row` the lines light, by their first column.
+fn lit_spans(set: &[LinkLine], row: Row) -> Spans {
+    let mut spans: Spans = set
+        .iter()
+        .filter(|l| l.row == row)
+        .map(|l| (l.from, l.to))
+        .collect();
+    spans.sort();
+    spans
+}
+
+/// How many cells the runs light, each `(from, to)` inclusive.
+fn lit_count(spans: &[(Col, Col)]) -> Cells {
     Cells(
-        set.iter()
-            .filter(|l| l.row == row)
-            .map(|l| l.to.index().saturating_sub(l.from.index()) + 1)
+        spans
+            .iter()
+            .map(|(from, to)| to.index().saturating_sub(from.index()) + 1)
             .sum(),
     )
 }
@@ -875,54 +895,72 @@ mod tests {
     }
 
     /// **The darkening detector, over two frames**: a prompt row that
-    /// keeps its text and loses its lit cells is a row gone dark. The
-    /// controls: the same row with its text changed, the same on the
-    /// alternate screen, and a scroll that takes a lit row out of the
-    /// window and moves another, its text and cells kept, are not; a row
-    /// lighting is a change and no darkening.
+    /// keeps its text and loses its lit run is a row gone dark, and so is
+    /// one whose run went dark while another lit the same number of cells
+    /// in the same frame. The controls: the same row with its text changed,
+    /// the same on the alternate screen, and a scroll that takes a lit row
+    /// out of the window and moves another, its text and runs kept, are
+    /// not; a row lighting, and a second run lighting beside a kept one,
+    /// are changes and no darkening.
     #[test]
-    fn a_row_that_keeps_its_text_and_loses_its_cells_went_dark() {
-        use crate::film::tap::{Cells, FrameNo, lit_changes};
+    fn a_row_that_keeps_its_text_and_loses_a_run_went_dark() {
+        use crate::film::tap::{FrameNo, Spans, lit_changes};
         use baud_core::Screen;
-        use baud_domain::Rows;
+        use baud_domain::{Col, Rows};
         use baud_render::AbsLine;
         use std::collections::BTreeMap;
         use std::time::Duration;
+        type Frame = BTreeMap<AbsLine, (String, Spans)>;
+        // A row: its line, its text and its lit runs, `(from, to)`.
+        type Shown<'a> = (usize, &'a str, &'a [(usize, usize)]);
         let line = |n: usize| AbsLine::at(Rows::of_count(n));
-        let frame = |rows: &[(usize, &str, usize)]| -> BTreeMap<AbsLine, (String, Cells)> {
+        let frame = |rows: &[Shown<'_>]| -> Frame {
             rows.iter()
-                .map(|&(n, t, c)| (line(n), (t.to_string(), Cells(c))))
+                .map(|&(n, t, s)| {
+                    let spans = s
+                        .iter()
+                        .map(|&(a, b)| (Col::at_index(a), Col::at_index(b)))
+                        .collect();
+                    (line(n), (t.to_string(), spans))
+                })
                 .collect()
         };
         let when = (FrameNo(2), None, Duration::from_millis(40));
-        let prompt = "~/baud ❯ cat ~/README.md";
+        let prompt = "~/baud ❯ cat ~/README.md ~/notes.md";
         let ls = "~/baud ❯ ls README.md";
-        let before = frame(&[(0, ls, 9), (1, prompt, 11)]);
-        let dark = |after: &BTreeMap<AbsLine, (String, Cells)>, screen: Screen| {
+        let (readme, notes) = (&[(13, 23)][..], &[(25, 34)][..]);
+        let before = frame(&[(0, ls, &[(12, 20)]), (1, prompt, readme)]);
+        let dark = |after: &Frame, screen: Screen| {
             let (changes, darkened) = lit_changes(&before, after, screen, when);
             (
                 changes.len(),
                 darkened.iter().map(|c| c.line).collect::<Vec<_>>(),
             )
         };
+        let kept = (0, ls, &[(12, 20)][..]);
         assert_eq!(
-            dark(&frame(&[(0, ls, 9), (1, prompt, 0)]), Screen::Normal),
+            dark(&frame(&[kept, (1, prompt, &[])]), Screen::Normal),
             (1, vec![line(1)]),
             "a prompt row gone dark"
         );
         assert_eq!(
-            dark(&frame(&[(0, ls, 9), (1, "~/baud ❯ ", 0)]), Screen::Normal),
+            dark(&frame(&[kept, (1, prompt, &[(0, 10)])]), Screen::Normal),
+            (1, vec![line(1)]),
+            "a run gone dark while another lit as many cells"
+        );
+        assert_eq!(
+            dark(&frame(&[kept, (1, "~/baud ❯ ", &[])]), Screen::Normal),
             (1, vec![]),
             "the control: its text changed"
         );
         assert_eq!(
-            dark(&frame(&[(0, ls, 9), (1, prompt, 0)]), Screen::Alternate),
+            dark(&frame(&[kept, (1, prompt, &[])]), Screen::Alternate),
             (1, vec![]),
             "the control: the alternate screen"
         );
         assert_eq!(
             dark(
-                &frame(&[(1, prompt, 11), (2, "~/baud ❯ ", 0)]),
+                &frame(&[(1, prompt, readme), (2, "~/baud ❯ ", &[])]),
                 Screen::Normal
             ),
             (0, vec![]),
@@ -930,11 +968,19 @@ mod tests {
         );
         assert_eq!(
             dark(
-                &frame(&[(0, ls, 9), (1, prompt, 11), (2, "~/baud ❯ ls", 2)]),
+                &frame(&[kept, (1, prompt, readme), (2, "~/baud ❯ ls", &[(9, 10)])]),
                 Screen::Normal
             ),
             (1, vec![]),
             "the control: a row lighting"
+        );
+        assert_eq!(
+            dark(
+                &frame(&[kept, (1, prompt, &[readme[0], notes[0]])]),
+                Screen::Normal
+            ),
+            (1, vec![]),
+            "the control: a second run lighting"
         );
     }
 
