@@ -1419,6 +1419,100 @@ fn alt_case() -> impl Strategy<Value = (Vec<usize>, Option<(i32, i32)>, Vec<usiz
     )
 }
 
+/// **The alternate screen's property case, pinned**: its rows labelled,
+/// `A0` to `A2` selected, the two lines feed at the bottom takes off the
+/// top, then scrolls down of five lines, `DL 2` at the top and a scroll down
+/// of six in one read, which leave `A2` on row 9. Cut after the line
+/// feeds, the second read took back eleven lines with the selection
+/// armed on row 0, more than the alternate ring holds, and the watch put
+/// `A2` on row 8, a blank row. Named break: number the watch's row 0 by
+/// `now`'s saturating count alone, with no lift -- cut after the line
+/// feeds, the selection ends on the blank row 8.
+#[test]
+fn a_read_taking_back_more_than_the_alternate_ring_keeps_its_selection() {
+    let prog = bytes_of(&[17, 0, 14, 10, 4, 0, 27, 27, 26, 13, 0, 29]);
+    let sel = Some((0, 2));
+    let setup = alternate();
+    let ones: Vec<usize> = (1..prog.len()).collect();
+    for cuts in [vec![], vec![12], ones] {
+        assert_eq!(
+            reached_after(&setup, &prog, sel, &cuts),
+            Some(Some((9, 9))),
+            "cut at {cuts:?}"
+        );
+    }
+}
+
+/// **A line kept on the alternate screen through more lines taken back
+/// than its ring holds**: armed on `A0`, a line scrolled down and deleted
+/// back at the top, again and again in one read -- each round a line taken
+/// back and `A0` back on row 0 -- two rounds more than the ring is long,
+/// then three lines down. `A0` is on row 3, and the watch says so. Named
+/// break: as above, no lift -- the watch puts `A0` on another row.
+#[test]
+fn a_line_kept_through_more_take_backs_than_the_ring_holds_is_where_its_text_is() {
+    with_term(|t| {
+        feed(t, &alternate());
+        let n = t.ring().index();
+        t.watch_rows(rows(0, 0));
+        let round = b"\x1b[r\x1b[T\x1b[M";
+        let prog: Vec<u8> = round
+            .iter()
+            .copied()
+            .cycle()
+            .take(round.len() * (n + 2))
+            .chain(b"\x1b[3T".iter().copied())
+            .collect();
+        feed(t, &prog);
+        assert_eq!(label(t, 3), "A0", "the control: A0's text is on row 3");
+        assert!(!t.watched_rows_changed(), "no move left A0 nor wrote on it");
+        let w = t.watched_lines().expect("the watch");
+        assert_eq!(
+            (w.first, w.last),
+            (
+                SurfaceLine::At(Row::from_index(3)),
+                SurfaceLine::At(Row::from_index(3))
+            ),
+            "where A0's text is"
+        );
+    });
+}
+
+/// **And how far its text moved against the count is exact**: armed on
+/// `A5`, five lines deleted at the top bring it to row 0, then a line
+/// scrolled down and deleted back, round after round, two rounds more than
+/// the ring is long, then three lines down. `A5` is on row 3, and its text
+/// has moved up five lines and a line a round against the count, which
+/// [`Term::watched_lines`]'s `moved` says. Named break: no lift before a
+/// carry up -- the distance moved is cut short where it would go below
+/// zero.
+#[test]
+fn a_line_moved_up_past_the_count_says_how_far_its_text_went() {
+    with_term(|t| {
+        feed(t, &alternate());
+        let n = t.ring().index();
+        t.watch_rows(rows(5, 5));
+        let round = b"\x1b[r\x1b[T\x1b[M";
+        let prog: Vec<u8> = b"\x1b[r\x1b[M\x1b[M\x1b[M\x1b[M\x1b[M"
+            .iter()
+            .copied()
+            .chain(round.iter().copied().cycle().take(round.len() * (n + 2)))
+            .chain(b"\x1b[3T".iter().copied())
+            .collect();
+        feed(t, &prog);
+        assert_eq!(label(t, 3), "A5", "the control: A5's text is on row 3");
+        let w = t.watched_lines().expect("the watch");
+        assert_eq!(
+            (w.first, w.moved),
+            (
+                SurfaceLine::At(Row::from_index(3)),
+                TextMoved::Up(Rows::of_count(5 + n + 2))
+            ),
+            "where A5's text is, and how far it moved against the count"
+        );
+    });
+}
+
 /// **The generator reaches the shapes the property is for**, counted over a
 /// fixed sample: two moves in one read in bands apart, a region set and set
 /// back around a move, `IL` or `DL` with no region, lines retired before a

@@ -477,7 +477,9 @@ pub struct WatchedLines {
 pub(crate) struct RowWatch {
     /// The arm's screen row 0, in the watch's numbering: the live ring's
     /// length at the arm, so a line of the history up to the ring's length
-    /// above it is numbered from zero up and no number is negative.
+    /// above it is numbered from zero up and no number is negative, and
+    /// moved up with every number where lines taken back or a carry up
+    /// would take one below zero ([`RowWatch::lift`]).
     pub(crate) base: Rows,
     pub(crate) first: Rows,
     pub(crate) last: Rows,
@@ -540,8 +542,30 @@ impl RowWatch {
         }
     }
 
+    /// **Every number of the watch moved up `d`**, which moves no line: a
+    /// line is numbered against `base` and the count, so the same `d` on
+    /// `base`, the watched lines and `carried` leaves each where it stands.
+    /// What keeps a number from going below zero where the alternate
+    /// screen takes back more lines than its ring holds -- a scroll down
+    /// with a delete at the top, round after round, keeps a line on the
+    /// screen while the count of lines taken back grows -- since a number
+    /// held at zero puts a line on another row.
+    fn lift(&mut self, d: Rows) {
+        let up = |n: Rows| Rows::of_count(n.index() + d.index());
+        (self.base, self.first, self.last, self.carried) = (
+            up(self.base),
+            up(self.first),
+            up(self.last),
+            up(self.carried),
+        );
+    }
+
     /// The watched lines carried `k` rows `way` with their text.
     fn carry(&mut self, k: Rows, way: crate::ops::Scroll) {
+        let low = self.first.min(self.carried);
+        if matches!(way, crate::ops::Scroll::Up) && low < k {
+            self.lift(Rows::of_count(k.index() - low.index()));
+        }
         let step = |n: Rows| match way {
             crate::ops::Scroll::Up => Rows::of_count(n.index().saturating_sub(k.index())),
             crate::ops::Scroll::Down => Rows::of_count(n.index() + k.index()),
@@ -2042,7 +2066,16 @@ impl Cold {
                     _ => w.first = w.first.max(row0),
                 }
             }
-            crate::ops::Scroll::Down => w.top = w.top.plus(Rows::of_count(1)),
+            crate::ops::Scroll::Down => {
+                w.top = w.top.plus(Rows::of_count(1));
+                // Row 0 is numbered `base` less the lines taken back: kept
+                // at zero or above.
+                if let Moved::Restored(b) = w.net(top) {
+                    if b > w.base {
+                        w.lift(Rows::of_count(b.index() - w.base.index()));
+                    }
+                }
+            }
         }
     }
 
