@@ -712,10 +712,18 @@ mod tests {
 
     /// **A process watch dropped ends its thread and closes its kqueue**:
     /// the drop returns only once the thread has, so the waker the thread
-    /// held is gone, and the kqueue's descriptor answers no more. The
-    /// control: before the drop the thread holds the waker and the
-    /// descriptor is open. Reads a descriptor number, so it holds only
-    /// with one process a test, as nextest runs it.
+    /// held is gone, and the last holder of the kqueue's descriptor with
+    /// it, so the descriptor is closed. The control: before the drop the
+    /// thread holds the waker and the kqueue has two holders, the watch
+    /// and its thread.
+    ///
+    /// The descriptor is followed by its holders, not by its number: a
+    /// closed descriptor's number is the next `open`'s anywhere in the
+    /// process, and under `cargo test` another test's thread takes it at
+    /// once. Read by number, an open here right after the drop -- the
+    /// stand-in for that thread, kept below -- made "closed" read open.
+    /// Named break: a drop that keeps a holder of the kqueue (a clone of
+    /// its `Arc` forgotten) leaves it open.
     #[cfg(target_os = "macos")]
     #[test]
     fn a_dropped_process_watch_ends_its_thread_and_closes_its_kqueue() {
@@ -725,29 +733,27 @@ mod tests {
             let _ = &in_thread;
         })
         .expect("a kqueue and its thread");
-        let kq = watch.fd();
+        let kq = std::sync::Arc::downgrade(&watch.kq);
         assert_eq!(
             std::sync::Arc::strong_count(&held),
             2,
             "the control: the thread holds the waker"
         );
-        // SAFETY: `F_GETFD` on a descriptor number, which answers -1 for
-        // one that is not open.
-        assert!(
-            unsafe { crate::sys::fcntl(kq, crate::sys::F_GETFD) } >= 0,
-            "the control: the kqueue is open"
+        assert_eq!(
+            kq.strong_count(),
+            2,
+            "the control: the watch and its thread hold the kqueue"
         );
         drop(watch);
+        // Another test's open, which takes the closed descriptor's number.
+        let other = std::fs::File::open("/dev/null").expect("an open");
         assert_eq!(
             std::sync::Arc::strong_count(&held),
             1,
             "the thread returned and dropped the waker before the drop did"
         );
-        // SAFETY: as above.
-        assert!(
-            unsafe { crate::sys::fcntl(kq, crate::sys::F_GETFD) } < 0,
-            "the kqueue is closed"
-        );
+        assert!(kq.upgrade().is_none(), "the kqueue is closed");
+        drop(other);
     }
 
     /// A fresh directory holding `ssh` and `true`, each a link to
