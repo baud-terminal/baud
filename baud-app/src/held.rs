@@ -334,13 +334,18 @@ mod tests {
 
     /// **The status is decoded as this platform's `waitpid` gives it**,
     /// against real children's: `exit 3` and a `kill -9` of itself; and the
-    /// two signal numbers the rule names are this platform's. Named break:
-    /// take every status as an exit code -- the signal reads as a code.
+    /// two signal numbers the rule names are this platform's. Each child
+    /// starts with the signals it sends itself at their default action: a
+    /// runner that ignores `SIGINT` or `SIGHUP`, as a background job of a
+    /// non-interactive shell ignores `SIGINT`, passes that on through `exec`,
+    /// and the child's `kill -INT $$` then ended nothing, read `Code(0)`.
+    /// Named break: take every status as an exit code -- the signal reads as
+    /// a code.
     #[test]
     fn a_status_is_decoded_as_waitpid_gives_it() {
         let run = |script: &str| {
-            std::process::Command::new("/bin/sh")
-                .args(["-c", script])
+            let mut sh = std::process::Command::new("/bin/sh");
+            crate::sys::default_signals(sh.args(["-c", script]), &[SIGHUP, SIGINT, SIGSEGV])
                 .status()
                 .expect("sh")
         };

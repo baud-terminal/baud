@@ -323,6 +323,51 @@ unsafe extern "C" {
 /// (`pty::reap_now`). The same value on both platforms.
 pub const WNOHANG: c_int = 1;
 
+/// A signal's disposition as `signal` takes and answers it, a pointer to a
+/// handler or one of the header's sentinels.
+#[cfg(test)]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct SigHandler(pub usize);
+
+/// `signal`'s disposition that restores a signal's default action:
+/// `SIG_DFL`, 0 on both platforms; the probe holds it.
+#[cfg(test)]
+pub const SIG_DFL: SigHandler = SigHandler(0);
+
+#[cfg(test)]
+unsafe extern "C" {
+    pub fn signal(sig: c_int, handler: SigHandler) -> SigHandler;
+}
+
+/// **`cmd`'s child starts with each of `signals` at its default action**,
+/// whatever this process inherited. A signal ignored stays ignored across
+/// `exec` ("signals set to be ignored (SIG_IGN) by the calling process image
+/// shall be set to be ignored by the new process image", `[[source:
+/// posix-exec]]`), and a non-interactive shell can neither trap nor reset
+/// one ignored on
+/// entry, so a child started from a runner that ignores `SIGINT` -- a
+/// background job of a non-interactive shell does -- is not ended by one.
+#[cfg(test)]
+pub fn default_signals<'c>(
+    cmd: &'c mut std::process::Command,
+    signals: &'static [c_int],
+) -> &'c mut std::process::Command {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: between the fork and the exec the closure calls only
+    // `signal`, which XSH 2.4.3's table lists as async-signal-safe
+    // (`[[source: posix-xsh-chap02]]`), over a slice that lives for the
+    // program.
+    unsafe {
+        cmd.pre_exec(move || {
+            for &s in signals {
+                signal(s, SIG_DFL);
+            }
+            Ok(())
+        })
+    }
+}
+
 /// "No such process": what `kill(pid, 0)` answers once a reaped child is
 /// gone from the process table, and what `kevent` answers for a process
 /// watch on a child that has already exited (`[[source:
@@ -1744,6 +1789,7 @@ int main(void) {
     printf("TCSANOW=%lld\n", (long long)TCSANOW);
     printf("MAP_FIXED=%lld\n", (long long)MAP_FIXED);
     printf("getpagesize=%lld\n", (long long)getpagesize());
+    printf("SIG_DFL=%lld\n", (long long)(intptr_t)SIG_DFL);
     printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
     printf("pid_t.size=%zu\n", sizeof(pid_t));
     printf("WNOHANG=%lld\n", (long long)WNOHANG);
@@ -2135,6 +2181,7 @@ int main(void) {
         // **The page size is the system's**: what `getpagesize` answers here
         // is what the headers' program answers.
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
+        assert_eq!(h["SIG_DFL"], SIG_DFL.0 as i128);
         assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
         assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
         assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
