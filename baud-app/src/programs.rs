@@ -1389,6 +1389,10 @@ fn the_legacy_gutter_keeps_a_press_from_a_tracking_vim() {
 #[test]
 #[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it with BAUD_CHA"]
 fn chawan_draws_a_pages_picture_by_kittys_protocol() {
+    // No window: AppKit's main-thread marker is made only on the main
+    // thread, and this test is never on it (`no_appkit.rs`).
+    #[cfg(target_os = "macos")]
+    assert!(!crate::sys::on_main_thread(), "a test off the main thread");
     let cha = std::env::var("BAUD_CHA").expect("BAUD_CHA, the tour's pinned cha");
     let dir = Scratch::new("cha");
     let conf = dir.path().join("h/chawan");

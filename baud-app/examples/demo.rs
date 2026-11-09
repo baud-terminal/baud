@@ -218,6 +218,16 @@
 // The modules are in `baud-app/examples/demo/`; a crate root looks for
 // them beside itself.
 
+// What the headless run reaches, and that it names no AppKit: the walker
+// baud's own tests use (`src/no_appkit.rs`), and the proof that uses it.
+#[cfg(test)]
+#[allow(dead_code, reason = "shared with baud's tests; each uses its part")]
+#[path = "../src/no_appkit.rs"]
+mod no_appkit;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "demo/no_window.rs"]
+mod no_window;
+
 #[cfg(any(target_os = "macos", test))]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[path = "demo/container.rs"]

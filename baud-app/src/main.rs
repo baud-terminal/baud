@@ -235,6 +235,11 @@ mod print;
 // its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod palette;
+// What a test's code reaches, and whether it names AppKit: the proof
+// that a path opens no window. The demo's tests use it too, by `#[path]`.
+#[cfg(test)]
+#[allow(dead_code, reason = "shared with the demo's tests; each uses its part")]
+mod no_appkit;
 // Real programs in a pty under the seat, for the tests only.
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod programs;

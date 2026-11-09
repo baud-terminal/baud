@@ -958,6 +958,24 @@ unsafe extern "C" {
     pub fn gethostname(name: *mut c_char, len: NameLen) -> c_int;
 }
 
+// **Whether this thread is the process's main one** (`<pthread.h>`, Darwin
+// only): the thread AppKit's main-thread marker is made on, which a
+// test that must open no window holds itself off (`no_appkit.rs`).
+#[cfg(all(test, target_os = "macos"))]
+unsafe extern "C" {
+    pub fn pthread_main_np() -> c_int;
+}
+
+/// **Whether the calling thread is the process's main thread**, where
+/// AppKit's main-thread marker can be made: never a test's, which libtest
+/// runs on a thread of its own.
+#[cfg(all(test, target_os = "macos"))]
+pub fn on_main_thread() -> bool {
+    // SAFETY: `pthread_main_np` takes nothing and cannot fail.
+    let main = unsafe { pthread_main_np() };
+    main != 0
+}
+
 /// The room `gethostname` is given for the name: a `size_t`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]

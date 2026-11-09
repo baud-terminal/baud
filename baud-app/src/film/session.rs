@@ -967,6 +967,9 @@ fn a_windowless_session_skips_the_links_window() {
 #[test]
 #[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it"]
 fn the_readme_session_lights_every_light() {
+    // No window: AppKit's main-thread marker is made only on the main
+    // thread, and this test is never on it (`no_appkit.rs`).
+    assert!(!crate::sys::on_main_thread(), "a test off the main thread");
     use crate::config::CursorTrail;
     use std::io::Write as _;
     let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
@@ -1442,4 +1445,272 @@ fn the_window_geometry_is_the_apps() {
         steps::PAD_PT,
         f64::from(crate::config::Config::defaults().padding)
     );
+}
+
+/// The terminal programs the session runs that take the keyboard, and
+/// what ends each: helix's `:q` line, btop's `q` key.
+const TAKES_KEYS: [(&str, Step); 2] = [("hx", Step::Line(":q")), ("btop", Step::Keys("q"))];
+
+/// **The command lines a session types, as the shell would read them**:
+/// keys, a paste of what was copied and a line's own text, joined, at each
+/// Return. Each one's first word, `#` for a comment. While a program of
+/// [`TAKES_KEYS`] has the keyboard, its keys build no shell line, and each
+/// line it is sent is read on its own, until its ending.
+fn submitted(steps: &[Step]) -> Vec<String> {
+    let (mut out, mut line, mut copied) = (Vec::new(), String::new(), "");
+    let mut holder: Option<Step> = None;
+    let first = |l: &str| {
+        let w = l.split_whitespace().next().unwrap_or("");
+        match w.starts_with('#') {
+            true => "#".to_string(),
+            false => w.to_string(),
+        }
+    };
+    for s in steps {
+        if let Some(end) = holder {
+            if let Step::Line(t) = *s {
+                out.push(first(t));
+            }
+            if *s == end {
+                holder = None;
+            }
+            continue;
+        }
+        match *s {
+            Step::Keys(t) => line.push_str(t),
+            Step::Copy(t) => copied = t,
+            Step::Paste => line.push_str(copied),
+            Step::Run(t) | Step::Line(t) => {
+                line.push_str(t);
+                let w = first(&line);
+                holder = TAKES_KEYS.iter().find(|(p, _)| *p == w).map(|(_, e)| *e);
+                out.push(w);
+                line.clear();
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// What the headless session may type and submit: comments, ssh, the
+/// container's terminal programs, helix's own commands, and the shell's
+/// `printf`, `sed`, `clear` and `exit`. None of them opens a window.
+const SUBMITTED_ALLOWED: [&str; 14] = [
+    "#",
+    "ssh",
+    "fastfetch",
+    "hx",
+    "cat",
+    "btop",
+    "printf",
+    "exit",
+    "sed",
+    "clear",
+    ":q",
+    "/character",
+    "/Nix",
+    "",
+];
+
+/// **The headless session starts no program that opens a window**: every
+/// command line it submits, played as the headless run plays it
+/// ([`windowless`], which takes every Command-click out with its window's
+/// steps), begins with a word of [`SUBMITTED_ALLOWED`]. The control: an
+/// `mpv` line, and an `open` spelled across keys and a paste, are caught.
+#[test]
+fn the_headless_session_submits_only_programs_that_open_no_window() {
+    let steps = windowless(SESSION);
+    assert!(!steps.iter().any(|s| matches!(s, Step::CmdClick(_))));
+    let lines = submitted(&steps);
+    assert!(
+        lines.len() >= 20,
+        "the control: the lines are read: {lines:?}"
+    );
+    for l in &lines {
+        assert!(SUBMITTED_ALLOWED.contains(&l.as_str()), "{l:?} submitted");
+    }
+    let mpv = [Step::Run("mpv https://example.com/x.mp4")];
+    assert_eq!(submitted(&mpv), ["mpv"], "the control: mpv is read");
+    let spelled = [
+        Step::Copy("en"),
+        Step::Keys("op"),
+        Step::Paste,
+        Step::Line(" README.md"),
+    ];
+    assert_eq!(
+        submitted(&spelled),
+        ["open"],
+        "the control: spelled across steps"
+    );
+}
+
+/// **The two tests the headless run executes in baud hold themselves off
+/// the main thread**, and so off every AppKit main-thread marker: libtest
+/// runs a test on a thread of its own, with any `--test-threads`, and each
+/// asserts it first thing. The control: this test is off it too.
+#[test]
+fn the_headless_tests_hold_off_the_main_thread() {
+    assert!(
+        !crate::sys::on_main_thread(),
+        "the control: a test is off it"
+    );
+    let guard = r#"assert!(!crate::sys::on_main_thread(), "a test off the main thread");"#;
+    let first = |src: &str, test: &str| {
+        let body = src
+            .split_once(&format!("fn {test}() {{"))
+            .map(|(_, b)| b)
+            .expect("the test");
+        let code: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//") && !l.starts_with("#["))
+            .take(1)
+            .collect();
+        code.first().copied().unwrap_or("").to_string()
+    };
+    assert_eq!(
+        first(
+            include_str!("session.rs"),
+            "the_readme_session_lights_every_light"
+        ),
+        guard,
+        "the session's first statement"
+    );
+    assert_eq!(
+        first(
+            include_str!("../programs.rs"),
+            "chawan_draws_a_pages_picture_by_kittys_protocol"
+        ),
+        guard,
+        "Chawan's first statement"
+    );
+}
+
+/// **A block put on the main queue never runs in a test**: libtest's main
+/// thread waits on its tests and drains no queue, so code baud dispatches
+/// to the main queue -- where it would be on the main thread, with a
+/// marker -- never runs in the headless run's tests. The control: a block
+/// on a queue of its own runs.
+#[test]
+fn a_block_on_the_main_queue_never_runs_in_a_test() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let other = tx.clone();
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let _ = tx.send("main");
+    });
+    dispatch2::DispatchQueue::new("baud.no-appkit", None).exec_async(move || {
+        let _ = other.send("own");
+    });
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)),
+        Ok("own"),
+        "the control: a queue of its own runs"
+    );
+    assert!(
+        rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "the main queue's block ran"
+    );
+}
+
+/// **Nothing in baud takes a main-thread marker by hand**: objc2 builds an
+/// application or a window only with a marker, and a marker is made only on
+/// the main thread, unless code forces one (`new_unchecked`), turns the
+/// process into an application from C (`TransformProcessType`,
+/// `NSApplicationLoad`), sends to the class without the safe API, or looks
+/// a class up by name. No code in baud-app or baud-present-macos does any
+/// of these, and every class it looks up by name is named in a C string
+/// that is no application, window or panel: comments and literals aside,
+/// a literal being source for another program, not a call. The controls:
+/// a forced marker is caught and the same words in a string are not; a
+/// lookup of a notification class passes, and one of the application
+/// class, or of a name not written, is caught.
+#[test]
+fn nothing_takes_a_main_thread_marker_by_hand() {
+    use crate::no_appkit::bare_code;
+    const FORBIDDEN_APP: &str = crate::no_appkit::FORBIDDEN[1];
+    let bypasses = [
+        concat!("MainThreadMarker::new", "_unchecked"),
+        concat!("TransformProcess", "Type"),
+        concat!("class!(NSApp", "lication)"),
+        concat!("msg_send![NSApp", "lication"),
+        concat!("NSApplication", "Load"),
+        concat!("objc_get", "Class"),
+        concat!("objc_lookUp", "Class"),
+        concat!("NSClassFrom", "String"),
+        concat!("objc_msg", "Send"),
+    ];
+    // A class looked up by name is named in a literal, which `bare_code`
+    // blanks: each lookup's name is read from the code with literals kept,
+    // and must be a C string that is no application, window or panel.
+    let lookups = [concat!("AnyClass::", "get("), "new_of("];
+    let windowing = ["NSApp", "NSWindow", "NSPanel"];
+    // `new_of`'s own lookup, by its argument: its callers are lookups too.
+    let by_argument = concat!("let cls = AnyClass::", "get(name)?;");
+    let caught = |text: &str| -> Vec<String> {
+        let bare = bare_code(text);
+        let kept = crate::no_appkit::code(text);
+        let mut out: Vec<String> = bare
+            .lines()
+            .filter(|l| bypasses.iter().any(|b| l.contains(b)))
+            .map(|l| l.trim().to_string())
+            .collect();
+        for (b, k) in bare.lines().zip(kept.lines()) {
+            for l in lookups {
+                if !b.contains(l) || b.contains(&format!("fn {l}")) || k.trim() == by_argument {
+                    continue;
+                }
+                let named = k
+                    .split_once(l)
+                    .and_then(|(_, r)| r.strip_prefix("c\""))
+                    .and_then(|r| r.split_once('"'))
+                    .map(|(n, _)| n);
+                match named {
+                    Some(n) if !windowing.iter().any(|w| n.starts_with(w)) => {}
+                    _ => out.push(k.trim().to_string()),
+                }
+            }
+        }
+        out
+    };
+    let forced = format!("let m = unsafe {{ {}() }};\n", bypasses[0]);
+    assert_eq!(caught(&forced).len(), 1, "the control: code is caught");
+    assert!(
+        caught(&format!("let s = {forced:?};\n")).is_empty(),
+        "a string is not"
+    );
+    let lookup = |n: &str| format!("let c = {}c\"{n}\");\n", lookups[0]);
+    assert!(
+        caught(&lookup("UNNotificationSound")).is_empty(),
+        "the control: a notification class passes"
+    );
+    assert_eq!(
+        caught(&lookup(FORBIDDEN_APP)).len(),
+        1,
+        "the control: the application class is caught"
+    );
+    assert_eq!(
+        caught(&format!("let c = {}x);\n", lookups[0])).len(),
+        1,
+        "a name not written is caught"
+    );
+    let mut found = Vec::new();
+    for root in ["src", "../baud-present-macos/src"] {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(root);
+        let mut todo = vec![dir];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).expect("a source folder") {
+                let p = e.expect("an entry").path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).expect("a source file");
+                    for l in caught(&text) {
+                        found.push(format!("{}: {l}", p.display()));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(found, Vec::<String>::new(), "a marker taken by hand");
 }

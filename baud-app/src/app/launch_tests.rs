@@ -1391,22 +1391,24 @@ fn a_kitty_query_read_on_a_wake_is_answered_on_that_wake() {
     );
 }
 
-/// **A launch on this path opens no window**: every NSApplication call
-/// baud makes goes through a main-thread marker, and no code the launch
-/// tests reach names a main-thread marker, NSApplication, NSWindow or
+/// **A launch on this path opens no window**: no code the launch tests
+/// reach names a main-thread marker, NSApplication, NSWindow or
 /// `baud_present_macos`, nor calls pty.rs's Accessibility read,
-/// `prefers_steady_caret`. What they reach is computed, not listed: from
-/// this file, every `crate::` and `super::` path, `use` trees spread, to
-/// the module file it names, and on through that file's code; in app.rs,
-/// only the free fns reached, and the free fns they call. Another module's
-/// unit tests (a `mod ...tests {` block) are not on the path and are not
-/// followed. One reach is allowed, by name and line ([`ALLOWED`]). The
-/// names are spelled in halves, so this file does not match itself.
+/// `prefers_steady_caret` (`crate::no_appkit`, which computes the reach:
+/// from this file, app.rs fn by fn). One reach is allowed, by name and line
+/// ([`ALLOWED`]).
 #[test]
 fn the_launch_path_names_no_appkit() {
+    use crate::no_appkit::{Follow, Part, Walk, hits, reach};
     let src = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
-    let reached = closure::reach(src);
-    let file = |p: &[&str]| closure::Part::File(p.iter().map(|s| s.to_string()).collect());
+    let file = |p: &[&str]| Part::File(p.iter().map(|s| s.to_string()).collect());
+    let app = |f: &str| Part::Fn(vec!["app".to_string()], f.to_string());
+    let reached = reach(&Walk {
+        src,
+        start: vec![file(&["app", "launch_tests"])],
+        by_fn: &[(&["app"], Follow::FreeFns)],
+        sinks: &[],
+    });
     // The control: the walk follows `crate::`, `super::` and `use`, to
     // modules three deep and to app.rs's fns.
     for part in [
@@ -1415,48 +1417,30 @@ fn the_launch_path_names_no_appkit() {
         file(&["winops"]),
         file(&["probe"]),
         file(&["notify"]),
-        closure::Part::AppFn("theme_for".into()),
-        closure::Part::AppFn("frame_trail".into()),
+        app("theme_for"),
+        app("frame_trail"),
     ] {
-        assert!(reached.contains_key(&part), "the walk reaches {part:?}");
+        assert!(
+            reached.parts.contains_key(&part),
+            "the walk reaches {part:?}"
+        );
     }
     let steady = concat!("prefers_steady", "_caret(");
-    let mut found = Vec::new();
-    for (part, body) in &reached {
-        for line in body.lines() {
-            let names = closure::FORBIDDEN.iter().any(|f| line.contains(f));
-            let calls = line.contains(steady) && !line.contains("fn ");
-            if !(names || calls) {
-                continue;
-            }
-            let allowed = ALLOWED.iter().any(|(at, code, _)| {
-                matches!(part, closure::Part::File(p) if p == at) && line.contains(code)
-            });
-            if !allowed {
-                found.push(format!("{part:?}: {}", line.trim()));
-            }
-        }
-    }
     assert_eq!(
-        found,
+        hits(&reached, &[steady], &ALLOWED),
         Vec::<String>::new(),
         "code the launch reaches names AppKit"
     );
-    // Each allowance is used, so none outlives its reason.
-    for (at, code, why) in ALLOWED {
-        let part = file(at);
-        assert!(
-            reached.get(&part).is_some_and(|b| b.contains(code)),
-            "{at:?}'s allowance is unused: {why}"
-        );
-    }
     // The control: a use in code is caught, the same words in a comment
     // are not, and a module's tests block is cut.
-    let marker = format!("fn f() {{ let m = {}::new(); }}\n", closure::FORBIDDEN[0]);
+    let marker = format!(
+        "fn f() {{ let m = {}::new(); }}\n",
+        crate::no_appkit::FORBIDDEN[0]
+    );
     let caught = |text: &str| {
-        closure::without_tests(&closure::code(text))
+        crate::no_appkit::without_tests(&crate::no_appkit::code(text))
             .lines()
-            .any(|l| closure::FORBIDDEN.iter().any(|f| l.contains(f)))
+            .any(|l| crate::no_appkit::FORBIDDEN.iter().any(|f| l.contains(f)))
     };
     assert!(caught(&marker), "the control: code is caught");
     assert!(!caught(&format!("// {marker}")), "a comment is not");
@@ -1472,407 +1456,10 @@ fn the_launch_path_names_no_appkit() {
 
 /// **The reaches allowed**: the module, the code on the line, and why it
 /// opens nothing.
-const ALLOWED: [(&[&str], &str, &str); 1] = [(
+pub(crate) const ALLOWED: [(&[&str], &str, &str); 1] = [(
     &["probe"],
     concat!("baud_present", "_macos::link::has_handler(address)"),
     "the link worker's question whether an app opens a scheme: NSWorkspace's \
      URLForApplicationToOpenURL, a LaunchServices lookup made off the main thread in \
      its own autorelease pool, which starts no AppKit application, window or Dock icon",
 )];
-
-/// **The modules and fns a launch test reaches**, read from baud-app's own
-/// source for [`the_launch_path_names_no_appkit`].
-mod closure {
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::path::{Path, PathBuf};
-
-    /// The four names, in halves so this file does not match itself.
-    pub(super) const FORBIDDEN: [&str; 4] = [
-        concat!("MainThread", "Marker"),
-        concat!("NSApp", "lication"),
-        concat!("NSWin", "dow"),
-        concat!("baud_present", "_macos"),
-    ];
-
-    /// What one reached part is: a module's file, or one free fn of app.rs.
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-    pub(super) enum Part {
-        File(Vec<String>),
-        AppFn(String),
-    }
-
-    /// What a byte of Rust source is: code, inside a string or character
-    /// literal, or inside a comment.
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Byte {
-        Code,
-        Literal,
-        Comment,
-    }
-
-    /// Each byte of `t` classed, a lexer's worth: line and nested block
-    /// comments; strings, byte strings and raw strings with their hashes;
-    /// character literals told from lifetimes.
-    fn classes(t: &[u8]) -> Vec<Byte> {
-        let mut k = vec![Byte::Code; t.len()];
-        let word = |i: usize| i > 0 && (t[i - 1].is_ascii_alphanumeric() || t[i - 1] == b'_');
-        let mut i = 0;
-        while i < t.len() {
-            let start = i;
-            let kind = if t[i..].starts_with(b"//") {
-                while i < t.len() && t[i] != b'\n' {
-                    i += 1;
-                }
-                Byte::Comment
-            } else if t[i..].starts_with(b"/*") {
-                let mut depth = 0usize;
-                while i < t.len() {
-                    if t[i..].starts_with(b"/*") {
-                        depth += 1;
-                        i += 2;
-                    } else if t[i..].starts_with(b"*/") {
-                        depth -= 1;
-                        i += 2;
-                        if depth == 0 {
-                            break;
-                        }
-                    } else {
-                        i += 1;
-                    }
-                }
-                Byte::Comment
-            } else if (t[i] == b'r' || t[i..].starts_with(b"br")) && !word(i) && {
-                let r = i + usize::from(t[i] == b'b') + 1;
-                let h = t[r..].iter().take_while(|&&b| b == b'#').count();
-                t.get(r + h) == Some(&b'"')
-            } {
-                let r = i + usize::from(t[i] == b'b') + 1;
-                let h = t[r..].iter().take_while(|&&b| b == b'#').count();
-                let mut close = vec![b'"'];
-                close.extend(std::iter::repeat_n(b'#', h));
-                i = r + h + 1;
-                while i < t.len() && !t[i..].starts_with(&close) {
-                    i += 1;
-                }
-                i = (i + close.len()).min(t.len());
-                Byte::Literal
-            } else if t[i] == b'"' {
-                i += 1;
-                while i < t.len() && t[i] != b'"' {
-                    i += if t[i] == b'\\' { 2 } else { 1 };
-                }
-                i = (i + 1).min(t.len());
-                Byte::Literal
-            } else if t[i] == b'\'' {
-                let len = |b: u8| match b {
-                    0xf0.. => 4,
-                    0xe0.. => 3,
-                    0xc0.. => 2,
-                    _ => 1,
-                };
-                if t.get(i + 1) == Some(&b'\\') {
-                    i += 3;
-                    while i < t.len() && t[i] != b'\'' {
-                        i += 1;
-                    }
-                    i = (i + 1).min(t.len());
-                    Byte::Literal
-                } else if t
-                    .get(i + 1)
-                    .is_some_and(|&c| t.get(i + 1 + len(c)) == Some(&b'\''))
-                {
-                    let c = t[i + 1];
-                    i += 2 + len(c);
-                    Byte::Literal
-                } else {
-                    i += 1;
-                    Byte::Code
-                }
-            } else {
-                i += 1;
-                Byte::Code
-            };
-            for b in &mut k[start..i.min(t.len())] {
-                *b = kind;
-            }
-        }
-        k
-    }
-
-    /// A file's code: every comment blanked to spaces, newlines kept, and
-    /// literals as written, since a string naming a class names it.
-    pub(super) fn code(text: &str) -> String {
-        let k = classes(text.as_bytes());
-        let bytes: Vec<u8> = text
-            .bytes()
-            .zip(k)
-            .map(|(b, c)| match (c, b) {
-                (Byte::Comment, b'\n') | (Byte::Code | Byte::Literal, _) => b,
-                (Byte::Comment, _) => b' ',
-            })
-            .collect();
-        // A whole comment's bytes are blanked, so the text stays UTF-8.
-        String::from_utf8(bytes).expect("UTF-8")
-    }
-
-    /// A byte offset into a file's text, or a count of bytes read.
-    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-    struct Offset(usize);
-
-    /// The index just past the `}` matching the `{` at `open`, counting
-    /// only braces that are code.
-    fn block_end(text: &str, Offset(open): Offset) -> Offset {
-        let k = classes(text.as_bytes());
-        let mut depth = 0usize;
-        for (i, b) in text.bytes().enumerate().skip(open) {
-            if k[i] != Byte::Code {
-                continue;
-            }
-            match b {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Offset(i + 1);
-                    }
-                }
-                _ => {}
-            }
-        }
-        Offset(text.len())
-    }
-
-    /// The leading identifier of `s`.
-    fn ident(s: &str) -> &str {
-        let n = s
-            .char_indices()
-            .find(|(_, c)| !(c.is_alphanumeric() || *c == '_'))
-            .map_or(s.len(), |(i, _)| i);
-        &s[..n]
-    }
-
-    /// `code` with every `mod NAME {` block whose name ends in `tests` cut.
-    pub(super) fn without_tests(code: &str) -> String {
-        let mut out = String::new();
-        let mut lines = code.lines();
-        let mut rest_from = 0;
-        let mut at = 0;
-        for line in lines.by_ref() {
-            let t = line.trim_start();
-            let t = t.strip_prefix("pub(crate) ").unwrap_or(t);
-            let head = t.strip_prefix("mod ").map(ident);
-            let is_tests =
-                head.is_some_and(|n| n.ends_with("tests")) && t.trim_end().ends_with('{');
-            if is_tests && at >= rest_from {
-                out.push_str(&code[rest_from..at]);
-                let open = at + line.find('{').expect("a block");
-                rest_from = block_end(code, Offset(open)).0;
-            }
-            at += line.len() + 1;
-        }
-        if rest_from < code.len() {
-            out.push_str(&code[rest_from..]);
-        }
-        out
-    }
-
-    /// Each path a `use` tree names, `{a, b::{c}}` spread; the bytes read.
-    fn tree(s: &str, base: &mut Vec<String>, out: &mut Vec<Vec<String>>) -> Offset {
-        let t = s.trim_start();
-        let skipped = s.len() - t.len();
-        if let Some(mut rest) = t.strip_prefix('{') {
-            let mut used = skipped + 1;
-            loop {
-                let r = rest.trim_start();
-                used += rest.len() - r.len();
-                rest = r;
-                if rest.starts_with('}') || rest.is_empty() {
-                    return Offset(used + usize::from(!rest.is_empty()));
-                }
-                let n = tree(rest, base, out).0;
-                used += n.max(1);
-                rest = &rest[n.max(1).min(rest.len())..];
-                let r = rest.trim_start();
-                used += rest.len() - r.len();
-                rest = r;
-                if let Some(r) = rest.strip_prefix(',') {
-                    used += 1;
-                    rest = r;
-                }
-            }
-        }
-        let id = ident(t);
-        if id.is_empty() {
-            return Offset(skipped);
-        }
-        base.push(id.to_string());
-        let used = match t[id.len()..].strip_prefix("::") {
-            Some(r) => skipped + id.len() + 2 + tree(r, base, out).0,
-            None => {
-                out.push(base.clone());
-                skipped + id.len()
-            }
-        };
-        base.pop();
-        Offset(used)
-    }
-
-    /// Every `crate::...` and `super::...` path in `code`: whether it is
-    /// `super`'s, and its segments.
-    fn paths(code: &str) -> Vec<(bool, Vec<String>)> {
-        let mut out = Vec::new();
-        for (prefix, is_super) in [("crate::", false), ("super::", true)] {
-            let mut from = 0;
-            while let Some(i) = code[from..].find(prefix) {
-                let at = from + i;
-                from = at + prefix.len();
-                if code[..at]
-                    .chars()
-                    .last()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                {
-                    continue;
-                }
-                let mut found = Vec::new();
-                let mut base = Vec::new();
-                if code[from..].trim_start().starts_with('{') {
-                    tree(&code[from..], &mut base, &mut found);
-                } else {
-                    // A path, not a tree: its segments up to the first that
-                    // is not a module's name.
-                    let mut seg = Vec::new();
-                    let mut rest = &code[from..];
-                    loop {
-                        let id = ident(rest);
-                        if id.is_empty() {
-                            break;
-                        }
-                        seg.push(id.to_string());
-                        match rest[id.len()..].strip_prefix("::") {
-                            Some(r) if !r.starts_with('{') => rest = r,
-                            Some(r) => {
-                                let mut b = seg.clone();
-                                tree(r, &mut b, &mut found);
-                                break;
-                            }
-                            None => break,
-                        }
-                    }
-                    found.push(seg);
-                }
-                out.extend(found.into_iter().map(|p| (is_super, p)));
-            }
-        }
-        out
-    }
-
-    /// The file a module path names: segments in lower case only, so a
-    /// case-blind disk does not take `Config` for `config`.
-    fn file_of(src: &Path, path: &[String]) -> Option<PathBuf> {
-        let lower = |s: &String| {
-            s.chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        };
-        if path.is_empty() || !path.iter().all(lower) {
-            return None;
-        }
-        let rel: PathBuf = path.iter().collect();
-        let flat = src.join(&rel).with_extension("rs");
-        if flat.is_file() {
-            return Some(flat);
-        }
-        let dir = src.join(&rel).join("mod.rs");
-        dir.is_file().then_some(dir)
-    }
-
-    /// A free fn of app.rs, one at the start of a line: its code.
-    fn app_fn(app: &str, name: &str) -> Option<String> {
-        for pre in ["fn ", "pub fn ", "pub(crate) fn ", "pub(super) fn "] {
-            let pat = format!("\n{pre}{name}");
-            let mut from = 0;
-            while let Some(i) = app[from..].find(&pat) {
-                let at = from + i + 1;
-                from = at + pat.len() - 1;
-                if !matches!(app[from..].chars().next(), Some('(' | '<')) {
-                    continue;
-                }
-                let open = at + app[at..].find('{')?;
-                return Some(app[at..block_end(app, Offset(open)).0].to_string());
-            }
-        }
-        None
-    }
-
-    /// The closure from launch_tests.rs: each part reached and its code.
-    pub(super) fn reach(src: &Path) -> BTreeMap<Part, String> {
-        let app = code(&std::fs::read_to_string(src.join("app.rs")).expect("app.rs"));
-        let free: BTreeSet<String> = app
-            .lines()
-            .filter_map(|l| {
-                ["fn ", "pub fn ", "pub(crate) fn ", "pub(super) fn "]
-                    .iter()
-                    .find_map(|p| l.strip_prefix(p))
-                    .map(|r| ident(r).to_string())
-            })
-            .collect();
-        let start = vec!["app".to_string(), "launch_tests".to_string()];
-        let mut seen: BTreeMap<Part, String> = BTreeMap::new();
-        let mut todo = vec![Part::File(start.clone())];
-        while let Some(part) = todo.pop() {
-            if seen.contains_key(&part) {
-                continue;
-            }
-            let (body, here) = match &part {
-                Part::File(p) => {
-                    let Some(f) = file_of(src, p) else { continue };
-                    let text = code(&std::fs::read_to_string(&f).expect("a module"));
-                    match p == &start {
-                        true => (text, p.clone()),
-                        false => (without_tests(&text), p.clone()),
-                    }
-                }
-                Part::AppFn(name) => match app_fn(&app, name) {
-                    Some(b) => (b, vec!["app".to_string()]),
-                    None => continue,
-                },
-            };
-            for (is_super, p) in paths(&body) {
-                let mut full = match is_super {
-                    true => here[..here.len().saturating_sub(1)].to_vec(),
-                    false => Vec::new(),
-                };
-                full.extend(p);
-                // The longest prefix that is a module's file; past it, an item.
-                let k = (1..=full.len())
-                    .rev()
-                    .find(|&k| file_of(src, &full[..k]).is_some());
-                let Some(k) = k else { continue };
-                match full[..k] == ["app".to_string()] {
-                    true => {
-                        if let Some(item) = full.get(1) {
-                            todo.push(Part::AppFn(item.clone()));
-                        }
-                    }
-                    false => todo.push(Part::File(full[..k].to_vec())),
-                }
-            }
-            if matches!(part, Part::AppFn(_)) {
-                // And the free fns of app.rs it calls by name.
-                for f in &free {
-                    let called = body.match_indices(f.as_str()).any(|(at, _)| {
-                        let before = body[..at].chars().last();
-                        body[at + f.len()..].starts_with('(')
-                            && !before.is_some_and(|c| {
-                                c.is_alphanumeric() || c == '_' || c == '.' || c == ':'
-                            })
-                    });
-                    if called {
-                        todo.push(Part::AppFn(f.clone()));
-                    }
-                }
-            }
-            seen.insert(part, body);
-        }
-        seen
-    }
-}
