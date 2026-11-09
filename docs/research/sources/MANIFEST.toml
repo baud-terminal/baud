@@ -40009,3 +40009,30 @@ bytes  = 30096
 group  = "E"
 # Retrieved 2026-11-08. Read: ptcopen, the manager's open, and its `return EREDRIVEOPEN`
 # for the `(struct ptmx_ioctl*)-1` ptmx_get_ioctl hands back when raced.
+
+# Retrieved 2026-11-08. Why a page a write touched and the system has since
+# compressed still reads as touched. `mincore` sets `MINCORE_INCORE` from
+# `VM_PAGE_QUERY_PAGE_PRESENT` and `MINCORE_PAGED_OUT` from
+# `VM_PAGE_QUERY_PAGE_PAGED_OUT` (1612-1623).
+[sources.xnu-kern-mman-c]
+key    = "xnu-kern-mman-c"
+title  = "XNU xnu-12377.121.6, bsd/kern/kern_mman.c -- mincore, the page query's disposition as MINCORE_ bits"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/kern_mman.c"
+sha256 = "cf8c0d8923c718bd80ec1cc569d57ea5b45f0d895123c4e1b48a51b5de2cada3"
+bytes  = 51778
+group  = "E"
+
+# Retrieved 2026-11-08. A page the pmap reports compressed is given the
+# disposition `VM_PAGE_QUERY_PAGE_PAGED_OUT`, and one present
+# `VM_PAGE_QUERY_PAGE_PRESENT` (18372-18387).
+[sources.xnu-vm-map-c]
+key    = "xnu-vm-map-c"
+title  = "XNU xnu-12377.121.6, osfmk/vm/vm_map.c -- vm_map_page_range_info_internal, a compressed page reads paged out"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/osfmk/vm/vm_map.c"
+sha256 = "10bcbdaec50dbedc6b8f6d8348c640d773cd506609998825202dfe7f823fa784"
+bytes  = 716395
+group  = "E"

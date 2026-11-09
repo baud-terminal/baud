@@ -513,7 +513,8 @@ pub const SHM_NAME_MAX: usize = 31;
 #[cfg(not(target_os = "macos"))]
 pub const SHM_NAME_MAX: usize = 255;
 
-/// A mapping's length, as `munmap` and `madvise` take it: a `size_t`.
+/// A mapping's length, as `munmap`, `madvise` and `mincore` take it: a
+/// `size_t`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct MapLen(pub usize);
@@ -1161,6 +1162,25 @@ pub struct TaskVmInfo {
     /// `resident_size_peak` through `compressed_lifetime`, unread.
     pub between: [VmSize; 15],
     pub phys_footprint: VmSize,
+}
+
+/// `mincore`'s bit for a page in memory, in each byte of the vector it
+/// fills (`<sys/mman.h>`): what a test reads a block's own pages from,
+/// where the task's footprint counts every thread's.
+#[cfg(all(test, target_os = "macos"))]
+pub const MINCORE_INCORE: c_char = 0x1;
+
+/// `mincore`'s bit for a page written and since compressed or paged out
+/// (`<sys/mman.h>`), which a page in memory does not carry.
+#[cfg(all(test, target_os = "macos"))]
+pub const MINCORE_PAGED_OUT: c_char = 0x20;
+
+// `mincore` fills one byte a page of `len` bytes from `addr`, a page's
+// address; Darwin's header takes the address `const` and the vector as
+// `char`.
+#[cfg(all(test, target_os = "macos"))]
+unsafe extern "C" {
+    pub fn mincore(addr: *const c_void, len: MapLen, vec: *mut c_char) -> c_int;
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -1864,6 +1884,8 @@ int main(void) {
     printf("PSHMNAMLEN=%lld\n", (long long)PSHMNAMLEN);
     printf("O_SEARCH=%lld\n", (long long)O_SEARCH);
     printf("MAP_ANON=%lld\n", (long long)MAP_ANON);
+    printf("MINCORE_INCORE=%lld\n", (long long)MINCORE_INCORE);
+    printf("MINCORE_PAGED_OUT=%lld\n", (long long)MINCORE_PAGED_OUT);
     printf("MACH_TASK_BASIC_INFO=%lld\n", (long long)MACH_TASK_BASIC_INFO);
     printf("MACH_TASK_BASIC_INFO_COUNT=%lld\n", (long long)MACH_TASK_BASIC_INFO_COUNT);
     printf("mach_task_basic_info.size=%zu\n", sizeof(struct mach_task_basic_info));
@@ -2197,6 +2219,8 @@ int main(void) {
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));
+            assert_eq!(h["MINCORE_INCORE"], i128::from(MINCORE_INCORE));
+            assert_eq!(h["MINCORE_PAGED_OUT"], i128::from(MINCORE_PAGED_OUT));
             assert_eq!(h["MACH_TASK_BASIC_INFO"], i128::from(MACH_TASK_BASIC_INFO));
             assert_eq!(
                 h["MACH_TASK_BASIC_INFO_COUNT"],

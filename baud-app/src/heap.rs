@@ -169,58 +169,101 @@ pub fn peak_during<R>(f: impl FnOnce() -> R) -> (isize, R) {
 mod tests {
     use super::{OWN_MAP, live};
 
+    /// How much of a block a write has touched.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Touched {
+        No,
+        /// This many of its pages.
+        Part(usize),
+        Whole,
+    }
+
+    /// **The pages of `block` a write has touched**: in memory, or
+    /// written and since compressed or paged out -- `<sys/mman.h>`'s
+    /// `MINCORE_INCORE` and `MINCORE_PAGED_OUT`, which XNU's `mincore` sets
+    /// from the page's query (`[[source: xnu-kern-mman-c]]` 1612-1623), a
+    /// compressed page's query answering paged out (`[[source:
+    /// xnu-vm-map-c]]` 18372-18387). A zero-filled page nothing has
+    /// written is neither. The block's own pages, so no other thread's
+    /// memory is in the count.
+    fn touched(block: &[u8]) -> Touched {
+        use crate::sys::{MINCORE_INCORE, MINCORE_PAGED_OUT, MapLen, getpagesize, mincore};
+        // SAFETY: no arguments.
+        let page = usize::try_from(unsafe { getpagesize() }).expect("a page size");
+        assert_eq!(block.as_ptr().addr() % page, 0, "a mapping starts a page");
+        let mut pages = vec![0; block.len().div_ceil(page)];
+        // SAFETY: a mapped block from its first page, and a byte a page
+        // of its length to fill.
+        let r = unsafe {
+            mincore(
+                block.as_ptr().cast(),
+                MapLen(block.len()),
+                pages.as_mut_ptr(),
+            )
+        };
+        assert_eq!(r, 0, "mincore: {}", std::io::Error::last_os_error());
+        let n = pages
+            .iter()
+            .filter(|&&p| p & (MINCORE_INCORE | MINCORE_PAGED_OUT) != 0)
+            .count();
+        match n {
+            0 => Touched::No,
+            n if n == pages.len() => Touched::Whole,
+            n => Touched::Part(n),
+        }
+    }
+
     /// **A window's arenas, freed and made again, come back untouched**:
     /// three rounds of the image arena, the query probe and the PNG
     /// scratch at the default budget's sizes, made and freed in a window's
-    /// order, and none of the later rounds is charged -- through the
-    /// system's allocator the second round came from the first's freed
-    /// blocks, cleared with a write, 286 MiB charged. The control: a block
-    /// written whole is charged while it lives and given back when freed.
-    /// Reads the process's footprint, so it holds only with one process a
-    /// test, as nextest runs it.
+    /// order, and no page of a round's arena or scratch has been written --
+    /// through the system's allocator the second round came from the
+    /// first's freed blocks, cleared with a write, 286 MiB charged. The
+    /// control: a block written whole has every page touched, and the
+    /// first round, made once it is freed, has none.
+    ///
+    /// The blocks' own pages are read, not the process's footprint: the
+    /// footprint counts every thread's memory, and under `cargo test`
+    /// another test's thread that writes 64 MiB during a round made the
+    /// round read charged. That thread is here, holding [`OWN_MAP`]
+    /// written bytes of its own for the whole test. Named break: `own`
+    /// that answers no, every block the system's.
     #[test]
     fn a_windows_arenas_freed_and_made_again_come_back_untouched() {
-        let footprint = || {
-            use crate::sys::{TASK_VM_INFO, TaskVmInfo, mach_task_self_, task_info};
-            let mut info = TaskVmInfo::default();
-            let words = core::mem::size_of::<TaskVmInfo>() / core::mem::size_of::<i32>();
-            let mut count = u32::try_from(words).unwrap();
-            // SAFETY: the flavor's struct and its length in `natural_t`s,
-            // as the probe holds them.
-            let kr = unsafe {
-                task_info(
-                    mach_task_self_,
-                    TASK_VM_INFO,
-                    (&raw mut info).cast(),
-                    &raw mut count,
-                )
-            };
-            assert_eq!(kr, 0, "task_info");
-            info.phys_footprint.0
-        };
-        let margin = u64::try_from(OWN_MAP).unwrap();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || {
+            let mut b = vec![0u8; OWN_MAP];
+            b.fill(1);
+            std::hint::black_box(&mut b);
+            ready_tx.send(()).expect("the test waits");
+            let _ = done_rx.recv();
+        });
+        ready_rx.recv().expect("the other thread's block");
         let start = live();
-        let base = footprint();
         let mut written = vec![0u8; 2 * OWN_MAP];
         written.fill(1);
         std::hint::black_box(&mut written);
-        assert!(
-            footprint() >= base + margin,
-            "the control: a block written whole is charged"
+        assert_eq!(
+            touched(&written),
+            Touched::Whole,
+            "the control: a block written whole is touched whole"
         );
         drop(written);
-        assert!(footprint() < base + margin, "and given back when freed");
         for round in 0..3 {
             let arena = vec![0u8; 95 << 20];
             let probe = vec![0u8; 16 << 10];
             let scratch = vec![0u8; 190 << 20];
-            assert!(
-                footprint() < base + margin,
+            assert_eq!(
+                (touched(&arena), touched(&scratch)),
+                (Touched::No, Touched::No),
                 "round {round}: the arenas are untouched"
             );
             assert_eq!((arena[0], probe[0], scratch[0]), (0, 0, 0));
             drop((arena, probe, scratch));
         }
         assert_eq!(live(), start, "every byte counted back");
+        done_tx.send(()).expect("the other thread waits");
+        other.join().expect("the other thread");
     }
 }
