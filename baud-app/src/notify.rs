@@ -449,9 +449,20 @@ pub struct Shown<T, P> {
     alive: Vec<Alive<T, P>>,
 }
 
-/// One shown notification: its token, the platform's id, its deadline,
-/// when it was shown and the buttons it showed.
-type Alive<T, P> = (NoticeToken, P, Option<T>, T, Vec<NoticeButton>);
+/// **One shown notification.**
+#[derive(Clone, Debug)]
+struct Alive<T, P> {
+    token: NoticeToken,
+    /// The platform's id for it.
+    id: P,
+    /// When it closes, where its expiry gave a deadline not yet spent.
+    due: Option<T>,
+    /// When it was shown.
+    at: T,
+    /// The buttons it showed, each numbered by its place in the program's
+    /// list.
+    buttons: Vec<NoticeButton>,
+}
 
 impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     pub fn new() -> Shown<T, P> {
@@ -472,8 +483,14 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
             Expiry::After(d) => Some(now.after(d)),
             Expiry::System | Expiry::Never => None,
         };
-        self.alive.retain(|(t, _, _, _, _)| *t != token);
-        self.alive.push((token, id, due, now, buttons));
+        self.alive.retain(|a| a.token != token);
+        self.alive.push(Alive {
+            token,
+            id,
+            due,
+            at: now,
+            buttons,
+        });
         // On macOS nothing says one closed, so the oldest are forgotten
         // past the core's own live table.
         if self.alive.len() > baud_domain::NOTICE_LIVE {
@@ -485,8 +502,8 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     pub fn id(&self, token: NoticeToken) -> Option<P> {
         self.alive
             .iter()
-            .find(|(t, _, _, _, _)| *t == token)
-            .map(|(_, id, _, _, _)| id.clone())
+            .find(|a| a.token == token)
+            .map(|a| a.id.clone())
     }
 
     /// **The button of `token` a click's action names**, by the number the
@@ -495,21 +512,18 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     /// dropped, never reported, as is any click on one no longer shown.
     pub fn read_back(&self, token: NoticeToken, number: &str) -> Option<NoticeButton> {
         let n: u8 = number.parse().ok()?;
-        let (_, _, _, _, shown) = self.alive.iter().find(|(t, _, _, _, _)| *t == token)?;
-        shown.iter().copied().find(|b| b.number() == n)
+        let shown = self.alive.iter().find(|a| a.token == token)?;
+        shown.buttons.iter().copied().find(|b| b.number() == n)
     }
 
     /// The token the platform's `id` names.
     pub fn token(&self, id: &P) -> Option<NoticeToken> {
-        self.alive
-            .iter()
-            .find(|(_, i, _, _, _)| i == id)
-            .map(|(t, _, _, _, _)| *t)
+        self.alive.iter().find(|a| a.id == *id).map(|a| a.token)
     }
 
     /// Forget `token`.
     pub fn gone(&mut self, token: NoticeToken) {
-        self.alive.retain(|(t, _, _, _, _)| *t != token);
+        self.alive.retain(|a| a.token != token);
     }
 
     /// **The ones the platform no longer has**, taken out: each shown at
@@ -522,9 +536,9 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         let (gone, kept): (Vec<_>, Vec<_>) = self
             .alive
             .drain(..)
-            .partition(|(_, id, _, at, _)| at.after(SETTLED) <= asked && !present.contains(id));
+            .partition(|a| a.at.after(SETTLED) <= asked && !present.contains(&a.id));
         self.alive = kept;
-        gone.into_iter().map(|(t, _, _, _, _)| t).collect()
+        gone.into_iter().map(|a| a.token).collect()
     }
 
     /// Whether any is shown.
@@ -538,10 +552,10 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn due(&mut self, now: T) -> Vec<(NoticeToken, P)> {
         let mut due = Vec::new();
-        for (t, id, d, _, _) in &mut self.alive {
-            if d.is_some_and(|d| d <= now) {
-                *d = None;
-                due.push((*t, id.clone()));
+        for a in &mut self.alive {
+            if a.due.is_some_and(|d| d <= now) {
+                a.due = None;
+                due.push((a.token, a.id.clone()));
             }
         }
         due
@@ -550,7 +564,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     /// The nearest deadline, for the driver's wait.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn next_due(&self) -> Option<T> {
-        self.alive.iter().filter_map(|(_, _, d, _, _)| *d).min()
+        self.alive.iter().filter_map(|a| a.due).min()
     }
 }
 
