@@ -1141,13 +1141,22 @@ impl SuiteBuilds {
     /// `pipe`, its code from `from`; the error's text when it is refused.
     pub fn build(&self, pipe: Pipe, from: CodeFrom) -> Result<(), String> {
         let desc = descriptor(&self.library, pipe).ok_or("a function the library lacks")?;
-        let built = match from {
-            CodeFrom::Archive => suite::build(&self.device, &self.library, &desc),
+        match from {
+            CodeFrom::Archive => suite::build(&self.device, &self.library, &desc)
+                .map(drop)
+                .map_err(|e| format!("{e:?}")),
             CodeFrom::Compiler => self
                 .device
-                .newRenderPipelineStateWithDescriptor_error(&desc),
-        };
-        built.map(drop).map_err(|e| format!("{e:?}"))
+                .newRenderPipelineStateWithDescriptor_error(&desc)
+                .map(drop)
+                .map_err(|e| format!("{e:?}")),
+        }
+    }
+
+    /// **An archive of `pipes` alone, written to `path`**: for a test that
+    /// needs an archive missing some, to meet a miss at use.
+    pub fn write_archive(&self, path: &std::path::Path, pipes: &[Pipe]) {
+        suite::write(&self.device, &self.library, path, pipes);
     }
 }
 

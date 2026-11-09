@@ -325,3 +325,107 @@ fn only_the_suite_module_reads_an_archive_or_refuses_a_miss() {
         assert!(metal.contains(gate), "metal.rs lost its gate: {gate}");
     }
 }
+
+/// **This test again, as a child with `step` and its archives in `dir`**:
+/// a child of its own, because a process loads its archive once, and a
+/// folder of its own, so no other test process reads what it leaves.
+fn child_in(test: &str, step: &str, dir: &std::path::Path) -> (bool, String) {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).expect("the test's archive folder");
+    let out = std::process::Command::new(std::env::current_exe().expect("this binary"))
+        .args(["--exact", test, "--nocapture"])
+        .env("BAUD_SUITE_ARCHIVE_STEP", step)
+        .env("BAUD_SUITE_ARCHIVE_DIR", dir)
+        .output()
+        .expect("the child runs");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (out.status.success(), text)
+}
+
+/// A folder of this test's own, under the temporary folder.
+fn own_dir(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("baud-suite-archive-{tag}-{}", std::process::id()))
+}
+
+/// **A pipeline the archive lacks, met at use, is refused naming the
+/// archive**: an archive of the first and last pipelines alone passes the
+/// check at load, and a build of another is refused with the file named.
+#[test]
+fn a_miss_at_use_names_the_archive() {
+    const NAME: &str = "a_miss_at_use_names_the_archive";
+    if std::env::var("BAUD_SUITE_ARCHIVE_STEP").as_deref() == Ok("miss") {
+        let builds = baud_present_macos::metal::SuiteBuilds::new();
+        let path = builds.archive_path();
+        builds.write_archive(&path, &[Pipe::ALL[0], Pipe::ALL[Pipe::ALL.len() - 1]]);
+        let refused = builds
+            .build(Pipe::Glyph, baud_present_macos::metal::CodeFrom::Archive)
+            .expect_err("the glyph pipeline is not in this archive");
+        assert!(
+            refused.contains(&path.display().to_string()),
+            "the refusal does not name {}: {refused}",
+            path.display()
+        );
+        println!("named: {refused}");
+        return;
+    }
+    let dir = own_dir("miss");
+    let (ok, text) = child_in(NAME, "miss", &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(ok && text.contains("named: "), "{text}");
+}
+
+/// **A write removes what a day has left beside it**: another key's
+/// archive, a lock of each key from before the folder's writer lock, and a
+/// killed writer's partial file, each two days old, go; a partial file
+/// written now, the writer lock and the archive just written stay.
+#[test]
+fn a_write_prunes_what_a_day_has_left() {
+    const NAME: &str = "a_write_prunes_what_a_day_has_left";
+    let old = [
+        "0000000000000000.metallib-archive",
+        "0000000000000000.lock",
+        "1111111111111111.4242.partial",
+    ];
+    let kept = ["2222222222222222.4343.partial", "writer.lock"];
+    if std::env::var("BAUD_SUITE_ARCHIVE_STEP").as_deref() == Ok("prune") {
+        let dir =
+            std::path::PathBuf::from(std::env::var("BAUD_SUITE_ARCHIVE_DIR").expect("the folder"));
+        let two_days =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 24 * 60 * 60);
+        for name in old.iter().chain(&kept[1..]) {
+            let f = std::fs::File::create(dir.join(name)).expect("a planted file");
+            f.set_modified(two_days).expect("an old time");
+        }
+        std::fs::write(dir.join(kept[0]), b"a write going on").expect("a fresh partial file");
+        assert!(
+            suite_misses().is_empty(),
+            "the archive written here is whole"
+        );
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .expect("the folder")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let written = baud_present_macos::metal::SuiteBuilds::new().archive_path();
+        for name in old {
+            assert!(!left.iter().any(|l| l == name), "{name} was left: {left:?}");
+        }
+        for name in kept {
+            assert!(
+                left.iter().any(|l| l == name),
+                "{name} was removed: {left:?}"
+            );
+        }
+        assert!(written.is_file(), "the archive written: {left:?}");
+        println!("pruned: {left:?}");
+        return;
+    }
+    let dir = own_dir("prune");
+    let (ok, text) = child_in(NAME, "prune", &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(ok && text.contains("pruned: "), "{text}");
+}

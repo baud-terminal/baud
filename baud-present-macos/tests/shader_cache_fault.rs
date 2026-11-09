@@ -304,8 +304,16 @@ mod mach {
     pub const NULL: Port = 0;
     /// `EXCEPTION_DEFAULT`.
     pub const DEFAULT: Int = 1;
-    /// `THREAD_STATE_NONE` on arm64.
-    pub const NO_STATE: Int = 5;
+    /// `THREAD_STATE_NONE` on arm64 (`<mach/arm/thread_status.h>`).
+    pub const NO_STATE_ARM64: Int = 5;
+    /// `THREAD_STATE_NONE` on x86_64 (`<mach/i386/thread_status.h>`).
+    pub const NO_STATE_X86_64: Int = 13;
+    /// `THREAD_STATE_NONE` on the architecture built for.
+    pub const NO_STATE: Int = if cfg!(target_arch = "x86_64") {
+        NO_STATE_X86_64
+    } else {
+        NO_STATE_ARM64
+    };
 
     unsafe extern "C" {
         /// What `mach_task_self()` reads.
@@ -375,6 +383,29 @@ fn the_mach_declarations_match_the_headers() {
         mach::NO_STATE,
     );
     assert_eq!(text, want, "the declarations differ from <mach/mach.h>");
+    // `THREAD_STATE_NONE` differs by architecture, so each one's value is
+    // read from the headers as the preprocessor gives it for that target,
+    // the one this Mac does not run included.
+    for (arch, ours) in [
+        ("arm64", mach::NO_STATE_ARM64),
+        ("x86_64", mach::NO_STATE_X86_64),
+    ] {
+        let out = Command::new(&cc)
+            .args(["-arch", arch, "-dM", "-E", "-include", "mach/mach.h", "-"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap_or_else(|e| panic!("the preprocessor for {arch}: {e}"));
+        let macros = String::from_utf8_lossy(&out.stdout);
+        let theirs = macros
+            .lines()
+            .find_map(|l| l.strip_prefix("#define THREAD_STATE_NONE "))
+            .unwrap_or_else(|| panic!("no THREAD_STATE_NONE for {arch}"));
+        assert_eq!(
+            theirs.trim(),
+            ours.to_string(),
+            "THREAD_STATE_NONE on {arch}"
+        );
+    }
 }
 
 /// `getconf DARWIN_USER_CACHE_DIR`.

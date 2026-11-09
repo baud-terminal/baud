@@ -34,17 +34,21 @@
 //!
 //! **One build through the cache.** Writing the archive compiles each
 //! pipeline once, through the system's cache, in the one process that takes
-//! the build's lock; the others wait on that lock and then read the file.
-//! That build is the suite's only pass through the cache, and it happens
-//! once for each key, not once each run.
+//! the folder's writer lock; the others wait on that lock and then read the
+//! file. That build is the suite's only pass through the cache, and it
+//! happens once for each key, not once each run. One lock for the folder,
+//! not one for each key, so two checkouts with different descriptors never
+//! compile through the cache at the same moment either.
 //!
 //! **A spoiled archive is written again, not read.** A file under the right
 //! name that was cut short, or that a build leaving a pipeline out wrote,
 //! would refuse every pipeline of every test. So an archive is taken only
 //! when its first and last [`Pipe`] build from it; otherwise it is written
 //! again, and one just written must give every [`Pipe`]. After a write,
-//! other keys' archives a day old are removed, so OS updates do not pile
-//! them up.
+//! other keys' archives a day old, and partial writes a day old that a
+//! killed writer left, are removed, so OS updates do not pile them up. A
+//! pipeline refused at use names the archive it was looked for in
+//! ([`Miss`]).
 //!
 //! The app never has this: `suite-archive` is enabled only by
 //! dev-dependencies, which a build of the app does not use.
@@ -60,12 +64,33 @@ use objc2_metal::{
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
+/// A binary archive, as Metal hands it out.
+type Archive = Retained<ProtocolObject<dyn MTLBinaryArchive>>;
+
 thread_local! {
-    /// The archive, loaded once on each thread that builds a pipeline: it
-    /// never crosses a thread, so nothing need be claimed of it beyond what
-    /// the device and the library already are.
-    static ARCHIVE: OnceCell<Retained<ProtocolObject<dyn MTLBinaryArchive>>> =
-        const { OnceCell::new() };
+    /// The archive and its file, loaded once on each thread that builds a
+    /// pipeline: it never crosses a thread, so nothing need be claimed of
+    /// it beyond what the device and the library already are.
+    static ARCHIVE: OnceCell<(Archive, PathBuf)> = const { OnceCell::new() };
+}
+
+/// **A pipeline the suite's archive refused**: Metal's error, and the file
+/// the pipeline was looked for in, so a miss met in any test says which
+/// archive to look at.
+pub(crate) struct Miss {
+    archive: PathBuf,
+    error: Retained<NSError>,
+}
+
+impl core::fmt::Debug for Miss {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "not in the suite's binary archive {}: {:?}",
+            self.archive.display(),
+            self.error
+        )
+    }
 }
 
 /// **`desc`'s pipeline, from the suite's archive**, refused when the
@@ -74,59 +99,52 @@ pub(super) fn build(
     device: &ProtocolObject<dyn MTLDevice>,
     library: &ProtocolObject<dyn MTLLibrary>,
     desc: &MTLRenderPipelineDescriptor,
-) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, Retained<NSError>> {
-    let archive = ARCHIVE.with(|a| a.get_or_init(|| load(device, library)).clone());
+) -> Result<Retained<ProtocolObject<dyn MTLRenderPipelineState>>, Miss> {
+    let (archive, file) = ARCHIVE.with(|a| a.get_or_init(|| load(device, library)).clone());
     desc.setBinaryArchives(Some(&NSArray::from_retained_slice(&[archive])));
-    device.newRenderPipelineStateWithDescriptor_options_reflection_error(
-        desc,
-        MTLPipelineOption::FailOnBinaryArchiveMiss,
-        None,
-    )
+    device
+        .newRenderPipelineStateWithDescriptor_options_reflection_error(
+            desc,
+            MTLPipelineOption::FailOnBinaryArchiveMiss,
+            None,
+        )
+        .map_err(|error| Miss {
+            archive: file,
+            error,
+        })
 }
 
-/// The archive for this machine and this source, written first if no
-/// process has written it yet.
+/// The archive for this machine and this source, and its file, written
+/// first if no process has written it yet.
 fn load(
     device: &ProtocolObject<dyn MTLDevice>,
     library: &ProtocolObject<dyn MTLLibrary>,
-) -> Retained<ProtocolObject<dyn MTLBinaryArchive>> {
+) -> (Archive, PathBuf) {
     let path = path(device, library);
     if let Some(a) = open(device, library, &path) {
-        return a;
+        return (a, path);
     }
     let dir = path.parent().expect("the archive's folder");
     std::fs::create_dir_all(dir)
         .unwrap_or_else(|e| panic!("the suite archive's folder {}: {e}", dir.display()));
-    let lock = std::fs::File::create(path.with_extension("lock"))
+    // Opened, never truncated: a lock's time says when it was made.
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(WRITER))
         .unwrap_or_else(|e| panic!("the suite archive's lock: {e}"));
     lock.lock()
         .unwrap_or_else(|e| panic!("the suite archive's lock: {e}"));
     // Another process may have written it while this one waited.
     if let Some(a) = open(device, library, &path) {
-        return a;
+        return (a, path);
     }
     eprintln!(
         "baud-present-macos: writing the suite's binary archive, {}",
         path.display()
     );
-    let archive = device
-        .newBinaryArchiveWithDescriptor_error(&MTLBinaryArchiveDescriptor::new())
-        .unwrap_or_else(|e| panic!("an empty binary archive: {e:?}"));
-    for pipe in Pipe::ALL {
-        let desc = descriptor(library, pipe)
-            .unwrap_or_else(|| panic!("baud.metallib has {pipe:?}'s functions"));
-        archive
-            .addRenderPipelineFunctionsWithDescriptor_error(&desc)
-            .unwrap_or_else(|e| panic!("{pipe:?} into the suite archive: {e:?}"));
-    }
-    // Written under another name and moved into place, so a reader never
-    // finds half an archive.
-    let partial = path.with_extension(format!("{}.partial", std::process::id()));
-    archive
-        .serializeToURL_error(&url(&partial))
-        .unwrap_or_else(|e| panic!("the suite archive to {}: {e:?}", partial.display()));
-    std::fs::rename(&partial, &path)
-        .unwrap_or_else(|e| panic!("the suite archive into place: {e}"));
+    write(device, library, &path, &Pipe::ALL);
     prune(dir, &path);
     let archive = loaded(device, &path).expect("the suite archive just written loads");
     let missed: Vec<Pipe> = Pipe::ALL
@@ -137,7 +155,36 @@ fn load(
         missed.is_empty(),
         "the suite archive just written lacks {missed:?}"
     );
+    (archive, path)
+}
+
+/// The folder's writer lock, which every process writing an archive there
+/// holds, whatever its key.
+const WRITER: &str = "writer.lock";
+
+/// **An archive of `pipes` written to `path`**, under another name first
+/// and moved into place, so a reader never finds half an archive.
+pub(super) fn write(
+    device: &ProtocolObject<dyn MTLDevice>,
+    library: &ProtocolObject<dyn MTLLibrary>,
+    path: &Path,
+    pipes: &[Pipe],
+) {
+    let archive = device
+        .newBinaryArchiveWithDescriptor_error(&MTLBinaryArchiveDescriptor::new())
+        .unwrap_or_else(|e| panic!("an empty binary archive: {e:?}"));
+    for &pipe in pipes {
+        let desc = descriptor(library, pipe)
+            .unwrap_or_else(|| panic!("baud.metallib has {pipe:?}'s functions"));
+        archive
+            .addRenderPipelineFunctionsWithDescriptor_error(&desc)
+            .unwrap_or_else(|e| panic!("{pipe:?} into the suite archive: {e:?}"));
+    }
+    let partial = path.with_extension(format!("{}.partial", std::process::id()));
     archive
+        .serializeToURL_error(&url(&partial))
+        .unwrap_or_else(|e| panic!("the suite archive to {}: {e:?}", partial.display()));
+    std::fs::rename(&partial, path).unwrap_or_else(|e| panic!("the suite archive into place: {e}"));
 }
 
 /// **The archive at `path`, if there is one that loads and holds what it
@@ -204,11 +251,10 @@ fn hits(
 /// OS update or a change of descriptors does not leave every earlier
 /// archive behind. A day, so two checkouts with different descriptors,
 /// each testing in turn, do not remove each other's and write them again.
-/// A partial write is never touched.
+/// A partial write a day old is a killed writer's, and goes too, as does a
+/// lock of each key that came before the folder's [`WRITER`]; the archive
+/// kept and the writer lock never do.
 fn prune(dir: &Path, kept: &Path) {
-    let Some(stem) = kept.file_stem() else {
-        return;
-    };
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -217,14 +263,15 @@ fn prune(dir: &Path, kept: &Path) {
         let p = e.path();
         let ours = p
             .extension()
-            .is_some_and(|x| x == "metallib-archive" || x == "lock");
+            .is_some_and(|x| x == "metallib-archive" || x == "lock" || x == "partial");
         let stale = e
             .metadata()
             .and_then(|m| m.modified())
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age > day);
-        if ours && stale && p.file_stem() != Some(stem) {
+        let spared = p == kept || p == dir.join(WRITER);
+        if ours && stale && !spared {
             let _ = std::fs::remove_file(&p);
         }
     }
