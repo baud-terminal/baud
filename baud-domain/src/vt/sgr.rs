@@ -142,7 +142,8 @@ impl SgrAttr {
     /// Consumes as many parameters as the attribute needs and reports how many.
     /// Returning the consumed count is what keeps `38;2;r;g;b` from being
     /// misread as five separate attributes.
-    pub fn parse(params: Params<'_>) -> Option<(SgrAttr, ParamCount)> {
+    pub fn parse(head: Head<'_>) -> Option<(SgrAttr, ParamCount)> {
+        let params = head.0;
         let v = params.at(ParamIdx::FIRST).map_or(0, |x| x.0);
         // **The colour introducers first, because they are what reaches here.**
         // `fold_sgr` short-circuits the single-parameter form to `parse_one`,
@@ -438,17 +439,78 @@ impl ColorSlot {
     }
 }
 
+/// The parameters from an attribute's first, its **head**: never a
+/// sub-parameter joined by a colon to the one before it.
+///
+/// [`SgrAttr::parse`] takes only this, so an attribute cannot be read from
+/// the middle of a colon group. Made only by [`Params::sgr`]'s walk, which
+/// stops only where the mask says a new parameter begins, and by
+/// [`Head::single`], whose one parameter nothing can be joined to.
+///
+/// ```compile_fail
+/// use baud_domain::{Head, ParamIdx, Params, SgrAttr};
+/// fn from_the_middle(p: Params<'_>) {
+///     let _ = SgrAttr::parse(Head(p.skip(ParamIdx::SECOND)));
+/// }
+/// ```
+pub struct Head<'a>(Params<'a>);
+
+impl<'a> Head<'a> {
+    /// One parameter alone, as DECCARA lists them.
+    pub fn single(p: &'a [Option<Param>; 1]) -> Head<'a> {
+        Head(Params::new(p))
+    }
+}
+
+impl<'a> Params<'a> {
+    /// The attributes these parameters name, in order, each with its head.
+    ///
+    /// `[[source: xterm-sgr]]`'s `CASE_SGR` (charproc.c) is the walk: "Only
+    /// SGR 38/48 accept subparameters", and another head carrying them is
+    /// stepped over with its group (`item += skip; /* ignore this */`); a
+    /// head it does not know falls to `default: break;` inside the loop, so
+    /// what follows still applies. baud takes sub-parameters on `4`
+    /// (`[[source: kitty-underlines]]`) and `58` as well. So a head that
+    /// applies nothing takes its group with it and the walk goes on; only a
+    /// colour introducer whose space is missing or unknown ends it, since
+    /// where its channels stop cannot be known.
+    ///
+    /// **A loop that calls `each`, not an `Iterator`, and that is counted.**
+    /// The same walk as an `Iterator` retired 1.2% more instructions on
+    /// btop and 1.5% more on cava, about seventeen per SGR with more than
+    /// one parameter, and btop read 849 MB/s against 859 with the ranges
+    /// apart; this shape retires what the loop it replaced did, to within
+    /// 0.15% on btop, cava and vim.
+    #[inline]
+    pub fn sgr(&self, mut each: impl FnMut(Param, SgrAttr)) {
+        let mut at = ParamIdx::FIRST;
+        while at.raw_index() < self.len() {
+            let params = self.skip(at);
+            let head = params.at(ParamIdx::FIRST).unwrap_or(Param::ZERO);
+            // One mask test for both ways a colon matters here, so a
+            // sequence with none pays a single branch: a sub-parameter is
+            // never a head (past the rest of a group, whichever arm left the
+            // walk inside it), and a head with a group applies nothing
+            // unless it is one that takes sub-parameters.
+            if params.near_a_colon()
+                && (params.is_sub(ParamIdx::FIRST) || !matches!(head.0, 4 | 38 | 48 | 58))
+            {
+                at = at.next();
+                continue;
+            }
+            match SgrAttr::parse(Head(params)) {
+                Some((attr, used)) => {
+                    each(head, attr);
+                    at = at.advance(used.at_least_one_count());
+                }
+                None if ColorSlot::of(head.0).is_some() => return,
+                None => at = at.next(),
+            }
+        }
+    }
+}
+
 impl SgrAttr {
-    /// Parse the attribute starting at `i`.
-    pub fn parse_at(params: &[Option<Param>], i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
-        SgrAttr::parse(Params::new(&params[i.0 as usize..]))
-    }
-    /// As [`SgrAttr::parse_at`], but keeping the sub-parameter mask aligned
-    /// with the slice. Dropping the mask here would make every attribute after
-    /// the first look like the legacy form.
-    pub fn parse_sub(params: Params<'_>, i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
-        SgrAttr::parse(params.skip(i))
-    }
     /// Fold this attribute into `cur` **in place**.
     ///
     /// [`SgrAttr::fold`] copies the twenty-byte rendition in and out to change
@@ -592,7 +654,7 @@ mod one_table {
         let mut covered = 0usize;
         for v in 0..SgrAttr::ONE_MAX {
             let p = [Some(Param::from_raw(v as u16))];
-            let want = SgrAttr::parse(Params::new(&p));
+            let want = SgrAttr::parse(Head::single(&p));
             let got = SgrAttr::one(Param::from_raw(v as u16));
             match (want, got) {
                 // The table holds only what one parameter fully determines.
@@ -631,8 +693,9 @@ mod double_underline {
         let ecma = [Some(Param::from_raw(21))];
         let kitty = [Some(Param::from_raw(4)), Some(Param::from_raw(2))];
         let colon = SubParams::NONE.mark(ParamIdx::SECOND);
-        let a = SgrAttr::parse(Params::new(&ecma)).map(|(a, _)| a);
-        let b = SgrAttr::parse(Params::with_subs(&kitty, colon)).map(|(a, _)| a);
+        let a = SgrAttr::parse(Head::single(&ecma)).map(|(a, _)| a);
+        let mut b = None;
+        Params::with_subs(&kitty, colon).sgr(|_, a| b = b.or(Some(a)));
         let double = Some(SgrAttr::UnderlineStyle(Attrs::DOUBLE_UNDERLINE));
         assert!(a == double, "21 is the double style, replacing the family");
         assert!(b == double, "4:2 is the double style, replacing the family");

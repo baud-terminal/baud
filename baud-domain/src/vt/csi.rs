@@ -306,9 +306,19 @@ impl<'a> Params<'a> {
     pub fn is_sub(&self, i: ParamIdx) -> bool {
         self.sub.is_sub(i)
     }
+    /// Is the first parameter, or the one after it, joined to the one
+    /// before it by a colon? One mask test for [`Params::sgr`]'s walk.
+    #[inline]
+    pub(crate) fn near_a_colon(&self) -> bool {
+        self.sub.0 & 0b11 != 0
+    }
     /// Length of the colon-joined group that starts at `i`, counting `i`.
     ///
-    /// `38:2:0:1:2:3` from index 0 is 6; a bare `38` is 1.
+    /// `38:2:0:1:2:3` from index 0 is 6; a bare `38` is 1. The extent is the
+    /// mask's alone, out to the last parameter that arrived: a group is one
+    /// attribute however long an emitter made it, and a bound below
+    /// [`ParamIdx::CAPACITY`] read the rest of a long one as attributes of
+    /// their own (`4:3:0:...:1` was bold from the seventeenth on).
     ///
     /// **An explicit early-out for the empty mask is measured flat.** A colour
     /// introducer runs this on every `SGR 38`, `48` and `58`, and the
@@ -319,10 +329,7 @@ impl<'a> Params<'a> {
     /// btop 936.5 to 928.6, git-log 1862 to 1831, the rest flat.
     pub fn group_len(&self, i: ParamIdx) -> u8 {
         let mut n: u8 = 1;
-        while (i.0 + n) < 16
-            && ((i.0 + n) as usize) < self.v.len()
-            && self.is_sub(ParamIdx(i.0 + n))
-        {
+        while ((i.0 + n) as usize) < self.v.len() && self.is_sub(ParamIdx(i.0 + n)) {
             n += 1;
         }
         n
@@ -2120,5 +2127,36 @@ mod digit_pair {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod groups {
+    use super::*;
+
+    /// **A group's length is the mask's, out to every parameter that can
+    /// arrive.** A colon group of each length from 1 to
+    /// [`ParamIdx::CAPACITY`], then a semicolon and one more parameter:
+    /// `group_len` is the group's length, and the parameter after it a group
+    /// of one. It stopped at a literal sixteen.
+    #[test]
+    fn group_len_reaches_capacity() {
+        let v = [Some(Param(1)); ParamIdx::CAPACITY];
+        for g in 1..ParamIdx::CAPACITY {
+            let sub = (1..g).fold(SubParams::NONE, |m, i| m.mark(ParamIdx::at(i)));
+            let p = Params::with_subs(&v[..=g], sub);
+            assert_eq!(
+                usize::from(p.group_len(ParamIdx::FIRST)),
+                g,
+                "a group of {g}"
+            );
+            assert_eq!(p.group_len(ParamIdx::at(g)), 1, "the parameter after it");
+        }
+        let all = (1..ParamIdx::CAPACITY).fold(SubParams::NONE, |m, i| m.mark(ParamIdx::at(i)));
+        let p = Params::with_subs(&v, all);
+        assert_eq!(
+            usize::from(p.group_len(ParamIdx::FIRST)),
+            ParamIdx::CAPACITY
+        );
     }
 }

@@ -1005,7 +1005,7 @@ mod tests {
             Attrs::REVERSE.with(Attrs::ITALIC),
         ];
         for p in [1u16, 4, 5, 7, 22, 24, 25, 27] {
-            let Some((sgr, _)) = SgrAttr::parse(Params::new(&[Some(Param(p))])) else {
+            let Some((sgr, _)) = SgrAttr::parse(Head::single(&[Some(Param(p))])) else {
                 panic!("SGR {p} parses");
             };
             for a in starts {

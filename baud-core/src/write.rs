@@ -246,46 +246,20 @@ impl Csi {
                 }
             }
         }
-        // **A `ParamIdx`, not a bare counter.** It indexes the parameter array
-        // *and* realigns the sub-parameter mask, and those two must step
-        // together -- two integers here is how the colon form comes to be read
-        // correctly for the first attribute and wrongly for the rest.
-        let mut i = ParamIdx::FIRST;
-        while i.raw_index() < n {
-            match SgrAttr::parse(Params::with_subs(
-                &self.p[i.raw_index()..n],
-                self.sub.drop_first(i),
-            )) {
-                Some((attr, used)) => {
-                    attr.fold_into(raw);
-                    i = i.advance(used.at_least_one_count());
-                }
-                None => break,
-            }
-        }
+        // The domain's walk, which moves the index and the sub-parameter mask
+        // together and stops only on a head (`Params::sgr`).
+        self.params().sgr(|_, attr| attr.fold_into(raw));
     }
 
     /// The general fold, `fold_sgr`'s loop, folding only the attributes
     /// whose first parameter `keep` admits: the rest are stepped over whole,
     /// a colour's sub-parameters with it.
     pub(crate) fn fold_sgr_where(&self, raw: &mut StyleWord, mut keep: impl FnMut(u16) -> bool) {
-        let n = self.count().index();
-        let mut i = ParamIdx::FIRST;
-        while i.raw_index() < n {
-            let v = self.p[i.raw_index()].map_or(0, |x| x.value());
-            match SgrAttr::parse(Params::with_subs(
-                &self.p[i.raw_index()..n],
-                self.sub.drop_first(i),
-            )) {
-                Some((attr, used)) => {
-                    if keep(v) {
-                        attr.fold_into(raw);
-                    }
-                    i = i.advance(used.at_least_one_count());
-                }
-                None => break,
+        self.params().sgr(|head, attr| {
+            if keep(head.value()) {
+                attr.fold_into(raw);
             }
-        }
+        });
     }
 
     /// Every parameter this sequence carried. **Not just the first**:

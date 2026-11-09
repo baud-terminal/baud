@@ -10,6 +10,7 @@ mod support;
 
 mod blink;
 mod fonts;
+mod groups;
 mod ideogram;
 mod param_overflow;
 mod rep_align;

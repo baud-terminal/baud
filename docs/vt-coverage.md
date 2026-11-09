@@ -949,6 +949,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 
 | parameters | status |
 |---|---|
+| the walk: a colon group, an unknown parameter | done — **a colon group is one attribute, however long**, out to the parameter array's 39; its extent stopped at sixteen, so a seventeenth sub-parameter was read as an attribute of its own (`a_colon_group_is_one_attribute_however_long`, `group_len_reaches_capacity`). **A parameter that takes no sub-parameters applies nothing with a group, and an unknown one applies nothing, and the walk goes on**, as `[[source: xterm-sgr]]`'s `CASE_SGR` steps past both (charproc.c: "Only SGR 38/48 accept subparameters", `item += skip; /* ignore this */`, and `default: break;` inside the loop); baud takes groups on 4 and 58 as well. So `1:5` sets nothing, `1;22:1` stays bold, and `1;66;3` is bold and italic, where the walk used to stop at 66 (`a_group_on_a_head_that_takes_none_applies_nothing`, `an_unknown_head_does_not_end_the_walk`). A 38, 48 or 58 whose colour space is missing or unknown still ends it, since where its channels stop cannot be known (`a_malformed_colour_ends_the_walk`). An attribute is read only from a parameter no colon joins to the one before: `SgrAttr::parse` takes a `Head`, which the walk alone makes |
 | 0 reset | done |
 | 1, 2 bold/dim · 22 neither | done |
 | 3 italic · 23 not | done |
