@@ -341,22 +341,16 @@ pub struct Watch {
 #[derive(Clone)]
 pub struct Child {
     pub pid: Pid,
-    pub slot: crate::held::Slot,
+    pub slot: crate::pty::Slot,
 }
 
 #[cfg(target_os = "macos")]
 impl Child {
     /// Reaped now if it has ended and is not yet; whether this call did.
     fn reap(&self) -> Reaped {
-        if self.slot.get().is_some() {
-            return Reaped::Not;
-        }
-        match crate::pty::reap_now(self.pid) {
-            crate::pty::Reap::Running => Reaped::Not,
-            crate::pty::Reap::Reaped(r) => {
-                let _ = self.slot.set(r);
-                Reaped::Now
-            }
+        match crate::pty::reap_into(self.pid, &self.slot) {
+            crate::pty::Recorded::Not => Reaped::Not,
+            crate::pty::Recorded::Now => Reaped::Now,
         }
     }
 

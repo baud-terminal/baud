@@ -66,18 +66,34 @@ impl Ended {
     }
 }
 
-/// **A window's child, reaped**: the status `waitpid` gave it, and when.
-/// No status when `waitpid` said there was no such child to reap -- one
-/// something else reaped -- which closes the window as a shell's does.
-#[derive(Clone, Copy, Debug)]
-pub struct Reaped {
-    pub status: Option<std::process::ExitStatus>,
-    pub at: Instant,
+/// **How a window's child ended, as the window learned it.** Only an
+/// [`Ending::Exited`] carries a status; each of the others closes the window
+/// as a shell's does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ending {
+    /// `waitpid` answered with the child and the status it ended with.
+    Exited(std::process::ExitStatus),
+    /// `waitpid` answered `ECHILD`: the pid is no child of this process to
+    /// wait for, one something else reaped.
+    NotOurs,
+    /// `waitpid` failed with anything else. For a pid above 0 with
+    /// `WNOHANG` POSIX leaves only `EINVAL`, an options value it does not
+    /// take: a fault in baud, said where it is read.
+    WaitFailed(crate::sys::Errno),
+    /// The window stopped waiting for a child still running: with no pidfd,
+    /// the hung-up master's child was looked for twice and was still there
+    /// (`pty::Pty::give_up`).
+    #[cfg(target_os = "linux")]
+    Abandoned,
 }
 
-/// **Where a window's watch puts its child's status**, set once by
-/// whichever thread reaps it and read by the window's turns.
-pub type Slot = std::sync::Arc<std::sync::OnceLock<Reaped>>;
+/// **A window's child's end**, and when the window learned it. Written
+/// into a window's `pty::Slot` only by the reap path in `pty.rs`.
+#[derive(Clone, Copy, Debug)]
+pub struct Reaped {
+    pub ending: Ending,
+    pub at: Instant,
+}
 
 /// What a window does once its child has ended.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -147,6 +163,12 @@ pub enum Decided {
     Hold(String),
 }
 
+/// The line a window says when it closes on [`Ending::WaitFailed`]: the
+/// errno, which no window should ever see.
+pub fn wait_failed(e: crate::sys::Errno) -> String {
+    format!("held: waitpid failed ({e}); the window closes without its child's status")
+}
+
 /// **What a window does about its child's end, once both ends are in**:
 /// the stream closed, and the child reaped (`reaped`), in either order;
 /// until then it waits. `born` is when the child was started, for
@@ -160,8 +182,15 @@ pub fn decide(
     let (Stream::Closed, Some(r)) = (stream, reaped) else {
         return Decided::Wait;
     };
-    let Some(status) = r.status else {
-        return Decided::Close;
+    let status = match r.ending {
+        Ending::Exited(status) => status,
+        Ending::NotOurs => return Decided::Close,
+        Ending::WaitFailed(e) => {
+            crate::warn!("{}", wait_failed(e));
+            return Decided::Close;
+        }
+        #[cfg(target_os = "linux")]
+        Ending::Abandoned => return Decided::Close,
     };
     match after_exit(
         program,
@@ -360,6 +389,29 @@ mod tests {
         );
     }
 
+    /// **A wait that failed for any reason but `ECHILD` closes the window
+    /// and says the errno**, and is not taken for a child something else
+    /// reaped: `EINVAL`, the one other failure POSIX gives `waitpid` here,
+    /// closes a link's window that a failure would hold, and its line
+    /// names the error. Named break: fold every errno into
+    /// [`Ending::NotOurs`] (`pty::reap_now`).
+    #[test]
+    fn a_failed_wait_closes_and_names_its_errno() {
+        let born = Instant::now();
+        let e = crate::sys::Errno(crate::sys::EINVAL);
+        let failed = Reaped {
+            ending: Ending::WaitFailed(e),
+            at: born + SOON,
+        };
+        assert_eq!(
+            decide(hx(), born, Stream::Closed, Some(&failed)),
+            Decided::Close
+        );
+        let line = wait_failed(e);
+        assert!(line.contains("Invalid argument"), "{line}");
+        assert_ne!(Ending::WaitFailed(e), Ending::NotOurs);
+    }
+
     /// **A window decides only once both ends of its child are in, in
     /// either order**: the stream closed with no status waits, a status
     /// with the stream open waits, and both decide by the rule -- a failure
@@ -374,7 +426,7 @@ mod tests {
             .status()
             .expect("sh");
         let reaped = Reaped {
-            status: Some(failed),
+            ending: Ending::Exited(failed),
             at: born + SOON,
         };
         assert_eq!(decide(hx(), born, Stream::Closed, None), Decided::Wait);
@@ -387,7 +439,7 @@ mod tests {
             Decided::Hold("hx stopped with error 1. Press any key to close.".into())
         );
         let gone = Reaped {
-            status: None,
+            ending: Ending::NotOurs,
             at: born + SOON,
         };
         assert_eq!(

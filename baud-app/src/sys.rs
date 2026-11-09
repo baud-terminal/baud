@@ -368,6 +368,40 @@ pub fn default_signals<'c>(
     }
 }
 
+/// **An `errno` value** as a call left it, for a failure kept past the
+/// call: shown through the platform's own message.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Errno(pub c_int);
+
+impl Errno {
+    /// The calling thread's `errno` now.
+    pub fn last() -> Errno {
+        Errno(std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
+    }
+}
+
+impl core::fmt::Display for Errno {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        std::io::Error::from_raw_os_error(self.0).fmt(f)
+    }
+}
+
+/// "No child processes": what `waitpid` answers for a pid that is no
+/// child of the caller's to wait for -- one something else reaped. The
+/// same value on both platforms; the probe holds it.
+pub const ECHILD: c_int = 10;
+
+/// "Invalid argument": what `waitpid` answers for an options value it
+/// does not take, the one other failure POSIX gives it for a pid above 0
+/// besides `ECHILD` and `EINTR`. The same value on both platforms.
+#[cfg(test)]
+pub const EINVAL: c_int = 22;
+
+/// "Interrupted system call": a call a signal cut short, asked again. The
+/// same value on both platforms.
+#[cfg(test)]
+pub const EINTR: c_int = 4;
+
 /// "No such process": what `kill(pid, 0)` answers once a reaped child is
 /// gone from the process table, and what `kevent` answers for a process
 /// watch on a child that has already exited (`[[source:
@@ -1833,6 +1867,9 @@ int main(void) {
     printf("WNOHANG=%lld\n", (long long)WNOHANG);
     printf("SIGKILL=%lld\n", (long long)SIGKILL);
     printf("ESRCH=%lld\n", (long long)ESRCH);
+    printf("ECHILD=%lld\n", (long long)ECHILD);
+    printf("EINVAL=%lld\n", (long long)EINVAL);
+    printf("EINTR=%lld\n", (long long)EINTR);
     printf("P_PID=%lld\n", (long long)P_PID);
     printf("WEXITED=%lld\n", (long long)WEXITED);
     printf("WNOWAIT=%lld\n", (long long)WNOWAIT);
@@ -2226,6 +2263,9 @@ int main(void) {
         assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
         assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
         assert_eq!(h["ESRCH"], i128::from(ESRCH));
+        assert_eq!(h["ECHILD"], i128::from(ECHILD));
+        assert_eq!(h["EINVAL"], i128::from(EINVAL));
+        assert_eq!(h["EINTR"], i128::from(EINTR));
         assert_eq!(h["P_PID"], i128::from(P_PID));
         assert_eq!(h["WEXITED"], i128::from(WEXITED));
         assert_eq!(h["WNOWAIT"], i128::from(WNOWAIT));

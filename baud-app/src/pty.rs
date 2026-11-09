@@ -77,8 +77,8 @@ pub struct Pty {
     #[cfg(target_os = "macos")]
     closing: Option<std::io::PipeWriter>,
     /// **How the window's child ends** (`held.rs`): the program a link's
-    /// window runs, its start, and where its status goes once it is reaped.
-    ending: Ending,
+    /// window runs, its start, and where its end goes once it is known.
+    ending: ChildEnd,
     /// **The child as a descriptor** (`pidfd_open`), readable once it has
     /// ended, in the loop's poll until it is reaped; none once it is, or
     /// where the kernel has no such call ([`Pty::reap_owed`]).
@@ -96,21 +96,51 @@ pub struct Pty {
 
 /// **How a window's child ends, for its window** (`held::decide`): the
 /// program a link's window ran, none for a shell window, which never
-/// holds; when it was started; and the status it was reaped with, which
-/// its watch sets (`fg::Watch` on macOS, the pidfd on Linux).
-struct Ending {
+/// holds; when it was started; and how it ended, which its watch learns
+/// (`fg::Watch` on macOS, the pidfd on Linux).
+struct ChildEnd {
     program: Option<OsString>,
     born: std::time::Instant,
-    slot: crate::held::Slot,
+    slot: Slot,
 }
 
-impl Ending {
-    fn of(program: Option<OsString>) -> Ending {
-        Ending {
+impl ChildEnd {
+    fn of(program: Option<OsString>) -> ChildEnd {
+        ChildEnd {
             program,
             born: std::time::Instant::now(),
-            slot: crate::held::Slot::default(),
+            slot: Slot::default(),
         }
+    }
+}
+
+/// **Where a window's child's end goes** (`held::Reaped`), set once and
+/// read by the window's turns and its watch. Anyone may read it; only this
+/// file writes it, and only with what a `waitpid` of its own answered
+/// ([`reap_into`]) or, on Linux, a window that stopped waiting for a child
+/// still running ([`Pty::give_up`]). Its cell is private to this file, and
+/// `a_slot_is_written_only_where_a_wait_answered` holds that.
+#[derive(Clone, Default)]
+pub struct Slot(std::sync::Arc<std::sync::OnceLock<crate::held::Reaped>>);
+
+impl Slot {
+    /// The child's end, once it is known.
+    pub fn get(&self) -> Option<&crate::held::Reaped> {
+        self.0.get()
+    }
+
+    /// The child's end, waiting until it is known.
+    #[cfg(all(test, target_os = "macos"))]
+    pub fn wait(&self) -> &crate::held::Reaped {
+        self.0.wait()
+    }
+
+    /// A window that stopped waiting for its child, which still runs.
+    #[cfg(target_os = "linux")]
+    fn abandon(&self) {
+        let at = std::time::Instant::now();
+        let ending = crate::held::Ending::Abandoned;
+        let _ = self.0.set(crate::held::Reaped { ending, at });
     }
 }
 
@@ -1791,7 +1821,7 @@ impl Pty {
             signalled,
             watched,
             closing,
-            ending: Ending::of(program),
+            ending: ChildEnd::of(program),
         }
     }
 
@@ -1859,7 +1889,7 @@ impl Pty {
             child: Some(child),
             told,
             line: LineDiscipline::of(master),
-            ending: Ending::of(program),
+            ending: ChildEnd::of(program),
             pidfd,
             hung: crate::held::Stream::Open,
             again: None,
@@ -1991,7 +2021,7 @@ impl Pty {
     pub fn reaps(&self) -> Option<crate::fg::Child> {
         Some(crate::fg::Child {
             pid: self.child?,
-            slot: Arc::clone(&self.ending.slot),
+            slot: self.ending.slot.clone(),
         })
     }
 
@@ -2050,11 +2080,7 @@ impl Pty {
         let Some(pid) = self.child else {
             return;
         };
-        if self.ending.slot.get().is_some() {
-            return;
-        }
-        if let Reap::Reaped(r) = reap_now(pid) {
-            let _ = self.ending.slot.set(r);
+        if reap_into(pid, &self.ending.slot) == Recorded::Now {
             self.pidfd = None;
         }
     }
@@ -2076,13 +2102,7 @@ impl Pty {
     pub fn give_up(&mut self) {
         self.again = None;
         self.reap();
-        if self.ending.slot.get().is_none() {
-            let at = std::time::Instant::now();
-            let _ = self
-                .ending
-                .slot
-                .set(crate::held::Reaped { status: None, at });
-        }
+        self.ending.slot.abandon();
     }
 
     /// **The pty's device**, as the badge's `tty` names it: "The path to
@@ -2182,38 +2202,83 @@ fn pidfd_open(pid: crate::sys::Pid) -> std::io::Result<std::os::fd::OwnedFd> {
     Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) })
 }
 
-/// Whether a child's end has been reaped yet ([`reap_now`]).
+/// Whether a child's end is known yet ([`reap_now`]).
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Reap {
+enum Reap {
     /// It has not ended, or has not yet become a zombie to reap.
     Running,
     Reaped(crate::held::Reaped),
+}
+
+/// Whether a call put the child's end in its slot ([`reap_into`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Recorded {
+    /// It was already there, or the child has not ended.
+    Not,
+    Now,
+}
+
+/// **`pid` reaped into `slot`, if it has ended and is not there yet**
+/// ([`reap_now`]): the one way a slot learns a child's end from a wait,
+/// called by the window's watch on macOS (`fg::Watch`) and by the Linux
+/// loop.
+pub(crate) fn reap_into(pid: crate::sys::Pid, slot: &Slot) -> Recorded {
+    if slot.get().is_some() {
+        return Recorded::Not;
+    }
+    match reap_now(pid) {
+        Reap::Running => Recorded::Not,
+        Reap::Reaped(r) => match slot.0.set(r) {
+            Ok(()) => Recorded::Now,
+            Err(_) => Recorded::Not,
+        },
+    }
 }
 
 /// **`pid` reaped, if it has ended**: `waitpid` on that pid alone with
 /// [`crate::sys::WNOHANG`], which answers at once, asked only once an event
 /// says the child ended -- the window's watch on macOS (`fg::Watch`), the
 /// child's pidfd in the Linux loop's poll. Again when a signal cuts it
-/// short. A pid that is no child of this process -- one something else
-/// reaped -- is reaped with no status.
-pub(crate) fn reap_now(pid: crate::sys::Pid) -> Reap {
-    use std::os::unix::process::ExitStatusExt;
+/// short ([`waited`]).
+fn reap_now(pid: crate::sys::Pid) -> Reap {
     let mut status: core::ffi::c_int = 0;
     loop {
         // SAFETY: `status` is a valid out-pointer for the call's length.
         let got = unsafe { crate::sys::waitpid(pid, &raw mut status, crate::sys::WNOHANG) };
-        let at = std::time::Instant::now();
-        if got == pid {
-            let status = Some(std::process::ExitStatus::from_raw(status));
-            return Reap::Reaped(crate::held::Reaped { status, at });
-        }
-        if got == 0 {
-            return Reap::Running;
-        }
-        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return Reap::Reaped(crate::held::Reaped { status: None, at });
+        let errno = (got < 0).then(crate::sys::Errno::last);
+        if let Some(r) = waited(pid, got, status, errno) {
+            return r;
         }
     }
+}
+
+/// **What one `waitpid(pid, .., WNOHANG)` answered**: `got`, the status it
+/// wrote and, when it failed, its errno. None for `EINTR`, to be asked
+/// again. `ECHILD` is the only failure that means the pid is no child of
+/// this process to wait for -- one something else reaped -- and any other
+/// is kept as itself: POSIX leaves only `EINVAL` for a pid above 0, which
+/// would be a fault in baud and not a reaped child.
+fn waited(
+    pid: crate::sys::Pid,
+    got: core::ffi::c_int,
+    status: core::ffi::c_int,
+    errno: Option<crate::sys::Errno>,
+) -> Option<Reap> {
+    use crate::held::Ending;
+    use std::os::unix::process::ExitStatusExt;
+    let ending = match (got, errno) {
+        (got, _) if got == pid => Ending::Exited(std::process::ExitStatus::from_raw(status)),
+        (0, _) => return Some(Reap::Running),
+        (_, Some(e))
+            if std::io::Error::from_raw_os_error(e.0).kind() == std::io::ErrorKind::Interrupted =>
+        {
+            return None;
+        }
+        (_, Some(crate::sys::Errno(crate::sys::ECHILD))) => Ending::NotOurs,
+        (_, e) => Ending::WaitFailed(e.unwrap_or(crate::sys::Errno(0))),
+    };
+    let at = std::time::Instant::now();
+    Some(Reap::Reaped(crate::held::Reaped { ending, at }))
 }
 
 #[cfg(target_os = "macos")]
@@ -4396,7 +4461,7 @@ mod tests {
             signalled,
             watched: crate::probe::WatchCell::default(),
             closing,
-            ending: Ending::of(None),
+            ending: ChildEnd::of(None),
         };
         // The control: the reader's copy alone keeps the line up, so the
         // shell still answers through it once a write reaches it.
@@ -5324,6 +5389,102 @@ mod tests {
         (pid, master, told, program)
     }
 
+    /// **A slot is written only where a wait answered**: [`Slot`] is this
+    /// file's own type, its cell private, and nothing reads it but
+    /// [`Slot::get`] and [`Slot::wait`]; inside this file the cell is set at
+    /// two sites, [`reap_into`] with what its `waitpid` answered and
+    /// `Slot::abandon` for a window that stopped waiting. A binary crate
+    /// runs no `compile_fail`, so the sources hold it. Named break: a
+    /// public `set` on [`Slot`].
+    #[test]
+    fn a_slot_is_written_only_where_a_wait_answered() {
+        const SRC: &str = include_str!("pty.rs");
+        let def = concat!("pub struct ", "Slot(");
+        let at = SRC.find(def).expect("Slot is pty.rs's own type");
+        assert!(
+            !SRC[at + def.len()..].starts_with("pub"),
+            "its cell is private"
+        );
+        let open = concat!("impl ", "Slot {");
+        let body = &SRC[SRC.find(open).expect("its impl")..];
+        let body = &body[..body.find("\n}\n").expect("its impl's end")];
+        let public: Vec<&str> = body
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                l.strip_prefix("pub fn ")
+                    .or_else(|| l.strip_prefix("pub(crate) fn "))
+            })
+            .map(|l| l.split('(').next().unwrap_or(l))
+            .collect();
+        assert_eq!(public, ["get", "wait"], "readers only");
+        let tests = SRC
+            .find(concat!("#[cfg(test)]\nmod ", "tests"))
+            .unwrap_or(SRC.len());
+        let sets: Vec<usize> = SRC[..tests]
+            .match_indices(concat!("self.0", ".set("))
+            .chain(SRC[..tests].match_indices(concat!("slot.0", ".set(")))
+            .map(|(i, _)| i)
+            .collect();
+        let named = |f: &str| SRC.find(f).expect(f);
+        let abandon = named(concat!("fn ", "abandon("));
+        let reap = named(concat!("fn ", "reap_into("));
+        assert_eq!(sets.len(), 2, "two writes: {sets:?}");
+        for i in sets {
+            let in_abandon = i > abandon && i < abandon + 400;
+            let in_reap = i > reap && i < reap + 600;
+            assert!(in_abandon || in_reap, "a write outside the two: {i}");
+        }
+    }
+
+    /// **One `waitpid`'s answer is read as it is**: the pid and its status
+    /// is an exit; 0 is a child still running; `EINTR` is asked again;
+    /// `ECHILD` alone is a pid that is no child of ours; any other errno is
+    /// kept as itself. Named break: fold every errno into
+    /// [`crate::held::Ending::NotOurs`].
+    #[test]
+    fn a_waits_answer_is_read_as_it_is() {
+        use crate::held::Ending;
+        use crate::sys::Errno;
+        let pid = 4242;
+        let ending = |r: Option<Reap>| match r {
+            Some(Reap::Reaped(r)) => Some(r.ending),
+            Some(Reap::Running) | None => None,
+        };
+        let exited = ending(waited(pid, pid, 3 << 8, None));
+        assert!(
+            matches!(exited, Some(Ending::Exited(s)) if s.code() == Some(3)),
+            "{exited:?}"
+        );
+        assert!(matches!(waited(pid, 0, 0, None), Some(Reap::Running)));
+        assert!(
+            waited(pid, -1, 0, Some(Errno(crate::sys::EINTR))).is_none(),
+            "EINTR asks again"
+        );
+        assert_eq!(
+            ending(waited(pid, -1, 0, Some(Errno(crate::sys::ECHILD)))),
+            Some(Ending::NotOurs)
+        );
+        assert_eq!(
+            ending(waited(pid, -1, 0, Some(Errno(crate::sys::EINVAL)))),
+            Some(Ending::WaitFailed(Errno(crate::sys::EINVAL)))
+        );
+    }
+
+    /// **A pid that is no child of ours is reaped as not ours**: pid 1,
+    /// whose real `waitpid` answers `ECHILD`, goes into its slot as
+    /// [`crate::held::Ending::NotOurs`], once.
+    #[test]
+    fn a_pid_not_ours_is_reaped_as_not_ours() {
+        let slot = Slot::default();
+        assert_eq!(reap_into(1, &slot), Recorded::Now);
+        assert_eq!(
+            slot.get().map(|r| r.ending),
+            Some(crate::held::Ending::NotOurs)
+        );
+        assert_eq!(reap_into(1, &slot), Recorded::Not, "set once");
+    }
+
     /// Whether `pid` names a process, a zombie included: `kill(pid, 0)`,
     /// which answers `ESRCH` once it has been reaped.
     fn alive(pid: crate::sys::Pid) -> bool {
@@ -5513,18 +5674,21 @@ mod tests {
             .expect("a child");
         let pid = crate::sys::Pid::try_from(child.id()).expect("a pid");
         exited_unreaped(pid);
-        let slot = crate::held::Slot::default();
+        let slot = Slot::default();
         let watch = crate::fg::Watch::start(
             Some(crate::fg::Child {
                 pid,
-                slot: Arc::clone(&slot),
+                slot: slot.clone(),
             }),
             crate::probe::WatchCell::default(),
             || {},
         )
         .expect("a kqueue");
         let got = slot.get().expect("reaped as the watch started");
-        assert_eq!(got.status.and_then(|s| s.code()), Some(5));
+        let crate::held::Ending::Exited(status) = got.ending else {
+            panic!("reaped with its status: {:?}", got.ending);
+        };
+        assert_eq!(status.code(), Some(5));
         assert!(!alive(pid), "no zombie");
         drop(watch);
     }
@@ -5538,7 +5702,7 @@ mod tests {
     #[test]
     fn a_window_closed_first_still_reaps_its_child() {
         let w = Window::of("read x", Runs::Shell);
-        let slot = Arc::clone(&w.pty.ending.slot);
+        let slot = w.pty.ending.slot.clone();
         let pid = w.pid;
         assert!(w.alive(), "the control: the shell runs");
         let (tx, rx) = channel();
@@ -6050,6 +6214,13 @@ mod tests {
         w.pty.give_up();
         assert_eq!(w.pty.decide(w.pty.stream()), Decided::Close);
         assert_eq!(w.pty.reap_owed(), None, "nothing more is owed");
+        // Given up on while it runs, which its slot says, and not that
+        // something else reaped it.
+        assert_eq!(
+            w.pty.ending.slot.get().map(|r| r.ending),
+            Some(crate::held::Ending::Abandoned)
+        );
+        assert!(alive(w.pid), "the child given up on still runs");
         release(&f);
         let _ = std::fs::remove_dir_all(&dir);
     }
