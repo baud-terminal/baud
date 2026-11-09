@@ -125,6 +125,11 @@ impl Report {
 /// `PATH` aside, which is the session's, as the app's worker has baud's:
 /// a `[link.*]` rule's program is looked up along the `PATH` the shell
 /// the take films was given.
+///
+/// **Every `Fs` method is written out**, none left to the trait's default:
+/// a method `Fs` gains with a default would answer here with that default,
+/// not the system's, and compile. `every_fs_method_is_the_systems` holds
+/// the list to the trait's.
 struct SessionFs {
     system: crate::probe::System,
     path: Option<std::ffi::OsString>,
@@ -931,6 +936,40 @@ mod tests {
             (1, vec![]),
             "the control: a row lighting"
         );
+    }
+
+    /// **Every method of the worker's `Fs` is the session's own**: each
+    /// `fn` the trait declares (`probe.rs`) is written out in `SessionFs`'s
+    /// impl, as one the trait gains with a default would compile there and
+    /// answer with the default. The control: the trait's list holds the
+    /// methods with defaults, `handler` and `path_var` among them.
+    #[test]
+    fn every_fs_method_is_the_systems() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let read = |f: &str| std::fs::read_to_string(src.join(f)).expect("a module");
+        // The `fn` names of the block that opens at `head`, to its closing
+        // brace at the start of a line.
+        let fns = |text: &str, head: &str| -> Vec<String> {
+            let at = text.find(head).unwrap_or_else(|| panic!("{head}"));
+            let block = &text[at..];
+            let block = &block[..block.find("\n}").expect("the block's end")];
+            let mut names: Vec<String> = block
+                .lines()
+                .filter_map(|l| l.trim_start().strip_prefix("fn "))
+                .map(|l| l[..l.find(['(', '<']).expect("a fn's name")].to_string())
+                .collect();
+            names.sort();
+            names
+        };
+        let fs = fns(&read("probe.rs"), concat!("pub trait ", "Fs: Send {"));
+        for default in ["handler", "path_var", "folder", "started", "prepare"] {
+            assert!(fs.iter().any(|f| f == default), "the control: {default}");
+        }
+        let session = fns(
+            &read("film/tap.rs"),
+            concat!("impl crate::probe::Fs ", "for SessionFs {"),
+        );
+        assert_eq!(session, fs);
     }
 
     /// **The tap opens nothing and names no AppKit**: from `tap.rs` and
