@@ -129,12 +129,26 @@ program on another machine wrote, or one baud could not name, is drawn
 without its line and refused on click: its look and its click are judged
 once, the same way, so a link never looks openable when a click would refuse
 it. A link a remote program opens with `OSC 8` and leaves open stays that
-program's, whatever is written under it afterwards. One case is still open:
-a remote program that writes on a row below its cursor and moves back up can
-leave text there that a later local prompt on that row lights. A test holds
-that case, and it is closed before baud is public.
+program's, whatever is written under it afterwards.
 
-**You can add to that list, or change what a click does, in your own config.
+Five cases are still open, in which text a remote program wrote, or one baud
+could not name, can be judged by a local writer and light. Each is held by a
+test and closed before baud is public:
+
+- A remote program writes on a row below its cursor and moves back up, and a
+  later local prompt lands on that row.
+- A full-screen program on the alternate screen, a pager say, scrolls, and
+  after it quits the rows of the main screen are looked up a few lines off.
+- A later local program moves text, by inserting or deleting lines, and the
+  text keeps the writer of the row it lands on.
+- A remote program's line feed on the bottom row, below a scrolling region
+  that ends higher, cannot move the cursor, and that row is left to the next
+  writer.
+- A resize re-wraps lines and moves text no writer was named for onto a row
+  a local program wrote.
+
+**You can add to the schemes a click opens, or change what a click does, in
+your own config.
 Nothing a program prints can.** A `[link.NAME]` rule names one scheme and sends its links to
 the system's handler or to a program you name (`baud-app/src/rules.rs`); a
 `[link.path]` rule can send a clicked printed path to one. Rules are read only

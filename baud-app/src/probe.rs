@@ -4732,6 +4732,27 @@ mod tests {
         watched: Watched,
         drain: Drain,
         sampled: Sampled,
+        then: Then,
+    }
+
+    /// What the window does once a read's drain is taken: nothing, or a
+    /// resize to this size, numbered as the drivers number one
+    /// (`keep::kept_across_resize`).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Then {
+        Nothing,
+        /// To this many columns and rows.
+        Resize(u16, u16),
+    }
+
+    /// **How the window's lines are numbered across the reads**: held at
+    /// the start, as most rows here read them, or moved after each drain by
+    /// what the live surface retired or took back, as the drivers move
+    /// theirs (`seat::Seat::after_read`, `keep::numbered`).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Numbering {
+        Held,
+        Driven,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4760,6 +4781,7 @@ mod tests {
             watched: Watched::Nothing,
             drain: Drain::New,
             sampled: Sampled::Yes,
+            then: Then::Nothing,
         }
     }
 
@@ -4823,13 +4845,42 @@ mod tests {
         trim: Option<usize>,
         look: impl FnOnce(&Term<'_>, &Paths) -> R,
     ) -> (Vec<usize>, Vec<Origin>, R) {
+        taken_numbered(ws, f, reads, trim, Numbering::Held, look)
+    }
+
+    /// **[`lit_reads`] on a screen of `ws`, the lines numbered as the
+    /// drivers number them** ([`Numbering::Driven`]).
+    fn lit_driven(ws: WinSize, f: Fake, reads: &[Read<'_>]) -> Vec<usize> {
+        taken_numbered(ws, f, reads, None, Numbering::Driven, |_, _| ()).0
+    }
+
+    /// [`taken_then_on`], the lines numbered by `numbering`, the storage
+    /// sized to the largest window any read resizes to.
+    fn taken_numbered<R>(
+        ws: WinSize,
+        f: Fake,
+        reads: &[Read<'_>],
+        trim: Option<usize>,
+        numbering: Numbering,
+        look: impl FnOnce(&Term<'_>, &Paths) -> R,
+    ) -> (Vec<usize>, Vec<Origin>, R) {
         let (mut pr, _) = probes(f);
-        let mut owned = Owned::new(&ws);
+        let most = reads
+            .iter()
+            .fold((ws.ws_col, ws.ws_row), |(c, r), read| match read.then {
+                Then::Resize(cols, rows) => (c.max(cols), r.max(rows)),
+                Then::Nothing => (c, r),
+            });
+        let most = WinSize {
+            ws_col: most.0,
+            ws_row: most.1,
+        };
+        let mut owned = Owned::new(&most);
         let mut t = Term::new(owned.storage(), &ws);
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
-        let s = Scrolled::START;
+        let mut s = Scrolled::START;
         // The shell is handed [`TOKEN`] where the session's marks carry a
         // token, as baud hands a window's shell its own at the spawn.
         let marked = reads
@@ -4853,6 +4904,8 @@ mod tests {
                 .count();
             let drain = &reads[i..i + n];
             let began = s.line(Rows::ZERO, t.cursor().0);
+            let before = (numbering == Numbering::Driven)
+                .then(|| crate::keep::Before::watched(&mut t, None, s));
             let mut taken = Vec::new();
             let mut now = t0;
             for (k, r) in drain.iter().enumerate() {
@@ -4874,18 +4927,29 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
-            if drain.iter().any(|r| r.sampled == Sampled::Unfiled) {
-                i += n;
-                continue;
+            if let Some(before) = before {
+                s = match crate::keep::numbered(&t, before, None) {
+                    crate::keep::Ring::Retired(k) => s.advanced(k),
+                    crate::keep::Ring::Restored(k) => s.retreated(k).unwrap_or(Scrolled::START),
+                };
             }
-            pr.drain_taken(
-                &mut paths,
-                &t,
-                began,
-                ended,
-                took.into_iter().map(|w| (w, Linked::No)),
-            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            if !drain.iter().any(|r| r.sampled == Sampled::Unfiled) {
+                pr.drain_taken(
+                    &mut paths,
+                    &t,
+                    began,
+                    ended,
+                    took.into_iter().map(|w| (w, Linked::No)),
+                );
+            }
+            if let Then::Resize(ws_col, ws_row) = drain[n - 1].then {
+                let was = (t.history_mark(), t.geometry().0, t.screen());
+                let _ = t.resize(&WinSize { ws_col, ws_row });
+                if numbering == Numbering::Driven {
+                    s = crate::keep::kept_across_resize(&t, was, None, s).1;
+                }
+            }
             i += n;
         }
         let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
@@ -6245,6 +6309,166 @@ mod tests {
             shapes,
             [vec![2], vec![2]],
             [Vec::new(), Vec::new()],
+        );
+    }
+
+    /// **Pending on the core record (H1): after a full-screen program that
+    /// scrolled, the primary's rows are looked up lines off, and a remote
+    /// row reads a local row's writer.** `/etc/passwd` printed under `ssh`,
+    /// then a local `less` on the alternate screen scrolls it two lines and
+    /// quits, and the shell's prompt. The drivers number the window by one
+    /// count that the alternate screen's scrolling moves too, and leaving
+    /// it moves nothing back, so row 0 is looked up as a line `less` wrote,
+    /// and lights. Once each screen keeps its own count it stays dark.
+    /// Expected-red ([`pending`]).
+    #[test]
+    fn pending_core_record_a_remote_row_after_a_scrolled_pager() {
+        let groups = || {
+            let mut f = named_groups();
+            f.groups.insert(3, vec!["less".into()]);
+            f
+        };
+        let reads = [
+            read(b"/etc/passwd\r\n", 9),
+            read(b"$ less x\r\n", 1),
+            read(b"\x1b[?1049h", 3),
+            read(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\n", 3),
+            read(b"\x1b[?1049l", 3),
+            read(b"$ ", 1),
+        ];
+        let (held, _, ()) =
+            taken_numbered(TALL, groups(), &reads, None, Numbering::Held, |_, _| ());
+        assert_eq!(
+            held,
+            Vec::<usize>::new(),
+            "the control: a count that does not drift"
+        );
+        let lit = lit_driven(TALL, groups(), &reads);
+        pending(LinkStage::CoreRecord, lit, vec![0], Vec::new());
+    }
+
+    /// **Pending on the core record (H2): text a later local program moves
+    /// keeps the writer of the row it lands on.** `ssh h` run, and
+    /// `/etc/passwd` printed under it on row 1; it ends, and the shell's
+    /// prompt follows on row 2, the shell's by its marks; then a local
+    /// program inserts a line at row 1 (`CSI L`), which moves the remote
+    /// text onto row 2, a row only the shell wrote, and it lights. Once the
+    /// core records moved rows, filed with the most cautious writer they
+    /// held, it stays dark. Expected-red ([`pending`]).
+    #[test]
+    fn pending_core_record_remote_text_moved_onto_a_local_row() {
+        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
+        let moved = |local: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    read(b"/etc/passwd\r\n", 9),
+                    read(&prompt, 1),
+                    read(local, 2),
+                ],
+            )
+        };
+        assert_eq!(
+            moved(b"\x1b[2;1H"),
+            Vec::<usize>::new(),
+            "the control: nothing moved"
+        );
+        pending(
+            LinkStage::CoreRecord,
+            moved(b"\x1b[2;1H\x1b[L"),
+            vec![2],
+            Vec::new(),
+        );
+    }
+
+    /// **Pending on the core record (H3): a line feed that cannot move the
+    /// cursor still leaves its row to the next writer.** Under `ssh h`, a
+    /// scrolling region over the top rows and the cursor on the row above
+    /// the last; then a read of a line feed, a path on the last row, and a
+    /// carriage return and line feed -- which, the cursor on the last row
+    /// below the region, does not move it. The read is filed as if its
+    /// final line feed had left the last row clean, so the shell's prompt
+    /// written there next, the shell's by its marks, makes the row the
+    /// shell's, and the path lights. Once the core records that the line
+    /// feed did not move, the row stays the remote read's. Expected-red
+    /// ([`pending`]).
+    #[test]
+    fn pending_core_record_a_line_feed_that_does_not_move() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
+        let at = |region: &[u8]| {
+            let ws = WinSize {
+                ws_col: ws.ws_col,
+                ws_row: ws.ws_row,
+            };
+            let reads = [
+                read(&start, 1),
+                read(region, 9),
+                read(b"\n   /etc/passwd\r\n", 9),
+                read(&prompt, 1),
+            ];
+            taken_on(ws, named_groups(), &reads).0
+        };
+        assert_eq!(
+            at(b"\x1b[1;5r\x1b[8;1H"),
+            Vec::<usize>::new(),
+            "the control: a row higher, the last line feed moves"
+        );
+        pending(
+            LinkStage::CoreRecord,
+            at(b"\x1b[1;5r\x1b[9;1H"),
+            vec![9],
+            Vec::new(),
+        );
+    }
+
+    /// **Pending on the core record (H4): a resize that re-wraps lines
+    /// moves text whose writer baud could not name onto a row a local
+    /// program wrote.** A local line wrapped over rows 0 and 1, then
+    /// `/etc/passwd` on row 2 filed under no writer, then a local prompt;
+    /// the window widened, the wrapped line takes one row and the path
+    /// moves up to row 1, which is filed local, and lights. Once a
+    /// renumbering never files a local writer over lines it did not write,
+    /// it stays dark. Expected-red ([`pending`]).
+    #[test]
+    fn pending_core_record_a_resize_moves_unnamed_text_onto_a_local_row() {
+        let narrow = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let wrapped = [[b'x'; 30].as_slice(), b"\r\n"].concat();
+        let resized = |then: Then| {
+            let ws = WinSize {
+                ws_col: narrow.ws_col,
+                ws_row: narrow.ws_row,
+            };
+            let reads = [
+                read(&wrapped, 1),
+                Read {
+                    sampled: Sampled::Unfiled,
+                    ..read(b"/etc/passwd\r\n", 1)
+                },
+                Read {
+                    then,
+                    ..read(b"$ ", 1)
+                },
+            ];
+            lit_driven(ws, named_groups(), &reads)
+        };
+        assert_eq!(
+            resized(Then::Nothing),
+            Vec::<usize>::new(),
+            "the control: no resize"
+        );
+        pending(
+            LinkStage::CoreRecord,
+            resized(Then::Resize(40, 6)),
+            vec![1],
+            Vec::new(),
         );
     }
 
