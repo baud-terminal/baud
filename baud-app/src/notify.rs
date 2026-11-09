@@ -41,8 +41,8 @@ use std::time::Duration;
 
 use baud_core::{
     Activation, Attention, ButtonSupport, CloseEvents, CloseReport, Expiry, ExpirySupport,
-    IconSupport, Notice, NoticeAction, NoticeFrom, NoticeSupport, NoticeToken, Occasion, Occasions,
-    Progress, ReportCount, Sounds, Term, Urgencies, Urgency,
+    IconSupport, Notice, NoticeAction, NoticeButton, NoticeFrom, NoticeSupport, NoticeToken,
+    Occasion, Occasions, Progress, ReportCount, Sounds, Term, Urgencies, Urgency,
 };
 
 use crate::bell::Moment;
@@ -63,7 +63,10 @@ pub struct Posted {
     /// The path of the local file iTerm2's `image` names, read only when
     /// the notification is shown ([`Delivery::image`]).
     pub picture: Option<Vec<u8>>,
-    pub buttons: Vec<String>,
+    /// The buttons it shows, each with the number the core gave it: a
+    /// label of controls alone shows nothing and is left out, and the
+    /// rest keep their numbers, which a click reports.
+    pub buttons: Vec<(baud_core::NoticeButton, String)>,
     /// `f` and the first `t`.
     pub app: String,
     pub kind: String,
@@ -121,7 +124,11 @@ impl Posted {
             body: text(n.body),
             subtitle: text(n.subtitle),
             picture: (!n.picture.is_empty()).then(|| n.picture.to_vec()),
-            buttons: n.buttons().map(text).filter(|b| !b.is_empty()).collect(),
+            buttons: n
+                .buttons()
+                .map(|(k, b)| (k, text(b)))
+                .filter(|(_, b)| !b.is_empty())
+                .collect(),
             app: text(n.app),
             kind: text(n.kind),
             icon_names: n.icon_names().map(text).collect(),
@@ -439,25 +446,34 @@ pub const SETTLED: Duration = Duration::from_secs(1);
 /// closed once the expiry time has passed", whatever the platform does.
 #[derive(Clone, Debug)]
 pub struct Shown<T, P> {
-    /// Each one's token, the platform's id, its deadline and when it was
-    /// shown.
-    alive: Vec<(NoticeToken, P, Option<T>, T)>,
+    alive: Vec<Alive<T, P>>,
 }
+
+/// One shown notification: its token, the platform's id, its deadline,
+/// when it was shown and the buttons it showed.
+type Alive<T, P> = (NoticeToken, P, Option<T>, T, Vec<NoticeButton>);
 
 impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     pub fn new() -> Shown<T, P> {
         Shown { alive: Vec::new() }
     }
 
-    /// `token` shown as the platform's `id`, closing at `now` plus its
-    /// expiry where it has one.
-    pub fn shown(&mut self, token: NoticeToken, id: P, expiry: Expiry, now: T) {
+    /// `token` shown as the platform's `id` with `buttons`, closing at
+    /// `now` plus its expiry where it has one.
+    pub fn shown(
+        &mut self,
+        token: NoticeToken,
+        id: P,
+        expiry: Expiry,
+        now: T,
+        buttons: Vec<NoticeButton>,
+    ) {
         let due = match expiry {
             Expiry::After(d) => Some(now.after(d)),
             Expiry::System | Expiry::Never => None,
         };
-        self.alive.retain(|(t, _, _, _)| *t != token);
-        self.alive.push((token, id, due, now));
+        self.alive.retain(|(t, _, _, _, _)| *t != token);
+        self.alive.push((token, id, due, now, buttons));
         // On macOS nothing says one closed, so the oldest are forgotten
         // past the core's own live table.
         if self.alive.len() > baud_domain::NOTICE_LIVE {
@@ -469,21 +485,31 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     pub fn id(&self, token: NoticeToken) -> Option<P> {
         self.alive
             .iter()
-            .find(|(t, _, _, _)| *t == token)
-            .map(|(_, id, _, _)| id.clone())
+            .find(|(t, _, _, _, _)| *t == token)
+            .map(|(_, id, _, _, _)| id.clone())
+    }
+
+    /// **The button of `token` a click's action names**, by the number the
+    /// presenter put in it: one of the buttons that notification showed,
+    /// or none. A number that parses but names no button it showed is
+    /// dropped, never reported, as is any click on one no longer shown.
+    pub fn read_back(&self, token: NoticeToken, number: &str) -> Option<NoticeButton> {
+        let n: u8 = number.parse().ok()?;
+        let (_, _, _, _, shown) = self.alive.iter().find(|(t, _, _, _, _)| *t == token)?;
+        shown.iter().copied().find(|b| b.number() == n)
     }
 
     /// The token the platform's `id` names.
     pub fn token(&self, id: &P) -> Option<NoticeToken> {
         self.alive
             .iter()
-            .find(|(_, i, _, _)| i == id)
-            .map(|(t, _, _, _)| *t)
+            .find(|(_, i, _, _, _)| i == id)
+            .map(|(t, _, _, _, _)| *t)
     }
 
     /// Forget `token`.
     pub fn gone(&mut self, token: NoticeToken) {
-        self.alive.retain(|(t, _, _, _)| *t != token);
+        self.alive.retain(|(t, _, _, _, _)| *t != token);
     }
 
     /// **The ones the platform no longer has**, taken out: each shown at
@@ -496,9 +522,9 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
         let (gone, kept): (Vec<_>, Vec<_>) = self
             .alive
             .drain(..)
-            .partition(|(_, id, _, at)| at.after(SETTLED) <= asked && !present.contains(id));
+            .partition(|(_, id, _, at, _)| at.after(SETTLED) <= asked && !present.contains(id));
         self.alive = kept;
-        gone.into_iter().map(|(t, _, _, _)| t).collect()
+        gone.into_iter().map(|(t, _, _, _, _)| t).collect()
     }
 
     /// Whether any is shown.
@@ -512,7 +538,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn due(&mut self, now: T) -> Vec<(NoticeToken, P)> {
         let mut due = Vec::new();
-        for (t, id, d, _) in &mut self.alive {
+        for (t, id, d, _, _) in &mut self.alive {
             if d.is_some_and(|d| d <= now) {
                 *d = None;
                 due.push((*t, id.clone()));
@@ -524,7 +550,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     /// The nearest deadline, for the driver's wait.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn next_due(&self) -> Option<T> {
-        self.alive.iter().filter_map(|(_, _, d, _)| *d).min()
+        self.alive.iter().filter_map(|(_, _, d, _, _)| *d).min()
     }
 }
 
@@ -543,9 +569,10 @@ pub struct Delivery<T, P> {
     pub bucket: Bucket<T>,
     pub icons: Icons,
     pub shown: Shown<T, P>,
-    /// Posted and not yet answered, with the expiry each asked.
+    /// Posted and not yet answered, with the expiry each asked and the
+    /// buttons each shows.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub waiting: Vec<(NoticeToken, Expiry)>,
+    pub waiting: Vec<(NoticeToken, Expiry, Vec<NoticeButton>)>,
     progress: ReportCount,
     attention: ReportCount,
     /// How many the bound had dropped when it last said so, and in which
@@ -701,12 +728,16 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
         })
     }
 
-    /// The expiry `token` asked, taken from the waiting list.
+    /// The expiry `token` asked and the buttons it shows, taken from the
+    /// waiting list.
     #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-    pub fn answered(&mut self, token: NoticeToken) -> Expiry {
-        match self.waiting.iter().position(|(t, _)| *t == token) {
-            Some(i) => self.waiting.swap_remove(i).1,
-            None => Expiry::System,
+    pub fn answered(&mut self, token: NoticeToken) -> (Expiry, Vec<NoticeButton>) {
+        match self.waiting.iter().position(|(t, _, _)| *t == token) {
+            Some(i) => {
+                let (_, e, b) = self.waiting.swap_remove(i);
+                (e, b)
+            }
+            None => (Expiry::System, Vec::new()),
         }
     }
 }
@@ -740,7 +771,7 @@ pub struct MacPost {
     pub silent: Silence,
     /// `u=0` is passive, the rest active: critical needs an entitlement.
     pub passive: Passive,
-    pub buttons: Vec<String>,
+    pub buttons: Vec<(baud_core::NoticeButton, String)>,
     /// The image and the file extension its bytes say it is.
     pub image: Option<(Vec<u8>, &'static str)>,
 }
@@ -1091,13 +1122,14 @@ impl<T: Moment> Delivery<T, String> {
                 Urgency::Low => Passive::Passive,
                 _ => Passive::Active,
             },
-            buttons: p.buttons,
+            buttons: p.buttons.clone(),
             image,
         }));
         if let Expiry::After(d) = p.expiry {
             calls.push(MacCall::Expire(id.clone(), d));
         }
-        self.shown.shown(p.token, id, p.expiry, now);
+        let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
+        self.shown.shown(p.token, id, p.expiry, now, buttons);
         crate::reads::input(term, |t| t.notice_shown(p.token), reply);
     }
 }
@@ -1134,17 +1166,20 @@ impl<T: Moment> Delivery<T, String> {
     }
 }
 
-/// What a click's action identifier names: the notification itself, or
-/// its `n`th button, from 1.
+/// **What a click's action identifier names**: the notification itself,
+/// or the button whose number follows `button-`, read back by `read`
+/// against the buttons that notification showed ([`Shown::read_back`]).
+/// `None`, and nothing reported, for an action naming no button it showed.
 #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
-pub fn clicked(action: &str, default: &str) -> Option<Option<baud_core::NoticeButton>> {
+pub fn clicked(
+    action: &str,
+    default: &str,
+    read: impl FnOnce(&str) -> Option<NoticeButton>,
+) -> Option<Option<NoticeButton>> {
     if action == default {
         return Some(None);
     }
-    let n: usize = action.strip_prefix("button-")?.parse().ok()?;
-    n.checked_sub(1)
-        .and_then(baud_core::NoticeButton::of_index)
-        .map(Some)
+    read(action.strip_prefix("button-")?).map(Some)
 }
 
 /// **Whether Linux has no summary to give it**: neither a title nor a
@@ -1798,8 +1833,8 @@ mod tests {
             b"\x1b]99;i=a:w=1500;a\x1b\\\x1b]99;i=b;b\x1b\\",
             &mut Icons::default(),
         );
-        s.shown(p[0].token, 7, p[0].expiry, at(Secs(0)));
-        s.shown(p[1].token, 8, p[1].expiry, at(Secs(0)));
+        s.shown(p[0].token, 7, p[0].expiry, at(Secs(0)), Vec::new());
+        s.shown(p[1].token, 8, p[1].expiry, at(Secs(0)), Vec::new());
         assert_eq!(
             s.next_due(),
             Some(HostTime::ZERO.plus(Duration::from_millis(1500)))
@@ -1822,6 +1857,134 @@ mod tests {
     /// its buttons, sound, level and image, a program that asked told its
     /// close is untracked, an expiry scheduled, an update by id posted
     /// under the same identifier, a close removed, a focused window's
+    /// The labels a click test sends: ordinary, control-only, empty.
+    const LABELS: [&str; 3] = ["Go", "\u{85}", ""];
+
+    /// Every list of one to four labels drawn from [`LABELS`].
+    fn label_lists() -> Vec<Vec<&'static str>> {
+        let mut out: Vec<Vec<&str>> = vec![vec![]];
+        let mut all = Vec::new();
+        for _ in 0..4 {
+            out = out
+                .iter()
+                .flat_map(|l| {
+                    LABELS.iter().map(move |x| {
+                        let mut l = l.clone();
+                        l.push(*x);
+                        l
+                    })
+                })
+                .collect();
+            all.extend(out.iter().cloned());
+        }
+        all
+    }
+
+    /// The report a click on the shown button `shown` of a notification
+    /// whose program sent `labels` sends back, and that button's place
+    /// among the labels the program sent, which the program counts.
+    fn click_each(labels: &[&str]) -> Vec<(Vec<u8>, usize)> {
+        let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut s = support(Setting::On, Platform::MacOs).expect("supported");
+        s.actions = baud_core::Activation::FOCUS_AND_REPORT;
+        t.set_notice_support(Some(s));
+        // Each ordinary label numbered so it can be found, `Go0`, `Go3`;
+        // a control-only one stays control-only.
+        let named: Vec<String> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, l)| match *l {
+                "Go" => format!("Go{i}"),
+                l => l.to_string(),
+            })
+            .collect();
+        let seq = format!(
+            "\x1b]99;i=n:a=report:d=0;T\x1b\\\x1b]99;i=n:p=buttons;{}\x1b\\",
+            named.join("\u{2028}")
+        );
+        feed(&mut t, seq.as_bytes());
+        let posted: Vec<Posted> = t
+            .notices()
+            .map(|n| Posted::of(&n, &mut Icons::default()))
+            .collect();
+        let p = &posted[0];
+        let mut shown: Shown<HostTime, u32> = Shown::new();
+        let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
+        shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
+        let sent: Vec<&String> = named.iter().filter(|l| !l.is_empty()).collect();
+        let mut out = Vec::new();
+        for (n, label) in &p.buttons {
+            let place = 1 + sent
+                .iter()
+                .position(|l| text(l.as_bytes()) == *label)
+                .expect("a shown label was sent");
+            // The action a presenter names the button by.
+            let action = format!("button-{}", n.number());
+            let read = |n: &str| shown.read_back(p.token, n);
+            let button = clicked(&action, DEFAULT, read).expect("a button's action");
+            t.clear_reply();
+            t.notice_activated(p.token, button);
+            out.push((t.reply().to_vec(), place));
+        }
+        out
+    }
+
+    /// **A click reports the label's place in the program's list**, the
+    /// number the program counts its buttons by, over every list of one to
+    /// four labels mixing ordinary, control-only and empty ones: a
+    /// control-only label is not shown, and the labels after it keep their
+    /// places. It reported its place among the labels shown, so for `Go`,
+    /// a control-only label and `Go`, the second `Go` reported 2, not 3.
+    #[test]
+    fn a_click_reports_the_labels_place_in_the_programs_list() {
+        let mut wrong = Vec::new();
+        let mut clicks = 0;
+        for labels in label_lists() {
+            for (reply, place) in click_each(&labels) {
+                clicks += 1;
+                let want = format!("\x1b]99;i=n;{place}\x1b\\").into_bytes();
+                if reply != want {
+                    wrong.push(format!("{labels:?}: {}", reply.escape_ascii()));
+                }
+            }
+        }
+        assert!(clicks > 100, "the premise: buttons were clicked ({clicks})");
+        assert!(
+            wrong.is_empty(),
+            "{} wrong:\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
+    }
+
+    /// **A click naming a button the notification did not show reports
+    /// nothing**: `button-5` on one that showed three is dropped, on macOS's
+    /// action and Linux's key alike, where the number was reported as a
+    /// button. The control: `button-3` is its third.
+    #[test]
+    fn a_click_on_a_button_it_did_not_show_reports_nothing() {
+        let p = posted(
+            "\x1b]99;i=n:a=report:d=0;T\x1b\\\x1b]99;i=n:p=buttons;A\u{2028}B\u{2028}C\x1b\\"
+                .as_bytes(),
+            &mut Icons::default(),
+        );
+        let p = &p[0];
+        assert_eq!(p.buttons.len(), 3, "the premise: three shown");
+        let mut shown: Shown<HostTime, u32> = Shown::new();
+        let numbers = p.buttons.iter().map(|(n, _)| *n).collect();
+        shown.shown(p.token, 1, p.expiry, at(Secs(0)), numbers);
+        let mac = |action: &str| {
+            clicked(action, DEFAULT, |n| shown.read_back(p.token, n))
+                .map(|b| b.map(NoticeButton::number))
+        };
+        assert_eq!(mac("button-3"), Some(Some(3)), "the control");
+        assert_eq!(mac("button-5"), None, "macOS: a button it did not show");
+        let linux = |key: &str| shown.read_back(p.token, key).map(NoticeButton::number);
+        assert_eq!(linux("3"), Some(3), "the control");
+        assert_eq!(linux("5"), None, "Linux: a button it did not show");
+    }
+
     /// `OSC 9` dropped and the core told, the Dock's bar and an attention
     /// request. Nothing reaches the notification center or the Dock: the
     /// calls are only read.
@@ -1836,6 +1999,7 @@ mod tests {
         feed(&mut t, seq.as_bytes());
         let mut icons = Icons::default();
         let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
+        let token = posted[0].token;
         t.clear_notices();
         let mut replies = Vec::new();
         let calls = d.mac(
@@ -1850,7 +2014,8 @@ mod tests {
         let id = match &calls[0] {
             MacCall::Post(p) => {
                 assert_eq!(p.title, "Build");
-                assert_eq!(p.buttons, ["Open", "Skip"]);
+                let labels: Vec<&str> = p.buttons.iter().map(|(_, l)| l.as_str()).collect();
+                assert_eq!(labels, ["Open", "Skip"]);
                 assert_eq!(p.silent, Silence::Silent);
                 assert_eq!(p.passive, Passive::Passive);
                 assert_eq!(p.image, Some((png.to_vec(), "png")));
@@ -1871,6 +2036,15 @@ mod tests {
         );
         assert_eq!(calls[3], MacCall::Attention(AttentionCall::Informational));
         assert_eq!(replies, b"\x1b]99;i=j:p=close;untracked\x1b\\");
+        // A click read back against the buttons it showed.
+        let click = |action: &str| {
+            clicked(action, DEFAULT, |n| d.shown.read_back(token, n))
+                .map(|b| b.map(NoticeButton::number))
+        };
+        assert_eq!(click(DEFAULT), Some(None));
+        assert_eq!(click("button-2"), Some(Some(2)));
+        assert_eq!(click("button-0"), None);
+        assert_eq!(click("button-3"), None, "a number it did not show");
 
         // The same id again replaces it under the same identifier; its
         // close removes it; a focused window's `OSC 9` is dropped.
@@ -1896,12 +2070,6 @@ mod tests {
         assert_eq!(calls[1], MacCall::Remove(id));
         assert_eq!(calls[2], MacCall::Bar(None));
         assert_eq!(calls.len(), 3, "the OSC 9 was dropped");
-        assert_eq!(clicked(DEFAULT, DEFAULT), Some(None));
-        assert_eq!(
-            clicked("button-2", DEFAULT),
-            Some(baud_core::NoticeButton::of_index(1))
-        );
-        assert_eq!(clicked("button-0", DEFAULT), None);
     }
 
     /// **The Linux driver's pieces**: the launcher's fraction for each
@@ -1924,9 +2092,9 @@ mod tests {
         let tok = t.notices().next().expect("one").token;
         let mut d: Delivery<HostTime, u32> = Delivery::new(Setting::On, &t, PIXELS);
         d.waiting
-            .push((tok, Expiry::After(Duration::from_millis(900))));
-        assert_eq!(d.answered(tok), Expiry::After(Duration::from_millis(900)));
-        assert_eq!(d.answered(tok), Expiry::System, "taken once");
+            .push((tok, Expiry::After(Duration::from_millis(900)), Vec::new()));
+        assert_eq!(d.answered(tok).0, Expiry::After(Duration::from_millis(900)));
+        assert_eq!(d.answered(tok).0, Expiry::System, "taken once");
         assert_eq!(d.rate_line(), None);
         for _ in 0..6 {
             d.bucket.take(at(Secs(0)));

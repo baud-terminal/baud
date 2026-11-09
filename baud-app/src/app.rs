@@ -14918,7 +14918,9 @@ impl Driver {
             let Some(token) = self.app.notes.shown.token(&click.id) else {
                 continue;
             };
-            let Some(button) = crate::notify::clicked(&click.action, DEFAULT_ACTION) else {
+            let shown = &self.app.notes.shown;
+            let read = |n: &str| shown.read_back(token, n);
+            let Some(button) = crate::notify::clicked(&click.action, DEFAULT_ACTION, read) else {
                 continue;
             };
             if button.is_none() && self.app.term.notice_focuses(token) {

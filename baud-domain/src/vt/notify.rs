@@ -853,14 +853,20 @@ pub struct Notice<'a> {
 }
 
 impl<'a> Notice<'a> {
-    /// The buttons, in order, at most [`NOTICE_BUTTONS`].
-    pub fn buttons(&self) -> impl Iterator<Item = &'a [u8]> + 'a {
+    /// **The buttons, in order, at most [`NOTICE_BUTTONS`], each with its
+    /// number**: its place among the labels the program sent, the number
+    /// the program counts by and a click reports. Numbered here once, so a
+    /// presenter that shows fewer -- a label of controls alone, which shows
+    /// nothing -- reports the rest by their own numbers.
+    pub fn buttons(&self) -> impl Iterator<Item = (NoticeButton, &'a [u8])> + 'a {
         let b = self.buttons;
         Utf8Split {
             rest: (!b.is_empty()).then_some(b),
         }
         .filter(|s| !s.is_empty())
         .take(NOTICE_BUTTONS)
+        .enumerate()
+        .filter_map(|(i, s)| Some((NoticeButton::of_index(i)?, s)))
     }
 
     /// The icon names, in the order sent.
@@ -2028,14 +2034,28 @@ impl NoticeDesk {
 
 /// A button of a notification, the first being 1: "button_number is a
 /// number from 1 onwards, where 1 corresponds to the first button".
+///
+/// **Made only here**, by [`Notice::buttons`], so no presenter can number
+/// buttons by its own list; a click is read back against the buttons a
+/// notice gave. Outside this crate there is no constructor:
+///
+/// ```compile_fail
+/// let _ = baud_domain::NoticeButton::of_index(0);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NoticeButton(u8);
 
 impl NoticeButton {
-    /// The button at `index` from 0 among those [`Notice::buttons`] gave,
-    /// `None` past the last a notification can show.
-    pub fn of_index(index: usize) -> Option<NoticeButton> {
+    /// The button at `index` from 0 among the labels [`Notice::buttons`]
+    /// numbers, `None` past the last a notification can show.
+    pub(crate) fn of_index(index: usize) -> Option<NoticeButton> {
         (index < NOTICE_BUTTONS).then(|| NoticeButton(index as u8 + 1))
+    }
+
+    /// Its number, from 1: what an action identifier names it by, and what
+    /// a click reports.
+    pub fn number(self) -> u8 {
+        self.0
     }
 }
 

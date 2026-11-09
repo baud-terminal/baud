@@ -267,8 +267,9 @@ pub struct Post {
     pub body: String,
     pub sound: PostSound,
     pub level: Level,
-    /// Its buttons' labels; a click on the `n`th is action `button-n`.
-    pub buttons: Vec<String>,
+    /// Its buttons' labels, each with its number; a click on button `n`
+    /// is action `button-n`.
+    pub buttons: Vec<(baud_core::NoticeButton, String)>,
     /// An image file to attach, moved into the system's store when it is
     /// posted.
     pub image: Option<std::path::PathBuf>,
@@ -548,11 +549,15 @@ impl Center {
     /// The category whose actions are these buttons, registered the first
     /// time they are seen; `None` with none.
     #[cfg(not(feature = "effect-probe"))]
-    fn category(&self, buttons: &[String]) -> Option<String> {
+    fn category(&self, buttons: &[(baud_core::NoticeButton, String)]) -> Option<String> {
         if buttons.is_empty() {
             return None;
         }
-        let key = format!("baud-buttons-{}", buttons.join("\u{1f}"));
+        let named: Vec<String> = buttons
+            .iter()
+            .map(|(n, label)| format!("{}\u{1e}{label}", n.number()))
+            .collect();
+        let key = format!("baud-buttons-{}", named.join("\u{1f}"));
         if self.categories.borrow().iter().any(|(k, _)| *k == key) {
             return Some(key);
         }
@@ -625,21 +630,24 @@ fn request_of(p: &Post, category: Option<&str>) -> Option<Retained<AnyObject>> {
     })
 }
 
-/// A category whose actions are `buttons`, `button-1` and on, under `key`.
+/// A category whose actions are `buttons`, each `button-n` by the number
+/// it carries, under `key`.
 #[cfg_attr(feature = "effect-probe", allow(dead_code))]
-fn category_object(key: &str, buttons: &[String]) -> Option<Retained<AnyObject>> {
+fn category_object(
+    key: &str,
+    buttons: &[(baud_core::NoticeButton, String)],
+) -> Option<Retained<AnyObject>> {
     let action_cls = AnyClass::get(c"UNNotificationAction")?;
     let cat_cls = AnyClass::get(c"UNNotificationCategory")?;
     let actions: Vec<Retained<AnyObject>> = buttons
         .iter()
-        .enumerate()
-        .map(|(i, label)| {
+        .map(|(n, label)| {
             // SAFETY: `+actionWithIdentifier:title:options:`, nonnull, no
             // options.
             unsafe {
                 msg_send![
                     action_cls,
-                    actionWithIdentifier: &*NSString::from_str(&format!("button-{}", i + 1)),
+                    actionWithIdentifier: &*NSString::from_str(&format!("button-{}", n.number())),
                     title: &*NSString::from_str(label),
                     options: 0usize
                 ]
@@ -941,6 +949,38 @@ mod tests {
         );
     }
 
+    /// The buttons `labels`, joined by U+2028, as the core numbers them:
+    /// only the core makes a `NoticeButton`.
+    fn numbered(labels: &str) -> Vec<(baud_core::NoticeButton, String)> {
+        use baud_core::*;
+        let ws = baud_domain::WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let mut owned = Owned::new(&ws).with_notices(NoticeBudget::with_icon(1024));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_notice_support(Some(NoticeSupport {
+            actions: Activation::FOCUS_AND_REPORT,
+            close_events: CloseEvents::Tracked,
+            occasions: Occasions::UnfocusedAndInvisible,
+            urgencies: Urgencies::All,
+            sounds: Sounds::Standard,
+            expiry: ExpirySupport::Expires,
+            icons: IconSupport::NamesAndImages,
+            buttons: ButtonSupport::Shown,
+        }));
+        let seq = format!("\x1b]99;i=n:d=0;T\x1b\\\x1b]99;i=n:p=buttons;{labels}\x1b\\");
+        t.write_at(baud_domain::BytePos::ZERO, seq.as_bytes());
+        t.feed(
+            baud_domain::BytePos::ZERO,
+            baud_domain::ReadLen::from_index(seq.len()),
+        );
+        let n = t.notices().next().expect("published");
+        n.buttons()
+            .map(|(k, b)| (k, String::from_utf8_lossy(b).into_owned()))
+            .collect()
+    }
+
     #[test]
     fn a_post_and_its_category_build_without_the_center() {
         let p = Post {
@@ -950,7 +990,7 @@ mod tests {
             body: "make; make install".into(),
             sound: PostSound::Silent,
             level: Level::Passive,
-            buttons: vec!["Open".into(), "Skip".into()],
+            buttons: numbered("Open\u{2028}Skip"),
             image: None,
         };
         let req = request_of(&p, Some("baud-buttons-x")).expect("a request");
@@ -987,13 +1027,24 @@ mod tests {
             ..p.clone()
         };
         assert!(request_of(&loud, None).is_some());
-        let c = category_object("baud-buttons-x", &p.buttons).expect("a category");
-        // SAFETY: `UNNotificationCategory`'s `actions`, nonnull.
-        let n: usize = unsafe {
+        // Each action is named by its button's number, here the second
+        // `Go` of a list whose middle label is controls alone: `button-3`.
+        let gaps = numbered("Go\u{2028}\u{85}\u{2028}Go");
+        let shown: Vec<_> = gaps.into_iter().filter(|(_, l)| l != "\u{85}").collect();
+        let c = category_object("baud-buttons-x", &shown).expect("a category");
+        // SAFETY: `UNNotificationCategory`'s `actions` and each action's
+        // `identifier`, nonnull.
+        let ids: Vec<String> = unsafe {
             let actions: Retained<NSArray<AnyObject>> = msg_send![&c, actions];
-            actions.count()
+            (0..actions.count())
+                .map(|i| {
+                    let a: Retained<AnyObject> = msg_send![&actions, objectAtIndex: i];
+                    let id: Retained<NSString> = msg_send![&a, identifier];
+                    id.to_string()
+                })
+                .collect()
         };
-        assert_eq!(n, 2);
+        assert_eq!(ids, ["button-1", "button-3"]);
         let d = Delegate::new();
         assert!(d.ivars().clicks.lock().expect("unpoisoned").is_empty());
     }

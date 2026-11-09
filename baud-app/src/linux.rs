@@ -1918,7 +1918,8 @@ impl Driver {
                         let image = self.notes.image_data(&p, &mut self.pictures);
                         let n = crate::bus::notification(&p, replaces, self.caps, image);
                         bus.notify(&n, p.token);
-                        self.notes.waiting.push((p.token, p.expiry));
+                        let buttons = p.buttons.iter().map(|(n, _)| *n).collect();
+                        self.notes.waiting.push((p.token, p.expiry, buttons));
                     }
                     None => self.term.notice_dropped(p.token),
                 },
@@ -2244,8 +2245,10 @@ impl Driver {
                 ));
             }
             Heard::Notified(token, id) => {
-                let expiry = self.notes.answered(token);
-                self.notes.shown.shown(token, id, expiry, Instant::now());
+                let (expiry, buttons) = self.notes.answered(token);
+                self.notes
+                    .shown
+                    .shown(token, id, expiry, Instant::now(), buttons);
                 crate::reads::input(
                     &mut self.term,
                     |t| t.notice_shown(token),
@@ -2258,14 +2261,17 @@ impl Driver {
                 crate::warn!("notification not shown: the notification server answered {e}");
             }
             Heard::Invoked(id, key, activation) => {
-                if let Some(token) = self.notes.shown.token(&id) {
-                    // "default" is a click on the notification itself, a
-                    // number its button, from 1.
-                    let button = key
-                        .parse::<usize>()
-                        .ok()
-                        .and_then(|n| n.checked_sub(1))
-                        .and_then(baud_core::NoticeButton::of_index);
+                // "default" is a click on the notification itself, a number
+                // its button, read back against the buttons it showed: a
+                // number naming none of them is dropped, not reported.
+                let clicked = self.notes.shown.token(&id).and_then(|token| {
+                    let button = match key.as_str() {
+                        "default" => None,
+                        n => Some(self.notes.shown.read_back(token, n)?),
+                    };
+                    Some((token, button))
+                });
+                if let Some((token, button)) = clicked {
                     // A click on the body of one that asked focus
                     // activates the window with the token the server
                     // sent for it, where it sent one: the compositor

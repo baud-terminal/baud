@@ -101,7 +101,7 @@ fn seen(t: &Term<'_>) -> Vec<Seen> {
             title: n.title.to_vec(),
             body: n.body.to_vec(),
             id: n.id.to_vec(),
-            buttons: n.buttons().map(<[u8]>::to_vec).collect(),
+            buttons: n.buttons().map(|(_, b)| b.to_vec()).collect(),
             occasion: n.occasion,
             urgency: n.urgency,
         })
@@ -690,12 +690,16 @@ fn alive_with_every_id_at_its_longest_is_answered_whole() {
 fn a_click_reports_only_when_asked() {
     with(
         Some(reporting()),
-        b"\x1b]99;i=r:a=report;x\x1b\\\x1b]99;a=report;y\x1b\\\x1b]99;i=n;z\x1b\\",
+        "\x1b]99;i=r:a=report:d=0;x\x1b\\\x1b]99;i=r:p=buttons;A\u{2028}B\x1b\\\x1b]99;a=report;y\x1b\\\x1b]99;i=n;z\x1b\\"
+            .as_bytes(),
         Reads(4096),
         |t| {
             let tok: Vec<_> = t.notices().map(|n| n.token).collect();
+            // The second button, as the core numbers it: only it makes one.
+            let two = t.notices().next().and_then(|n| n.buttons().nth(1)).map(|(k, _)| k);
+            assert_eq!(two.map(NoticeButton::number), Some(2), "the premise");
             assert!(t.notice_activated(tok[0], None));
-            assert!(t.notice_activated(tok[0], NoticeButton::of_index(1)));
+            assert!(t.notice_activated(tok[0], two));
             assert!(t.notice_activated(tok[1], None));
             assert!(
                 !t.notice_activated(tok[2], None),

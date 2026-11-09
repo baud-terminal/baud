@@ -1465,8 +1465,8 @@ pub(crate) fn notification(
     if p.activation.reports() || p.activation.focuses() {
         actions.push(("default".to_string(), "Open".to_string()));
     }
-    for (i, b) in p.buttons.iter().enumerate() {
-        actions.push(((i + 1).to_string(), b.clone()));
+    for (n, b) in &p.buttons {
+        actions.push((n.number().to_string(), b.clone()));
     }
     let mut hints: Vec<(&'static str, Hint)> = vec![(
         "urgency",
