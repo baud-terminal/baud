@@ -47,9 +47,11 @@
 #
 # kitten runs with --transfer-mode=stream. Its default, detect, timed out
 # after its ten seconds in baud at e73843fa ("Timed out waiting for a
-# response from the terminal"), while file, memory and stream each drew.
-# Until the detect-mode timeout is settled, the README must not say plain
-# `kitten icat` draws in baud; the demos show --transfer-mode=stream on film.
+# response from the terminal"), while file, memory and stream each drew:
+# it waits for the Primary DA, and baud's was then `CSI ? 6 c`, which
+# kitten's detection cannot end on. Since c34af8a7 baud answers
+# `CSI ? 1 ; 2 c`, on which it ends (baud-core/tests/kitten_detects_the_da.rs);
+# the captures and the demos keep --transfer-mode=stream.
 #
 # It checks what it made rather than trusting it:
 #   - baud read the generated config without a complaint;

@@ -11,10 +11,11 @@
 //!
 //! kitten's default, `--transfer-mode=detect`, queries first: three `a=q`, one
 //! per medium, then the Primary DA, and it waits up to ten seconds for the DA.
-//! The `detect-*` cases answer as baud would: baud's DA is `CSI ? 1 ; 2 c`,
-//! or `CSI ? 6 ; 4 c` with `[images] advertise_sixel`, and baud answers no
-//! `a=q` today. `detect-direct` also answers `OK` to the direct query alone, which
-//! is what a baud implementing `t=d` and no other medium would send.
+//! The `detect-*` cases answer the DA as baud does: `CSI ? 1 ; 2 c`, or
+//! `CSI ? 6 ; 4 c` with `[images] advertise_sixel`. They answer no `a=q`,
+//! which baud answers, one reply a query (baud-app's `kitty_files.rs`,
+//! `kittens_detection_burst_gets_one_reply_a_query`). `detect-direct` also
+//! answers `OK` to the direct query alone.
 //!
 //! kitty and the input pictures are pinned by nixpkgs revision, and every
 //! input is checked against its sha256 before it is used; a case whose input

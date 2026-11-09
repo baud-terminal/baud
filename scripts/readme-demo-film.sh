@@ -77,9 +77,9 @@ prompt
 # The photo in five eighths of the width, at row 3, column 3, in a box as
 # many rows high as a third of its columns: a cell about half as wide as
 # it is high, and the photo 3:2, so the prompt below it follows it
-# closely. --transfer-mode=stream: kitten's own detection times out in
-# baud (scripts/readme-capture.sh says how), and stream needs no file on
-# this machine.
+# closely. --transfer-mode=stream: kitten's own detection timed out on
+# baud's earlier Primary DA (scripts/readme-capture.sh says how), and
+# stream needs no file on this machine.
 pw=$((cols * 5 / 8))
 ph=$((pw / 3))
 type_cmd "kitten icat --transfer-mode=stream --place ${pw}x${ph}@2x2 canazei.jpg"

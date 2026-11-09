@@ -228,7 +228,7 @@ unless you name a trail here.
 |---|---|---|---|
 | `pixels_mb` | number, MiB | `95` | How much memory pictures shown in the terminal may use. The default holds three full 4K screens. A picture that does not fit is refused with a warning rather than shown in part. On macOS it also bounds the picture a program written for iTerm2 names for a notification: a larger one is left out, and the notification's text still shows. |
 | `animation` | `"os"`, `"on"`, `"off"` | `"os"` | Whether animated pictures play. `"os"` plays them unless Reduce Motion is on or "Auto-play animated images" is off in macOS's Accessibility settings, or on Linux the desktop's reduced-motion setting is on. `"on"` always plays them, and `"off"` keeps each one still at the frame it shows. A change shows at once, and so does a change to either macOS setting. |
-| `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. Plain `kitten icat` does not accept baud's default answer to its terminal question, so without this setting it waits ten seconds and gives up: turn it on, or run `kitten icat --transfer-mode=stream`, which skips the check. |
+| `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. `kitten icat` needs no setting: it accepts baud's default answer to its terminal question and draws with kitty's own protocol. |
 
 ## [clipboard]
 
