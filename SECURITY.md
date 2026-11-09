@@ -83,9 +83,17 @@ shape this design exists to avoid.
   would retarget cells already on screen. A refusal is counted in
   `links_refused`; a click held across a sweep that freed a slot opens
   nothing.
-* The rendition table (at least `NSTYLE` slots, sized to the screen) evicts only once
-  every slot is filled, and a cell still naming the evicted slot is recoloured
-  -- an open bug, a wrong colour and never an out-of-bounds read.
+* The rendition table (at least `NSTYLE` slots, sized to the largest screen,
+  at most 65,536) never gives a slot a drawn cell names to another rendition,
+  so no character already drawn changes colour. Before a new rendition takes
+  it past 7/8 full it frees the slots no cell names; if that leaves it past
+  7/8, it moves what lies off the screen (the scrollback, the screen not up)
+  into frozen generations in a pool the app lends, a word for every cell of
+  the screen and its scrollback, committed only as a freeze writes it, and
+  frees again. A table with no slot left after that refuses the next
+  rendition: the text after it takes the default rendition and the refusal is
+  counted (`Reclaims::refusals`). The app always lends the pool, so in the app
+  a refusal comes only from a screen with more cells than the table can hold.
 * A Sixel image is decoded into caller memory with no external decoder,
   as its bytes arrive, bounded by a pixel arena (`[images] pixels_mb` in the
   config), the 65535 pixels a coordinate holds and a slot table; no copy of
@@ -105,10 +113,26 @@ link opens `http`, `https` and `mailto` with the system's handler, reveals a
 `file` link on this host in Finder, and refuses everything else, because every
 other registered scheme is an application the opener would launch on output an
 attacker controls (`baud-app/src/link.rs`). A URI with a byte outside
-printable ASCII is refused, and a `mailto` may carry only `subject` and
-`body`, so `bcc=` cannot add a hidden recipient. An `https` link reaches
-whatever LaunchServices routes it to, universal-link applications included:
-an accepted risk rather than a closed one.
+printable ASCII is refused, and an `http` or `https` link with an empty host
+is refused. A `mailto` may carry only its recipients and `to`, `subject` and
+`body`, so `bcc=` cannot add a hidden recipient; it is handed on rebuilt from
+what baud read, each value encoded again, and a line break or other control
+character decoded anywhere but the body is refused, so no value can add a
+header of its own. An `https` link reaches whatever LaunchServices routes it
+to, universal-link applications included: an accepted risk rather than a
+closed one.
+
+**A `file://` link a remote program printed is not opened as a file on this
+computer.** baud notes which program wrote each row as the output is read. A
+`file://` link, given with `OSC 8` or printed as plain text, on rows a
+program on another machine wrote, or one baud could not name, is drawn
+without its line and refused on click: its look and its click are judged
+once, the same way, so a link never looks openable when a click would refuse
+it. A link a remote program opens with `OSC 8` and leaves open stays that
+program's, whatever is written under it afterwards. One case is still open:
+a remote program that writes on a row below its cursor and moves back up can
+leave text there that a later local prompt on that row lights. A test holds
+that case, and it is closed before baud is public.
 
 **You can add to that list, or change what a click does, in your own config.
 Nothing a program prints can.** A `[link.NAME]` rule names one scheme and sends its links to
@@ -134,8 +158,8 @@ environment. What a link says is still checked, and no rule can change these:
 - `javascript`, `data`, `vbscript`, `blob` and `about` cannot be named, a
   scheme must be one by RFC 3986's grammar, and there is no wildcard.
 - A `file` link still names this computer or none, a `mailto` still carries
-  only `subject` and `body`, and the system never opens a file: only a command
-  of yours can.
+  only its recipients and `to`, `subject` and `body`, rebuilt from what baud
+  read, and the system never opens a file: only a command of yours can.
 - The address still shows under Cmd (Ctrl on Linux), in the same opaque box,
   for every rule.
 - A rule with a key or value baud does not know is ignored whole, so an older
@@ -240,6 +264,10 @@ report them as gaps; if you think one is wrong, the reasoning is in
   silence — DA under-claims as a VT100, and an unimplemented DSR gets no reply.
 
 ## What is worth reporting
+
+Running what you type is the terminal's job. The boundary baud defends is
+output choosing an action you did not ask for: opening a file, running a
+rule, sending a reply, or changing the clipboard or the window.
 
 - A byte sequence that panics, hangs, or reads or writes out of bounds.
 - Any path where a control-string payload is executed rather than consumed.
