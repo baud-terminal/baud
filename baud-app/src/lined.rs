@@ -313,6 +313,11 @@ pub struct Lines {
     below: Vec<Below>,
     /// The links a read across joined rows kept, first and last cell.
     taken: Vec<(Point, Point)>,
+    /// **Where the top row's line began**, above the window, as the last
+    /// read of it found: a trim of the history there takes that start, and
+    /// the top row's part of a link with it, with no change to a cell of
+    /// the window. `None` when the line began on the top row.
+    head: Option<AbsLine>,
 }
 
 /// **How a row the writer ended meets the next**, as a scan read it: not
@@ -371,6 +376,7 @@ impl Lines {
             self.again.resize(rows, Read::Kept);
             self.below.clear();
             self.below.resize(rows, Below::Apart);
+            self.head = None;
             self.lines.clear();
             self.struck.clear();
             self.epochs = None;
@@ -426,6 +432,14 @@ impl Lines {
             if kept && self.below[y] != Below::Apart && meets(reader, y) != self.below[y] {
                 self.again[y] = Read::Again;
                 self.again[y + 1] = Read::Again;
+                any = true;
+            }
+        }
+        // The history trimmed where the top row's line began: the top row is
+        // read again, and its line now begins at the oldest line kept.
+        if let (Some(head), Some(Read::Kept)) = (self.head, self.again.first()) {
+            if row_of(term, scrolled, head).is_none() {
+                self.again[0] = Read::Again;
                 any = true;
             }
         }
@@ -526,6 +540,7 @@ impl Lines {
                 read += cells.len();
                 first = up;
             }
+            self.head = (first != first_row).then_some(first);
         }
         // Past the window's bottom, while the row runs on.
         let (mut last, mut tail) = (last_row, Edge::Line);
@@ -1374,6 +1389,103 @@ mod tests {
         assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 1 and the row above");
         feed(&mut t, b"\x1b[5;20Hx");
         assert_eq!(l.scan(&t, at(), &mut u).rows, 2, "row 4 and the row above");
+    }
+
+    /// **A trim of the history above the window reads its top row again**:
+    /// a window looked back to a history at its cap, its top row the last
+    /// part of a link whose first row is the oldest line kept -- joined from
+    /// rows the writer ended above it, or soft-wrapped from them -- and that
+    /// first row trimmed by one more line of output. No cell of the window
+    /// changed, and the top row's part of the link goes, as a scan from
+    /// nothing finds it. Named breaks: drop the check of where the top row's
+    /// line began -- all three stay red; check only the line just above the
+    /// window -- the three-row link stays red, its middle row still there.
+    #[test]
+    fn a_trim_of_a_joined_row_above_the_window_reads_its_top_row_again() {
+        let (kept, fresh) = trimmed_above(&[FIRST, SECOND], "\r\n");
+        assert_eq!(kept, fresh, "the half link goes");
+    }
+
+    #[test]
+    fn a_trim_of_a_wrapped_row_above_the_window_reads_its_top_row_again() {
+        let (kept, fresh) = trimmed_above(&[FIRST, SECOND], "");
+        assert_eq!(kept, fresh, "the half link goes");
+    }
+
+    #[test]
+    fn a_trim_two_rows_above_the_window_reads_its_top_row_again() {
+        let (kept, fresh) = trimmed_above(&[FIRST, MIDDLE, LAST], "\r\n");
+        assert_eq!(kept, fresh, "the link's last part goes");
+    }
+
+    /// A link's rows: the first two fill the 40 columns.
+    const FIRST: &str = "see https://example.com/a/very/long/path";
+    const SECOND: &str = "/to/some/resource/index.html ok";
+    const MIDDLE: &str = "/to/some/resource/and/a/further/segment/";
+    const LAST: &str = "index.html ok";
+
+    /// The link's `parts`, each after the last `ends`, at the top of a
+    /// history filled to its cap, the window looked back to its last part;
+    /// then one more line, which trims the first. The runs a scan kept, and
+    /// the runs a scan from nothing finds.
+    fn trimmed_above(parts: &[&str], ends: &str) -> (Runs, Runs) {
+        let depth = 10;
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(depth),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut scrolled = at();
+        let fed = |t: &mut Term<'_>, scrolled: &mut Scrolled, bytes: &[u8]| {
+            let before = t.rotation();
+            feed(t, bytes);
+            if let baud_core::Moved::Retired(n) = t.moved_since(before) {
+                *scrolled = scrolled.advanced(n);
+            }
+        };
+        fed(&mut t, &mut scrolled, parts.join(ends).as_bytes());
+        for n in 0..depth + usize::from(WS.ws_row) - parts.len() {
+            fed(&mut t, &mut scrolled, format!("\r\nline {n}").as_bytes());
+        }
+        t.set_window_back(Rows::of_count(depth + 1 - parts.len()));
+        let last = parts[parts.len() - 1];
+        let link = last.find(' ').unwrap_or(last.len());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, scrolled, &mut u);
+        assert_eq!(
+            runs(&l),
+            [(0, 0, link - 1)],
+            "the control, the link's last part on the top row"
+        );
+        fed(&mut t, &mut scrolled, b"\r\none more");
+        let top = t.view(t.window_back()).row(Row::ZERO).to_vec();
+        assert_eq!(
+            text(&t, &top),
+            last,
+            "the control, the window still on the link's last part"
+        );
+        let _ = l.scan(&t, scrolled, &mut u);
+        let mut fresh = Lines::default();
+        let _ = fresh.scan(&t, scrolled, &mut Uris::default());
+        assert_eq!(runs(&fresh), [], "the control, a scan from nothing");
+        (runs(&l), runs(&fresh))
+    }
+
+    type Runs = Vec<(usize, usize, usize)>;
+
+    /// The row's characters, blanks trimmed at the end.
+    fn text(t: &Term<'_>, cells: &[PackedCell]) -> String {
+        let s: String = cells
+            .iter()
+            .map(|c| {
+                t.base_of(*c)
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or(' ')
+            })
+            .collect();
+        s.trim_end().to_string()
     }
 
     /// **A row the writer ended short of the last column never joins**,
