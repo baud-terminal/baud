@@ -14,8 +14,9 @@
 //! and its outcome stay with the window that asked, and its wake goes to
 //! that window's view. Each window's slot is in a main-thread registry the
 //! runner walks. A window that closes leaves its slot there until what it
-//! asked has run: a copy or an announcement still runs, an effect on the
-//! window itself finds the window gone and is dropped ([`Outcome::Gone`]),
+//! asked has run: a copy, an announcement or a notification still runs, an
+//! effect on the window itself finds the window gone and is dropped
+//! ([`Outcome::Gone`]),
 //! and a started command's child goes to the process's own reaper, which
 //! each turn of the runner reaps, so no zombie outlives the window.
 //!
@@ -81,9 +82,36 @@ pub(crate) enum OsEffect {
     Announce(Spoken),
     /// The system beep: a bell's sound.
     Beep,
-    /// The Dock icon asked for the user's attention: a bell's, under
-    /// `?1042`, once.
+    /// The Dock icon asked for the user's attention by a bell, under
+    /// `?1042`: informational, once, its request kept by no one, so it
+    /// cancels nothing a program asked.
+    BellAttention,
+    /// **The Dock icon asked for the user's attention by a program**
+    /// (iTerm2's `RequestAttention`): the request the window's runner kept
+    /// is cancelled first, and this one's kept in its place, to cancel
+    /// ([`Kept`]); the driver never holds it.
     Attention(baud_present_macos::notify::Ask),
+    /// The program's kept attention request cancelled.
+    Unattend,
+    /// **A program's notification**, posted on the window's notification
+    /// center, or kept there until permission comes. It names no window,
+    /// so it outlives the one that asked: a window closed straight after
+    /// the ask still posts it.
+    Notice(baud_present_macos::notify::Post),
+    /// A notification closed, by its identifier.
+    Unnotice(String),
+    /// Notification Center asked which of the app's notifications it
+    /// still holds, answered later (`Center::delivered`).
+    AskDelivered,
+    /// **This window's bar on the Dock tile**, which shows the most urgent
+    /// window's (`notify::DockBars`). A closed window's bar is taken off,
+    /// whatever it asked, so none outlives its window.
+    DockBar(Option<crate::notify::DockBar>),
+    /// The application activated: a click on a notification.
+    Activate,
+    /// The asking window raised and made key: a click on its notification.
+    /// It names no window, as [`OsEffect::Front`] does not.
+    KeyFront,
     /// The asking window raised in front of the others without taking
     /// focus: a bell's, under `?1043`. It names no window: the runner
     /// raises the slot's own ([`OsQueue::attach`]), so a raise of another
@@ -165,6 +193,20 @@ pub(crate) enum Outcome {
     Beeped,
     /// The Dock icon asked for attention.
     Attended,
+    /// A program's attention request cancelled, if one was kept.
+    Unattended,
+    /// A notification posted, or kept for permission.
+    Noticed,
+    /// A notification closed.
+    Unnoticed,
+    /// Notification Center asked what it holds.
+    AskedDelivered,
+    /// The Dock tile's bar set.
+    Barred,
+    /// The application activated.
+    Activated,
+    /// The window raised and made key.
+    MadeKey,
     /// The window raised.
     Raised,
     /// Not made: the window it was for has closed.
@@ -222,13 +264,62 @@ struct Slot {
     /// it exists ([`OsQueue::attach`]); weak, so the slot keeps no closed
     /// window alive.
     own: Option<macos_liquid_glass::objc2::rc::Weak<macos_liquid_glass::objc2_app_kit::NSWindow>>,
+    /// The window's key in the open windows, given once it is shown
+    /// ([`OsQueue::name`]): its Dock bar is kept under it.
+    id: Option<crate::windows::WindowId>,
+    /// The process's notification center, given once the window has it
+    /// ([`OsQueue::attach_center`]).
+    center: Option<Rc<baud_present_macos::notify::Center>>,
+    /// Where the answer to this window's "which are delivered" arrives,
+    /// its own ([`OsQueue::take_delivered`]).
+    delivered: baud_present_macos::notify::Delivered,
+    /// The program's attention request, kept by the runner: shared with
+    /// the window's [`Closer`], which takes it at the close.
+    attention: Kept<baud_present_macos::notify::AttentionId>,
+}
+
+/// **A request kept to be cancelled**: a program's attention request,
+/// owned by the window's runner and its close, never by the driver.
+pub(crate) struct Kept<I>(Rc<Cell<Option<I>>>);
+
+impl<I: Copy> Kept<I> {
+    fn new() -> Kept<I> {
+        Kept(Rc::new(Cell::new(None)))
+    }
+
+    /// Another handle on the same request.
+    fn share(&self) -> Kept<I> {
+        Kept(Rc::clone(&self.0))
+    }
+
+    /// **A new request in place of the kept one**: the kept one cancelled
+    /// first, then `ask`'s id kept; with no ask, the kept one cancelled
+    /// and none kept. Pure over the two calls, so a test asks it with no
+    /// Dock.
+    fn attend(&self, ask: Option<impl FnOnce() -> I>, cancel: impl FnOnce(I)) {
+        if let Some(id) = self.0.take() {
+            cancel(id);
+        }
+        self.0.set(ask.map(|ask| ask()));
+    }
+
+    /// The kept request, taken: none kept after.
+    fn take(&self) -> Option<I> {
+        self.0.take()
+    }
 }
 
 /// What the runner knows of the asking window for one effect: whether it
-/// is open, and, while it is, the window itself if the slot has it.
+/// is open, and, while it is, the window itself if the slot has it; its
+/// key, its notification center and its kept attention request, open or
+/// not. Each a reference counted or a copy, never an allocation.
 struct Its {
     open: Open,
     window: Option<Window>,
+    id: Option<crate::windows::WindowId>,
+    center: Option<Rc<baud_present_macos::notify::Center>>,
+    delivered: baud_present_macos::notify::Delivered,
+    attention: Kept<baud_present_macos::notify::AttentionId>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -270,6 +361,10 @@ impl OsQueue {
             open: Cell::new(Open::Yes),
             window: Rc::new(Cell::new(Open::Yes)),
             own: None,
+            id: None,
+            center: None,
+            delivered: baud_present_macos::notify::Delivered::default(),
+            attention: Kept::new(),
         }));
         QUEUES.with_borrow_mut(|q| q.push(Rc::clone(&slot)));
         OsQueue(slot)
@@ -303,10 +398,31 @@ impl OsQueue {
         self.0.borrow_mut().own = Some(macos_liquid_glass::objc2::rc::Weak::new(window));
     }
 
+    /// **The window's key**, given when it is shown: what its Dock bar is
+    /// kept under.
+    pub(crate) fn name(&self, id: crate::windows::WindowId) {
+        self.0.borrow_mut().id = Some(id);
+    }
+
+    /// **The window's notification center**, the one its notifications are
+    /// posted on and closed through, given once it exists.
+    pub(crate) fn attach_center(&self, center: Rc<baud_present_macos::notify::Center>) {
+        self.0.borrow_mut().center = Some(center);
+    }
+
+    /// The answer to this window's last "which are delivered", once.
+    pub(crate) fn take_delivered(&self) -> Option<Vec<String>> {
+        self.0.borrow().delivered.take()
+    }
+
     /// What tells this queue its window is closing, for the window's close
     /// observer to hold.
     pub(crate) fn closer(&self) -> Closer {
-        Closer(Rc::clone(&self.0.borrow().window))
+        let s = self.0.borrow();
+        Closer {
+            window: Rc::clone(&s.window),
+            attention: s.attention.share(),
+        }
     }
 }
 
@@ -316,11 +432,19 @@ impl OsQueue {
 /// are dropped ([`Outcome::Gone`]); what else it asked still runs, and the
 /// slot is walked until the driver lets go. No borrow of the slot is
 /// taken, so it can be called from any callback.
-pub(crate) struct Closer(Rc<Cell<Open>>);
+pub(crate) struct Closer {
+    window: Rc<Cell<Open>>,
+    attention: Kept<baud_present_macos::notify::AttentionId>,
+}
 
 impl Closer {
-    pub(crate) fn closed(&self) {
-        self.0.set(Open::Closed);
+    /// The window closed, and the attention request the runner kept for
+    /// it taken, for the close's own turn to cancel: none can be kept
+    /// after, since a closed window's attention is never asked.
+    #[must_use = "the kept request is the close's turn to cancel"]
+    pub(crate) fn closed(&self) -> Option<baud_present_macos::notify::AttentionId> {
+        self.window.set(Open::Closed);
+        self.attention.take()
     }
 }
 
@@ -370,18 +494,22 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
             // window closes in.
             let its = {
                 let s = slot.borrow();
-                match (s.open.get(), s.window.get()) {
-                    (Open::Yes, Open::Yes) => Its {
-                        open: Open::Yes,
-                        window: s
-                            .own
+                let (open, window) = match (s.open.get(), s.window.get()) {
+                    (Open::Yes, Open::Yes) => (
+                        Open::Yes,
+                        s.own
                             .as_ref()
                             .and_then(macos_liquid_glass::objc2::rc::Weak::load),
-                    },
-                    _ => Its {
-                        open: Open::Closed,
-                        window: None,
-                    },
+                    ),
+                    _ => (Open::Closed, None),
+                };
+                Its {
+                    open,
+                    window,
+                    id: s.id,
+                    center: s.center.clone(),
+                    delivered: s.delivered.clone(),
+                    attention: s.attention.share(),
                 }
             };
             let outcome = exec(t, effect, its);
@@ -421,15 +549,16 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
 /// starts and its child is the process's to reap.
 fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, its: Its) -> Outcome {
     let open = its.open;
-    use baud_present_macos::link::{Ask, workspace};
+    use baud_present_macos::link::workspace;
+    use baud_present_macos::notify::Ask;
     match effect {
         OsEffect::Open { uri, scheme, shown } => Outcome::Opened {
-            opened: workspace(t, Ask::Open, uri.as_str()),
+            opened: workspace(t, baud_present_macos::link::Ask::Open, uri.as_str()),
             scheme,
             shown,
         },
         OsEffect::Reveal { uri, from } => Outcome::Revealed {
-            opened: workspace(t, Ask::Reveal, uri.as_str()),
+            opened: workspace(t, baud_present_macos::link::Ask::Reveal, uri.as_str()),
             from,
         },
         OsEffect::Command { cmd, from } => match (crate::app::start_command(cmd), open) {
@@ -475,20 +604,67 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, its: Its) -> O
             Outcome::Found(baud_present_macos::clipboard::write_find(t, text.as_str()))
         }
         OsEffect::Announce(words) => {
-            if let Some(mtm) = macos_liquid_glass::objc2::MainThreadMarker::new() {
-                baud_present_macos::announce::announce(mtm, words.as_str());
-            }
+            baud_present_macos::announce::announce(t.main_thread(), words.as_str());
             Outcome::Announced
         }
         OsEffect::Beep => {
             baud_present_macos::bell::beep(t);
             Outcome::Beeped
         }
-        OsEffect::Attention(ask) => on_its_window(open, Some(()), |()| {
-            if let Some(mtm) = macos_liquid_glass::objc2::MainThreadMarker::new() {
-                let _ = baud_present_macos::notify::attention(mtm, ask);
-            }
+        OsEffect::BellAttention => on_its_window(open, Some(()), |()| {
+            let _ = baud_present_macos::notify::attention(t, Ask::Once);
             Outcome::Attended
+        }),
+        // The kept request cancelled and this one kept: a Cancel asked
+        // behind its Critical in one batch runs after it and finds its id.
+        OsEffect::Attention(ask) => on_its_window(open, Some(()), |()| {
+            its.attention.attend(
+                Some(|| baud_present_macos::notify::attention(t, ask)),
+                |id| baud_present_macos::notify::cancel_attention(t, id),
+            );
+            Outcome::Attended
+        }),
+        OsEffect::Unattend => {
+            its.attention.attend(
+                None::<fn() -> baud_present_macos::notify::AttentionId>,
+                |id| baud_present_macos::notify::cancel_attention(t, id),
+            );
+            Outcome::Unattended
+        }
+        // Open or closed: a notification goes to the user, and the slot's
+        // center lives until it is posted.
+        OsEffect::Notice(post) => match its.center {
+            Some(center) => {
+                center.post(t, post);
+                Outcome::Noticed
+            }
+            None => Outcome::Gone,
+        },
+        OsEffect::Unnotice(id) => match its.center {
+            Some(center) => {
+                center.remove(t, &id);
+                Outcome::Unnoticed
+            }
+            None => Outcome::Gone,
+        },
+        OsEffect::AskDelivered => on_its_window(open, its.center, |center| {
+            center.ask_delivered(t, &its.delivered);
+            Outcome::AskedDelivered
+        }),
+        OsEffect::DockBar(bar) => match its.id {
+            Some(id) => {
+                crate::app::dock(t, id, if open == Open::Yes { bar } else { None });
+                Outcome::Barred
+            }
+            None => Outcome::Gone,
+        },
+        OsEffect::Activate => on_its_window(open, Some(()), |()| {
+            baud_present_macos::window::activate(t);
+            Outcome::Activated
+        }),
+        OsEffect::KeyFront => on_its_window(open, its.window, |window| {
+            baud_present_macos::window::make_key_and_order_front(t, &window);
+            Outcome::MadeKey
         }),
         OsEffect::Front => on_its_window(open, its.window, |window| {
             baud_present_macos::window::order_front(t, &window);
@@ -717,10 +893,13 @@ mod tests {
         );
     }
 
-    /// **A raise names no window**: `OsEffect::Front` carries no field, so
-    /// the runner raises the slot's own window and a raise of another
-    /// window cannot be asked. Held from the source, since a compile-fail
-    /// test cannot run in a binary crate. Named break: `Front(Window)`.
+    /// **A raise names no window, nor does any effect on the asking window
+    /// or the app**: `Front`, `KeyFront`, `Activate`, `Unattend`,
+    /// `AskDelivered` and `BellAttention` carry no field, so the runner
+    /// makes each on the slot's own window, request or center, and one for
+    /// another window cannot be asked. Held from the source, since a
+    /// compile-fail test cannot run in a binary crate. Named break:
+    /// `KeyFront(Window)`.
     #[test]
     fn a_raise_names_no_window() {
         let src = include_str!("os_effect.rs");
@@ -729,12 +908,24 @@ mod tests {
             .and_then(|(_, rest)| rest.split_once("\n}\n"))
             .map(|(body, _)| body)
             .expect("the effects");
-        let fronts: Vec<&str> = effects
-            .lines()
-            .map(str::trim)
-            .filter(|l| l.starts_with("Front"))
-            .collect();
-        assert_eq!(fronts, ["Front,"], "a unit variant");
+        for unit in [
+            "Front",
+            "KeyFront",
+            "Activate",
+            "Unattend",
+            "AskDelivered",
+            "BellAttention",
+        ] {
+            let found: Vec<&str> = effects
+                .lines()
+                .map(str::trim)
+                .filter(|l| {
+                    l.strip_prefix(unit)
+                        .is_some_and(|rest| !rest.starts_with(char::is_alphanumeric))
+                })
+                .collect();
+            assert_eq!(found, [format!("{unit},")], "{unit}: a unit variant");
+        }
         let made = src
             .split_once(concat!("fn ", "make("))
             .map(|(_, rest)| rest)
@@ -743,6 +934,156 @@ mod tests {
             made.contains("OsEffect::Front => on_its_window(open, its.window,"),
             "raised on the slot's own window"
         );
+    }
+
+    /// **A closed window's notification still posts; its raise, its key,
+    /// the app's activation, its attention and its delivered list do not**:
+    /// in the runner's `make`, `Notice`, `Unnotice`, `Unattend` and
+    /// `DockBar` are made whatever the window, and each of the others only
+    /// through `on_its_window`, which drops it for a closed window
+    /// ([`an_effect_on_a_closed_window_is_gone`]). A notification goes to
+    /// the user and outlives its window: `make; notify done; exit` closes
+    /// the window straight after the ask. Held from the source, since the
+    /// arms make desktop calls. Named breaks: `Notice` through
+    /// `on_its_window` -- the notification is lost with its window --
+    /// and `KeyFront` made directly.
+    #[test]
+    fn a_closed_windows_notice_posts_and_its_key_is_gone() {
+        let src = include_str!("os_effect.rs");
+        let made = src
+            .split_once(concat!("fn ", "make("))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the runner's make");
+        let arm = |head: &str| {
+            let at = made.find(head).unwrap_or_else(|| panic!("{head}"));
+            let rest = &made[at + head.len()..];
+            let end = rest.find("\n        OsEffect::").unwrap_or(rest.len());
+            rest[..end].trim_start()
+        };
+        for whatever in [
+            "OsEffect::Notice(post) =>",
+            "OsEffect::Unnotice(id) =>",
+            "OsEffect::Unattend =>",
+            "OsEffect::DockBar(bar) =>",
+        ] {
+            assert!(
+                !arm(whatever).contains("on_its_window"),
+                "{whatever} is made whatever the window"
+            );
+        }
+        for (own, on) in [
+            ("OsEffect::KeyFront =>", "on_its_window(open, its.window,"),
+            ("OsEffect::Front =>", "on_its_window(open, its.window,"),
+            ("OsEffect::Activate =>", "on_its_window(open, Some(()),"),
+            (
+                "OsEffect::Attention(ask) =>",
+                "on_its_window(open, Some(()),",
+            ),
+            (
+                "OsEffect::BellAttention =>",
+                "on_its_window(open, Some(()),",
+            ),
+            (
+                "OsEffect::AskDelivered =>",
+                "on_its_window(open, its.center,",
+            ),
+        ] {
+            assert!(
+                arm(own).starts_with(on),
+                "{own} only while open: {}",
+                arm(own)
+            );
+        }
+        // A closed window's bar is taken off rather than set.
+        assert!(
+            arm("OsEffect::DockBar(bar) =>").contains("if open == Open::Yes { bar } else { None }")
+        );
+    }
+
+    /// **A program's attention request is the runner's to keep**: each new
+    /// one cancels the kept one first and is kept in its place, so a
+    /// Cancel asked behind its Critical in one batch finds the Critical's
+    /// id; a Cancel with none kept cancels nothing; and the window's close
+    /// takes the kept one, from the same cell the runner's effects see, for
+    /// its own turn to cancel. Named break: keep the new id without
+    /// cancelling the old, and the first Critical is never cancelled.
+    #[test]
+    fn the_kept_attention_request_is_cancelled_before_the_next() {
+        let kept: Kept<u32> = Kept::new();
+        let cancelled = RefCell::new(Vec::new());
+        let cancel = |id| cancelled.borrow_mut().push(id);
+        kept.attend(Some(|| 1), cancel);
+        kept.attend(Some(|| 2), cancel);
+        kept.attend(None::<fn() -> u32>, cancel);
+        kept.attend(None::<fn() -> u32>, cancel);
+        assert_eq!(*cancelled.borrow(), [1, 2], "each cancelled once, in turn");
+        kept.attend(Some(|| 3), cancel);
+        let shared = kept.share();
+        assert_eq!(shared.take(), Some(3), "the close takes what was kept");
+        assert_eq!(kept.take(), None, "and none is kept after");
+        // The closer and the runner's view of a window share the slot's.
+        fresh();
+        let q = OsQueue::open(|| {});
+        let closer = q.closer();
+        q.ask(spoken("a"));
+        let mut same = false;
+        run_with(&Fake, |_, _, its| {
+            same = Rc::ptr_eq(&its.attention.0, &closer.attention.0);
+            Outcome::Announced
+        });
+        assert!(same, "one cell");
+        assert_eq!(closer.closed(), None, "nothing kept, nothing taken");
+    }
+
+    /// **A closed window's post waiting for permission is sent on the
+    /// grant's turn**: the window asks its first notification and closes
+    /// at once (`make; notify done; exit`); the runner makes the post on
+    /// the process's center for the closed slot, the slot is dropped once
+    /// run out, and the answer's own turn sends the post, with no window
+    /// left to read its news. The runner is the real one; the post is made
+    /// as the `Notice` arm makes it, without a turn, which a test off the
+    /// main thread cannot have. Named break: the answer's turn leaves the
+    /// waiting posts (no flush), and nothing is sent.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_closed_windows_waiting_post_is_sent_on_the_grants_turn() {
+        use baud_present_macos::notify::{Center, Level, Permission, Post, PostSound};
+        use baud_present_macos::probe::{EffectKind, take};
+        fresh();
+        let _ = take();
+        let center = Rc::new(Center::unshared().expect("a center under the probe"));
+        let q = OsQueue::open(|| {});
+        q.attach_center(Rc::clone(&center));
+        q.ask(OsEffect::Notice(Post {
+            id: "baud-1-w0-1".into(),
+            title: "make".into(),
+            subtitle: String::new(),
+            body: "done".into(),
+            sound: PostSound::Silent,
+            level: Level::Passive,
+            buttons: Vec::new(),
+            image: None,
+        }));
+        let closer = q.closer();
+        assert_eq!(closer.closed(), None, "no attention kept");
+        drop(q);
+        run_with(&Fake, |_, e, its| match (e, its.center) {
+            (OsEffect::Notice(post), Some(c)) => {
+                c.post_off_turn(post);
+                Outcome::Noticed
+            }
+            _ => Outcome::Gone,
+        });
+        assert_eq!(QUEUES.with_borrow(Vec::len), 0, "the slot gone");
+        let kinds = || take().iter().map(|r| r.kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds(),
+            [EffectKind::Authorize],
+            "waiting, permission asked"
+        );
+        center.answered_off_turn(Permission::Granted);
+        assert_eq!(kinds(), [EffectKind::Notice], "sent on the grant's turn");
     }
 
     /// **A window told it is closing finds its own effects gone at once**,
@@ -759,7 +1100,7 @@ mod tests {
         let q = OsQueue::open(move || w.set(w.get() + 1));
         let closer = q.closer();
         q.ask(spoken("raise"));
-        closer.closed();
+        assert_eq!(closer.closed(), None, "nothing kept");
         let mut seen = Vec::new();
         run_with(&Fake, |_, e, its| {
             seen.push((said(&e), its.open));

@@ -56,6 +56,9 @@ enum Act {
     Type(Vec<u8>),
     /// A pointer gesture over what this line, typed once first, drew.
     Gesture(Gesture, Vec<u8>),
+    /// Type the first line, and the second once the first's first effect
+    /// has run: two reads, in order.
+    TypeTwo(Vec<u8>, Vec<u8>),
 }
 
 /// A gesture over the screen's first row, sent to the view's own methods
@@ -68,6 +71,20 @@ enum Gesture {
     Select,
     /// That drag, then the Edit menu's Copy.
     CopyMenu,
+    /// A click on the notification the setup posted, as the center's
+    /// delegate hears one (`notify::rig_click_the_last_post`).
+    NoticeClick,
+    /// The window's close, as its will-close observer takes it
+    /// (`on_close`): the queue told and the window taken down on a later
+    /// turn, with no call to the window itself.
+    Close,
+}
+
+thread_local! {
+    /// What the close gesture takes: the window's queue's closer and the
+    /// window's key.
+    static CLOSE: RefCell<Option<(crate::os_effect::Closer, crate::windows::WindowId)>> =
+        const { RefCell::new(None) };
 }
 
 thread_local! {
@@ -123,6 +140,15 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
         RigAct::Link => Act::Gesture(Gesture::LinkClick, line()),
         RigAct::Select => Act::Gesture(Gesture::Select, line()),
         RigAct::CopyMenu => Act::Gesture(Gesture::CopyMenu, line()),
+        RigAct::NoticeClick => Act::Gesture(Gesture::NoticeClick, line()),
+        RigAct::Close => Act::Gesture(Gesture::Close, line()),
+        RigAct::TypeTwo => {
+            let (first, second) = arg.split_once('\n').unwrap_or((arg.as_str(), ""));
+            Act::TypeTwo(
+                [first.as_bytes(), b"\n"].concat(),
+                [second.as_bytes(), b"\n"].concat(),
+            )
+        }
     };
     let ticks = match ticks {
         RigTicks::Driven => Ticks::Driven,
@@ -137,6 +163,10 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
             probe::set_inline(probe::Inline::InFrame);
             Ticks::Driven
         }
+        RigTicks::AfterInCallback => {
+            probe::set_inline(probe::Inline::AfterInCallback);
+            Ticks::Driven
+        }
     };
     run(act, iterations, ticks, &each)
 }
@@ -146,7 +176,7 @@ const READY: &[u8] = b"printf '\\033]52;c;!\\007'\n";
 
 /// Which iteration a gesture is.
 #[derive(Clone, Copy)]
-struct Turn(u16);
+struct Iteration(u16);
 
 /// `g` sent to `view`, over the first row's first four cells. A
 /// selection's drag ends on the fourth cell one iteration and the third
@@ -155,7 +185,7 @@ fn gesture(
     view: &DrawableView,
     g: Gesture,
     [first, second, third, fourth]: [NSPoint; 4],
-    at: Turn,
+    at: Iteration,
 ) {
     use probe::{Chord, Press, press};
     match g {
@@ -172,6 +202,16 @@ fn gesture(
             }
             probe::menu(view, sel!(copy:));
         }
+        Gesture::NoticeClick => {
+            if !baud_present_macos::notify::rig_click_the_last_post() {
+                println!("no notification to click");
+            }
+        }
+        Gesture::Close => CLOSE.with_borrow(|c| {
+            if let Some((closer, id)) = c {
+                super::on_close(closer, *id);
+            }
+        }),
     }
 }
 
@@ -218,6 +258,14 @@ fn run(
         window,
         ..
     } = Opening::new(mtm, size, scale, inset, shell, None);
+    // **A key in the open windows' numbering**, as `show` gives every
+    // window it shows: a window's notifications are named by it, and its
+    // Dock bar and its clicks are found by it. Never entered into the open
+    // windows themselves, which hold what `show` makes.
+    let id = crate::windows::Windows::<()>::new().open(());
+    driver.window_id = Some(id);
+    driver.app.os.name(id);
+    CLOSE.with_borrow_mut(|c| *c = Some((driver.app.os.closer(), id)));
     driver.pump(Trigger::Opening);
     let cells = [0, 1, 2, 3].map(|col| driver.rig_point(Row::ZERO, Col::at_index(col)));
     view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
@@ -241,7 +289,7 @@ fn run(
     let setup = match &act {
         Act::Gesture(_, setup) => Some(setup.clone()),
         Act::Click(_) => Some(READY.to_vec()),
-        Act::Type(_) => None,
+        Act::Type(_) | Act::TypeTwo(..) => None,
     };
     if let Some(setup) = setup {
         TYPED.with(|c| *c.borrow_mut() = Some(setup));
@@ -262,6 +310,13 @@ fn run(
             println!("the row's screen was never drawn");
             return std::process::ExitCode::from(1);
         }
+        // What the setup's read asked on a later turn of its own -- the
+        // permission's answer, which sends the post that waited -- run
+        // here, already queued, so none falls in the first iteration.
+        for _ in 0..64 {
+            probe::pass(0.0);
+        }
+        let _ = probe::take();
     }
     let mut failed = false;
     for i in 0..iterations.0 {
@@ -271,10 +326,25 @@ fn run(
         match &act {
             Act::Click(file) => CLICK.with(|c| *c.borrow_mut() = Some(file.clone())),
             Act::Type(line) => TYPED.with(|c| *c.borrow_mut() = Some(line.clone())),
-            Act::Gesture(g, _) => gesture(&view, *g, cells, Turn(i)),
+            Act::Gesture(g, _) => gesture(&view, *g, cells, Iteration(i)),
+            Act::TypeTwo(first, _) => TYPED.with(|c| *c.borrow_mut() = Some(first.clone())),
         }
         post(view.waker());
         let start = Instant::now();
+        // **The second line once the first's first effect has run**, so
+        // the two are two reads, the shell writing the second only after
+        // baud has made the first's effect.
+        if let Act::TypeTwo(_, second) = &act {
+            while !holds(&got, &each[..1]) && start.elapsed() < BOUND {
+                if ticks == Ticks::Driven {
+                    ticker.tick();
+                }
+                probe::pass(0.01);
+                got.extend(probe::take());
+            }
+            TYPED.with(|c| *c.borrow_mut() = Some(second.clone()));
+            post(view.waker());
+        }
         // **Every effect the iteration expects, not the first record**: an
         // effect asked by another's outcome -- a copy's words, on the wake
         // after the copy's turn -- runs a turn later, and a load can put
@@ -302,7 +372,7 @@ fn run(
         }
         got.extend(probe::take());
         // A program's rows only: a click rings no bell.
-        while let (Act::Type(_) | Act::Gesture(..), Some(left)) =
+        while let (Act::Type(_) | Act::TypeTwo(..) | Act::Gesture(..), Some(left)) =
             (&act, SPACING.checked_sub(start.elapsed()))
         {
             probe::pass(left.as_secs_f64());

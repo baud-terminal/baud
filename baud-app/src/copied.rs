@@ -1051,7 +1051,7 @@ mod tests {
         );
         assert_eq!(
             include_str!("os_effect.rs")
-                .matches("baud_present_macos::announce::announce(mtm, words.as_str());")
+                .matches("baud_present_macos::announce::announce(t.main_thread(), words.as_str());")
                 .count(),
             1,
             "the words reach VoiceOver"

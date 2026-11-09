@@ -106,16 +106,32 @@ enum Cause {
     /// this config; once green, run with the frame undriven and again
     /// driven ([`arms`]).
     Program(Program),
+    /// What a program writes in two reads: its line, and the second line
+    /// once the first's first effect has run, so the second is read after
+    /// the first's effect is made; run as a program's row.
+    ProgramThen(Program, &'static str),
     /// A gesture sent to the view's own methods, over what `setup`, typed
     /// once first, drew; the frame never driven.
     Gesture(Gesture),
 }
 
+impl Cause {
+    /// The row's shape: a printed path's is read, [`ITERATIONS`] of it.
+    fn shape(self) -> Shape {
+        match self {
+            Cause::Program(Program { shape, .. })
+            | Cause::ProgramThen(Program { shape, .. }, _)
+            | Cause::Gesture(Gesture { shape, .. }) => shape,
+            Cause::PrintedPath(..) => READ,
+        }
+    }
+}
+
 /// A gesture, the screen it is over and the config.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Gesture {
-    /// The child's act: a link's click, a selection, or the Edit menu's
-    /// copy.
+    /// The child's act: a link's click, a selection, the Edit menu's
+    /// copy, or a notification's click.
     act: RigAct,
     /// The shell line that draws the screen, `{file}` the row's own
     /// scratch file; it ends with an `OSC 52` clear, the sign it was read.
@@ -125,6 +141,7 @@ struct Gesture {
     /// a left press in a window baud believes is not key is the click
     /// that brings it forward, and arms no link.
     focus: RigFocus,
+    shape: Shape,
 }
 
 /// A program's output, and the config it is read under.
@@ -132,7 +149,52 @@ struct Gesture {
 struct Program {
     line: &'static str,
     config: &'static str,
+    shape: Shape,
 }
+
+/// **Where a row's effect is asked from, and how many iterations it
+/// runs.**
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Shape {
+    polled: Polled,
+    iterations: Iterations,
+}
+
+/// What asks a row's effect.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Polled {
+    /// The read: the reader's `wake` or a tick, whichever comes first.
+    Read,
+    /// The tick alone, until stage `until`: a notification's clicks are
+    /// polled by the tick (`notice_turn`) until stage 3 moves that poll to
+    /// a turn, so the row runs only with the frame driven; a row past its
+    /// stage is red ([`no_row_polls_the_tick_past_its_stage`]).
+    Tick { until: Stage },
+    /// The control for `turn::after`: that door alone made inline, in the
+    /// callback that asked.
+    AfterInline,
+}
+
+/// A row read from the program, [`ITERATIONS`] of it.
+const READ: Shape = Shape {
+    polled: Polled::Read,
+    iterations: ITERATIONS,
+};
+
+/// **Four iterations of a row that posts a notification each**: the
+/// flood bound lets four through at once (`notify::BURST`), and the rows'
+/// iterations come faster than its one a second.
+const FOUR_POSTS: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(4),
+};
+
+/// **One iteration**: a row about the first post, which waits for
+/// permission, or about the window's close, which comes once.
+const ONCE: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(1),
+};
 
 /// What `[link.path]` makes of a printed path.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -153,6 +215,8 @@ enum Ticks {
     DrivenInline,
     /// Parked, and made by the next `frame`: the crash's own shape.
     DrivenInFrame,
+    /// `turn::after` alone inline, in the callback that asked.
+    DrivenAfterInline,
 }
 
 /// What the row expects: these effects, each exactly once an iteration
@@ -229,7 +293,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 16] = [
+const SITES: [Site; 25] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -309,6 +373,7 @@ const SITES: [Site; 16] = [
         cause: Cause::Program(Program {
             line: r"printf '\033]52;c;aGk=\007'",
             config: "",
+            shape: READ,
         }),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -321,6 +386,7 @@ const SITES: [Site; 16] = [
         cause: Cause::Program(Program {
             line: r"printf '\033]52;c;!\007'",
             config: "",
+            shape: READ,
         }),
         expect: Expect::effect(&[EffectKind::Clear]),
         state: RowState::Green,
@@ -330,6 +396,7 @@ const SITES: [Site; 16] = [
         cause: Cause::Program(Program {
             line: r"printf '\033[?1042h\007'",
             config: "",
+            shape: READ,
         }),
         expect: Expect::effect(&[EffectKind::Attention]),
         state: RowState::Green,
@@ -339,6 +406,7 @@ const SITES: [Site; 16] = [
         cause: Cause::Program(Program {
             line: r"printf '\033[?1043h\007'",
             config: "",
+            shape: READ,
         }),
         expect: Expect::effect(&[EffectKind::Front]),
         state: RowState::Green,
@@ -352,11 +420,144 @@ const SITES: [Site; 16] = [
         cause: Cause::Program(Program {
             line: r"printf '\033[2t\033[10;1t'",
             config: "",
+            shape: READ,
         }),
         expect: Expect {
             each: &[EffectKind::Miniaturize, EffectKind::FullScreen],
             paced: &[],
         },
+        state: RowState::Green,
+    },
+    // **A program's notifications** (`OSC 99`), each post made on the
+    // effect queue's turn. The first waits for permission, asked once
+    // (`Authorize`), and the probe's grant comes on a turn of its own,
+    // which sends what waited (`Center::flush`), with or without a tick.
+    Site {
+        name: SiteName("a program's notification, posted"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]99;;Build\033\\'",
+            config: "",
+            shape: FOUR_POSTS,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Notice],
+            paced: &[EffectKind::Authorize],
+        },
+        state: RowState::Green,
+    },
+    // Closed in the read that posted it, while the post waits for the
+    // grant: removed on the turn, the waiting post with it, so the grant
+    // sends nothing.
+    Site {
+        name: SiteName("a program's notification, closed before it is allowed"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]99;i=r;Build\033\\\033]99;i=r:p=close;\033\\'",
+            config: "",
+            shape: ONCE,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Unnotice],
+            paced: &[EffectKind::Authorize],
+        },
+        state: RowState::Green,
+    },
+    // Expired a second after it was asked (`w=1000`): removed on a turn
+    // `turn::after` schedules, well after the grant's turn has sent it.
+    Site {
+        name: SiteName("a program's notification, expired"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]99;w=1000;Build\033\\'",
+            config: "",
+            shape: FOUR_POSTS,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Notice, EffectKind::Unnotice],
+            paced: &[EffectKind::Authorize],
+        },
+        state: RowState::Green,
+    },
+    // **A program's progress on the Dock tile** (`OSC 9;4`), a new value
+    // each iteration, so each changes the tile.
+    Site {
+        name: SiteName("a program's progress, on the Dock tile"),
+        cause: Cause::Program(Program {
+            line: r#"n=$((n+1)); printf '\033]9;4;1;%d\007' "$n""#,
+            config: "",
+            shape: READ,
+        }),
+        expect: Expect::effect(&[EffectKind::DockBar]),
+        state: RowState::Green,
+    },
+    // **A program's critical attention request** (iTerm2's
+    // `RequestAttention=yes`): each one cancels the request before it,
+    // whose id the runner keeps, and asks again.
+    Site {
+        name: SiteName("a program's attention request, critical"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]1337;RequestAttention=yes\007'",
+            config: "",
+            shape: READ,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Attention],
+            paced: &[EffectKind::Unattention],
+        },
+        state: RowState::Green,
+    },
+    // **Its control**: the expiry's `turn::after` alone made inline, in
+    // the callback whose read asked for it, as the expiry was made before
+    // it had a turn. The post is asked first, on the queue's turn; the
+    // expiry's removal, made in the callback, spins the nested loop the
+    // probe makes there, which runs that queued turn inside the callback
+    // too, so the first record is the post's ask, held. With the door on a
+    // turn of its own the row passes, and the control is red.
+    Site {
+        name: SiteName("a program's notification, its expiry made inside the callback"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033]99;w=1000;Build\033\\'",
+            config: "",
+            shape: Shape {
+                polled: Polled::AfterInline,
+                iterations: Iterations(1),
+            },
+        }),
+        expect: Expect {
+            each: &[EffectKind::Notice, EffectKind::Unnotice],
+            paced: &[EffectKind::Authorize],
+        },
+        state: RowState::Control(Failure::InCallback(EffectKind::Authorize, Nested::Never)),
+    },
+    // **A program's attention request, then its cancel**, in two reads:
+    // the runner keeps the request's id and the cancel finds it.
+    Site {
+        name: SiteName("a program's attention request, then its cancel"),
+        cause: Cause::ProgramThen(
+            Program {
+                line: r"printf '\033]1337;RequestAttention=yes\007'",
+                config: "",
+                shape: READ,
+            },
+            r"printf '\033]1337;RequestAttention=no\007'",
+        ),
+        expect: Expect {
+            each: &[EffectKind::Attention, EffectKind::Unattention],
+            paced: &[],
+        },
+        state: RowState::Green,
+    },
+    // **A window that closes with a program's attention request kept**:
+    // the close as its observer takes it (`on_close`), and the request
+    // cancelled on the close's own turn, with no call to the window.
+    Site {
+        name: SiteName("a window's close, cancelling its kept attention request"),
+        cause: Cause::Gesture(Gesture {
+            act: RigAct::Close,
+            setup: r"printf '\033]1337;RequestAttention=yes\007\033]52;c;!\007'",
+            config: "",
+            focus: RigFocus::Real,
+            shape: ONCE,
+        }),
+        expect: Expect::effect(&[EffectKind::Unattention]),
         state: RowState::Green,
     },
     // **Stage 2's rows: what a gesture asks**, a press or a menu item sent
@@ -371,6 +572,7 @@ const SITES: [Site; 16] = [
             setup: r"printf '\033[H\033[2JWORD\033]52;c;!\007'",
             config: "[clipboard]\ncopy_on_select = \"off\"\n",
             focus: RigFocus::Real,
+            shape: READ,
         }),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -402,7 +604,37 @@ const SITES: [Site; 16] = [
         expect: Expect::effect(&[EffectKind::Command]),
         state: RowState::Control(Failure::NotRun),
     },
+    // **A notification's click**, the delegate's as the framework would
+    // call it: the window brought forward on the turn, the app activated
+    // and the window made key, each stopped at its probe arm, so the rig's
+    // window is never key. The setup's post is sent on the grant's turn,
+    // before the first iteration.
+    Site {
+        name: SiteName("a notification's click, focusing its window"),
+        cause: Cause::Gesture(Gesture {
+            act: RigAct::NoticeClick,
+            setup: r"printf '\033]99;;Build\033\\\033]52;c;!\007'",
+            config: "",
+            focus: RigFocus::Real,
+            shape: CLICKS,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Activate, EffectKind::KeyFront],
+            paced: &[],
+        },
+        state: RowState::Green,
+    },
 ];
+
+/// **A notification's clicks**, polled by the tick until stage 3, and
+/// counted: under the probe the center's list is what it sent, so the
+/// notification clicked stays shown however long the iterations take.
+const CLICKS: Shape = Shape {
+    polled: Polled::Tick {
+        until: Stage::Three,
+    },
+    iterations: ITERATIONS,
+};
 
 /// Iterations a row runs in its child.
 ///
@@ -420,15 +652,17 @@ const LINK_CLICK: Gesture = Gesture {
     setup: r"printf '\033[H\033[2J\033]8;;https://example.com/\033\\LINK\033]8;;\033\\\033]52;c;!\007'",
     config: "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
     focus: RigFocus::Believed,
+    shape: READ,
 };
 
-/// **The iterations a row runs**: [`ITERATIONS`], but three for a control
-/// that runs nothing, each of whose iterations waits out the child's
-/// bound for an effect that never comes.
+/// **The iterations a row runs**: its shape's, a printed path's
+/// [`ITERATIONS`], but three for a control that runs nothing, each of
+/// whose iterations waits out the child's bound for an effect that never
+/// comes.
 fn iterations(site: &Site) -> Iterations {
     match site.state {
         RowState::Control(Failure::NotRun) => Iterations(3),
-        _ => ITERATIONS,
+        _ => site.cause.shape().iterations,
     }
 }
 
@@ -463,15 +697,22 @@ fn config(rule: Rule) -> &'static str {
 /// and driven, where a tick can read it first. Both must make the effect
 /// on its turn, so a read on the tick that still makes it inline goes
 /// red. A pending program row runs undriven alone: with the frame driven,
-/// its recorded site would be one entry or the other by timing.
+/// its recorded site would be one entry or the other by timing. A row
+/// whose effect the tick alone asks ([`Polled::Tick`]) runs driven alone.
 fn arms(site: &Site) -> &'static [Ticks] {
-    match (site.cause, site.state) {
-        (Cause::PrintedPath(_, Ticks::Driven), _) => &[Ticks::Driven],
-        (Cause::PrintedPath(_, Ticks::None), _) => &[Ticks::None],
-        (Cause::PrintedPath(_, Ticks::DrivenInline), _) => &[Ticks::DrivenInline],
-        (Cause::PrintedPath(_, Ticks::DrivenInFrame), _) => &[Ticks::DrivenInFrame],
-        (Cause::Program(_), RowState::Green) => &[Ticks::None, Ticks::Driven],
-        (Cause::Program(_) | Cause::Gesture(_), _) => &[Ticks::None],
+    match (site.cause, site.state, site.cause.shape().polled) {
+        (Cause::PrintedPath(_, Ticks::Driven), ..) => &[Ticks::Driven],
+        (Cause::PrintedPath(_, Ticks::None), ..) => &[Ticks::None],
+        (Cause::PrintedPath(_, Ticks::DrivenInline), ..) => &[Ticks::DrivenInline],
+        (Cause::PrintedPath(_, Ticks::DrivenInFrame), ..) => &[Ticks::DrivenInFrame],
+        (Cause::PrintedPath(_, Ticks::DrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
+            &[Ticks::DrivenAfterInline]
+        }
+        (_, _, Polled::Tick { .. }) => &[Ticks::Driven],
+        (Cause::Program(_) | Cause::ProgramThen(..), RowState::Green, Polled::Read) => {
+            &[Ticks::None, Ticks::Driven]
+        }
+        (Cause::Program(_) | Cause::ProgramThen(..) | Cause::Gesture(_), ..) => &[Ticks::None],
     }
 }
 
@@ -501,6 +742,12 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             (RigAct::Path, file, config(rule), RigFocus::Real)
         }
         Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, RigFocus::Real),
+        Cause::ProgramThen(p, second) => (
+            RigAct::TypeTwo,
+            format!("{}\n{second}", p.line),
+            p.config,
+            RigFocus::Real,
+        ),
         Cause::Gesture(g) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file linked");
@@ -519,6 +766,7 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             Ticks::None => RigTicks::None,
             Ticks::DrivenInline => RigTicks::InCallback,
             Ticks::DrivenInFrame => RigTicks::InFrame,
+            Ticks::DrivenAfterInline => RigTicks::AfterInCallback,
         },
         focus,
         each: expect.each.to_vec(),
@@ -619,6 +867,23 @@ fn every_row_comes_to_its_state() {
     assert!(red.is_empty(), "{red:?}");
 }
 
+/// **No row polls the tick past its stage**: a row that runs driven alone
+/// because a poll is still the tick's names the stage that moves the
+/// poll, and once the work is past it the row must run both arms. Named
+/// break: `CURRENT` past a row's `until`.
+#[test]
+fn no_row_polls_the_tick_past_its_stage() {
+    for site in SITES {
+        if let Polled::Tick { until } = site.cause.shape().polled {
+            assert!(
+                CURRENT <= until,
+                "{:?} polls the tick past {until:?}",
+                site.name
+            );
+        }
+    }
+}
+
 /// **No row turns on focus reporting** (`?1004`): with it on, the focus
 /// a row's door has baud believe would write `CSI I` to the shell, input
 /// no row expects. Every row's line, setup and config is read, `?1004`
@@ -630,6 +895,7 @@ fn no_row_turns_on_focus_reporting() {
         let text = match site.cause {
             Cause::PrintedPath(rule, _) => config(rule).to_owned(),
             Cause::Program(p) => format!("{} {}", p.line, p.config),
+            Cause::ProgramThen(p, second) => format!("{} {second} {}", p.line, p.config),
             Cause::Gesture(g) => format!("{} {}", g.setup, g.config),
         };
         let modes = text.split("[?").skip(1).filter_map(|m| {

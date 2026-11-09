@@ -2827,9 +2827,9 @@ mod tests {
         let calls = between("fnnotice_calls(", "fnnotice_turn(");
         assert!(
             calls.contains(
-                "MacCall::Post(p)=>{ifletSome(c)=&self.app.center{c.post(mac_post(p));}}"
+                "MacCall::Post(p)=>{let_=self.app.os.ask(OsEffect::Notice(mac_post(p)));}"
             ),
-            "a post reaches the center"
+            "a post is asked of the effect queue, which posts it on the center"
         );
         for part in [&at_close, &calls] {
             assert!(!part.contains("self.view"), "the view is not touched");

@@ -16,9 +16,11 @@
 //!   no allocation (`os_effect.rs` in baud-app schedules it once per batch).
 //! - [`later`] is the door for a one-off closure, boxed once per call: a
 //!   window operation, the print panel, a window opened from a menu.
+//! - [`after`] is [`later`] once a time has passed: a notification's
+//!   expiry.
 //!
 //! Under the test-only `effect-probe` feature, [`crate::probe::Inline`]
-//! makes both doors run inline -- in the callback that asked, or parked for
+//! makes all three doors run inline -- in the callback that asked, or parked for
 //! the next frame -- which is how the event rig's controls put an effect
 //! back where the crash had it.
 #![allow(unsafe_code)]
@@ -27,14 +29,17 @@ use core::cell::Cell;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 
+use macos_liquid_glass::objc2::MainThreadMarker;
+
 use crate::unwind::{SiteName, guard};
 
 /// **Proof of a main-queue turn of its own.** Zero-sized, and made only
-/// here, by a turn [`soon`] or [`later`] scheduled; every desktop effect
-/// takes one.
+/// here, by a turn [`soon`], [`later`] or [`after`] scheduled, and only on
+/// the main thread: it carries the main thread's marker, checked when the
+/// turn is made, so every desktop effect takes one and reads the marker
+/// from it ([`Turn::main_thread`]).
 ///
-/// **Neither `Send` nor `Sync`**: the raw pointer in its marker keeps it on
-/// the main thread, so a thread started inside a turn -- a scoped one
+/// **Neither `Send` nor `Sync`**: the marker keeps it on the main thread, so a thread started inside a turn -- a scoped one
 /// included, which could borrow it -- cannot take it there and make an
 /// effect off the main queue.
 ///
@@ -47,7 +52,23 @@ use crate::unwind::{SiteName, guard};
 /// fn shared<T: Sync>() {}
 /// shared::<baud_present_macos::turn::Turn<'static>>();
 /// ```
-pub struct Turn<'t>(PhantomData<(&'t mut (), *const ())>);
+pub struct Turn<'t>(PhantomData<&'t mut ()>, MainThreadMarker);
+
+impl Turn<'_> {
+    /// The main thread's marker, for an AppKit call that asks for one: a
+    /// turn is made only on the main thread, checked then.
+    pub fn main_thread(&self) -> MainThreadMarker {
+        self.1
+    }
+}
+
+/// **`f` with a turn, if this is the main thread**: the check every turn
+/// is made through. Off it, which only a test reaches, `f` does not run.
+fn on_main(f: impl FnOnce(&Turn<'_>)) {
+    if let Some(mtm) = MainThreadMarker::new() {
+        f(&Turn(PhantomData, mtm));
+    }
+}
 
 thread_local! {
     /// What [`soon`]'s turn runs, set once by [`install`].
@@ -66,7 +87,7 @@ pub fn install(run: fn(&Turn<'_>)) {
 pub fn soon() {
     #[cfg(feature = "effect-probe")]
     match crate::probe::inline() {
-        crate::probe::Inline::No => {}
+        crate::probe::Inline::No | crate::probe::Inline::AfterInCallback => {}
         crate::probe::Inline::InCallback => {
             turn(core::ptr::null_mut());
             return;
@@ -89,7 +110,7 @@ pub fn soon() {
 extern "C" fn turn(_context: *mut c_void) {
     guard(SOON, (), || {
         if let Some(run) = RUN.with(Cell::get) {
-            run(&Turn(PhantomData));
+            on_main(run);
         }
     });
 }
@@ -97,10 +118,10 @@ extern "C" fn turn(_context: *mut c_void) {
 /// `f` on a main-queue turn of its own, after the current callback
 /// returns; boxed once, so for a user's one-off action, never per frame.
 pub fn later(site: SiteName, f: impl FnOnce(&Turn<'_>) + Send + 'static) {
-    let run = move || guard(site, (), || f(&Turn(PhantomData)));
+    let run = move || guard(site, (), || on_main(f));
     #[cfg(feature = "effect-probe")]
     match crate::probe::inline() {
-        crate::probe::Inline::No => {}
+        crate::probe::Inline::No | crate::probe::Inline::AfterInCallback => {}
         crate::probe::Inline::InCallback => {
             run();
             return;
@@ -111,6 +132,33 @@ pub fn later(site: SiteName, f: impl FnOnce(&Turn<'_>) + Send + 'static) {
         }
     }
     dispatch2::DispatchQueue::main().exec_async(run);
+}
+
+/// **`f` on a main-queue turn of its own once `when` has come**: [`later`],
+/// delayed. Boxed once, so for a program's or a user's one-off action,
+/// never per frame. Under the probe's inline modes the delay is not
+/// honoured: `f` runs in the callback that asked, or in the next frame,
+/// as [`later`]'s would; under `AfterInCallback` this door alone runs in
+/// the callback, the expiry's control.
+pub fn after(
+    when: dispatch2::DispatchTime,
+    site: SiteName,
+    f: impl FnOnce(&Turn<'_>) + Send + 'static,
+) {
+    let run = move || guard(site, (), || on_main(f));
+    #[cfg(feature = "effect-probe")]
+    match crate::probe::inline() {
+        crate::probe::Inline::No => {}
+        crate::probe::Inline::InCallback | crate::probe::Inline::AfterInCallback => {
+            run();
+            return;
+        }
+        crate::probe::Inline::InFrame => {
+            crate::probe::park(Box::new(run));
+            return;
+        }
+    }
+    let _ = dispatch2::DispatchQueue::main().after(when, run);
 }
 
 /// The guard's name for [`soon`]'s turns.
@@ -126,20 +174,25 @@ mod tests {
         assert_eq!(core::mem::size_of::<Turn<'_>>(), 0);
     }
 
-    /// **The installed function runs with a `Turn`, and only it**: `turn`,
-    /// called as libdispatch calls it, runs what `install` set, once.
+    /// **Off the main thread no turn is made**: `turn`, called as
+    /// libdispatch calls it but on a test's thread, runs nothing, installed
+    /// or not, and neither does a closure handed to the check every turn
+    /// is made through. On the main thread every turn runs, which every
+    /// green row of the event rig shows. Named break: make the turn without
+    /// the check, and the installed function runs here.
     #[test]
-    fn a_turn_runs_what_was_installed() {
+    fn off_the_main_thread_no_turn_is_made() {
         thread_local! {
             static RAN: Cell<u32> = const { Cell::new(0) };
         }
         fn counted(_: &Turn<'_>) {
             RAN.with(|r| r.set(r.get() + 1));
         }
+        assert!(MainThreadMarker::new().is_none(), "a test's own thread");
         turn(core::ptr::null_mut());
-        assert_eq!(RAN.with(Cell::get), 0, "nothing installed, nothing run");
         install(counted);
         turn(core::ptr::null_mut());
-        assert_eq!(RAN.with(Cell::get), 1);
+        on_main(counted);
+        assert_eq!(RAN.with(Cell::get), 0, "nothing run off the main thread");
     }
 }

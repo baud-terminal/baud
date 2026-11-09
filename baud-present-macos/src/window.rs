@@ -29,8 +29,11 @@ pub fn order_front(t: &crate::turn::Turn<'_>, window: &NSWindow) {
 }
 
 /// `window` raised and made the key window: what a click on its
-/// notification does.
-pub fn make_key_and_order_front(window: &NSWindow) {
+/// notification does, and a link's window giving the keyboard back; on a
+/// turn of its own. Under the probe the record returns first: no window is
+/// made key.
+pub fn make_key_and_order_front(t: &crate::turn::Turn<'_>, window: &NSWindow) {
+    let _ = t;
     #[cfg(feature = "effect-probe")]
     {
         let _ = window;
@@ -40,8 +43,22 @@ pub fn make_key_and_order_front(window: &NSWindow) {
     window.makeKeyAndOrderFront(None);
 }
 
-/// The application made the active one.
-pub fn activate(mtm: MainThreadMarker) {
+/// The application made the active one, by a click on its notification,
+/// on a turn of its own. Under the probe the record returns first: the
+/// application is not activated.
+pub fn activate(t: &crate::turn::Turn<'_>) {
+    activated(t.main_thread());
+}
+
+/// **The application made the active one at launch**, before its run loop
+/// runs: no view exists yet, so no responder can hold a borrow, and there
+/// is no turn to take.
+pub fn activate_at_launch(mtm: MainThreadMarker) {
+    activated(mtm);
+}
+
+/// The one activation both make.
+fn activated(mtm: MainThreadMarker) {
     #[cfg(feature = "effect-probe")]
     {
         let _ = mtm;

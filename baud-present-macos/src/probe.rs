@@ -229,9 +229,9 @@ impl Wakes {
     }
 }
 
-/// Whether a turn's door (`turn::soon`, `turn::later`) hands over
-/// inline: the rig's controls, which put the effect back where it was
-/// before the fix.
+/// Whether a turn's door (`turn::soon`, `turn::later`, `turn::after`)
+/// hands over inline: the rig's controls, which put the effect back where
+/// it was before the fix.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Inline {
     /// On a main-queue turn of its own, as shipped.
@@ -241,6 +241,10 @@ pub enum Inline {
     /// Parked, and run by the next `frame` (`run_parked`): the crash's own
     /// shape, the reveal made inside the frame.
     InFrame,
+    /// `turn::after` alone inside the callback that asked, its delay not
+    /// waited, the other doors on turns of their own: a notification's
+    /// expiry made where it was before it had a turn.
+    AfterInCallback,
 }
 
 /// The bound on the nested call: reaching it is a failure, never a wait.

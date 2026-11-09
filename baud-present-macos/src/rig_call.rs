@@ -60,6 +60,15 @@ pub enum RigAct {
     Select,
     /// That drag once, then the Edit menu's Copy.
     CopyMenu,
+    /// A click on the notification posted last, as the center's delegate
+    /// hears one, over `arg`'s screen.
+    NoticeClick,
+    /// The window's close, as its will-close observer takes it, with no
+    /// call to the window itself, over `arg`'s screen.
+    Close,
+    /// `arg`'s first line typed to the shell, and its second once the
+    /// first's first effect has run: two reads, in order.
+    TypeTwo,
 }
 
 /// Whether the frame is driven, and whether a turn runs inline.
@@ -71,6 +80,8 @@ pub enum RigTicks {
     InCallback,
     /// Driven, each turn parked for the next frame.
     InFrame,
+    /// Driven, `turn::after` alone run inline in the callback that asked.
+    AfterInCallback,
 }
 
 /// Whether baud believes the rig's window is key: AppKit's answer alone,
@@ -81,19 +92,23 @@ pub enum RigFocus {
     Believed,
 }
 
-const ACTS: [(RigAct, &str); 5] = [
+const ACTS: [(RigAct, &str); 8] = [
     (RigAct::Path, "path"),
     (RigAct::Type, "type"),
     (RigAct::Link, "link"),
     (RigAct::Select, "select"),
     (RigAct::CopyMenu, "copy-menu"),
+    (RigAct::NoticeClick, "notice-click"),
+    (RigAct::Close, "close"),
+    (RigAct::TypeTwo, "type-two"),
 ];
 
-const TICKS: [(RigTicks, &str); 4] = [
+const TICKS: [(RigTicks, &str); 5] = [
     (RigTicks::Driven, "tick"),
     (RigTicks::None, "no-tick"),
     (RigTicks::InCallback, "tick-inline"),
     (RigTicks::InFrame, "tick-in-frame"),
+    (RigTicks::AfterInCallback, "tick-after-inline"),
 ];
 
 const FOCUS: [(RigFocus, &str); 2] = [

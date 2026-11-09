@@ -858,8 +858,13 @@ struct App {
     /// The thread that checks iTerm2's pictures before they are attached,
     /// off this one (`notify::Checker`).
     checker: crate::notify::Checker,
-    center: Option<baud_present_macos::notify::Center>,
-    attention: Option<baud_present_macos::notify::AttentionId>,
+    /// The process's notification center, shared with this window's
+    /// effect queue, which posts on it on the queue's turn: this one only
+    /// reads it.
+    center: Option<std::rc::Rc<baud_present_macos::notify::Center>>,
+    /// What this window was last told of the permission, so each window
+    /// hears the answer once (`Center::news`).
+    told: baud_present_macos::notify::Told,
     /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
     fireworks: crate::fireworks::Fireworks,
     /// When Notification Center's list was last asked for, and whether an
@@ -1507,7 +1512,7 @@ impl App {
         // **A program's notifications go to the notification center**,
         // from the app's bundle only (`baud_present_macos::notify`), and
         // the core is told they are delivered only when they can be.
-        let center = match MainThreadMarker::new().map(baud_present_macos::notify::Center::open) {
+        let center = match MainThreadMarker::new().map(baud_present_macos::notify::Center::shared) {
             Some(Ok(c)) => Some(c),
             Some(Err(baud_present_macos::notify::Unavailable::NoBundle)) => {
                 crate::info!(
@@ -1517,10 +1522,7 @@ impl App {
             }
             _ => None,
         };
-        term.set_notice_support(match center {
-            Some(_) => crate::notify::support(notifications, crate::notify::Platform::MacOs),
-            None => None,
-        });
+        term.set_notice_support(notice_support(center.as_deref(), notifications));
         let notes = crate::notify::Delivery::new(notifications, &term, images);
         let fireworks = crate::fireworks::Fireworks::new();
         let last_prompts = term.prompts_opened();
@@ -1535,7 +1537,11 @@ impl App {
             cell,
             os: {
                 let w = waker;
-                crate::os_effect::OsQueue::open(move || w.wake())
+                let os = crate::os_effect::OsQueue::open(move || w.wake());
+                if let Some(c) = &center {
+                    os.attach_center(std::rc::Rc::clone(c));
+                }
+                os
             },
             os_done: Vec::new(),
             waker,
@@ -1707,7 +1713,7 @@ impl App {
             checker: crate::notify::Checker::new(move || waker.wake(), crate::notify::attaches),
             fireworks,
             center,
-            attention: None,
+            told: baud_present_macos::notify::Told::NOTHING,
             delivered_asked: None,
             delivered_last: None,
             watch: crate::print::Watch::new(),
@@ -5002,11 +5008,67 @@ thread_local! {
         const { std::cell::RefCell::new(crate::notify::DockBars::new()) };
 }
 
-/// The Dock tile's bar drawn again, when the windows' progress changed it.
-fn show_dock(mtm: MainThreadMarker, changed: Option<Option<crate::notify::DockBar>>) {
-    if let Some(bar) = changed {
-        baud_present_macos::notify::show_bar(mtm, bar.map(dock_bar));
+/// **Whether a window's core says notifications are delivered**: the
+/// config's setting, where there is a center and its permission has not
+/// been refused -- so a window opened after a refusal claims none, as
+/// every open window is told on its next news.
+fn notice_support(
+    center: Option<&baud_present_macos::notify::Center>,
+    setting: crate::config::Notifications,
+) -> Option<baud_core::NoticeSupport> {
+    match center.map(baud_present_macos::notify::Center::allowed) {
+        Some(baud_present_macos::notify::Permission::Denied) | None => None,
+        Some(_) => crate::notify::support(setting, crate::notify::Platform::MacOs),
     }
+}
+
+#[cfg(all(test, feature = "effect-probe"))]
+mod notice_support_tests {
+    use baud_present_macos::notify::{Center, Permission};
+
+    /// **A window opened after a refusal claims no notifications**: with
+    /// no center, none; with the center asked and not answered, or
+    /// granted, the config's support; once refused, none, for every window
+    /// that opens after. Named break: support whenever there is a center.
+    #[test]
+    fn a_window_opened_after_a_refusal_claims_none() {
+        use crate::config::Notifications;
+        let on = super::notice_support(None, Notifications::On);
+        assert_eq!(on, None, "no center, none");
+        let c = Center::unshared().expect("a center under the probe");
+        let claimed = super::notice_support(Some(&c), Notifications::On);
+        assert!(claimed.is_some(), "the control: before an answer, support");
+        assert_eq!(super::notice_support(Some(&c), Notifications::Off), None);
+        c.answered_off_turn(Permission::Granted);
+        assert_eq!(super::notice_support(Some(&c), Notifications::On), claimed);
+        let refused = Center::unshared().expect("a second, refused");
+        refused.answered_off_turn(Permission::Denied);
+        assert_eq!(
+            super::notice_support(Some(&refused), Notifications::On),
+            None,
+            "after a refusal, none"
+        );
+    }
+}
+
+/// The Dock tile's bar drawn again, when the windows' progress changed it.
+fn show_dock(
+    t: &baud_present_macos::turn::Turn<'_>,
+    changed: Option<Option<crate::notify::DockBar>>,
+) {
+    if let Some(bar) = changed {
+        baud_present_macos::notify::show_bar(t, bar.map(dock_bar));
+    }
+}
+
+/// **Window `id`'s bar on the Dock tile**, on the effect queue's turn
+/// (`OsEffect::DockBar`): the tile shows the most urgent window's.
+pub(crate) fn dock(
+    t: &baud_present_macos::turn::Turn<'_>,
+    id: crate::windows::WindowId,
+    bar: Option<crate::notify::DockBar>,
+) {
+    show_dock(t, DOCK.with_borrow_mut(|d| d.set(id, bar)));
 }
 
 /// **A window opened after the launch**, by Command-N: the same boot,
@@ -5044,6 +5106,19 @@ pub(crate) fn open_window(
     opening.show(mtm, scale, placed, over.map(|o| o.id));
 }
 
+/// **A window's close, as its will-close observer takes it**: its queue
+/// told at once, so its own effects are dropped from now, and the
+/// attention request the queue kept taken; then the window taken down on
+/// a later turn of its own, outside whatever callback the close came
+/// from, the kept request with it to cancel. Makes no call to the window.
+fn on_close(closer: &crate::os_effect::Closer, id: crate::windows::WindowId) {
+    let attention = closer.closed();
+    baud_present_macos::turn::later(
+        baud_present_macos::unwind::SiteName("a window's close"),
+        move |t| closed(t, id, attention),
+    );
+}
+
 /// **A window that has closed, taken down**: on a main-queue turn after
 /// its close, never inside one of its view's callbacks, which hold the
 /// borrow the responder is swapped under. Its display link stops, and the
@@ -5058,8 +5133,23 @@ pub(crate) fn open_window(
 /// window crate's waker retains, and the `Gone` responder in it. The other
 /// windows go on, and when it was the last the app runs on with none, for
 /// File > New Window or a Dock click to open one (`windows::LAST_WINDOW`).
-/// A second close of the same window finds nothing.
-fn closed(id: crate::windows::WindowId) {
+/// A second close of the same window finds nothing. The program's
+/// attention request its effect queue kept, taken at the close
+/// (`os_effect::Closer`), is cancelled here, on the close's own turn, so
+/// the Dock stops bouncing for a window that is gone.
+fn closed(
+    t: &baud_present_macos::turn::Turn<'_>,
+    id: crate::windows::WindowId,
+    attention: Option<baud_present_macos::notify::AttentionId>,
+) {
+    if let Some(a) = attention {
+        baud_present_macos::notify::cancel_attention(t, a);
+    }
+    // Its refused posts, which only it would have read, forgotten.
+    if let Ok(c) = baud_present_macos::notify::Center::shared(t.main_thread()) {
+        let base = notice_base();
+        c.forget_refused(|rid| crate::windows::notice_poster(rid, &base) == Some(id));
+    }
     let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
         return;
     };
@@ -5073,13 +5163,11 @@ fn closed(id: crate::windows::WindowId) {
     if back.is_some() {
         baud_present_macos::turn::later(
             baud_present_macos::unwind::SiteName("a link's window gives the keyboard back"),
-            move |_| give_back(back),
+            move |t| give_back(t, back),
         );
     }
     // Its progress leaves the Dock tile with it.
-    if let Some(mtm) = MainThreadMarker::new() {
-        show_dock(mtm, DOCK.with_borrow_mut(|d| d.gone(id)));
-    }
+    show_dock(t, DOCK.with_borrow_mut(|d| d.gone(id)));
     match left {
         crate::windows::Left::Others(n) => crate::info!("a window closed; {n} still open"),
         crate::windows::Left::None => crate::info!("the last window closed"),
@@ -5097,13 +5185,13 @@ fn closed(id: crate::windows::WindowId) {
 /// opened over, raised and made key through the probe-gated door, when it
 /// is still open (`windows::focus_back`). Taken out of the open windows
 /// before the call, which may re-enter them.
-fn give_back(back: Option<crate::windows::WindowId>) {
+fn give_back(t: &baud_present_macos::turn::Turn<'_>, back: Option<crate::windows::WindowId>) {
     use macos_liquid_glass::objc2::Message;
     let window = OPEN.with_borrow(|o| {
         crate::windows::focus_back(o, back).map(|w| w.window.ns_window().retain())
     });
     if let Some(w) = window {
-        baud_present_macos::window::make_key_and_order_front(&w);
+        baud_present_macos::window::make_key_and_order_front(t, &w);
     }
 }
 
@@ -8114,7 +8202,10 @@ mod drag_tests {
         assert!(registered < installed && heard < installed, "{show}");
         let close = body(
             SRC,
-            concat!("fn closed(id: crate::windows::", "WindowId) {"),
+            concat!(
+                "fn closed(\n    t: &baud_present_macos::turn::",
+                "Turn<'_>,"
+            ),
             "",
         );
         let stopped = close
@@ -8139,7 +8230,7 @@ mod drag_tests {
             quits.contains(terminate),
             "told to quit, the last window's close quits the app: {close}"
         );
-        // The close's observer queues it on the main queue, a later turn.
+        // The close's observer queues it on a later turn of its own.
         let observer = SRC
             .split_once(concat!(
                 "closing::when_",
@@ -8149,16 +8240,42 @@ mod drag_tests {
             .map(|(b, _)| b)
             .expect("the close's observer");
         assert!(
-            observer.contains(".exec_async(move || {") && observer.contains("|| closed(id),"),
-            "closed on a later turn: {observer}"
+            observer.contains(concat!("on_close(&closer, ", "id);")),
+            "the close taken by on_close: {observer}"
         );
-        let told = observer
-            .find("closer.closed();")
+        let on_close = body(
+            SRC,
+            concat!(
+                "\nfn on_close(closer: &crate::os_effect::Closer, ",
+                "id: crate::windows::WindowId) {"
+            ),
+            "",
+        );
+        assert!(
+            on_close.contains(concat!("turn::", "later("))
+                && on_close.contains("move |t| closed(t, id, attention),"),
+            "closed on a later turn, its kept attention with it: {on_close}"
+        );
+        let told = on_close
+            .find(concat!("let attention = ", "closer.closed();"))
             .expect("the queue told in the close");
         assert!(
-            told < observer.find(".exec_async(").expect("the later turn"),
-            "told before the later turn: {observer}"
+            told < on_close.find("turn::later(").expect("the later turn"),
+            "told before the later turn: {on_close}"
         );
+        // **A closed window's kept attention request is cancelled** on the
+        // close's own turn, with its Dock bar taken off. Named break: drop
+        // the cancel, and the Dock bounces on for a window that is gone.
+        let cancel = close
+            .find(concat!("notify::cancel_", "attention(t, a);"))
+            .expect("the kept request cancelled");
+        let gone = close
+            .find(concat!(
+                "show_dock(t, DOCK.with_borrow_mut(|d| ",
+                "d.gone(id)));"
+            ))
+            .expect("the Dock bar taken off");
+        assert!(cancel < gone, "both on the close's turn: {close}");
         assert_eq!(
             SRC.matches(concat!("let closer = driver.app.os.", "closer();"))
                 .count(),
@@ -8435,13 +8552,16 @@ mod drag_tests {
         );
         let closed = body(
             SRC,
-            concat!("\nfn closed(id: crate::windows::", "WindowId) {"),
+            concat!(
+                "\nfn closed(\n    t: &baud_present_macos::turn::",
+                "Turn<'_>,"
+            ),
             "",
         );
         let (_, later) = closed
             .split_once(concat!("turn::", "later("))
             .expect("on a turn");
-        assert!(later.contains(concat!("give_", "back(back)")), "{later}");
+        assert!(later.contains(concat!("give_", "back(t, back)")), "{later}");
         assert!(
             !closed.contains(concat!("make_key_", "and_order_front")),
             "never in closed"
@@ -8450,12 +8570,12 @@ mod drag_tests {
             SRC,
             concat!(
                 "\nfn give_",
-                "back(back: Option<crate::windows::WindowId>) {"
+                "back(t: &baud_present_macos::turn::Turn<'_>, back: Option<crate::windows::WindowId>) {"
             ),
             "",
         );
         assert!(give.contains(concat!("windows::", "focus_back(o, back)")));
-        assert!(give.contains(concat!("window::", "make_key_and_order_front(&w)")));
+        assert!(give.contains(concat!("window::", "make_key_and_order_front(t, &w)")));
     }
 
     /// **Every window plays the logo, as the launch's does**: a window
@@ -10992,7 +11112,7 @@ mod motion_tests {
             ".hear(",
             concat!(".ring_", "bell(volume)"),
             concat!("OsEffect::", "Beep)"),
-            concat!("OsEffect::", "Attention("),
+            concat!("OsEffect::", "BellAttention)"),
             concat!("OsEffect::", "Front)"),
         ] {
             assert_eq!(code.matches(call).count(), 1, "{call}");
@@ -11015,9 +11135,8 @@ mod motion_tests {
         for arm in [
             "OsEffect::Beep=>{baud_present_macos::bell::beep(t);Outcome::Beeped}",
             concat!(
-                "OsEffect::Attention(ask)=>on_its_window(open,Some(()),|()|{",
-                "ifletSome(mtm)=macos_liquid_glass::objc2::MainThreadMarker::new(){",
-                "let_=baud_present_macos::notify::attention(mtm,ask);}Outcome::Attended})"
+                "OsEffect::BellAttention=>on_its_window(open,Some(()),|()|{",
+                "let_=baud_present_macos::notify::attention(t,Ask::Once);Outcome::Attended})"
             ),
             concat!(
                 "OsEffect::Front=>on_its_window(open,its.window,|window|{",
@@ -11129,8 +11248,7 @@ mod motion_tests {
                 self.app.pending = Pending::Dirty;
             }
             if ring.attention == Attention::Request {
-                let _ = self.app.os
-                    .ask(OsEffect::Attention(baud_present_macos::notify::Ask::Once));
+                let _ = self.app.os.ask(OsEffect::BellAttention);
             }
             if ring.raise == Raise::Front {
                 let _ = self.app.os.ask(OsEffect::Front);
@@ -13500,7 +13618,7 @@ pub fn run() {
         startup_mark("launched");
         opening.show(mtm, scale, crate::windows::Placed::Default, None);
     });
-    baud_present_macos::window::activate(mtm);
+    baud_present_macos::window::activate_at_launch(mtm);
     startup_mark("activated");
     ns_app.run();
 }
@@ -14139,14 +14257,7 @@ impl Opening {
         // now, not from the turn that drops the driver (`os_effect::Closer`).
         let closer = driver.app.os.closer();
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
-            closer.closed();
-            dispatch2::DispatchQueue::main().exec_async(move || {
-                baud_present_macos::unwind::guard(
-                    baud_present_macos::unwind::SiteName("a window's close"),
-                    (),
-                    || closed(id),
-                )
-            });
+            on_close(&closer, id);
         });
         // **Full screen moves the grid's top** (`strip.rs`): the whole
         // window once entered, the title bar's height down once a window
@@ -14189,6 +14300,7 @@ impl Opening {
             );
         }
         driver.window_id = Some(id);
+        driver.app.os.name(id);
         // Every method through `catch_unwind`: a panic in the driver stops
         // at the view's callback rather than unwind into AppKit, which
         // aborts on it (`baud_present_macos::unwind`).
@@ -14830,61 +14942,44 @@ impl Driver {
         self.notice_calls(calls);
     }
 
-    /// **The calls `Delivery` names, made**, and what it counts logged.
+    /// **The calls `Delivery` names, asked** of the window's effect queue
+    /// and made on its turn (`os_effect.rs`), and what it counts logged.
     fn notice_calls(&mut self, calls: Vec<crate::notify::MacCall>) {
         use crate::notify::{AttentionCall, MacCall};
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
+        use crate::os_effect::OsEffect;
+        use baud_present_macos::notify::Ask;
         for call in calls {
             match call {
                 MacCall::Post(p) => {
-                    if let Some(c) = &self.app.center {
-                        c.post(mac_post(p));
-                    }
+                    let _ = self.app.os.ask(OsEffect::Notice(mac_post(p)));
                 }
                 // Checked off this thread; its notification posts on the
                 // turn the checker's wake brings (`notify::Checker`).
                 MacCall::Check(c) => self.app.checker.start(c),
                 MacCall::Remove(id) => {
-                    if let Some(c) = &self.app.center {
-                        c.remove(&id);
-                    }
+                    let _ = self.app.os.ask(OsEffect::Unnotice(id));
                 }
+                // Removed on a turn of its own once `after` has passed.
                 MacCall::Expire(id, after) => {
                     if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
-                        let _ = dispatch2::DispatchQueue::main().after(when, move || {
-                            baud_present_macos::unwind::guard(
-                                baud_present_macos::unwind::SiteName("a notice's expiry"),
-                                (),
-                                || {
-                                    baud_present_macos::notify::remove_by_id(&id);
-                                },
-                            );
-                        });
+                        baud_present_macos::turn::after(
+                            when,
+                            baud_present_macos::unwind::SiteName("a notice's expiry"),
+                            move |t| baud_present_macos::notify::remove_by_id(t, &id),
+                        );
                     }
                 }
                 // The Dock tile is the app's: it shows the most urgent
                 // window's bar (`notify::DockBars`).
                 MacCall::Bar(bar) => {
-                    if let Some(id) = self.window_id {
-                        show_dock(mtm, DOCK.with_borrow_mut(|d| d.set(id, bar)));
-                    }
+                    let _ = self.app.os.ask(OsEffect::DockBar(bar));
                 }
                 MacCall::Attention(a) => {
-                    use baud_present_macos::notify::Ask;
-                    if let Some(id) = self.app.attention.take() {
-                        baud_present_macos::notify::cancel_attention(mtm, id);
-                    }
-                    self.app.attention = match a {
-                        AttentionCall::Critical => {
-                            Some(baud_present_macos::notify::attention(mtm, Ask::UntilActive))
-                        }
-                        AttentionCall::Informational => {
-                            Some(baud_present_macos::notify::attention(mtm, Ask::Once))
-                        }
-                        AttentionCall::Cancel => None,
-                    };
+                    let _ = self.app.os.ask(match a {
+                        AttentionCall::Critical => OsEffect::Attention(Ask::UntilActive),
+                        AttentionCall::Informational => OsEffect::Attention(Ask::Once),
+                        AttentionCall::Cancel => OsEffect::Unattend,
+                    });
                 }
             }
         }
@@ -14900,16 +14995,38 @@ impl Driver {
     }
 
     /// **What the notification center said since the last tick**: the
-    /// posts that waited for permission sent or dropped, said once, and
-    /// the clicks -- reported to the program where it asked, and the
-    /// window brought forward where `a` says focus.
+    /// answer to the permission, once to this window, the posts of this
+    /// window's it refused, and the clicks -- reported to the program where
+    /// it asked, and the window brought forward where `a` says focus. What
+    /// the answer allowed was sent on the answer's own turn.
     fn notice_turn(&mut self) {
         use baud_present_macos::notify::{DEFAULT_ACTION, Permission};
         let Some(c) = &self.app.center else {
             return;
         };
-        let turn = c.turn();
-        match turn.answer {
+        // **Only this window's posts** (`windows::clicked`): the center and
+        // its delegate are the process's, and every window's refusals and
+        // clicks arrive there.
+        let base = notice_base();
+        let me = self.window_id;
+        // The windows open; while the set is being changed, every window
+        // counts as open, so nothing is dropped for a window that is.
+        let open = OPEN.with(|o| o.try_borrow().map(|o| o.ids()).ok());
+        let mut whose = |id: &str| {
+            use baud_present_macos::notify::Whose;
+            let Some(me) = me else {
+                return Whose::Another;
+            };
+            let all = [me];
+            match crate::windows::clicked(id, &base, me, open.as_deref().unwrap_or(&all)) {
+                crate::windows::Clicked::This => Whose::This,
+                crate::windows::Clicked::Another => Whose::Another,
+                crate::windows::Clicked::Closed if open.is_none() => Whose::Another,
+                crate::windows::Clicked::Closed => Whose::Closed,
+            }
+        };
+        let news = c.news(&mut self.app.told, &mut whose);
+        match news.answer {
             Some(Permission::Granted) => crate::info!("notifications: allowed"),
             // **Not allowed: the core is told none is delivered**, so
             // kitty's query goes unanswered, and the posts that waited are
@@ -14924,13 +15041,13 @@ impl Driver {
         }
         self.app
             .notes
-            .mac_refused(&mut self.app.term, &turn.refused);
+            .mac_refused(&mut self.app.term, &news.refused);
         // A `w` that has passed, and every few seconds the list
         // Notification Center holds, so `p=alive` names what is still
         // there: nothing on macOS says one closed.
         let now = Instant::now();
         self.app.notes.mac_expired(&mut self.app.term, now);
-        if let Some(present) = c.delivered() {
+        if let Some(present) = self.app.os.take_delivered() {
             if let Some(asked) = self.app.delivered_asked.take() {
                 self.app
                     .notes
@@ -14947,29 +15064,8 @@ impl Driver {
         if due {
             self.app.delivered_asked = Some(now);
             self.app.delivered_last = Some(now);
-            c.ask_delivered();
+            let _ = self.app.os.ask(crate::os_effect::OsEffect::AskDelivered);
         }
-        // **Only the clicks on this window's own posts** (`windows::clicked`):
-        // the center and its delegate are the app's, and every window's
-        // clicks arrive there.
-        let base = notice_base();
-        let me = self.window_id;
-        // The windows open; while the set is being changed, every window
-        // counts as open, so no click is dropped for a window that is.
-        let open = OPEN.with(|o| o.try_borrow().map(|o| o.ids()).ok());
-        let whose = |id: &str| {
-            use baud_present_macos::notify::Whose;
-            let Some(me) = me else {
-                return Whose::Another;
-            };
-            let all = [me];
-            match crate::windows::clicked(id, &base, me, open.as_deref().unwrap_or(&all)) {
-                crate::windows::Clicked::This => Whose::This,
-                crate::windows::Clicked::Another => Whose::Another,
-                crate::windows::Clicked::Closed if open.is_none() => Whose::Another,
-                crate::windows::Clicked::Closed => Whose::Closed,
-            }
-        };
         for click in c.clicks(whose) {
             let Some(token) = self.app.notes.shown.token(&click.id) else {
                 continue;
@@ -14979,13 +15075,11 @@ impl Driver {
             let Some(button) = crate::notify::clicked(&click.action, DEFAULT_ACTION, read) else {
                 continue;
             };
+            // The app activated and this window made key, on the effect
+            // queue's turn: the runner makes both on the slot's own window.
             if button.is_none() && self.app.term.notice_focuses(token) {
-                if let Some(mtm) = MainThreadMarker::new() {
-                    baud_present_macos::window::activate(mtm);
-                }
-                if let Some(w) = self.view.window() {
-                    baud_present_macos::window::make_key_and_order_front(&w);
-                }
+                let _ = self.app.os.ask(crate::os_effect::OsEffect::Activate);
+                let _ = self.app.os.ask(crate::os_effect::OsEffect::KeyFront);
             }
             let outbox = &mut self.app.outbox;
             crate::reads::input(
@@ -15040,10 +15134,7 @@ impl Driver {
             self.app.pending = Pending::Dirty;
         }
         if ring.attention == Attention::Request {
-            let _ = self
-                .app
-                .os
-                .ask(OsEffect::Attention(baud_present_macos::notify::Ask::Once));
+            let _ = self.app.os.ask(OsEffect::BellAttention);
         }
         if ring.raise == Raise::Front {
             let _ = self.app.os.ask(OsEffect::Front);
@@ -15341,12 +15432,10 @@ impl Driver {
                 }
                 Part::Notifications => {
                     self.app.notes.setting = c.notifications;
-                    self.app.term.set_notice_support(match self.app.center {
-                        Some(_) => {
-                            crate::notify::support(c.notifications, crate::notify::Platform::MacOs)
-                        }
-                        None => None,
-                    });
+                    self.app.term.set_notice_support(notice_support(
+                        self.app.center.as_deref(),
+                        c.notifications,
+                    ));
                 }
                 Part::CopyOnSelect => {
                     self.app.clipboard.copy_on_select = c.clipboard.copy_on_select;
@@ -16095,6 +16184,13 @@ impl Driver {
                 | Outcome::Announced
                 | Outcome::Beeped
                 | Outcome::Attended
+                | Outcome::Unattended
+                | Outcome::Noticed
+                | Outcome::Unnoticed
+                | Outcome::AskedDelivered
+                | Outcome::Barred
+                | Outcome::Activated
+                | Outcome::MadeKey
                 | Outcome::Raised
                 | Outcome::Gone => {}
             }

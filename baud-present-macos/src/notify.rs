@@ -10,7 +10,7 @@
 //!   notification center" (`[[source: apple-unusernotificationcenter]]`,
 //!   `[[source: apple-unusernotificationcenter-current]]`): neither the
 //!   pages nor the headers (`[[source: macos-sdk-unusernotificationcenter-h]]`)
-//!   say what a process with no bundle gets, so [`Center::open`] refuses
+//!   say what a process with no bundle gets, so [`Center::shared`] refuses
 //!   one whose main bundle has no identifier, and posts nothing.
 //! * **Permission, asked when it is needed.** "you must obtain permission
 //!   to use them", and "The first time your app makes this authorization
@@ -18,13 +18,15 @@
 //!   context that helps people understand why"
 //!   (`[[source: apple-asking-permission-notifications]]`). It is asked at
 //!   the first notification a program sends, never at launch, and what is
-//!   posted before the answer waits for it.
+//!   posted before the answer waits for it, in the process's one
+//!   [`Center`], whose answer sends it on a turn of its own: a window that
+//!   closed meanwhile does not take its post with it.
 //! * **The delegate is set first**, as the class's page asks ("Always
 //!   assign an object to the delegate property before performing any
 //!   tasks"), so a notification shown while baud is active is presented
 //!   (`willPresentNotification`) and a click reaches the program
 //!   (`didReceiveNotificationResponse`). **One delegate for the process**
-//!   ([`shared_delegate`]), however many windows open a [`Center`]: the
+//!   ([`shared_delegate`]), as there is one [`Center`] for every window: the
 //!   app has one center, and its delegate property is `weak`
 //!   (`[[source: macos-sdk-unusernotificationcenter-h]]` 42), so a
 //!   delegate a window owned left the others deaf when a newer window
@@ -64,6 +66,8 @@ use macos_liquid_glass::objc2_foundation::{
 };
 #[cfg(not(feature = "effect-probe"))]
 use macos_liquid_glass::objc2_foundation::{NSBundle, NSSet};
+
+use crate::turn::Turn;
 
 #[link(name = "UserNotifications", kind = "framework")]
 unsafe extern "C" {}
@@ -212,6 +216,28 @@ fn shared_delegate() -> Retained<Delegate> {
     DELEGATE.with(|d| d.get_or_init(Delegate::new).clone())
 }
 
+/// The identifier of the notification posted last, under the probe: the
+/// one the event rig's click names.
+#[cfg(feature = "effect-probe")]
+static POSTED_LAST: Mutex<Option<String>> = Mutex::new(None);
+
+/// **The event rig's click on the notification posted last**, its default
+/// action, put where the delegate's `didReceiveNotificationResponse` puts
+/// a click: the response object that method reads is the framework's to
+/// make, and the probe build has no framework. Whether there was one to
+/// click.
+#[cfg(feature = "effect-probe")]
+pub fn rig_click_the_last_post() -> bool {
+    let Some(id) = POSTED_LAST.lock().ok().and_then(|p| p.clone()) else {
+        return false;
+    };
+    shared_delegate().ivars().push(Click {
+        id,
+        action: DEFAULT_ACTION.into(),
+    });
+    true
+}
+
 /// Why notifications cannot be posted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Unavailable {
@@ -221,20 +247,19 @@ pub enum Unavailable {
     NoCenter,
 }
 
-/// A turn's news: the answer, the first time there is one, and the posts
-/// that waited for it and were refused.
+/// **A window's news from the center since it last asked**: the answer,
+/// the first time this window hears it; and the posts this window made
+/// that waited for it and were refused, by identifier. What it allowed was
+/// sent on the answer's own turn ([`Center::flush`]), never here.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Turn {
+pub struct News {
     pub answer: Option<Permission>,
     pub refused: Vec<String>,
 }
 
-impl Turn {
-    const NOTHING: Turn = Turn {
-        answer: None,
-        refused: Vec::new(),
-    };
-}
+/// The guard's name for the turn the permission's answer schedules.
+const ANSWER: crate::unwind::SiteName =
+    crate::unwind::SiteName("the notification permission's answer");
 
 /// Where permission stands.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -282,8 +307,14 @@ pub enum PostSound {
     Silent,
 }
 
-/// **The notification center**, with its delegate and what waits for
-/// permission.
+/// **The notification center: one for the process**, with its delegate,
+/// the permission, what waits for it and every button category. The
+/// framework's center is the app's (`+currentNotificationCenter`), so its
+/// permission, its waiting posts and its category set are the process's
+/// too: a window that closes before permission comes leaves its post
+/// waiting here, and the grant sends it on a turn of its own
+/// ([`Center::shared`]). Each window reads only its own news, refusals
+/// and clicks.
 pub struct Center {
     /// UserNotifications' center. **Not in the probe build**, so a method
     /// that would message it there does not compile: each one's probe arm
@@ -292,33 +323,85 @@ pub struct Center {
     center: Retained<AnyObject>,
     delegate: Retained<Delegate>,
     permission: Arc<Mutex<Permission>>,
-    /// The identifiers Notification Center last said it holds, until taken.
-    delivered: Arc<Mutex<Option<Vec<String>>>>,
     asked: Cell<Permission>,
     waiting: RefCell<Vec<Post>>,
-    /// Every category registered, read only by what the probe configures
-    /// out.
+    /// The identifiers of posts that waited and were refused, until the
+    /// window that posted each takes it ([`Center::news`]) or closes.
+    refused: RefCell<Vec<String>>,
+    /// Every category registered: `setNotificationCategories:` replaces
+    /// the app's whole set, so the one set holds every window's. Read only
+    /// by what the probe configures out.
     #[cfg_attr(feature = "effect-probe", allow(dead_code))]
     categories: RefCell<Vec<(String, Retained<AnyObject>)>>,
-    /// Under the probe, the answer to an ask not yet given: written into
-    /// `permission` at the next [`Center::turn`], after the call that
-    /// asked has returned, as the system's handler writes it later.
+    /// Under the probe, the identifiers sent and not removed: what
+    /// Notification Center would hold, and the probe's answer when asked.
     #[cfg(feature = "effect-probe")]
-    owed: Cell<Option<Permission>>,
+    held: RefCell<Vec<String>>,
+}
+
+thread_local! {
+    /// The process's one center, opened on the main thread the first time
+    /// a window asks for it, or why there is none.
+    static SHARED: std::cell::OnceCell<Result<std::rc::Rc<Center>, Unavailable>> =
+        const { std::cell::OnceCell::new() };
+}
+
+/// `f` with the process's center, if one was opened on this thread.
+fn with_shared(f: impl FnOnce(&Center)) {
+    SHARED.with(|s| {
+        if let Some(Ok(c)) = s.get() {
+            f(c);
+        }
+    });
+}
+
+/// **What a window was last told of permission**, so each window hears
+/// the answer once ([`Center::news`]): a window's core is told none is
+/// delivered when it is refused, whichever window asked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Told(Permission);
+
+impl Told {
+    /// Told nothing yet.
+    pub const NOTHING: Told = Told(Permission::NotAsked);
+}
+
+/// **Where a window's answer to "which are delivered" arrives**: its own,
+/// so one window never takes the answer to another's question. Written by
+/// the framework's handler on its own queue, read by the window.
+#[derive(Clone, Default, Debug)]
+pub struct Delivered(Arc<Mutex<Option<Vec<String>>>>);
+
+impl Delivered {
+    /// The answer to the last ask, once.
+    pub fn take(&self) -> Option<Vec<String>> {
+        self.0.lock().ok().and_then(|mut d| d.take())
+    }
 }
 
 impl Center {
-    /// The center, the process's delegate set, or why not. **Under the
-    /// effect probe there is no center**: the bundle is not asked and
-    /// nothing is sent to UserNotifications, so the event rig's unbundled
-    /// child has a `Center` whose methods record or answer in place of the
-    /// framework.
-    pub fn open(_mtm: MainThreadMarker) -> Result<Center, Unavailable> {
+    /// **The process's center**, opened the first time and the same one
+    /// after, the process's delegate set; or why there is none. **Under
+    /// the effect probe there is no framework center**: the bundle is not
+    /// asked and nothing is sent to UserNotifications, so the event rig's
+    /// unbundled child has a `Center` whose methods record or answer in
+    /// place of the framework.
+    pub fn shared(_mtm: MainThreadMarker) -> Result<std::rc::Rc<Center>, Unavailable> {
+        SHARED.with(|s| {
+            s.get_or_init(|| Center::opened().map(std::rc::Rc::new))
+                .clone()
+        })
+    }
+
+    /// A center of its own, not the process's: the probe's tests, off the
+    /// main thread, where [`Center::shared`] is not.
+    #[cfg(feature = "effect-probe")]
+    pub fn unshared() -> Result<Center, Unavailable> {
         Center::opened()
     }
 
-    /// [`Center::open`]'s body, which reads no marker, so a test off the
-    /// main thread can ask it.
+    /// [`Center::shared`]'s opening, which reads no marker, so a test off
+    /// the main thread can ask it.
     fn opened() -> Result<Center, Unavailable> {
         #[cfg(not(feature = "effect-probe"))]
         let center: Retained<AnyObject> = {
@@ -350,12 +433,12 @@ impl Center {
             center,
             delegate,
             permission: Arc::new(Mutex::new(Permission::NotAsked)),
-            delivered: Arc::new(Mutex::new(None)),
             asked: Cell::new(Permission::NotAsked),
             waiting: RefCell::new(Vec::new()),
+            refused: RefCell::new(Vec::new()),
             categories: RefCell::new(Vec::new()),
             #[cfg(feature = "effect-probe")]
-            owed: Cell::new(None),
+            held: RefCell::new(Vec::new()),
         })
     }
 
@@ -364,8 +447,27 @@ impl Center {
     }
 
     /// **Post one**, once permission is granted: asked now if it never
-    /// was, and the post kept until the answer.
-    pub fn post(&self, p: Post) {
+    /// was, and the post kept until the answer, whose own turn sends it
+    /// ([`Center::flush`]). On the effect queue's turn, as both the post
+    /// and the ask are effects.
+    pub fn post(&self, t: &Turn<'_>, p: Post) {
+        let _ = t;
+        self.post_now(p);
+    }
+
+    /// [`Center::post`] without a turn: the probe's tests, off the main
+    /// thread, where no turn is made.
+    #[cfg(feature = "effect-probe")]
+    pub fn post_off_turn(&self, p: Post) {
+        self.post_now(p);
+    }
+
+    /// [`Center::post`]'s body.
+    fn post_now(&self, p: Post) {
+        #[cfg(feature = "effect-probe")]
+        if let Ok(mut last) = POSTED_LAST.lock() {
+            *last = Some(p.id.clone());
+        }
         match self.permission() {
             Permission::Granted => self.send(&p),
             Permission::Denied => {}
@@ -376,35 +478,42 @@ impl Center {
         }
     }
 
+    /// **Permission asked, once**: the answer comes later, on the
+    /// framework's queue, and is written there; the posts that waited for
+    /// it are then sent, or refused, on a main-queue turn of its own
+    /// ([`Center::flush`]), which reaches the process's center through
+    /// [`SHARED`] rather than carrying it, and needs no window.
     fn ask(&self) {
         if self.asked.get() != Permission::NotAsked {
             return;
         }
         self.asked.set(Permission::Asked);
-        // Under the probe: recorded, and a grant owed, given at the next
-        // turn from another thread, as the system's handler answers: never
-        // inside the call that asked, so a second post there waits too.
+        // Under the probe: recorded, and the grant given on a later turn,
+        // as the system's handler answers: never inside the call that
+        // asked, so a second post there waits too.
         #[cfg(feature = "effect-probe")]
         {
             crate::probe::record(crate::probe::EffectKind::Authorize);
-            self.owed.set(Some(Permission::Granted));
+            crate::turn::later(ANSWER, |t| {
+                with_shared(|c| {
+                    c.answer(Permission::Granted);
+                    c.flush(t);
+                });
+            });
         }
         #[cfg(not(feature = "effect-probe"))]
         {
             let shared = Arc::clone(&self.permission);
             let done = RcBlock::new(move |granted: Bool, _e: *mut NSError| {
-                crate::unwind::guard(
-                    crate::unwind::SiteName("the notification permission's answer"),
-                    (),
-                    || {
-                        if let Ok(mut p) = shared.lock() {
-                            *p = match granted.as_bool() {
-                                true => Permission::Granted,
-                                false => Permission::Denied,
-                            };
-                        }
-                    },
-                );
+                crate::unwind::guard(ANSWER, (), || {
+                    if let Ok(mut p) = shared.lock() {
+                        *p = match granted.as_bool() {
+                            true => Permission::Granted,
+                            false => Permission::Denied,
+                        };
+                    }
+                    crate::turn::later(ANSWER, |t| with_shared(|c| c.flush(t)));
+                });
             });
             // SAFETY: `-requestAuthorizationWithOptions:completionHandler:`,
             // the options an `NSUInteger`, the handler `void (^)(BOOL,
@@ -415,38 +524,76 @@ impl Center {
         }
     }
 
-    /// **What came since the last turn**: the posts that waited, sent once
-    /// permission came, or dropped when it was refused, their identifiers
-    /// given back; and the answer, said once.
-    pub fn turn(&self) -> Turn {
-        #[cfg(feature = "effect-probe")]
-        if let Some(answer) = self.owed.take() {
-            answered_elsewhere(&self.permission, answer);
-        }
-        let p = self.permission();
-        let waiting: Vec<Post> = match p {
-            Permission::Granted | Permission::Denied => {
-                self.waiting.borrow_mut().drain(..).collect()
-            }
-            Permission::NotAsked | Permission::Asked => return Turn::NOTHING,
-        };
-        let refused = match p {
+    /// The answer written, as the framework's handler writes it.
+    #[cfg(feature = "effect-probe")]
+    fn answer(&self, p: Permission) {
+        answered_elsewhere(&self.permission, p);
+    }
+
+    /// **The answer, and what waited for it, on its own turn**: once
+    /// granted every waiting post sent, once refused each one's identifier
+    /// kept for the window that posted it; before the answer, nothing.
+    pub fn flush(&self, t: &Turn<'_>) {
+        let _ = t;
+        self.flush_now();
+    }
+
+    /// The probe's tests' answer and its turn, off the main thread: the
+    /// answer written and what waited flushed, as the handler's turn does.
+    #[cfg(feature = "effect-probe")]
+    pub fn answered_off_turn(&self, p: Permission) {
+        self.answer(p);
+        self.flush_now();
+    }
+
+    /// [`Center::flush`]'s body.
+    fn flush_now(&self) {
+        match self.permission() {
             Permission::Granted => {
+                let waiting = core::mem::take(&mut *self.waiting.borrow_mut());
                 for post in &waiting {
                     self.send(post);
                 }
-                Vec::new()
             }
-            _ => waiting.into_iter().map(|post| post.id).collect(),
+            Permission::Denied => {
+                let waiting = core::mem::take(&mut *self.waiting.borrow_mut());
+                self.refused
+                    .borrow_mut()
+                    .extend(waiting.into_iter().map(|post| post.id));
+            }
+            Permission::NotAsked | Permission::Asked => {}
+        }
+    }
+
+    /// **A window's news since it last asked**: the answer, once to each
+    /// window ([`Told`]); and the refused posts that window made, taken,
+    /// `whose` reading each one's identifier: another open window's left
+    /// for it, a closed window's dropped. Nothing is sent here.
+    pub fn news(&self, told: &mut Told, mut whose: impl FnMut(&str) -> Whose) -> News {
+        let p = self.permission();
+        let answer = match p {
+            Permission::Granted | Permission::Denied if told.0 != p => {
+                told.0 = p;
+                Some(p)
+            }
+            _ => None,
         };
-        let first = self.asked.get() == Permission::Asked;
-        if first {
-            self.asked.set(p);
-        }
-        Turn {
-            answer: first.then_some(p),
-            refused,
-        }
+        let mut refused = Vec::new();
+        self.refused.borrow_mut().retain(|id| match whose(id) {
+            Whose::This => {
+                refused.push(id.clone());
+                false
+            }
+            Whose::Another => true,
+            Whose::Closed => false,
+        });
+        News { answer, refused }
+    }
+
+    /// **A closed window's refusals forgotten**, on its close's turn, so
+    /// the process's list never keeps one no window will read.
+    pub fn forget_refused(&self, mut gone: impl FnMut(&str) -> bool) {
+        self.refused.borrow_mut().retain(|id| !gone(id));
     }
 
     /// The permission the system last gave.
@@ -456,15 +603,24 @@ impl Center {
 
     /// **Ask which notifications Notification Center holds**: "Fetches all
     /// of your app's delivered notifications that are still present in
-    /// Notification Center", answered later through [`Center::delivered`].
-    pub fn ask_delivered(&self) {
-        // Under the probe: no center to ask, and the answer, an empty
-        // list, comes as the handler's would, from another thread.
+    /// Notification Center", answered later into the asking window's
+    /// `into`. On the effect queue's turn, as it messages the center.
+    pub fn ask_delivered(&self, t: &Turn<'_>, into: &Delivered) {
+        let _ = t;
+        self.ask_delivered_now(into);
+    }
+
+    /// [`Center::ask_delivered`]'s body, which a test off the main thread
+    /// can ask.
+    fn ask_delivered_now(&self, into: &Delivered) {
+        // Under the probe: no center to ask, and the answer, what it sent
+        // and has not removed, comes as the handler's would, from another
+        // thread.
         #[cfg(feature = "effect-probe")]
-        answered_elsewhere(&self.delivered, Some(Vec::new()));
+        answered_elsewhere(&into.0, Some(self.held.borrow().clone()));
         #[cfg(not(feature = "effect-probe"))]
         {
-            let shared = Arc::clone(&self.delivered);
+            let shared = Arc::clone(&into.0);
             let done = RcBlock::new(move |list: core::ptr::NonNull<NSArray<AnyObject>>| {
                 crate::unwind::guard(
                     crate::unwind::SiteName("the delivered notifications' answer"),
@@ -499,11 +655,6 @@ impl Center {
         }
     }
 
-    /// The answer to the last [`Center::ask_delivered`], once.
-    pub fn delivered(&self) -> Option<Vec<String>> {
-        self.delivered.lock().ok().and_then(|mut d| d.take())
-    }
-
     /// **The clicks on this window's posts heard since the last call**:
     /// `whose` reads each click's request identifier; another open
     /// window's are left for it, and a closed window's dropped.
@@ -511,11 +662,19 @@ impl Center {
         self.delegate.ivars().take(whose)
     }
 
-    /// **Close one**: removed from Notification Center, or before it shows.
-    pub fn remove(&self, id: &str) {
+    /// **Close one**: removed from Notification Center, or, still waiting
+    /// for permission, before it shows; on the effect queue's turn.
+    pub fn remove(&self, t: &Turn<'_>, id: &str) {
+        let _ = t;
+        self.remove_now(id);
+    }
+
+    /// [`Center::remove`]'s body, which a test off the main thread can ask.
+    fn remove_now(&self, id: &str) {
+        self.waiting.borrow_mut().retain(|p| p.id != id);
         #[cfg(feature = "effect-probe")]
         {
-            let _ = id;
+            self.held.borrow_mut().retain(|h| h != id);
             crate::probe::record(crate::probe::EffectKind::Unnotice);
         }
         #[cfg(not(feature = "effect-probe"))]
@@ -525,7 +684,9 @@ impl Center {
     fn send(&self, p: &Post) {
         #[cfg(feature = "effect-probe")]
         {
-            let _ = p;
+            let mut held = self.held.borrow_mut();
+            held.retain(|h| *h != p.id);
+            held.push(p.id.clone());
             crate::probe::record(crate::probe::EffectKind::Notice);
         }
         #[cfg(not(feature = "effect-probe"))]
@@ -722,23 +883,17 @@ fn answered_elsewhere<T: Send + 'static>(shared: &Arc<Mutex<T>>, answer: T) {
     .join();
 }
 
-/// **Close one by its identifier from any turn**: for an expiry scheduled
-/// on the main queue, which holds the identifier and not the center.
-pub fn remove_by_id(id: &str) {
-    #[cfg(feature = "effect-probe")]
-    {
-        let _ = id;
-        crate::probe::record(crate::probe::EffectKind::Unnotice);
-    }
-    #[cfg(not(feature = "effect-probe"))]
-    {
-        let Some(cls) = AnyClass::get(c"UNUserNotificationCenter") else {
-            return;
-        };
-        // SAFETY: `+currentNotificationCenter`, nonnull.
-        let center: Retained<AnyObject> = unsafe { msg_send![cls, currentNotificationCenter] };
-        remove(&center, id);
-    }
+/// **Close one by its identifier**: for an expiry, on the turn
+/// [`crate::turn::after`] schedules, which holds the identifier and not
+/// the center: the process's own, [`Center::shared`].
+pub fn remove_by_id(t: &Turn<'_>, id: &str) {
+    let _ = t;
+    remove_by_id_now(id);
+}
+
+/// [`remove_by_id`]'s body, which a test off the main thread can ask.
+fn remove_by_id_now(id: &str) {
+    with_shared(|c| c.remove_now(id));
 }
 
 /// A progress bar's look: its fill, and its colour by state.
@@ -805,15 +960,17 @@ thread_local! {
     static TILE: RefCell<Option<Retained<Tile>>> = const { RefCell::new(None) };
 }
 
-/// **The Dock tile shows `bar`**, or the plain icon for `None`.
-pub fn show_bar(mtm: MainThreadMarker, bar: Option<Bar>) {
+/// **The Dock tile shows `bar`**, or the plain icon for `None`; on the
+/// effect queue's turn.
+pub fn show_bar(t: &Turn<'_>, bar: Option<Bar>) {
     #[cfg(feature = "effect-probe")]
     {
-        let _ = (mtm, bar);
+        let _ = (t, bar);
         crate::probe::record(crate::probe::EffectKind::DockBar);
     }
     #[cfg(not(feature = "effect-probe"))]
     {
+        let mtm = t.main_thread();
         let app = NSApplication::sharedApplication(mtm);
         let tile = app.dockTile();
         match bar {
@@ -848,11 +1005,12 @@ pub enum Ask {
 /// **Ask for the user's attention** (`[[source:
 /// apple-request-user-attention]]`): "Activating the app cancels the user
 /// attention request", and "Sending requestUserAttention(_:) to an app that
-/// is already active has no effect". The request's id, to cancel it.
-pub fn attention(mtm: MainThreadMarker, ask: Ask) -> AttentionId {
+/// is already active has no effect". The request's id, to cancel it. On
+/// the effect queue's turn.
+pub fn attention(t: &Turn<'_>, ask: Ask) -> AttentionId {
     #[cfg(feature = "effect-probe")]
     {
-        let _ = (mtm, ask);
+        let _ = (t, ask);
         crate::probe::record(crate::probe::EffectKind::Attention);
         AttentionId(0)
     }
@@ -860,7 +1018,7 @@ pub fn attention(mtm: MainThreadMarker, ask: Ask) -> AttentionId {
     {
         use macos_liquid_glass::objc2_app_kit::NSRequestUserAttentionType as T;
         AttentionId(
-            NSApplication::sharedApplication(mtm).requestUserAttention(match ask {
+            NSApplication::sharedApplication(t.main_thread()).requestUserAttention(match ask {
                 Ask::UntilActive => T::CriticalRequest,
                 Ask::Once => T::InformationalRequest,
             }),
@@ -872,15 +1030,16 @@ pub fn attention(mtm: MainThreadMarker, ask: Ask) -> AttentionId {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AttentionId(isize);
 
-/// Cancel a request `attention` made: "no to cancel a previous request".
-pub fn cancel_attention(mtm: MainThreadMarker, id: AttentionId) {
+/// Cancel a request `attention` made: "no to cancel a previous request";
+/// on the effect queue's turn.
+pub fn cancel_attention(t: &Turn<'_>, id: AttentionId) {
     #[cfg(feature = "effect-probe")]
     {
-        let _ = (mtm, id);
+        let _ = (t, id);
         crate::probe::record(crate::probe::EffectKind::Unattention);
     }
     #[cfg(not(feature = "effect-probe"))]
-    NSApplication::sharedApplication(mtm).cancelUserAttentionRequest(id.0);
+    NSApplication::sharedApplication(t.main_thread()).cancelUserAttentionRequest(id.0);
 }
 
 #[cfg(test)]
@@ -1060,22 +1219,10 @@ mod tests {
         assert!(matches!(Center::opened(), Err(Unavailable::NoBundle)));
     }
 
-    /// **Under the probe the answer comes as the system's does: read on a
-    /// later turn, never in the call that asked.** A bare binary has a
-    /// center; the first post records the ask alone, both posts wait with
-    /// no answer yet, and the next turn has the grant, says it once and
-    /// sends what waited. Then a post goes at once, each removal records
-    /// one removal, and the delivered list is empty, once. Breaks: the
-    /// grant given inside `ask` (the second post sends at once), and no
-    /// grant (the turn says nothing).
+    /// A post with this identifier.
     #[cfg(feature = "effect-probe")]
-    #[test]
-    fn under_the_probe_the_grant_is_read_on_a_later_turn() {
-        use crate::probe::{EffectKind, take};
-        // Off the main thread, so a record runs no nested AppKit call.
-        assert!(MainThreadMarker::new().is_none(), "off the main thread");
-        let kinds = || take().iter().map(|r| r.kind).collect::<Vec<_>>();
-        let post = |id: &str| Post {
+    fn post(id: &str) -> Post {
+        Post {
             id: id.into(),
             title: "Build".into(),
             subtitle: String::new(),
@@ -1084,37 +1231,131 @@ mod tests {
             level: Level::Passive,
             buttons: Vec::new(),
             image: None,
-        };
-        let _ = take();
+        }
+    }
+
+    /// The kinds recorded since the last call, on this thread.
+    #[cfg(feature = "effect-probe")]
+    fn kinds() -> Vec<crate::probe::EffectKind> {
+        crate::probe::take().iter().map(|r| r.kind).collect()
+    }
+
+    /// **Under the probe the answer comes as the system's does, and what
+    /// waited for it is sent on the answer's own turn**: the first post
+    /// records the ask alone, both posts wait with no answer yet, the news
+    /// and a flush before the answer send nothing, and the answer's turn
+    /// sends both, in order, with no window's news asked. A window then
+    /// hears the answer once; a post goes at once; a removal records one;
+    /// and the delivered list is what was sent and not removed, once.
+    /// Breaks: the grant given inside `ask` (the second post sends at
+    /// once), and the flush left out of the answer's turn (nothing sent).
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn under_the_probe_what_waited_is_sent_on_the_answers_turn() {
+        use crate::probe::EffectKind;
+        // Off the main thread, so a record runs no nested AppKit call.
+        assert!(MainThreadMarker::new().is_none(), "off the main thread");
+        let _ = kinds();
         let c = Center::opened().expect("a center under the probe");
-        c.post(post("a"));
-        c.post(post("b"));
+        c.post_now(post("a"));
+        c.post_now(post("b"));
         assert_eq!(kinds(), [EffectKind::Authorize], "asked once, nothing sent");
         assert_eq!(
             c.allowed(),
             Permission::NotAsked,
             "no answer inside the asking call"
         );
-        let t = c.turn();
-        assert_eq!(
-            (t.answer, t.refused.len()),
-            (Some(Permission::Granted), 0),
-            "said on the turn"
-        );
+        let mut told = Told::NOTHING;
+        let news = c.news(&mut told, |_| Whose::This);
+        assert_eq!(news.answer, None, "no answer yet");
+        c.flush_now();
+        assert!(kinds().is_empty(), "nothing sent before the answer");
+        c.answered_off_turn(Permission::Granted);
         assert_eq!(
             kinds(),
             [EffectKind::Notice, EffectKind::Notice],
-            "what waited, sent"
+            "what waited, sent on the answer's turn"
         );
-        assert_eq!(c.turn().answer, None, "said once");
-        c.post(post("c"));
+        let news = c.news(&mut told, |_| Whose::This);
+        assert_eq!(
+            (news.answer, news.refused.len()),
+            (Some(Permission::Granted), 0)
+        );
+        assert_eq!(c.news(&mut told, |_| Whose::This).answer, None, "once");
+        c.post_now(post("c"));
         assert_eq!(kinds(), [EffectKind::Notice], "granted: sent at once");
-        c.remove("c");
-        remove_by_id("c");
-        assert_eq!(kinds(), [EffectKind::Unnotice, EffectKind::Unnotice]);
-        c.ask_delivered();
-        assert_eq!(c.delivered(), Some(Vec::new()), "an empty list");
-        assert_eq!(c.delivered(), None, "once");
+        c.remove_now("c");
+        assert_eq!(kinds(), [EffectKind::Unnotice]);
+        let into = Delivered::default();
+        c.ask_delivered_now(&into);
+        assert_eq!(
+            into.take(),
+            Some(vec![String::from("a"), String::from("b")]),
+            "what was sent and not removed"
+        );
+        assert_eq!(into.take(), None, "once");
         assert!(kinds().is_empty(), "asking what is delivered is no effect");
+    }
+
+    /// **A post closed while it waits for permission is never sent**: the
+    /// removal takes it out of the waiting posts, so the grant finds none
+    /// and sends nothing, and the list held is empty. Break: the removal
+    /// leaves the waiting post, and the grant sends it.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_post_closed_before_the_answer_is_never_sent() {
+        use crate::probe::EffectKind;
+        let _ = kinds();
+        let c = Center::opened().expect("a center under the probe");
+        c.post_now(post("a"));
+        c.remove_now("a");
+        assert_eq!(kinds(), [EffectKind::Authorize, EffectKind::Unnotice]);
+        c.answered_off_turn(Permission::Granted);
+        assert!(kinds().is_empty(), "nothing sent");
+        let into = Delivered::default();
+        c.ask_delivered_now(&into);
+        assert_eq!(into.take(), Some(Vec::new()));
+    }
+
+    /// **A refusal reaches every window, and each window takes only its
+    /// own refused posts**: two windows' posts wait, the answer is no, and
+    /// each window hears it once -- so each one's core is told none is
+    /// delivered -- and takes its own post's identifier; a closed window's
+    /// is dropped, and one forgotten at its close is gone. Breaks: the
+    /// answer said once for the process (the second window never hears
+    /// it), and every window taking every refusal.
+    #[cfg(feature = "effect-probe")]
+    #[test]
+    fn a_refusal_reaches_every_window_and_each_takes_its_own() {
+        let _ = kinds();
+        let c = Center::opened().expect("a center under the probe");
+        for id in ["w1-a", "w2-b", "w3-c", "w4-d"] {
+            c.post_now(post(id));
+        }
+        c.answered_off_turn(Permission::Denied);
+        let _ = kinds();
+        let of = |w: &'static str| {
+            move |id: &str| match id.split('-').next() {
+                Some(x) if x == w => Whose::This,
+                Some("w3") => Whose::Closed,
+                _ => Whose::Another,
+            }
+        };
+        c.forget_refused(|id| id.starts_with("w4-"));
+        let (mut one, mut two) = (Told::NOTHING, Told::NOTHING);
+        let first = c.news(&mut one, of("w1"));
+        assert_eq!(first.answer, Some(Permission::Denied));
+        assert_eq!(first.refused, ["w1-a"]);
+        let second = c.news(&mut two, of("w2"));
+        assert_eq!(
+            second.answer,
+            Some(Permission::Denied),
+            "the second hears it too"
+        );
+        assert_eq!(second.refused, ["w2-b"], "a closed window's dropped");
+        let again = c.news(&mut one, of("w1"));
+        assert_eq!((again.answer, again.refused.len()), (None, 0), "once each");
+        assert!(c.refused.borrow().is_empty(), "none kept");
+        assert!(kinds().is_empty(), "nothing sent");
     }
 }
