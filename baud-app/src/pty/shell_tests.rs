@@ -86,9 +86,12 @@ impl Sh {
 
     /// The shell on `PATH`, or why the test is skipped.
     fn find(self) -> Result<PathBuf, String> {
-        let path =
-            super::resolve(self.name()).ok_or_else(|| format!("no {} on PATH", self.name()))?;
-        let path = PathBuf::from(path);
+        let path = super::exec::ExecPath::resolve(
+            std::ffi::OsStr::new(self.name()),
+            std::env::var_os("PATH").as_deref(),
+        )
+        .and_then(|p| p.as_str().map(PathBuf::from))
+        .ok_or_else(|| format!("no {} on PATH", self.name()))?;
         if self == Sh::Bash
             && cfg!(target_os = "macos")
             && std::fs::canonicalize(&path).is_ok_and(|p| p == Path::new("/bin/bash"))

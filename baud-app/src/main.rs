@@ -367,10 +367,14 @@ fn main() {
     // `action = "window"` opens one on Linux (`run_arg.rs`). macOS opens
     // such a window in the running app, so a second process is refused
     // there rather than started with a Dock icon of its own.
+    // The folder baud was started in, which a relative `-e` program is
+    // made absolute against (`run_arg::asked`).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let here = std::env::current_dir().ok();
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[cfg_attr(target_os = "macos", allow(unused_variables))]
     let run: Option<(rules::Run, Option<run_arg::Grid>)> =
-        match run_arg::asked(std::env::args_os().skip(1)) {
+        match run_arg::asked(std::env::args_os().skip(1), here.as_deref()) {
             run_arg::Asked::Shell => None,
             run_arg::Asked::NoProgram => {
                 eprintln!("baud: {} names no program to run", run_arg::FLAG);

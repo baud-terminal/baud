@@ -765,7 +765,7 @@ mod tests {
         let args: Vec<&OsStr> = cmd.get_args().collect();
         assert_eq!(args, ["--grid", "132x43", "-e", "hx", "/tmp/a b.rs", "--"]);
         assert_eq!(
-            crate::run_arg::asked(args.iter().map(OsString::from)),
+            crate::run_arg::asked(args.iter().map(OsString::from), None),
             crate::run_arg::Asked::Run(run.clone(), Some(ws)),
             "the new process reads the argv it was given"
         );
@@ -807,7 +807,7 @@ mod tests {
             let args: Vec<&OsStr> = cmd.get_args().collect();
             assert_eq!(args, ["--grid", want, "-e", "hx", "/tmp/x.rs"], "{want}");
             assert_eq!(
-                crate::run_arg::asked(args.iter().map(OsString::from)),
+                crate::run_arg::asked(args.iter().map(OsString::from), None),
                 crate::run_arg::Asked::Run(run.clone(), Some(grid)),
                 "the new process reads the grid back"
             );

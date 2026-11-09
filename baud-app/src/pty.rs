@@ -32,7 +32,7 @@
 use baud_domain::HostTime;
 use baud_domain::{InputEncoding, WinSize};
 use baud_font::Px;
-use std::ffi::{CString, OsString};
+use std::ffi::{CString, OsStr, OsString};
 use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
@@ -867,7 +867,7 @@ impl From<crate::shell::Integration> for ShellStart {
 /// list, decided in the parent before the fork, with what shell
 /// integration changes in the environment.
 struct Exec {
-    path: CString,
+    path: exec::Program,
     argv: Vec<CString>,
     injection: Option<crate::shell::Injection>,
     /// `SHELL=` the configured program, when `[shell] program` names one:
@@ -884,27 +884,27 @@ struct Exec {
 }
 
 impl Exec {
-    /// **`run` itself, with no shell between**: its program found on `PATH`
-    /// as a shell's is ([`resolve`]), else as written, so a program that is
-    /// not there fails at `execve` in the child and the window says how it
-    /// ended; its elements the child's argument list as they are, one
+    /// **`run` itself, with no shell between**: its program as written when
+    /// absolute, else found on the absolute entries of `parent`'s `PATH`
+    /// ([`exec::ExecPath::resolve`]), else not found, so the child ends with
+    /// 127 without an `execve` and the window says how it ended; its elements the child's argument list as they are, one
     /// argument each, never split or joined. Nothing of shell integration
     /// applies; `SHELL` is the configured `program` when `[shell]` names one,
     /// as a shell window's is, so an editor's shell-out starts the shell the
     /// config asks for. `None` when an element cannot be a C string.
-    fn running(run: &crate::rules::Run, program: Option<&str>) -> Option<Exec> {
-        let prog = run.program();
-        let path = prog
-            .to_str()
-            .and_then(resolve)
-            .map_or_else(|| prog.as_bytes().to_vec(), String::into_bytes);
+    fn running(
+        run: &crate::rules::Run,
+        program: Option<&str>,
+        parent: &[(OsString, OsString)],
+    ) -> Option<Exec> {
+        let path = exec::Program::of(run.program(), path_var(parent));
         let argv = run
             .argv()
             .iter()
             .map(|a| CString::new(a.as_bytes()).ok())
             .collect::<Option<Vec<_>>>()?;
         Some(Exec {
-            path: CString::new(path).ok()?,
+            path,
             argv,
             injection: None,
             shell_var: match program {
@@ -930,7 +930,7 @@ impl Exec {
     ) -> Option<Exec> {
         if let Some(c) = cmd {
             return Some(Exec {
-                path: CString::new("/bin/sh").ok()?,
+                path: exec::Program::At(exec::ExecPath::resolve(OsStr::new("/bin/sh"), None)?),
                 argv: vec![
                     CString::new("sh").ok()?,
                     CString::new("-c").ok()?,
@@ -940,8 +940,15 @@ impl Exec {
                 shell_var: None,
             });
         }
-        let shell = login_shell(program, parent);
-        let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
+        let (shell, refused) = login_shell(program, parent);
+        if let Some(v) = refused {
+            crate::warn!(
+                "SHELL={v:?} is not an absolute path, so the window starts {DEFAULT_SHELL}"
+            );
+        }
+        let at = exec::ExecPath::resolve(OsStr::new(&shell), path_var(parent))
+            .unwrap_or_else(exec::ExecPath::default_shell);
+        let path = at.as_str().unwrap_or(DEFAULT_SHELL).to_string();
         let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?;
         let injection = crate::shell::inject(integration, ssh_env, &shell, &path, parent);
         let argv = core::iter::once(argv0)
@@ -952,7 +959,7 @@ impl Exec {
             None => None,
         };
         Some(Exec {
-            path: CString::new(path).ok()?,
+            path: exec::Program::At(at),
             argv,
             injection,
             shell_var,
@@ -962,18 +969,46 @@ impl Exec {
 
 /// **The shell a session starts**: `program`, `[shell] program` when the
 /// config names one ([`crate::config::shell_program`]), else `$SHELL` as
-/// `parent` has it, else the system's: what [`Exec::of`] runs when no
-/// command is given.
-fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> String {
-    program
-        .or_else(|| {
-            parent
-                .iter()
-                .find(|(k, _)| k.as_bytes() == b"SHELL")
-                .and_then(|(_, v)| v.to_str())
-        })
-        .unwrap_or(DEFAULT_SHELL)
-        .to_string()
+/// `parent` has it when it is absolute, else the system's: what
+/// [`Exec::of`] runs when no command is given. Beside it, a `$SHELL` that
+/// was set and refused, for the caller to say.
+///
+/// **A `$SHELL` that is not absolute is unset.** POSIX has `SHELL`
+/// "represent a pathname of the user's preferred command language
+/// interpreter" (`[[source: posix-xbd-8]]`), login and launchd set it
+/// absolute, and `[shell] program` refuses anything else. It is read again
+/// for every window, and the child changes folder before it runs it, so a
+/// relative one would make a folder's `bin/zsh` the shell of every window
+/// opened there; a bare `zsh` is unset as well. Empty is unset and not said.
+fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (String, Option<String>) {
+    if let Some(p) = program {
+        return (p.to_string(), None);
+    }
+    let set = parent
+        .iter()
+        .find(|(k, _)| k.as_bytes() == b"SHELL")
+        .map(|(_, v)| v)
+        .filter(|v| !v.is_empty());
+    match set {
+        Some(v) if v.as_bytes().first() == Some(&b'/') => match v.to_str() {
+            Some(s) => (s.to_string(), None),
+            None => (DEFAULT_SHELL.to_string(), None),
+        },
+        Some(v) => (
+            DEFAULT_SHELL.to_string(),
+            Some(v.to_string_lossy().into_owned()),
+        ),
+        None => (DEFAULT_SHELL.to_string(), None),
+    }
+}
+
+/// `PATH` as `parent` has it, the first entry of the name, as `getenv`
+/// reads it.
+fn path_var(parent: &[(OsString, OsString)]) -> Option<&OsStr> {
+    parent
+        .iter()
+        .find(|(k, _)| k.as_bytes() == b"PATH")
+        .map(|(_, v)| v.as_os_str())
 }
 
 /// **The name of the shell a session starts**, [`login_shell`]'s last
@@ -982,7 +1017,7 @@ fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> String
 /// (`bestGuessAtUserShellWithPath:NO`, `[[source:
 /// iterm2-964a75d-ptysession]]`).
 pub(crate) fn shell_name(program: Option<&str>) -> String {
-    let shell = login_shell(program, &std::env::vars_os().collect::<Vec<_>>());
+    let (shell, _) = login_shell(program, &std::env::vars_os().collect::<Vec<_>>());
     shell.rsplit('/').next().unwrap_or(&shell).to_string()
 }
 
@@ -998,21 +1033,98 @@ fn set_var(env: &mut Vec<CString>, var: &CString) {
     env.push(var.clone());
 }
 
-/// `prog` as a path `execve` can take: itself when it names a path, else
-/// the first executable of that name on `PATH` -- the search `execvp` would
-/// have done, done here because the child must not allocate.
-fn resolve(prog: &str) -> Option<String> {
-    use std::os::unix::fs::PermissionsExt;
-    if prog.contains('/') {
-        return Some(prog.to_string());
+/// **What `execve` is given, made only here**, so the module boundary
+/// holds the rule the compiler cannot see in a binary crate: nothing else
+/// in this file can build an [`ExecPath`](exec::ExecPath).
+mod exec {
+    use std::ffi::{CStr, CString, OsStr};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    /// **An absolute path to a program**, the only kind the child is
+    /// given. The child changes folder before it runs the program
+    /// ([`super::StartIn`]), so a relative path would name a file in the
+    /// folder it moved to, not the one it was typed in; a relative
+    /// program is made absolute where it was typed (`run_arg::asked`), or
+    /// it is not found.
+    #[derive(Debug)]
+    pub(super) struct ExecPath(CString);
+
+    impl ExecPath {
+        /// `prog` as `execve` can take it: itself when it is absolute; a
+        /// bare name, the first executable of that name in an absolute
+        /// entry of `path_var`, the search `execvp` would do, done here
+        /// because the child must not allocate; anything else, a path
+        /// relative to some folder, none.
+        ///
+        /// **An empty or relative `PATH` entry is skipped**, as
+        /// `probe::command` skips one: POSIX reads a zero-length prefix as
+        /// "the current working directory" (`[[source: posix-xbd-8]]`),
+        /// which for the child is the folder it moved to.
+        pub(super) fn resolve(prog: &OsStr, path_var: Option<&OsStr>) -> Option<ExecPath> {
+            use std::os::unix::fs::PermissionsExt;
+            let bytes = prog.as_bytes();
+            if bytes.first() == Some(&b'/') {
+                return Some(ExecPath(CString::new(bytes).ok()?));
+            }
+            if bytes.is_empty() || bytes.contains(&b'/') {
+                return None;
+            }
+            std::env::split_paths(path_var?)
+                .filter(|dir| dir.is_absolute())
+                .map(|dir| dir.join(prog))
+                .find(|p| {
+                    std::fs::metadata(p)
+                        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                })
+                .and_then(|p| CString::new(p.into_os_string().into_vec()).ok())
+                .map(ExecPath)
+        }
+
+        /// The system's shell, [`super::DEFAULT_SHELL`], absolute.
+        pub(super) fn default_shell() -> ExecPath {
+            ExecPath(CString::new(super::DEFAULT_SHELL).expect("the default shell has no NUL"))
+        }
+
+        pub(super) fn as_c(&self) -> &CStr {
+            &self.0
+        }
+
+        pub(super) fn as_str(&self) -> Option<&str> {
+            self.0.to_str().ok()
+        }
     }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(prog))
-        .find(|p| {
-            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        })
-        .and_then(|p| p.into_os_string().into_string().ok())
+
+    /// **What the child runs**: a program at an absolute path, or none
+    /// found, for which the child ends with 127, what a shell answers for
+    /// a command not found, without an `execve`.
+    #[derive(Debug)]
+    pub(super) enum Program {
+        At(ExecPath),
+        NotFound,
+    }
+
+    impl Program {
+        /// `prog` resolved ([`ExecPath::resolve`]), else not found.
+        pub(super) fn of(prog: &OsStr, path_var: Option<&OsStr>) -> Program {
+            ExecPath::resolve(prog, path_var).map_or(Program::NotFound, Program::At)
+        }
+
+        /// The path `execve` is given, none when nothing was found.
+        pub(super) fn as_c(&self) -> Option<&CStr> {
+            match self {
+                Program::At(p) => Some(p.as_c()),
+                Program::NotFound => None,
+            }
+        }
+
+        #[cfg(test)]
+        pub(super) fn as_str(&self) -> Option<&str> {
+            match self {
+                Program::At(p) => p.as_str(),
+                Program::NotFound => None,
+            }
+        }
+    }
 }
 
 /// The `winsize` for a grid of `cells` whose cells are `cell_w` by `cell_h`
@@ -1635,7 +1747,7 @@ impl Pty {
         shell: &ShellStart,
     ) -> Option<(Exec, Vec<CString>)> {
         let exec = match &shell.run {
-            Some(run) => Exec::running(run, shell.program.as_deref())?,
+            Some(run) => Exec::running(run, shell.program.as_deref(), &parent)?,
             None => Exec::of(
                 cmd,
                 &parent,
@@ -1730,7 +1842,7 @@ impl Pty {
         stay: &[CString],
         start: &StartIn,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
-        let path_c = &exec.path;
+        let path_c = exec.path.as_c();
         let argv: Vec<*const core::ffi::c_char> = exec
             .argv
             .iter()
@@ -1774,7 +1886,12 @@ impl Pty {
                     StartIn::Dir(dir) if crate::sys::chdir(dir.as_ptr()) == 0 => &envp_home,
                     _ => &envp_stay,
                 };
-                crate::sys::execve(path_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+                // A program not found ends the child as a failed `execve`
+                // does, without one: nothing is run from the folder it
+                // moved to.
+                if let Some(path) = path_c {
+                    crate::sys::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
+                }
                 crate::sys::_exit(127);
             }
         }
@@ -4651,6 +4768,230 @@ mod tests {
         }
     }
 
+    /// An executable script at `p` holding `body`, written whole and
+    /// closed before anything runs it.
+    fn stand_in(p: &std::path::Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(p.parent().expect("a folder")).expect("its folder");
+        std::fs::write(p, body).expect("the stand-in");
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    }
+
+    /// **What reaches `execve` is absolute, or nothing is run**: for each
+    /// kind of program, a bare name, `./x`, `a/b`, an absolute path and
+    /// none, under every kind of `PATH` -- unset, empty, relative,
+    /// absolute, and mixtures with empty entries -- over a folder holding
+    /// an executable of each name, the path found is absolute or there is
+    /// none. **A slash-relative program never resolves**, whatever `PATH`
+    /// says: `./x`, `a/b`, `../x` and `x/` mean a file only against the
+    /// folder they were typed in, which the child, having changed folder,
+    /// is no longer in. A bare name is found only in an absolute entry,
+    /// never through an empty or relative one; an absolute path is as
+    /// written.
+    #[test]
+    fn a_slash_relative_program_never_resolves() {
+        let dir = scratch_dir("exec-path");
+        for name in ["x", "a/b"] {
+            stand_in(&dir.join(name), "#!/bin/sh\n");
+        }
+        let abs = dir.to_str().expect("a UTF-8 path").to_string();
+        // The same folder by a relative entry, from where the test runs: up
+        // to the root and down again, so a relative entry that is searched
+        // finds the executable and shows as a relative result.
+        let here = std::env::current_dir().expect("a working directory");
+        let up = "../".repeat(here.components().count());
+        let rel = format!("{up}{}", abs.trim_start_matches('/'));
+        assert!(
+            std::path::Path::new(&rel).join("x").is_file(),
+            "the control: {rel} reaches it"
+        );
+        let found = |prog: &str, path: Option<&str>| {
+            exec::ExecPath::resolve(OsStr::new(prog), path.map(OsStr::new))
+                .map(|p| p.as_str().expect("UTF-8").to_string())
+        };
+        let paths = [
+            None,
+            Some(String::new()),
+            Some("rel".to_string()),
+            Some(rel.clone()),
+            Some(format!("{rel}:{abs}")),
+            Some(abs.clone()),
+            Some(format!("rel:{abs}")),
+            Some(format!("::{abs}")),
+            Some(format!("{abs}::")),
+        ];
+        let progs = ["x", "./x", "a/b", "../x", "x/", "./", "/bin/sh", ""];
+        for path in &paths {
+            for prog in progs {
+                let got = found(prog, path.as_deref());
+                assert!(
+                    got.as_deref().is_none_or(|g| g.starts_with('/')),
+                    "{prog:?} under PATH={path:?}: {got:?}"
+                );
+                if prog.contains('/') && !prog.starts_with('/') {
+                    assert_eq!(got, None, "{prog:?} under PATH={path:?}");
+                }
+            }
+        }
+        assert_eq!(
+            found("x", Some(&abs)),
+            Some(format!("{abs}/x")),
+            "the control"
+        );
+        assert_eq!(
+            found("x", Some("")),
+            None,
+            "an empty entry is not the folder"
+        );
+        assert_eq!(
+            found("x", Some(&rel)),
+            None,
+            "a relative entry is not searched"
+        );
+        assert_eq!(
+            found("/bin/sh", None).as_deref(),
+            Some("/bin/sh"),
+            "as written"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A `$SHELL` that is not absolute is unset**, so the system's shell
+    /// starts: POSIX has `SHELL` "represent a pathname of the user's
+    /// preferred command language interpreter" (`[[source: posix-xbd-8]]`),
+    /// login and launchd set it absolute, and `[shell] program` refuses
+    /// anything else ([`crate::config::shell_program`]). Read again for
+    /// every window, a relative one would make a folder's `bin/zsh` the
+    /// shell of every window opened there. A bare `zsh` is unset too. The
+    /// control: an absolute one is the shell.
+    #[test]
+    fn a_shell_from_the_parent_that_is_not_absolute_is_unset() {
+        for shell in ["bin/zsh", "./zsh", "zsh"] {
+            assert_eq!(
+                login_shell(None, &env_of(&[("SHELL", shell)])),
+                (DEFAULT_SHELL.to_string(), Some(shell.to_string())),
+                "SHELL={shell}, refused and said"
+            );
+        }
+        assert_eq!(
+            login_shell(None, &env_of(&[("SHELL", "")])),
+            (DEFAULT_SHELL.to_string(), None),
+            "empty is unset, and nothing to say"
+        );
+        assert_eq!(
+            login_shell(None, &env_of(&[("SHELL", "/bin/sh")])),
+            ("/bin/sh".to_string(), None),
+            "the control"
+        );
+        let exec = Exec::of(
+            None,
+            &env_of(&[("SHELL", "bin/zsh")]),
+            crate::shell::Integration::Off,
+            crate::shell::SshEnv::Off,
+            None,
+        )
+        .expect("an exec");
+        assert_eq!(
+            exec.path.as_str(),
+            Some(DEFAULT_SHELL),
+            "what the child runs"
+        );
+    }
+
+    /// **A window whose parent says `SHELL=bin/zsh` never runs the
+    /// `bin/zsh` in the folder it starts in**: a stand-in there would
+    /// write a marker and print one. The window starts the system's shell
+    /// instead, told a scratch `HOME` and `ZDOTDIR` so no one's own startup
+    /// files run, and `exit` ends it.
+    #[test]
+    fn a_relative_shell_in_the_start_folder_never_runs() {
+        let dir = scratch_dir("relative-shell");
+        let marker = dir.join("stand-in-ran");
+        stand_in(
+            &dir.join("bin/zsh"),
+            &format!("#!/bin/sh\n: > '{}'\necho STAND-IN\n", marker.display()),
+        );
+        let home = dir.to_str().expect("a UTF-8 path");
+        let parent = env_of(&[
+            ("SHELL", "bin/zsh"),
+            ("HOME", home),
+            ("ZDOTDIR", home),
+            ("PATH", "/usr/bin:/bin"),
+            ("LANG", "C"),
+        ]);
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let (pid, master) = Pty::fork_given(
+            text_area(&size, Px::of(8), Px::of(16)),
+            None,
+            parent,
+            || None,
+            Parent::Other,
+            Some(&dir),
+            &crate::shell::Integration::Off.into(),
+        )
+        .expect("forkpty");
+        let typed = b"exit\n";
+        // SAFETY: `typed` is a live buffer of the length passed.
+        unsafe { crate::sys::write(master, typed.as_ptr().cast(), typed.len()) };
+        let said = String::from_utf8_lossy(&read_all(master)).to_string();
+        // SAFETY: `pid` is this test's own child.
+        unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
+        assert!(!said.contains("STAND-IN"), "the stand-in ran: {said:?}");
+        assert!(!marker.exists(), "the stand-in's marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A window told to run `./only-there.sh` runs nothing**, though the
+    /// folder it starts in holds one: the path meant a file where it was
+    /// typed, and a `ShellStart` carrying it relative is refused at the
+    /// exec door, the child ending with 127, as a program not found does,
+    /// without an `execve`. The script would write a marker.
+    #[test]
+    fn a_relative_program_in_the_start_folder_never_runs() {
+        let dir = scratch_dir("relative-program");
+        let marker = dir.join("only-there-ran");
+        stand_in(
+            &dir.join("only-there.sh"),
+            &format!("#!/bin/sh\n: > '{}'\necho ONLY-THERE\n", marker.display()),
+        );
+        let here = std::env::current_dir().expect("a working directory");
+        assert!(
+            !here.join("only-there.sh").exists(),
+            "the control: not where the test is"
+        );
+        let start = ShellStart {
+            integration: crate::shell::Integration::Off,
+            ssh_env: crate::shell::SshEnv::Off,
+            program: None,
+            run: crate::rules::Run::given(vec![OsString::from("./only-there.sh")]),
+        };
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let (pid, master) = Pty::fork_given(
+            text_area(&size, Px::of(8), Px::of(16)),
+            None,
+            env_of(&[("PATH", "/usr/bin:/bin"), ("LANG", "C")]),
+            || None,
+            Parent::Other,
+            Some(&dir),
+            &start,
+        )
+        .expect("forkpty");
+        let said = String::from_utf8_lossy(&read_all(master)).to_string();
+        let mut status: core::ffi::c_int = 0;
+        // SAFETY: `pid` is this test's own child, `status` a live int.
+        unsafe { crate::sys::waitpid(pid, &raw mut status, 0) };
+        assert!(!said.contains("ONLY-THERE"), "the script ran: {said:?}");
+        assert!(!marker.exists(), "the script's marker");
+        assert_eq!((status >> 8) & 0xff, 127, "ended as a program not found");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A fresh directory of this test's own, by its resolved path.
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("baud-start-{}-{tag}", std::process::id()));
@@ -5116,7 +5457,7 @@ mod tests {
             Some("/opt/shells/bin/bash"),
         )
         .expect("an exec");
-        assert_eq!(bash.path.to_str(), Ok("/opt/shells/bin/bash"));
+        assert_eq!(bash.path.as_str(), Some("/opt/shells/bin/bash"));
         assert_eq!(argv(&bash), ["-bash", "--posix"]);
         assert_eq!(
             bash.shell_var.as_deref().map(core::ffi::CStr::to_bytes),
@@ -5169,8 +5510,8 @@ mod tests {
         let off = crate::shell::Integration::Off;
         let e = Exec::of(None, &parent, off, crate::shell::SshEnv::Off, None).expect("an exec");
         assert_eq!(
-            (e.path.to_str(), argv(&e)),
-            (Ok("/bin/zsh"), vec!["-zsh".to_string()])
+            (e.path.as_str(), argv(&e)),
+            (Some("/bin/zsh"), vec!["-zsh".to_string()])
         );
         assert!(e.shell_var.is_none());
         let bare: Vec<_> = parent
@@ -5179,7 +5520,7 @@ mod tests {
             .cloned()
             .collect();
         let e = Exec::of(None, &bare, off, crate::shell::SshEnv::Off, None).expect("an exec");
-        assert_eq!(e.path.to_str(), Ok(DEFAULT_SHELL));
+        assert_eq!(e.path.as_str(), Some(DEFAULT_SHELL));
         let c = Exec::of(
             Some("true".into()),
             &parent,

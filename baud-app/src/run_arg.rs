@@ -80,8 +80,13 @@ impl Grid {
     }
 }
 
-/// **What `args`, the arguments after the program's own name, ask.**
-pub(crate) fn asked<I: IntoIterator<Item = OsString>>(args: I) -> Asked {
+/// **What `args`, the arguments after the program's own name, ask**, with
+/// a program after `-e` that is a path relative to a folder made absolute
+/// against `here`, the folder baud was started in ([`typed_at`]).
+pub(crate) fn asked<I: IntoIterator<Item = OsString>>(
+    args: I,
+    here: Option<&std::path::Path>,
+) -> Asked {
     let mut args = args.into_iter();
     let mut first = args.next();
     let mut size = None;
@@ -95,12 +100,37 @@ pub(crate) fn asked<I: IntoIterator<Item = OsString>>(args: I) -> Asked {
         }
     }
     match first {
-        Some(first) if first == FLAG => match crate::rules::Run::given(args.collect()) {
-            Some(run) => Asked::Run(run, size),
-            None => Asked::NoProgram,
-        },
+        Some(first) if first == FLAG => {
+            match crate::rules::Run::given(typed_at(args.collect(), here)) {
+                Some(run) => Asked::Run(run, size),
+                None => Asked::NoProgram,
+            }
+        }
         _ => Asked::Shell,
     }
+}
+
+/// **A program typed as a path relative to a folder is made absolute where
+/// it was typed**, against `here`, once, before any window starts: the
+/// child changes folder before it runs its program, so the exec door
+/// takes an absolute path or a bare name only (`pty`'s `ExecPath`), and
+/// `./x` reaching it would not be found. `.` components are dropped and
+/// `..` kept, since a symbolic link before it decides where it leads. A
+/// bare name stays for `PATH`; with no `here` the program stays as typed
+/// and is not found.
+fn typed_at(mut argv: Vec<OsString>, here: Option<&std::path::Path>) -> Vec<OsString> {
+    use std::os::unix::ffi::OsStrExt;
+    if let (Some(first), Some(here)) = (argv.first_mut(), here) {
+        let typed = std::path::Path::new(first.as_os_str());
+        if first.as_bytes().contains(&b'/') && typed.is_relative() {
+            *first = here
+                .join(typed)
+                .components()
+                .collect::<std::path::PathBuf>()
+                .into_os_string();
+        }
+    }
+    argv
 }
 
 /// **The arguments that start a window running `run`** at `size`:
@@ -132,7 +162,7 @@ mod tests {
     /// argument on spaces in `asked` -- the second case has five elements.
     #[test]
     fn everything_after_dash_e_is_the_argv() {
-        let argv = |v: &[&str]| match asked(os(v)) {
+        let argv = |v: &[&str]| match asked(os(v), None) {
             Asked::Run(r, None) => r.into_argv(),
             other => panic!("{v:?}: {other:?}"),
         };
@@ -141,12 +171,20 @@ mod tests {
             argv(&["-e", "hx", "/tmp/a b.rs", "--", "-e", "--version"]),
             os(&["hx", "/tmp/a b.rs", "--", "-e", "--version"])
         );
-        assert_eq!(asked(os(&["-e"])), Asked::NoProgram);
-        assert_eq!(asked(os(&["-e", ""])), Asked::NoProgram);
-        assert_eq!(asked(os(&[])), Asked::Shell, "the control: no arguments");
-        assert_eq!(asked(os(&["x", "-e", "hx"])), Asked::Shell, "-e only first");
+        assert_eq!(asked(os(&["-e"]), None), Asked::NoProgram);
+        assert_eq!(asked(os(&["-e", ""]), None), Asked::NoProgram);
+        assert_eq!(
+            asked(os(&[]), None),
+            Asked::Shell,
+            "the control: no arguments"
+        );
+        assert_eq!(
+            asked(os(&["x", "-e", "hx"]), None),
+            Asked::Shell,
+            "-e only first"
+        );
         let run = crate::rules::Run::given(os(&["w3m", "https://x/?a b"])).expect("a program");
-        assert_eq!(asked(args(run.clone(), None)), Asked::Run(run, None));
+        assert_eq!(asked(args(run.clone(), None), None), Asked::Run(run, None));
     }
 
     /// **`--grid COLSxROWS` before `-e` gives the new window the clicked
@@ -162,7 +200,7 @@ mod tests {
         let run = crate::rules::Run::given(os(&["hx", "/tmp/x"])).expect("a program");
         let given: Vec<OsString> = args(run.clone(), Some(ws)).collect();
         assert_eq!(given, os(&["--grid", "132x43", "-e", "hx", "/tmp/x"]));
-        assert_eq!(asked(given), Asked::Run(run, Some(ws)));
+        assert_eq!(asked(given, None), Asked::Run(run, Some(ws)));
         for bad in [
             &["--grid"][..],
             &["--grid", "132x43"],
@@ -170,11 +208,11 @@ mod tests {
             &["--grid", "132", "-e", "hx"],
             &["--grid", "132x43", "hx"],
         ] {
-            assert_eq!(asked(os(bad)), Asked::BadGrid, "{bad:?}");
+            assert_eq!(asked(os(bad), None), Asked::BadGrid, "{bad:?}");
         }
         let inside = crate::rules::Run::given(os(&["hx", "--grid", "1x1"])).expect("a program");
         assert_eq!(
-            asked(os(&["-e", "hx", "--grid", "1x1"])),
+            asked(os(&["-e", "hx", "--grid", "1x1"]), None),
             Asked::Run(inside, None)
         );
         // The pty's grid, each side within what baud provisions.
@@ -186,5 +224,32 @@ mod tests {
         assert_eq!((pty.ws_col, pty.ws_row), (132, 43));
         let pty = Grid::of(Cols::of_index(9999), Rows::of_index(3)).within(&max);
         assert_eq!((pty.ws_col, pty.ws_row), (500, 3), "clamped");
+    }
+
+    /// **`-e ./x` is made absolute where it was typed**, against the folder
+    /// baud was started in, before any window starts: the child changes
+    /// folder before it runs the program, so a relative path would name a
+    /// file there instead, and the exec door refuses one. `a/b` and `../x`
+    /// alike; the arguments after the program are as they came, and a bare
+    /// name or an absolute path is as written, the controls.
+    #[test]
+    fn a_relative_program_is_made_absolute_where_it_was_typed() {
+        let here = std::path::Path::new("/launch/dir");
+        let program = |args: &[&str]| match asked(os(args), Some(here)) {
+            Asked::Run(run, _) => (run.program().to_os_string(), run.argv().to_vec()),
+            other => panic!("{args:?}: {other:?}"),
+        };
+        let at = |p: &str| here.join(p).components().collect::<std::path::PathBuf>();
+        for typed in ["./x", "a/b", "../x"] {
+            let (got, argv) = program(&["-e", typed, "./arg"]);
+            assert_eq!(got, at(typed).into_os_string(), "{typed}");
+            assert_eq!(argv[1], "./arg", "{typed}: its arguments as they came");
+        }
+        assert_eq!(program(&["-e", "hx"]).0, "hx", "a bare name, the control");
+        assert_eq!(program(&["-e", "/bin/sh"]).0, "/bin/sh", "an absolute path");
+        assert!(
+            matches!(asked(os(&["-e", "./x"]), None), Asked::Run(r, _) if r.program() == "./x"),
+            "with no folder known it stays as typed, and the exec door finds nothing"
+        );
     }
 }
