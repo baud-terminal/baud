@@ -1642,6 +1642,16 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
             // baud started with `SIGINT` ignored, as a background job is,
             // would hand its shells a Control-C that does nothing. `signal`
             // is on XSH 2.4.3's table.
+            // **And none blocked.** The mask crosses the `exec` too, and the
+            // forking thread's may hold signals a launcher or wrapper
+            // blocked; emptied first, as std's `Command` does for its own
+            // children, then each signal's action. `sigprocmask` is on the
+            // same table, and the child has one thread.
+            crate::sys::sigprocmask(
+                crate::sys::SIG_SETMASK,
+                &crate::sys::SigSet::default(),
+                core::ptr::null_mut(),
+            );
             for sig in 1..crate::sys::NSIG {
                 crate::sys::signal(sig, crate::sys::SIG_DFL);
             }
@@ -6651,14 +6661,17 @@ mod tests {
     }
 
     /// **A window's child starts with every signal at its default
-    /// action**, whatever baud inherited or set: each of `SIGPIPE`, which
-    /// Rust's runtime ignores in this very process, and `SIGINT`, `SIGHUP`,
-    /// `SIGTERM` and `SIGQUIT`, which a runner can hand on ignored, ends a
-    /// shell the child starts that sends it to itself, and nothing says it
-    /// survived; the control, `SIGUSR1` ignored by the child's own shell,
-    /// does. Red without the reset in [`fork_terminal`]'s child: the
-    /// `SIGPIPE` line always, and the `SIGINT` line when the test binary
-    /// runs with it ignored. Named break: reset nothing.
+    /// action, and none blocked**, whatever baud inherited or set: each of
+    /// `SIGPIPE`, which Rust's runtime ignores in this very process,
+    /// `SIGINT`, `SIGHUP`, `SIGTERM` and `SIGQUIT`, which a runner can hand
+    /// on ignored, and `SIGUSR2`, which this test blocks on its own thread
+    /// before the spawn as a launcher's mask would, ends a shell the child
+    /// starts that sends it to itself, and nothing says it survived; the
+    /// control, `SIGUSR1` ignored by the child's own shell, does. Red
+    /// without the resets in [`fork_terminal`]'s child: the `SIGPIPE` line
+    /// always, the `SIGUSR2` line without the mask's, and the `SIGINT` line
+    /// when the test binary runs with it ignored. Named breaks: reset
+    /// nothing; leave the mask.
     #[test]
     fn a_windows_child_starts_with_its_signals_at_their_default() {
         let size = WinSize {
@@ -6667,7 +6680,7 @@ mod tests {
         };
         // The control: a signal the shell ignores itself is ignored by what
         // it runs, and the line says so.
-        let script = "for s in PIPE INT HUP TERM QUIT; do \
+        let script = "for s in PIPE INT HUP TERM QUIT USR2; do \
             /bin/sh -c \"kill -$s \\$\\$; echo $s survived\"; done; \
             trap '' USR1; /bin/sh -c 'kill -USR1 $$; echo USR1 survived'";
         let given = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
@@ -6679,7 +6692,14 @@ mod tests {
         }
         .running(crate::rules::Run::given(given).expect("a program"));
         let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let (pid, master) = Pty::fork_given(
+        let usr2 = crate::sys::SigSet::default().with(crate::sys::SIGUSR2);
+        let mut was = crate::sys::SigSet::default();
+        // SAFETY: this thread's own mask, from a set and into one that
+        // live for the call.
+        let blocked =
+            unsafe { crate::sys::pthread_sigmask(crate::sys::SIG_BLOCK, &usr2, &mut was) };
+        assert_eq!(blocked, 0, "the control: SIGUSR2 blocked on this thread");
+        let forked = Pty::fork_given(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
             parent,
@@ -6687,8 +6707,12 @@ mod tests {
             Parent::Other,
             None,
             &start,
-        )
-        .expect("forkpty");
+        );
+        // SAFETY: as above, the mask this thread had.
+        unsafe {
+            crate::sys::pthread_sigmask(crate::sys::SIG_SETMASK, &was, core::ptr::null_mut())
+        };
+        let (pid, master) = forked.expect("forkpty");
         let out = String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n");
         // SAFETY: the master forkpty returned, owned here alone; `pid` is
         // this test's own child.
@@ -6700,7 +6724,7 @@ mod tests {
         assert_eq!(
             survived,
             ["USR1 survived"],
-            "only the control's: a signal the child started ignoring: {out:?}"
+            "only the control's: a signal the child started ignoring or blocking: {out:?}"
         );
     }
 

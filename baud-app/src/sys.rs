@@ -347,6 +347,74 @@ unsafe extern "C" {
     pub fn signal(sig: c_int, handler: SigHandler) -> SigHandler;
 }
 
+/// **A set of signals, `sigset_t`**: a 32-bit word on Darwin, a bit a
+/// signal from the lowest; 128 bytes under glibc, `unsigned long`s with
+/// the same bit order. The probe holds the size, and the bytes of a set
+/// holding one signal against `sigaddset`'s.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct SigSet(u32);
+
+/// **A set of signals, `sigset_t`**: see Darwin's.
+#[cfg(not(target_os = "macos"))]
+#[repr(C)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct SigSet([c_ulong; 16]);
+
+impl SigSet {
+    /// The set with `sig` added, as `sigaddset` adds it.
+    #[cfg(test)]
+    pub fn with(mut self, sig: c_int) -> SigSet {
+        let Ok(bit) = u32::try_from(sig - 1) else {
+            return self;
+        };
+        #[cfg(target_os = "macos")]
+        {
+            self.0 |= 1 << bit;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let word = c_ulong::BITS;
+            let at = usize::try_from(bit / word).ok();
+            if let Some(w) = at.and_then(|i| self.0.get_mut(i)) {
+                *w |= 1 << (bit % word);
+            }
+        }
+        self
+    }
+}
+
+/// `sigprocmask`'s and `pthread_sigmask`'s `how` that replaces the mask
+/// with the set given: 3 on Darwin, 2 under glibc; the probe holds both.
+#[cfg(target_os = "macos")]
+pub const SIG_SETMASK: c_int = 3;
+#[cfg(not(target_os = "macos"))]
+pub const SIG_SETMASK: c_int = 2;
+
+/// Their `how` that adds the set given to the mask: 1 on Darwin, 0 under
+/// glibc.
+#[cfg(all(test, target_os = "macos"))]
+pub const SIG_BLOCK: c_int = 1;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const SIG_BLOCK: c_int = 0;
+
+/// `SIGUSR2`, a signal no one sends baud: 31 on Darwin, 12 on Linux.
+#[cfg(all(test, target_os = "macos"))]
+pub const SIGUSR2: c_int = 31;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const SIGUSR2: c_int = 12;
+
+// **The signal mask**: `sigprocmask` in a pty's child, single-threaded
+// after the fork, which empties the mask the forking thread had
+// (`pty::fork_terminal`); `pthread_sigmask` in a test, which blocks a
+// signal on its own thread alone.
+unsafe extern "C" {
+    pub fn sigprocmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
+    #[cfg(test)]
+    pub fn pthread_sigmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
+}
+
 /// **`cmd`'s child starts with each of `signals` at its default action**,
 /// whatever this process inherited. A signal ignored stays ignored across
 /// `exec` ("signals set to be ignored (SIG_IGN) by the calling process image
@@ -1774,6 +1842,7 @@ mod tests {
 #include <sys/wait.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -1870,6 +1939,22 @@ int main(void) {
     printf("getpagesize=%lld\n", (long long)getpagesize());
     printf("SIG_DFL=%lld\n", (long long)(intptr_t)SIG_DFL);
     printf("NSIG=%lld\n", (long long)NSIG);
+    printf("sigset_t.size=%zu\n", sizeof(sigset_t));
+    printf("SIG_SETMASK=%lld\n", (long long)SIG_SETMASK);
+    printf("SIG_BLOCK=%lld\n", (long long)SIG_BLOCK);
+    printf("SIGUSR2=%lld\n", (long long)SIGUSR2);
+    {
+        // Zeroed first: under glibc, sigemptyset left bytes past the
+        // signals it numbers as the stack had them (byte 125 read 0xff).
+        sigset_t s;
+        memset(&s, 0, sizeof s);
+        sigemptyset(&s);
+        sigaddset(&s, SIGUSR2);
+        for (size_t i = 0; i < sizeof s; i++) {
+            unsigned char b = ((unsigned char *)&s)[i];
+            if (b) printf("sigset_usr2.byte=%zu\nsigset_usr2.value=%u\n", i, b);
+        }
+    }
     printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
     printf("pid_t.size=%zu\n", sizeof(pid_t));
     printf("WNOHANG=%lld\n", (long long)WNOHANG);
@@ -2268,6 +2353,30 @@ int main(void) {
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
         assert_eq!(h["SIG_DFL"], SIG_DFL.0 as i128);
         assert_eq!(h["NSIG"], i128::from(NSIG));
+        assert_eq!(h["sigset_t.size"], size_of::<SigSet>() as i128);
+        assert_eq!(h["SIG_SETMASK"], i128::from(SIG_SETMASK));
+        assert_eq!(h["SIG_BLOCK"], i128::from(SIG_BLOCK));
+        assert_eq!(h["SIGUSR2"], i128::from(SIGUSR2));
+        // **A set holding one signal is `sigaddset`'s, byte for byte**: one
+        // byte set, at the same place, to the same bit.
+        let ours = SigSet::default().with(SIGUSR2);
+        // SAFETY: a `repr(C)` value read as its own bytes.
+        let bytes = unsafe {
+            core::slice::from_raw_parts((&raw const ours).cast::<u8>(), size_of::<SigSet>())
+        };
+        let set: Vec<(usize, u8)> = bytes
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| **b != 0)
+            .map(|(i, b)| (i, *b))
+            .collect();
+        assert_eq!(
+            set,
+            [(
+                usize::try_from(h["sigset_usr2.byte"]).expect("a byte"),
+                u8::try_from(h["sigset_usr2.value"]).expect("a byte's value"),
+            )]
+        );
         assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
         assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
         assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
