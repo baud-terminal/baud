@@ -165,8 +165,9 @@ struct Slot {
     done: Vec<EffectDone>,
     /// The next effect's id.
     next: EffectId,
-    /// The window's view, woken when an outcome is pushed.
-    wake: Box<dyn Fn()>,
+    /// The window's view, woken when an outcome is pushed: shared, so the
+    /// runner clones it out and calls it with no borrow of the slot held.
+    wake: Rc<dyn Fn()>,
     /// Whether the window still has the slot: a closed window's slot runs
     /// what it asked and is then dropped.
     open: Cell<Open>,
@@ -207,7 +208,7 @@ impl OsQueue {
             spare: Vec::with_capacity(RESERVED),
             done: Vec::with_capacity(RESERVED),
             next: EffectId::FIRST,
-            wake: Box::new(wake),
+            wake: Rc::new(wake),
             open: Cell::new(Open::Yes),
         }));
         QUEUES.with_borrow_mut(|q| q.push(Rc::clone(&slot)));
@@ -290,8 +291,11 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Open) -> Outcome) {
                 s.spare = batch;
             }
         }
+        // The wake cloned out and called after the borrow ends: a wake that
+        // ran the pump in place reads the outcomes, which borrows the slot.
         if ran && open == Open::Yes {
-            (slot.borrow().wake)();
+            let wake = Rc::clone(&slot.borrow().wake);
+            wake();
         }
     }
     // A closed window's slot, run out: its outcomes have no reader, and a
@@ -471,6 +475,31 @@ mod tests {
         let mut done = Vec::new();
         q.answered(&mut done);
         assert_eq!(done.len(), 1, "the first's outcome");
+    }
+
+    /// **A wake that reads at once reads**: the window's `wake` is called
+    /// after the slot's borrow has ended, so a wake that ran the pump in
+    /// place -- reading the outcomes, which borrows the slot mutably --
+    /// reads them, rather than panicking already borrowed (a panic the
+    /// turn's guard would swallow). Perturbation: call the wake inside
+    /// `slot.borrow()` and it panics.
+    #[test]
+    fn a_wake_that_reads_the_outcomes_at_once_reads_them() {
+        fresh();
+        let me = Rc::new(RefCell::new(std::rc::Weak::<OsQueue>::new()));
+        let read = Rc::new(Cell::new(0));
+        let (m, r) = (Rc::clone(&me), Rc::clone(&read));
+        let q = Rc::new(OsQueue::open(move || {
+            if let Some(q) = m.borrow().upgrade() {
+                let mut done = Vec::new();
+                q.answered(&mut done);
+                r.set(r.get() + done.len());
+            }
+        }));
+        *me.borrow_mut() = Rc::downgrade(&q);
+        q.ask(spoken("a"));
+        run_with(&Fake, |_, _, _| Outcome::Announced);
+        assert_eq!(read.get(), 1, "the outcome, read in the wake");
     }
 
     /// **Two windows keep apart**: A's outcome is A's, and only A's view
