@@ -9,6 +9,7 @@
 use super::{
     Keyed, chord, held_with_locks, kind_of, pc101, pressed, shift_unshifted, special, typed_text,
 };
+use crate::layouts::KeyLayout;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, KeyEvent, KeyEventKind, Modifiers, ReadLen, WinSize};
 use macos_liquid_glass::drawable::{KeyPress, Modifiers as M};
@@ -118,19 +119,21 @@ fn core_sends(modes: &[u8], e: KeyEvent) -> Vec<u8> {
 }
 
 /// The event `Responder::key` and then `text`/`typed` build for `key`,
-/// taking the input manager to insert the key's own characters.
+/// taking the input manager to insert the key's own characters, on the
+/// US layout rather than the one this Mac has selected, which the rows'
+/// characters are written for.
 fn app_event(key: &KeyPress, flags: NSEventModifierFlags) -> Option<KeyEvent> {
     let m = held_with_locks(key, flags);
     let e = if let Some(code) = special(key) {
         pressed(code, key, m)
     } else if key.modifiers.control || key.modifiers.option {
-        chord(key, m, shift_unshifted(key))?
+        chord(key, m, shift_unshifted(KeyLayout::US, key))?
     } else {
         let keyed = Keyed {
             typed: key.characters.clone(),
             base: pc101(key),
             mods: m,
-            unshifted: shift_unshifted(key),
+            unshifted: shift_unshifted(KeyLayout::US, key),
         };
         *typed_text(&key.characters, Some(&keyed)).first()?
     };

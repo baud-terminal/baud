@@ -94,7 +94,46 @@ pub fn hebrew_layout() -> HebrewLayout {
 /// no table, or the key types a control code, a function key's private
 /// character or nothing: the caller keeps what it had.
 #[cfg(target_os = "macos")]
-pub fn unshifted(key: &macos_liquid_glass::drawable::KeyPress) -> Option<baud_domain::Codepoint> {
+pub fn unshifted(
+    layout: KeyLayout,
+    key: &macos_liquid_glass::drawable::KeyPress,
+) -> Option<baud_domain::Codepoint> {
+    match layout {
+        KeyLayout::Selected => unshifted_on_selected(key),
+        #[cfg(test)]
+        KeyLayout::Installed(id) => unshifted_on_installed(id, key),
+    }
+}
+
+/// **The keyboard layout a key is read on**: the one the system has
+/// selected, which is the layout the user types on and the only one the
+/// app reads, or, in a test, an installed layout named by its input source
+/// identifier, so what a test sees does not hang on the layout this Mac
+/// has selected.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyLayout {
+    /// The system's selected layout, read at each key.
+    Selected,
+    /// An installed layout, by its `kTISPropertyInputSourceID`.
+    #[cfg(test)]
+    Installed(&'static str),
+}
+
+#[cfg(all(test, target_os = "macos"))]
+impl KeyLayout {
+    /// The US layout, which every Mac has installed.
+    pub const US: Self = Self::Installed("com.apple.keylayout.US");
+    /// The Hebrew layout, also installed on every Mac: a layout whose
+    /// letter keys type no Latin letter.
+    pub const HEBREW: Self = Self::Installed("com.apple.keylayout.Hebrew");
+}
+
+/// [`unshifted`] on the layout the system has selected.
+#[cfg(target_os = "macos")]
+fn unshifted_on_selected(
+    key: &macos_liquid_glass::drawable::KeyPress,
+) -> Option<baud_domain::Codepoint> {
     use crate::sys::{CFRelease, TISCopyCurrentKeyboardLayoutInputSource};
     // SAFETY: no argument; the source returned is owned here and released
     // below.
@@ -159,18 +198,21 @@ fn translate(
     }
 }
 
-/// **The same, on the US layout**, which every Mac has installed: what a
-/// test can hold `unshifted` to whatever layout the machine has selected.
+/// [`unshifted`] on the installed layout whose input source identifier is
+/// `id`; `None` where no installed layout has it.
 #[cfg(all(test, target_os = "macos"))]
-fn unshifted_on_us(key: &macos_liquid_glass::drawable::KeyPress) -> Option<baud_domain::Codepoint> {
+fn unshifted_on_installed(
+    id: &str,
+    key: &macos_liquid_glass::drawable::KeyPress,
+) -> Option<baud_domain::Codepoint> {
     use crate::sys::{
         CFArrayGetCount, CFArrayGetValueAtIndex, CFEqual, CFRelease, CFStringCreateWithCharacters,
         TIS_PROPERTY_INPUT_SOURCE_ID, TISCreateInputSourceList, TISGetInputSourceProperty, UniChar,
     };
-    let id: Vec<UniChar> = "com.apple.keylayout.US".encode_utf16().collect();
+    let id: Vec<UniChar> = id.encode_utf16().collect();
     // SAFETY: the code units are live for the call; the string is owned
     // here and released below.
-    let us = unsafe {
+    let wanted = unsafe {
         CFStringCreateWithCharacters(
             core::ptr::null(),
             id.as_ptr(),
@@ -181,7 +223,7 @@ fn unshifted_on_us(key: &macos_liquid_glass::drawable::KeyPress) -> Option<baud_
     // array is owned here and released below.
     let list = unsafe { TISCreateInputSourceList(core::ptr::null(), 1) };
     let mut found = None;
-    if !list.is_null() && !us.is_null() {
+    if !list.is_null() && !wanted.is_null() {
         // SAFETY: `list` is a live array until its release.
         let n = unsafe { CFArrayGetCount(list.as_ptr()) };
         for i in 0..n {
@@ -190,7 +232,7 @@ fn unshifted_on_us(key: &macos_liquid_glass::drawable::KeyPress) -> Option<baud_
             let source = unsafe { CFArrayGetValueAtIndex(list.as_ptr(), i) };
             let named = unsafe {
                 let name = TISGetInputSourceProperty(source, TIS_PROPERTY_INPUT_SOURCE_ID);
-                !name.is_null() && CFEqual(name, us.as_ptr()) != 0
+                !name.is_null() && CFEqual(name, wanted.as_ptr()) != 0
             };
             if named {
                 found = translate(source, key);
@@ -203,8 +245,8 @@ fn unshifted_on_us(key: &macos_liquid_glass::drawable::KeyPress) -> Option<baud_
         if !list.is_null() {
             CFRelease(list);
         }
-        if !us.is_null() {
-            CFRelease(us);
+        if !wanted.is_null() {
+            CFRelease(wanted);
         }
     }
     found
@@ -246,22 +288,47 @@ mod tests {
         };
         let c = |ch| Some(baud_domain::Codepoint::from_char(ch));
         assert_eq!(
-            unshifted_on_us(&key(0x00)),
+            unshifted(KeyLayout::US, &key(0x00)),
             c('a'),
             "the US layout is installed"
         );
-        assert_eq!(unshifted_on_us(&key(0x12)), c('1'));
-        assert_eq!(unshifted_on_us(&key(0x1B)), c('-'));
-        assert_eq!(unshifted_on_us(&key(0x31)), c(' '));
+        assert_eq!(unshifted(KeyLayout::US, &key(0x12)), c('1'));
+        assert_eq!(unshifted(KeyLayout::US, &key(0x1B)), c('-'));
+        assert_eq!(unshifted(KeyLayout::US, &key(0x31)), c(' '));
         assert_eq!(
-            unshifted_on_us(&key(0x24)),
+            unshifted(KeyLayout::US, &key(0x24)),
             None,
             "Return types a control code"
         );
         assert_eq!(
-            unshifted_on_us(&key(0x7E)),
+            unshifted(KeyLayout::US, &key(0x7E)),
             None,
             "Up types a private character"
+        );
+    }
+
+    /// **The layout a test names is the one read, whatever this Mac has
+    /// selected**: the key at `0x00` is `a` on the US layout and `ש`
+    /// (U+05E9) on the Hebrew one, so a test held to a layout sees that
+    /// layout's characters on a machine typing in either. Perturbation:
+    /// read the selected layout in place of the named one, and one of the
+    /// two fails on any machine.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_named_layout_is_read_in_place_of_the_selected_one() {
+        let a = macos_liquid_glass::drawable::KeyPress {
+            key_code: 0x00,
+            characters: String::new(),
+            unmodified: String::new(),
+            modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+            repeat: false,
+        };
+        let c = |ch| Some(baud_domain::Codepoint::from_char(ch));
+        assert_eq!(unshifted(KeyLayout::US, &a), c('a'), "the US layout");
+        assert_eq!(
+            unshifted(KeyLayout::HEBREW, &a),
+            c('\u{5e9}'),
+            "the Hebrew layout"
         );
     }
 }

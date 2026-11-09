@@ -24,6 +24,7 @@ use crate::keep::{
     whole_screen_scrolled,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
+use crate::layouts::KeyLayout;
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Reveal, Scale, shown_gutter};
 use crate::trail::{GhostRide, ride_px};
@@ -4404,11 +4405,12 @@ fn is_chord(held: Modifiers) -> bool {
     held.without(Modifiers::SHIFT).without(Modifiers::CAPS_LOCK) != Modifiers::NONE
 }
 
-/// The character the layout types on `key` without Shift, asked only
-/// while Shift is held: the one case its own characters do not say.
-fn shift_unshifted(key: &KeyPress) -> Option<Codepoint> {
+/// The character `layout` types on `key` without Shift, asked only
+/// while Shift is held: the one case its own characters do not say. The
+/// app asks the selected layout ([`KeyLayout::Selected`]).
+fn shift_unshifted(layout: KeyLayout, key: &KeyPress) -> Option<Codepoint> {
     match key.modifiers.shift {
-        true => crate::layouts::unshifted(key),
+        true => crate::layouts::unshifted(layout, key),
         false => None,
     }
 }
@@ -12900,7 +12902,7 @@ impl Responder for Driver {
             pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
             // A control or alt chord: the key's identity, folded by the core.
-            let Some(e) = chord(key, m, shift_unshifted(key)) else {
+            let Some(e) = chord(key, m, shift_unshifted(KeyLayout::Selected, key)) else {
                 return Handled::Consumed;
             };
             e
@@ -12913,7 +12915,7 @@ impl Responder for Driver {
                 typed: key.characters.clone(),
                 base: pc101(key),
                 mods: m,
-                unshifted: shift_unshifted(key),
+                unshifted: shift_unshifted(KeyLayout::Selected, key),
             });
             self.handed.key(VirtualKey(key.key_code));
             return Handled::Interpret;
@@ -18989,7 +18991,7 @@ mod tests {
         let src = include_str!("app.rs");
         assert!(src.contains(concat!(
             "let Some(e) = ",
-            "chord(key, m, shift_unshifted(key)) else"
+            "chord(key, m, shift_unshifted(KeyLayout::Selected, key)) else"
         )));
         assert!(src.contains(concat!("for e in ", "typed_text(text, keyed.as_ref())")));
     }
