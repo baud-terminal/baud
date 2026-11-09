@@ -1580,6 +1580,10 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
     let Some((master, replica)) = open_terminal(ws) else {
         return (-1, -1);
     };
+    // The child's bound, when it cannot list its own descriptors, looked
+    // up here, where looking may allocate (`inherited.rs`).
+    let highest = crate::inherited::Highest::scanned();
+    let room = crate::inherited::list_room();
     #[cfg(test)]
     opened(master.as_raw_fd(), replica.as_raw_fd());
     settle_before_fork();
@@ -1588,14 +1592,19 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
     let pid = unsafe { crate::sys::fork() };
     if pid == 0 {
         let r = replica.as_raw_fd();
-        // SAFETY: in the child, `setsid`, `ioctl`, `dup2` and `fcntl` on
-        // descriptors it holds, `signal`, and nothing that allocates. POSIX
-        // has "the child process only executes async-signal-safe operations
-        // until such time as one of the exec functions is successful"
-        // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists `setsid`,
-        // `dup2`, `fcntl` and `signal` (`[[source: posix-xsh-chap02]]`).
-        // `ioctl` is not on it; `TIOCSCTTY` is the call `login_tty` makes in
-        // `forkpty`'s child on both platforms, which every spawn made before.
+        // SAFETY: in the child, `setsid`, `ioctl`, `dup2`, `fcntl` and
+        // `close` on descriptors it holds, `signal`, `sigprocmask`,
+        // `getpid`, and nothing that allocates. POSIX has "the child process
+        // only executes async-signal-safe operations until such time as one
+        // of the exec functions is successful" (`[[source: posix-fork]]`),
+        // and XSH 2.4.3's table lists `setsid`, `dup2`, `fcntl`, `close`,
+        // `signal`, `sigprocmask` and `getpid` (`[[source:
+        // posix-xsh-chap02]]`). `ioctl` is not on it; `TIOCSCTTY` is the
+        // call `login_tty` makes in `forkpty`'s child on both platforms,
+        // which every spawn made before. Nor is macOS's `proc_pidinfo`,
+        // one `__proc_info` system call with no allocation or lock
+        // (`[[source: xnu-libproc-c]]` 101-110), the same kind of call; nor
+        // Linux's `syscall`, which makes `close_range` by its number.
         unsafe {
             crate::sys::setsid();
             crate::sys::ioctl(
@@ -1638,6 +1647,14 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
                 &crate::sys::SigSet::default(),
                 core::ptr::null_mut(),
             );
+            // **Then nothing of baud's but the terminal.** A descriptor open
+            // without close-on-exec at the fork -- one a library on another
+            // thread held for a moment -- would cross the `exec` and stay
+            // with the program for good, so every one from 3 is closed
+            // here (`inherited.rs`). Its terminal's copies on 0, 1 and 2
+            // are kept, and the replica and master, which close at the
+            // `exec` anyway, go now.
+            crate::inherited::close_from_three(highest, room);
         }
         // Closed at the `exec`, close-on-exec, and not here.
         core::mem::forget(replica);
@@ -6755,6 +6772,179 @@ mod tests {
         assert!(
             !env.contains("ZDOTDIR="),
             "no shell integration's start: {env}"
+        );
+    }
+
+    /// **A window's child holds no descriptor of baud's but its terminal**,
+    /// though one is open in baud without close-on-exec when it forks: one
+    /// baud was started with, or one a library on another thread holds for
+    /// a moment -- macOS's C library opens each `LC_*` file of a locale it
+    /// loads without close-on-exec (measured: every locale file seen open
+    /// while `newlocale` ran on another thread lacked `FD_CLOEXEC`), so a
+    /// fork inside that moment handed the shell, and all it ran, a
+    /// read-only locale file for good. The child looks through `/dev/fd`:
+    /// descriptor 0, its terminal, is held, the control that the look can
+    /// see one; the descriptor without close-on-exec is not; nor is one
+    /// with it, the second control.
+    #[test]
+    fn a_descriptor_open_without_close_on_exec_never_reaches_a_window_child() {
+        use std::os::fd::AsRawFd;
+        let bare = std::fs::File::open("/dev/null").expect("a descriptor");
+        let kept = std::fs::File::open("/dev/null").expect("a second");
+        // SAFETY: `bare` is open; clearing its flags leaves it open.
+        unsafe { crate::sys::fcntl(bare.as_raw_fd(), crate::sys::F_SETFD, 0) };
+        // SAFETY: as above, reading the flags.
+        let flags = unsafe { crate::sys::fcntl(bare.as_raw_fd(), crate::sys::F_GETFD) };
+        assert_eq!(
+            flags & crate::sys::FD_CLOEXEC,
+            0,
+            "the control: no close-on-exec"
+        );
+        let (n, c) = (bare.as_raw_fd(), kept.as_raw_fd());
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_from(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(format!(
+                "for n in 0 {n} {c}; do if [ -e /dev/fd/$n ]; then echo \"$n held\"; \
+                 else echo \"$n free\"; fi; done"
+            )),
+            env_of(&[("PATH", "/usr/bin:/bin"), ("LANG", "C")]),
+            || None,
+            Parent::Other,
+            None,
+        )
+        .expect("forkpty");
+        let said: Vec<String> = String::from_utf8_lossy(&read_all(master))
+            .lines()
+            .map(|l| l.trim_end_matches('\r').to_string())
+            .collect();
+        drop((bare, kept));
+        assert_eq!(
+            said,
+            [
+                "0 held".to_string(),
+                format!("{n} free"),
+                format!("{c} free")
+            ]
+        );
+    }
+
+    /// **One test at a time makes a copy far past what it saw**: a copy one
+    /// test holds while another's spawn looks raises that spawn's bound
+    /// past the other's copy, and the two tests below would each pass or
+    /// fail by the other's timing.
+    static FAR_COPIES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// What a window's child, forked by [`Pty::fork_from`], says of each
+    /// descriptor in `fds` through `/dev/fd`: `held` or `free`.
+    fn child_holds(fds: &[crate::sys::Fd]) -> Vec<String> {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let list = fds
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let master = Pty::fork_from(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(format!(
+                "for n in {list}; do if [ -e /dev/fd/$n ]; then echo \"$n held\"; \
+                 else echo \"$n free\"; fi; done"
+            )),
+            env_of(&[("PATH", "/usr/bin:/bin"), ("LANG", "C")]),
+            || None,
+            Parent::Other,
+            None,
+        )
+        .expect("forkpty");
+        String::from_utf8_lossy(&read_all(master))
+            .lines()
+            .map(|l| l.trim_end_matches('\r').to_string())
+            .collect()
+    }
+
+    /// **A descriptor opened after the parent looked, far past what it saw,
+    /// never reaches a window's child**: in the moment the terminal is open
+    /// and the child not yet forked ([`OPENED`]), after the parent found
+    /// the highest descriptor it holds, a descriptor without close-on-exec
+    /// is made at a thousand past the highest this test saw -- past the
+    /// bound a child closes to when it cannot list its own. The child lists
+    /// them and closes this one too; on Linux `close_range` does. The
+    /// control: descriptor 0, its terminal, is held.
+    #[test]
+    fn a_descriptor_opened_past_the_parents_look_never_reaches_a_window_child() {
+        use std::os::fd::AsRawFd;
+        let _one = FAR_COPIES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let file = std::fs::File::open("/dev/null").expect("a descriptor");
+        let from = file.as_raw_fd();
+        let seen = crate::inherited::open_from_three()
+            .into_iter()
+            .max()
+            .unwrap_or(2);
+        let far = seen + 1000;
+        assert!(
+            far > seen + crate::inherited::MARGIN,
+            "the control: past the bound"
+        );
+        set_opened(Some(Box::new(move |_, _| {
+            // SAFETY: both descriptors are numbers this test owns; the copy
+            // has no close-on-exec.
+            assert_eq!(unsafe { crate::sys::dup2(from, far) }, far, "the copy");
+        })));
+        let said = child_holds(&[0, far]);
+        set_opened(None);
+        // SAFETY: the copy this test made.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(far) });
+        assert_eq!(said, ["0 held".to_string(), format!("{far} free")]);
+    }
+
+    /// **With the child's list too small, the bound still closes what is
+    /// under it**: a list of one entry, which fills, takes the bound, so a
+    /// descriptor without close-on-exec opened before the fork, under the
+    /// highest the parent saw, is closed. The control that the bound was
+    /// taken: a descriptor made past it after the parent looked
+    /// ([`OPENED`]) is held -- the bound alone does not reach it, the list
+    /// does (the test above). On Linux a small list takes the bound too.
+    #[test]
+    fn with_the_list_too_small_the_bound_still_closes_what_is_under_it() {
+        use std::os::fd::AsRawFd;
+        let _one = FAR_COPIES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let bare = std::fs::File::open("/dev/null").expect("a descriptor");
+        let n = bare.as_raw_fd();
+        // SAFETY: `bare` is open; clearing its flags leaves it open.
+        unsafe { crate::sys::fcntl(n, crate::sys::F_SETFD, 0) };
+        let seen = crate::inherited::open_from_three()
+            .into_iter()
+            .max()
+            .unwrap_or(2);
+        let far = seen + 1000;
+        set_opened(Some(Box::new(move |_, _| {
+            // SAFETY: both descriptors are numbers this test owns.
+            assert_eq!(unsafe { crate::sys::dup2(n, far) }, far, "the copy");
+        })));
+        crate::inherited::set_list_room(crate::inherited::Room::One);
+        let said = child_holds(&[0, n, far]);
+        crate::inherited::set_list_room(crate::inherited::Room::Full);
+        set_opened(None);
+        // SAFETY: the copy this test made.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(far) });
+        drop(bare);
+        assert_eq!(
+            said,
+            [
+                "0 held".to_string(),
+                format!("{n} free"),
+                format!("{far} held")
+            ]
         );
     }
 

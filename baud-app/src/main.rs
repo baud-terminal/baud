@@ -210,11 +210,15 @@ mod paths;
 mod probe;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod ran;
-// `[link.*]`: your own link types and the printed-path forms, read whole or
-// refused whole, pure, so its tests run on every platform.
+// What baud was started with, marked close-on-exec before any thread
+// starts, so its children inherit none of it.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod inherited;
 // The door `main` opens first: a probe build runs only as a rig, and no
 // build takes a rig's flag for a plain launch.
 mod rig_door;
+// `[link.*]`: your own link types and the printed-path forms, read whole or
+// refused whole, pure, so its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod rules;
 // The activity lights on their own line, as the Linux driver feeds them.
@@ -355,6 +359,11 @@ fn main() {
     // First, before anything else runs: a probe build is only ever a rig,
     // and a rig's flag never reaches a plain launch (`rig_door.rs`).
     let admitted = rig_door::admitted();
+    // Then every descriptor baud was started with marked close-on-exec,
+    // while this is the one thread, so no child baud starts inherits one
+    // (`inherited.rs`).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    inherited::keep_from_children();
     if version::asks(std::env::args_os().skip(1)) {
         print!("{}", version::text(version::BUILD));
         return;

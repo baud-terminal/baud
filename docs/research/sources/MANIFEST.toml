@@ -18671,6 +18671,10 @@ sha256 = "5c8a771427e04c5e1d55c4cdf5a077f3b52c5be4a091683b970084bfdda76df2"
 bytes  = 28996
 status = "external"
 group  = "AH"
+# `proc_pidinfo` (lines 101-110) is one `__proc_info(PROC_INFO_CALL_PIDINFO,
+# ...)` call that returns 0 where it returns -1: no allocation, no lock, no
+# other call -- which is what lets a window's child list its own
+# descriptors between `fork` and `execve` (`pty`'s close of what it inherited).
 
 [sources.linux-man-proc-pid-io]
 key    = "linux-man-proc-pid-io"
@@ -39884,6 +39888,34 @@ sha256 = "e1b56b12a9a763ca13937c96f9e2e500c704303819691b5485359d81f4bc1ff6"
 bytes  = 7258
 status = "external"
 group  = "E"
+
+[sources.linux-man-close-range]
+key    = "linux-man-close-range"
+title  = "close_range(2) -- 'closes all open file descriptors from first to last (included)'; Linux 5.9, glibc 2.34"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2/close_range.2?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "4ac5cb3b5deedbe3f23519b8f5d1a751aefddacc4fae2864798f3ac8e27e3666"
+bytes  = 6695
+status = "external"
+group  = "E"
+
+[sources.linux-asm-generic-unistd-h]
+key    = "linux-asm-generic-unistd-h"
+title  = "Linux v6.12, include/uapi/asm-generic/unistd.h -- the shared syscall table: __NR_pidfd_open 434, __NR_close_range 436"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "Linux v6.12, github.com/torvalds/linux"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/asm-generic/unistd.h"
+file   = ""
+sha256 = "aec51e459e2b113bcf8e16c99be09d5384fe3f4fa4a16100dfe0e71dbc0e172a"
+bytes  = 31240
+status = "external"
+group  = "E"
+# Lines 777 and 781: `__NR_pidfd_open 434` and `__NR_close_range 436`, the
+# numbers of the generic table, which aarch64 uses.
 
 [sources.posix-waitid]
 key    = "posix-waitid"

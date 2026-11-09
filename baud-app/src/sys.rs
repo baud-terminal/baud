@@ -121,13 +121,12 @@ pub const F_SETFL: c_int = 4;
 pub const EREDRIVEOPEN: c_int = -6;
 
 /// `fcntl`'s commands and flag for a descriptor's own flags: the spawned
-/// child clears close-on-exec on its standard descriptors, and the tests
-/// read that the pty's master and what `openat` opened for a kitty file
-/// close on exec. The same values on both platforms.
-#[cfg(test)]
+/// child clears close-on-exec on its standard descriptors, `main` sets it
+/// on every descriptor baud was started with (`inherited.rs`), and the
+/// tests read that the pty's master and what `openat` opened for a kitty
+/// file close on exec. The same values on both platforms.
 pub const F_GETFD: c_int = 1;
 pub const F_SETFD: c_int = 2;
-#[cfg(test)]
 pub const FD_CLOEXEC: c_int = 1;
 #[cfg(target_os = "macos")]
 pub const O_NONBLOCK: c_int = 0x4;
@@ -230,6 +229,17 @@ unsafe extern "C" {
     /// `fork` and a failed `exec`, where only async-signal-safe calls are
     /// allowed.
     pub fn _exit(status: c_int) -> !;
+
+    /// Closes `fd`. A window's child calls it between `fork` and `exec` on
+    /// every descriptor it holds past its terminal (`pty.rs`), which XSH
+    /// 2.4.3's table of async-signal-safe functions allows (`[[source:
+    /// posix-xsh-chap02]]`).
+    pub fn close(fd: Fd) -> c_int;
+
+    /// This process's ID: a window's child asks the kernel for its own
+    /// descriptors by it (`pty.rs`). On XSH 2.4.3's table.
+    #[cfg(target_os = "macos")]
+    pub fn getpid() -> Pid;
 
     /// Changes the working directory to `path`; on failure "the current
     /// working directory shall remain unchanged" (`[[source:
@@ -1712,6 +1722,13 @@ pub fn no_dataless_fetch() -> bool {
 // 5.3 on; an older kernel answers `ENOSYS`.
 #[cfg(target_os = "linux")]
 pub const SYS_PIDFD_OPEN: core::ffi::c_long = 434;
+/// `close_range(first, last, flags)`, which "closes all open file
+/// descriptors from first to last (included)" (`[[source:
+/// linux-man-close-range]]`), by its number, 436 in the shared table
+/// (`[[source: linux-asm-generic-unistd-h]]` 781), from Linux 5.9; an older
+/// kernel answers `ENOSYS`.
+#[cfg(target_os = "linux")]
+pub const SYS_CLOSE_RANGE: core::ffi::c_long = 436;
 #[cfg(target_os = "linux")]
 unsafe extern "C" {
     /// Variadic in the header: the call's own arguments follow its number.
@@ -2133,6 +2150,7 @@ int main(void) {
     printf("IN_DELETE_SELF=%lld\n", (long long)IN_DELETE_SELF);
     printf("IN_MOVE_SELF=%lld\n", (long long)IN_MOVE_SELF);
     printf("SYS_pidfd_open=%lld\n", (long long)SYS_pidfd_open);
+    printf("SYS_close_range=%lld\n", (long long)SYS_close_range);
 #endif
     return 0;
 }
@@ -2392,6 +2410,8 @@ int main(void) {
         assert_eq!(h["SIGCHLD"], i128::from(SIGCHLD));
         #[cfg(target_os = "linux")]
         assert_eq!(h["SYS_pidfd_open"], i128::from(SYS_PIDFD_OPEN));
+        #[cfg(target_os = "linux")]
+        assert_eq!(h["SYS_close_range"], i128::from(SYS_CLOSE_RANGE));
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));
