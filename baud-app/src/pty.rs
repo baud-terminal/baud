@@ -1499,12 +1499,12 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
     if pid == 0 {
         let r = replica.as_raw_fd();
         // SAFETY: in the child, `setsid`, `ioctl`, `dup2` and `fcntl` on
-        // descriptors it holds, and nothing that allocates. POSIX has "the
-        // child process only executes async-signal-safe operations until
-        // such time as one of the exec functions is successful"
+        // descriptors it holds, `signal`, and nothing that allocates. POSIX
+        // has "the child process only executes async-signal-safe operations
+        // until such time as one of the exec functions is successful"
         // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists `setsid`,
-        // `dup2` and `fcntl` (`[[source: posix-xsh-chap02]]`). `ioctl` is
-        // not on it; `TIOCSCTTY` is the call `login_tty` makes in
+        // `dup2`, `fcntl` and `signal` (`[[source: posix-xsh-chap02]]`).
+        // `ioctl` is not on it; `TIOCSCTTY` is the call `login_tty` makes in
         // `forkpty`'s child on both platforms, which every spawn made before.
         unsafe {
             crate::sys::setsid();
@@ -1518,6 +1518,20 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
                 // A replica numbered 0, 1 or 2 is not copied onto itself
                 // and keeps its close-on-exec; the others never have it.
                 crate::sys::fcntl(fd, crate::sys::F_SETFD, 0);
+            }
+            // **Every signal at its default action.** One ignored here stays
+            // ignored across the `exec` ("signals set to be ignored
+            // (SIG_IGN) by the calling process image shall be set to be
+            // ignored by the new process image", `[[source: posix-exec]]`),
+            // and a shell cannot undo one ignored on its entry. baud ignores
+            // `SIGPIPE` from its start, as Rust's runtime does in every
+            // program it starts (`[[source: rust-std-unix-sigpipe]]` 33-34,
+            // 168), so without this every shell and what it ran did too; a
+            // baud started with `SIGINT` ignored, as a background job is,
+            // would hand its shells a Control-C that does nothing. `signal`
+            // is on XSH 2.4.3's table.
+            for sig in 1..crate::sys::NSIG {
+                crate::sys::signal(sig, crate::sys::SIG_DFL);
             }
         }
         // Closed at the `exec`, close-on-exec, and not here.
@@ -6292,6 +6306,60 @@ mod tests {
         assert!(
             !env.contains("ZDOTDIR="),
             "no shell integration's start: {env}"
+        );
+    }
+
+    /// **A window's child starts with every signal at its default
+    /// action**, whatever baud inherited or set: each of `SIGPIPE`, which
+    /// Rust's runtime ignores in this very process, and `SIGINT`, `SIGHUP`,
+    /// `SIGTERM` and `SIGQUIT`, which a runner can hand on ignored, ends a
+    /// shell the child starts that sends it to itself, and nothing says it
+    /// survived; the control, `SIGUSR1` ignored by the child's own shell,
+    /// does. Red without the reset in [`fork_terminal`]'s child: the
+    /// `SIGPIPE` line always, and the `SIGINT` line when the test binary
+    /// runs with it ignored. Named break: reset nothing.
+    #[test]
+    fn a_windows_child_starts_with_its_signals_at_their_default() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        // The control: a signal the shell ignores itself is ignored by what
+        // it runs, and the line says so.
+        let script = "for s in PIPE INT HUP TERM QUIT; do \
+            /bin/sh -c \"kill -$s \\$\\$; echo $s survived\"; done; \
+            trap '' USR1; /bin/sh -c 'kill -USR1 $$; echo USR1 survived'";
+        let given = ["/bin/sh", "-c", script].map(OsString::from).to_vec();
+        let start = ShellStart {
+            integration: crate::shell::Integration::Off,
+            ssh_env: crate::shell::SshEnv::Off,
+            program: Some("/bin/sh".into()),
+            run: None,
+        }
+        .running(crate::rules::Run::given(given).expect("a program"));
+        let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+        let (pid, master) = Pty::fork_given(
+            text_area(&size, Px::of(8), Px::of(16)),
+            None,
+            parent,
+            || None,
+            Parent::Other,
+            None,
+            &start,
+        )
+        .expect("forkpty");
+        let out = String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n");
+        // SAFETY: the master forkpty returned, owned here alone; `pid` is
+        // this test's own child.
+        unsafe {
+            drop(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master));
+            crate::sys::waitpid(pid, std::ptr::null_mut(), 0);
+        }
+        let survived: Vec<&str> = out.lines().filter(|l| l.ends_with(" survived")).collect();
+        assert_eq!(
+            survived,
+            ["USR1 survived"],
+            "only the control's: a signal the child started ignoring: {out:?}"
         );
     }
 

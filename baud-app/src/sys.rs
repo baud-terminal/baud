@@ -325,17 +325,24 @@ pub const WNOHANG: c_int = 1;
 
 /// A signal's disposition as `signal` takes and answers it, a pointer to a
 /// handler or one of the header's sentinels.
-#[cfg(test)]
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct SigHandler(pub usize);
 
 /// `signal`'s disposition that restores a signal's default action:
 /// `SIG_DFL`, 0 on both platforms; the probe holds it.
-#[cfg(test)]
 pub const SIG_DFL: SigHandler = SigHandler(0);
 
-#[cfg(test)]
+/// **One past the highest signal number**, `NSIG`: 32 on Darwin, 65 under
+/// glibc, whose numbers run on into the real-time signals. The probe holds
+/// it. A pty's child sets every number below it to its default action
+/// (`pty::fork_terminal`); `signal` refuses the two whose action cannot
+/// change, and glibc the ones it keeps for itself, and nothing else moves.
+#[cfg(target_os = "macos")]
+pub const NSIG: c_int = 32;
+#[cfg(not(target_os = "macos"))]
+pub const NSIG: c_int = 65;
+
 unsafe extern "C" {
     pub fn signal(sig: c_int, handler: SigHandler) -> SigHandler;
 }
@@ -1862,6 +1869,7 @@ int main(void) {
     printf("MAP_FIXED=%lld\n", (long long)MAP_FIXED);
     printf("getpagesize=%lld\n", (long long)getpagesize());
     printf("SIG_DFL=%lld\n", (long long)(intptr_t)SIG_DFL);
+    printf("NSIG=%lld\n", (long long)NSIG);
     printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
     printf("pid_t.size=%zu\n", sizeof(pid_t));
     printf("WNOHANG=%lld\n", (long long)WNOHANG);
@@ -2259,6 +2267,7 @@ int main(void) {
         // is what the headers' program answers.
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
         assert_eq!(h["SIG_DFL"], SIG_DFL.0 as i128);
+        assert_eq!(h["NSIG"], i128::from(NSIG));
         assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
         assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
         assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
