@@ -110,13 +110,14 @@ pub(crate) struct Report {
 }
 
 impl Report {
-    /// The first frame a row reading `text` showed, and the first it was
-    /// lit in.
+    /// Of the rows reading `text`, the one that showed first: the frame it
+    /// showed in, and the first it was lit in.
     pub(crate) fn first_lit(&self, text: &str) -> Option<(FrameNo, Option<FrameNo>)> {
         self.seen
             .iter()
-            .find(|(t, _)| t.contains(text))
+            .filter(|(t, _)| t.contains(text))
             .map(|(_, v)| *v)
+            .min_by_key(|(shown, _)| *shown)
     }
 }
 
@@ -238,19 +239,8 @@ impl Tap {
             w.add(pid);
         }
         std::fs::create_dir_all(dir).expect("the links' folder");
-        let mut redact = Vec::new();
-        if let Some(h) = &home {
-            let h = String::from_utf8_lossy(h).trim_end_matches('/').to_string();
-            for spelling in spellings(&h) {
-                redact.push((spelling, "~"));
-            }
-            if let Some(root) = Path::new(&h).parent() {
-                for spelling in spellings(&root.to_string_lossy()) {
-                    redact.push((spelling, "<root>"));
-                }
-            }
-        }
-        redact.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
+        clear_dumps(dir);
+        let redact = home.as_deref().map(redactions).unwrap_or_default();
         Tap {
             dir: dir.to_path_buf(),
             lines: crate::lined::Lines::default(),
@@ -379,27 +369,9 @@ impl Tap {
                 seen.1 = Some(self.frame);
             }
         }
-        for (line, (t, cells)) in &now {
-            let was = self.lit.get(line).map_or(Cells(0), |(_, c)| *c);
-            if was == *cells {
-                continue;
-            }
-            let change = Change {
-                frame: self.frame,
-                step: self.step,
-                at,
-                line: *line,
-                text: t.trim_end().to_string(),
-                was,
-                now: *cells,
-                screen,
-            };
-            let same = self.lit.get(line).is_some_and(|(old, _)| old == t);
-            if *cells < was && same && screen == Screen::Normal {
-                self.report.darkened.push(change.clone());
-            }
-            self.report.changes.push(change);
-        }
+        let (changes, darkened) = lit_changes(&self.lit, &now, screen, (self.frame, self.step, at));
+        self.report.changes.extend(changes);
+        self.report.darkened.extend(darkened);
         self.lit = now;
     }
 
@@ -523,11 +495,7 @@ impl Tap {
 
     /// `text` with each machine path written as the dumps write it.
     fn redacted(&self, text: &str) -> String {
-        let mut t = text.to_string();
-        for (from, to) in &self.redact {
-            t = t.replace(from.as_str(), to);
-        }
-        t
+        redact(text, &self.redact)
     }
 
     /// **The dumps written**: one file a step, `NN-step.txt`, each row's
@@ -597,7 +565,43 @@ impl Tap {
     }
 }
 
-/// How many cells of `row` the runs light.
+/// **A row's lit cells, against the frame before**, each row by its line:
+/// every change of a row's count, and those that are a row going darker
+/// while its text stays and it stays on the normal screen. A row that
+/// left the window, or whose text changed, or the alternate screen's,
+/// is no darkening. Each change carries the frame, the step and the take's
+/// time it was seen at.
+fn lit_changes(
+    before: &BTreeMap<AbsLine, (String, Cells)>,
+    now: &BTreeMap<AbsLine, (String, Cells)>,
+    screen: Screen,
+    (frame, step, at): (FrameNo, Option<StepAt>, Duration),
+) -> (Vec<Change>, Vec<Change>) {
+    let (mut changes, mut darkened) = (Vec::new(), Vec::new());
+    for (line, (t, cells)) in now {
+        let was = before.get(line).map_or(Cells(0), |(_, c)| *c);
+        if was == *cells {
+            continue;
+        }
+        let change = Change {
+            frame,
+            step,
+            at,
+            line: *line,
+            text: t.trim_end().to_string(),
+            was,
+            now: *cells,
+            screen,
+        };
+        let same = before.get(line).is_some_and(|(old, _)| old == t);
+        if *cells < was && same && screen == Screen::Normal {
+            darkened.push(change.clone());
+        }
+        changes.push(change);
+    }
+    (changes, darkened)
+}
+
 /// The screen's characters, one to a cell: each cell's base, a cell with
 /// none, a wide character's tail among them, a space. What
 /// [`crate::programs::screen`] reads, its marks aside, so that a column
@@ -632,6 +636,7 @@ fn cell_of(rows: &[Vec<char>], text: &str) -> Option<(Row, Col)> {
     })
 }
 
+/// How many cells of `row` the runs light.
 fn lit_cells(set: &[LinkLine], row: Row) -> Cells {
     Cells(
         set.iter()
@@ -659,6 +664,55 @@ pub(crate) fn window_argv(
         .collect()
 }
 
+/// **What a dump writes in place of each machine path**, a session's home
+/// `home`: each spelling of the home `~` and of its parent, the scratch
+/// root, `<root>`, longest first, so a resolved home is not read as a
+/// spelling of the root with a home after it.
+fn redactions(home: &[u8]) -> Vec<(String, &'static str)> {
+    let h = String::from_utf8_lossy(home)
+        .trim_end_matches('/')
+        .to_string();
+    let mut out: Vec<(String, &'static str)> =
+        spellings(&h).into_iter().map(|s| (s, "~")).collect();
+    if let Some(root) = Path::new(&h).parent() {
+        out.extend(
+            spellings(&root.to_string_lossy())
+                .into_iter()
+                .map(|s| (s, "<root>")),
+        );
+    }
+    out.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
+    out
+}
+
+/// `text` with each machine path written as [`redactions`] says.
+fn redact(text: &str, redactions: &[(String, &'static str)]) -> String {
+    let mut t = text.to_string();
+    for (from, to) in redactions {
+        t = t.replace(from.as_str(), to);
+    }
+    t
+}
+
+/// Whether a file of the links' folder is one of the dumps: a step's, the
+/// changes or the hovers.
+fn is_dump(name: &str) -> bool {
+    name.ends_with("-step.txt") || name == "changes.txt" || name == "hovered.txt"
+}
+
+/// **The dumps an earlier take left in `dir`, removed**, so a step this
+/// take never reached is not read as its own; any other file stays.
+fn clear_dumps(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if e.file_name().to_str().is_some_and(is_dump) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
 /// Every spelling of a folder: as given and as the file system resolves it.
 fn spellings(dir: &str) -> Vec<String> {
     let mut out = vec![dir.to_string()];
@@ -673,18 +727,28 @@ fn spellings(dir: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::no_appkit::{Follow, Part, Walk, hits, reach};
+    use crate::no_appkit::{Follow, Marked, Part, Walk, hits, reach};
 
     /// What would open or start something: a process started, an effect
     /// asked of the OS, a file shown, a URL opened.
     /// In halves, so this file does not match itself. A thread's `spawn`
-    /// takes its closure, a process's nothing.
-    const OPENS: [&str; 9] = [
+    /// takes its closure, a process's nothing. The calls that start a
+    /// process: std's, the system's, and the terminal's own, from `pty.rs`.
+    const OPENS: [&str; 18] = [
         concat!(".spawn", "()"),
         concat!(".status", "()"),
         concat!(".output", "()"),
         concat!("posix_", "spawn"),
         concat!("exec", "vp"),
+        concat!("exec", "ve("),
+        concat!("fork", "("),
+        concat!("fork", "pty("),
+        concat!("fork_", "with("),
+        concat!("fork_", "child("),
+        concat!("fork_", "shell("),
+        concat!("Pty::", "spawn"),
+        concat!("spawn_", "given("),
+        concat!("spawn_", "polled("),
         concat!("activateFile", "Viewer"),
         concat!("open", "URL"),
         concat!("os.", "ask("),
@@ -745,16 +809,144 @@ mod tests {
         );
     }
 
+    /// **The dumps name no machine path, and are this take's alone**: a
+    /// session's home and its scratch root, each as given and as the file
+    /// system resolves it, are written `~` and `<root>`, the resolved home
+    /// as `~`, not as the root with a home after it; and an earlier take's
+    /// dumps are removed while another file of the folder stays.
+    #[test]
+    fn the_dumps_are_redacted_and_cleared() {
+        let root = std::env::temp_dir().join(format!("tap-dumps-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let real = std::fs::canonicalize(&home).unwrap();
+        let (home_s, real_s) = (home.to_string_lossy(), real.to_string_lossy());
+        let given = root.to_string_lossy();
+        let redactions = crate::film::tap::redactions(home_s.as_bytes());
+        let text = format!("{real_s}/bin/demo-open {home_s}/x {given}/stills");
+        assert_eq!(
+            crate::film::tap::redact(&text, &redactions),
+            "~/bin/demo-open ~/x <root>/stills"
+        );
+        let links = root.join("links");
+        std::fs::create_dir_all(&links).unwrap();
+        for f in ["99-step.txt", "changes.txt", "hovered.txt", "notes.md"] {
+            std::fs::write(links.join(f), "earlier").unwrap();
+        }
+        crate::film::tap::clear_dumps(&links);
+        let mut left: Vec<String> = std::fs::read_dir(&links)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(left, ["notes.md"]);
+    }
+
+    /// **The row a link check reads is the first to show it**, not the
+    /// first by its text: of two rows holding the link, the one shown at
+    /// frame 5 is read, though the other sorts first.
+    #[test]
+    fn the_first_row_to_show_a_link_is_read() {
+        use crate::film::tap::{FrameNo, Report};
+        let mut r = Report::default();
+        r.seen.insert(
+            "a [Nix](https://nixos.org)".to_string(),
+            (FrameNo(20), Some(FrameNo(20))),
+        );
+        r.seen.insert(
+            "b [Nix](https://nixos.org)".to_string(),
+            (FrameNo(5), Some(FrameNo(7))),
+        );
+        r.seen
+            .insert("c".to_string(), (FrameNo(1), Some(FrameNo(1))));
+        assert_eq!(
+            r.first_lit("https://nixos.org"),
+            Some((FrameNo(5), Some(FrameNo(7))))
+        );
+        assert_eq!(r.first_lit("https://example.org"), None);
+    }
+
+    /// **The darkening detector, over two frames**: a prompt row that
+    /// keeps its text and loses its lit cells is a row gone dark. The
+    /// controls: the same row with its text changed, the same on the
+    /// alternate screen, and a scroll that takes a lit row out of the
+    /// window and moves another, its text and cells kept, are not; a row
+    /// lighting is a change and no darkening.
+    #[test]
+    fn a_row_that_keeps_its_text_and_loses_its_cells_went_dark() {
+        use crate::film::tap::{Cells, FrameNo, lit_changes};
+        use baud_core::Screen;
+        use baud_domain::Rows;
+        use baud_render::AbsLine;
+        use std::collections::BTreeMap;
+        use std::time::Duration;
+        let line = |n: usize| AbsLine::at(Rows::of_count(n));
+        let frame = |rows: &[(usize, &str, usize)]| -> BTreeMap<AbsLine, (String, Cells)> {
+            rows.iter()
+                .map(|&(n, t, c)| (line(n), (t.to_string(), Cells(c))))
+                .collect()
+        };
+        let when = (FrameNo(2), None, Duration::from_millis(40));
+        let prompt = "~/baud ❯ cat ~/README.md";
+        let ls = "~/baud ❯ ls README.md";
+        let before = frame(&[(0, ls, 9), (1, prompt, 11)]);
+        let dark = |after: &BTreeMap<AbsLine, (String, Cells)>, screen: Screen| {
+            let (changes, darkened) = lit_changes(&before, after, screen, when);
+            (
+                changes.len(),
+                darkened.iter().map(|c| c.line).collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(
+            dark(&frame(&[(0, ls, 9), (1, prompt, 0)]), Screen::Normal),
+            (1, vec![line(1)]),
+            "a prompt row gone dark"
+        );
+        assert_eq!(
+            dark(&frame(&[(0, ls, 9), (1, "~/baud ❯ ", 0)]), Screen::Normal),
+            (1, vec![]),
+            "the control: its text changed"
+        );
+        assert_eq!(
+            dark(&frame(&[(0, ls, 9), (1, prompt, 0)]), Screen::Alternate),
+            (1, vec![]),
+            "the control: the alternate screen"
+        );
+        assert_eq!(
+            dark(
+                &frame(&[(1, prompt, 11), (2, "~/baud ❯ ", 0)]),
+                Screen::Normal
+            ),
+            (0, vec![]),
+            "the control: a scroll"
+        );
+        assert_eq!(
+            dark(
+                &frame(&[(0, ls, 9), (1, prompt, 11), (2, "~/baud ❯ ls", 2)]),
+                Screen::Normal
+            ),
+            (1, vec![]),
+            "the control: a row lighting"
+        );
+    }
+
     /// **The tap opens nothing and names no AppKit**: from `tap.rs` and
     /// `link_layer.rs`, every module they reach, comments, literals and
     /// other modules' unit tests aside, names none of `no_appkit`'s four
     /// names -- an application among them -- and starts, asks the OS for or
-    /// shows nothing. The worker's question whether an app opens a scheme
-    /// stays, allowed as the launch test allows it: a LaunchServices lookup
-    /// that opens nothing. The control: the walk reaches the worker, the
-    /// rules, the paths and the harness's screen reader, followed fn by fn as
-    /// the test harness it is; the session it reads, for its step type alone,
-    /// is named and not read.
+    /// shows nothing: no process started, by std, by the system's `fork`
+    /// and `execve` or by the terminal's own entry points. The items
+    /// `#[cfg(test)]` marks are walked, as the tap is test code and calls
+    /// them. The worker's question whether an app opens a scheme stays,
+    /// allowed as the launch test allows it: a LaunchServices lookup that
+    /// opens nothing. The controls: the walk reaches the worker, the rules,
+    /// the paths with their test-only items, the harness's screen reader,
+    /// the window's program and the system's calls, each module of the last
+    /// three followed fn by fn; the session it reads, for its step type
+    /// alone, is named and not read.
     #[test]
     fn the_tap_opens_nothing() {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -762,10 +954,20 @@ mod tests {
         let reached = reach(&Walk {
             src: &src,
             start: vec![file(&["film", "tap"]), file(&["link_layer"])],
-            // The test harness, whose screen reader alone the tap calls.
-            by_fn: &[(&["programs"], Follow::AllFns)],
+            // Fn by fn: the test harness, whose screen reader alone the
+            // tap calls, by its free fns, as its methods' names (`start`,
+            // `rows`, `read`) are other modules' too; the terminal's
+            // process code, whose window program alone it calls; and the
+            // system's calls, a test's C probe among them.
+            by_fn: &[
+                (&["programs"], Follow::FreeFns),
+                (&["pty"], Follow::AllFns),
+                (&["sys"], Follow::AllFns),
+            ],
             // The session's step type, named and never run.
             sinks: &[&["film", "session"]],
+            // The tap is test code and calls test-only items.
+            marked: Marked::Walked,
         });
         let named: Vec<&str> = reached
             .sink_items
@@ -789,6 +991,19 @@ mod tests {
                 "the control: {m:?} is reached"
             );
         }
+        let of = |m: &str, f: &str| Part::Fn(vec![m.to_string()], f.to_string());
+        assert!(
+            reached.parts.contains_key(&of("pty", "window_program")),
+            "the control: the window's program is read"
+        );
+        assert!(
+            reached.parts.contains_key(&of("sys", "mounted")),
+            "the control: the system's calls are followed"
+        );
+        assert!(
+            reached.parts[&file(&["paths"])].contains(concat!("fn res", "ult(")),
+            "the control: the test-only items the tap calls are walked"
+        );
         let found = hits(&reached, &OPENS, &[crate::no_appkit::LINK_WORKER]);
         assert_eq!(found, Vec::<String>::new());
     }

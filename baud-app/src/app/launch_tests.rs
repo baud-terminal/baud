@@ -1408,6 +1408,7 @@ fn the_launch_path_names_no_appkit() {
         start: vec![file(&["app", "launch_tests"])],
         by_fn: &[(&["app"], Follow::FreeFns)],
         sinks: &[],
+        marked: crate::no_appkit::Marked::Cut,
     });
     // The control: the walk follows `crate::`, `super::` and `use`, to
     // modules three deep and to app.rs's fns.

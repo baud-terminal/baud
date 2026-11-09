@@ -1778,8 +1778,8 @@ pub(super) const NIX_URL: &str = "https://nixos.org";
 /// **The link layer's three checks on what the tap saw**, each from the
 /// storyline (the designer's `commands.md`); the failures, in words.
 ///
-/// 1. Scene 9's link lights, by the first frame after the worker's answer
-///    that could light it, and a Command-click on it, at the
+/// 1. Scene 9's link lights the frame it shows, as a URL waits on no
+///    answer of the worker's, and a Command-click on it, at the
 ///    `Hover(`[`steps::NIX_AT`]`)` step, takes a
 ///    window running the argv the session's `[link.https]` rule builds for
 ///    it on the session's `PATH`.
@@ -1823,17 +1823,14 @@ fn link_checks(
             failed.push(format!("1: the rule's program is not absolute: {argv:?}"));
         }
     }
+    // A URL lights while its program is unknown, and an answer can only
+    // strike it: it waits on no answer, so it lights the frame it shows.
     match report.first_lit(NIX_URL) {
-        Some((shown, Some(lit))) => {
-            let answer = report.answered.iter().copied().find(|&a| a >= shown);
-            let by = answer.map_or(shown, |a| a.max(shown));
-            if lit > by {
-                failed.push(format!(
-                    "1: the Nix link showed at frame {shown:?} and lit at {lit:?}, after the first \
-                     frame that could light it ({by:?})"
-                ));
-            }
-        }
+        Some((shown, Some(lit))) if lit == shown => {}
+        Some((shown, Some(lit))) => failed.push(format!(
+            "1: the Nix link showed at frame {shown:?} and lit at {lit:?}: a URL waits on no \
+             answer and lights the frame it shows"
+        )),
         other => failed.push(format!("1: the Nix link never lit: {other:?}")),
     }
     // 2.
@@ -1956,7 +1953,8 @@ fn demo_link_config(
 /// **The link checks fail on what each guards**, on a report the tap could
 /// have made: one that holds all three passes; a Command-click at the Nix
 /// link that opens anything but the rule's window, or a link lit a frame
-/// after the first that could light it, fails check 1; a row gone dark
+/// after it showed, an answer merged between the two among them, fails
+/// check 1; a row gone dark
 /// with its text unchanged fails check 2; a path lit on a row written over
 /// ssh, or such a row taken as this machine's, or no line `ssh demo` was
 /// typed on, fails check 3. The controls: the passing report reads a row
@@ -2037,6 +2035,9 @@ fn the_link_checks_catch_what_each_guards() {
     fails(&r, "1:");
     let mut r = good.clone();
     r.seen.values_mut().for_each(|v| v.1 = Some(FrameNo(11)));
+    fails(&r, "1:");
+    // An answer merged after the link showed is no reason for it to wait.
+    r.answered.push(FrameNo(12));
     fails(&r, "1:");
     let mut r = good.clone();
     r.darkened.push(Change {

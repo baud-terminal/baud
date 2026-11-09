@@ -2510,6 +2510,13 @@ mod tests {
     /// cargo's gitignored target directory and to scratch folders. The
     /// controls: a listing holding each kind is caught, and the repository's
     /// own listing is read. Named break: match nothing.
+    ///
+    /// **It needs a git checkout and `git` on `PATH`**: it reads the index
+    /// with `git ls-files`. The suite runs in the dev shell; the flake's
+    /// build runs no cargo tests (`doCheck = false`), and its one check
+    /// reads the linked SDK, so no nix sandbox without `.git` runs it. Run
+    /// from a tree without one, it fails at `git ls-files`, and an empty
+    /// listing fails the size control: it never passes on no listing.
     #[test]
     fn no_session_output_is_tracked() {
         let fixture: &[u8] = b"README.md\0demo/heard.log\0x/heard.raw.log\0run/pty.shown.log\0\

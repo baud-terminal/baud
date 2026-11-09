@@ -22,7 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::no_appkit::{
-    FORBIDDEN, Follow, Part, Reached, Walk, bare_code, hits, reach, without_tests,
+    FORBIDDEN, Follow, Marked, Part, Reached, Walk, bare_code, hits, reach, without_tests,
 };
 
 /// The example's module files.
@@ -73,6 +73,7 @@ fn headless() -> Reached {
         ],
         by_fn: &by_fn,
         sinks: &[],
+        marked: Marked::Cut,
     })
 }
 

@@ -11,8 +11,11 @@
 //! or [`Follow::AllFns`] is followed fn by fn instead: only the fns reached
 //! and the fns they call by name. A *sink* module is never read: the items
 //! reached in it are recorded, for the caller to hold to a list. Another
-//! module's unit tests (a `mod ...tests {` block), and every item
-//! `#[cfg(test)]` marks, are not on any path and are not followed. A small
+//! module's unit tests (a `mod ...tests {` block) are on no path and are
+//! not followed; nor, for a walk from code the app runs, is any item
+//! `#[cfg(test)]` marks ([`Marked::Cut`]), while a walk from test code,
+//! which calls such items, follows them, a marked module of tests aside
+//! ([`Marked::Walked`]). A small
 //! lexer blanks comments and counts only braces that are code, so a brace
 //! in a string ends no block early.
 //!
@@ -73,6 +76,18 @@ pub struct Walk<'a> {
     pub start: Vec<Part>,
     pub by_fn: &'a [(&'a [&'a str], Follow)],
     pub sinks: &'a [&'a [&'a str]],
+    pub marked: Marked,
+}
+
+/// **What a walk does with an item `#[cfg(test)]` marks**: a path the app
+/// runs never reaches one, and test code may call one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Marked {
+    /// Cut, as on no path: a walk from code the app runs.
+    Cut,
+    /// Followed as any other item, a module of tests aside: a walk from
+    /// test code, such as the film's tap, which calls test-only items.
+    Walked,
 }
 
 /// **What a walk reached**: each part and its code, and each sink item,
@@ -252,6 +267,13 @@ fn ident(s: &str) -> &str {
 /// every item with a body that `#[cfg(test)]` marks: a test's helper is on
 /// no path the app takes.
 pub fn without_tests(code: &str) -> String {
+    cut_tests(code, Marked::Cut)
+}
+
+/// `code` with every `mod NAME {` block whose name ends in `tests` cut,
+/// every module `#[cfg(test)]` marks, and, as `marked_items` says, every
+/// other item with a body that it marks.
+fn cut_tests(code: &str, marked_items: Marked) -> String {
     let mut out = String::new();
     let mut lines = code.lines();
     let mut rest_from = 0;
@@ -265,8 +287,11 @@ pub fn without_tests(code: &str) -> String {
         let is_tests = head.is_some_and(|n| n.ends_with("tests")) && t.trim_end().ends_with('{');
         // The item a `#[cfg(test)]` marks, when it has a body: its first
         // `{` comes before any `;`.
+        // A walk of test code follows the items, and still cuts a module
+        // of tests, whatever its name.
+        let cut = marked_items == Marked::Cut || head.is_some();
         let body = match (
-            marked && !attribute,
+            marked && !attribute && cut,
             code[at..].find('{'),
             code[at..].find(';'),
         ) {
@@ -512,7 +537,10 @@ pub fn reach(walk: &Walk<'_>) -> Reached {
         let Some(f) = file_of(walk.src, &p) else {
             continue;
         };
-        let text = without_tests(&code(&std::fs::read_to_string(&f).expect("a module")));
+        let text = cut_tests(
+            &code(&std::fs::read_to_string(&f).expect("a module")),
+            walk.marked,
+        );
         let a = aliases(walk.src, &text, walk.sinks);
         by_fn.insert(p, (fns(&text, *follow), a));
     }
@@ -531,7 +559,7 @@ pub fn reach(walk: &Walk<'_>) -> Reached {
                 let text = code(&std::fs::read_to_string(&f).expect("a module"));
                 let body = match walk.start.contains(&part) {
                     true => text,
-                    false => without_tests(&text),
+                    false => cut_tests(&text, walk.marked),
                 };
                 let names = aliases(walk.src, &body, walk.sinks);
                 (body, p.clone(), names)
