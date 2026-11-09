@@ -76,6 +76,8 @@ enum Failure {
     Times,
     /// The nested call never had its `wake:`.
     Lost(EffectKind),
+    /// A paced kind never ran in the whole run.
+    NeverPaced(EffectKind),
     /// The child said something else was wrong.
     Child,
 }
@@ -101,7 +103,8 @@ enum Cause {
     PrintedPath(Rule, Ticks),
     /// What a program writes: the shell runs this line, typed to it as
     /// keys are sent, and its output comes back through the pty, under
-    /// this config; the frame never driven.
+    /// this config; once green, run with the frame undriven and again
+    /// driven ([`arms`]).
     Program(Program),
     /// A gesture sent to the view's own methods, over what `setup`, typed
     /// once first, drew; the frame never driven.
@@ -154,10 +157,11 @@ enum Ticks {
 
 /// What the row expects: these effects, each exactly once an iteration
 /// and in this order, each in a turn of its own with the responder free,
-/// its nested `wake:` delivered; and any number of the `paced` kinds, each
-/// run so too. A paced effect is one baud holds to a pace of its own -- a
-/// program's copy is announced at most once per message's length
-/// (`copied.rs`) -- so how many fall in a run is not the row's to count.
+/// its nested `wake:` delivered; and the `paced` kinds, each run so too.
+/// A paced effect is one baud holds to a pace of its own -- a program's
+/// copy is announced at most once per message's length (`copied.rs`) --
+/// so how many fall in a run is not the row's to count, but none at all
+/// is a paced effect gone, and fails.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Expect {
     each: &'static [EffectKind],
@@ -298,9 +302,8 @@ const SITES: [Site; 16] = [
         expect: Expect::effect(&[EffectKind::OpenWindow]),
         state: RowState::Control(Failure::InCallback(EffectKind::OpenWindow, Nested::Never)),
     },
-    // **Stage 2's rows: what a program writes**, each pending until its
-    // site moves through the effect queue, its recorded failure what the
-    // probe saw when the row was first run.
+    // **Stage 2's rows: what a program writes**, each made on the effect
+    // queue's turn.
     Site {
         name: SiteName("OSC 52's write to the pasteboard"),
         cause: Cause::Program(Program {
@@ -329,10 +332,7 @@ const SITES: [Site; 16] = [
             config: "",
         }),
         expect: Expect::effect(&[EffectKind::Attention]),
-        state: RowState::Pending {
-            stage: Stage::Two,
-            recorded: Failure::InCallback(EffectKind::Attention, Nested::Never),
-        },
+        state: RowState::Green,
     },
     Site {
         name: SiteName("the bell's raise, mode 1043"),
@@ -341,10 +341,7 @@ const SITES: [Site; 16] = [
             config: "",
         }),
         expect: Expect::effect(&[EffectKind::Front]),
-        state: RowState::Pending {
-            stage: Stage::Two,
-            recorded: Failure::InCallback(EffectKind::Front, Nested::Never),
-        },
+        state: RowState::Green,
     },
     // **A program's window operations, `CSI t`**: an iconify and a full
     // screen's entry, each the probe's in a turn of its own after the read
@@ -408,6 +405,12 @@ const SITES: [Site; 16] = [
 ];
 
 /// Iterations a row runs in its child.
+///
+/// **A green program row's driven arm depends on this count.** There, a
+/// tick takes the read in about 70-80 of 100 iterations (counted under a
+/// break that made the bell's attention inline on the tick's read: 71, 81
+/// and 80), and the red fires on the first one. So at 100 iterations a run
+/// with no tick read is about 0.3^100; lowering the count weakens that red.
 const ITERATIONS: Iterations = Iterations(100);
 
 /// **A link Cmd-clicked**: an `OSC 8` link over the first row's second
@@ -454,41 +457,55 @@ fn config(rule: Rule) -> &'static str {
     }
 }
 
-/// The row's cause in a child; what it came to.
+/// **How a row's children drive the frame.** A program's output is read
+/// by whichever of the reader's `wake` and the frame comes first, so a
+/// green program row runs twice: undriven, where the read is the wake's,
+/// and driven, where a tick can read it first. Both must make the effect
+/// on its turn, so a read on the tick that still makes it inline goes
+/// red. A pending program row runs undriven alone: with the frame driven,
+/// its recorded site would be one entry or the other by timing.
+fn arms(site: &Site) -> &'static [Ticks] {
+    match (site.cause, site.state) {
+        (Cause::PrintedPath(_, Ticks::Driven), _) => &[Ticks::Driven],
+        (Cause::PrintedPath(_, Ticks::None), _) => &[Ticks::None],
+        (Cause::PrintedPath(_, Ticks::DrivenInline), _) => &[Ticks::DrivenInline],
+        (Cause::PrintedPath(_, Ticks::DrivenInFrame), _) => &[Ticks::DrivenInFrame],
+        (Cause::Program(_), RowState::Green) => &[Ticks::None, Ticks::Driven],
+        (Cause::Program(_) | Cause::Gesture(_), _) => &[Ticks::None],
+    }
+}
+
+/// The row's cause in a child for each of its [`arms`]; what the first
+/// that did not pass came to, or that all passed.
 fn run(site: &Site, slug: &str) -> Observed {
+    for (i, &ticks) in arms(site).iter().enumerate() {
+        let observed = run_arm(site, &format!("{slug}-{i}"), ticks);
+        println!("  {:?}, {ticks:?}: {observed:?}", site.name);
+        if observed != Observed::Passed {
+            return observed;
+        }
+    }
+    Observed::Passed
+}
+
+/// The row's cause in one child, the frame driven as `ticks` says.
+fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
     let expect = site.expect;
     let dir = scratch(slug);
     let conf = dir.join("config.toml");
-    let (act, arg, config, ticks, focus) = match site.cause {
-        Cause::PrintedPath(rule, ticks) => {
+    let (act, arg, config, focus) = match site.cause {
+        Cause::PrintedPath(rule, _) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file clicked");
             let file = file.to_str().expect("a UTF-8 path").to_owned();
-            (RigAct::Path, file, config(rule), ticks, RigFocus::Real)
+            (RigAct::Path, file, config(rule), RigFocus::Real)
         }
-        // Undriven: a program's output is read by whichever of the
-        // reader's `wake` and the frame comes first, so with the frame
-        // driven a row's site would be one or the other by timing. The
-        // frame reads it the same way, so the Tick arm's own guard covers
-        // that entry.
-        Cause::Program(p) => (
-            RigAct::Type,
-            p.line.to_owned(),
-            p.config,
-            Ticks::None,
-            RigFocus::Real,
-        ),
+        Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, RigFocus::Real),
         Cause::Gesture(g) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file linked");
             let file = file.to_str().expect("a UTF-8 path");
-            (
-                g.act,
-                g.setup.replace("{file}", file),
-                g.config,
-                Ticks::None,
-                g.focus,
-            )
+            (g.act, g.setup.replace("{file}", file), g.config, g.focus)
         }
     };
     std::fs::write(&conf, config).expect("the config");
@@ -535,6 +552,7 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     let lines: Vec<&str> = text.lines().collect();
     let iterations = usize::from(n.0);
     let mut records = 0;
+    let mut paced = vec![0_usize; expect.paced.len()];
     for line in &lines {
         if *line == "none" {
             return Observed::Failed(Failure::NotRun);
@@ -542,9 +560,12 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
         let Some(r) = Record::parse(line) else {
             return Observed::Failed(Failure::Child);
         };
-        let kind = match expect.paced.contains(&r.kind) {
-            true => r.kind,
-            false => {
+        let kind = match expect.paced.iter().position(|&k| k == r.kind) {
+            Some(at) => {
+                paced[at] += 1;
+                r.kind
+            }
+            None => {
                 let kind = kinds[records % kinds.len()];
                 records += 1;
                 if r.kind != kind {
@@ -572,6 +593,9 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     }
     if records != iterations * kinds.len() {
         return Observed::Failed(Failure::Times);
+    }
+    if let Some(at) = paced.iter().position(|&seen| seen == 0) {
+        return Observed::Failed(Failure::NeverPaced(expect.paced[at]));
     }
     match out.status.success() {
         true => Observed::Passed,

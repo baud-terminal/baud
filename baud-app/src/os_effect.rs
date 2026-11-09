@@ -79,7 +79,22 @@ pub(crate) enum OsEffect {
     FindText(ClipText),
     /// Words to VoiceOver.
     Announce(Spoken),
+    /// The system beep: a bell's sound.
+    Beep,
+    /// The Dock icon asked for the user's attention: a bell's, under
+    /// `?1042`, once.
+    Attention(baud_present_macos::notify::Ask),
+    /// The asking window raised in front of the others without taking
+    /// focus: a bell's, under `?1043`. It names no window: the runner
+    /// raises the slot's own ([`OsQueue::attach`]), so a raise of another
+    /// window cannot be asked.
+    Front,
 }
+
+/// A window, loaded from its slot for one effect: a reference counted,
+/// never a copy.
+pub(crate) type Window =
+    macos_liquid_glass::objc2::rc::Retained<macos_liquid_glass::objc2_app_kit::NSWindow>;
 
 /// **The window a link's window opens over**: its frame, title bar
 /// included, which the new window takes exactly; the size of its content,
@@ -146,6 +161,14 @@ pub(crate) enum Outcome {
     Found(baud_present_macos::clipboard::Written),
     /// The words given to VoiceOver.
     Announced,
+    /// The beep made.
+    Beeped,
+    /// The Dock icon asked for attention.
+    Attended,
+    /// The window raised.
+    Raised,
+    /// Not made: the window it was for has closed.
+    Gone,
 }
 
 /// Which effect an outcome is: each window counts its own, in order.
@@ -190,6 +213,22 @@ struct Slot {
     /// Whether the window still has the slot: a closed window's slot runs
     /// what it asked and is then dropped.
     open: Cell<Open>,
+    /// Whether the window itself is still open: closed the moment it is
+    /// about to close ([`Closer`]), a turn before its driver, and the slot
+    /// with it, lets go (`app::closed`), so an effect on the window asked
+    /// before then finds it gone rather than showing it again.
+    window: Rc<Cell<Open>>,
+    /// The window itself, the one its own effects are made on, given once
+    /// it exists ([`OsQueue::attach`]); weak, so the slot keeps no closed
+    /// window alive.
+    own: Option<macos_liquid_glass::objc2::rc::Weak<macos_liquid_glass::objc2_app_kit::NSWindow>>,
+}
+
+/// What the runner knows of the asking window for one effect: whether it
+/// is open, and, while it is, the window itself if the slot has it.
+struct Its {
+    open: Open,
+    window: Option<Window>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -229,6 +268,8 @@ impl OsQueue {
             next: EffectId::FIRST,
             wake: Rc::new(wake),
             open: Cell::new(Open::Yes),
+            window: Rc::new(Cell::new(Open::Yes)),
+            own: None,
         }));
         QUEUES.with_borrow_mut(|q| q.push(Rc::clone(&slot)));
         OsQueue(slot)
@@ -254,6 +295,32 @@ impl OsQueue {
     /// moved into `into` (whose storage the caller keeps).
     pub(crate) fn answered(&self, into: &mut Vec<EffectDone>) {
         into.append(&mut self.0.borrow_mut().done);
+    }
+
+    /// **The window this queue is the window's own for**: the one its own
+    /// effects, a raise, are made on, given once the window exists.
+    pub(crate) fn attach(&self, window: &macos_liquid_glass::objc2_app_kit::NSWindow) {
+        self.0.borrow_mut().own = Some(macos_liquid_glass::objc2::rc::Weak::new(window));
+    }
+
+    /// What tells this queue its window is closing, for the window's close
+    /// observer to hold.
+    pub(crate) fn closer(&self) -> Closer {
+        Closer(Rc::clone(&self.0.borrow().window))
+    }
+}
+
+/// **A window's close, told to its queue at once**: called from the
+/// window's will-close observer, before the turn that drops its driver.
+/// From then on the window's own effects -- its raise, its attention --
+/// are dropped ([`Outcome::Gone`]); what else it asked still runs, and the
+/// slot is walked until the driver lets go. No borrow of the slot is
+/// taken, so it can be called from any callback.
+pub(crate) struct Closer(Rc<Cell<Open>>);
+
+impl Closer {
+    pub(crate) fn closed(&self) {
+        self.0.set(Open::Closed);
     }
 }
 
@@ -283,7 +350,7 @@ pub(crate) fn install() {
 /// by `exec` with no slot borrowed, and each outcome handed back, the
 /// slot's window woken once if any came. A closed window's slot is dropped
 /// once it has nothing left to run or read.
-fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Open) -> Outcome) {
+fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
     DUE.with(|d| d.set(Due::No));
     DEPTH.with(|d| d.set(d.get() + 1));
     let mut i = 0;
@@ -297,12 +364,30 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Open) -> Outcome) {
             core::mem::swap(&mut s.now, &mut batch);
             batch
         };
-        let open = slot.borrow().open.get();
         let ran = !batch.is_empty();
         for (id, effect) in batch.drain(..) {
-            let outcome = exec(t, effect, open);
+            // Read for each effect: an effect before it can spin a loop the
+            // window closes in.
+            let its = {
+                let s = slot.borrow();
+                match (s.open.get(), s.window.get()) {
+                    (Open::Yes, Open::Yes) => Its {
+                        open: Open::Yes,
+                        window: s
+                            .own
+                            .as_ref()
+                            .and_then(macos_liquid_glass::objc2::rc::Weak::load),
+                    },
+                    _ => Its {
+                        open: Open::Closed,
+                        window: None,
+                    },
+                }
+            };
+            let outcome = exec(t, effect, its);
             slot.borrow_mut().done.push(EffectDone { id, outcome });
         }
+        let open = slot.borrow().open.get();
         // The buffer back, for the next turn's swap.
         {
             let mut s = slot.borrow_mut();
@@ -334,7 +419,8 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Open) -> Outcome) {
 /// **One effect, made**: the desktop call each kind names, with the turn
 /// that proves no responder borrow is held. A closed window's command
 /// starts and its child is the process's to reap.
-fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) -> Outcome {
+fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, its: Its) -> Outcome {
+    let open = its.open;
     use baud_present_macos::link::{Ask, workspace};
     match effect {
         OsEffect::Open { uri, scheme, shown } => Outcome::Opened {
@@ -394,6 +480,34 @@ fn make(t: &baud_present_macos::turn::Turn<'_>, effect: OsEffect, open: Open) ->
             }
             Outcome::Announced
         }
+        OsEffect::Beep => {
+            baud_present_macos::bell::beep(t);
+            Outcome::Beeped
+        }
+        OsEffect::Attention(ask) => on_its_window(open, Some(()), |()| {
+            if let Some(mtm) = macos_liquid_glass::objc2::MainThreadMarker::new() {
+                let _ = baud_present_macos::notify::attention(mtm, ask);
+            }
+            Outcome::Attended
+        }),
+        OsEffect::Front => on_its_window(open, its.window, |window| {
+            baud_present_macos::window::order_front(t, &window);
+            Outcome::Raised
+        }),
+    }
+}
+
+/// **An effect on the asking window itself, made only while it is open**:
+/// a closed window's raise, or its attention, finds the window gone and is
+/// dropped, never made for a window no one can see; so is a raise for a
+/// window the slot was never given. `window` is what the effect is made
+/// on: the slot's own window, or `()` for the attention, which is the
+/// application's Dock icon but asked for this window. Pure over `makes`,
+/// so a test asks it with no window and no turn.
+fn on_its_window<W>(open: Open, window: Option<W>, makes: impl FnOnce(W) -> Outcome) -> Outcome {
+    match (open, window) {
+        (Open::Yes, Some(w)) => makes(w),
+        _ => Outcome::Gone,
     }
 }
 
@@ -558,13 +672,120 @@ mod tests {
         q.ask(spoken("after close"));
         drop(q);
         let mut seen = Vec::new();
-        run_with(&Fake, |_, e, open| {
-            seen.push((said(&e), open));
+        run_with(&Fake, |_, e, its| {
+            seen.push((said(&e), its.open));
             Outcome::Announced
         });
         assert_eq!(seen, [(String::from("after close"), Open::Closed)]);
         assert_eq!(woke.get(), 0);
         assert_eq!(QUEUES.with_borrow(Vec::len), 0, "the slot gone");
+    }
+
+    /// **A closed window's raise and attention are dropped; an open one's
+    /// are made, on the slot's own window**: `on_its_window` calls `makes`
+    /// only while the window is open and the slot has it, and with that
+    /// window. Named break: call `makes` whatever `open` says, and the
+    /// closed window's raise is made.
+    #[test]
+    fn an_effect_on_a_closed_window_is_gone() {
+        let made = core::cell::RefCell::new(Vec::new());
+        let make = |w: &'static str| {
+            made.borrow_mut().push(w);
+            Outcome::Raised
+        };
+        assert!(matches!(
+            on_its_window(Open::Closed, Some("own"), make),
+            Outcome::Gone
+        ));
+        assert!(made.borrow().is_empty(), "nothing made for a closed window");
+        assert!(matches!(
+            on_its_window(Open::Yes, None, make),
+            Outcome::Gone
+        ));
+        assert!(
+            made.borrow().is_empty(),
+            "nor for a window the slot was never given"
+        );
+        assert!(matches!(
+            on_its_window(Open::Yes, Some("own"), make),
+            Outcome::Raised
+        ));
+        assert_eq!(
+            *made.borrow(),
+            ["own"],
+            "the control: made once, on its own window"
+        );
+    }
+
+    /// **A raise names no window**: `OsEffect::Front` carries no field, so
+    /// the runner raises the slot's own window and a raise of another
+    /// window cannot be asked. Held from the source, since a compile-fail
+    /// test cannot run in a binary crate. Named break: `Front(Window)`.
+    #[test]
+    fn a_raise_names_no_window() {
+        let src = include_str!("os_effect.rs");
+        let effects = src
+            .split_once(concat!("pub(crate) enum ", "OsEffect {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("the effects");
+        let fronts: Vec<&str> = effects
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with("Front"))
+            .collect();
+        assert_eq!(fronts, ["Front,"], "a unit variant");
+        let made = src
+            .split_once(concat!("fn ", "make("))
+            .map(|(_, rest)| rest)
+            .expect("the runner's make");
+        assert!(
+            made.contains("OsEffect::Front => on_its_window(open, its.window,"),
+            "raised on the slot's own window"
+        );
+    }
+
+    /// **A window told it is closing finds its own effects gone at once**,
+    /// a turn before its driver drops the queue: each effect runs told the
+    /// window is closed, the window's view is still woken with the
+    /// outcomes, and the slot is still walked, so what it asks next still
+    /// runs. Named break: the runner reads only the queue's `open`, and
+    /// the closing window's effect runs told it is open.
+    #[test]
+    fn a_closing_window_finds_its_effects_gone_before_its_driver_drops() {
+        fresh();
+        let woke = Rc::new(Cell::new(0));
+        let w = Rc::clone(&woke);
+        let q = OsQueue::open(move || w.set(w.get() + 1));
+        let closer = q.closer();
+        q.ask(spoken("raise"));
+        closer.closed();
+        let mut seen = Vec::new();
+        run_with(&Fake, |_, e, its| {
+            seen.push((said(&e), its.open));
+            Outcome::Announced
+        });
+        q.ask(spoken("after"));
+        run_with(&Fake, |_, e, its| {
+            seen.push((said(&e), its.open));
+            Outcome::Announced
+        });
+        assert_eq!(
+            seen,
+            [
+                (String::from("raise"), Open::Closed),
+                (String::from("after"), Open::Closed)
+            ]
+        );
+        assert_eq!(woke.get(), 2, "its view, still there, hears each");
+        assert_eq!(QUEUES.with_borrow(Vec::len), 1, "the slot walked still");
+        drop(q);
+        run_with(&Fake, |_, _, _| Outcome::Announced);
+        assert_eq!(
+            QUEUES.with_borrow(Vec::len),
+            0,
+            "gone once the driver lets go"
+        );
     }
 
     /// **Asking posts one turn for a batch**, on the empty-to-asked edge,

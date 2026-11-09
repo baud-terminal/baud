@@ -15,8 +15,10 @@ use macos_liquid_glass::objc2_foundation::NSRect;
 use crate::probe::{EffectKind, record};
 
 /// `window` raised in front of the others without taking focus:
-/// `orderFrontRegardless`, the bell's raise.
-pub fn order_front(window: &NSWindow) {
+/// `orderFrontRegardless`, the bell's raise and `CSI 5 t`'s, each on a
+/// [`Turn`](crate::turn::Turn) of its own.
+pub fn order_front(t: &crate::turn::Turn<'_>, window: &NSWindow) {
+    let _ = t;
     #[cfg(feature = "effect-probe")]
     {
         let _ = window;

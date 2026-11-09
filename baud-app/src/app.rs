@@ -8071,7 +8071,9 @@ mod drag_tests {
     /// so a shell's exit in the last window goes through that close; every
     /// window is put in the open windows, and its close heard, before its
     /// responder is installed; and the close swaps the driver out on a
-    /// later turn, its display link stopped. Command-N, heard in the key
+    /// later turn, its display link stopped, telling the window's effect
+    /// queue first, in the close itself, so a raise asked before it is not
+    /// made (`os_effect::Closer`). Command-N, heard in the key
     /// handler's Command arm, opens the window on a later turn too. The
     /// windows are AppKit's, so the source is what can fail.
     #[test]
@@ -8154,6 +8156,40 @@ mod drag_tests {
         assert!(
             observer.contains(".exec_async(move || {") && observer.contains("|| closed(id),"),
             "closed on a later turn: {observer}"
+        );
+        let told = observer
+            .find("closer.closed();")
+            .expect("the queue told in the close");
+        assert!(
+            told < observer.find(".exec_async(").expect("the later turn"),
+            "told before the later turn: {observer}"
+        );
+        assert_eq!(
+            SRC.matches(concat!("let closer = driver.app.os.", "closer();"))
+                .count(),
+            1,
+            "the closer is the driver's own queue's"
+        );
+        // The queue is given its own window where the window and the
+        // driver are made, which the event rig's opening shares, so a raise
+        // has a window in every build.
+        let opening = SRC
+            .split_once(concat!("impl ", "Opening {"))
+            .map(|(_, rest)| rest)
+            .expect("the opening");
+        let made = opening
+            .find("let mut driver = Driver {")
+            .expect("the driver made");
+        let given = opening
+            .find(concat!("driver.app.os.", "attach(window.ns_window());"))
+            .expect("its window given");
+        assert!(made < given, "given once the driver exists");
+        assert!(
+            given
+                < opening
+                    .find("\n        Opening {")
+                    .expect("the opening's end"),
+            "in the opening itself"
         );
         let key = body(
             SRC,
@@ -10960,19 +10996,41 @@ mod motion_tests {
         for call in [
             ".hear(",
             concat!(".ring_", "bell(volume)"),
-            "bell::beep(",
-            "Ask::Once)",
+            concat!("OsEffect::", "Beep)"),
+            concat!("OsEffect::", "Attention("),
+            concat!("OsEffect::", "Front)"),
         ] {
             assert_eq!(code.matches(call).count(), 1, "{call}");
         }
-        // The bell's raise and `CSI 5 t`'s, the window operation's: the
-        // same call, which takes no focus, each through baud's window
-        // module, whose body the effect probe replaces; AppKit's is named
-        // only there.
-        assert_eq!(code.matches("window::order_front(").count(), 2);
+        // The bell's three calls are asked of the window's effect queue and
+        // made on its turn (`os_effect.rs`), never here: the beep, the
+        // attention and the raise, the raise the same call as `CSI 5 t`'s,
+        // which takes no focus, through baud's window module, whose body
+        // the effect probe replaces; AppKit's is named only there.
+        assert_eq!(code.matches(concat!("bell::", "beep(")).count(), 0);
+        assert_eq!(code.matches("window::order_front(").count(), 1);
         assert_eq!(code.matches("orderFrontRegardless(").count(), 0);
-        // The beep is baud-present-macos's, which alone names AppKit's.
         assert_eq!(code.matches("NSBeep").count(), 0, "not called here");
+        let made = include_str!("os_effect.rs");
+        let made = made
+            .split_once(concat!("fn ", "make("))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| bare(body))
+            .expect("the runner's make");
+        for arm in [
+            "OsEffect::Beep=>{baud_present_macos::bell::beep(t);Outcome::Beeped}",
+            concat!(
+                "OsEffect::Attention(ask)=>on_its_window(open,Some(()),|()|{",
+                "ifletSome(mtm)=macos_liquid_glass::objc2::MainThreadMarker::new(){",
+                "let_=baud_present_macos::notify::attention(mtm,ask);}Outcome::Attended})"
+            ),
+            concat!(
+                "OsEffect::Front=>on_its_window(open,its.window,|window|{",
+                "baud_present_macos::window::order_front(t,&window);Outcome::Raised})"
+            ),
+        ] {
+            assert_eq!(made.matches(arm).count(), 1, "the runner makes {arm}");
+        }
 
         let pump = SRC
             .split_once(PUMP)
@@ -11055,6 +11113,7 @@ mod motion_tests {
         // as `XRaiseWindow` takes none.
         const SHIM: &str = r#"
             use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
+            use crate::os_effect::OsEffect;
             let window = self.view.window();
             let state = match &window {
                 Some(w) => Window::of(
@@ -11069,20 +11128,17 @@ mod motion_tests {
                 self.app.term.bell_is_urgent(), self.app.term.pop_on_bell(),
                 volume,
             );
-            if ring.sound == Sound::Beep { baud_present_macos::bell::beep(); }
+            if ring.sound == Sound::Beep { let _ = self.app.os.ask(OsEffect::Beep); }
             if ring.shown == Shown::Flash {
                 self.app.bell.ring();
                 self.app.pending = Pending::Dirty;
             }
             if ring.attention == Attention::Request {
-                if let Some(mtm) = MainThreadMarker::new() {
-                    let _ = baud_present_macos::notify::attention(
-                        mtm, baud_present_macos::notify::Ask::Once,
-                    );
-                }
+                let _ = self.app.os
+                    .ask(OsEffect::Attention(baud_present_macos::notify::Ask::Once));
             }
             if ring.raise == Raise::Front {
-                if let Some(w) = &window { baud_present_macos::window::order_front(w); }
+                let _ = self.app.os.ask(OsEffect::Front);
             }
         "#;
         assert_eq!(bare(&shim), bare(SHIM), "the shim is this, and only this");
@@ -13818,6 +13874,8 @@ impl Opening {
             window_id: None,
             close_asked: CloseAsked::No,
         };
+        // The window its queue's own effects, a raise, are made on.
+        driver.app.os.attach(window.ns_window());
         // **The config's watch, heard on the main queue** (`reload.rs`): the
         // dispatch source's handler drains the kqueue and wakes the view, and
         // `pump` takes the mark. No thread of baud's waits on it.
@@ -14081,7 +14139,11 @@ impl Opening {
                 returns_to,
             })
         });
+        // The window's own effects asked before the close are dropped from
+        // now, not from the turn that drops the driver (`os_effect::Closer`).
+        let closer = driver.app.os.closer();
         let closing = baud_present_macos::closing::when_closing(window.ns_window(), move || {
+            closer.closed();
             dispatch2::DispatchQueue::main().exec_async(move || {
                 baud_present_macos::unwind::guard(
                     baud_present_macos::unwind::SiteName("a window's close"),
@@ -14951,6 +15013,7 @@ impl Driver {
     /// volume is the program's for the bells that rang ([`Rings`]).
     fn ring_bell(&mut self, volume: baud_core::BellVolume) {
         use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
+        use crate::os_effect::OsEffect;
         let window = self.view.window();
         let state = match &window {
             Some(w) => Window::of(
@@ -14976,24 +15039,20 @@ impl Driver {
             volume,
         );
         if ring.sound == Sound::Beep {
-            baud_present_macos::bell::beep();
+            let _ = self.app.os.ask(OsEffect::Beep);
         }
         if ring.shown == Shown::Flash {
             self.app.bell.ring();
             self.app.pending = Pending::Dirty;
         }
         if ring.attention == Attention::Request {
-            if let Some(mtm) = MainThreadMarker::new() {
-                let _ = baud_present_macos::notify::attention(
-                    mtm,
-                    baud_present_macos::notify::Ask::Once,
-                );
-            }
+            let _ = self
+                .app
+                .os
+                .ask(OsEffect::Attention(baud_present_macos::notify::Ask::Once));
         }
         if ring.raise == Raise::Front {
-            if let Some(w) = &window {
-                baud_present_macos::window::order_front(w);
-            }
+            let _ = self.app.os.ask(OsEffect::Front);
         }
     }
 
@@ -16039,7 +16098,11 @@ impl Driver {
                 }
                 Outcome::Cleared
                 | Outcome::Found(clipboard::Written::Taken)
-                | Outcome::Announced => {}
+                | Outcome::Announced
+                | Outcome::Beeped
+                | Outcome::Attended
+                | Outcome::Raised
+                | Outcome::Gone => {}
             }
         }
         self.app.os_done = done;
@@ -20604,11 +20667,11 @@ mod tests {
         }
     }
 
-    /// **Every window operation's AppKit call runs on the main queue, after
-    /// the callback that asked, and is the effect probe's under its
+    /// **Every window operation's AppKit call runs on a turn of its own,
+    /// after the callback that asked, and is the effect probe's under its
     /// feature.** No test opens a window, so the source is held:
     /// `window_requests` hands every call but the redraw to `window_later`,
-    /// each of the six is made inside its main-queue block through
+    /// each of the six is made inside its `turn::later` block through
     /// baud-present-macos's `window` module and nowhere else in the driver,
     /// and the driver names none of AppKit's six itself.
     ///
@@ -20631,8 +20694,9 @@ mod tests {
             .1;
         let body = &body[..body.find("\n}\n").expect("its end")];
         let block = body
-            .split_once(concat!(".exec_", "async(move || {"))
-            .expect("a main-queue block")
+            .split_once(concat!("turn::", "later("))
+            .and_then(|(_, rest)| rest.split_once("move |t| {"))
+            .expect("a turn of its own")
             .1;
         // Spelled apart, so the bell's count of its raise does not find
         // this test's.
@@ -20640,7 +20704,7 @@ mod tests {
             ("window::deminiaturize(w)", ".deminiaturize("),
             ("window::miniaturize(w)", ".miniaturize("),
             (
-                concat!("window::order_", "front(w)"),
+                concat!("window::order_", "front(t, w)"),
                 concat!(".orderFront", "Regardless("),
             ),
             ("window::order_back(w)", ".orderBack("),
@@ -20651,8 +20715,6 @@ mod tests {
             let name = call.split_once('(').expect("a call").0;
             let elsewhere = code.matches(&format!("{name}(")).count();
             let elsewhere = match name {
-                // The bell's raise is the other.
-                "window::order_front" => elsewhere - 1,
                 // A link's window placed over the one it covers, in `show`,
                 // which only `open_running`'s turn reaches with an `Over`.
                 "window::set_frame" => elsewhere - 1,
@@ -21330,8 +21392,9 @@ fn widen_later(window: &NSWindow, width: CGFloat) {
     });
 }
 
-/// **A window operation's AppKit call, once the callback that asked has
-/// returned**, for the reason `widen_later` waits: a frame change resizes
+/// **A window operation's AppKit call, on a turn of its own once the
+/// callback that asked has returned** (`turn::later`), for the reason
+/// `widen_later` waits: a frame change resizes
 /// the view, whose `setFrameSize:` reports to the responder the window
 /// crate borrows for the callback. `deminiaturize:` (`[[source:
 /// apple-nswindow-deminiaturize]]`), `miniaturize:` (`[[source:
@@ -21348,24 +21411,27 @@ fn window_later(window: &NSWindow, action: crate::winops::MacAction) {
     use crate::winops::MacAction;
     use baud_present_macos::window;
     let w = dispatch2::MainThreadBound::new(window.retain(), window.mtm());
-    dispatch2::DispatchQueue::main().exec_async(move || {
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
-        let w = w.get(mtm);
-        match action {
-            MacAction::Deminiaturize => window::deminiaturize(w),
-            MacAction::Miniaturize => window::miniaturize(w),
-            MacAction::Front => window::order_front(w),
-            MacAction::Back => window::order_back(w),
-            MacAction::ToggleFullScreen => window::toggle_full_screen(w),
-            MacAction::Frame(f, _) => window::set_frame(
-                w,
-                NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.w, f.h)),
-            ),
-            MacAction::Redraw | MacAction::Nothing(_) => {}
-        }
-    });
+    baud_present_macos::turn::later(
+        baud_present_macos::unwind::SiteName("a program's window operation"),
+        move |t| {
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let w = w.get(mtm);
+            match action {
+                MacAction::Deminiaturize => window::deminiaturize(w),
+                MacAction::Miniaturize => window::miniaturize(w),
+                MacAction::Front => window::order_front(t, w),
+                MacAction::Back => window::order_back(w),
+                MacAction::ToggleFullScreen => window::toggle_full_screen(w),
+                MacAction::Frame(f, _) => window::set_frame(
+                    w,
+                    NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.w, f.h)),
+                ),
+                MacAction::Redraw | MacAction::Nothing(_) => {}
+            }
+        },
+    );
 }
 
 /// The grid a view `px` pixels big holds, in cells of `cell` pixels: the
