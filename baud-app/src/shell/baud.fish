@@ -5,7 +5,7 @@
 # baud starts fish with `-C 'source <this file>'`, which fish runs once
 # its own startup and the user's configuration are done, before the
 # first prompt; nothing in fish's environment changes. fish 4 and later
-# mark their prompts themselves, and this file adds nothing to them.
+# mark their prompts themselves, and this file adds no mark to them.
 # [shell] integration = "off" in baud's config starts fish without it.
 #
 # fish 3 draws its prompt from the function fish_prompt, so the mark
@@ -54,5 +54,18 @@ if set -q BAUD_SHELL_INTEGRATION
     function __baud_postexec --on-event fish_postexec
         printf '\e]133;D;%s;aid=%s\a' $status $fish_pid
         set -g __baud_prompted 2
+    end
+end
+
+# [shell] ssh_env = "on" in baud's config, set by baud's -C before this
+# file: ssh asks to send COLORTERM and TERM_PROGRAM (SendEnv,
+# ssh_config(5)), which a server keeps only where its sshd_config(5) names
+# them in AcceptEnv. In fish 4 too; an ssh function of the user's is kept.
+if set -q __baud_ssh_env
+    set -e __baud_ssh_env
+    if not functions -q ssh
+        function ssh --wraps ssh --description 'ssh, asking to send COLORTERM and TERM_PROGRAM'
+            command ssh -o SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM $argv
+        end
     end
 end

@@ -15,6 +15,10 @@ if [ -n "${BAUD_BASH_ENV+set}" ]; then
 else
   unset ENV
 fi
+# [shell] ssh_env = "on" in baud's config, kept for the end of this file
+# and out of what the user's startup files and commands see.
+__baud_ssh_env=${BAUD_SSH_ENV-}
+unset BAUD_SSH_ENV
 set +o posix
 # POSIX mode turned these on; bash outside it starts with them off.
 shopt -u inherit_errexit 2>/dev/null
@@ -274,3 +278,12 @@ __baud_marks() {
 }
 __baud_marks
 unset -f __baud_marks
+
+# [shell] ssh_env = "on": ssh asks to send COLORTERM and TERM_PROGRAM
+# (SendEnv, ssh_config(5)), which a server keeps only where its
+# sshd_config(5) names them in AcceptEnv. An ssh function or alias of the
+# user's own is kept.
+if [ -n "$__baud_ssh_env" ] && ! declare -F ssh >/dev/null && ! alias ssh >/dev/null 2>&1; then
+  ssh() { command ssh -o SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM "$@"; }
+fi
+unset __baud_ssh_env

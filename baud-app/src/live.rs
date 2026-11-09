@@ -119,6 +119,9 @@ pub enum Part {
     /// `[shell] integration`: what a shell is started with, which the
     /// window's shell already was.
     ShellIntegration,
+    /// `[shell] ssh_env`: what a shell is started with, which the window's
+    /// shell already was.
+    ShellSshEnv,
     /// `[shell] program`: which shell a window starts, which the window's
     /// shell already was.
     ShellProgram,
@@ -166,6 +169,7 @@ impl Part {
             | Part::Printing
             | Part::ClipboardArea
             | Part::ShellIntegration
+            | Part::ShellSshEnv
             | Part::ShellProgram => Takes::NextLaunch,
         }
     }
@@ -212,6 +216,7 @@ impl Part {
             Part::Printing => "[screen] printing",
             Part::ClipboardArea => "[clipboard] body_kb",
             Part::ShellIntegration => "[shell] integration",
+            Part::ShellSshEnv => "[shell] ssh_env",
             Part::ShellProgram => "[shell] program",
         }
     }
@@ -290,6 +295,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         wrap_words,
         wrap_marker,
         shell_integration,
+        shell_ssh_env,
         shell_program,
         cursor_guide,
         set_up,
@@ -408,6 +414,7 @@ pub fn between(old: &Config, new: &Config, faces: FaceFiles) -> Vec<Part> {
         old.shell_integration != *shell_integration,
         Part::ShellIntegration,
     );
+    part(old.shell_ssh_env != *shell_ssh_env, Part::ShellSshEnv);
     part(old.shell_program != *shell_program, Part::ShellProgram);
     out
 }

@@ -84,12 +84,25 @@ pub enum Integration {
     Off,
 }
 
+/// `[shell] ssh_env`: whether the integration's zsh, bash and fish wrap
+/// `ssh` so it asks to send `COLORTERM` and `TERM_PROGRAM`, `-o
+/// SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM` (ssh_config(5), `SendEnv`).
+/// A server keeps one only where its sshd_config(5) `AcceptEnv` names it.
+/// **Off by default**: it puts a function of baud's in front of your own
+/// `ssh` command, which only you can ask for; an `ssh` function or alias of
+/// yours is kept. Nothing with the integration off.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SshEnv {
+    Off,
+    On,
+}
+
 /// The variables baud's injection sets for a script to put back: none of
 /// them reaches the user's own startup files, each script unsetting its
 /// own first. They are dropped from the parent's environment at every
 /// spawn (`pty::OUTER`), so a baud started inside a shell that somehow
 /// kept one passes none of them on.
-pub(crate) const HELPERS: [&str; 3] = [ZSH_ZDOTDIR, BASH_ENV, MARKER];
+pub(crate) const HELPERS: [&str; 4] = [ZSH_ZDOTDIR, BASH_ENV, MARKER, SSH_ENV];
 
 /// zsh's own `ZDOTDIR`, while baud's directory stands in it.
 const ZSH_ZDOTDIR: &str = "BAUD_ZSH_ZDOTDIR";
@@ -98,13 +111,16 @@ const BASH_ENV: &str = "BAUD_BASH_ENV";
 /// The marker each script sets as a shell variable, never exported; listed
 /// so an exported one from elsewhere is dropped rather than passed on.
 const MARKER: &str = "BAUD_SHELL_INTEGRATION";
+/// `[shell] ssh_env = "on"`, for zsh's and bash's script, which each
+/// unset it first and wrap `ssh` at its end.
+const SSH_ENV: &str = "BAUD_SSH_ENV";
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) use inject::{Injection, inject};
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inject {
-    use super::{BASH_ENV, Integration, ZSH_ZDOTDIR};
+    use super::{BASH_ENV, Integration, SSH_ENV, SshEnv, ZSH_ZDOTDIR};
     use std::ffi::{CString, OsString};
     use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
@@ -183,13 +199,15 @@ mod inject {
     }
 
     /// **What baud adds to the start of `shell`**, found at `path`, under
-    /// `integration`, with the parent's environment `parent`: `None` when
+    /// `integration` and `ssh_env`, with the parent's environment `parent`:
+    /// `None` when
     /// it is off, when the shell is not one of the three, when it is
     /// macOS's `/bin/bash`, or when the scripts cannot be written where
     /// only the user can write them -- the shell then starts as it would
     /// without baud.
     pub fn inject(
         integration: Integration,
+        ssh_env: SshEnv,
         shell: &str,
         path: &str,
         parent: &[(OsString, OsString)],
@@ -208,11 +226,18 @@ mod inject {
                 return None;
             }
         };
-        Some(injection(kind, &dir, parent))
+        Some(injection(kind, &dir, parent, ssh_env))
     }
 
-    /// The arguments and variables for `kind`, its scripts under `dir`.
-    pub(super) fn injection(kind: Kind, dir: &Path, parent: &[(OsString, OsString)]) -> Injection {
+    /// The arguments and variables for `kind`, its scripts under `dir`;
+    /// with `ssh_env` on, zsh and bash told by [`SSH_ENV`] and fish by a
+    /// shell variable its `-C` sets before the script.
+    pub(super) fn injection(
+        kind: Kind,
+        dir: &Path,
+        parent: &[(OsString, OsString)],
+        ssh_env: SshEnv,
+    ) -> Injection {
         let os = |s: &str| OsString::from(s);
         let at = |p: &str| dir.join(p).into_os_string();
         let kept = |own: &str, helper: &str| {
@@ -221,10 +246,15 @@ mod inject {
                 .into_iter()
                 .collect::<Vec<_>>()
         };
+        let wrap = match ssh_env {
+            SshEnv::On => Some((os(SSH_ENV), os("1"))),
+            SshEnv::Off => None,
+        };
         match kind {
             Kind::Zsh => {
                 let mut env = kept("ZDOTDIR", ZSH_ZDOTDIR);
                 env.push((os("ZDOTDIR"), at("zsh")));
+                env.extend(wrap);
                 Injection {
                     args: Vec::new(),
                     env,
@@ -233,13 +263,18 @@ mod inject {
             Kind::Bash => {
                 let mut env = kept("ENV", BASH_ENV);
                 env.push((os("ENV"), at("bash/baud.bash")));
+                env.extend(wrap);
                 Injection {
                     args: vec![c"--posix".to_owned()],
                     env,
                 }
             }
             Kind::Fish => {
-                let mut source = b"source '".to_vec();
+                let mut source = match ssh_env {
+                    SshEnv::On => b"set -g __baud_ssh_env 1; ".to_vec(),
+                    SshEnv::Off => Vec::new(),
+                };
+                source.extend_from_slice(b"source '");
                 source.extend_from_slice(at("fish/baud.fish").as_bytes());
                 source.push(b'\'');
                 Injection {
@@ -425,13 +460,18 @@ mod tests {
     #[test]
     fn zsh_gets_zdotdir_and_keeps_the_users() {
         let dir = Path::new("/run/user/1000/baud/shell-x");
-        let none = injection(Kind::Zsh, dir, &env(&[("HOME", "/h")]));
+        let none = injection(Kind::Zsh, dir, &env(&[("HOME", "/h")]), SshEnv::Off);
         assert_eq!(none.args, Vec::<std::ffi::CString>::new());
         assert_eq!(
             none.env,
             env(&[("ZDOTDIR", "/run/user/1000/baud/shell-x/zsh")])
         );
-        let own = injection(Kind::Zsh, dir, &env(&[("ZDOTDIR", "/h/.config/zsh")]));
+        let own = injection(
+            Kind::Zsh,
+            dir,
+            &env(&[("ZDOTDIR", "/h/.config/zsh")]),
+            SshEnv::Off,
+        );
         assert_eq!(
             own.env,
             env(&[
@@ -445,7 +485,7 @@ mod tests {
     #[test]
     fn bash_gets_posix_and_env_and_keeps_the_users() {
         let dir = Path::new("/d");
-        let i = injection(Kind::Bash, dir, &env(&[("ENV", "/h/.shrc")]));
+        let i = injection(Kind::Bash, dir, &env(&[("ENV", "/h/.shrc")]), SshEnv::Off);
         assert_eq!(i.args, [c"--posix".to_owned()]);
         assert_eq!(
             i.env,
@@ -460,12 +500,106 @@ mod tests {
             Kind::Fish,
             Path::new("/d"),
             &env(&[("XDG_DATA_DIRS", "/x")]),
+            SshEnv::Off,
         );
         assert_eq!(
             i.args,
             [c"-C".to_owned(), c"source '/d/fish/baud.fish'".to_owned()]
         );
         assert!(i.env.is_empty());
+    }
+
+    /// **`[shell] ssh_env = "on"` tells each script, and off tells none**:
+    /// zsh and bash `BAUD_SSH_ENV=1` beside what they get anyway, which each
+    /// script unsets before the user's files run, and fish a shell variable
+    /// its `-C` sets before the script, with nothing in its environment.
+    /// The variable is one of the helpers a spawn drops from the parent's
+    /// environment. Perturbation: tell the scripts whatever `ssh_env` says
+    /// -- the off arms carry it.
+    #[test]
+    fn ssh_env_on_tells_each_script_and_off_tells_none() {
+        let dir = Path::new("/d");
+        let parent = env(&[("HOME", "/h")]);
+        for (kind, base) in [
+            (Kind::Zsh, env(&[("ZDOTDIR", "/d/zsh")])),
+            (Kind::Bash, env(&[("ENV", "/d/bash/baud.bash")])),
+        ] {
+            let off = injection(kind, dir, &parent, SshEnv::Off);
+            assert_eq!(off.env, base, "{kind:?} off");
+            let on = injection(kind, dir, &parent, SshEnv::On);
+            let mut want = base.clone();
+            want.extend(env(&[("BAUD_SSH_ENV", "1")]));
+            assert_eq!(on.env, want, "{kind:?} on");
+            assert_eq!(on.args, off.args, "{kind:?}: the arguments as they were");
+        }
+        let fish = |s| injection(Kind::Fish, dir, &parent, s);
+        assert_eq!(
+            fish(SshEnv::Off).args,
+            [c"-C".to_owned(), c"source '/d/fish/baud.fish'".to_owned()]
+        );
+        assert_eq!(
+            fish(SshEnv::On).args,
+            [
+                c"-C".to_owned(),
+                c"set -g __baud_ssh_env 1; source '/d/fish/baud.fish'".to_owned()
+            ]
+        );
+        assert!(
+            fish(SshEnv::On).env.is_empty(),
+            "nothing in fish's environment"
+        );
+        assert!(
+            HELPERS.contains(&"BAUD_SSH_ENV"),
+            "dropped from the parent's"
+        );
+    }
+
+    /// **Each script wraps `ssh` one way, only when told, and keeps the
+    /// user's own**: the one command it runs, `command ssh -o
+    /// SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM` and the arguments given;
+    /// the variable that tells it unset before the user's files run (zsh,
+    /// bash) or erased (fish); and the wrapper defined only where no `ssh`
+    /// of the user's is. The real shells run it in `pty/shell_tests.rs`.
+    #[test]
+    fn each_script_wraps_ssh_only_when_told() {
+        const CALL: &str = "command ssh -o SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM";
+        let zsh = include_str!("shell/zshenv.zsh");
+        let bash = include_str!("shell/baud.bash");
+        let fish = include_str!("shell/baud.fish");
+        for (name, text, args) in [
+            ("zsh", zsh, "\"$@\""),
+            ("bash", bash, "\"$@\""),
+            ("fish", fish, "$argv"),
+        ] {
+            assert_eq!(text.matches(CALL).count(), 1, "{name}: one call");
+            assert!(
+                text.contains(&format!("{CALL} {args}")),
+                "{name}: the arguments given"
+            );
+        }
+        // Told, and the telling gone before the user's files.
+        let unset = |text: &str, set: &str, gone: &str| {
+            let (s, g) = (text.find(set).expect(set), text.find(gone).expect(gone));
+            s < g
+        };
+        assert!(unset(
+            zsh,
+            "__baud_ssh_env=${BAUD_SSH_ENV-}",
+            "builtin unset BAUD_SSH_ENV"
+        ));
+        assert!(
+            zsh.find("builtin unset BAUD_SSH_ENV") < zsh.find("source -- ${ZDOTDIR-$HOME}/.zshenv")
+        );
+        assert!(unset(
+            bash,
+            "__baud_ssh_env=${BAUD_SSH_ENV-}",
+            "unset BAUD_SSH_ENV"
+        ));
+        assert!(bash.find("unset BAUD_SSH_ENV") < bash.find(". /etc/profile"));
+        assert!(fish.contains("set -q __baud_ssh_env") && fish.contains("set -e __baud_ssh_env"));
+        // The user's own kept.
+        assert!(bash.contains("! declare -F ssh >/dev/null && ! alias ssh >/dev/null 2>&1"));
+        assert!(fish.contains("not functions -q ssh"));
     }
 
     /// **Off, an unknown shell and macOS's `/bin/bash` get nothing**, and
@@ -475,13 +609,28 @@ mod tests {
         let d = scratch("none");
         let parent = env(&[("TMPDIR", d.to_str().expect("UTF-8"))]);
         assert_eq!(
-            inject(Integration::Off, "/bin/zsh", "/bin/zsh", &parent),
+            inject(
+                Integration::Off,
+                SshEnv::Off,
+                "/bin/zsh",
+                "/bin/zsh",
+                &parent
+            ),
             None
         );
-        assert_eq!(inject(Integration::On, "/bin/sh", "/bin/sh", &parent), None);
+        assert_eq!(
+            inject(Integration::On, SshEnv::Off, "/bin/sh", "/bin/sh", &parent),
+            None
+        );
         if cfg!(target_os = "macos") {
             assert_eq!(
-                inject(Integration::On, "/bin/bash", "/bin/bash", &parent),
+                inject(
+                    Integration::On,
+                    SshEnv::Off,
+                    "/bin/bash",
+                    "/bin/bash",
+                    &parent
+                ),
                 None
             );
         }
@@ -490,7 +639,16 @@ mod tests {
             "nothing written"
         );
         // The control: zsh on gets its directory.
-        assert!(inject(Integration::On, "/bin/zsh", "/bin/zsh", &parent).is_some());
+        assert!(
+            inject(
+                Integration::On,
+                SshEnv::Off,
+                "/bin/zsh",
+                "/bin/zsh",
+                &parent
+            )
+            .is_some()
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

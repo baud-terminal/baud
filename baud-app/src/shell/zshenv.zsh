@@ -15,6 +15,10 @@ if [[ -n ${BAUD_ZSH_ZDOTDIR+set} ]]; then
 else
   builtin unset ZDOTDIR
 fi
+# [shell] ssh_env = "on" in baud's config, out of what the user's startup
+# files and commands see.
+builtin typeset -g __baud_ssh_env=${BAUD_SSH_ENV-}
+builtin unset BAUD_SSH_ENV
 
 if [[ -o interactive ]]; then
   # zsh loads this module just before $ZDOTDIR/.zshenv, and it looks for
@@ -88,7 +92,16 @@ if [[ -o interactive ]]; then
   builtin typeset -ga precmd_functions preexec_functions
   precmd_functions+=(__baud_precmd)
   preexec_functions+=(__baud_preexec)
+
+  # [shell] ssh_env = "on": ssh asks to send COLORTERM and TERM_PROGRAM
+  # (SendEnv, ssh_config(5)), which a server keeps only where its
+  # sshd_config(5) names them in AcceptEnv. Defined before the user's
+  # startup files, so an ssh function or alias of theirs takes its place.
+  if [[ -n $__baud_ssh_env ]]; then
+    ssh() { command ssh -o SendEnv=COLORTERM -o SendEnv=TERM_PROGRAM "$@"; }
+  fi
 fi
+builtin unset __baud_ssh_env
 
 # zsh reads a startup file that exists and is readable; so does this.
 [[ -r ${ZDOTDIR-$HOME}/.zshenv ]] && builtin source -- ${ZDOTDIR-$HOME}/.zshenv

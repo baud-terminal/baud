@@ -212,6 +212,15 @@ impl Session {
 
     /// [`Session::start`] at `ws`.
     fn start_at(ws: &WinSize, env: Vec<(OsString, OsString)>, integration: Integration) -> Session {
+        Session::start_as(ws, env, &integration.into())
+    }
+
+    /// [`Session::start_at`], the shell started as `start` says.
+    fn start_as(
+        ws: &WinSize,
+        env: Vec<(OsString, OsString)>,
+        start: &super::ShellStart,
+    ) -> Session {
         let (_, master) = Pty::fork_given(
             text_area(ws, Px::of(8), Px::of(16)),
             None,
@@ -219,7 +228,7 @@ impl Session {
             || None,
             Parent::Other,
             None,
-            &integration.into(),
+            start,
         )
         .expect("forkpty");
         make_nonblocking(master);
@@ -1108,8 +1117,14 @@ fn the_helpers_never_pass_from_a_parent() {
 fn a_command_gets_nothing() {
     let dir = scratch("command");
     let parent = parent(&dir, Path::new("/bin/zsh"), &[]);
-    let exec =
-        super::Exec::of(Some("true".into()), &parent, Integration::On, None).expect("an exec");
+    let exec = super::Exec::of(
+        Some("true".into()),
+        &parent,
+        Integration::On,
+        crate::shell::SshEnv::Off,
+        None,
+    )
+    .expect("an exec");
     assert!(exec.injection.is_none());
     let argv: Vec<String> = exec
         .argv
@@ -1118,7 +1133,14 @@ fn a_command_gets_nothing() {
         .collect();
     assert_eq!(argv, ["sh", "-c", "true"]);
     // The control: the same parent's login shell is given its start.
-    let shell = super::Exec::of(None, &parent, Integration::On, None).expect("an exec");
+    let shell = super::Exec::of(
+        None,
+        &parent,
+        Integration::On,
+        crate::shell::SshEnv::Off,
+        None,
+    )
+    .expect("an exec");
     assert!(shell.injection.is_some());
 }
 
@@ -1430,4 +1452,180 @@ fn bash_preexec_runs_as_without_baud() {
             assert_eq!(on, off, "{tag}: with integration on");
         }
     }
+}
+
+/// **The arguments `ssh` is run with, typed at the prompt**, under
+/// `ssh_env`, with `rc` at the end of the user's own startup file: a
+/// stand-in `ssh` writes the arguments it was given to `~/ssh-argv`, one a
+/// line, and that it was never handed `BAUD_SSH_ENV`. `None` when the shell
+/// is not here.
+///
+/// **No other `ssh` can run.** The shell starts with `PATH` the stand-in's
+/// directory alone, and the user's own file sets it so again, after the
+/// system's startup (macOS's `path_helper`) has put its directories back;
+/// and before anything is typed the shell is asked where `ssh` is, by a
+/// lookup that runs nothing, and the test fails there unless it is the
+/// stand-in.
+fn ssh_argv(sh: Sh, ssh_env: crate::shell::SshEnv, rc: &str) -> Option<Vec<String>> {
+    ssh_argv_after(sh, ssh_env, rc, "").map(|r| r.unwrap_or_else(|why| panic!("{why}")))
+}
+
+/// [`ssh_argv`], `before` put ahead of the stand-in's directory on the
+/// user's file's `PATH`: an `Err` naming where `ssh` was found, with nothing
+/// typed, where it is not the stand-in.
+fn ssh_argv_after(
+    sh: Sh,
+    ssh_env: crate::shell::SshEnv,
+    rc: &str,
+    before: &str,
+) -> Option<Result<Vec<String>, String>> {
+    let shell = match sh.find() {
+        Ok(p) => p,
+        Err(why) => {
+            eprintln!("skipped: {why}");
+            return None;
+        }
+    };
+    let tag = format!(
+        "ssh-{}-{ssh_env:?}-{}-{}",
+        sh.name(),
+        rc.len(),
+        before.len()
+    );
+    let dir = scratch(&tag);
+    let home = dir.join("home");
+    stock(sh, &home);
+    let main = match sh {
+        Sh::Zsh => ".zshrc",
+        Sh::Bash => ".bashrc",
+        Sh::Fish => ".config/fish/config.fish",
+    };
+    let bin = dir.join("bin");
+    let stand_in = bin.join("ssh");
+    let only = match sh {
+        Sh::Zsh | Sh::Bash => format!("PATH={before}{}\n", bin.display()),
+        Sh::Fish => format!(
+            "set -gx PATH {} {}\n",
+            before.trim_end_matches(':').replace(':', " "),
+            bin.display()
+        ),
+    };
+    let text = std::fs::read_to_string(home.join(main)).expect("the startup file");
+    put(&home, main, &format!("{text}{only}{rc}"));
+    put(
+        &bin,
+        "ssh",
+        "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > \"$HOME/ssh-argv\"\n\
+         printf '%s\\n' \"${BAUD_SSH_ENV-unset}\" > \"$HOME/ssh-told\"\n",
+    );
+    std::fs::set_permissions(
+        &stand_in,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .expect("chmod");
+    let mut env = parent(&dir, &shell, &[]);
+    env.retain(|(k, _)| k != "PATH");
+    env.push((OsString::from("PATH"), bin.clone().into_os_string()));
+    let start = super::ShellStart {
+        ssh_env,
+        ..Integration::On.into()
+    };
+    let mut s = Session::start_as(&WS, env, &start);
+    s.reading(Times::ONCE);
+    // Where `ssh` is on PATH, functions passed over, nothing run.
+    s.run(match sh {
+        Sh::Zsh => "whence -p ssh > ~/ssh-where",
+        Sh::Bash => "type -P ssh > ~/ssh-where",
+        Sh::Fish => "command -s ssh > ~/ssh-where",
+    });
+    let found = std::fs::read_to_string(home.join("ssh-where")).unwrap_or_default();
+    if found.trim_end() != stand_in.to_string_lossy() {
+        s.finish();
+        return Some(Err(format!(
+            "{}: ssh is {:?}, not the stand-in {}: nothing typed",
+            sh.name(),
+            found.trim_end(),
+            stand_in.display()
+        )));
+    }
+    s.run("ssh -p 2222 host");
+    let argv = std::fs::read_to_string(home.join("ssh-argv")).expect("the stand-in ran");
+    let told = std::fs::read_to_string(home.join("ssh-told")).expect("the stand-in ran");
+    assert_eq!(
+        told,
+        "unset\n",
+        "{}: the telling never reaches a command",
+        sh.name()
+    );
+    s.finish();
+    Some(Ok(argv.lines().map(str::to_owned).collect()))
+}
+
+/// **The ssh test stops before typing when another `ssh` is reachable**:
+/// the system's directory put ahead of the stand-in's on the user's
+/// `PATH`, the lookup finds the system's `ssh` and the test ends there,
+/// nothing typed. Where the system has no `ssh` the lookup finds the
+/// stand-in, and the case says so. Shown red, safely: `ssh_argv` handed
+/// the system's directory first fails every shell's arm at the lookup,
+/// nothing typed. (Dropping the lookup is not run: it would run the
+/// system's `ssh`.)
+#[test]
+fn the_ssh_test_never_reaches_another_ssh() {
+    use crate::shell::SshEnv;
+    let system = Path::new("/usr/bin/ssh");
+    for sh in [Sh::Zsh, Sh::Bash, Sh::Fish] {
+        let Some(got) = ssh_argv_after(sh, SshEnv::On, "", "/usr/bin:") else {
+            continue;
+        };
+        match system.exists() {
+            true => {
+                let why = got.expect_err("the system's ssh found, the test stopped");
+                assert!(why.contains("\"/usr/bin/ssh\""), "{why}");
+            }
+            false => assert!(got.is_ok(), "no system ssh: the stand-in found"),
+        }
+    }
+}
+
+/// **`[shell] ssh_env = "on"` runs `ssh` asking to send `COLORTERM` and
+/// `TERM_PROGRAM`, and off runs it as typed**, in each shell, through the
+/// app's own spawn; an `ssh` function of the user's own is kept, the
+/// wrapper defined only where none is (bash and fish test for one; zsh's is
+/// defined before the user's files, which then replace it). Perturbation:
+/// define the wrapper whatever the scripts are told -- the off arm carries
+/// the options.
+fn ssh_env_wraps_ssh(sh: Sh) {
+    use crate::shell::SshEnv;
+    let typed = ["-p", "2222", "host"];
+    let Some(off) = ssh_argv(sh, SshEnv::Off, "") else {
+        return;
+    };
+    assert_eq!(off, typed, "{}: off, as typed", sh.name());
+    let on = ssh_argv(sh, SshEnv::On, "").expect("the shell");
+    let mut want = vec!["-o", "SendEnv=COLORTERM", "-o", "SendEnv=TERM_PROGRAM"];
+    want.extend(typed);
+    assert_eq!(on, want, "{}: on, asking to send both", sh.name());
+    let own = match sh {
+        Sh::Zsh | Sh::Bash => "\nssh() { command ssh -v \"$@\"; }\n",
+        Sh::Fish => "\nfunction ssh; command ssh -v $argv; end\n",
+    };
+    let kept = ssh_argv(sh, SshEnv::On, own).expect("the shell");
+    let mut want = vec!["-v"];
+    want.extend(typed);
+    assert_eq!(kept, want, "{}: the user's own ssh kept", sh.name());
+}
+
+#[test]
+fn zsh_ssh_env_wraps_ssh() {
+    ssh_env_wraps_ssh(Sh::Zsh);
+}
+
+#[test]
+fn bash_ssh_env_wraps_ssh() {
+    ssh_env_wraps_ssh(Sh::Bash);
+}
+
+#[test]
+fn fish_ssh_env_wraps_ssh() {
+    ssh_env_wraps_ssh(Sh::Fish);
 }

@@ -366,6 +366,10 @@ pub struct Config {
     /// too -- `"on"` by default, or `"off"`, which starts every shell as
     /// it would start anywhere else ([`crate::shell::Integration`]).
     pub shell_integration: crate::shell::Integration,
+    /// `[shell] ssh_env`: whether the integration wraps `ssh` to ask to
+    /// send `COLORTERM` and `TERM_PROGRAM` -- `"off"` by default, or `"on"`
+    /// ([`crate::shell::SshEnv`]).
+    pub shell_ssh_env: crate::shell::SshEnv,
     /// `[shell] program`: the shell a window starts, by its path, in place
     /// of `$SHELL` -- unset by default, which starts `$SHELL`, else the
     /// system's. Run as `$SHELL` is, as a login shell with the integration
@@ -1269,6 +1273,7 @@ impl Config {
             wrap_words: baud_render::WordWrap::On,
             wrap_marker: baud_render::WrapMarker::On,
             shell_integration: crate::shell::Integration::On,
+            shell_ssh_env: crate::shell::SshEnv::Off,
             shell_program: None,
             set_up: baud_domain::SetUp::FACTORY,
             checksum: baud_domain::ChecksumReport::On,
@@ -2254,6 +2259,18 @@ impl Config {
                                 "config: [shell] integration {other:?} is not on or off; using on"
                             ));
                             crate::shell::Integration::On
+                        }
+                    };
+                }
+                ("shell", "ssh_env") => {
+                    self.shell_ssh_env = match value.trim().trim_matches('"') {
+                        "off" => crate::shell::SshEnv::Off,
+                        "on" => crate::shell::SshEnv::On,
+                        other => {
+                            said.push(format!(
+                                "config: [shell] ssh_env {other:?} is not on or off; using off"
+                            ));
+                            crate::shell::SshEnv::Off
                         }
                     };
                 }
@@ -7501,6 +7518,7 @@ mod example {
             wrap_words,
             wrap_marker,
             shell_integration,
+            shell_ssh_env,
             shell_program,
             set_up,
             checksum,
@@ -7586,6 +7604,7 @@ mod example {
             wrap_words,
             wrap_marker,
             shell_integration,
+            shell_ssh_env,
             shell_program,
             set_up,
             checksum,

@@ -2544,6 +2544,7 @@ impl Driver {
                 | Part::Printing
                 | Part::ClipboardArea
                 | Part::ShellIntegration
+                | Part::ShellSshEnv
                 | Part::ShellProgram => {}
             }
         }

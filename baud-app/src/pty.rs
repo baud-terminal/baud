@@ -493,10 +493,11 @@ const OUTER: &[&str] = &[
     "ZELLIJ_SESSION_NAME",
     "ZELLIJ_PANE_ID",
     // baud's own: what shell integration hands a shell's startup to put
-    // back, and its marker, none of them a parent's to pass on.
+    // back or to read, and its marker, none of them a parent's to pass on.
     crate::shell::HELPERS[0],
     crate::shell::HELPERS[1],
     crate::shell::HELPERS[2],
+    crate::shell::HELPERS[3],
     // A filmed take's journal (`take.rs`): the window filmed writes it, and
     // a baud inside it, or any program, is never handed it.
     "BAUD_TAKE",
@@ -787,6 +788,8 @@ fn shell_locale() -> Option<String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellStart {
     pub integration: crate::shell::Integration,
+    /// Whether the integration wraps `ssh` (`[shell] ssh_env`).
+    pub ssh_env: crate::shell::SshEnv,
     pub program: Option<String>,
     /// The argv the window runs instead of a shell, with no shell between:
     /// none for a shell window.
@@ -798,6 +801,7 @@ impl ShellStart {
     pub fn of(cfg: &crate::config::Config) -> ShellStart {
         ShellStart {
             integration: cfg.shell_integration,
+            ssh_env: cfg.shell_ssh_env,
             program: cfg.shell_program.clone(),
             run: None,
         }
@@ -814,10 +818,12 @@ impl ShellStart {
 }
 
 impl From<crate::shell::Integration> for ShellStart {
-    /// `$SHELL`, else the system's, marked as `integration` says.
+    /// `$SHELL`, else the system's, marked as `integration` says, `ssh`
+    /// as it is.
     fn from(integration: crate::shell::Integration) -> ShellStart {
         ShellStart {
             integration,
+            ssh_env: crate::shell::SshEnv::Off,
             program: None,
             run: None,
         }
@@ -886,6 +892,7 @@ impl Exec {
         cmd: Option<String>,
         parent: &[(OsString, OsString)],
         integration: crate::shell::Integration,
+        ssh_env: crate::shell::SshEnv,
         program: Option<&str>,
     ) -> Option<Exec> {
         if let Some(c) = cmd {
@@ -903,7 +910,7 @@ impl Exec {
         let shell = login_shell(program, parent);
         let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
         let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?;
-        let injection = crate::shell::inject(integration, &shell, &path, parent);
+        let injection = crate::shell::inject(integration, ssh_env, &shell, &path, parent);
         let argv = core::iter::once(argv0)
             .chain(injection.iter().flat_map(|i| i.args.iter().cloned()))
             .collect();
@@ -1480,7 +1487,13 @@ impl Pty {
     ) -> Option<(Exec, Vec<CString>)> {
         let exec = match &shell.run {
             Some(run) => Exec::running(run, shell.program.as_deref())?,
-            None => Exec::of(cmd, &parent, shell.integration, shell.program.as_deref())?,
+            None => Exec::of(
+                cmd,
+                &parent,
+                shell.integration,
+                shell.ssh_env,
+                shell.program.as_deref(),
+            )?,
         };
         let mut stay = spawn_env(parent, locale);
         if let Some(v) = &exec.shell_var {
@@ -1517,7 +1530,13 @@ impl Pty {
         env: Vec<CString>,
     ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
         let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-        let exec = Exec::of(cmd, &parent, crate::shell::Integration::Off, None)?;
+        let exec = Exec::of(
+            cmd,
+            &parent,
+            crate::shell::Integration::Off,
+            crate::shell::SshEnv::Off,
+            None,
+        )?;
         Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited)
     }
 
@@ -4524,16 +4543,37 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("baud-program-exec-{}", std::process::id()));
         let parent = program_parent(&dir);
         let on = crate::shell::Integration::On;
-        let bash = Exec::of(None, &parent, on, Some("/opt/shells/bin/bash")).expect("an exec");
+        let bash = Exec::of(
+            None,
+            &parent,
+            on,
+            crate::shell::SshEnv::Off,
+            Some("/opt/shells/bin/bash"),
+        )
+        .expect("an exec");
         assert_eq!(bash.path.to_str(), Ok("/opt/shells/bin/bash"));
         assert_eq!(argv(&bash), ["-bash", "--posix"]);
         assert_eq!(
             bash.shell_var.as_deref().map(core::ffi::CStr::to_bytes),
             Some(&b"SHELL=/opt/shells/bin/bash"[..])
         );
-        let fish = Exec::of(None, &parent, on, Some("/opt/shells/bin/fish")).expect("an exec");
+        let fish = Exec::of(
+            None,
+            &parent,
+            on,
+            crate::shell::SshEnv::Off,
+            Some("/opt/shells/bin/fish"),
+        )
+        .expect("an exec");
         assert_eq!(argv(&fish)[..2], ["-fish", "-C"]);
-        let zsh = Exec::of(None, &parent, on, Some("/opt/shells/bin/zsh")).expect("an exec");
+        let zsh = Exec::of(
+            None,
+            &parent,
+            on,
+            crate::shell::SshEnv::Off,
+            Some("/opt/shells/bin/zsh"),
+        )
+        .expect("an exec");
         assert_eq!(argv(&zsh), ["-zsh"]);
         assert!(
             zsh.injection
@@ -4541,7 +4581,14 @@ mod tests {
                 .is_some_and(|i| i.env.iter().any(|(k, _)| k == "ZDOTDIR")),
             "zsh's integration"
         );
-        let nu = Exec::of(None, &parent, on, Some("/opt/shells/bin/nu")).expect("an exec");
+        let nu = Exec::of(
+            None,
+            &parent,
+            on,
+            crate::shell::SshEnv::Off,
+            Some("/opt/shells/bin/nu"),
+        )
+        .expect("an exec");
         assert_eq!(argv(&nu), ["-nu"]);
         assert!(nu.injection.is_none());
         let _ = std::fs::remove_dir_all(&dir);
@@ -4555,7 +4602,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("baud-program-unset-{}", std::process::id()));
         let parent = program_parent(&dir);
         let off = crate::shell::Integration::Off;
-        let e = Exec::of(None, &parent, off, None).expect("an exec");
+        let e = Exec::of(None, &parent, off, crate::shell::SshEnv::Off, None).expect("an exec");
         assert_eq!(
             (e.path.to_str(), argv(&e)),
             (Ok("/bin/zsh"), vec!["-zsh".to_string()])
@@ -4566,12 +4613,13 @@ mod tests {
             .filter(|(k, _)| k != "SHELL")
             .cloned()
             .collect();
-        let e = Exec::of(None, &bare, off, None).expect("an exec");
+        let e = Exec::of(None, &bare, off, crate::shell::SshEnv::Off, None).expect("an exec");
         assert_eq!(e.path.to_str(), Ok(DEFAULT_SHELL));
         let c = Exec::of(
             Some("true".into()),
             &parent,
             off,
+            crate::shell::SshEnv::Off,
             Some("/opt/shells/bin/bash"),
         )
         .expect("an exec");
@@ -4621,6 +4669,7 @@ mod tests {
         let run = |parent: Vec<(OsString, OsString)>, program: Option<String>| {
             let start = ShellStart {
                 integration: crate::shell::Integration::Off,
+                ssh_env: crate::shell::SshEnv::Off,
                 program,
                 run: None,
             };
@@ -4776,6 +4825,7 @@ mod tests {
         let run = crate::rules::Run::given(argv).expect("a program");
         let start = ShellStart {
             integration: crate::shell::Integration::Off,
+            ssh_env: crate::shell::SshEnv::Off,
             program: None,
             run: None,
         }
@@ -5402,6 +5452,7 @@ mod tests {
             let given = argv.iter().map(OsString::from).collect();
             let start = ShellStart {
                 integration: crate::shell::Integration::On,
+                ssh_env: crate::shell::SshEnv::Off,
                 program: Some("/bin/zsh".into()),
                 run: None,
             }

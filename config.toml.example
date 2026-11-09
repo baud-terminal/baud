@@ -866,8 +866,18 @@
 # window. The line below names /bin/sh only because every system has it at
 # that path, and a bare name is not looked up; sh gets no prompt marks, so
 # name your zsh, bash or fish by its own full path.
+#
+# ssh_env: "on" makes ssh typed in the zsh, bash or fish baud starts ask to
+# send COLORTERM and TERM_PROGRAM, as ssh -o SendEnv=COLORTERM -o
+# SendEnv=TERM_PROGRAM, so a program on the other computer that reads
+# COLORTERM draws in all its colours. The other computer keeps them only
+# where its sshd_config names them in AcceptEnv (Debian 13 does, Debian 12
+# does not). An ssh function or alias of yours is kept. A program that asks
+# the terminal, as Neovim does, finds baud's colours over any ssh anyway.
+# "off" by default.
 # [shell]
 # integration = "on"
+# ssh_env = "off"
 # program = "/bin/sh"
 
 # How keys behave before a program asks otherwise, the four keyboard modes a
