@@ -195,6 +195,9 @@ pub(crate) struct Tap {
     env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
     /// What a dump writes in place of each machine path, longest first.
     redact: Vec<(String, &'static str)>,
+    /// What `reads.txt` writes in place of each machine path and of this
+    /// machine's name, longest first.
+    reads_redact: Vec<(String, &'static str)>,
     frame: FrameNo,
     /// Every read of the take, as it arrived.
     reads: Vec<ReadAt>,
@@ -250,6 +253,7 @@ impl Tap {
         std::fs::create_dir_all(dir).expect("the links' folder");
         clear_dumps(dir);
         let redact = home.as_deref().map(redactions).unwrap_or_default();
+        let reads_redact = with_hosts(&redact, &names);
         Tap {
             dir: dir.to_path_buf(),
             lines: crate::lined::Lines::default(),
@@ -263,6 +267,7 @@ impl Tap {
             master,
             env: env.to_vec(),
             redact,
+            reads_redact,
             frame: FrameNo::default(),
             reads: Vec::new(),
             lit: BTreeMap::new(),
@@ -576,7 +581,7 @@ impl Tap {
         std::fs::write(&to, h).expect("the hovers");
         written.push(to);
         let to = self.dir.join("reads.txt");
-        std::fs::write(&to, read_lines(&self.reads, &self.redact)).expect("the reads");
+        std::fs::write(&to, read_lines(&self.reads, &self.reads_redact)).expect("the reads");
         written.push(to);
         written
     }
@@ -815,6 +820,25 @@ fn redactions(home: &[u8]) -> Vec<(String, &'static str)> {
     out
 }
 
+/// **What `reads.txt` writes in place of each machine path and this
+/// machine's name**: `paths`, and each of `names` with the part of it
+/// before its first `.`, of three bytes or more, as `<host>`, longest
+/// first. The raw reads carry the name in every `OSC 7` the shell sends
+/// (`file://<host>/...`), which the screen never shows.
+fn with_hosts(paths: &[(String, &'static str)], names: &[String]) -> Vec<(String, &'static str)> {
+    let mut out = paths.to_vec();
+    for n in names {
+        let short = n.split('.').next().unwrap_or(n);
+        for s in [n.as_str(), short] {
+            if s.len() >= 3 && !out.iter().any(|(f, _)| f == s) {
+                out.push((s.to_string(), "<host>"));
+            }
+        }
+    }
+    out.sort_by_key(|(s, _)| std::cmp::Reverse(s.len()));
+    out
+}
+
 /// `text` with each machine path written as [`redactions`] says.
 fn redact(text: &str, redactions: &[(String, &'static str)]) -> String {
     let mut t = text.to_string();
@@ -1015,6 +1039,34 @@ mod tests {
                 "frame     4 step   - len   {} |~/README.md{}| .. |{tail}|",
                 long.len(),
                 "x".repeat(53)
+            )
+        );
+    }
+
+    /// **`reads.txt` names no host**: a read holding the shell's `OSC 7`,
+    /// `file://` this machine's name, is written with the name and its
+    /// first label as `<host>`, and passes the names check over both,
+    /// while its length stays the read's own. Named break: no host
+    /// written in place.
+    #[test]
+    fn the_reads_dump_names_no_host() {
+        use crate::film::tap::{FrameNo, heard, read_lines, with_hosts};
+        let host = "studio-mac.example.net";
+        let read = format!("\x1b]7;file://{host}/scratch/demo/home\x1b\\");
+        let mut reads = Vec::new();
+        heard(&mut reads, (FrameNo(9), None), read.as_bytes());
+        let paths = vec![("/scratch/demo/home".to_string(), "~")];
+        let lines = read_lines(&reads, &with_hosts(&paths, &[host.to_string()]));
+        // The names check's search (`film::named`), as fixed strings; named
+        // here, as the tap's walk would read the film's module whole.
+        for name in [host, "studio-mac"] {
+            assert!(!lines.contains(name), "{name} in {lines}");
+        }
+        assert_eq!(
+            lines,
+            format!(
+                "frame     9 step   - len {:>5} |\\e]7;file://<host>~\\e\\\\|\n",
+                read.len()
             )
         );
     }
