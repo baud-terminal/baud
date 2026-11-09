@@ -186,6 +186,68 @@ pub fn dir(pid: Pid) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
+/// **When a process started**, as the kernel keeps it ([`started`]):
+/// microseconds on macOS, clock ticks since boot on Linux. For equality
+/// only: the same pid with another start time is another process, and the
+/// value orders nothing and means nothing across the two systems, so it is
+/// made and read only here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StartTime(u64);
+
+#[cfg(test)]
+impl StartTime {
+    /// Three start times for tests, told apart only by equality.
+    pub(crate) const AT: [Self; 3] = [Self(0), Self(1), Self(2)];
+}
+
+/// **When `pid` started**, as the kernel keeps it: `PROC_PIDTBSDINFO`'s
+/// `pbi_start_tvsec` and `pbi_start_tvusec`, as microseconds. None for a
+/// process gone or one the user may not read.
+#[cfg(target_os = "macos")]
+pub fn started(pid: Pid) -> Option<StartTime> {
+    use crate::sys::{BSDINFO_SIZE, BSDINFO_START_SEC, BSDINFO_START_USEC, PROC_PIDTBSDINFO};
+    let mut buf = [0u8; BSDINFO_SIZE];
+    let size = core::ffi::c_int::try_from(buf.len()).ok()?;
+    // SAFETY: a buffer of the size passed beside it.
+    let n = unsafe {
+        crate::sys::proc_pidinfo(
+            pid,
+            PROC_PIDTBSDINFO,
+            crate::sys::ProcArg(0),
+            buf.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if n != size {
+        return None;
+    }
+    let word = |at: usize| buf.get(at..at + 8)?.try_into().ok().map(u64::from_ne_bytes);
+    let (sec, usec) = (word(BSDINFO_START_SEC)?, word(BSDINFO_START_USEC)?);
+    Some(StartTime(sec.checked_mul(1_000_000)?.checked_add(usec)?))
+}
+
+/// **When `pid` started**: field 22 of `/proc/pid/stat`, "the time the
+/// process started after system boot", in clock ticks, read past the
+/// command's closing parenthesis, which a name with blanks or a `)` of its
+/// own cannot move. None for a process gone.
+#[cfg(target_os = "linux")]
+pub fn started(pid: Pid) -> Option<StartTime> {
+    let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+    stat_started(&stat)
+}
+
+/// Field 22 of a `/proc/pid/stat` line: the twentieth field after the
+/// command's closing parenthesis, which ends field 2.
+#[cfg(any(target_os = "linux", test))]
+fn stat_started(stat: &[u8]) -> Option<StartTime> {
+    let close = stat.iter().rposition(|&b| b == b')')?;
+    let field = stat[close + 1..]
+        .split(|&b| b == b' ')
+        .filter(|f| !f.is_empty())
+        .nth(19)?;
+    std::str::from_utf8(field).ok()?.parse().ok().map(StartTime)
+}
+
 /// The live reads, for [`crate::title::Derive::check`].
 pub struct Live {
     pub master: Fd,
@@ -875,6 +937,27 @@ mod tests {
             assert_eq!(got, crate::probe::Watched::Elsewhere, "{script}");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A process's start time is read as the kernel keeps it**: this
+    /// process's, the same at two reads and none for a pid no process has;
+    /// and Linux's field 22 is the twentieth after the command's closing
+    /// parenthesis, a command holding blanks and a `)` of its own included.
+    /// Named break: count the fields from the line's start -- the command
+    /// with a blank moves them.
+    #[test]
+    fn a_processs_start_time_is_the_kernels() {
+        let me = Pid::try_from(std::process::id()).expect("a pid");
+        let first = started(me);
+        assert!(first.is_some(), "this process's");
+        assert_eq!(started(me), first, "the same at a second read");
+        assert_eq!(started(Pid::MAX), None, "no such process");
+        let fields: Vec<String> = (3..=25).map(|n| n.to_string()).collect();
+        for comm in ["sleep", "a b) c"] {
+            let line = format!("4242 ({comm}) {}\n", fields.join(" "));
+            assert_eq!(stat_started(line.as_bytes()), Some(StartTime(22)), "{line}");
+        }
+        assert_eq!(stat_started(b"4242 (x) S 1"), None, "short");
     }
 
     #[test]

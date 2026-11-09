@@ -111,6 +111,7 @@ use baud_domain::Rows;
 use baud_render::{AbsLine, Scrolled};
 
 use crate::bell::Moment;
+use crate::fg::StartTime;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
     Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, PathsAt, Probe, Program,
@@ -151,6 +152,10 @@ const NAMED: usize = 64;
 /// own walk (`MAXSYMLINKS`, 32 on macOS): past it the answer is unknown.
 pub const LINKS: usize = 32;
 
+/// What the worker named a group as when it first saw it: when its leader
+/// started, and its names.
+type Named = std::collections::HashMap<Pid, (Option<StartTime>, Vec<String>)>;
+
 /// What one `lstat` found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Stat {
@@ -181,6 +186,12 @@ pub trait Fs: Send {
     /// when it cannot be read (`fg::dir`): what a relative path on the
     /// alternate screen is read against.
     fn folder(&mut self, _group: Pid) -> Option<Vec<u8>> {
+        None
+    }
+    /// **When `group`'s leader started**, or none when it cannot be read
+    /// (`fg::started`): what tells a reused group number from the process
+    /// that had it.
+    fn started(&mut self, _group: Pid) -> Option<StartTime> {
         None
     }
     /// Run on the worker's thread before anything else.
@@ -837,8 +848,10 @@ pub struct Answer {
     /// left for a newer one.
     pub programs: Option<Vec<(Program, Handler)>>,
     /// The folder of the group asked about, when it was named local and
-    /// the folder could be read.
+    /// the folder could be read, and when its leader started, read with it:
+    /// the key main compares, with no call of its own.
     pub folder: Option<ProgramDir>,
+    pub started: Option<StartTime>,
     pub calls: u64,
 }
 
@@ -856,6 +869,7 @@ fn left(ask: &Ask) -> Answer {
         probes: Vec::new(),
         programs: None,
         folder: None,
+        started: None,
         calls: 0,
     }
 }
@@ -962,7 +976,7 @@ fn run(
     let mut programs: Option<Ask> = None;
     let mut clicks: std::collections::VecDeque<Ask> = std::collections::VecDeque::new();
     let mut groups: std::collections::VecDeque<Pid> = std::collections::VecDeque::new();
-    let mut named: std::collections::HashMap<Pid, Vec<String>> = std::collections::HashMap::new();
+    let mut named: Named = Named::new();
     // The calls naming groups made, carried into the next answer's count.
     let mut naming = 0;
     // Where an ask goes; false once the driver is gone.
@@ -1024,10 +1038,11 @@ fn run(
             if named.len() >= NAMED {
                 named.clear();
             }
+            let t = fs.started(g);
             let n = fs.program(g);
-            naming += 1;
+            naming += 2;
             beat();
-            named.insert(g, n);
+            named.insert(g, (t, n));
         }
         let Some(ask) = clicks
             .pop_front()
@@ -1062,7 +1077,7 @@ fn run(
 fn answer(
     fs: &mut dyn Fs,
     ask: Ask,
-    named: &mut std::collections::HashMap<Pid, Vec<String>>,
+    named: &mut Named,
     beat: &dyn Fn(),
     stop: &mut dyn FnMut() -> bool,
 ) -> Answer {
@@ -1077,10 +1092,19 @@ fn answer(
         };
     }
     // A group the worker named when it was seen, else named now: one gone by
-    // then names nothing, which is not local.
+    // then names nothing, which is not local. A name kept for a leader that
+    // started at another time than the group's leader now is another
+    // process's, the group number reused, and the group is named again; a
+    // leader gone, whose start no longer reads, keeps the name it was seen
+    // with.
     let mut front_of_group = |g: Pid, calls: &mut u64| -> Front {
-        if let Some(n) = named.get(&g) {
-            return front_of(n);
+        let now = fs.started(g);
+        *calls += 1;
+        if let Some((then, n)) = named.get(&g) {
+            let reused = matches!((then, now), (Some(a), Some(b)) if *a != b);
+            if !reused {
+                return front_of(n);
+            }
         }
         let n = fs.program(g);
         *calls += 1;
@@ -1103,14 +1127,24 @@ fn answer(
         }
     }
     // The folder of a group named local, read here on the worker's thread:
-    // what a relative path on its full screen is read against.
-    let folder = match (front, ask.group) {
+    // what a relative path on its full screen is read against. Its leader's
+    // start time is read before and after it, and the folder is answered
+    // only when both read and agree: a folder read across another process
+    // taking the group's number, or under a start that cannot be read, is
+    // no one's.
+    let (folder, started) = match (front, ask.group) {
         (Front::Local, Some(g)) => {
-            calls += 1;
+            calls += 3;
             beat();
-            fs.folder(g).map(ProgramDir)
+            let before = fs.started(g);
+            let folder = fs.folder(g).map(ProgramDir);
+            let after = fs.started(g);
+            match (before, after) {
+                (Some(b), Some(a)) if b == a => (folder, Some(a)),
+                _ => (None, after),
+            }
         }
-        _ => None,
+        _ => (None, None),
     };
     let through = |f: Front| seen.iter().filter(|s| s.0 == f).map(|s| s.1.last()).max();
     let (elsewhere, multiplexed) = (through(Front::Elsewhere), through(Front::Multiplexer));
@@ -1148,6 +1182,7 @@ fn answer(
         probes,
         programs: None,
         folder,
+        started,
         calls,
     }
 }
@@ -1332,7 +1367,10 @@ pub struct Probes<T> {
     /// goes when another group comes in front, so a reused pid or a later
     /// program never reads against an earlier one's folder.
     front_group: Option<Pid>,
-    dir_group: Option<Pid>,
+    dir_key: Option<(Pid, StartTime)>,
+    /// A read sampled another group in front than the folder's: the folder
+    /// goes at the next turn, which reads the lines again.
+    dir_dropped: Owed,
     /// Each group seen at a read since the last batch, with the lines it
     /// wrote, and the lines written past [`GROUPS`] of them.
     seen: Vec<(Pid, LineSpan)>,
@@ -1358,7 +1396,8 @@ impl<T: Moment> Probes<T> {
             click: None,
             elsewhere: None,
             front_group: None,
-            dir_group: None,
+            dir_key: None,
+            dir_dropped: Owed::No,
             seen: Vec::new(),
             unnamed: None,
             programs: Vec::new(),
@@ -1422,6 +1461,11 @@ impl<T: Moment> Probes<T> {
     ) {
         if let Some(g) = writers.at {
             self.front_group = Some(g);
+            // yazi handing straight to hx: the folder read for one is never
+            // read against for the other, even before the next batch.
+            if self.dir_key.is_some_and(|(d, _)| d != g) {
+                self.dir_dropped = Owed::Yes;
+            }
         }
         let groups = match (writers.before, writers.at) {
             (Some(b), Some(a)) if b == a => [Some(a), None],
@@ -1534,6 +1578,14 @@ impl<T: Moment> Probes<T> {
     /// answer, and never on the display link's tick.
     pub fn answers(&mut self, s: &mut Seen<'_, '_>) -> Turn {
         let mut turn = Turn::default();
+        if self.dir_dropped == Owed::Yes {
+            self.dir_dropped = Owed::No;
+            self.dir_key = None;
+            if s.paths.set_program_dir(None) == Moved::Yes {
+                s.lines.forget();
+                turn.frame = Owed::Yes;
+            }
+        }
         // With paths off, a link's read was named all the same.
         if s.paths.marks() == Marks::Closed {
             return turn;
@@ -1576,12 +1628,20 @@ impl<T: Moment> Probes<T> {
                 s.paths.set_front(front, a.cursor);
                 // The program's folder, for the group still in front; on
                 // the normal screen it is none, which `Paths::observe` keeps.
+                // The key it was read under is the group and its leader's
+                // start, both in the answer: a folder kept under another
+                // start is another process's, and goes.
                 if a.group.is_some() && a.group == self.front_group {
+                    let key = a.group.zip(a.started);
                     let dir = match s.term.screen() {
                         baud_core::Screen::Alternate => a.folder,
                         baud_core::Screen::Normal => None,
                     };
-                    self.dir_group = dir.as_ref().and(a.group);
+                    if self.dir_key.is_some() && self.dir_key != key {
+                        self.dir_key = None;
+                        let _ = s.paths.set_program_dir(None);
+                    }
+                    self.dir_key = dir.as_ref().and(key);
                     let _ = s.paths.set_program_dir(dir);
                 }
                 let clicked = (a.kind == Kind::Click && self.click == Some(a.id)).then(|| {
@@ -1793,8 +1853,8 @@ impl<T: Moment> Probes<T> {
         // the rows read against it are read again.
         if let Some(g) = ask.group {
             self.front_group = Some(g);
-            if self.dir_group.is_some_and(|d| d != g) {
-                self.dir_group = None;
+            if self.dir_key.is_some_and(|(d, _)| d != g) {
+                self.dir_key = None;
                 if paths.set_program_dir(None) == Moved::Yes {
                     lines.forget();
                     turn.frame = Owed::Yes;
@@ -1897,6 +1957,10 @@ impl Fs for System {
             .into_iter()
             .flatten()
             .collect()
+    }
+
+    fn started(&mut self, group: Pid) -> Option<StartTime> {
+        crate::fg::started(group)
     }
 
     fn folder(&mut self, group: Pid) -> Option<Vec<u8>> {
@@ -2008,6 +2072,25 @@ mod tests {
         asked: Arc<Mutex<Vec<String>>>,
         /// The folder each group's leader is in, where it has one.
         folders: HashMap<Pid, Vec<u8>>,
+        /// What a group's leader is now and when it started, changed while
+        /// the worker runs: a group number another process took.
+        live: Live,
+        /// Whether a group not in `live` has a start time that reads.
+        starts: Starts,
+    }
+
+    /// What a group's leader is now and when it started, if that reads, by
+    /// group.
+    type Live = Arc<Mutex<HashMap<Pid, (Vec<String>, Option<StartTime>)>>>;
+
+    /// Whether a leader's start time reads, for a group not in `live`.
+    #[derive(Clone, Copy, Default)]
+    enum Starts {
+        /// It reads, the same at every read.
+        #[default]
+        Read,
+        /// It does not, as for a leader the user may not read.
+        Unread,
     }
 
     #[derive(Default)]
@@ -2084,10 +2167,21 @@ mod tests {
         }
 
         fn program(&mut self, group: Pid) -> Vec<String> {
+            if let Some((names, _)) = self.live.lock().unwrap().get(&group) {
+                return names.clone();
+            }
             self.groups
                 .get(&group)
                 .cloned()
                 .unwrap_or_else(|| self.program.clone())
+        }
+
+        fn started(&mut self, group: Pid) -> Option<StartTime> {
+            match (self.live.lock().unwrap().get(&group), self.starts) {
+                (Some((_, t)), _) => *t,
+                (None, Starts::Read) => Some(StartTime::AT[0]),
+                (None, Starts::Unread) => None,
+            }
         }
 
         fn folder(&mut self, group: Pid) -> Option<Vec<u8>> {
@@ -3055,6 +3149,22 @@ mod tests {
         text: &[u8],
         front: impl Fn(u32) -> Pid,
     ) -> (usize, Vec<String>, Option<Vec<u8>>) {
+        on_screen_with(fs, alt, text, &front, &front, |_, _| {}, None)
+    }
+
+    /// [`on_screen`] with the group a read samples (`read`) apart from the
+    /// one a batch reads (`batch`), `step_on` run on the terminal before
+    /// each step's turn, and at the end, with `last` given, one more read
+    /// sampling that group and the worker's answers merged, with no batch.
+    fn on_screen_with(
+        fs: Fake,
+        alt: Screen,
+        text: &[u8],
+        batch: &dyn Fn(u32) -> Pid,
+        read: &dyn Fn(u32) -> Pid,
+        step_on: impl Fn(u32, &mut Term<'_>),
+        last: Option<Pid>,
+    ) -> (usize, Vec<String>, Option<Vec<u8>>) {
         let log = fs.clone();
         let (woke, wakes) = std::sync::mpsc::channel();
         let mut fs = Some(fs);
@@ -3089,7 +3199,7 @@ mod tests {
         let line = s.line(Rows::ZERO, t.cursor().0);
         pr.read_taken(
             &mut paths,
-            Writers::at(Some(front(0))),
+            Writers::at(Some(read(0))),
             LineSpan::of(line, line),
             Linked::No,
         );
@@ -3097,18 +3207,19 @@ mod tests {
         for step in 0..40 {
             let now = t0 + Duration::from_millis(100 * u64::from(step));
             // Another group in front writes: a read of its, on the last row.
-            if step > 0 && front(step) != front(step - 1) {
+            if step > 0 && read(step) != read(step - 1) {
                 let b = b"\x1b[4;1Hx";
                 t.write_at(BytePos::ZERO, b);
                 t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
                 let line = s.line(Rows::ZERO, t.cursor().0);
                 pr.read_taken(
                     &mut paths,
-                    Writers::at(Some(front(step))),
+                    Writers::at(Some(read(step))),
                     LineSpan::of(line, line),
                     Linked::No,
                 );
             }
+            step_on(step, &mut t);
             let before = pr.counts.batches;
             let seen = Seen {
                 term: &t,
@@ -3118,7 +3229,7 @@ mod tests {
                 urls: Turned::On,
                 paths: &mut paths,
             };
-            let _ = pr.turn(now, seen, || Some(front(step)));
+            let _ = pr.turn(now, seen, || Some(batch(step)));
             let _ = paths.observe(&t, s);
             let _ = lines.scan(
                 &t,
@@ -3134,6 +3245,34 @@ mod tests {
                     .recv_timeout(Duration::from_secs(60))
                     .expect("the worker answers every batch");
             }
+        }
+        if let Some(g) = last {
+            let line = s.line(Rows::ZERO, t.cursor().0);
+            pr.read_taken(
+                &mut paths,
+                Writers::at(Some(g)),
+                LineSpan::of(line, line),
+                Linked::No,
+            );
+            let mut seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.answers(&mut seen);
+            let _ = paths.observe(&t, s);
+            let _ = lines.scan(
+                &t,
+                s,
+                &mut Links {
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                },
+            );
         }
         // What a hover over the path on the first row reads, as a click does.
         // The first row as its cells hold it, as the driver reads it.
@@ -3843,6 +3982,151 @@ mod tests {
             clicked_after_reads(&[link]),
             Ok(Click::Reveal),
             "no mark: the shell"
+        );
+    }
+
+    /// **A folder goes when a read samples another group, before any batch
+    /// says so**: yazi (group 7) in front, its folder read and the README's
+    /// line drawn, hands straight to hx (group 8); the read that samples
+    /// hx's group drops the folder at the next turn, with no batch sent,
+    /// and the line goes. A read sampling yazi's group again, the control,
+    /// keeps it. Named break: keep the folder in `read_taken` -- the line
+    /// stays until a batch.
+    #[test]
+    fn a_programs_folder_goes_when_a_read_samples_another_group() {
+        let run = |last: Pid| {
+            let mut f = readme_tree();
+            f.groups.insert(8, vec!["hx".into()]);
+            on_screen_with(
+                f,
+                Screen::Alternate,
+                README,
+                &|_| 7,
+                &|_| 7,
+                |_, _| {},
+                Some(last),
+            )
+        };
+        let (drawn, log, _) = run(7);
+        assert_eq!(drawn, 1, "the control: the same group: {log:?}");
+        let (drawn, log, _) = run(8);
+        assert_eq!(drawn, 0, "another group: {log:?}");
+    }
+
+    /// **Leaving the alternate screen drops the folder**: the README's line,
+    /// drawn while helix is up, is gone once the screen it was read for is,
+    /// with helix's group still in front, and a relative path is read
+    /// against no folder of the program's after it. Named break: keep the
+    /// program's folder on the normal screen (`Paths::observe`) -- the
+    /// hover on the README's row still finds the file.
+    #[test]
+    fn a_programs_folder_goes_with_the_alternate_screen() {
+        let leave = |step: u32, t: &mut Term<'_>| {
+            if step == 25 {
+                // Back to the primary screen, and the README's text written
+                // there as plain output, for the read against the folder.
+                let b = [b"\x1b[?1049l".as_slice(), README].concat();
+                t.write_at(BytePos::ZERO, &b);
+                t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            }
+        };
+        let (drawn, log, hovered) = on_screen_with(
+            readme_tree(),
+            Screen::Alternate,
+            README,
+            &|_| 7,
+            &|_| 7,
+            leave,
+            None,
+        );
+        assert_eq!(drawn, 0, "{log:?}");
+        assert_eq!(hovered, None, "no folder to read against: {log:?}");
+    }
+
+    /// **A group number another process took is named again, and the
+    /// folder read for the one before it goes**: helix, group 7 started at
+    /// time one, is named local and its folder read; from 2 s group 7 is
+    /// `ssh`, started at time two, and prints a path, and the worker, whose
+    /// name for 7 was helix's, sees the start time differ, names it again
+    /// as not local and answers no folder, so neither line is drawn. The
+    /// control: helix itself, its start the same, prints the path and the
+    /// lines stay. A leader gone, whose start no longer reads, leaves no
+    /// folder either. Named breaks: key the worker's names by the group
+    /// alone -- 7 stays helix's, and the lines stay under ssh; answer the
+    /// folder when the two start reads are equal Options -- none and none
+    /// agree, and the lines stay with helix gone.
+    #[test]
+    fn a_reused_group_number_is_named_again_by_its_start_time() {
+        let run = |name: &'static str, at: Option<StartTime>| {
+            let f = readme_tree();
+            let live = Arc::clone(&f.live);
+            live.lock()
+                .unwrap()
+                .insert(7, (vec!["hx".into()], Some(StartTime::AT[1])));
+            // At 2 s group 7 is another process, helix still, or no one,
+            // and what it prints owes a batch.
+            let prints = move |step: u32, t: &mut Term<'_>| {
+                if step == 20 {
+                    let names = if name.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![name.into()]
+                    };
+                    live.lock().unwrap().insert(7, (names, at));
+                    let b = b"\x1b[3;1Hdocs/guide/new.md";
+                    t.write_at(BytePos::ZERO, b);
+                    t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+                }
+            };
+            on_screen_with(f, Screen::Alternate, README, &|_| 7, &|_| 7, prints, None)
+        };
+        let (drawn, log, _) = run("ssh", Some(StartTime::AT[2]));
+        assert_eq!(drawn, 0, "another process under 7: {log:?}");
+        let (drawn, log, _) = run("hx", Some(StartTime::AT[1]));
+        assert!(drawn >= 1, "the control: helix still: {log:?}");
+        let (drawn, log, _) = run("", None);
+        assert_eq!(drawn, 0, "helix gone, no start to key by: {log:?}");
+    }
+
+    /// **A folder is answered only when its leader's start reads**: with no
+    /// start time that reads for group 7, its folder is read and not
+    /// answered, so the README's line is not drawn; the control, the same
+    /// screen with the start reading, draws it. Named break: answer the
+    /// folder when the two start reads are equal Options -- none and none
+    /// agree, and the line is drawn under a key that tells nothing apart.
+    #[test]
+    fn a_folder_is_answered_only_when_its_leaders_start_reads() {
+        let mut unread = readme_tree();
+        unread.starts = Starts::Unread;
+        let (drawn, log, _) = on_screen(unread, Screen::Alternate, README, |_| 7);
+        assert!(log.iter().any(|l| l == "folder 7"), "read: {log:?}");
+        assert_eq!(drawn, 0, "not answered: {log:?}");
+        let (drawn, log, _) = on_screen(readme_tree(), Screen::Alternate, README, |_| 7);
+        assert_eq!(drawn, 1, "the control: {log:?}");
+    }
+
+    /// **Main takes no call of its own for the folder's key**: `answers`,
+    /// where a folder is taken or dropped, reads the group and the start
+    /// time from the answer and nothing from the system. Named break: read
+    /// the group or the start time in `answers`.
+    #[test]
+    fn the_folders_key_is_compared_with_no_call_on_main() {
+        let src = include_str!("probe.rs");
+        let from = src.find("    pub fn answers(").expect("answers");
+        let to = from + src[from..].find("\n    }\n").expect("its end");
+        let body = &src[from..to];
+        for call in [
+            concat!("fs", "."),
+            concat!("fg", "::"),
+            concat!("sys", "::"),
+            concat!("started", "("),
+            concat!("TIOC", "GPGRP"),
+        ] {
+            assert!(!body.contains(call), "answers calls {call}");
+        }
+        assert!(
+            body.contains(concat!("a.", "started")),
+            "the positive control: the key is read"
         );
     }
 }

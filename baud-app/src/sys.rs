@@ -1185,6 +1185,12 @@ pub const BSDINFO_SIZE: usize = 136;
 pub const BSDINFO_PGID: usize = 100;
 #[cfg(target_os = "macos")]
 pub const BSDINFO_TPGID: usize = 112;
+/// `pbi_start_tvsec` and `pbi_start_tvusec`: when the process started, the
+/// key that tells a reused pid from the process that had it.
+#[cfg(target_os = "macos")]
+pub const BSDINFO_START_SEC: usize = 120;
+#[cfg(target_os = "macos")]
+pub const BSDINFO_START_USEC: usize = 128;
 
 /// `proc_pidinfo`'s flavor for `struct proc_bsdshortinfo`, whose
 /// `pbsi_comm` is the program's name, `MAXCOMLEN` bytes: answered for a
@@ -1793,6 +1799,8 @@ int main(void) {
     printf("proc_bsdinfo.size=%zu\n", sizeof(struct proc_bsdinfo));
     printf("proc_bsdinfo.pgid=%zu\n", offsetof(struct proc_bsdinfo, pbi_pgid));
     printf("proc_bsdinfo.tpgid=%zu\n", offsetof(struct proc_bsdinfo, e_tpgid));
+    printf("proc_bsdinfo.start_sec=%zu\n", offsetof(struct proc_bsdinfo, pbi_start_tvsec));
+    printf("proc_bsdinfo.start_usec=%zu\n", offsetof(struct proc_bsdinfo, pbi_start_tvusec));
     printf("PROC_PIDT_SHORTBSDINFO=%lld\n", (long long)PROC_PIDT_SHORTBSDINFO);
     printf("proc_bsdshortinfo.size=%zu\n", sizeof(struct proc_bsdshortinfo));
     printf("proc_bsdshortinfo.comm=%zu\n", offsetof(struct proc_bsdshortinfo, pbsi_comm));
@@ -2027,6 +2035,8 @@ int main(void) {
             assert_eq!(h["proc_bsdinfo.size"], BSDINFO_SIZE as i128);
             assert_eq!(h["proc_bsdinfo.pgid"], BSDINFO_PGID as i128);
             assert_eq!(h["proc_bsdinfo.tpgid"], BSDINFO_TPGID as i128);
+            assert_eq!(h["proc_bsdinfo.start_sec"], BSDINFO_START_SEC as i128);
+            assert_eq!(h["proc_bsdinfo.start_usec"], BSDINFO_START_USEC as i128);
             assert_eq!(h["proc_bsdshortinfo.size"], BSDSHORTINFO_SIZE as i128);
             assert_eq!(h["proc_bsdshortinfo.comm"], BSDSHORTINFO_COMM as i128);
             assert_eq!(h["proc_fdinfo.size"], FDINFO_SIZE as i128);
