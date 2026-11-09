@@ -1581,11 +1581,11 @@ pub struct Timespec {
     pub tv_nsec: core::ffi::c_long,
 }
 
-/// **Compiles a test's C probe** from `src` to `bin` with `CC`, else `cc`,
-/// `args` before `-o`. No compiler that runs, or one that cannot compile
-/// the probe, fails the test naming what it needs, the compiler it tried
-/// and what the compiler said: `holds` is what the probe holds to the
-/// system headers.
+/// **Compiles a test's C probe** from `src` to `bin` with the compiler
+/// `CC` names, else `cc`, else `clang`, `args` before `-o`. When none
+/// runs and compiles the probe, the test fails naming what it needs and
+/// each compiler it tried, with what that compiler said: `holds` is what
+/// the probe holds to the system headers.
 #[cfg(test)]
 pub(crate) fn compile_probe(
     args: &[&str],
@@ -1593,22 +1593,31 @@ pub(crate) fn compile_probe(
     bin: &std::path::Path,
     holds: &str,
 ) {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let needs = format!(
-        "the C header probe needs a C compiler, clang or cc on PATH or one CC names, \
-         to hold {holds} to the system headers"
-    );
-    let out = std::process::Command::new(&cc)
-        .args(args)
-        .arg("-o")
-        .arg(bin)
-        .arg(src)
-        .output()
-        .unwrap_or_else(|e| panic!("{needs}; `{cc}` did not run: {e}"));
-    assert!(
-        out.status.success(),
-        "{needs}; `{cc}` did not compile it:\n{}",
-        String::from_utf8_lossy(&out.stderr)
+    let tried: Vec<String> = match std::env::var("CC") {
+        Ok(cc) => vec![cc],
+        Err(_) => vec!["cc".to_string(), "clang".to_string()],
+    };
+    let mut said = Vec::new();
+    for cc in &tried {
+        match std::process::Command::new(cc)
+            .args(args)
+            .arg("-o")
+            .arg(bin)
+            .arg(src)
+            .output()
+        {
+            Ok(out) if out.status.success() => return,
+            Ok(out) => said.push(format!(
+                "`{cc}` did not compile it:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            )),
+            Err(e) => said.push(format!("`{cc}` did not run: {e}")),
+        }
+    }
+    panic!(
+        "the C header probe needs a C compiler, cc or clang on PATH or one CC names, \
+         to hold {holds} to the system headers; {}",
+        said.join("; ")
     );
 }
 
