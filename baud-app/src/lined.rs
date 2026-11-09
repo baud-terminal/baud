@@ -12,7 +12,9 @@
 //! next joins it (`Below`), two cells and a provenance a row so ended, since a
 //! program is named after it wrote. **A scroll reads only the rows it brought
 //! in**: the rows it moved keep their lines, moved with them
-//! ([`Lines::scan`]).
+//! ([`Lines::scan`]). A logical line read past the window's bottom is read
+//! again when a row below the window it went by is written over, as a look
+//! back lets the output below it be.
 //!
 //! **Bounded whatever a program sends.** One pass over each changed row's
 //! cells, in which a line with no scheme's name and `:` and no `OSC 8` cell
@@ -332,6 +334,14 @@ pub struct Lines {
     /// the top row's part of a link with it, with no change to a cell of
     /// the window. `None` when the line began on the top row.
     head: Option<AbsLine>,
+    /// **The rows below the window the last read of its bottom row went
+    /// by**: the first such line, and each row's cells and wrap, packed. On
+    /// a look back the screen below the window is written to, and the
+    /// bottom row's links read on into it, or end where it starts, with no
+    /// change to a cell of the window. `None` with no row below.
+    past: Option<AbsLine>,
+    past_cells: Vec<PackedCell>,
+    past_rows: Vec<(usize, Wrap)>,
 }
 
 /// **How a row the writer ended meets the next**, as a scan read it: not
@@ -380,6 +390,32 @@ impl Lines {
         let ran_on = up
             && k > 0
             && (self.wraps[k - 1] == Wrap::Continues || self.below[k - 1] == Below::Joined);
+        // A look back: the rows that leave the window below are the rows
+        // below it now, as the last scan saw them -- the first, whose first
+        // cell says whether the new bottom row runs on, and each after it
+        // its line runs on into -- and the rows below those, while they ran
+        // on too.
+        if !up && k > 0 && keep > 0 {
+            let continues =
+                |y: usize| self.wraps[y] == Wrap::Continues || self.below[y] == Below::Joined;
+            let mut n = 1;
+            while n < k && continues(keep + n - 1) {
+                n += 1;
+            }
+            match n == k && continues(rows - 1) && self.past.is_some() {
+                true => {}
+                false => {
+                    self.past_cells.clear();
+                    self.past_rows.clear();
+                }
+            }
+            self.past_cells.splice(
+                0..0,
+                self.cells[keep * cols..(keep + n) * cols].iter().copied(),
+            );
+            self.past_rows
+                .splice(0..0, (keep..keep + n).map(|y| (cols, self.wraps[y])));
+        }
         if up {
             self.cells.copy_within(k * cols.., 0);
             self.wraps.copy_within(k.., 0);
@@ -428,6 +464,30 @@ impl Lines {
         self.forget();
     }
 
+    /// **Whether the rows below the window the last read of its bottom row
+    /// went by are not what it saw**: another line below it now, one gone,
+    /// or one written over.
+    fn past_moved(&self, term: &Term<'_>, scrolled: Scrolled, back: Rows) -> bool {
+        let rows = self.size.1;
+        let below = scrolled.line(back, Row::from_index(rows - 1)).below();
+        let now = row_of(term, scrolled, below).map(|_| below);
+        if now != self.past {
+            return true;
+        }
+        let (mut line, mut at) = (below, 0);
+        for &(len, wrap) in &self.past_rows {
+            let Some((cells, w)) = row_of(term, scrolled, line) else {
+                return true;
+            };
+            if w != wrap || cells != &self.past_cells[at..at + len] {
+                return true;
+            }
+            at += len;
+            line = line.below();
+        }
+        false
+    }
+
     /// **The scan**, on the view shown now, `scrolled` the driver's count of
     /// lines retired. Allocates nothing once its buffers have grown to the
     /// window and to the longest line read.
@@ -448,6 +508,9 @@ impl Lines {
             self.below.clear();
             self.below.resize(rows, Below::Apart);
             self.head = None;
+            self.past = None;
+            self.past_cells.clear();
+            self.past_rows.clear();
             self.lines.clear();
             self.struck.clear();
             self.epochs = None;
@@ -465,7 +528,11 @@ impl Lines {
                 scrolled.window_row(back, was_top, window),
             ) {
                 (Some(up), _) if up.index() > 0 => self.shift(Shift::Up(up.index())),
-                (_, Some(down)) if down.index() > 0 => self.shift(Shift::Down(down.index())),
+                (_, Some(down)) if down.index() > 0 => {
+                    self.shift(Shift::Down(down.index()));
+                    self.past = (down.index() < rows)
+                        .then(|| scrolled.line(back, Row::from_index(rows - 1)).below());
+                }
                 // Not moved, or a window or more: each row is compared with
                 // what the same row held, as cells alone say what a row's
                 // links are.
@@ -526,6 +593,12 @@ impl Lines {
                 self.again[y + 1] = Read::Again;
                 any = true;
             }
+        }
+        // A row below the window that the bottom row's last read went by was
+        // written over, or is another line now: the bottom row is read again.
+        if rows > 0 && self.again[rows - 1] == Read::Kept && self.past_moved(term, scrolled, back) {
+            self.again[rows - 1] = Read::Again;
+            any = true;
         }
         // The history trimmed where the top row's line began: the top row is
         // read again, and its line now begins at the oldest line kept.
@@ -659,6 +732,22 @@ impl Lines {
                 }
                 read += cells.len();
                 last = down;
+            }
+            // What this read went by below the window: the row below, whose
+            // first cell says whether the bottom row runs on, and every row
+            // read past it.
+            let below = last_row.below();
+            self.past = row_of(term, scrolled, below).map(|_| below);
+            self.past_cells.clear();
+            self.past_rows.clear();
+            let mut line = below;
+            while let Some((cells, wrap)) = row_of(term, scrolled, line) {
+                if line > last.max(below) {
+                    break;
+                }
+                self.past_cells.extend_from_slice(cells);
+                self.past_rows.push((cells.len(), wrap));
+                line = line.below();
             }
         }
         // The one compare a cell, across the rows; and whether the writer
@@ -1904,6 +1993,150 @@ mod tests {
         if let baud_core::Moved::Retired(n) = t.moved_since(before) {
             *scrolled = scrolled.advanced(n);
         }
+    }
+
+    /// **A reader of printed paths `/p<digits>`**, after a space or the
+    /// line's start and before a space or its end, each drawn only while
+    /// `found` holds it, as `paths.rs`'s `Links` draws one the worker found.
+    #[derive(Default)]
+    struct Found {
+        found: Vec<Vec<u8>>,
+    }
+
+    impl Reader for Found {
+        fn wants(&self, tail: Tail) -> bool {
+            tail.0 & 0xff == u64::from(b'/')
+        }
+
+        fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
+            let u = text.units;
+            let ch = |k: usize| match u.get(k) {
+                Some(Unit::Char(c)) => Some(*c),
+                _ => None,
+            };
+            let space = |k: Option<usize>| k.is_none_or(|k| k >= u.len() || ch(k) == Some(' '));
+            let mut i = 0;
+            while i < u.len() {
+                if !(ch(i) == Some('/') && ch(i + 1) == Some('p') && space(i.checked_sub(1))) {
+                    i += 1;
+                    continue;
+                }
+                let mut e = i + 2;
+                while ch(e).is_some_and(|c| c.is_ascii_digit()) {
+                    e += 1;
+                }
+                let key: Vec<u8> = (i..e)
+                    .filter_map(ch)
+                    .filter_map(|c| u8::try_from(c).ok())
+                    .collect();
+                let shown = i < text.shown.1 && text.shown.0 < e;
+                if e > i + 2 && space(Some(e)) && shown && self.found.contains(&key) {
+                    found.push(Run {
+                        units: i..e,
+                        mark: Mark::Line,
+                    });
+                }
+                i = e;
+            }
+            crate::paths::Looked(0)
+        }
+
+        fn marked(&mut self, _: &[u8], _: At) -> Option<Mark> {
+            None
+        }
+    }
+
+    /// **A row below the window that the bottom row's link read on into,
+    /// written over, reads the bottom row again**: looked back, the bottom
+    /// row ends in `/p1` and runs on into `3 ok` below the window, a found
+    /// `/p13`; the row below is written over with `/p10`, and the line goes,
+    /// as a scan from nothing finds. Named break: compare the window's rows
+    /// alone (no `past_moved`) -- `/p13`'s line stays.
+    #[test]
+    fn a_row_below_the_window_written_over_reads_the_bottom_row_again() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(24),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..10 {
+            fed(&mut t, &mut at, format!("l{n}\r\n").as_bytes());
+        }
+        fed(
+            &mut t,
+            &mut at,
+            format!("{:>40}\r\n3 ok\r\nz\r\ny", "/p1").as_bytes(),
+        );
+        t.set_window_back(Rows::of_count(3));
+        let found = || Found {
+            found: vec![b"/p13".to_vec()],
+        };
+        let (mut l, mut r) = (Lines::default(), found());
+        let _ = l.scan(&t, at, &mut r);
+        let runs = |l: &Lines| -> Vec<_> {
+            l.lines()
+                .iter()
+                .map(|x| (x.row.index(), x.from.index(), x.to.index()))
+                .collect()
+        };
+        assert_eq!(runs(&l), [(5, 37, 39)], "the control: /p13 runs on below");
+        fed(&mut t, &mut at, b"\x1b[4;1H\x1b[2K/p10");
+        let _ = l.scan(&t, at, &mut r);
+        let mut fresh = Lines::default();
+        let _ = fresh.scan(&t, at, &mut found());
+        assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
+        assert_eq!(runs(&l), runs(&fresh));
+        let s = l.scan(&t, at, &mut r);
+        assert_eq!(s, Scan::default(), "seen once, read once");
+    }
+
+    /// **A look back hands the rows that leave the window below to the
+    /// rows below it**, as the last scan saw them: `/p1` runs on into `3 ok`
+    /// on the window, a found `/p13`; a look back of two puts `3 ok` below
+    /// the window, kept with no read; written over with `/p10`, the bottom
+    /// row is read again and the line goes. Named break: hand none over --
+    /// the row written over is compared with nothing and the line stays.
+    #[test]
+    fn a_row_a_look_back_puts_below_the_window_is_watched() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(24),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..10 {
+            fed(&mut t, &mut at, format!("l{n}\r\n").as_bytes());
+        }
+        fed(
+            &mut t,
+            &mut at,
+            format!("{:>40}\r\n3 ok\r\nz", "/p1").as_bytes(),
+        );
+        let found = || Found {
+            found: vec![b"/p13".to_vec()],
+        };
+        let (mut l, mut r) = (Lines::default(), found());
+        let _ = l.scan(&t, at, &mut r);
+        let runs = |l: &Lines| -> Vec<_> {
+            l.lines()
+                .iter()
+                .map(|x| (x.row.index(), x.from.index(), x.to.index()))
+                .collect()
+        };
+        assert_eq!(runs(&l), [(3, 37, 39), (4, 0, 0)], "the control: /p13");
+        t.set_window_back(Rows::of_count(2));
+        let s = l.scan(&t, at, &mut r);
+        assert_eq!(runs(&l), [(5, 37, 39)], "moved down two");
+        assert!(s.rows <= 2, "the rows brought in at the top: {}", s.rows);
+        fed(&mut t, &mut at, b"\x1b[5;1H\x1b[2K/p10");
+        let _ = l.scan(&t, at, &mut r);
+        let mut fresh = Lines::default();
+        let _ = fresh.scan(&t, at, &mut found());
+        assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
+        assert_eq!(runs(&l), runs(&fresh));
     }
 
     /// The links and strikes a scan of `t` from nothing finds.
