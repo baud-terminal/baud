@@ -203,7 +203,7 @@ pub trait Fs: Send {
 /// whatever the pace says: a file link takes its origin from who printed
 /// it ([`crate::paths::Origin`]), asked at the read because the program may
 /// be gone by the time the bytes are parsed.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Sampler {
     last: Option<std::time::Instant>,
     /// The last bytes of the reads so far, at most [`CARRY`]: an
@@ -214,6 +214,10 @@ pub struct Sampler {
     /// ([`Sampler::writers`]).
     previous: Option<Pid>,
     previous_watched: Watched,
+    /// The shell's command marks, scanned at every read
+    /// ([`crate::ran::Commands`]), and what the last read was taken as.
+    commands: crate::ran::Commands,
+    marked: Watched,
 }
 
 /// **Whether the process watch named a program not on this machine** since
@@ -273,6 +277,9 @@ pub struct Writers {
     pub before: Option<Pid>,
     pub at: Option<Pid>,
     pub watched: Watched,
+    /// Whether the read was written while a command the shell named not
+    /// local ran ([`crate::ran`]).
+    pub marked: Watched,
 }
 
 impl Writers {
@@ -283,6 +290,7 @@ impl Writers {
             before: None,
             at: group,
             watched: Watched::Nothing,
+            marked: Watched::Nothing,
         }
     }
 }
@@ -315,6 +323,7 @@ impl Sampler {
             before: self.previous,
             at,
             watched: watched.or(self.previous_watched),
+            marked: self.marked,
         };
         if at.is_some() {
             self.previous = at;
@@ -339,6 +348,7 @@ impl Sampler {
     /// ;`, or `file://` in any case, with the bytes the reads before them
     /// ended on.
     pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
+        self.marked = self.commands.read(bytes);
         // The tail, then the read's last bytes: what the next read follows.
         let mut seam = [0u8; 2 * CARRY];
         let mut n = 0;
@@ -1417,7 +1427,8 @@ impl<T: Moment> Probes<T> {
             (Some(b), Some(a)) if b == a => [Some(a), None],
             (b, a) => [b, a],
         };
-        if groups == [None, None] && writers.watched == Watched::Nothing {
+        let raised = writers.watched.or(writers.marked);
+        if groups == [None, None] && raised == Watched::Nothing {
             return;
         }
         let kept = match paths.marks() {
@@ -1430,7 +1441,7 @@ impl<T: Moment> Probes<T> {
         }
         // A link's origin only: the printed paths' watermark goes by the
         // groups in front, not by every job the watch names.
-        if writers.watched == Watched::Elsewhere {
+        if raised == Watched::Elsewhere {
             paths.written_remote(span);
         }
         for g in groups.into_iter().flatten() {
@@ -3457,7 +3468,7 @@ mod tests {
         let w = |before, at| Writers {
             before: Some(before),
             at: Some(at),
-            watched: Watched::Nothing,
+            ..Writers::default()
         };
         assert_eq!(origin_of(w(9, 1)), Origin::Remote, "ssh before, zsh at");
         assert_eq!(origin_of(w(1, 9)), Origin::Remote, "zsh before, ssh at");
@@ -3469,7 +3480,7 @@ mod tests {
         let gone = Writers {
             before: Some(9),
             at: None,
-            watched: Watched::Nothing,
+            ..Writers::default()
         };
         assert_eq!(
             origin_of(gone),
@@ -3564,6 +3575,7 @@ mod tests {
                 before: Some(1),
                 at: Some(1),
                 watched,
+                ..Writers::default()
             };
             pr.read_taken(&mut paths, later, LineSpan::of(row(2), row(2)), Linked::No);
             let t0 = Instant::now();
@@ -3733,5 +3745,104 @@ mod tests {
         };
         assert_eq!(run(1), Ok(Click::Reveal), "the shell's");
         assert_eq!(run(9), Err(Refused::Remote), "ssh's");
+    }
+
+    /// **A link on row 0 as both drivers click it, after `reads` went
+    /// through the reader as it takes them**: each fed to the core, scanned
+    /// by the [`Sampler`], and taken with the shell (group 1) in front at
+    /// every sample -- a short job that came and went between them -- then
+    /// named by the worker.
+    fn clicked_after_reads(reads: &[&[u8]]) -> Result<crate::link::Click, crate::link::Refused> {
+        use crate::link::{Host, Spot, Under, hovered};
+        let mut f = Fake::with(&[]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        let (mut pr, starts) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut sampler = Sampler::default();
+        for (k, bytes) in reads.iter().enumerate() {
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let now = t0 + Duration::from_millis(u64::try_from(k).expect("a count"));
+            let (writers, linked) = match sampler.read(now, bytes) {
+                Asks::Yes(l) => (sampler.writers(Some(1), Watched::Nothing), l),
+                Asks::No => (Writers::default(), Linked::No),
+            };
+            pr.read_taken(&mut paths, writers, LineSpan::of(began, ended), linked);
+        }
+        let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+        for i in 0..1_000_000u32 {
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.turn(t0 + Duration::from_millis(u64::from(i)), seen, || Some(1));
+            if paths.origin(line) != Origin::Unknown || *starts.lock().unwrap() == 0 {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        let spot = Spot {
+            scrolled: s,
+            back: Rows::ZERO,
+            row: baud_domain::Row::ZERO,
+            col: baud_domain::Col::at_index(1),
+        };
+        let under = hovered(&t, spot).expect("a link under the cell");
+        let uri = match &under {
+            Under::Osc8(l) => l.uri(&t).expect("its URI").to_vec(),
+            Under::Bare(b) => b.uri().expect("its URI").to_vec(),
+            Under::Path(_) => panic!("a path, not a link"),
+        };
+        crate::link::admit_printed(
+            &uri,
+            Host(""),
+            uris.rules(),
+            paths.printed_origin(&under, line),
+        )
+        .map(|target| crate::link::click(&target, &paths))
+    }
+
+    /// **The shell's mark that its command is `ssh` makes the link that
+    /// command printed remote, though the shell was in front at every
+    /// sample**: `133;C;cmdline_url=ssh%20localhost`, a `file://localhost`
+    /// link, then `133;D`, in one read and in three, is refused; the same
+    /// with `ls`, and with no mark at all, is revealed -- the samples alone
+    /// cannot see a job that short. Named break: ignore the mark in
+    /// `read_taken` -- the ssh's link is revealed.
+    #[test]
+    fn the_shells_mark_names_a_short_ssh_that_no_sample_saw() {
+        use crate::link::{Click, Refused};
+        let link: &[u8] = b"\x1b]8;;file://localhost/etc/passwd\x1b\\passwd\x1b]8;;\x1b\\\r\n";
+        let c = |line: &str| format!("\x1b]133;C;baud_token=t;cmdline_url={line}\x07").into_bytes();
+        let d: &[u8] = b"\x1b]133;D;0;baud_token=t\x07";
+        for (cmd, want) in [
+            ("ssh%20localhost", Err(Refused::Remote)),
+            ("ls%20--hyperlink", Ok(Click::Reveal)),
+        ] {
+            let mark = c(cmd);
+            let one = [mark.as_slice(), link, d].concat();
+            assert_eq!(clicked_after_reads(&[&one]), want, "{cmd}, one read");
+            assert_eq!(
+                clicked_after_reads(&[&mark, link, d]),
+                want,
+                "{cmd}, three reads"
+            );
+        }
+        assert_eq!(
+            clicked_after_reads(&[link]),
+            Ok(Click::Reveal),
+            "no mark: the shell"
+        );
     }
 }

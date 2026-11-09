@@ -1629,3 +1629,295 @@ fn bash_ssh_env_wraps_ssh() {
 fn fish_ssh_env_wraps_ssh() {
     ssh_env_wraps_ssh(Sh::Fish);
 }
+
+/// The fields of every `OSC 133` mark of `letter` in `seen`, after
+/// `133;<letter>;`, to its `BEL` or `ESC`.
+fn mark_fields(seen: &[u8], letter: &[u8]) -> Vec<Vec<u8>> {
+    let head = [b"\x1b]133;".as_slice(), letter, b";"].concat();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(p) = seen[from..].windows(head.len()).position(|w| w == head) {
+        let at = from + p + head.len();
+        let end = seen[at..]
+            .iter()
+            .position(|&b| b == 0x07 || b == 0x1b)
+            .map_or(seen.len(), |e| at + e);
+        out.push(seen[at..end].to_vec());
+        from = end;
+    }
+    out
+}
+
+/// **The shell names each command it runs in its `C`, and carries a
+/// token of its own on its `C` and its `D` that nothing it runs can
+/// read**: the command lines read back from the marks are the lines typed,
+/// quotes, a doubled blank and a `$` included; every `C` and `D` after the
+/// first prompt carries one token of sixteen hex digits, found nowhere but
+/// in the marks, so `env` does not show it; and the scan of the marks
+/// (`ran::Commands`) takes `ssh -V`'s output as remote and is closed again
+/// by its `D`. `ssh` is a function of the startup file's, so no ssh runs.
+/// fish 4 marks its own commands, with no token, and only the lines are
+/// held there. Named breaks: send `C` with no command line -- none reads
+/// back; leave the token off the `D` -- the scan stays open.
+fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
+    let shell = match sh.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch(&format!("cmdline-{}", sh.name()));
+    let home = dir.join("home");
+    stock(sh, &home);
+    let (rc, fake) = match sh {
+        Sh::Zsh => (".zshrc", "ssh() { print fake-ssh; }\n"),
+        Sh::Bash => (".bashrc", "ssh() { echo fake-ssh; }\n"),
+        Sh::Fish => (
+            ".config/fish/config.fish",
+            "function ssh; echo fake-ssh; end\n",
+        ),
+    };
+    let mut text = std::fs::read_to_string(home.join(rc)).expect("the stock file");
+    text.push_str(fake);
+    put(&home, rc, &text);
+    let mut s = Session::start(parent(&dir, &shell, &[]), Integration::On);
+    s.reading(Times::ONCE);
+    let lines = ["ssh -V", "X=1 printf '%s|%s\\n' \"a  b\" 'c$d'", "env"];
+    for line in lines {
+        s.run(line);
+    }
+    assert!(
+        s.seen.windows(8).any(|w| w == b"fake-ssh"),
+        "{}: the function ran, not an ssh: {}",
+        sh.name(),
+        s.tail()
+    );
+    let cs = mark_fields(&s.seen, b"C");
+    let typed: Vec<Vec<u8>> = cs
+        .iter()
+        .filter_map(|f| crate::ran::command_line(f))
+        .collect();
+    let want: Vec<Vec<u8>> = lines.iter().map(|l| l.as_bytes().to_vec()).collect();
+    assert_eq!(
+        typed
+            .iter()
+            .map(|l| String::from_utf8_lossy(l).into_owned())
+            .collect::<Vec<_>>(),
+        want.iter()
+            .map(|l| String::from_utf8_lossy(l).into_owned())
+            .collect::<Vec<_>>(),
+        "{}: the lines read back: {}",
+        sh.name(),
+        s.tail()
+    );
+    if !(sh == Sh::Fish && fish_marks_itself(&s.seen)) {
+        let token = |f: &Vec<u8>| {
+            f.split(|&b| b == b';')
+                .find_map(|o| o.strip_prefix(b"baud_token=").map(<[u8]>::to_vec))
+        };
+        let ds = mark_fields(&s.seen, b"D");
+        let tokens: Vec<Option<Vec<u8>>> = cs.iter().chain(&ds).map(token).collect();
+        let first = tokens.first().cloned().flatten().expect("a token");
+        assert_eq!(first.len(), 16, "{}: {first:?}", sh.name());
+        assert!(first.iter().all(u8::is_ascii_hexdigit));
+        assert!(
+            tokens.iter().all(|t| t.as_ref() == Some(&first)),
+            "{}: one token on every C and D: {tokens:?}",
+            sh.name()
+        );
+        let found = s.seen.windows(first.len()).filter(|w| *w == first).count();
+        assert_eq!(
+            found,
+            tokens.len(),
+            "{}: the token is in the marks alone",
+            sh.name()
+        );
+        let seen = String::from_utf8_lossy(&s.seen);
+        assert!(
+            !seen.contains("__baud_token"),
+            "{}: not exported",
+            sh.name()
+        );
+        let mut scan = crate::ran::Commands::default();
+        assert_eq!(scan.read(&s.seen), crate::ran::Marked::Elsewhere, "ssh -V");
+        assert_eq!(
+            scan.read(b""),
+            crate::ran::Marked::Nothing,
+            "closed by its D"
+        );
+    }
+    s.finish();
+}
+
+#[test]
+fn zsh_sends_the_command_line_and_a_token() {
+    the_command_line_and_a_token_reach_the_marks(Sh::Zsh);
+}
+
+#[test]
+fn bash_sends_the_command_line_and_a_token() {
+    the_command_line_and_a_token_reach_the_marks(Sh::Bash);
+}
+
+#[test]
+fn fish_sends_the_command_line_and_a_token() {
+    the_command_line_and_a_token_reach_the_marks(Sh::Fish);
+}
+
+/// **bash with `promptvars` off still marks each command, and never shows
+/// the text of PS0's command line**: PS0 is not expanded then, so the `C`
+/// goes bare. Named break: put the command line's `$(...)` in PS0 whatever
+/// `promptvars` says -- its text is drawn before the command.
+#[test]
+fn bash_with_promptvars_off_still_marks_its_commands() {
+    let shell = match Sh::Bash.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch("promptvars");
+    put(
+        &dir.join("home"),
+        ".bash_profile",
+        "shopt -u promptvars\nPS1='$ '\n",
+    );
+    let mut s = Session::start(parent(&dir, &shell, &[]), Integration::On);
+    s.reading(Times::ONCE);
+    s.run("true");
+    let seen = String::from_utf8_lossy(&s.seen).into_owned();
+    assert!(
+        !seen.contains("__baud_command"),
+        "PS0's text shown: {seen:?}"
+    );
+    assert!(seen.contains("\x1b]133;C"), "a C sent: {seen:?}");
+    s.finish();
+}
+
+/// **A PS0 exported to a child bash, where baud's function is not, says
+/// nothing there**: with `PS0` exported, a line that begins with a subshell
+/// keeps baud's marks in it while the command runs (the guide says so),
+/// and an interactive bash it starts expands them before its own command.
+/// Named break: leave the command's stderr where it is in PS0 -- the child
+/// says `__baud_command: command not found`.
+#[test]
+fn an_exported_ps0_in_a_child_bash_says_nothing() {
+    let shell = match Sh::Bash.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch("ps0-child");
+    put(&dir.join("home"), ".bash_profile", "PS1='$ '\nexport PS0\n");
+    let mut s = Session::start(parent(&dir, &shell, &[]), Integration::On);
+    s.reading(Times::ONCE);
+    let child = format!(
+        "({} --norc --noprofile -i <<< 'echo child-ran')",
+        shell.display()
+    );
+    s.run(&child);
+    let seen = String::from_utf8_lossy(&s.seen).into_owned();
+    assert!(seen.contains("child-ran"), "the child ran: {seen:?}");
+    assert!(
+        !seen.contains("not found"),
+        "the child said nothing: {seen:?}"
+    );
+    s.finish();
+}
+
+/// What each `C` mark in `seen` names: the command line it carries, or
+/// none; and whether every one carries the shell's token.
+fn named_lines(seen: &[u8]) -> (Vec<Option<String>>, bool) {
+    let cs = mark_fields(seen, b"C");
+    let tokened = cs.iter().all(|f| {
+        f.split(|&b| b == b';').any(|o| {
+            o.strip_prefix(b"baud_token=")
+                .is_some_and(|t| t.len() == 16)
+        })
+    });
+    let lines = cs
+        .iter()
+        .map(|f| crate::ran::command_line(f).map(|l| String::from_utf8_lossy(&l).into_owned()))
+        .collect();
+    (lines, tokened)
+}
+
+/// **bash names no command its history kept no line for**: under
+/// `HISTCONTROL=ignoreboth`, a line with a blank before it (` ssh h`
+/// among them) and a repeated line, and under `set +o history` any line,
+/// send a `C` with the shell's token and no command line, as `history 1`
+/// is then another command's; the lines bash kept are named. `ssh` is a
+/// function of the profile's, so no ssh runs. Named break: send
+/// `cmdline=` whatever HISTCMD says -- ` true` is named `ssh h`, the line
+/// before it.
+#[test]
+fn bash_names_no_command_its_history_kept_out() {
+    let shell = match Sh::Bash.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch("histcontrol");
+    put(
+        &dir.join("home"),
+        ".bash_profile",
+        "PS1='$ '\nHISTCONTROL=ignoreboth\nssh() { echo not-ssh; }\n",
+    );
+    let mut s = Session::start(parent(&dir, &shell, &[]), Integration::On);
+    s.reading(Times::ONCE);
+    let typed = [
+        "ssh h",
+        " true",
+        "true",
+        " ssh h",
+        "true",
+        "set +o history",
+        "ssh h",
+    ];
+    for line in typed {
+        s.run(line);
+    }
+    let (lines, tokened) = named_lines(&s.seen);
+    let want = [
+        Some("ssh h"),
+        None,
+        Some("true"),
+        None,
+        None,
+        Some("set +o history"),
+        None,
+    ]
+    .map(|l| l.map(str::to_string));
+    assert_eq!(lines, want, "the lines named: {}", s.tail());
+    assert!(tokened, "every C carries the token: {}", s.tail());
+    s.finish();
+}
+
+/// **zsh names no command when preexec's `$1` is empty**, which zsh
+/// passes when its history mechanism is not active. No line typed at an
+/// interactive prompt reaches that here -- `hist_ignore_space`,
+/// `HISTSIZE=0`, `fc -p` and the duplicate options all pass the typed line
+/// -- so the hook is called with the empty argument as zsh calls it then.
+/// Named break: send `cmdline=${(q)1}` whatever `$1` is -- the `C` carries
+/// `cmdline=''`.
+#[test]
+fn zsh_names_no_command_when_preexec_gets_no_line() {
+    let shell = match Sh::Zsh.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch("preexec-empty");
+    put(&dir.join("home"), ".zshrc", "PS1='%# '\n");
+    let mut s = Session::start(parent(&dir, &shell, &[]), Integration::On);
+    s.reading(Times::ONCE);
+    s.run("__baud_preexec ''");
+    let (lines, tokened) = named_lines(&s.seen);
+    assert_eq!(
+        lines,
+        [Some("__baud_preexec ''".to_string()), None],
+        "the typed line, then the hook's: {}",
+        s.tail()
+    );
+    let cs = mark_fields(&s.seen, b"C");
+    assert!(
+        !cs[1].windows(8).any(|w| w == b"cmdline="),
+        "no cmdline at all: {:?}",
+        String::from_utf8_lossy(&cs[1])
+    );
+    assert!(tokened, "every C carries the token: {}", s.tail());
+    s.finish();
+}

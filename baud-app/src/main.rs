@@ -205,6 +205,8 @@ mod os_effect;
 mod paths;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod probe;
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod ran;
 // `[link.*]`: your own link types and the printed-path forms, read whole or
 // refused whole, pure, so its tests run on every platform.
 // The door `main` opens first: a probe build runs only as a rig, and no

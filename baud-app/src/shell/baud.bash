@@ -66,13 +66,27 @@ __baud_marks() {
   __baud_p='\[\e]133;P;k=i\a\]'
   __baud_s='\[\e]133;P;k=s\a\]'
   __baud_b='\[\e]133;B\a\]'
-  __baud_c='\e]133;C\a'
+  # The command line, as kitty sends it: `cmdline=` quoted by `%q`, read
+  # back from the history as PS0 is drawn, the line being in it by then.
+  # Where PS0 reaches a bash without the function -- exported, in a child
+  # -- it sends nothing and says nothing. With `promptvars` off PS0 is not
+  # expanded, and the C goes bare.
+  # shellcheck disable=SC2016
+  __baud_c='$(__baud_command "$HISTCMD" 2>/dev/null)'
+  __baud_c0='\e]133;C\a'
+  # A token of this shell's own, on its C and D marks: baud ends a remote
+  # command only at a D that carries it, which no program on the other
+  # end of an ssh can know. Never exported.
+  __baud_token=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null)
+  __baud_token=${__baud_token//[^0-9a-f]/}
   # Whether PS0 was set when it was last marked; whether the DEBUG trap
   # is wanted; the DEBUG trap read at the prompt, and the user's own.
   __baud_ps0=
   __baud_arm=
   __baud_trap=
   __baud_user_debug=
+  # HISTCMD as the prompt was drawn, which a line bash keeps moves.
+  __baud_hist=
   # bash 5.1 and later run each entry of an array PROMPT_COMMAND with the
   # command's $?, PIPESTATUS and $_; before 5.1 only its first is run.
   __baud_arrays=0
@@ -92,17 +106,39 @@ __baud_marks() {
     PS2=${PS2//"$__baud_b"/}
     if [[ -n ${PS0+set} ]]; then
       PS0=${PS0//"$__baud_c"/}
+      PS0=${PS0//"$__baud_c0"/}
       if [[ -z $PS0 && -z $__baud_ps0 ]]; then
         unset PS0
       fi
     fi
   }
 
+  # The C, from PS0's expansion. `$1` is HISTCMD as PS0 is expanded: it
+  # moved from the prompt's if bash kept the line, and did not if it kept
+  # none -- history off, or a line HISTCONTROL or HISTIGNORE keeps out --
+  # when `history 1` is another command's line, so the C names none. Kept,
+  # the last line of the history, its number and the `*` of an edited line
+  # taken off.
+  __baud_command() {
+    local line
+    if [[ -z ${1-} || -z ${__baud_hist-} || $1 == "$__baud_hist" ]]; then
+      builtin printf '%sC;baud_token=%s%s' "$__baud_osc" "$__baud_token" "$__baud_bel"
+      return
+    fi
+    line=$(HISTTIMEFORMAT='' builtin history 1)
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line#"${line%%[![:digit:]]*}"}
+    line=${line#\*}
+    line=${line#"${line%%[![:space:]]*}"}
+    builtin printf '%sC;baud_token=%s;cmdline=%q%s' "$__baud_osc" "$__baud_token" "$line" "$__baud_bel"
+  }
+
   # The command's D, once baud's entry has kept its status. The marks go
   # to stderr, where bash draws the prompt.
   __baud_before() {
     if ((__baud_prompted)); then
-      builtin printf '%sD;%s;aid=%s%s' "$__baud_osc" "$__baud_status" "$$" "$__baud_bel" >&2
+      builtin printf '%sD;%s;aid=%s;baud_token=%s%s' "$__baud_osc" "$__baud_status" "$$" \
+        "$__baud_token" "$__baud_bel" >&2
     fi
     return "$__baud_status"
   }
@@ -125,10 +161,15 @@ __baud_marks() {
     __baud_unmark
     builtin printf '%sA;aid=%s%s' "$__baud_osc" "$$" "$__baud_bel" >&2
     __baud_prompted=1
+    __baud_hist=${HISTCMD-}
     __baud_ps0=${PS0+set}
     PS1=$__baud_p$PS1$__baud_b
     PS2=$__baud_s$PS2$__baud_b
-    PS0=$__baud_c$PS0
+    if shopt -q promptvars; then
+      PS0=$__baud_c$PS0
+    else
+      PS0=$__baud_c0$PS0
+    fi
     # An exported prompt reaches every command as it stands, so the marks
     # come out before the command runs: by a DEBUG trap the rest of this
     # entry sets and whose first firing clears it. Only while this entry
@@ -225,12 +266,12 @@ __baud_marks() {
         ;;
       esac
     fi
-    unset -f __baud_unmark __baud_before __baud_after __baud_last_entry __baud_set_trap \
-      __baud_debug __baud_stand_down
+    unset -f __baud_unmark __baud_command __baud_before __baud_after __baud_last_entry \
+      __baud_set_trap __baud_debug __baud_stand_down
     unset __baud_prompted __baud_status __baud_mark __baud_osc __baud_bel __baud_p \
-      __baud_s __baud_b __baud_c __baud_ps0 __baud_arm __baud_trap __baud_user_debug \
+      __baud_s __baud_b __baud_c __baud_c0 __baud_ps0 __baud_arm __baud_trap __baud_user_debug \
       __baud_arrays __baud_pc __baud_pc_set __baud_entry __baud_first __baud_last \
-      BAUD_SHELL_INTEGRATION
+      __baud_token __baud_hist BAUD_SHELL_INTEGRATION
   }
 
   # baud's entries run with stdout on /dev/null. A DEBUG trap fires before

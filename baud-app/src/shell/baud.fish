@@ -38,21 +38,26 @@ if set -q BAUD_SHELL_INTEGRATION
     # 0 before the first prompt, 1 at a prompt no command has run from,
     # 2 once a command has run.
     set -g __baud_prompted 0
+    # A token of this shell's own, on its C and D marks: baud ends a
+    # remote command only at a D that carries it, which no program on the
+    # other end of an ssh can know. Never exported.
+    set -g __baud_token (od -An -N8 -tx1 /dev/urandom 2>/dev/null | string replace -ra '[^0-9a-f]' '')
 
     function __baud_prompt --on-event fish_prompt
         if test $__baud_prompted = 1
-            printf '\e]133;D;aid=%s\a' $fish_pid
+            printf '\e]133;D;aid=%s;baud_token=%s\a' $fish_pid "$__baud_token"
         end
         printf '\e]133;A;aid=%s\a' $fish_pid
         set -g __baud_prompted 1
     end
 
+    # The command line, as kitty and fish 4 send it: `cmdline_url=`.
     function __baud_preexec --on-event fish_preexec
-        printf '\e]133;C\a'
+        printf '\e]133;C;baud_token=%s;cmdline_url=%s\a' "$__baud_token" (string escape --style=url -- "$argv")
     end
 
     function __baud_postexec --on-event fish_postexec
-        printf '\e]133;D;%s;aid=%s\a' $status $fish_pid
+        printf '\e]133;D;%s;aid=%s;baud_token=%s\a' $status $fish_pid "$__baud_token"
         set -g __baud_prompted 2
     end
 end

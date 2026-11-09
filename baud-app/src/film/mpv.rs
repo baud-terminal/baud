@@ -470,7 +470,7 @@ fn the_demos_prompts_after_mpvs_exit_are_bel_ended_osc_133_marks() {
     let zshenv = include_str!("../shell/zshenv.zsh");
     for spelled in [
         "__baud_bel=$'\\a'",
-        "${__baud_osc}D;$st;aid=$$${__baud_bel}",
+        "${__baud_osc}D;$st;aid=$$;baud_token=$__baud_token${__baud_bel}",
         "${__baud_osc}A;aid=$$${__baud_bel}",
     ] {
         assert!(zshenv.contains(spelled), "zsh's mark: {spelled}");

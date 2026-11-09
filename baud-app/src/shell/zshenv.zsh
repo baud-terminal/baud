@@ -39,6 +39,10 @@ if [[ -o interactive ]]; then
   builtin typeset -g __baud_p="%{${__baud_osc}P;k=i${__baud_bel}%}"
   builtin typeset -g __baud_s="%{${__baud_osc}P;k=s${__baud_bel}%}"
   builtin typeset -g __baud_b="%{${__baud_osc}B${__baud_bel}%}"
+  # A token of this shell's own, on its C and D marks: baud ends a remote
+  # command only at a D that carries it, which no program on the other
+  # end of an ssh can know. Never exported.
+  builtin typeset -g __baud_token="${$(od -An -N8 -tx1 /dev/urandom 2>/dev/null)//[^0-9a-f]/}"
 
   # The prompts as the user set them: baud's marks taken out.
   __baud_unmark() {
@@ -66,13 +70,14 @@ if [[ -o interactive ]]; then
       preexec_functions=(${preexec_functions:#__baud_preexec})
       builtin unfunction __baud_precmd __baud_preexec __baud_unmark
       builtin unset __baud_prompted __baud_mark __baud_osc __baud_bel __baud_p __baud_s \
-        __baud_b BAUD_SHELL_INTEGRATION
+        __baud_b __baud_token BAUD_SHELL_INTEGRATION
       return st
     fi
     __baud_unmark
     # Not when a widget runs the hooks to redraw the prompt it is at.
     if ! builtin zle; then
-      (( __baud_prompted )) && builtin print -rn -- "${__baud_osc}D;$st;aid=$$${__baud_bel}"
+      (( __baud_prompted )) &&
+        builtin print -rn -- "${__baud_osc}D;$st;aid=$$;baud_token=$__baud_token${__baud_bel}"
       builtin print -rn -- "${__baud_osc}A;aid=$$${__baud_bel}"
       __baud_prompted=1
     fi
@@ -83,10 +88,17 @@ if [[ -o interactive ]]; then
     return st
   }
 
+  # The command line, as kitty sends it: `cmdline=` quoted as `%q` quotes
+  # it, so nothing in it can end the mark. zsh passes an empty `$1` when
+  # its history mechanism is not active, and then the C names none.
   __baud_preexec() {
     builtin emulate -L zsh
     __baud_unmark
-    builtin print -rn -- "${__baud_osc}C${__baud_bel}"
+    if [[ -n $1 ]]; then
+      builtin print -rn -- "${__baud_osc}C;baud_token=$__baud_token;cmdline=${(q)1}${__baud_bel}"
+    else
+      builtin print -rn -- "${__baud_osc}C;baud_token=$__baud_token${__baud_bel}"
+    fi
   }
 
   builtin typeset -ga precmd_functions preexec_functions

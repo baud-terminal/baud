@@ -5278,6 +5278,143 @@ mod tests {
         );
     }
 
+    /// **How often a short ssh's link typed at a shell is read as local on
+    /// Linux, by the samples and by the shell's marks**: an interactive
+    /// login shell (`BAUD_SSH_RACE_SHELL`, bash by default) started as a
+    /// window starts it, with baud's integration on unless
+    /// `BAUD_SSH_RACE_INTEGRATION=off`, is typed `ssh localhost cat <file>`
+    /// `BAUD_SSH_RACE_N` times (200 by default), the file holding one `OSC
+    /// 8` link, each at its prompt. Each read is taken as the Linux loop
+    /// takes it -- the poll, [`Pty::read_chunk`], the
+    /// [`crate::probe::Sampler`] and its marks, `TIOCGPGRP` -- and each
+    /// sampled group named as the paths worker names it. It counts the
+    /// links read with local groups at both samples, and of those the ones
+    /// no mark of the shell's made remote: the race left. Needs an sshd on
+    /// localhost that takes this user's key, as the VM container gives it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "needs an sshd on localhost that takes this user's key"]
+    fn a_short_ssh_link_typed_at_a_shell_on_linux_is_counted() {
+        use crate::probe::{Asks, Linked, Sampler, Watched};
+        use std::os::fd::AsFd;
+        let n: u32 = std::env::var("BAUD_SSH_RACE_N")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200);
+        let integration = match std::env::var("BAUD_SSH_RACE_INTEGRATION").as_deref() {
+            Ok("off") => crate::shell::Integration::Off,
+            _ => crate::shell::Integration::On,
+        };
+        let shell = std::env::var("BAUD_SSH_RACE_SHELL").unwrap_or_else(|_| "/bin/bash".into());
+        let dir = std::env::temp_dir().join(format!("baud-ssh-typed-{}", std::process::id()));
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).expect("a scratch home");
+        for rc in [".bash_profile", ".bashrc", ".zshrc"] {
+            std::fs::write(home.join(rc), "PS1='RACE> '\n").expect("a startup file");
+        }
+        let link = dir.join("link");
+        std::fs::write(
+            &link,
+            b"\x1b]8;;file://localhost/etc/hostname\x1b\\x\x1b]8;;\x1b\\\n",
+        )
+        .expect("the link");
+        let var = |k: &str| std::env::var_os(k).unwrap_or_default();
+        let parent = vec![
+            (OsString::from("HOME"), home.clone().into_os_string()),
+            (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+            (OsString::from("SHELL"), OsString::from(&shell)),
+            (OsString::from("USER"), var("USER")),
+            (OsString::from("LOGNAME"), var("LOGNAME")),
+        ];
+        let size = WinSize {
+            ws_col: 200,
+            ws_row: 24,
+        };
+        let told = text_area(&size, Px::of(8), Px::of(16));
+        let start = ShellStart {
+            integration,
+            ssh_env: crate::shell::SshEnv::Off,
+            program: None,
+            run: None,
+        };
+        let (pid, master) =
+            Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
+                .expect("forkpty");
+        let w = Polled::over(master, pid, told, None);
+        let mut sampler = Sampler::default();
+        let mut named = std::collections::HashMap::new();
+        let elsewhere = Some(crate::paths::Front::Elsewhere);
+        let (mut links, mut by_samples, mut left) = (0u32, 0u32, 0u32);
+        let mut all = Vec::new();
+        let prompts = |all: &[u8]| all.windows(6).filter(|x| *x == b"RACE> ").count();
+        let mut out = Outbox::default();
+        for i in 0..=n {
+            if i > 0 {
+                out.push(
+                    format!("ssh -o BatchMode=yes localhost cat {}\r", link.display()).as_bytes(),
+                );
+                let _ = w.pty.write(&mut out);
+            }
+            let want = usize::try_from(i).expect("a count") + 1;
+            while prompts(&all) < want {
+                let (_, m, _) = wait(
+                    w.socket.0.as_fd(),
+                    w.pty.polled_master(),
+                    Owed::Nothing,
+                    &[],
+                    Some(Duration::from_secs(60)),
+                )
+                .expect("the wait");
+                assert_eq!(
+                    m,
+                    Ready::Readable,
+                    "output before the bound: {:?}",
+                    String::from_utf8_lossy(&all)
+                );
+                let bytes = match w.pty.read_chunk() {
+                    Chunk::Bytes(b) => b,
+                    Chunk::Closed => panic!("the shell ended: {:?}", String::from_utf8_lossy(&all)),
+                };
+                let asks = sampler.read(std::time::Instant::now(), &bytes);
+                let writers = match asks {
+                    Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
+                    Asks::No => crate::probe::Writers::default(),
+                };
+                all.extend_from_slice(&bytes);
+                if asks != Asks::Yes(Linked::Yes) {
+                    continue;
+                }
+                let mut front = |g: Option<crate::sys::Pid>| {
+                    let g = g?;
+                    Some(*named.entry(g).or_insert_with(|| {
+                        let names: Vec<String> = [crate::fg::name(g), crate::fg::exe_name(g)]
+                            .into_iter()
+                            .flatten()
+                            .collect();
+                        crate::probe::front_of(&names)
+                    }))
+                };
+                let here =
+                    u32::try_from(bytes.windows(9).filter(|x| *x == b"\x1b]8;;file").count())
+                        .expect("a count");
+                let local = front(writers.before) != elsewhere && front(writers.at) != elsewhere;
+                links += here;
+                if local {
+                    by_samples += here;
+                    if writers.marked != Watched::Elsewhere {
+                        left += here;
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        println!(
+            "{shell}, integration {integration:?}: links {links}, read as local by the samples \
+             {by_samples}, and with the shell's marks {left}"
+        );
+        assert_eq!(links, n, "every link was read");
+    }
+
     /// **The Linux loop reaps a window's child by its pidfd, and the window
     /// decides on how it ended**: `exit 3` at once holds with its line,
     /// `exit 0` closes, `kill -SEGV` of itself holds naming the signal, the
