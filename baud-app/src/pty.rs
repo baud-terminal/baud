@@ -28,6 +28,7 @@
 //! reads.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use crate::child_env::{ChildEnv, EnvName, LANG, LC_ALL, LC_CTYPE, PWD, SHELL};
 #[cfg(target_os = "macos")]
 use baud_domain::HostTime;
 use baud_domain::{InputEncoding, WinSize};
@@ -545,29 +546,37 @@ const OUTER: &[&str] = &[
 /// `Apple_Terminal`, `iTerm.app`, `ghostty`, `WezTerm` -- and a name no
 /// program's table knows is the honest answer: yazi then decides from
 /// baud's own replies, and chafa from `COLORTERM`.
-const OURS: [(&str, &str); 4] = [
+const OURS: [(EnvName, &str); 4] = [
     // The entry whose `flash` length the bell reads, spelled once there.
-    ("TERM", crate::bell::TERM),
-    ("COLORTERM", "truecolor"),
-    ("TERM_PROGRAM", "baud"),
-    ("TERM_PROGRAM_VERSION", env!("BAUD_VERSION")),
+    (EnvName::fixed("TERM"), crate::bell::TERM),
+    (EnvName::fixed("COLORTERM"), "truecolor"),
+    (EnvName::fixed("TERM_PROGRAM"), "baud"),
+    (EnvName::fixed("TERM_PROGRAM_VERSION"), env!("BAUD_VERSION")),
 ];
 
 /// The variables a shell reads its locale from: `LC_ALL` outranks every
 /// category, `LC_CTYPE` sets the one that decides how input bytes become
 /// characters, and `LANG` stands under both.
-const LOCALE: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
+const LOCALE: [EnvName; 3] = [LC_ALL, LC_CTYPE, LANG];
 
 /// **Whether the parent names a locale**: one of [`LOCALE`] set and not
-/// empty -- POSIX reads an empty one as unset. Other `LC_` names do not
+/// empty, as the child reads it, the first entry of its name -- POSIX reads
+/// an empty one as unset. Other `LC_` names do not
 /// count: each sets one category and leaves the character type to `LANG`,
 /// and iTerm2's `LC_TERMINAL` is a terminal's name, not a locale's. The one
-/// test both [`spawn_env`] and [`child_env`] ask, so the two cannot
+/// test both [`spawn_env`] and [`environment`] ask, so the two cannot
 /// disagree about when a locale is filled.
-fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
-    parent
+fn names_a_locale(env: &ChildEnv) -> bool {
+    LOCALE
         .iter()
-        .any(|(k, v)| !v.is_empty() && LOCALE.iter().any(|l| l.as_bytes() == k.as_bytes()))
+        .any(|l| env.get(l).is_some_and(|v| !v.is_empty()))
+}
+
+/// [`environment`] of `parent` as `execve` takes it, for the tests that run
+/// a program under the seat with the environment a window's child has.
+#[cfg(test)]
+pub(crate) fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
+    environment(ChildEnv::of(parent), locale).into_envp()
 }
 
 /// The child's environment: the parent's, less every variable in
@@ -580,32 +589,21 @@ fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
 /// was multi-threaded a moment ago, and it is not async-signal-safe. The
 /// child runs only [`utf8_erase`], the `chdir` [`start_in`] decided, a
 /// test of what it returned, the exec and, if the exec fails, `_exit`.
-pub(crate) fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
-    let fill = locale.filter(|_| !names_a_locale(&parent));
-    let dropped = |k: &[u8]| {
-        OUTER.iter().any(|o| o.as_bytes() == k)
-            || OURS.iter().any(|(o, _)| o.as_bytes() == k)
-            || (fill.is_some() && k == b"LANG")
-    };
-    let mut env: Vec<CString> = parent
-        .into_iter()
-        .filter(|(k, _)| !k.is_empty() && !dropped(k.as_bytes()))
-        .filter_map(|(k, v)| {
-            let mut entry = k.as_bytes().to_vec();
-            entry.push(b'=');
-            entry.extend_from_slice(v.as_bytes());
-            CString::new(entry).ok()
-        })
-        .collect();
-    env.extend(
-        OURS.iter()
-            .filter_map(|(k, v)| CString::new(format!("{k}={v}")).ok()),
-    );
-    env.extend(fill.and_then(|l| CString::new(format!("LANG={l}")).ok()));
+/// Kept as a [`ChildEnv`] until the fork, so the spawn can still set what
+/// the program and shell integration change.
+fn environment(mut env: ChildEnv, locale: Option<&str>) -> ChildEnv {
+    let fill = locale.filter(|_| !names_a_locale(&env));
+    env.retain(|k| !OUTER.iter().any(|o| o.as_bytes() == k.as_bytes()));
+    for (k, v) in &OURS {
+        env.set(k, *v);
+    }
+    if let Some(l) = fill {
+        env.set(&LANG, l);
+    }
     env
 }
 
-/// **The environment a shell is spawned with**: [`child_env`], with a
+/// **The environment a shell is spawned with**: [`environment`], with a
 /// locale asked of `locale` only when the parent names none. A Dock launch
 /// inherits launchd's environment, which has no locale, and zsh in the C
 /// locale reads each byte of a UTF-8 character as a character of its own:
@@ -615,9 +613,10 @@ pub(crate) fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>)
 fn spawn_env(
     parent: Vec<(OsString, OsString)>,
     locale: impl FnOnce() -> Option<String>,
-) -> Vec<CString> {
-    let found = (!names_a_locale(&parent)).then(locale).flatten();
-    child_env(parent, found.as_deref())
+) -> ChildEnv {
+    let env = ChildEnv::of(parent);
+    let found = (!names_a_locale(&env)).then(locale).flatten();
+    environment(env, found.as_deref())
 }
 
 /// **The names a shell's locale is tried as**, in order, each as UTF-8 and
@@ -880,7 +879,7 @@ struct Exec {
     /// or the account's entry and not from `default_prog`, and alacritty
     /// leaves the parent's; kitty's and Ghostty's handling was not read
     /// at source.
-    shell_var: Option<CString>,
+    shell_var: Option<OsString>,
 }
 
 impl Exec {
@@ -907,10 +906,7 @@ impl Exec {
             path,
             argv,
             injection: None,
-            shell_var: match program {
-                Some(p) => Some(CString::new(format!("SHELL={p}")).ok()?),
-                None => None,
-            },
+            shell_var: program.map(OsString::from),
         })
     }
 
@@ -954,10 +950,7 @@ impl Exec {
         let argv = core::iter::once(argv0)
             .chain(injection.iter().flat_map(|i| i.args.iter().cloned()))
             .collect();
-        let shell_var = match program {
-            Some(p) => Some(CString::new(format!("SHELL={p}")).ok()?),
-            None => None,
-        };
+        let shell_var = program.map(OsString::from);
         Some(Exec {
             path: exec::Program::At(at),
             argv,
@@ -1019,18 +1012,6 @@ fn path_var(parent: &[(OsString, OsString)]) -> Option<&OsStr> {
 pub(crate) fn shell_name(program: Option<&str>) -> String {
     let (shell, _) = login_shell(program, &std::env::vars_os().collect::<Vec<_>>());
     shell.rsplit('/').next().unwrap_or(&shell).to_string()
-}
-
-/// `env` with `var`, a `NAME=value` entry, in place of every entry of its
-/// name, as [`crate::shell::Injection::apply`] replaces its own.
-fn set_var(env: &mut Vec<CString>, var: &CString) {
-    let name = var.as_bytes().split(|b| *b == b'=').next().unwrap_or(&[]);
-    env.retain(|e| {
-        e.as_bytes()
-            .strip_prefix(name)
-            .is_none_or(|rest| rest.first() != Some(&b'='))
-    });
-    env.push(var.clone());
 }
 
 /// **What `execve` is given, made only here**, so the module boundary
@@ -1315,12 +1296,9 @@ pub fn start_dir() -> std::path::PathBuf {
 /// (measured with `open -n`) -- so it is replaced with `HOME`,
 /// as Ghostty sets it (note AA section 9). A
 /// child that stays keeps its environment as it is.
-fn with_pwd(mut env: Vec<CString>, start: &StartIn) -> Vec<CString> {
+fn with_pwd(mut env: ChildEnv, start: &StartIn) -> ChildEnv {
     if let StartIn::Dir(dir) = start {
-        env.retain(|e| !e.as_bytes().starts_with(b"PWD="));
-        let mut entry = b"PWD=".to_vec();
-        entry.extend_from_slice(dir.as_bytes());
-        env.extend(CString::new(entry).ok());
+        env.set(&PWD, OsStr::from_bytes(dir.as_bytes()));
     }
     env
 }
@@ -1745,7 +1723,7 @@ impl Pty {
         };
         let (exec, stay) = Pty::exec_and_env(cmd, parent, locale, shell)?;
         let home = with_pwd(stay.clone(), &start);
-        Pty::fork_in(ws, &exec, &home, &stay, &start)
+        Pty::fork_in(ws, &exec, &home.into_envp(), &stay.into_envp(), &start)
     }
 
     /// What the child runs, and its environment when it stays where baud
@@ -1755,7 +1733,7 @@ impl Pty {
         parent: Vec<(OsString, OsString)>,
         locale: impl FnOnce() -> Option<String>,
         shell: &ShellStart,
-    ) -> Option<(Exec, Vec<CString>)> {
+    ) -> Option<(Exec, ChildEnv)> {
         let exec = match &shell.run {
             Some(run) => Exec::running(run, shell.program.as_deref(), &parent)?,
             None => Exec::of(
@@ -1768,7 +1746,7 @@ impl Pty {
         };
         let mut stay = spawn_env(parent, locale);
         if let Some(v) = &exec.shell_var {
-            set_var(&mut stay, v);
+            stay.set(&SHELL, v.clone());
         }
         if let Some(i) = &exec.injection {
             i.apply(&mut stay);
@@ -1833,6 +1811,7 @@ impl Pty {
         parent.retain(|(k, _)| k != "PWD");
         let (exec, env) =
             Pty::exec_and_env(None, parent, || None, &crate::shell::Integration::On.into())?;
+        let env = env.into_envp();
         let start = StartIn::Dir(CString::new(dir.as_os_str().as_bytes()).ok()?);
         Pty::fork_in(ws, &exec, &env, &env, &start)
     }
@@ -3150,7 +3129,11 @@ mod tests {
     /// fails here with its environment still right.
     #[test]
     fn the_environment_names_what_xtversion_reports() {
-        let get = |k: &str| OURS.iter().find(|(o, _)| *o == k).map(|(_, v)| *v);
+        let get = |k: &str| {
+            OURS.iter()
+                .find(|(o, _)| o.as_bytes() == k.as_bytes())
+                .map(|(_, v)| *v)
+        };
         let (name, version) = (get("TERM_PROGRAM"), get("TERM_PROGRAM_VERSION"));
         let want = format!("\x1bP>|{}({})\x1b\\", name.unwrap(), version.unwrap());
         assert!(version.unwrap().contains('+'), "the build is in it");
@@ -3233,7 +3216,9 @@ mod tests {
     }
 
     fn ours() -> Vec<String> {
-        OURS.iter().map(|(k, v)| format!("{k}={v}")).collect()
+        OURS.iter()
+            .map(|(k, v)| format!("{}={v}", String::from_utf8_lossy(k.as_bytes())))
+            .collect()
     }
 
     /// **The child names baud and no outer terminal**: every identity
@@ -3254,7 +3239,10 @@ mod tests {
     #[test]
     fn the_outer_list_is_disjoint_from_ours_and_has_no_repeat() {
         for o in OUTER {
-            assert!(!OURS.iter().any(|(k, _)| k == o), "{o} is in both lists");
+            assert!(
+                !OURS.iter().any(|(k, _)| k.as_bytes() == o.as_bytes()),
+                "{o} is in both lists"
+            );
         }
         let mut seen: Vec<&str> = OUTER.to_vec();
         seen.sort_unstable();
@@ -4411,13 +4399,15 @@ mod tests {
     #[test]
     fn a_child_sent_home_has_home_as_its_pwd() {
         let env = || {
-            ["PWD=/where/baud/is", "BAUD_KEPT=yes", "OLDPWD=/before"]
-                .map(|e| CString::new(e).expect("no NUL"))
-                .to_vec()
+            ChildEnv::of(env_of(&[
+                ("PWD", "/where/baud/is"),
+                ("BAUD_KEPT", "yes"),
+                ("OLDPWD", "/before"),
+            ]))
         };
         let home = StartIn::Dir(CString::new("/Users/u").expect("no NUL"));
         assert_eq!(
-            strings(&with_pwd(env(), &home)),
+            strings(&with_pwd(env(), &home).into_envp()),
             ["BAUD_KEPT=yes", "OLDPWD=/before", "PWD=/Users/u"]
         );
         assert_eq!(with_pwd(env(), &StartIn::Inherited), env());
@@ -5192,6 +5182,109 @@ mod tests {
         assert!(!follow, "{said}");
     }
 
+    /// **A parent's `LANG=` then `LANG=en_US.UTF-8` is an empty `LANG` to
+    /// the child, so the locale is filled**: `getenv` reads the first entry
+    /// of a name, and whether the parent names a locale is asked of that
+    /// one. The child is given `LANG` once, the fill. The control: a first
+    /// `LANG` that is set is kept, and nothing is filled.
+    #[test]
+    fn a_first_lang_that_is_empty_is_filled_though_a_later_one_is_set() {
+        let parent = env_of(&[("LANG", ""), ("HOME", "/h"), ("LANG", "en_US.UTF-8")]);
+        assert_eq!(
+            langs(&child_env(parent.clone(), Some("he_IL.UTF-8"))),
+            ["LANG=he_IL.UTF-8"]
+        );
+        let called = std::cell::Cell::new(false);
+        let env = spawn_env(parent, || {
+            called.set(true);
+            Some("he_IL.UTF-8".into())
+        });
+        assert!(called.get(), "the spawn asks for a locale");
+        assert_eq!(langs(&env.into_envp()), ["LANG=he_IL.UTF-8"]);
+        let set = env_of(&[("LANG", "fr_FR.UTF-8"), ("LANG", "")]);
+        assert_eq!(
+            langs(&child_env(set, Some("he_IL.UTF-8"))),
+            ["LANG=fr_FR.UTF-8"],
+            "the control"
+        );
+    }
+
+    /// **A name the parent repeats reaches the child once, as its first
+    /// value**, the one `getenv` reads; an entry with an empty name, or a
+    /// name holding `=`, no environment can carry, and it is dropped.
+    #[test]
+    fn a_repeated_name_reaches_the_child_once_as_its_first_value() {
+        let mut parent = env_of(&[("A", "1"), ("B", "x"), ("A", "2")]);
+        parent.push((OsString::new(), OsString::from("X")));
+        parent.push((OsString::from("C=D"), OsString::from("e")));
+        let got = strings(&child_env(parent, None));
+        let named = |p: &str| {
+            got.iter()
+                .filter(|e| e.starts_with(p))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(named("A="), ["A=1"]);
+        assert_eq!(named("B="), ["B=x"]);
+        assert!(
+            !got.iter()
+                .any(|e| e.starts_with('=') || e.starts_with("C=")),
+            "{got:?}"
+        );
+    }
+
+    /// **Every parent of up to four entries over the locale's names, a
+    /// plain name and an empty or set value** -- 4,681 of them, each
+    /// repeat and order -- gives a child with each name once, no name
+    /// holding `=`, and the `LANG` the child would read: the parent's first
+    /// when the first `LC_ALL`, `LC_CTYPE` or `LANG` names a locale, else
+    /// the fill.
+    #[test]
+    fn every_small_parent_gives_each_name_once_and_the_lang_getenv_reads() {
+        let entries: Vec<(&str, &str)> = ["LANG", "LC_ALL", "LC_CTYPE", "A"]
+            .into_iter()
+            .flat_map(|k| [(k, ""), (k, "en_US.UTF-8")])
+            .collect();
+        let mut parents: Vec<Vec<(&str, &str)>> = vec![Vec::new()];
+        let mut cases = 0usize;
+        for _ in 0..=4 {
+            let mut longer = Vec::new();
+            for parent in &parents {
+                cases += 1;
+                let first = |k: &str| parent.iter().find(|(n, _)| *n == k).map(|(_, v)| *v);
+                let names = ["LC_ALL", "LC_CTYPE", "LANG"]
+                    .iter()
+                    .any(|l| first(l).is_some_and(|v| !v.is_empty()));
+                let got = strings(&child_env(env_of(parent), Some("he_IL.UTF-8")));
+                let mut seen: Vec<&str> = got
+                    .iter()
+                    .map(|e| e.split_once('=').expect("name=value").0)
+                    .collect();
+                let n = seen.len();
+                seen.sort_unstable();
+                seen.dedup();
+                assert_eq!(seen.len(), n, "a name twice for {parent:?}: {got:?}");
+                let want: Vec<String> = match (names, first("LANG")) {
+                    (true, Some(v)) => vec![format!("LANG={v}")],
+                    (true, None) => Vec::new(),
+                    (false, _) => vec!["LANG=he_IL.UTF-8".to_string()],
+                };
+                assert_eq!(
+                    langs(&child_env(env_of(parent), Some("he_IL.UTF-8"))),
+                    want,
+                    "{parent:?}"
+                );
+                for e in &entries {
+                    let mut p = parent.clone();
+                    p.push(*e);
+                    longer.push(p);
+                }
+            }
+            parents = longer;
+        }
+        assert_eq!(cases, 4681, "every parent of up to four entries");
+    }
+
     /// `outer_parent()` with `extra` added.
     fn parent_with(extra: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
         let mut parent = outer_parent();
@@ -5283,7 +5376,7 @@ mod tests {
                 called.set(true);
                 Some("he_IL.UTF-8".into())
             });
-            (called.get(), langs(&env))
+            (called.get(), langs(&env.into_envp()))
         };
         let filled = vec!["LANG=he_IL.UTF-8".to_string()];
         assert_eq!(
@@ -5305,7 +5398,7 @@ mod tests {
             (true, filled)
         );
         assert_eq!(
-            strings(&spawn_env(outer_parent(), || None)),
+            strings(&spawn_env(outer_parent(), || None).into_envp()),
             strings(&child_env(outer_parent(), None))
         );
     }
@@ -5470,8 +5563,8 @@ mod tests {
         assert_eq!(bash.path.as_str(), Some("/opt/shells/bin/bash"));
         assert_eq!(argv(&bash), ["-bash", "--posix"]);
         assert_eq!(
-            bash.shell_var.as_deref().map(core::ffi::CStr::to_bytes),
-            Some(&b"SHELL=/opt/shells/bin/bash"[..])
+            bash.shell_var.as_deref(),
+            Some(OsStr::new("/opt/shells/bin/bash"))
         );
         let fish = Exec::of(
             None,
@@ -5494,7 +5587,7 @@ mod tests {
         assert!(
             zsh.injection
                 .as_ref()
-                .is_some_and(|i| i.env.iter().any(|(k, _)| k == "ZDOTDIR")),
+                .is_some_and(|i| i.env.iter().any(|(k, _)| k.as_os_str() == "ZDOTDIR")),
             "zsh's integration"
         );
         let nu = Exec::of(

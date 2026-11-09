@@ -121,7 +121,15 @@ pub(crate) use inject::{Injection, inject};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inject {
     use super::{BASH_ENV, Integration, SSH_ENV, SshEnv, ZSH_ZDOTDIR};
+    use crate::child_env::{ChildEnv, EnvName};
     use std::ffi::{CString, OsString};
+
+    /// The names an injection sets, each checked when the build is.
+    const ZDOTDIR: EnvName = EnvName::fixed("ZDOTDIR");
+    const ENV: EnvName = EnvName::fixed("ENV");
+    const ZSH_ZDOTDIR_NAME: EnvName = EnvName::fixed(ZSH_ZDOTDIR);
+    const BASH_ENV_NAME: EnvName = EnvName::fixed(BASH_ENV);
+    const SSH_ENV_NAME: EnvName = EnvName::fixed(SSH_ENV);
     use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
@@ -168,26 +176,16 @@ mod inject {
     #[derive(Debug, PartialEq, Eq)]
     pub struct Injection {
         pub args: Vec<CString>,
-        pub env: Vec<(OsString, OsString)>,
+        pub env: Vec<(EnvName, OsString)>,
     }
 
     impl Injection {
         /// `env` with this injection's entries in place of any of their
         /// names.
-        pub fn apply(&self, env: &mut Vec<CString>) {
-            env.retain(|e| {
-                !self.env.iter().any(|(k, _)| {
-                    e.as_bytes()
-                        .strip_prefix(k.as_bytes())
-                        .is_some_and(|rest| rest.first() == Some(&b'='))
-                })
-            });
-            env.extend(self.env.iter().filter_map(|(k, v)| {
-                let mut entry = k.as_bytes().to_vec();
-                entry.push(b'=');
-                entry.extend_from_slice(v.as_bytes());
-                CString::new(entry).ok()
-            }));
+        pub fn apply(&self, env: &mut ChildEnv) {
+            for (k, v) in &self.env {
+                env.set(k, v.clone());
+            }
         }
     }
 
@@ -240,20 +238,20 @@ mod inject {
     ) -> Injection {
         let os = |s: &str| OsString::from(s);
         let at = |p: &str| dir.join(p).into_os_string();
-        let kept = |own: &str, helper: &str| {
+        let kept = |own: &str, helper: &EnvName| {
             var(parent, own)
-                .map(|v| (os(helper), v.clone()))
+                .map(|v| (helper.clone(), v.clone()))
                 .into_iter()
                 .collect::<Vec<_>>()
         };
         let wrap = match ssh_env {
-            SshEnv::On => Some((os(SSH_ENV), os("1"))),
+            SshEnv::On => Some((SSH_ENV_NAME, os("1"))),
             SshEnv::Off => None,
         };
         match kind {
             Kind::Zsh => {
-                let mut env = kept("ZDOTDIR", ZSH_ZDOTDIR);
-                env.push((os("ZDOTDIR"), at("zsh")));
+                let mut env = kept("ZDOTDIR", &ZSH_ZDOTDIR_NAME);
+                env.push((ZDOTDIR, at("zsh")));
                 env.extend(wrap);
                 Injection {
                     args: Vec::new(),
@@ -261,8 +259,8 @@ mod inject {
                 }
             }
             Kind::Bash => {
-                let mut env = kept("ENV", BASH_ENV);
-                env.push((os("ENV"), at("bash/baud.bash")));
+                let mut env = kept("ENV", &BASH_ENV_NAME);
+                env.push((ENV, at("bash/baud.bash")));
                 env.extend(wrap);
                 Injection {
                     args: vec![c"--posix".to_owned()],
@@ -430,6 +428,14 @@ mod tests {
             .collect()
     }
 
+    /// An injection's entries as name and value, to compare with [`env`].
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn pairs(set: &[(crate::child_env::EnvName, OsString)]) -> Vec<(OsString, OsString)> {
+        set.iter()
+            .map(|(k, v)| (k.as_os_str().to_os_string(), v.clone()))
+            .collect()
+    }
+
     fn scratch(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("baud-shell-unit-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -463,7 +469,7 @@ mod tests {
         let none = injection(Kind::Zsh, dir, &env(&[("HOME", "/h")]), SshEnv::Off);
         assert_eq!(none.args, Vec::<std::ffi::CString>::new());
         assert_eq!(
-            none.env,
+            pairs(&none.env),
             env(&[("ZDOTDIR", "/run/user/1000/baud/shell-x/zsh")])
         );
         let own = injection(
@@ -473,7 +479,7 @@ mod tests {
             SshEnv::Off,
         );
         assert_eq!(
-            own.env,
+            pairs(&own.env),
             env(&[
                 ("BAUD_ZSH_ZDOTDIR", "/h/.config/zsh"),
                 ("ZDOTDIR", "/run/user/1000/baud/shell-x/zsh"),
@@ -488,7 +494,7 @@ mod tests {
         let i = injection(Kind::Bash, dir, &env(&[("ENV", "/h/.shrc")]), SshEnv::Off);
         assert_eq!(i.args, [c"--posix".to_owned()]);
         assert_eq!(
-            i.env,
+            pairs(&i.env),
             env(&[("BAUD_BASH_ENV", "/h/.shrc"), ("ENV", "/d/bash/baud.bash")])
         );
     }
@@ -525,11 +531,11 @@ mod tests {
             (Kind::Bash, env(&[("ENV", "/d/bash/baud.bash")])),
         ] {
             let off = injection(kind, dir, &parent, SshEnv::Off);
-            assert_eq!(off.env, base, "{kind:?} off");
+            assert_eq!(pairs(&off.env), base, "{kind:?} off");
             let on = injection(kind, dir, &parent, SshEnv::On);
             let mut want = base.clone();
             want.extend(env(&[("BAUD_SSH_ENV", "1")]));
-            assert_eq!(on.env, want, "{kind:?} on");
+            assert_eq!(pairs(&on.env), want, "{kind:?} on");
             assert_eq!(on.args, off.args, "{kind:?}: the arguments as they were");
         }
         let fish = |s| injection(Kind::Fish, dir, &parent, s);

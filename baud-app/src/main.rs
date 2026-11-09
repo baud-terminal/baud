@@ -64,6 +64,9 @@ mod caret;
 // seat's two selections: pure, so its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod clip;
+// The environment a child is given, one entry a name, as `getenv` reads
+// it: the pty's spawn builds it and shell integration sets its entries.
+mod child_env;
 mod config;
 // The example config read as the file baud writes: the build stops on a
 // malformed one (`build.rs`), and the config's tests read its keys.
