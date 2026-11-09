@@ -1786,8 +1786,15 @@ mod tests {
 
     /// **Over a socket**: the handshake goes out, the bus's answer and the
     /// reply come in, a reveal goes out at once, and a closed bus is said
-    /// once. Perturbation: take a read of nothing for no news -- the closed
-    /// bus is never said and the assertion after the drop fails.
+    /// once. The bus's end is closed by `shutdown`, which ends the
+    /// connection whoever else holds a copy of it: another test's child,
+    /// forked in this process and not yet exec'd, holds one of every
+    /// descriptor open at its fork, and a drop alone left the connection
+    /// open until that child exec'd, so the closed bus was not said (1 full
+    /// `cargo test` run of 16). A copy held here for the whole close
+    /// makes that so on every run. Perturbations: take a read of nothing for
+    /// no news -- the closed bus is never said; drop the bus's end without
+    /// the shutdown -- the same.
     #[test]
     fn the_bus_moves_bytes_without_waiting() {
         let (ours, mut theirs) = UnixStream::pair().unwrap();
@@ -1819,9 +1826,12 @@ mod tests {
         assert_eq!(&call[..n], reply_bytes("show_items_call").as_slice());
         use std::os::fd::AsRawFd;
         assert_eq!(bus.as_fd().as_raw_fd(), bus.stream.as_raw_fd());
+        let copy = theirs.try_clone().unwrap();
+        theirs.shutdown(std::net::Shutdown::Both).unwrap();
         drop(theirs);
         assert!(matches!(bus.pump().as_slice(), [Heard::Closed(_)]));
         assert_eq!(bus.pump(), [], "said once");
+        drop(copy);
     }
 
     /// The notice a program's `OSC 99 ; i=a ; x` publishes, for its token.
