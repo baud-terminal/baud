@@ -4636,6 +4636,87 @@ mod tests {
             assert!(!code.contains(call), "{call}");
         }
     }
+
+    /// **A scroll reads the names of the rows it brought in, and no other;
+    /// a still frame reads none; an answer that a file is gone takes its
+    /// line away.** Six rows of names found, one line more: the scan looks
+    /// at the new row's and the row above's names only, and every moved
+    /// name keeps its line, a row up. Then `f1.md` is answered gone, the
+    /// batch moves, and the next scan draws no line on it. Named break:
+    /// compare each row with what the same row held (no `Lines::shift`) --
+    /// the scroll looks at every row's names.
+    #[test]
+    fn a_scroll_reads_only_the_new_rows_names() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        let fed = |t: &mut Term<'_>, at: &mut Scrolled, b: &[u8]| {
+            let before = t.rotation();
+            feed(t, b);
+            if let baud_core::Moved::Retired(n) = t.moved_since(before) {
+                *at = at.advanced(n);
+            }
+        };
+        fed(&mut t, &mut at, b"\x1b]7;file://here.example/w\x07");
+        let mut p = Paths::new(None, NAMES);
+        p.set(Turned::On);
+        p.set_names(vec!["here.example".to_string()]);
+        let _ = p.observe(&t, at);
+        for n in 0..6 {
+            let nl = if n == 0 { "" } else { "\r\n" };
+            fed(&mut t, &mut at, format!("{nl}f{n}.md g{n}.rs").as_bytes());
+        }
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let mut scan = |p: &mut Paths, l: &mut Lines, t: &Term<'_>, at: Scrolled| {
+            let _ = p.observe(t, at);
+            l.scan(
+                t,
+                at,
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            )
+        };
+        p.begin_collect();
+        let _ = scan(&mut p, &mut l, &t, at);
+        let asked = p.end_collect();
+        assert_eq!(asked.len(), 12, "the control: every name asked");
+        let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Exists)));
+        l.forget();
+        assert_eq!(scan(&mut p, &mut l, &t, at).candidates, 12);
+        assert_eq!(runs(&l).len(), 12, "every name lined");
+        assert_eq!(
+            scan(&mut p, &mut l, &t, at).rows,
+            0,
+            "a still frame reads nothing"
+        );
+        fed(&mut t, &mut at, b"\r\nf6.md g6.rs");
+        let s = scan(&mut p, &mut l, &t, at);
+        assert_eq!(
+            s.candidates, 4,
+            "the new row's two names and the row above's"
+        );
+        assert_eq!(
+            runs(&l).len(),
+            10,
+            "the moved names keep their lines; the new ones unanswered"
+        );
+        assert!(
+            runs(&l).contains(&(0, 0, 4)),
+            "f1.md, a row up: {:?}",
+            runs(&l)
+        );
+        // f1.md answered gone at the next batch: its line goes.
+        assert_eq!(
+            p.merge([(b"/w/f1.md".to_vec(), Probe::Missing)]),
+            Moved::Yes
+        );
+        l.forget();
+        let _ = scan(&mut p, &mut l, &t, at);
+        assert!(!runs(&l).contains(&(0, 0, 4)), "{:?}", runs(&l));
+    }
 }
 
 /// **A link across a row its writer ended**, read the four ways a link is

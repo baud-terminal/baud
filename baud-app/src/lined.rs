@@ -4,14 +4,15 @@
 //! platform and the `frame` bench compiles this file as it stands.
 //!
 //! **Only what changed is read.** [`Lines`] keeps the window's cells as the
-//! last scan saw them and reads a row only when its cells, its wrap or its
-//! line size differ, with the rest of the logical line it belongs to, since a
-//! URI runs across the rows a soft wrap joined. A frame that moved only the
+//! last scan saw them, each row by the line it shows ([`AbsLine`]), and reads
+//! a row only when its cells, its wrap or its line size differ from what that
+//! line held, with the rest of the logical line it belongs to, since a URI
+//! runs across the rows a soft wrap joined. A frame that moved only the
 //! cursor reads no row; it asks again only whether a row running on into the
 //! next joins it (`Below`), two cells and a provenance a row so ended, since a
-//! program is named after it wrote. This is a record of what changed, and nothing is
-//! kept against a row's content: a scroll moves every row's cells, and every
-//! row is read again.
+//! program is named after it wrote. **A scroll reads only the rows it brought
+//! in**: the rows it moved keep their lines, moved with them
+//! ([`Lines::scan`]).
 //!
 //! **Bounded whatever a program sends.** One pass over each changed row's
 //! cells, in which a line with no scheme's name and `:` and no `OSC 8` cell
@@ -286,6 +287,15 @@ pub struct Scan {
     pub struck: usize,
 }
 
+/// How far the window moved over the lines since the last scan, in rows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shift {
+    /// Output retired lines: what row `y + k` showed is on row `y`.
+    Up(usize),
+    /// A look back: what row `y` showed is on row `y + k`.
+    Down(usize),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Read {
     #[default]
@@ -305,6 +315,10 @@ pub struct Lines {
     again: Vec<Read>,
     lines: Vec<LinkLine>,
     struck: Vec<LinkLine>,
+    /// The count and the view the last scan numbered its rows by: what a
+    /// row's line was then, so a row moved since is compared with what its
+    /// line held.
+    at: Option<(Scrolled, Rows)>,
     units: Vec<Unit>,
     points: Vec<Point>,
     found: Vec<Run>,
@@ -349,6 +363,63 @@ impl Lines {
         self.epochs = None;
     }
 
+    /// **The last scan's rows moved `shift` rows**, to where the lines they
+    /// showed are now: the cells, wraps, sizes and how each met the next, and
+    /// the lines and struck runs on them; the rows left open hold nothing a row can equal but a
+    /// blank one, which has no link.
+    fn shift(&mut self, shift: Shift) {
+        let (cols, rows) = self.size;
+        let (k, up) = match shift {
+            Shift::Up(k) => (k.min(rows), true),
+            Shift::Down(k) => (k.min(rows), false),
+        };
+        let keep = rows - k;
+        // The row that ran on into the new top row left the window: what the
+        // top row's links are now reads the lines above the window, which a
+        // trim of the history may have taken, so the top row is read again.
+        let ran_on = up
+            && k > 0
+            && (self.wraps[k - 1] == Wrap::Continues || self.below[k - 1] == Below::Joined);
+        if up {
+            self.cells.copy_within(k * cols.., 0);
+            self.wraps.copy_within(k.., 0);
+            self.sizes.copy_within(k.., 0);
+            self.below.copy_within(k.., 0);
+            self.cells[keep * cols..].fill(PackedCell::EMPTY);
+            self.wraps[keep..].fill(Wrap::Ended);
+            self.sizes[keep..].fill(LineRendition::Single);
+            self.below[keep..].fill(Below::Apart);
+        } else {
+            self.cells.copy_within(..keep * cols, k * cols);
+            self.wraps.copy_within(..keep, k);
+            self.sizes.copy_within(..keep, k);
+            self.below.copy_within(..keep, k);
+            self.cells[..k * cols].fill(PackedCell::EMPTY);
+            self.wraps[..k].fill(Wrap::Ended);
+            self.sizes[..k].fill(LineRendition::Single);
+            self.below[..k].fill(Below::Apart);
+        }
+        if ran_on && keep > 0 {
+            self.cells[..cols].fill(PackedCell::EMPTY);
+        }
+        for runs in [&mut self.lines, &mut self.struck] {
+            runs.retain_mut(|l| {
+                let y = l.row.index();
+                let moved = match up {
+                    true => y.checked_sub(k),
+                    false => Some(y + k).filter(|&y| y < rows),
+                };
+                match moved {
+                    Some(y) => {
+                        l.row = Row::from_index(y);
+                        true
+                    }
+                    None => false,
+                }
+            });
+        }
+    }
+
     /// **`[link] urls = "off"`**: no line, and nothing read. The scan's
     /// memory is kept, since a config read again may turn it back on.
     pub fn off(&mut self) {
@@ -380,7 +451,28 @@ impl Lines {
             self.lines.clear();
             self.struck.clear();
             self.epochs = None;
+            self.at = None;
         }
+        // The window moved over the lines since the last scan, by output
+        // that retired lines or by a look back: what the last scan saw of a
+        // line is moved to the row showing it now, its lines with it.
+        let window = Rows::of_index(rows);
+        if let Some((was, was_back)) = self.at {
+            let top = scrolled.line(back, Row::ZERO);
+            let was_top = was.line(was_back, Row::ZERO);
+            match (
+                was.window_row(was_back, top, window),
+                scrolled.window_row(back, was_top, window),
+            ) {
+                (Some(up), _) if up.index() > 0 => self.shift(Shift::Up(up.index())),
+                (_, Some(down)) if down.index() > 0 => self.shift(Shift::Down(down.index())),
+                // Not moved, or a window or more: each row is compared with
+                // what the same row held, as cells alone say what a row's
+                // links are.
+                _ => {}
+            }
+        }
+        self.at = Some((scrolled, back));
         // A slot of the link table or the cluster store freed and taken again
         // moves what a cell's word means, with no change to the word.
         let epochs = (term.link_epoch(), term.cluster_epoch());
@@ -441,6 +533,13 @@ impl Lines {
             if row_of(term, scrolled, head).is_none() {
                 self.again[0] = Read::Again;
                 any = true;
+            }
+        }
+        // A row that joined the next and changed takes the join with it: the
+        // row below was read as part of its link, and is read again alone.
+        for y in 0..rows.saturating_sub(1) {
+            if self.again[y] == Read::Again && self.below[y] == Below::Joined {
+                self.again[y + 1] = Read::Again;
             }
         }
         let mut scan = Scan::default();
@@ -686,7 +785,17 @@ impl Lines {
                 shown.0 = self.units.len();
             }
             let styles = row_styles_of(term, scrolled, line);
-            for (x, &c) in cells.iter().enumerate() {
+            // The line's last row ends at its last cell with anything in it:
+            // the empty cells after it are each a gap, which ends a link and
+            // starts none, and a line not cut there is ended by its end too.
+            let used = match (line == b, tail) {
+                (true, Edge::Line) => cells
+                    .iter()
+                    .rposition(|c| !c.content.is_empty() || term.cluster_marks(*c).next().is_some())
+                    .map_or(0, |p| p + 1),
+                _ => cells.len(),
+            };
+            for (x, &c) in cells[..used].iter().enumerate() {
                 if c.content.is_wide_tail() {
                     continue;
                 }
@@ -1785,5 +1894,191 @@ mod tests {
                 assert!(src.contains(call), "{name}: {call}");
             }
         }
+    }
+
+    /// `bytes` fed, `scrolled` moved by the lines the core retired, as a
+    /// driver moves its count.
+    fn fed(t: &mut Term<'_>, scrolled: &mut Scrolled, bytes: &[u8]) {
+        let before = t.rotation();
+        feed(t, bytes);
+        if let baud_core::Moved::Retired(n) = t.moved_since(before) {
+            *scrolled = scrolled.advanced(n);
+        }
+    }
+
+    /// The links and strikes a scan of `t` from nothing finds.
+    fn fresh(t: &Term<'_>, scrolled: Scrolled) -> (Vec<LinkLine>, Vec<LinkLine>) {
+        let mut l = Lines::default();
+        let _ = l.scan(t, scrolled, &mut Uris::default());
+        (l.lines().to_vec(), l.struck().to_vec())
+    }
+
+    /// **A scroll reads only the rows it brought in**: six rows of links,
+    /// one line more, and the scan reads the new row and the one above it
+    /// (whose link may have been cut, `may_be_cut`), the five moved rows
+    /// keeping their lines, moved a row up, as a scan from nothing finds
+    /// them. Named break: compare each row with what the same row held (no
+    /// `shift`) -- all six are read.
+    #[test]
+    fn a_scroll_reads_only_the_rows_it_brought_in() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..6 {
+            let nl = if n == 0 { "" } else { "\r\n" };
+            fed(
+                &mut t,
+                &mut at,
+                format!("{nl}see https://h{n}.example/ ok").as_bytes(),
+            );
+        }
+        let mut l = Lines::default();
+        let mut u = Uris::default();
+        assert_eq!(l.scan(&t, at, &mut u).rows, 6, "the control: all read");
+        fed(&mut t, &mut at, b"\r\nsee https://new.example/ ok");
+        let s = l.scan(&t, at, &mut u);
+        assert_eq!(s.rows, 2, "the new row and the one above it");
+        assert_eq!(runs(&l).len(), 6);
+        assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
+        assert_eq!(
+            l.scan(&t, at, &mut u).rows,
+            0,
+            "a still frame reads nothing"
+        );
+    }
+
+    /// **A moved row written over is read again**, and a look back moves the
+    /// rows the other way: after a scroll, a row rewritten in place is read
+    /// and its new link found, and with the window one line back every row
+    /// but the one brought in keeps its line. Named break: keep a row by its
+    /// line without comparing its cells -- the rewritten row keeps its old
+    /// link.
+    #[test]
+    fn a_moved_row_written_over_is_read_again() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(12),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..8 {
+            let nl = if n == 0 { "" } else { "\r\n" };
+            fed(
+                &mut t,
+                &mut at,
+                format!("{nl}see https://h{n}.example/ ok").as_bytes(),
+            );
+        }
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at, &mut u);
+        fed(
+            &mut t,
+            &mut at,
+            b"\r\nnext\x1b[3;1H\x1b[2Kgo https://over.example/",
+        );
+        let _ = l.scan(&t, at, &mut u);
+        assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
+        assert!(
+            runs(&l).contains(&(2, 3, 23)),
+            "the row written over: {:?}",
+            runs(&l)
+        );
+        t.set_window_back(Rows::of_count(1));
+        let s = l.scan(&t, at, &mut u);
+        assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
+        assert!(s.rows <= 2, "the row brought in, and its line: {}", s.rows);
+    }
+
+    /// **The lines a scan keeps are the lines a scan from nothing finds**,
+    /// over 4,000 steps from fixed seeds (300,000 passed when written) of
+    /// output that scrolls, rows written over in place, screens cleared,
+    /// wrapped links, rows the writer ended in a link that runs on, and
+    /// looks back and forward, over a history of 8 lines, so a trim takes
+    /// the lines above a looked-back window. Named breaks: move the cells but
+    /// not the lines in `shift` -- a moved row's line stays on the row it
+    /// left; keep a moved top row whose line ran on from a row that left
+    /// the window (`ran_on` off in `shift`) -- half a link stays once the
+    /// trim takes its start.
+    #[test]
+    fn kept_lines_are_what_a_fresh_scan_finds() {
+        for seed in [1u64, 7, 42, 2026] {
+            let mut x = seed;
+            let mut next = |m: usize| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                usize::try_from(x % u64::try_from(m).unwrap_or(1)).unwrap_or(0)
+            };
+            let mut owned = Owned::with_history(
+                &WS,
+                &baud_domain::CacheGeometry::UNKNOWN,
+                baud_domain::Depth::of(8),
+            );
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut at = at();
+            let (mut l, mut u) = (Lines::default(), Uris::default());
+            for step in 0..1000 {
+                let n = next(1000);
+                let bytes = match next(8) {
+                    0 | 1 => format!("\r\nsee https://s{n}.example/ ok"),
+                    2 => format!("\r\nplain {n}"),
+                    3 => format!("\x1b[{};1H\x1b[2Kat https://w{n}.example/", 1 + next(6)),
+                    4 => format!("\r\n{}https://wrap{n}.example/", "x".repeat(30)),
+                    // A row the writer ended at the last column in a URI,
+                    // and the row it runs on into.
+                    5 if next(2) == 0 => {
+                        format!(
+                            "\r\n{:>40}\r\nrest/{n} ok",
+                            format!("https://j{n}.example/aaaa")
+                        )
+                    }
+                    5 => "\r\n\r\n\r\n".to_string(),
+                    6 => {
+                        t.set_window_back(Rows::of_count(next(4)));
+                        String::new()
+                    }
+                    _ => match next(3) {
+                        0 => "\x1b[2J\x1b[H".to_string(),
+                        _ => format!("\r\nmailto:m{n}@x.example"),
+                    },
+                };
+                fed(&mut t, &mut at, bytes.as_bytes());
+                let _ = l.scan(&t, at, &mut u);
+                assert_eq!(
+                    (l.lines().to_vec(), l.struck().to_vec()),
+                    fresh(&t, at),
+                    "seed {seed}, step {step}: {bytes:?}"
+                );
+            }
+        }
+    }
+
+    /// **A row that joined the next, written over, takes its link off the
+    /// row below**: a URI the writer ended at the last column runs on into
+    /// the next row and is one link across both; written over in place, the
+    /// row below holds no link of its own, as a scan from nothing finds.
+    /// Named break: drop the join's row from the rows read again -- the
+    /// row below keeps its half of the old link.
+    #[test]
+    fn a_joined_row_written_over_takes_its_link_off_the_row_below() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(
+            &mut t,
+            format!("top\r\n{:>40}\r\nrest/1 ok", "https://j1.example/aaaa").as_bytes(),
+        );
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at, &mut u);
+        assert!(
+            runs(&l).iter().any(|r| r.0 == 2),
+            "the control: the link runs on into row 2: {:?}",
+            runs(&l)
+        );
+        feed(&mut t, b"\x1b[2;1H\x1b[2Kplain words");
+        let _ = l.scan(&t, at, &mut u);
+        assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
+        assert_eq!(runs(&l), []);
     }
 }

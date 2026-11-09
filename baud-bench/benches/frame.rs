@@ -44,6 +44,15 @@
 //! names against that folder, as a shell reporting it by `OSC 7` would make
 //! them: the report is fed before the recording, naming a host the paths
 //! are told is this machine's, and the folder is never looked at.
+//! `FRAME_READ=<bytes>` paints a frame after each read of that many bytes
+//! in the replay above, 4096 unless set: 1024 is what Darwin's tty hands a
+//! read. The count of lines retired moves by what each read retired, as the
+//! app's driver moves it, so a row's line is the line it shows.
+//! `FRAME_STILL=<frames>` paints that many frames after the recording with
+//! nothing read: a still screen's frames, the first of them the collection
+//! the output owes, the rest what a frame over a screen that does not
+//! change costs; the instructions a run retires with it, less those of the
+//! run without, over the count, are a still frame's.
 //! `FRAME_NAMES=on` reads single names too, `[link.path] forms` with
 //! `"name"` added, which `FRAME_FOLDER` gives a folder to be read against.
 //!
@@ -360,6 +369,18 @@ fn main() {
         Ok("off") => baud_render::WordWrap::Off,
         _ => baud_render::WordWrap::On,
     };
+    // `FRAME_READ`: the bytes a frame reads, 4096 unless set.
+    let read: usize = std::env::var("FRAME_READ").map_or(4096, |v| {
+        v.parse()
+            .ok()
+            .filter(|&n| n > 0)
+            .unwrap_or_else(|| panic!("FRAME_READ is a count of bytes, not {v}"))
+    });
+    // `FRAME_STILL`: frames painted after the recording with nothing read.
+    let still: usize = std::env::var("FRAME_STILL").map_or(0, |v| {
+        v.parse()
+            .unwrap_or_else(|_| panic!("FRAME_STILL is a count of frames, not {v}"))
+    });
     let links = match std::env::var("FRAME_LINKS").as_deref() {
         Err(_) => Links::Untouched,
         Ok("off") => Links::Off,
@@ -514,7 +535,9 @@ fn main() {
             let _ = printed.set_programs(none);
         }
         let mut hover = link::Hover::default();
-        let scrolled = baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40));
+        // The count of lines retired, moved as the app's driver moves it, by
+        // what each read retired, so a row's line is the line it shows.
+        let mut scrolled = baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40));
         let middle = (
             baud_domain::Row::from_index(usize::from(ws.ws_row) / 2),
             baud_domain::Col::at_index(usize::from(ws.ws_col) / 2),
@@ -528,10 +551,20 @@ fn main() {
         let mut at = 0usize;
         let mut hash = PixelHash::START;
         let t0 = std::time::Instant::now();
-        while at < data.len() {
-            let n = 4096.min(data.len() - at);
-            t.write_at(BytePos::ZERO, &data[at..at + n]);
-            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+        let mut still_left = still;
+        while at < data.len() || still_left > 0 {
+            if at >= data.len() {
+                still_left -= 1;
+            }
+            let n = read.min(data.len() - at);
+            let before = t.rotation();
+            if n > 0 {
+                t.write_at(BytePos::ZERO, &data[at..at + n]);
+                t.feed(BytePos::ZERO, ReadLen::from_index(n));
+            }
+            if let baud_core::Moved::Retired(k) = t.moved_since(before) {
+                scrolled = scrolled.advanced(k);
+            }
             at += n;
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();
             let (f0, a0) = (std::time::Instant::now(), allocations());
