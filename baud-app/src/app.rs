@@ -12567,6 +12567,13 @@ impl Driver {
             }
         }
         self.app.flush_reply(Asked::Unasked);
+        self.decode_turn(
+            trigger,
+            match drained.chunks.is_empty() && fed == crate::reads::Fed::Nothing {
+                true => crate::reads::Fed::Nothing,
+                false => crate::reads::Fed::Some,
+            },
+        );
         if drained.stream == Stream::Closed {
             // The child is gone: the window has nothing left to show, once
             // the log has written what this read and the ones before it
@@ -13337,12 +13344,6 @@ impl Responder for Driver {
             self.app.pending = Pending::Dirty;
         }
         self.app.ticks.bump();
-        // A kitty picture placed before its pixels were made: a step a
-        // tick (`reads::decode_step`), a frame when it shows, and its reply
-        // sent by the pump's flush below.
-        if crate::reads::decode_step(&mut self.app.term).1 == crate::reads::Shown::Changed {
-            self.app.pending = Pending::Dirty;
-        }
         // A kitty animation's next frame, off the display link's clock and
         // held as `[images] animation`, Reduce Motion and Animated Images
         // say (`access::image_motion`): a frame shown in another's place
@@ -14669,6 +14670,35 @@ impl Driver {
         self.app.paths.set_names(names);
         self.app.lines.forget();
         self.app.pending = Pending::Dirty;
+    }
+
+    /// **A kitty picture's decode, a step a turn** (`reads::decode_step`):
+    /// a picture placed before its pixels were made takes a step on each
+    /// turn that is not the display link's tick, and owes the window its
+    /// next turn while more is left (`OsQueue::owe_turn`). So the decode
+    /// ends, and its `OK` or error leaves, on the turn its last step runs,
+    /// with the window covered or minimised too, where no tick comes. A
+    /// frame is owed when the step changes what the images show. After the
+    /// pump's flush, so a query's answer never waits on a step. A tick that
+    /// read bytes takes no step, and owes a turn instead, in case the bytes
+    /// placed a picture: that turn's step finds it, or finds nothing.
+    fn decode_turn(&mut self, trigger: Trigger, read: crate::reads::Fed) {
+        if trigger == Trigger::Tick {
+            if read == crate::reads::Fed::Some {
+                self.app.os.owe_turn();
+            }
+            return;
+        }
+        let (progress, shown) = crate::reads::decode_step(&mut self.app.term);
+        if shown == crate::reads::Shown::Changed {
+            self.app.pending = Pending::Dirty;
+        }
+        if !self.app.term.reply().is_empty() {
+            self.app.flush_reply(Asked::Unasked);
+        }
+        if progress == baud_domain::DecodeProgress::More {
+            self.app.os.owe_turn();
+        }
     }
 
     /// **The printed paths' worker, at each tick**: its answers merged, its

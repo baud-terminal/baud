@@ -293,7 +293,20 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 25] = [
+/// **A kitty transmit whose reply the shell waits for**: echo and line
+/// editing off, a read that returns on the first bytes or after a second
+/// (under the iteration's bound), and a copy on an `OK`. The picture is
+/// `baud-font/tests/png/g8-1x1-n.png`, a 1x1 grey PNG, whose decode is
+/// deferred like any PNG's.
+const KITTY_OK: &str = concat!(
+    r"stty -echo -icanon min 0 time 10; ",
+    r"printf '\033_Ga=T,f=100,i=7;",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR42mPoAwAAkACPLN3KfgAAAABJRU5ErkJggg==",
+    r"\033\\'; r=$(dd bs=64 count=1 2>/dev/null); stty echo icanon; ",
+    r"case $r in *OK*) printf '\033]52;c;aGk=\007';; esac",
+);
+
+const SITES: [Site; 26] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -389,6 +402,29 @@ const SITES: [Site; 25] = [
             shape: READ,
         }),
         expect: Expect::effect(&[EffectKind::Clear]),
+        state: RowState::Green,
+    },
+    // **A kitty picture's `OK`, on the turn its decode ends**: a direct
+    // PNG, `a=T`, is placed at once and its pixels are made a step a turn,
+    // never on the display link, so its reply leaves with no tick driven,
+    // as from a covered or minimised window, where none comes. The shell
+    // reads the reply raw, for a second at most, and copies on an `OK`:
+    // the copy is the sign the reply came. The probe build steps the
+    // decode a byte of work at a time, so the picture takes several turns,
+    // each owed by the step before it. Breaks: the step back in the frame,
+    // or the step that leaves more owing no turn, and the undriven arm
+    // never copies.
+    Site {
+        name: SiteName("a kitty picture's OK, with or without a tick"),
+        cause: Cause::Program(Program {
+            line: KITTY_OK,
+            config: "",
+            shape: READ,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
         state: RowState::Green,
     },
     Site {

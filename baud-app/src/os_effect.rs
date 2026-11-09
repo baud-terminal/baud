@@ -276,6 +276,9 @@ struct Slot {
     /// The program's attention request, kept by the runner: shared with
     /// the window's [`Closer`], which takes it at the close.
     attention: Kept<baud_present_macos::notify::AttentionId>,
+    /// Whether the window is owed a turn with no effect in it
+    /// ([`OsQueue::owe_turn`]): the runner wakes it once and clears this.
+    turn: Cell<Owed>,
 }
 
 /// **A request kept to be cancelled**: a program's attention request,
@@ -328,6 +331,13 @@ enum Open {
     Closed,
 }
 
+/// Whether a window is owed a turn of its own, with no effect in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Owed {
+    No,
+    Yes,
+}
+
 /// Whether a turn is already posted for what has been asked.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Due {
@@ -365,6 +375,7 @@ impl OsQueue {
             center: None,
             delivered: baud_present_macos::notify::Delivered::default(),
             attention: Kept::new(),
+            turn: Cell::new(Owed::No),
         }));
         QUEUES.with_borrow_mut(|q| q.push(Rc::clone(&slot)));
         OsQueue(slot)
@@ -384,6 +395,20 @@ impl OsQueue {
             post();
         }
         id
+    }
+
+    /// **A turn owed the window with nothing to make in it**: the runner's
+    /// next turn wakes the window once, as it does after a batch, and the
+    /// window's pump is that turn -- for work a window does a step at a time
+    /// (a kitty picture's decode, `reads::decode_step`), never on the
+    /// display link. Owing it again before the turn runs is the same turn:
+    /// one wake, however many asks. The first ask since the last turn posts
+    /// that turn, as [`OsQueue::ask`] does, with no slot borrowed.
+    pub(crate) fn owe_turn(&self) {
+        self.0.borrow().turn.set(Owed::Yes);
+        if DUE.with(|d| d.replace(Due::Posted)) == Due::No {
+            post();
+        }
     }
 
     /// The outcomes since the last call, in the order their effects ran,
@@ -463,7 +488,16 @@ fn post() {
 }
 
 #[cfg(test)]
-fn post() {}
+thread_local! {
+    /// The turns this module's tests would have posted.
+    static POSTS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// In this module's tests nothing is posted: the post is counted.
+#[cfg(test)]
+fn post() {
+    POSTS.with(|p| p.set(p.get() + 1));
+}
 
 /// The runner, installed once at startup as the queue's turn.
 pub(crate) fn install() {
@@ -488,7 +522,10 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
             core::mem::swap(&mut s.now, &mut batch);
             batch
         };
-        let ran = !batch.is_empty();
+        // A turn the window was owed with nothing in it wakes it as a
+        // batch does (`OsQueue::owe_turn`).
+        let owed = slot.borrow().turn.replace(Owed::No) == Owed::Yes;
+        let ran = !batch.is_empty() || owed;
         for (id, effect) in batch.drain(..) {
             // Read for each effect: an effect before it can spin a loop the
             // window closes in.
@@ -730,6 +767,7 @@ mod tests {
         QUEUES.with_borrow_mut(Vec::clear);
         DUE.with(|d| d.set(Due::No));
         DEPTH.with(|d| d.set(0));
+        POSTS.with(|p| p.set(0));
     }
 
     /// **Nothing runs when asked; each runs once, on the turn, in order**,
@@ -755,6 +793,68 @@ mod tests {
         assert_eq!(done.iter().map(|d| d.id).collect::<Vec<_>>(), [a, b]);
         run_with(&Fake, |_, _, _| panic!("nothing again"));
         assert_eq!(woke.get(), 1);
+    }
+
+    /// **A turn owed with no effect wakes its window once**: two asks
+    /// before the turn are one wake, the turn makes nothing, and a turn
+    /// after it, with nothing owed, wakes no one. Break: the runner waking
+    /// only after a batch (`ran` without `owed`), and no wake comes.
+    #[test]
+    fn a_turn_owed_with_no_effect_wakes_its_window_once() {
+        fresh();
+        let woke = Rc::new(Cell::new(0));
+        let w = Rc::clone(&woke);
+        let q = OsQueue::open(move || w.set(w.get() + 1));
+        q.owe_turn();
+        q.owe_turn();
+        assert_eq!(woke.get(), 0, "nothing when owed");
+        run_with(&Fake, |_, _, _| panic!("nothing to make"));
+        assert_eq!(woke.get(), 1, "one wake for both");
+        run_with(&Fake, |_, _, _| panic!("nothing again"));
+        assert_eq!(woke.get(), 1, "none with nothing owed");
+        let mut done = Vec::new();
+        q.answered(&mut done);
+        assert!(done.is_empty(), "no outcome");
+    }
+
+    /// **A turn owed from inside the wake is the next turn, posted once**:
+    /// the window's pump runs in the wake the runner gives it, and a step
+    /// there that leaves more owes the next turn. That posts one turn, an
+    /// ask before it runs posts none, the next run wakes the window once,
+    /// and the run after wakes no one. Breaks: `DUE` cleared after the
+    /// wakes, and the second ask posts again; the wake's owed turn left
+    /// unread by the runner, and the second run wakes no one.
+    #[test]
+    fn a_turn_owed_inside_the_wake_is_the_next_turn_posted_once() {
+        fresh();
+        let woke = Rc::new(Cell::new(0));
+        let me: Rc<RefCell<Option<Rc<OsQueue>>>> = Rc::new(RefCell::new(None));
+        let (w, m) = (Rc::clone(&woke), Rc::clone(&me));
+        let q = Rc::new(OsQueue::open(move || {
+            w.set(w.get() + 1);
+            if w.get() == 1 {
+                if let Some(q) = m.borrow().as_ref() {
+                    q.owe_turn();
+                }
+            }
+        }));
+        *me.borrow_mut() = Some(Rc::clone(&q));
+        q.owe_turn();
+        assert_eq!(POSTS.with(Cell::get), 1, "the first ask posts");
+        run_with(&Fake, |_, _, _| panic!("nothing to make"));
+        assert_eq!(woke.get(), 1, "the first turn's wake");
+        assert_eq!(
+            POSTS.with(Cell::get),
+            2,
+            "owed inside it: the next turn posted"
+        );
+        q.owe_turn();
+        assert_eq!(POSTS.with(Cell::get), 2, "an ask before it runs posts none");
+        run_with(&Fake, |_, _, _| panic!("nothing to make"));
+        assert_eq!(woke.get(), 2, "the turn owed inside the wake wakes it");
+        run_with(&Fake, |_, _, _| panic!("nothing again"));
+        assert_eq!(woke.get(), 2, "and nothing owed after");
+        *me.borrow_mut() = None;
     }
 
     /// **R1, re-entry**: the first effect's own nested run loop runs a

@@ -553,7 +553,24 @@ pub fn owed(term: &mut Term<'_>, sink: &mut impl FnMut(&[u8])) {
 /// 1920x1080 decode is 31 ms over 60 steps of a quarter of this
 /// (`baud-bench`'s `kitty_image`), so a turn spends about 2 ms of a 120 Hz
 /// frame's 8.3.
+/// The probe's rig steps by a byte instead (`step`).
+#[cfg_attr(all(feature = "effect-probe", not(test)), allow(dead_code))]
 pub const KITTY_DECODE_STEP: DecodeBudget = DecodeBudget::MIB;
+
+/// The step [`decode_step`] takes: [`KITTY_DECODE_STEP`].
+#[cfg(any(not(feature = "effect-probe"), test))]
+fn step() -> DecodeBudget {
+    KITTY_DECODE_STEP
+}
+
+/// **The step under the effect probe's rig: a byte of work**, so the event
+/// rig's picture takes several turns to decode, and the turn each step
+/// owes the next is what its row exercises. Not in the probe's unit tests,
+/// which step the real size.
+#[cfg(all(feature = "effect-probe", not(test)))]
+fn step() -> DecodeBudget {
+    DecodeBudget::of(1)
+}
 
 /// Whether a step changed what the images show: a picture completed, or a
 /// failed one freed.
@@ -566,13 +583,14 @@ pub enum Shown {
 /// **One step of a deferred kitty decode** (note V, V19 step 3: deferred
 /// inside the core, in bounded steps): a picture is placed when its size
 /// is known and its pixels are made here, [`KITTY_DECODE_STEP`] a call.
-/// The macOS loop calls it on each display-link tick and the Linux loop on
-/// each turn, between reads; the reply a decode owes is in the core's reply
-/// buffer for the caller's flush. A command that arrives first finishes the
+/// The macOS pump calls it on each turn that is not the display link's
+/// tick, owing itself the next turn while more is left, and the Linux loop
+/// on each turn, between reads; the reply a decode owes is in the core's
+/// reply buffer for the caller's flush. A command that arrives first finishes the
 /// decode itself, so a late step only shows it late.
 pub fn decode_step(term: &mut Term<'_>) -> (DecodeProgress, Shown) {
     let epoch = term.images().generation();
-    let progress = term.decode_step(KITTY_DECODE_STEP);
+    let progress = term.decode_step(step());
     match term.images().generation() == epoch {
         true => (progress, Shown::Same),
         false => (progress, Shown::Changed),
@@ -583,7 +601,7 @@ pub fn decode_step(term: &mut Term<'_>) -> (DecodeProgress, Shown) {
 /// pending: not at all.** The next turn is scheduled at once, so the step
 /// runs between reads rather than after the next one, and nothing sleeps;
 /// with nothing pending the wait is the loop's own. The macOS loop waits on
-/// no descriptor: its display link is the turn.
+/// no descriptor: its steps ride the effect queue's turns.
 #[cfg(any(target_os = "linux", test))]
 pub fn decode_wait(progress: DecodeProgress) -> Option<std::time::Duration> {
     match progress {
@@ -1310,8 +1328,8 @@ mod tests {
     /// byte into two reads through [`paced`], as both drivers feed. Its `OK`
     /// is in the sink of the call that carried the query's last byte, and in
     /// no earlier one; the core's reply buffer and its decode are empty
-    /// after it, so nothing waits for [`decode_step`], which the macOS loop
-    /// takes only on the display link's tick. The control: a transmit of the
+    /// after it, so nothing waits for [`decode_step`], which the macOS pump
+    /// takes a step a turn, after its flush. The control: a transmit of the
     /// same PNG, `a=T`, owes its `OK` only after its decode steps, so the
     /// check tells a reply that waits from one that does not.
     #[test]
