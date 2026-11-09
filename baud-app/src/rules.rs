@@ -2083,7 +2083,7 @@ mod tests {
 
     /// **`[link.path]` turns the forms on and off, and a bad one refuses it
     /// whole**, the defaults staying. Perturbation: keep the default forms
-    /// whatever `forms` names -- `relative` stays off.
+    /// whatever `forms` names -- `~/` stays on.
     #[test]
     fn the_path_rule_sets_the_forms() {
         let (r, said) = rules(&[section(

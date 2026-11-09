@@ -15,13 +15,15 @@
 //! **The forms.** A printed `/`, `~/`, `./` or `../` starts a path, after the start
 //! of a line, a space or one of `([{<"'` and `` ` `` or `=`, and never after
 //! a `:`, so neither `https://a/b`'s `//a/b` nor `host:/x`'s `/x` is one.
-//! So does a single name holding a `.` not at its end, such as `README.md`
-//! or `.zshrc` ([`Form::Name`]), read against the folder a `./` is. A bare
-//! relative path such as `src/app.rs`, any single word ([`Form::Word`]), a `:line:col` suffix and a quoted path with
-//! spaces are each a [`Forms`] switch, off, for the settings that will name
-//! them; none is read until one is turned on. A path runs to the next space, quote, `<`,
-//! `>` or `|`; trailing `.,;:!?*` and a closing bracket it did not open are
-//! prose, as a URI's are (`link.rs`).
+//! So do a relative path with no prefix and a `/` inside, such as
+//! `src/app.rs` ([`Form::Bare`]), and a single name holding a `.` not at its
+//! end, such as `README.md` or `.zshrc` ([`Form::Name`]), read against the
+//! folder a `./` is; a relative path ends before a `=` and at a `:` a `/` or
+//! `~/` follows, so a prefixed path after either is read. Any single word
+//! ([`Form::Word`]), a `:line:col` suffix and a quoted path with spaces are
+//! each a [`Forms`] switch, off until `[link.path]` turns it on. A path
+//! runs to the next space, quote, `<`, `>` or `|`; trailing `.,;:!?*` and a
+//! closing bracket it did not open are prose, as a URI's are (`link.rs`).
 //!
 //! **A name is a link only where its file is.** A version number, a domain
 //! or a dotted identifier in a log is a name too, and the worker's lookup
@@ -144,8 +146,7 @@ pub enum Form {
     Dot,
     /// `../`: the reported folder's parent.
     Parent,
-    /// `src/app.rs`, no prefix and a `/` inside: the reported folder. Off by
-    /// default.
+    /// `src/app.rs`, no prefix and a `/` inside: the reported folder.
     Bare,
     /// `README.md`, `.zshrc`: one component, no `/`, holding a `.` not at its
     /// end, read against the reported folder.
@@ -185,10 +186,11 @@ pub enum NameLook {
     Hover,
 }
 
-/// **Which forms are read**: the four printed prefixes and single names
-/// holding a `.` by default, and the rest only once `[link.path]` names
-/// them (`rules.rs`). Nothing else changes when one is turned on: the worker, the
-/// mount check and the click are the same for every form.
+/// **Which forms are read**: the four printed prefixes, relative paths and
+/// single names holding a `.` by default, and the rest only once
+/// `[link.path]` names them (`rules.rs`). Nothing else changes when one is
+/// turned on: the worker, the mount check and the click are the same for
+/// every form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Forms {
     pub absolute: Turned,
@@ -213,7 +215,7 @@ impl Forms {
         home: Turned::On,
         dot: Turned::On,
         parent: Turned::On,
-        bare: Turned::Off,
+        bare: Turned::On,
         name: Turned::On,
         word: Turned::Off,
         names: NameLook::Line,
@@ -520,9 +522,12 @@ fn start_at(before: Option<Unit>, rest: &[Unit], forms: &Forms) -> Option<Form> 
 /// **What a path with no prefix is, its text known**: a relative path with
 /// a `/` inside, a name holding a `.` (never at its end, since the trailing
 /// prose is cut first), or a word; none with a `:`, since `host:path`
-/// names another machine and `http:` is a scheme.
+/// names another machine and `http:` is a scheme, and none of only `.` and
+/// `/`, since a lone `./` or `../` is a prefix with no path.
 fn unprefixed_form(text: &[Unit]) -> Option<Form> {
-    if text.iter().any(|u| is(Some(u), ':')) {
+    if text.iter().any(|u| is(Some(u), ':'))
+        || text.iter().all(|u| is(Some(u), '.') || is(Some(u), '/'))
+    {
         return None;
     }
     Some(if text.iter().any(|u| is(Some(u), '/')) {
@@ -567,8 +572,14 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
     out.clear();
     let n = units.len();
     let mut i = 0;
+    // Where a relative path ended at a list's `:`, the path after it may
+    // start there, as after an opener.
+    let mut listed = None;
     while i < n {
-        let before = i.checked_sub(1).map(|k| units[k]);
+        let before = match listed {
+            Some(k) if k == i => None,
+            _ => i.checked_sub(1).map(|k| units[k]),
+        };
         let Some(form) = start_at(before, &units[i..], forms) else {
             i += 1;
             continue;
@@ -581,12 +592,21 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
         };
         let mut end = i;
         let mut refused = false;
+        let mut list = None;
         // A relative path with no prefix ends at a closing bracket it did
         // not open: `[t](docs/a.md)`'s `]`, whose wrapper's path the scan
-        // reads from there.
+        // reads from there; before a `=`, which ends an option's or a key's
+        // name, so a prefixed path after it is read (`--file=/tmp/a`); and
+        // at a `:` a `/` or `~/` follows once it holds a `/`, which
+        // separates a list's paths (`a/b:/c/d`).
         while end < n {
             match part(units[end]) {
                 Part::In if form == Form::Bare && unopened(&units[i..end], units[end]) => break,
+                Part::In if form == Form::Bare && is(units.get(end), '=') => break,
+                Part::In if form == Form::Bare && lists(&units[i..end], &units[end..]) => {
+                    list = Some(end + 1);
+                    break;
+                }
                 Part::In => end += 1,
                 Part::Space if quote.is_some() => end += 1,
                 Part::Refuse => {
@@ -625,7 +645,12 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
         // is known: what it is decides whether it is read.
         let form = match form {
             Form::Bare => match unprefixed_form(text).filter(|f| forms.of(*f) == Turned::On) {
-                Some(f) => f,
+                Some(f) => {
+                    if f == Form::Bare {
+                        listed = list;
+                    }
+                    f
+                }
                 None => {
                     i += 1;
                     continue;
@@ -648,6 +673,17 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
         }
         i = next;
     }
+}
+
+/// **Whether the `:` first in `rest` separates a list's paths**, after
+/// `run`, a relative path's text so far: `run` holds a `/` and a `/` or `~/`
+/// follows the `:`. `host:/x` names another machine and `src/app.rs:12`
+/// keeps its line, so neither is a list.
+fn lists(run: &[Unit], rest: &[Unit]) -> bool {
+    let u = |k: usize| rest.get(k);
+    is(u(0), ':')
+        && run.iter().any(|x| is(Some(x), '/'))
+        && (is(u(1), '/') || (is(u(1), '~') && is(u(2), '/')))
 }
 
 /// The path in `t`, its trailing prose cut: `.,;:!?*'` and a closing bracket
@@ -2313,15 +2349,16 @@ mod tests {
         (runs(&l), p)
     }
 
-    /// **The default forms are exactly `/`, `~/`, `./` and `../`**, after
-    /// an opener, and never inside a URI or after `host:`; trailing prose
-    /// and an unopened bracket are cut, a lone prefix is no path, and a path
-    /// after `=` is read whatever is before it. The other forms are off
-    /// until turned on, and each reads once it is. Named breaks: the old
-    /// default, `parent` off -- `../up` is not read; read `:` as an opener;
-    /// drop the length check after the prefix.
+    /// **The default forms are `/`, `~/`, `./`, `../` and a relative path**,
+    /// after an opener, and never inside a URI or after `host:`; trailing
+    /// prose and an unopened bracket are cut, a lone prefix is no path, and
+    /// a path after `=` is read whatever is before it. The other forms are
+    /// off until turned on, and each reads once it is. Named breaks: the old
+    /// default, `relative` off -- `src/app.rs` is not read; read `:` as an
+    /// opener; drop the length check after the prefix; read a lone `./` as a
+    /// relative path.
     #[test]
-    fn the_default_forms_are_the_four_prefixes() {
+    fn the_default_forms_are_the_prefixes_and_relative_paths() {
         let d = Forms::DEFAULT;
         assert_eq!(
             found("see /etc/hosts, and ~/notes.txt.", &d),
@@ -2331,15 +2368,15 @@ mod tests {
             found("run ./build.sh (or /usr/bin/x)", &d),
             ["./build.sh", "/usr/bin/x"]
         );
-        assert_eq!(
-            found("https://a.example/b host:/x a/b /", &d),
-            Vec::<String>::new()
-        );
+        assert_eq!(found("https://a.example/b host:/x a/b /", &d), ["a/b"]);
         assert_eq!(
             found("../up src/app.rs /x/y.rs:12:3", &d),
-            ["../up", "/x/y.rs:12:3"]
+            ["../up", "src/app.rs", "/x/y.rs:12:3"]
         );
-        assert_eq!(found("//server/share ~/ ./ ../", &d), Vec::<String>::new());
+        assert_eq!(
+            found("//server/share ~/ ./ ../ .. ./..", &d),
+            Vec::<String>::new()
+        );
         assert_eq!(found("--file=/tmp/a \"/tmp/b\"", &d), ["/tmp/a", "/tmp/b"]);
         let all = Forms {
             parent: Turned::On,
@@ -2357,11 +2394,42 @@ mod tests {
             ..d
         };
         assert_eq!(found("open \"/tmp/a b/c\" now", &spaces), ["/tmp/a b/c"]);
-        assert_eq!(found("open \"/tmp/a b/c now", &spaces), ["/tmp/a"]);
+        assert_eq!(found("open \"/tmp/a b/c now", &spaces), ["/tmp/a", "b/c"]);
         assert_eq!(
             found("open \"/tmp/a b/c\" now", &d),
-            ["/tmp/a"],
+            ["/tmp/a", "b/c"],
             "off: a space ends it"
+        );
+    }
+
+    /// **A relative path ends before a `=` and at a list's `:`, and a
+    /// prefixed path wins there**: `--file=/tmp/a` is `/tmp/a`, never one
+    /// relative path holding it, and `--out=build/x` is `build/x`; a name
+    /// after a `=` is the name alone; `a/b:/c/d` and `a/b:~/c` are two
+    /// paths each, while `host:/x` names another machine and is none, and
+    /// `src/app.rs:12` keeps its line. Named breaks: let a relative path
+    /// take `=` -- `--out=build/x` reads whole and `--file=/tmp/a` loses
+    /// `/tmp/a`; end it only at a space -- `a/b:/c/d` is none; start nothing
+    /// after the list's `:` -- `a/b:/c/d` is `a/b` alone.
+    #[test]
+    fn a_relative_path_ends_before_an_equals_and_at_a_lists_colon() {
+        let d = Forms::DEFAULT;
+        assert_eq!(found("--file=/tmp/a", &d), ["/tmp/a"]);
+        assert_eq!(found("--out=build/x", &d), ["build/x"]);
+        assert_eq!(
+            found("KEY=a/b.txt --config=foo.toml", &d),
+            ["a/b.txt", "foo.toml"]
+        );
+        assert_eq!(found("a/b:/c/d", &d), ["a/b", "/c/d"]);
+        assert_eq!(found("a/b:~/c", &d), ["a/b", "~/c"]);
+        assert_eq!(found("host:/x example.com:/y", &d), Vec::<String>::new());
+        let line_col = Forms {
+            line_col: Turned::On,
+            ..d
+        };
+        assert_eq!(
+            found("src/app.rs:12 a/b:/c", &line_col),
+            ["src/app.rs", "a/b", "/c"]
         );
     }
 
@@ -2425,8 +2493,9 @@ mod tests {
     }
 
     /// **The scan's tail test is wide enough for every start it reads**: each
-    /// start the text reads, its tail at the `/` says so. Perturbation: drop
-    /// the `~` arm of `starts`.
+    /// start the text reads, its tail at the `/` says so, and with relative
+    /// paths read, as by default, any `/` does. Perturbation: drop the `~` arm
+    /// of `starts`.
     #[test]
     fn the_tail_test_admits_every_start() {
         let tail = |s: &str| {
@@ -2434,7 +2503,13 @@ mod tests {
                 .fold(0u64, |a, b| (a << 8) | u64::from(b))
                 .to_be_bytes()
         };
-        let d = Forms::DEFAULT;
+        for s in ["a/", ":/", "x../"] {
+            assert!(starts(tail(s), &Forms::DEFAULT), "{s:?}");
+        }
+        let d = Forms {
+            bare: Turned::Off,
+            ..Forms::DEFAULT
+        };
         for s in [" /", "(/", "=/", " ~/", " ./", " ../", "/"] {
             assert!(starts(tail(s), &d), "{s:?}");
         }
@@ -4621,7 +4696,10 @@ mod tests {
                 .fold(0u64, |a, &b| (a << 8) | u64::from(b))
                 .to_be_bytes()
         };
-        let d = NAMES;
+        let d = Forms {
+            bare: Turned::Off,
+            ..NAMES
+        };
         for s in [&b" README.m"[..], b" .z", b"a.\0", b"v1.2"] {
             assert!(starts(tail(s), &d), "{s:?}");
         }

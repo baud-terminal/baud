@@ -666,13 +666,14 @@
 # [link.path]
 #
 # The kinds read: "/", "~/", "./", "../"; "relative", a path with no prefix
-# and a / inside such as src/app.rs; "name", a file name alone with a dot in
+# and a / inside such as src/app.rs, which ends before an = so the path in
+# --file=/tmp/a is /tmp/a; "name", a file name alone with a dot in
 # it, such as README.md, Cargo.toml or .zshrc; and "word", any name alone,
 # such as Makefile or src. Like ./, the last four need your shell to report
 # its folder, and get no line in a multiplexer. A name lights only when a
 # file of exactly that name is in the folder, so a version number or a
 # word in a sentence gets no line. Leave "name" out to turn names off.
-# forms = ["/", "~/", "./", "../", "name"]
+# forms = ["/", "~/", "./", "../", "relative", "name"]
 #
 # How a name or word found is drawn: "line", underlined like any other
 # link, or "hover", lit only under the pointer.
