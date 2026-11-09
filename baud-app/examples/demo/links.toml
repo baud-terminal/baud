@@ -1,4 +1,5 @@
 [link.path]
+forms = ["/", "~/", "./", "relative"]
 action = "window"
 command = ["~/bin/demo-open", "{path}"]
 [link.https]

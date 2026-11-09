@@ -252,7 +252,7 @@ pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 /// links to. The take itself shows the README at its commit, `HEAD`.
 pub const README: &str = include_str!("../../../README.md");
 
-/// **baud's config**: 28 lines, `trail = "plasma"` the last, and the word
+/// **baud's config**: 29 lines, `trail = "plasma"` the last, and the word
 /// nowhere else, so the finale's `sed` changes that line alone.
 ///
 /// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
@@ -281,7 +281,11 @@ pub const README: &str = include_str!("../../../README.md");
 ///   (`baud-app/examples/demo-open.rs`) there, a GIF in kitten and the
 ///   rest in helix. `~/` is baud's own home, the scratch home, and the
 ///   program is named under it rather than by its absolute path, which
-///   names this machine's temporary folder.
+///   names this machine's temporary folder. Relative paths are read too,
+///   beside the three prefixes read by default, so a README's
+///   `assets/readme/logo-dark.gif` in helix is read against the folder
+///   the shell reported, the repo copy's root in the README film; over
+///   ssh, as in the tour, no path is looked up.
 /// - `[cursor]`: the cursor blinking as baud's default blinks it,
 ///   `blink = "auto"`, at baud's shell's prompt and at the server's over
 ///   ssh -- `false` held it still in the whole film, the server's prompt
@@ -460,12 +464,12 @@ mod tests {
     /// **The config lists baud's own faces by name and the pinned ones by
     /// paths beside it**, at 14 points, the transition on, the window solid,
     /// Sixel said, the links in their windows, and the cursor blinking with
-    /// its plasma trail last, in 28 lines, with "plasma" on the last alone,
+    /// its plasma trail last, in 29 lines, with "plasma" on the last alone,
     /// the line the finale's `sed` changes; the zsh file sets the `PATH`,
     /// comments at the prompt, starship's prompt from the preset in the
     /// scratch home, and ssh's config; and baud's environment is its list,
     /// no `XDG_*` among it. Perturbation: a blank line after the
-    /// fonts makes 29 lines, and a `trail_scroll` after the trail ends the
+    /// fonts makes 30 lines, and a `trail_scroll` after the trail ends the
     /// file on another line.
     #[test]
     fn the_config_and_the_shell_say_what_the_session_needs() {
@@ -484,7 +488,7 @@ mod tests {
             ),
             "{c}"
         );
-        assert_eq!(c.lines().count(), 28, "{c}");
+        assert_eq!(c.lines().count(), 29, "{c}");
         assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
         assert_eq!(c.matches("plasma").count(), 1, "the word once");
         // The finale's `sed`, its one substitution, changes the last line
@@ -512,7 +516,8 @@ mod tests {
             "[font]\nchanges = \"off\"\n",
             "[window]\noperations = \"off\"\n",
             "[images]\nadvertise_sixel = true\n",
-            "[link.path]\naction = \"window\"\ncommand = [\"~/bin/demo-open\", \"{path}\"]\n",
+            "[link.path]\nforms = [\"/\", \"~/\", \"./\", \"relative\"]\n\
+             action = \"window\"\ncommand = [\"~/bin/demo-open\", \"{path}\"]\n",
             "[link.https]\naction = \"window\"\n\
              command = [\"cha\", \"-o\", \"buffer.images=true\", \"{url}\"]\n",
             "[cursor]\nblink = \"auto\"\ntrail = \"plasma\"\n",

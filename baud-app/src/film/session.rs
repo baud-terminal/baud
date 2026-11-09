@@ -805,7 +805,9 @@ fn without_takes_a_command_out_whole() {
 /// `examples/demo/links.toml`, which the demo writes into its config. Read
 /// by baud's own config reader its keys are all known, a web link opens
 /// `cha` with its pictures on in a window, and a file path
-/// `~/bin/demo-open` in a window; whether each program is there is this
+/// `~/bin/demo-open` in a window, a relative one such as a README's
+/// `assets/readme/logo-dark.gif` among the paths read, beside the three
+/// prefixes read by default; whether each program is there is this
 /// machine's, so its sections are read again against a home holding
 /// `bin/demo-open` and a `PATH` holding `cha`, as the demo gives baud, and
 /// then nothing is said. The control: the text with a key the rules do not
@@ -842,6 +844,13 @@ fn the_demos_link_rules_open_their_windows() {
         }
         other => panic!("a path opens {other:?}"),
     }
+    use crate::paths::Turned::{Off, On};
+    let f = r.forms();
+    assert_eq!(
+        [f.absolute, f.home, f.dot, f.parent, f.bare],
+        [On, On, On, Off, On],
+        "`/`, `~/`, `./` and relative paths are read, `../` is not"
+    );
     // The same sections against the home and the PATH the demo gives baud.
     let mut sections: Vec<Section> = Vec::new();
     for line in text.lines() {
