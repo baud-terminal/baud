@@ -81,6 +81,10 @@ in
     # The `warm` process watches the tree through watchexec
     # (`scripts/warm.sh watch`).
     pkgs.watchexec
+    # `kitten icat` for the live check that it draws under baud's default
+    # config (`baud-app/src/programs.rs`), which a machine without kitten
+    # skips. kitty's package carries `kitten`.
+    pkgs.kitty
   ];
 
   # **The release test build, kept warm while you work.** `devenv up` starts

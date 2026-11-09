@@ -1471,3 +1471,91 @@ fn chawan_draws_a_pages_picture_by_kittys_protocol() {
         }
     }
 }
+
+/// **kitten icat draws README's logo under baud's default config**: no
+/// `[images] advertise_sixel`, so the Primary DA is the default,
+/// `CSI ? 1 ; 2 c`, and the terminal is provisioned as a window is, its
+/// image memory and kitty files reader from `Config::defaults()`, on a pty
+/// of 80x24 cells of 17x34 pixels, the default 13 pt cell at 2x. `kitten
+/// icat --hold` runs with its default `--transfer-mode=detect`: a query per
+/// medium, then the Primary DA, whose answer ends kitten's wait only when
+/// its CSI after `ESC [` is longer than three bytes
+/// (`[[source: kitty-icat-detect]]`, `detect.go:93`). It goes on to send
+/// the GIF and hold, which shows the picture placed and decoded and
+/// kitten's prompt on the screen; Enter, as the terminal encodes it under
+/// kitten's keyboard flags, ends the hold, kitten exits, and the picture
+/// stays. Under VT102's `CSI ? 6 c` kitten waited out its ten seconds and
+/// sent no picture.
+#[test]
+fn kitten_icat_draws_the_logo_under_the_default_config() {
+    let Some(kitten) = found("kitten") else {
+        return;
+    };
+    let cfg = crate::config::Config::defaults();
+    assert_eq!(
+        cfg.sixel,
+        baud_domain::SixelClaim::No,
+        "the premise: no Sixel claim"
+    );
+    let gif = Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/readme/logo-dark.gif");
+    let dir = Scratch::new("ki");
+    let mut owned = Owned::new(&WS).with_images(cfg.images);
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(baud_domain::ImagePx::of(17), baud_domain::ImagePx::of(34));
+    t.set_sixel_claim(cfg.sixel);
+    t.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
+    let ws = crate::pty::text_area(&WS, Px::of(17), Px::of(34));
+    let cmd = format!(
+        "exec '{}' icat --hold '{}'",
+        kitten.display(),
+        gif.display()
+    );
+    let mut u = Under::start_on(&mut t, &cmd, dir.env(&[]), ws, G);
+    let held = |t: &Term<'_>| {
+        screen(t)
+            .iter()
+            .any(|r| r.contains("Press Enter or Esc to exit"))
+            && t.images()
+                .placements()
+                .any(|(_, p)| t.images().image(p.image).is_some())
+    };
+    let end = Instant::now() + DEADLINE;
+    while !held(u.term) {
+        assert!(
+            Instant::now() < end,
+            "kitten's hold with the picture placed: not by the deadline; the screen:\n{}",
+            screen(u.term).join("\n")
+        );
+        match u.read(MS * 50) {
+            Heard::Bytes(b) => {
+                u.take(&b);
+                while u.decode() == baud_domain::DecodeProgress::More {}
+            }
+            Heard::Quiet => {}
+            Heard::Closed => panic!(
+                "kitten exited before its hold; the screen:\n{}",
+                screen(u.term).join("\n")
+            ),
+        }
+    }
+    let wrote = String::from_utf8_lossy(&u.wrote).into_owned();
+    assert!(wrote.contains("\x1b[?1;2c"), "the default DA: {wrote:?}");
+    assert!(!wrote.contains("\x1b[?6;4c"), "and no Sixel claim");
+    assert!(
+        u.term
+            .key(baud_core::KeyEvent::press(baud_core::KeyCode::Enter, NONE))
+    );
+    let _ = u.answer();
+    let end = Instant::now() + DEADLINE;
+    loop {
+        assert!(Instant::now() < end, "kitten's exit after Enter");
+        match u.read(MS * 50) {
+            Heard::Bytes(b) => {
+                u.take(&b);
+            }
+            Heard::Quiet => {}
+            Heard::Closed => break,
+        }
+    }
+    assert_eq!(u.term.images().placements().count(), 1, "the picture stays");
+}
