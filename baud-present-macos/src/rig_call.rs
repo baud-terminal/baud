@@ -37,6 +37,8 @@ pub struct EventRig {
     pub iterations: Iterations,
     /// Whether the frame is driven, and whether a turn runs inline.
     pub ticks: RigTicks,
+    /// Whether baud believes the window is key (`probe::Key`).
+    pub focus: RigFocus,
     /// The effects each iteration waits for.
     pub each: Vec<EffectKind>,
 }
@@ -71,6 +73,14 @@ pub enum RigTicks {
     InFrame,
 }
 
+/// Whether baud believes the rig's window is key: AppKit's answer alone,
+/// which is never, or the probe's focus door (`probe::Key::Yes`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigFocus {
+    Real,
+    Believed,
+}
+
 const ACTS: [(RigAct, &str); 5] = [
     (RigAct::Path, "path"),
     (RigAct::Type, "type"),
@@ -84,6 +94,11 @@ const TICKS: [(RigTicks, &str); 4] = [
     (RigTicks::None, "no-tick"),
     (RigTicks::InCallback, "tick-inline"),
     (RigTicks::InFrame, "tick-in-frame"),
+];
+
+const FOCUS: [(RigFocus, &str); 2] = [
+    (RigFocus::Real, "focus-real"),
+    (RigFocus::Believed, "focus-believed"),
 ];
 
 /// Why a call is refused, as the child says it before it exits 2.
@@ -107,6 +122,7 @@ impl RigCall {
             arg,
             iterations,
             ticks,
+            focus,
             each,
         }) = self;
         vec![
@@ -115,6 +131,7 @@ impl RigCall {
             arg.clone(),
             iterations.0.to_string(),
             word(&TICKS, *ticks).to_owned(),
+            word(&FOCUS, *focus).to_owned(),
             each.iter().map(|k| k.word()).collect::<Vec<_>>().join(","),
         ]
     }
@@ -122,9 +139,9 @@ impl RigCall {
     /// The call `args` make, the program's name not among them, or why
     /// they make none: anything but a well-formed rig call is refused.
     pub fn parse(args: &[String]) -> Result<RigCall, Refused> {
-        let [flag, act, arg, iterations, ticks, each] = args else {
+        let [flag, act, arg, iterations, ticks, focus, each] = args else {
             return Err(match args.first() {
-                Some(f) if f == EVENT_RIG => Refused("--event-rig takes five arguments"),
+                Some(f) if f == EVENT_RIG => Refused("--event-rig takes six arguments"),
                 _ => Refused("a probe build runs only as a rig"),
             });
         };
@@ -133,6 +150,7 @@ impl RigCall {
         }
         let act = of(&ACTS, act).ok_or(Refused("--event-rig: no such act"))?;
         let ticks = of(&TICKS, ticks).ok_or(Refused("--event-rig: no such ticks"))?;
+        let focus = of(&FOCUS, focus).ok_or(Refused("--event-rig: no such focus"))?;
         let iterations = iterations
             .parse()
             .map(Iterations)
@@ -147,6 +165,7 @@ impl RigCall {
             arg: arg.clone(),
             iterations,
             ticks,
+            focus,
             each,
         }))
     }
@@ -162,7 +181,7 @@ mod tests {
 
     /// **A call parses back to itself, and nothing else parses**: no
     /// arguments, a plain launch's, one too few or too many, and a word
-    /// out of its table are each refused. Perturbation: accept a short
+    /// out of its table -- an act, a focus, an effect -- are each refused. Perturbation: accept a short
     /// call.
     #[test]
     fn a_call_round_trips_and_anything_else_is_refused() {
@@ -171,6 +190,7 @@ mod tests {
             arg: "printf x".to_owned(),
             iterations: Iterations(100),
             ticks: RigTicks::InFrame,
+            focus: RigFocus::Believed,
             each: vec![EffectKind::Copy, EffectKind::Announce],
         });
         assert_eq!(RigCall::parse(&call.to_args()), Ok(call));
@@ -178,11 +198,53 @@ mod tests {
             args(&[]),
             args(&["README.md"]),
             args(&["--event-rig"]),
-            args(&["--event-rig", "path", "/a", "3", "tick"]),
-            args(&["--event-rig", "path", "/a", "3", "tick", "copy", "x"]),
-            args(&["--event-rig", "walk", "/a", "3", "tick", "copy"]),
-            args(&["--event-rig", "path", "/a", "-1", "tick", "copy"]),
-            args(&["--event-rig", "path", "/a", "3", "tick", "copy,nothing"]),
+            args(&["--event-rig", "path", "/a", "3", "tick", "copy"]),
+            args(&[
+                "--event-rig",
+                "path",
+                "/a",
+                "3",
+                "tick",
+                "focus-real",
+                "copy",
+                "x",
+            ]),
+            args(&[
+                "--event-rig",
+                "walk",
+                "/a",
+                "3",
+                "tick",
+                "focus-real",
+                "copy",
+            ]),
+            args(&[
+                "--event-rig",
+                "path",
+                "/a",
+                "-1",
+                "tick",
+                "focus-real",
+                "copy",
+            ]),
+            args(&[
+                "--event-rig",
+                "path",
+                "/a",
+                "3",
+                "tick",
+                "focus-key",
+                "copy",
+            ]),
+            args(&[
+                "--event-rig",
+                "path",
+                "/a",
+                "3",
+                "tick",
+                "focus-real",
+                "copy,nothing",
+            ]),
         ] {
             assert!(RigCall::parse(&refused).is_err(), "{refused:?}");
         }

@@ -14679,6 +14679,12 @@ impl Driver {
     /// click that depends on it.
     fn poll_focus(&mut self) {
         let key = self.view.window().is_some_and(|w| w.isKeyWindow());
+        // Under the probe only, the event rig's focus door: a row may have
+        // baud believe its never-key window is key. Read here and nowhere
+        // else, so every other focus decision comes from the `Focus` this
+        // gives; AppKit's key state is not touched.
+        #[cfg(feature = "effect-probe")]
+        let key = key || baud_present_macos::probe::key() == baud_present_macos::probe::Key::Yes;
         self.set_focus(if key {
             baud_core::Focus::Gained
         } else {
@@ -19391,6 +19397,50 @@ mod tests {
             .find(concat!("self.downs.", "let_go()"))
             .expect("the keys let go");
         assert!(lost < let_go);
+    }
+
+    /// **The event rig's focus door has one reader, `poll_focus`**, so
+    /// nothing else in baud believes a window is key that AppKit says is
+    /// not: every other focus decision comes from the `Focus` it gives.
+    /// Every file under `src/` is read. Perturbations: a second read in
+    /// `deliver_notices`, and the read moved out of `poll_focus`.
+    #[test]
+    fn the_focus_door_is_read_only_in_poll_focus() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).expect("a source folder") {
+                let p = e.expect("an entry").path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let read = concat!("probe::", "key()");
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
+        let mut reads = Vec::new();
+        for f in &files {
+            let text = std::fs::read_to_string(f).expect("a source file");
+            for (at, _) in text.match_indices(read) {
+                reads.push((f.clone(), at, text.clone()));
+            }
+        }
+        assert_eq!(
+            reads.len(),
+            1,
+            "one read: {:?}",
+            reads.iter().map(|r| &r.0).collect::<Vec<_>>()
+        );
+        let (file, at, text) = &reads[0];
+        assert!(file.ends_with("src/app.rs"), "{file:?}");
+        let head = concat!("    fn poll_focus(", "&mut self) {");
+        let start = text.find(head).expect("poll_focus");
+        let end = start + text[start..].find("\n    }\n").expect("its end");
+        assert!((start..end).contains(at), "the read is in poll_focus");
     }
 
     /// **A modifier key alone reaches the core as kitty's functional key**,

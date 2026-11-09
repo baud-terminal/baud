@@ -26,6 +26,11 @@
 //! `none`. `tick-inline` and `tick-in-frame` are the controls:
 //! the effect queue's turn runs inline, in the callback that asked or in the
 //! next frame.
+//!
+//! Under `focus-believed` baud believes the window is key (`probe::Key`),
+//! read by `poll_focus` alone, so a left press is a click rather than the
+//! one that brings the window forward; AppKit's key state is untouched,
+//! and checked never key after every iteration.
 
 use super::*;
 use baud_present_macos::probe;
@@ -97,14 +102,20 @@ const SPACING: Duration = Duration::from_millis(50);
 /// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
 /// already parsed into `RigCall`, the one type the parent builds too.
 pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
-    use probe_call::{RigAct, RigCall, RigTicks};
+    use probe_call::{RigAct, RigCall, RigFocus, RigTicks};
     let RigCall::Event(probe_call::EventRig {
         act,
         arg,
         iterations,
         ticks,
+        focus,
         each,
     }) = call;
+    // The focus door: baud believes its never-key window is key, or not.
+    probe::set_key(match focus {
+        RigFocus::Real => probe::Key::No,
+        RigFocus::Believed => probe::Key::Yes,
+    });
     let line = || [arg.as_bytes(), b"\n"].concat();
     let act = match act {
         RigAct::Path => Act::Click(arg.as_bytes().to_vec()),

@@ -253,6 +253,7 @@ thread_local! {
     static LOG: RefCell<Vec<Record>> = const { RefCell::new(Vec::new()) };
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
     static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+    static KEY: Cell<Key> = const { Cell::new(Key::No) };
 }
 
 /// Hold `run` for the next frame ([`Inline::InFrame`]).
@@ -267,6 +268,30 @@ pub fn run_parked() {
     for run in parked {
         run();
     }
+}
+
+/// **Whether baud believes its window is key**: the event rig's focus
+/// door. The rig's window is never made key, so without it every left
+/// press is the click that brings the window forward and a link's
+/// Cmd-click is never armed. It changes what baud believes, read by
+/// `poll_focus` alone (baud-app's source check), and never AppKit's key
+/// state, which the rig checks false after every iteration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Key {
+    /// What AppKit says, alone.
+    No,
+    /// Key, whatever AppKit says.
+    Yes,
+}
+
+/// Set whether baud believes its window is key.
+pub fn set_key(key: Key) {
+    KEY.with(|k| k.set(key));
+}
+
+/// Whether baud believes its window is key.
+pub fn key() -> Key {
+    KEY.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.

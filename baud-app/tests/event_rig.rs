@@ -41,7 +41,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
-use baud_present_macos::rig_call::{EventRig, Iterations, RigAct, RigCall, RigTicks};
+use baud_present_macos::rig_call::{EventRig, Iterations, RigAct, RigCall, RigFocus, RigTicks};
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -118,6 +118,10 @@ struct Gesture {
     /// scratch file; it ends with an `OSC 52` clear, the sign it was read.
     setup: &'static str,
     config: &'static str,
+    /// Whether baud believes the never-key window is key (`probe::Key`):
+    /// a left press in a window baud believes is not key is the click
+    /// that brings it forward, and arms no link.
+    focus: RigFocus,
 }
 
 /// A program's output, and the config it is read under.
@@ -221,7 +225,7 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-const SITES: [Site; 14] = [
+const SITES: [Site; 16] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -365,15 +369,17 @@ const SITES: [Site; 14] = [
         state: RowState::Green,
     },
     // **Stage 2's rows: what a gesture asks**, a press or a menu item sent
-    // to the view's own methods. The Cmd-click and copy-on-select rows wait
-    // on a probe door for the window's focus: baud reads every left press
-    // in a window that is not key as the click that brings it forward.
+    // to the view's own methods. baud reads every left press in a window
+    // it believes is not key as the click that brings it forward, and the
+    // rig's window is never key, so a row that needs a click goes through
+    // the probe's focus door (`RigFocus::Believed`).
     Site {
         name: SiteName("a selection, copied by the Edit menu"),
         cause: Cause::Gesture(Gesture {
             act: RigAct::CopyMenu,
             setup: r"printf '\033[H\033[2JWORD\033]52;c;!\007'",
             config: "[clipboard]\ncopy_on_select = \"off\"\n",
+            focus: RigFocus::Real,
         }),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -384,10 +390,53 @@ const SITES: [Site; 14] = [
             recorded: Failure::InCallback(EffectKind::Copy, Nested::Never),
         },
     },
+    // **A link's `[link.*]` command, Cmd-clicked**, through the focus door:
+    // the command is asked on the press's release and started on the effect
+    // queue's turn. No row turns on focus reporting (`?1004`), so the focus
+    // baud believes writes no `CSI I` to the shell
+    // ([`no_row_turns_on_focus_reporting`]).
+    Site {
+        name: SiteName("a link's [link.*] command, Cmd-clicked"),
+        cause: Cause::Gesture(LINK_CLICK),
+        expect: Expect::effect(&[EffectKind::Command]),
+        state: RowState::Green,
+    },
+    // **The door's control**: the same Cmd-click with baud believing AppKit
+    // alone. The press brings the window forward, no link is armed and
+    // nothing is asked: the door is what lets the row's press through, and
+    // the real path still reads `isKeyWindow()`.
+    Site {
+        name: SiteName("that Cmd-click, the window not believed key"),
+        cause: Cause::Gesture(Gesture {
+            focus: RigFocus::Real,
+            ..LINK_CLICK
+        }),
+        expect: Expect::effect(&[EffectKind::Command]),
+        state: RowState::Control(Failure::NotRun),
+    },
 ];
 
 /// Iterations a row runs in its child.
 const ITERATIONS: Iterations = Iterations(100);
+
+/// **A link Cmd-clicked**: an `OSC 8` link over the first row's second
+/// cell, which `[link.https]` hands to a command.
+const LINK_CLICK: Gesture = Gesture {
+    act: RigAct::Link,
+    setup: r"printf '\033[H\033[2J\033]8;;https://example.com/\033\\LINK\033]8;;\033\\\033]52;c;!\007'",
+    config: "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+    focus: RigFocus::Believed,
+};
+
+/// **The iterations a row runs**: [`ITERATIONS`], but three for a control
+/// that runs nothing, each of whose iterations waits out the child's
+/// bound for an effect that never comes.
+fn iterations(site: &Site) -> Iterations {
+    match site.state {
+        RowState::Control(Failure::NotRun) => Iterations(3),
+        _ => ITERATIONS,
+    }
+}
 
 /// The scratch directory a row's child lives in: its home, its config and
 /// the file it clicks.
@@ -419,19 +468,25 @@ fn run(site: &Site, slug: &str) -> Observed {
     let expect = site.expect;
     let dir = scratch(slug);
     let conf = dir.join("config.toml");
-    let (act, arg, config, ticks) = match site.cause {
+    let (act, arg, config, ticks, focus) = match site.cause {
         Cause::PrintedPath(rule, ticks) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file clicked");
             let file = file.to_str().expect("a UTF-8 path").to_owned();
-            (RigAct::Path, file, config(rule), ticks)
+            (RigAct::Path, file, config(rule), ticks, RigFocus::Real)
         }
         // Undriven: a program's output is read by whichever of the
         // reader's `wake` and the frame comes first, so with the frame
         // driven a row's site would be one or the other by timing. The
         // frame reads it the same way, so the Tick arm's own guard covers
         // that entry.
-        Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, Ticks::None),
+        Cause::Program(p) => (
+            RigAct::Type,
+            p.line.to_owned(),
+            p.config,
+            Ticks::None,
+            RigFocus::Real,
+        ),
         Cause::Gesture(g) => {
             let file = dir.join("clicked.txt");
             std::fs::write(&file, b"x").expect("the file linked");
@@ -441,6 +496,7 @@ fn run(site: &Site, slug: &str) -> Observed {
                 g.setup.replace("{file}", file),
                 g.config,
                 Ticks::None,
+                g.focus,
             )
         }
     };
@@ -449,13 +505,14 @@ fn run(site: &Site, slug: &str) -> Observed {
     let call = RigCall::Event(EventRig {
         act,
         arg,
-        iterations: ITERATIONS,
+        iterations: iterations(site),
         ticks: match ticks {
             Ticks::Driven => RigTicks::Driven,
             Ticks::None => RigTicks::None,
             Ticks::DrivenInline => RigTicks::InCallback,
             Ticks::DrivenInFrame => RigTicks::InFrame,
         },
+        focus,
         each: expect.each.to_vec(),
     });
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
@@ -471,11 +528,11 @@ fn run(site: &Site, slug: &str) -> Observed {
         .current_dir(&dir)
         .output()
         .expect("the child");
-    judge(expect, &out, &dir)
+    judge(expect, iterations(site), &out, &dir)
 }
 
 /// What a child's output and exit say.
-fn judge(expect: Expect, out: &std::process::Output, dir: &Path) -> Observed {
+fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) -> Observed {
     let kinds = expect.each;
     use std::os::unix::process::ExitStatusExt;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -485,7 +542,7 @@ fn judge(expect: Expect, out: &std::process::Output, dir: &Path) -> Observed {
         return Observed::Failed(Failure::Aborted);
     }
     let lines: Vec<&str> = text.lines().collect();
-    let iterations = usize::from(ITERATIONS.0);
+    let iterations = usize::from(n.0);
     let mut records = 0;
     for line in &lines {
         if *line == "none" {
@@ -545,6 +602,33 @@ fn every_row_comes_to_its_state() {
         }
     }
     assert!(red.is_empty(), "{red:?}");
+}
+
+/// **No row turns on focus reporting** (`?1004`): with it on, the focus
+/// a row's door has baud believe would write `CSI I` to the shell, input
+/// no row expects. Every row's line, setup and config is read, `?1004`
+/// alone or among other modes (`?1004;2004h`). Perturbation: a row's setup
+/// beginning `\033[?1004h`.
+#[test]
+fn no_row_turns_on_focus_reporting() {
+    for site in SITES {
+        let text = match site.cause {
+            Cause::PrintedPath(rule, _) => config(rule).to_owned(),
+            Cause::Program(p) => format!("{} {}", p.line, p.config),
+            Cause::Gesture(g) => format!("{} {}", g.setup, g.config),
+        };
+        let modes = text.split("[?").skip(1).filter_map(|m| {
+            let end = m.find(|c: char| !(c.is_ascii_digit() || c == ';'))?;
+            (m[end..].starts_with('h')).then(|| &m[..end])
+        });
+        for set in modes {
+            assert!(
+                !set.split(';').any(|m| m == "1004"),
+                "{:?} turns on focus reporting",
+                site.name
+            );
+        }
+    }
 }
 
 /// **The pending mechanism, a fake row in each state.** Each state's
@@ -636,6 +720,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
         arg: "/nothing".to_owned(),
         iterations: Iterations(1),
         ticks: RigTicks::Driven,
+        focus: RigFocus::Real,
         each: vec![EffectKind::Reveal],
     })
     .to_args();
