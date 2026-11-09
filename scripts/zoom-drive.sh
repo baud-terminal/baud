@@ -18,6 +18,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # No run writes a config into the caller's home.
+# shellcheck disable=SC1091 # read beside this file, not from the input
 . "$ROOT/scripts/baud-config-guard.sh"
 OUT=${1:-/tmp/zoom.log}
 N=${N:-8}
