@@ -1995,6 +1995,30 @@ const WIDE: WinSize = WinSize {
 /// with words between.
 const TYPED: &str = "./oct-commits.txt jskdj salkdj asjdlasj ./oct-commits.txt";
 
+/// **What fish paints a typed line with, set so the test knows it.** fish
+/// echoes each key as it comes and paints the line in its colours a moment
+/// later, and by default it underlines a path that exists (its valid-path
+/// colour). A cell a program underlines keeps its own line
+/// and gets none of baud's (`lined.rs`), so a read after the paint found one
+/// of [`TYPED`]'s two paths lit and a read before it found two: 13 of 60
+/// runs read after. The path is painted plain here, and the first word,
+/// which fish paints as an error, magenta, the mark [`fish_painted`] waits
+/// for, so every run reads the painted line.
+const FISH_PAINT: &str = "set -g fish_color_valid_path normal\nset -g fish_color_error magenta\n";
+
+/// Whether fish has painted [`TYPED`]: its first path in the error colour
+/// [`FISH_PAINT`] sets, and the second after it.
+fn fish_painted(seen: &[u8]) -> bool {
+    let first = b"\x1b[35m./oct-commits.txt";
+    seen.windows(first.len())
+        .position(|w| w == first)
+        .is_some_and(|at| {
+            seen[at + first.len()..]
+                .windows(17)
+                .any(|w| w == b"./oct-commits.txt")
+        })
+}
+
 /// **The shell reports its folder at its first prompt and after a `cd`,
 /// and a `./` path typed at the next prompt is read against it**, with
 /// integration on: a file: URI naming this machine as `gethostname` names
@@ -2007,6 +2031,8 @@ const TYPED: &str = "./oct-commits.txt jskdj salkdj asjdlasj ./oct-commits.txt";
 /// Named breaks: no report at the prompt -- none at start (zsh still reports
 /// the `cd` from its hook); the path sent unencoded -- the core refuses a
 /// blank in a URI, and there is no report after the `cd`.
+///
+/// **fish is read after it has painted the line** ([`FISH_PAINT`]).
 fn the_folder_is_reported_and_read_against(sh: Sh) {
     use crate::lined::{Lines, Uris};
     use crate::paths::{Forms, Links, Moved, Paths, Probe, Turned};
@@ -2020,6 +2046,14 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
         let dir = scratch(&format!("cwd-{}-{integration:?}", sh.name()));
         let home = dir.join("home");
         stock(sh, &home);
+        if sh == Sh::Fish {
+            use std::io::Write as _;
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(home.join(".config/fish/config.fish"))
+                .and_then(|mut c| c.write_all(FISH_PAINT.as_bytes()))
+                .expect("fish's colours in its config");
+        }
         let odd = home.join("a b%c").join("\u{e9}~x");
         put(&odd, "oct-commits.txt", "a file\n");
         let mut s = Session::start_in(&WIDE, parent(&dir, &shell, &[]), integration, &home);
@@ -2032,6 +2066,9 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
         s.until("the line is typed", |s| {
             s.screen().iter().any(|r| r.ends_with(TYPED))
         });
+        if sh == Sh::Fish {
+            s.until("fish paints the line", |s| fish_painted(&s.seen));
+        }
         let row = s
             .screen()
             .iter()
