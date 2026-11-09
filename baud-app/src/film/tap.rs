@@ -196,6 +196,8 @@ pub(crate) struct Tap {
     /// What a dump writes in place of each machine path, longest first.
     redact: Vec<(String, &'static str)>,
     frame: FrameNo,
+    /// Every read of the take, as it arrived.
+    reads: Vec<ReadAt>,
     lit: BTreeMap<AbsLine, (String, Spans)>,
     step: Option<StepAt>,
     pub(crate) report: Report,
@@ -262,6 +264,7 @@ impl Tap {
             env: env.to_vec(),
             redact,
             frame: FrameNo::default(),
+            reads: Vec::new(),
             lit: BTreeMap::new(),
             step: None,
             report: Report::default(),
@@ -276,6 +279,7 @@ impl Tap {
     /// **At a read, before it is fed**: who wrote it, as the app's reader
     /// thread asks (`link_layer::read`).
     pub(crate) fn read(&mut self, bytes: &[u8]) -> (Writers, Linked) {
+        heard(&mut self.reads, (self.frame, self.step), bytes);
         crate::link_layer::read(
             &mut self.sampler,
             Instant::now(),
@@ -509,8 +513,9 @@ impl Tap {
 
     /// **The dumps written**: one file a step, `NN-step.txt`, each row's
     /// line, origin, text, lit runs and what each opens; `changes.txt`,
-    /// every change of a row's lit cells with its frame; `hovered.txt`. The
-    /// files written, for the names check.
+    /// every change of a row's lit cells with its frame; `hovered.txt`;
+    /// `reads.txt`, where the reads split ([`read_lines`]). The files
+    /// written, for the names check.
     pub(crate) fn write(&mut self, term: &Term<'_>, scrolled: Scrolled) -> Vec<PathBuf> {
         if let Some(prev) = self.step {
             self.keep(term, scrolled, prev);
@@ -570,8 +575,108 @@ impl Tap {
         let to = self.dir.join("hovered.txt");
         std::fs::write(&to, h).expect("the hovers");
         written.push(to);
+        let to = self.dir.join("reads.txt");
+        std::fs::write(&to, read_lines(&self.reads, &self.redact)).expect("the reads");
+        written.push(to);
         written
     }
+}
+
+/// **One read of the take, as it arrived**: the frame and the step it
+/// came after, and its bytes, so a dump can show where the reads split.
+#[derive(Clone, Debug)]
+pub(crate) struct ReadAt {
+    frame: FrameNo,
+    step: Option<StepAt>,
+    bytes: Vec<u8>,
+}
+
+/// How many bytes of each end of a long read `reads.txt` shows.
+const EDGE: usize = 64;
+
+/// **A read kept as its own**, after frame `at.0` in step `at.1`: never
+/// joined to the one before it, as the boundary between two reads is what
+/// the dump is for.
+fn heard(reads: &mut Vec<ReadAt>, (frame, step): (FrameNo, Option<StepAt>), bytes: &[u8]) {
+    reads.push(ReadAt {
+        frame,
+        step,
+        bytes: bytes.to_vec(),
+    });
+}
+
+/// **`reads.txt`**: a line a read, its frame, step and length, and its
+/// bytes escaped -- all of them for a read of up to twice [`EDGE`], else
+/// its first and last [`EDGE`] -- each machine path written as the other
+/// dumps write it, before the read is cut.
+fn read_lines(reads: &[ReadAt], redactions: &[(String, &'static str)]) -> String {
+    let mut out = String::new();
+    for r in reads {
+        let b = redact_bytes(&r.bytes, redactions);
+        let shown = match b.len() > 2 * EDGE {
+            true => format!(
+                "|{}| .. |{}|",
+                escaped(&b[..EDGE]),
+                escaped(&b[b.len() - EDGE..])
+            ),
+            false => format!("|{}|", escaped(&b)),
+        };
+        let _ = writeln!(
+            out,
+            "frame {:>5} step {:>3} len {:>5} {shown}",
+            r.frame.0,
+            r.step.map_or("-".to_string(), |s| s.0.to_string()),
+            r.bytes.len()
+        );
+    }
+    out
+}
+
+/// `bytes` with each machine path written as [`redactions`] says, the
+/// bytes around them as they are.
+fn redact_bytes(bytes: &[u8], redactions: &[(String, &'static str)]) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    for (from, to) in redactions {
+        let from = from.as_bytes();
+        if from.is_empty() {
+            continue;
+        }
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            if b[i..].starts_with(from) {
+                out.extend_from_slice(to.as_bytes());
+                i += from.len();
+            } else {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+        b = out;
+    }
+    b
+}
+
+/// A read's bytes as text: printable ASCII as it is, `\`, `|` and the
+/// controls a session sends by name, every other byte as `\xNN`.
+fn escaped(bytes: &[u8]) -> String {
+    let mut s = String::new();
+    for &b in bytes {
+        match b {
+            b'\\' => s.push_str("\\\\"),
+            b'|' => s.push_str("\\|"),
+            b'\n' => s.push_str("\\n"),
+            b'\r' => s.push_str("\\r"),
+            b'\t' => s.push_str("\\t"),
+            0x07 => s.push_str("\\a"),
+            0x1b => s.push_str("\\e"),
+            0x20..=0x7e => s.push(char::from(b)),
+            _ => {
+                let _ = write!(s, "\\x{b:02x}");
+            }
+        }
+    }
+    s
 }
 
 /// A row's lit runs, each `(from, to)`, by their first column.
@@ -722,7 +827,10 @@ fn redact(text: &str, redactions: &[(String, &'static str)]) -> String {
 /// Whether a file of the links' folder is one of the dumps: a step's, the
 /// changes or the hovers.
 fn is_dump(name: &str) -> bool {
-    name.ends_with("-step.txt") || name == "changes.txt" || name == "hovered.txt"
+    name.ends_with("-step.txt")
+        || name == "changes.txt"
+        || name == "hovered.txt"
+        || name == "reads.txt"
 }
 
 /// **The dumps an earlier take left in `dir`, removed**, so a step this
@@ -868,6 +976,47 @@ mod tests {
         left.sort();
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(left, ["notes.md"]);
+    }
+
+    /// **`reads.txt` holds each read's boundary**: two reads fed in one
+    /// frame, an ssh's `logout` and the shell's `D` mark with the prompt
+    /// after it, are two lines, each with its own length and bytes, the
+    /// controls escaped; a long read shows its two ends, a machine path
+    /// written `~` before it is cut. Named break: a read joined to the one
+    /// before it in the same frame.
+    #[test]
+    fn the_reads_dump_holds_each_boundary() {
+        use crate::film::session::StepAt;
+        use crate::film::tap::{FrameNo, heard, read_lines};
+        let mut reads = Vec::new();
+        let at = (FrameNo(3), Some(StepAt(7)));
+        heard(&mut reads, at, b"logout\r\n");
+        heard(
+            &mut reads,
+            at,
+            "\x1b]133;D;0\x07~/baud \u{276f} ".as_bytes(),
+        );
+        let home = "/scratch/demo/home";
+        let long = format!("{home}/README.md{}|end", "x".repeat(200));
+        heard(&mut reads, (FrameNo(4), None), long.as_bytes());
+        let redactions = vec![(home.to_string(), "~")];
+        let lines = read_lines(&reads, &redactions);
+        let lines: Vec<&str> = lines.lines().collect();
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert_eq!(lines[0], "frame     3 step   7 len     8 |logout\\r\\n|");
+        assert_eq!(
+            lines[1],
+            "frame     3 step   7 len    21 |\\e]133;D;0\\a~/baud \\xe2\\x9d\\xaf |"
+        );
+        let tail = format!("{}\\|end", "x".repeat(60));
+        assert_eq!(
+            lines[2],
+            format!(
+                "frame     4 step   - len   {} |~/README.md{}| .. |{tail}|",
+                long.len(),
+                "x".repeat(53)
+            )
+        );
     }
 
     /// **The row a link check reads is the first to show it**, not the
