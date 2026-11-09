@@ -639,22 +639,19 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
             None => session::Turn::Going,
         };
         // The tap's frame: answers merged, the clock ticked, the lines
-        // scanned; and what a Command-click would take at each hover's
-        // cell, read as its step ends.
+        // scanned; and what a Command-click would take on the hovered
+        // link, read as its step ends.
         #[cfg(target_os = "macos")]
         if let (Some(t), Some(p)) = (tap.as_mut(), player.as_ref()) {
             let step = p.step();
             let left = t.step().filter(|&s| s != step);
             t.turn(u.term, u.seat.scrolled(), Some(step), epoch.elapsed());
             if let Some(s) = left {
-                if let Some(session::Step::Hover(cell)) = hovers.get(s.0) {
-                    t.hover(
-                        u.term,
-                        u.seat.scrolled(),
-                        s,
-                        baud_domain::Row::from_index(usize::from(cell.row)),
-                        baud_domain::Col::at_index(usize::from(cell.col)),
-                    );
+                // The link's cell is found on the screen by its text: the
+                // step's cell is a placeholder until a take is filmed
+                // (`NIX_AT`), and is not where this grid shows the link.
+                if let Some(session::Step::Hover(_)) = hovers.get(s.0) {
+                    t.hover(u.term, u.seat.scrolled(), s, session::NIX_URL);
                 }
             }
         }

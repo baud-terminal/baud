@@ -120,6 +120,56 @@ impl Report {
     }
 }
 
+/// **The system as the session's worker asks it**: the app's own worker,
+/// `PATH` aside, which is the session's, as the app's worker has baud's:
+/// a `[link.*]` rule's program is looked up along the `PATH` the shell
+/// the take films was given.
+struct SessionFs {
+    system: crate::probe::System,
+    path: Option<std::ffi::OsString>,
+}
+
+/// The system as the worker of a session in `env` asks it.
+fn session_fs(env: &[(std::ffi::OsString, std::ffi::OsString)]) -> SessionFs {
+    SessionFs {
+        system: crate::probe::System,
+        path: env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.clone()),
+    }
+}
+
+impl crate::probe::Fs for SessionFs {
+    fn lstat(&mut self, path: &[u8]) -> crate::probe::Stat {
+        self.system.lstat(path)
+    }
+    fn readlink(&mut self, path: &[u8]) -> Option<Vec<u8>> {
+        self.system.readlink(path)
+    }
+    fn mounts(&mut self) -> Option<crate::probe::Mounts> {
+        self.system.mounts()
+    }
+    fn program(&mut self, group: crate::sys::Pid) -> Vec<String> {
+        self.system.program(group)
+    }
+    fn folder(&mut self, group: crate::sys::Pid) -> Option<Vec<u8>> {
+        self.system.folder(group)
+    }
+    fn started(&mut self, group: crate::sys::Pid) -> Option<crate::fg::StartTime> {
+        self.system.started(group)
+    }
+    fn prepare(&mut self) {
+        self.system.prepare();
+    }
+    fn handler(&mut self, address: &str) -> crate::paths::Handler {
+        self.system.handler(address)
+    }
+    fn path_var(&mut self) -> Option<std::ffi::OsString> {
+        self.path.clone()
+    }
+}
+
 /// **The link layer of one take.**
 pub(crate) struct Tap {
     dir: PathBuf,
@@ -177,7 +227,10 @@ impl Tap {
         if let Some(host) = names.last() {
             uris.set_host(host.clone());
         }
-        let mut probes = crate::probe::Probes::system(|| {});
+        let session = env.to_vec();
+        let mut probes = crate::probe::Probes::new(Box::new(move || {
+            crate::probe::Worker::start(Box::new(session_fs(&session)), Box::new(|| {}))
+        }));
         probes.set_programs(link.programs());
         let watched = crate::probe::WatchCell::default();
         let watch = crate::fg::Watch::start(None, watched.clone(), || {});
@@ -293,18 +346,18 @@ impl Tap {
         self.changes(term, scrolled, at);
     }
 
-    /// **What a Command-click at `(row, col)` would take**, at step `step`:
-    /// the link there and what clicking it comes to.
-    pub(crate) fn hover(
-        &mut self,
-        term: &Term<'_>,
-        scrolled: Scrolled,
-        step: StepAt,
-        row: Row,
-        col: Col,
-    ) {
-        let line = scrolled.line(Rows::ZERO, row);
-        let opens = self.opens(term, scrolled, row, col, line);
+    /// **What a Command-click on `text` would take**, at step `step`: the
+    /// link at its middle cell, found on the screen as it is now
+    /// ([`cell_of`]), and what clicking it comes to; where the screen does
+    /// not show it, that, in words.
+    pub(crate) fn hover(&mut self, term: &Term<'_>, scrolled: Scrolled, step: StepAt, text: &str) {
+        let opens = match cell_of(&cells(term), text) {
+            Some((row, col)) => {
+                let line = scrolled.line(Rows::ZERO, row);
+                self.opens(term, scrolled, row, col, line)
+            }
+            None => Opens::Other(format!("{text:?} is not on the screen")),
+        };
         self.report.hovered.push((step, opens));
     }
 
@@ -545,6 +598,40 @@ impl Tap {
 }
 
 /// How many cells of `row` the runs light.
+/// The screen's characters, one to a cell: each cell's base, a cell with
+/// none, a wide character's tail among them, a space. What
+/// [`crate::programs::screen`] reads, its marks aside, so that a column
+/// here is a column on the grid.
+fn cells(term: &Term<'_>) -> Vec<Vec<char>> {
+    let v = term.window();
+    (0..v.rows().index())
+        .map(|y| {
+            v.row(Row::from_index(y))
+                .iter()
+                .map(|c| {
+                    let base = term.base_of(*c).as_codepoint().map(|cp| cp.value());
+                    base.and_then(char::from_u32).unwrap_or(' ')
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// **Where `text` is on the screen, `rows` one character to a cell**: the
+/// first row holding it and the column of its middle cell, which a click
+/// on it would take; none where no row holds it.
+fn cell_of(rows: &[Vec<char>], text: &str) -> Option<(Row, Col)> {
+    let want: Vec<char> = text.chars().collect();
+    if want.is_empty() {
+        return None;
+    }
+    rows.iter().enumerate().find_map(|(r, row)| {
+        row.windows(want.len())
+            .position(|w| w == want.as_slice())
+            .map(|c| (Row::from_index(r), Col::at_index(c + want.len() / 2)))
+    })
+}
+
 fn lit_cells(set: &[LinkLine], row: Row) -> Cells {
     Cells(
         set.iter()
@@ -603,6 +690,60 @@ mod tests {
         concat!("os.", "ask("),
         concat!("OsEffect", "::"),
     ];
+
+    /// **The tap's worker looks a rule's program up along the session's
+    /// `PATH`**, not the process's: a program only the session's `PATH`
+    /// holds is found, as a window started with that `PATH` would find it.
+    /// The control: along the process's `PATH` it is not found.
+    #[test]
+    fn the_tap_looks_programs_up_on_the_sessions_path() {
+        use crate::paths::Handler;
+        use crate::probe::Fs as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("tap-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::fs::canonicalize(&dir).unwrap();
+        let prog = "baud-tap-stand-in";
+        let exe = dir.join(prog);
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let env = vec![("PATH".into(), dir.clone().into_os_string())];
+        let mut fs = crate::film::tap::session_fs(&env);
+        let session = fs.path_var();
+        let mounts = fs.mounts().expect("the mount table");
+        let mut look = |path: Option<&std::ffi::OsStr>| {
+            crate::probe::command(&mut fs, &mounts, (prog, path), &mut 0, &|| {})
+        };
+        let found = look(session.as_deref());
+        let process = look(std::env::var_os("PATH").as_deref());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(session.as_deref(), Some(dir.as_os_str()));
+        assert_eq!(found, Handler::Found);
+        assert_ne!(process, Handler::Found, "the control");
+    }
+
+    /// **The hovered link is found by its text, in cells**: on the row that
+    /// holds it, at its middle cell, counted one to a cell past a prompt's
+    /// three-byte `❯` and a wide character's two cells; none where no row
+    /// holds it.
+    #[test]
+    fn a_hovered_link_is_found_by_its_text() {
+        use baud_domain::{Col, Row};
+        let rows: Vec<Vec<char>> = ["", "~/baud ❯ 界  https://nixos.org (Nix)"]
+            .iter()
+            .map(|r| r.chars().collect())
+            .collect();
+        // `界` is a cell and its tail a space: the URL starts at column 12.
+        assert_eq!(
+            crate::film::tap::cell_of(&rows, "https://nixos.org"),
+            Some((Row::from_index(1), Col::at_index(12 + 8)))
+        );
+        assert_eq!(
+            crate::film::tap::cell_of(&rows, "https://example.org"),
+            None
+        );
+    }
 
     /// **The tap opens nothing and names no AppKit**: from `tap.rs` and
     /// `link_layer.rs`, every module they reach, comments, literals and
