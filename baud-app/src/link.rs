@@ -86,7 +86,8 @@ pub use crate::paths::{Gone, PathsAt};
 use crate::rules::{NO_RULES, Rules};
 
 use baud_domain::{
-    AdmittedUri, Attrs, Codepoint, Col, Cols, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap,
+    AdmittedUri, Attrs, Codepoint, Col, Cols, DirectoryReport, FileHost, FileUri, LinkEpoch,
+    LinkId, PackedCell, Row, Rows, Wrap,
 };
 use baud_render::{
     AbsLine, Field, Hints, HoverPaint, LinkHover, LinkLook, LinkSpan, Point, Scrolled, row_of,
@@ -191,6 +192,8 @@ pub struct Target<'a> {
     scheme: Scheme,
     /// The `[link.*]` rule that took it, by its place, and what it does.
     rule: Option<(crate::rules::RuleIx, Action)>,
+    /// A `file:` link's file, as the policy read it.
+    file: Option<LocalFile<'a>>,
 }
 
 impl<'a> Target<'a> {
@@ -213,6 +216,51 @@ impl<'a> Target<'a> {
     /// The `[link.*]` rule that took it, by its place in the rules.
     pub fn rule(&self) -> Option<crate::rules::RuleIx> {
         self.rule.map(|(ix, _)| ix)
+    }
+
+    /// **A `file:` link's file, as the policy read it**: none for any
+    /// other scheme.
+    pub fn local_file(&self) -> Option<LocalFile<'a>> {
+        self.file
+    }
+
+    /// **What a reveal hands the file manager**: a `file:` link's file
+    /// with no host ([`LocalFile::local_uri`]), any other URI as admitted.
+    pub fn reveal_uri(&self) -> AdmittedUri {
+        AdmittedUri::checked(match self.file {
+            Some(f) => f.local_uri(),
+            None => self.uri.to_owned(),
+        })
+    }
+}
+
+/// **A `file:` link's file, as RFC 8089's grammar reads it**
+/// ([`FileUri`], `[[source: rfc8089]]` § 2): its host, this machine by no
+/// name or by one of its names, and its path, still percent-encoded, every
+/// byte on the grammar. Only the policy makes one, from the URI it admits,
+/// so the paths and the opener read the file the policy judged and never
+/// parse the text a second time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LocalFile<'a>(FileUri<'a>);
+
+impl LocalFile<'_> {
+    /// The path, percent-decoded: none where it decodes to a NUL, which no
+    /// POSIX path can hold.
+    pub fn path(&self) -> Option<Vec<u8>> {
+        let mut out = vec![0; self.0.encoded_path().len()];
+        let n = self.0.decode_path(&mut out)?.len();
+        out.truncate(n);
+        Some(out)
+    }
+
+    /// **The URI a file manager is handed**: the path as written, with no
+    /// authority, as RFC 8089 § 2 suggests "To maximize compatibility",
+    /// since "Some current usages of the scheme incorrectly interpret all
+    /// values in the authority of a file URI, including "localhost", as
+    /// non-local". Every byte of the path is ASCII, being on the grammar.
+    pub fn local_uri(&self) -> String {
+        let path = String::from_utf8_lossy(self.0.encoded_path());
+        format!("file://{path}")
     }
 }
 
@@ -347,6 +395,7 @@ fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target
     if ruled.is_some() {
         crate::rules::dashless(rest)?;
     }
+    let mut file = None;
     match scheme {
         Scheme::Added => {
             if rest.is_empty() {
@@ -377,22 +426,30 @@ fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target
                 }
             }
         }
+        // RFC 8089's grammar, read once (`FileUri`): no query, no fragment,
+        // no broken escape, a path that is absolute. `file:////srv/x`, a
+        // UNC host written as a path, is off it and refused.
         Scheme::File => {
-            let auth = rest.strip_prefix("//").ok_or(Refused::Host)?;
-            let end = auth.find('/').ok_or(Refused::Host)?;
-            let h = &auth[..end];
-            let local = h.is_empty()
-                || h.eq_ignore_ascii_case("localhost")
-                || h.eq_ignore_ascii_case(host.0);
-            if !local {
-                return Err(Refused::Host);
+            let f = match DirectoryReport::parse(uri) {
+                DirectoryReport::File(f) => f,
+                DirectoryReport::OtherScheme | DirectoryReport::Malformed => {
+                    return Err(Refused::Syntax);
+                }
+            };
+            match f.host {
+                FileHost::Local => {}
+                FileHost::Named(h)
+                    if !host.0.is_empty() && h.eq_ignore_ascii_case(host.0.as_bytes()) => {}
+                FileHost::Named(_) => return Err(Refused::Host),
             }
+            file = Some(LocalFile(f));
         }
     }
     Ok(Target {
         uri: s,
         scheme,
         rule: ruled,
+        file,
     })
 }
 
@@ -2548,6 +2605,60 @@ mod tests {
 
     const NONE: Host<'static> = Host("");
 
+    /// **DT-L3: a `file:` URI is RFC 8089's, read once**: `file:///etc/x?q#f`,
+    /// a query or a fragment alone, `file:///a%ZZ` and `file:////srv/x` (a
+    /// UNC host written as a path) are off the grammar and refused, as the
+    /// printed paths' reader refuses them; another machine's is refused as
+    /// one; the controls, `file:///etc/hosts` and the local-path form
+    /// `file:/etc/hosts`, are admitted. Named break: admit a `file:` URI by
+    /// its host alone -- the query, the fragment, the broken escape and the
+    /// UNC form are admitted.
+    #[test]
+    fn a_file_uri_is_rfc_8089s() {
+        for uri in ["file:///etc/hosts", "file:/etc/hosts"] {
+            assert!(admit(uri.as_bytes(), NONE).is_ok(), "the control: {uri}");
+        }
+        for uri in [
+            "file:///etc/x?q#f",
+            "file:///etc/x?q",
+            "file:///etc/x#f",
+            "file:///a%ZZ",
+            "file:////srv/x",
+        ] {
+            assert_eq!(
+                admit(uri.as_bytes(), NONE).err(),
+                Some(Refused::Syntax),
+                "{uri}"
+            );
+        }
+        assert_eq!(
+            admit(b"file://elsewhere/x", Host("here")).err(),
+            Some(Refused::Host)
+        );
+    }
+
+    /// **A `file:` link carries the file the policy read, and a reveal
+    /// names it with no host**: the path decoded from what was admitted,
+    /// and the URI the file manager is handed has this machine's name and
+    /// `localhost` left out; a URI of another scheme is handed as admitted.
+    /// Named break: hand the file manager the URI as admitted -- the first
+    /// reveal keeps the host.
+    #[test]
+    fn a_file_link_carries_its_file_and_reveals_it_with_no_host() {
+        let here = Host("thishost.local");
+        let t = admit(b"file://thishost.local/tmp/a%20b", here).expect("admitted");
+        assert_eq!(
+            t.local_file().and_then(|f| f.path()),
+            Some(b"/tmp/a b".to_vec())
+        );
+        assert_eq!(t.reveal_uri().as_str(), "file:///tmp/a%20b");
+        let t = admit(b"file://localhost/p", NONE).expect("admitted");
+        assert_eq!(t.reveal_uri().as_str(), "file:///p");
+        let t = admit(b"https://example.invalid/", NONE).expect("admitted");
+        assert_eq!(t.local_file(), None);
+        assert_eq!(t.reveal_uri().as_str(), "https://example.invalid/");
+    }
+
     /// **`admit_owned` decides as `admit` does and keeps the very bytes it
     /// checked**, and `AdmittedUri::checked` is called in this file alone,
     /// after the checks: its door is the policy's: the same action, the same refusal, and the `String`
@@ -2574,7 +2685,8 @@ mod tests {
     /// (baud-present-macos above all, which hands the URI to the OS) would
     /// let an unchecked URI through. Every `.rs` under a `src` directory of
     /// the repository is read; tests and benches outside `src` may mint one.
-    /// The control is link.rs's own two. Perturbation: call
+    /// The control is link.rs's own three: the owned admission, a borrowed
+    /// target's copy and its reveal's. Perturbation: call
     /// `AdmittedUri::checked` in baud-present-macos/src/link.rs and this
     /// names it.
     #[test]
@@ -2622,7 +2734,7 @@ mod tests {
             .collect();
         assert_eq!(
             found,
-            [(std::path::PathBuf::from("baud-app/src/link.rs"), 2)],
+            [(std::path::PathBuf::from("baud-app/src/link.rs"), 3)],
             "only the admission mints one"
         );
     }
@@ -2693,8 +2805,9 @@ mod tests {
             Err(Refused::Host)
         );
         assert_eq!(admit(b"file://thishost.local/p", NONE), Err(Refused::Host));
-        assert_eq!(no("file://p"), Refused::Host);
-        assert_eq!(no("file:/p"), Refused::Host);
+        // No path is off RFC 8089's grammar; the local-path form is on it.
+        assert_eq!(no("file://p"), Refused::Syntax);
+        assert!(admit(b"file:/p", NONE).is_ok());
     }
 
     /// Perturbation: delete the authority check -- fails alone.

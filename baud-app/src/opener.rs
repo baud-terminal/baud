@@ -26,25 +26,6 @@ pub(crate) fn command(uri: &str) -> Command {
     c
 }
 
-/// **A local `file:` URI with no authority**, the form a file manager is
-/// handed: `link::admit` has already found the host empty, `localhost` or
-/// this machine's, and RFC 8089 notes that "Some current usages of the
-/// scheme incorrectly interpret all values in the authority of a file
-/// URI, including "localhost", as non-local", so "To maximize
-/// compatibility" the authority may be left out (`[[source: rfc8089]]`
-/// § 2). `ls
-/// --hyperlink` writes the host.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-pub(crate) fn local(uri: &str) -> String {
-    let Some((scheme, rest)) = uri.split_once("://") else {
-        return uri.to_owned();
-    };
-    match rest.find('/') {
-        Some(at) => format!("{scheme}://{}", &rest[at..]),
-        None => uri.to_owned(),
-    }
-}
-
 /// The openers started and not yet reaped.
 #[derive(Default)]
 pub(crate) struct Opener {
@@ -99,19 +80,6 @@ mod tests {
         assert_eq!(c.get_program(), "xdg-open");
         let args: Vec<_> = c.get_args().collect();
         assert_eq!(args, [uri]);
-    }
-
-    /// **A reveal names the file with no host**: this machine's name and
-    /// `localhost` are left out, and a URI with none is as it was.
-    /// Perturbation: keep the authority -- the first assertion fails.
-    #[test]
-    fn a_revealed_file_names_no_host() {
-        assert_eq!(
-            local("file://thishost.local/tmp/a%20b"),
-            "file:///tmp/a%20b"
-        );
-        assert_eq!(local("file://localhost/p"), "file:///p");
-        assert_eq!(local("file:///p"), "file:///p");
     }
 
     /// **An opener that has ended is reaped, and one that runs is kept.**

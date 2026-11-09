@@ -16406,7 +16406,7 @@ impl Driver {
                     }
                 }
                 Action::Reveal => {
-                    let uri_owned = t.to_admitted();
+                    let uri_owned = t.reveal_uri();
                     match opener::checks(uri_owned.as_str()) {
                         Ok(()) => {
                             // Said now, and the words moved into the turn,

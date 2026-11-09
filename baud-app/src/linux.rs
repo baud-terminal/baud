@@ -1883,7 +1883,7 @@ impl Driver {
                     },
                     Click::Reveal => match self.bus.as_mut() {
                         Some(bus) => {
-                            bus.reveal(&crate::opener::local(t.as_str()));
+                            bus.reveal(t.reveal_uri().as_str());
                             self.report.links.revealed.bump();
                             crate::info!("link sent to the file manager: {said}");
                         }
@@ -2108,9 +2108,9 @@ impl Driver {
                 let uri = crate::paths::file_uri(&path);
                 match crate::link::admit_path_owned(uri, Host(&self.host)) {
                     Ok(t) if t.action() == Action::Reveal => {
-                        self.later.push(Later::Reveal(crate::opener::local(
-                            &t.into_uri().into_string(),
-                        )));
+                        // `paths::file_uri` built it with no host, the form
+                        // a file manager is handed.
+                        self.later.push(Later::Reveal(t.into_uri().into_string()));
                         None
                     }
                     Ok(_) | Err(_) => {

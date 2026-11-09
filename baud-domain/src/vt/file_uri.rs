@@ -230,6 +230,12 @@ impl<'a> DirectoryReport<'a> {
 }
 
 impl<'a> FileUri<'a> {
+    /// The path as written, still percent-encoded: every byte of it on the
+    /// grammar, so ASCII.
+    pub fn encoded_path(&self) -> &'a [u8] {
+        self.path
+    }
+
     /// The path, percent-decoded into `out` (`[[source: rfc3986]]` § 2.1,
     /// 634-647: "a character triplet, consisting of the percent character
     /// "%" followed by the two hexadecimal digits representing that octet's

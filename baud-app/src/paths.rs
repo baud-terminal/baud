@@ -329,53 +329,32 @@ pub enum Named {
     NoMachine,
 }
 
-/// **The file a `file://` URI names on this machine**, percent-decoded,
-/// and whether its host named this machine: none for another host, a query
-/// or a fragment, a `%` without two hex digits, bytes that are not UTF-8,
-/// or a control or bidirectional control in the name -- none of which is
-/// looked up, so none is struck.
+/// **The file a `file:` URI names on this machine**, percent-decoded,
+/// and whether its host named this machine: read by RFC 8089's grammar
+/// (`baud_domain::FileUri`), as the link policy reads it. None for another
+/// host, a URI off the grammar -- a query or a fragment, a `%` without two
+/// hex digits, a byte the grammar does not allow, `file:////srv/x` -- a
+/// path that decodes to a NUL or to bytes that are not UTF-8, or a control
+/// or bidirectional control in the name: none of which is looked up, so
+/// none is struck.
 pub fn file_path(uri: &[u8], names: &[String]) -> Option<(Named, Vec<u8>)> {
-    let scheme = uri.get(..7)?;
-    if !scheme.eq_ignore_ascii_case(b"file://") {
-        return None;
-    }
-    let rest = &uri[7..];
-    let slash = rest.iter().position(|&b| b == b'/')?;
-    let (host, path) = rest.split_at(slash);
-    let named = if host.is_empty() || host.eq_ignore_ascii_case(b"localhost") {
-        Named::NoMachine
-    } else if names
-        .iter()
-        .any(|n| !n.is_empty() && host.eq_ignore_ascii_case(n.as_bytes()))
-    {
-        Named::ThisMachine
-    } else {
+    let baud_domain::DirectoryReport::File(f) = baud_domain::DirectoryReport::parse(uri) else {
         return None;
     };
-    if path.iter().any(|&b| b == b'?' || b == b'#') {
-        return None;
-    }
-    let hex = |b: u8| {
-        char::from(b)
-            .to_digit(16)
-            .and_then(|d| u8::try_from(d).ok())
-    };
-    let mut out = Vec::with_capacity(path.len());
-    let mut i = 0;
-    while i < path.len() {
-        match path[i] {
-            b'%' => {
-                let hi = hex(*path.get(i + 1)?)?;
-                let lo = hex(*path.get(i + 2)?)?;
-                out.push(hi << 4 | lo);
-                i += 3;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
+    let named = match f.host {
+        baud_domain::FileHost::Local => Named::NoMachine,
+        baud_domain::FileHost::Named(h)
+            if names
+                .iter()
+                .any(|n| !n.is_empty() && h.eq_ignore_ascii_case(n.as_bytes())) =>
+        {
+            Named::ThisMachine
         }
-    }
+        baud_domain::FileHost::Named(_) => return None,
+    };
+    let mut out = vec![0; f.encoded_path().len()];
+    let n = f.decode_path(&mut out)?.len();
+    out.truncate(n);
     let text = core::str::from_utf8(&out).ok()?;
     if text.chars().any(|c| c.is_control() || bidi_control(c)) {
         return None;
@@ -2744,7 +2723,8 @@ impl PathsAt for Paths {
         }
         match target.scheme() {
             Scheme::File => {
-                let (_, path) = file_path(target.as_str().as_bytes(), &self.names)?;
+                // The file the policy read, not a second parse of the text.
+                let path = target.local_file()?.path()?;
                 match self.marked.get(path.as_slice()).and_then(|s| s.probe()) {
                     Some(Probe::Missing) => Some(Gone::File(path)),
                     _ => None,
