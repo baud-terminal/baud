@@ -15,9 +15,9 @@
 //! **The forms.** A printed `/`, `~/`, `./` or `../` starts a path, after the start
 //! of a line, a space or one of `([{<"'` and `` ` `` or `=`, and never after
 //! a `:`, so neither `https://a/b`'s `//a/b` nor `host:/x`'s `/x` is one.
-//! A bare relative path such as `src/app.rs`, a single name holding a
-//! `.` not at its end such as `README.md` or `.zshrc` ([`Form::Name`]), any
-//! single word ([`Form::Word`]), a `:line:col` suffix and a quoted path with
+//! So does a single name holding a `.` not at its end, such as `README.md`
+//! or `.zshrc` ([`Form::Name`]), read against the folder a `./` is. A bare
+//! relative path such as `src/app.rs`, any single word ([`Form::Word`]), a `:line:col` suffix and a quoted path with
 //! spaces are each a [`Forms`] switch, off, for the settings that will name
 //! them; none is read until one is turned on. A path runs to the next space, quote, `<`,
 //! `>` or `|`; trailing `.,;:!?*` and a closing bracket it did not open are
@@ -185,9 +185,9 @@ pub enum NameLook {
     Hover,
 }
 
-/// **Which forms are read**: the four printed prefixes by default, and the
-/// rest, single names among them, only once `[link.path]` names them
-/// (`rules.rs`). Nothing else changes when one is turned on: the worker, the
+/// **Which forms are read**: the four printed prefixes and single names
+/// holding a `.` by default, and the rest only once `[link.path]` names
+/// them (`rules.rs`). Nothing else changes when one is turned on: the worker, the
 /// mount check and the click are the same for every form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Forms {
@@ -214,7 +214,7 @@ impl Forms {
         dot: Turned::On,
         parent: Turned::On,
         bare: Turned::Off,
-        name: Turned::Off,
+        name: Turned::On,
         word: Turned::Off,
         names: NameLook::Line,
         line_col: Turned::Off,
@@ -4634,10 +4634,11 @@ mod tests {
         };
         assert!(starts(tail(b" L"), &words));
         assert!(!starts(tail(b"aL"), &words), "inside a word");
-        assert!(
-            !starts(tail(b" README.m"), &Forms::DEFAULT),
-            "names off by default"
-        );
+        let none = Forms {
+            name: Turned::Off,
+            ..d
+        };
+        assert!(!starts(tail(b" README.m"), &none), "names off");
     }
 
     /// **A name gets a line only where the worker found it in the

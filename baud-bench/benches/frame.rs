@@ -53,8 +53,9 @@
 //! the output owes, the rest what a frame over a screen that does not
 //! change costs; the instructions a run retires with it, less those of the
 //! run without, over the count, are a still frame's.
-//! `FRAME_NAMES=on` reads single names too, `[link.path] forms` with
-//! `"name"` added, which `FRAME_FOLDER` gives a folder to be read against.
+//! `FRAME_NAMES=off` reads no single names, `[link.path] forms` with
+//! `"name"` taken out; the default reads them, as the app does, against the
+//! folder `FRAME_FOLDER` gives.
 //!
 //! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
 //! each frame draws its rows in stored order; the default leaves it set,
@@ -513,11 +514,11 @@ fn main() {
         // No home, no names: `~/` and `./` resolve to nothing, as they would
         // before a window knows either; `/` is read as the app reads it.
         let forms = match std::env::var("FRAME_NAMES").as_deref() {
-            Ok("on") => paths::Forms {
-                name: paths::Turned::On,
+            Ok("off") => paths::Forms {
+                name: paths::Turned::Off,
                 ..paths::Forms::DEFAULT
             },
-            Ok("off") | Err(_) => paths::Forms::DEFAULT,
+            Ok("on") | Err(_) => paths::Forms::DEFAULT,
             Ok(other) => panic!("FRAME_NAMES is on or off, not {other}"),
         };
         let mut printed = paths::Paths::new(None, forms);

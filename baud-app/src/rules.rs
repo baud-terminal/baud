@@ -2129,10 +2129,10 @@ mod tests {
         assert_eq!(r.path_act(), &PathAct::Reveal);
     }
 
-    /// **Single names: off by default, read once `forms` lists `"name"`
+    /// **Single names: read by default, read when `forms` lists `"name"`
     /// and gone when it leaves it out, `"word"` read when named, and
     /// `names` sets their look, an unknown value ignoring the section with
-    /// a warning.** Named breaks: default names on -- the first assertion;
+    /// a warning.** Named breaks: default names off -- the first assertion;
     /// keep `name` on whatever `forms` names -- the list without it still
     /// reads names; read `names` as `"line"` whatever it says -- `"hover"`
     /// is lost.
@@ -2140,8 +2140,8 @@ mod tests {
     fn the_path_rule_sets_the_names() {
         assert_eq!(
             (Forms::DEFAULT.name, Forms::DEFAULT.word),
-            (Turned::Off, Turned::Off),
-            "neither by default"
+            (Turned::On, Turned::Off),
+            "names by default, words not"
         );
         assert_eq!(Forms::DEFAULT.names, NameLook::Line);
         let (r, said) = rules(&[section(

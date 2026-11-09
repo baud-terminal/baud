@@ -608,12 +608,12 @@
 # urls = "on"
 #
 # "on" or "off". A file path printed as plain text, starting with /, ~/, ./
-# or ../, is underlined once baud has checked that the file exists on this
-# computer. The check runs on a thread of its own and never holds up
-# drawing, and looks nothing up on a network or automounted disk. A ./ or ../
-# needs your shell to report its folder with OSC 7, naming this computer. A
-# click shows the file in Finder (the file manager on Linux), and never opens
-# or runs it.
+# or ../, or a file name alone such as README.md, is underlined once baud
+# has checked that the file exists on this computer. The check runs on a
+# thread of its own and never holds up drawing, and looks nothing up on a
+# network or automounted disk. A ./, a ../ or a name alone needs your shell
+# to report its folder with OSC 7, naming this computer. A click shows the
+# file in Finder (the file manager on Linux), and never opens or runs it.
 # "off" checks nothing.
 # paths = "on"
 #
@@ -671,8 +671,8 @@
 # such as Makefile or src. Like ./, the last four need your shell to report
 # its folder, and get no line in a multiplexer. A name lights only when a
 # file of exactly that name is in the folder, so a version number or a
-# word in a sentence gets no line. Add "name" to the list to read names.
-# forms = ["/", "~/", "./", "../"]
+# word in a sentence gets no line. Leave "name" out to turn names off.
+# forms = ["/", "~/", "./", "../", "name"]
 #
 # How a name or word found is drawn: "line", underlined like any other
 # link, or "hover", lit only under the pointer.
