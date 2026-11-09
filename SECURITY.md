@@ -131,9 +131,9 @@ once, the same way, so a link never looks openable when a click would refuse
 it. A link a remote program opens with `OSC 8` and leaves open stays that
 program's, whatever is written under it afterwards.
 
-Five cases are still open, in which text a remote program wrote, or one baud
-could not name, can be judged by a local writer and light. Each is held by a
-test and closed before baud is public:
+Known cases are still open in which text a remote program wrote, or one baud
+could not name, can be judged by a local writer and light. All of them are
+closed before baud is public, and the first five are held by tests:
 
 - A remote program writes on a row below its cursor and moves back up, and a
   later local prompt lands on that row.
@@ -146,6 +146,12 @@ test and closed before baud is public:
   writer.
 - A resize re-wraps lines and moves text no writer was named for onto a row
   a local program wrote.
+- A scrolling region that starts at the top sends its lines to the history,
+  and each row below the region is then judged by the writer of the row
+  beneath it.
+- A remote program shifts a column across the rows of a scrolling region
+  (`ESC 6` or `ESC 9` at a margin), moving text on rows that stay filed
+  under their local writer.
 
 **You can add to the schemes a click opens, or change what a click does, in
 your own config.
