@@ -19316,6 +19316,32 @@ bytes  = 141811
 status = "retrieved"
 group  = "C"
 
+[sources.rfc9110]
+key    = "rfc9110"
+title  = "RFC 9110: HTTP Semantics -- 4.2.1, 'A recipient that processes such a URI reference MUST reject it as invalid' (an http URI with an empty host)"
+author = "R. Fielding, M. Nottingham, J. Reschke"
+year   = 2022
+venue  = "IETF RFC 9110"
+url    = "https://www.rfc-editor.org/rfc/rfc9110.txt"
+file   = "rfc9110-http-semantics.txt"
+sha256 = "21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a"
+bytes  = 502941
+status = "retrieved"
+group  = "C"
+
+[sources.rfc6068]
+key    = "rfc6068"
+title  = "RFC 6068: The 'mailto' URI Scheme -- 2, the mailtoURI grammar (hfields, hfvalue, qchar)"
+author = "M. Duerst, L. Masinter, J. Zawinski"
+year   = 2010
+venue  = "IETF RFC 6068"
+url    = "https://www.rfc-editor.org/rfc/rfc6068.txt"
+file   = "rfc6068-mailto.txt"
+sha256 = "a450492a89d30689c0a73e26e1a1d7bccf761405b23c15567f0cf9db575984af"
+bytes  = 36683
+status = "retrieved"
+group  = "C"
+
 [sources.uax9-tr9-52]
 key    = "uax9-tr9-52"
 title  = "UAX #9 revision 52 (Unicode 18.0.0) -- the explicit directional formatting characters; overrides 'to be avoided wherever possible, because of security concerns'"

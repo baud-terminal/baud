@@ -191,10 +191,11 @@ pub(crate) fn decide<'l: 'a, 'a>(
     };
     let then = match crate::link::click(&t, paths) {
         Click::Copy => Then::Copy(t.as_str().to_string()),
-        Click::Command => {
-            Then::Command(t.rule().and_then(|ix| uris.rules().command(ix, t.as_str())))
-        }
-        Click::Window => Then::Window(t.rule().and_then(|ix| uris.rules().window(ix, t.as_str()))),
+        Click::Command => Then::Command(
+            t.rule()
+                .and_then(|ix| uris.rules().command(ix, &t.handed())),
+        ),
+        Click::Window => Then::Window(t.rule().and_then(|ix| uris.rules().window(ix, &t.handed()))),
         Click::Again(path) => Then::Again(path),
         Click::Open | Click::Reveal => Then::OpenOrReveal(t),
     };

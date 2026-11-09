@@ -1397,8 +1397,10 @@ files   = [
   "rfc1951-deflate.txt",
   "rfc3986-uri.txt",
   "rfc4648-base64.txt",
+  "rfc6068-mailto.txt",
   "rfc8089-file-uri.txt",
   "rfc8259-json.txt",
+  "rfc9110-http-semantics.txt",
 ]
 
 [upstream.whatwg-html]

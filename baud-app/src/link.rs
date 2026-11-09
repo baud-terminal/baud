@@ -147,7 +147,7 @@ pub enum Refused {
     /// `http`/`https` with no authority, `mailto` with no address, `file`
     /// on another host or without an absolute path.
     Host,
-    /// A `mailto` header other than `subject` or `body`: `bcc=` prefills a
+    /// A `mailto` header other than `to`, `subject` or `body`: `bcc=` prefills a
     /// hidden recipient, and any other header reaches whatever application
     /// is registered for `mailto`, which is not necessarily a composer.
     Header,
@@ -232,6 +232,25 @@ impl<'a> Target<'a> {
             None => self.uri.to_owned(),
         })
     }
+
+    /// **What a handler or a command of yours is handed**: a `mailto:` link
+    /// rebuilt from its parse ([`MailtoUri::to_uri`]), so the mail client
+    /// gets exactly the recipients and headers the policy read; any other
+    /// URI as admitted. The preview shows it too.
+    pub fn handed(&self) -> std::borrow::Cow<'a, str> {
+        let rebuilt = match self.scheme {
+            Scheme::Mailto => self
+                .uri
+                .split_once(':')
+                .and_then(|(_, rest)| MailtoUri::parse(rest).ok())
+                .map(|m| m.to_uri()),
+            _ => None,
+        };
+        rebuilt.map_or(
+            std::borrow::Cow::Borrowed(self.uri),
+            std::borrow::Cow::Owned,
+        )
+    }
 }
 
 /// **A `file:` link's file, as RFC 8089's grammar reads it**
@@ -262,6 +281,172 @@ impl LocalFile<'_> {
         let path = String::from_utf8_lossy(self.0.encoded_path());
         format!("file://{path}")
     }
+}
+
+/// **An `http` or `https` URI's host, never empty**: "A sender MUST NOT
+/// generate an "http" URI with an empty host identifier. A recipient that
+/// processes such a URI reference MUST reject it as invalid"
+/// (`[[source: rfc9110]]` § 4.2.1). The authority is split as RFC 3986
+/// § 3.2 has it, `[ userinfo "@" ] host [ ":" port ]` (`[[source:
+/// rfc3986]]`): the host is after the last `@`, which userinfo cannot hold
+/// unencoded, and before the port's `:`, an IP-literal's brackets kept
+/// whole, so `http://[::1]:80/` names `[::1]`. Finer checks of the host
+/// are the system opener's. The host of `rest`, what follows the scheme's
+/// `:`; refused as [`Refused::Host`] with no authority, an empty host, or an
+/// IP-literal not closed.
+fn http_host(rest: &str) -> Result<&str, Refused> {
+    let auth = rest.strip_prefix("//").ok_or(Refused::Host)?;
+    let auth = &auth[..auth.find(['/', '?', '#']).unwrap_or(auth.len())];
+    let hostport = auth.rfind('@').map_or(auth, |at| &auth[at + 1..]);
+    let host = match hostport.strip_prefix('[') {
+        Some(literal) => {
+            let close = literal.find(']').ok_or(Refused::Host)?;
+            &hostport[..close + 2]
+        }
+        None => &hostport[..hostport.find(':').unwrap_or(hostport.len())],
+    };
+    match host {
+        "" | "[]" => Err(Refused::Host),
+        _ => Ok(host),
+    }
+}
+
+/// The headers a `mailto:` link may carry: its recipients and the
+/// composer's subject and body. `bcc=` prefills a hidden recipient, and any
+/// other header reaches whatever application is registered for `mailto`,
+/// which is not necessarily a composer, so the rest are refused.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HeaderName {
+    To,
+    Subject,
+    Body,
+}
+
+impl HeaderName {
+    fn of(name: &str) -> Result<HeaderName, Refused> {
+        [
+            ("to", HeaderName::To),
+            ("subject", HeaderName::Subject),
+            ("body", HeaderName::Body),
+        ]
+        .into_iter()
+        .find(|(n, _)| name.eq_ignore_ascii_case(n))
+        .map(|(_, h)| h)
+        .ok_or(Refused::Header)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            HeaderName::To => "to",
+            HeaderName::Subject => "subject",
+            HeaderName::Body => "body",
+        }
+    }
+}
+
+/// **A `mailto:` URI as baud parsed it**, `[[source: rfc6068]]` § 2:
+/// `mailtoURI = "mailto:" [ to ] [ hfields ]`, `hfields = "?" hfield *(
+/// "&" hfield )`, `hfield = hfname "=" hfvalue`. Its recipients in the
+/// path, which may be empty when a `to` header names them, and its
+/// headers, each split at its first `=`. Its only output is
+/// [`MailtoUri::to_uri`], rebuilt from the parse with every value
+/// percent-encoded, so the mail client is handed exactly what baud parsed:
+/// `subject=x?bcc=e@x` is one subject, never a hidden recipient.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct MailtoUri<'a> {
+    to: &'a str,
+    headers: Vec<(HeaderName, &'a str)>,
+}
+
+impl<'a> MailtoUri<'a> {
+    /// `rest`, what follows `mailto:`, parsed: refused as
+    /// [`Refused::Header`] for a header not in [`HeaderName`], or for a
+    /// control (C0 or `DEL`) the recipients or a `to` or `subject` value
+    /// decode to -- `%0D%0A` there would end the header and begin another
+    /// in the message, `Bcc:` among them; only the body may carry a line
+    /// break, which "MUST be encoded with "%0D%0A"", and "Line breaks in
+    /// other <hfield>s SHOULD NOT be used" (RFC 6068 § 5) -- and as
+    /// [`Refused::Host`] when nothing names a recipient.
+    fn parse(rest: &'a str) -> Result<MailtoUri<'a>, Refused> {
+        let (to, query) = match rest.split_once('?') {
+            Some((to, q)) => (to, Some(q)),
+            None => (rest, None),
+        };
+        let controls = |s: &str| {
+            percent_decoded(s.as_bytes())
+                .iter()
+                .any(|&b| b < 0x20 || b == 0x7f)
+        };
+        if controls(to) {
+            return Err(Refused::Header);
+        }
+        let mut headers = Vec::new();
+        for field in query.into_iter().flat_map(|q| q.split('&')) {
+            let (name, value) = field.split_once('=').unwrap_or((field, ""));
+            let name = HeaderName::of(name)?;
+            if name != HeaderName::Body && controls(value) {
+                return Err(Refused::Header);
+            }
+            headers.push((name, value));
+        }
+        let named = !to.is_empty()
+            || headers
+                .iter()
+                .any(|&(h, v)| h == HeaderName::To && !v.is_empty());
+        match named {
+            true => Ok(MailtoUri { to, headers }),
+            false => Err(Refused::Host),
+        }
+    }
+
+    /// **The URI handed on**: the recipients as written, then each header
+    /// by its name, its value percent-decoded and encoded again with every
+    /// byte but RFC 3986's unreserved ones escaped -- each a `qchar`, a
+    /// `pct-encoded` one where it is not unreserved -- so no value can
+    /// close its field or begin another.
+    fn to_uri(&self) -> String {
+        let mut out = format!("mailto:{}", self.to);
+        for (i, (name, value)) in self.headers.iter().enumerate() {
+            out.push(match i {
+                0 => '?',
+                _ => '&',
+            });
+            out.push_str(name.name());
+            out.push('=');
+            for b in percent_decoded(value.as_bytes()) {
+                match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                        out.push(char::from(b));
+                    }
+                    _ => out.push_str(&format!("%{b:02X}")),
+                }
+            }
+        }
+        out
+    }
+}
+
+/// `bytes` with each `%` and two hex digits decoded, and a `%` without
+/// them kept as it is.
+fn percent_decoded(bytes: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| char::from(b).to_digit(16);
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let pair = (bytes.get(i + 1).copied(), bytes.get(i + 2).copied());
+        match (bytes[i], pair) {
+            (b'%', (Some(h), Some(l))) if hex(h).is_some() && hex(l).is_some() => {
+                let v = hex(h).zip(hex(l)).map_or(0, |(h, l)| h << 4 | l);
+                out.push(u8::try_from(v).unwrap_or(0));
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 /// **An admitted URI that owns its bytes, and what it is for**: what
@@ -324,12 +509,13 @@ pub fn admit_about(url: String) -> Result<Admitted, Refused> {
 }
 
 impl Target<'_> {
-    /// **The admitted URI, owned**: its one copy, made where the bytes are
+    /// **The admitted URI, owned, as it is handed on** ([`Target::handed`]):
+    /// its one copy, made where the bytes are
     /// borrowed from the terminal's link table or a line's text, which a
     /// later turn may find changed.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn to_admitted(self) -> AdmittedUri {
-        AdmittedUri::checked(self.uri.to_owned())
+        AdmittedUri::checked(self.handed().into_owned())
     }
 }
 
@@ -404,7 +590,7 @@ pub fn admit<'a>(uri: &'a [u8], host: &MachineNames) -> Result<Target<'a>, Refus
 /// does. Nothing a rule says loosens the rest: the bytes and the length are
 /// checked first; a default scheme keeps its own rules whichever handler
 /// takes it -- `file` names this machine or none, `mailto` carries only
-/// `subject` and `body`; and a link a rule routes has no part that starts
+/// its recipients, `subject` and `body`, and `http` names a host; and a link a rule routes has no part that starts
 /// with `-` ([`crate::rules::dashless`]).
 fn admit_with<'a>(
     uri: &'a [u8],
@@ -455,28 +641,10 @@ fn admit_with<'a>(
             }
         }
         Scheme::Http | Scheme::Https => {
-            let auth = rest.strip_prefix("//").ok_or(Refused::Host)?;
-            let end = auth.find(['/', '?', '#']).unwrap_or(auth.len());
-            if end == 0 {
-                return Err(Refused::Host);
-            }
+            http_host(rest)?;
         }
         Scheme::Mailto => {
-            let (addr, query) = match rest.find('?') {
-                Some(q) => (&rest[..q], Some(&rest[q + 1..])),
-                None => (rest, None),
-            };
-            if addr.is_empty() {
-                return Err(Refused::Host);
-            }
-            if let Some(q) = query {
-                for pair in q.split('&') {
-                    let key = pair.split('=').next().unwrap_or("");
-                    if !(key.eq_ignore_ascii_case("subject") || key.eq_ignore_ascii_case("body")) {
-                        return Err(Refused::Header);
-                    }
-                }
-            }
+            MailtoUri::parse(rest)?;
         }
         // RFC 8089's grammar, read once (`FileUri`): no query, no fragment,
         // no broken escape, a path that is absolute. `file:////srv/x`, a
@@ -1773,12 +1941,19 @@ pub fn preview_text_with(
     let room = room.index();
     let rules = paths.rules();
     let (uri, verdict) = verdict(link, term, host, paths, printed)?;
-    let address = escaped(uri);
+    let admitted = match link {
+        Under::Path(_) => None,
+        Under::Osc8(_) | Under::Bare(_) => admit_link(uri, host, rules, origin_of(printed)).ok(),
+    };
+    // What a click hands on: a `mailto:` link as it is rebuilt.
+    let address = match admitted {
+        Some(t) => escaped(t.handed().as_bytes()),
+        None => escaped(uri),
+    };
     // A click that copies says so: it opens nothing.
     let copies = match link {
         Under::Path(_) => *rules.path_act() == crate::rules::PathAct::Copy,
-        Under::Osc8(_) | Under::Bare(_) => admit_link(uri, host, rules, origin_of(printed))
-            .is_ok_and(|t| t.action() == Action::Copy),
+        Under::Osc8(_) | Under::Bare(_) => admitted.is_some_and(|t| t.action() == Action::Copy),
     };
     let label = match (verdict, link) {
         (Ok(()), _) if copies => "Copies  ".to_string(),
@@ -2703,6 +2878,67 @@ mod tests {
         assert!(admit(b"file://other/etc/hosts", uris.names()).is_err());
     }
 
+    /// **The names reach the links and the paths only through
+    /// `hand_names`, and the window hands every name it read**: in the
+    /// app's own code (comments, literals and tests left out), every
+    /// `.set_names(` call is one of `hand_names`' two, so no driver hands
+    /// either side a set of its own; and the macOS window's
+    /// `link_host_check` builds the set from all the names its thread read.
+    /// Named breaks: a `set_names` call outside `hand_names` (in
+    /// `link_host_check`) -- the first part names its file; the window
+    /// handing its last name alone (`MachineNames::of(names.last()..)`) --
+    /// the second part fails.
+    #[test]
+    fn the_names_are_handed_once_and_whole() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, usize)>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir)
+                .expect("the sources")
+                .flatten()
+                .map(|e| e.path())
+                .collect();
+            entries.sort();
+            for path in entries {
+                let name = path.to_string_lossy().into_owned();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if name.ends_with(".rs") && !name.ends_with("tests.rs") {
+                    let text = std::fs::read_to_string(&path).expect("a source");
+                    let code = crate::no_appkit::without_tests(&crate::no_appkit::bare_code(&text));
+                    let n = code.matches(".set_names(").count();
+                    if n > 0 {
+                        out.push((name, n));
+                    }
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = Vec::new();
+        walk(&src, &mut found);
+        let found: Vec<(String, usize)> = found
+            .into_iter()
+            .map(|(p, n)| (p.trim_start_matches(&*src.to_string_lossy()).to_owned(), n))
+            .collect();
+        assert_eq!(
+            found,
+            [("/link.rs".to_owned(), 2)],
+            "set_names outside hand_names"
+        );
+        let link = crate::no_appkit::bare_code(include_str!("link.rs"));
+        let hand = crate::no_appkit::fn_body(&link, concat!("pub fn hand_", "names("));
+        assert_eq!(
+            hand.matches(".set_names(").count(),
+            2,
+            "both inside hand_names"
+        );
+        let app = include_str!("app.rs");
+        let check = crate::no_appkit::fn_body(app, concat!("fn link_host_", "check(&mut self) {"));
+        assert!(
+            check.contains("MachineNames::of(names.to_vec())")
+                && check.contains("hand_names(names, "),
+            "the window hands every name it read"
+        );
+    }
+
     /// **DT-L3: a `file:` URI is RFC 8089's, read once**: `file:///etc/x?q#f`,
     /// a query or a fragment alone, `file:///a%ZZ` and `file:////srv/x` (a
     /// UNC host written as a path) are off the grammar and refused, as the
@@ -2736,6 +2972,103 @@ mod tests {
             )
             .err(),
             Some(Refused::Host)
+        );
+    }
+
+    /// **DT-L4: an `http` URI with an empty host is refused** (RFC 9110
+    /// § 4.2.1): the host is after the last `@` and before the port, an
+    /// IP-literal's brackets kept whole, so `http://@/x`, `http://:80/`,
+    /// `https://u@/` and `http://[]/` are refused, and so is an IP-literal
+    /// left open; the controls, with userinfo, a port and `[::1]`, are
+    /// admitted. Named break: take the host as everything before the path,
+    /// userinfo and port included -- the first three are admitted.
+    #[test]
+    fn an_http_uri_with_an_empty_host_is_refused() {
+        for uri in [
+            "http://h/x",
+            "https://u@h:443/",
+            "http://[::1]:80/",
+            "http://u:p@h",
+        ] {
+            assert!(admit(uri.as_bytes(), NONE).is_ok(), "the control: {uri}");
+        }
+        for uri in [
+            "http://@/x",
+            "http://:80/",
+            "https://u@/",
+            "http://[]/",
+            "http://[::1/",
+        ] {
+            assert_eq!(
+                admit(uri.as_bytes(), NONE).err(),
+                Some(Refused::Host),
+                "{uri}"
+            );
+        }
+    }
+
+    /// **DT-L4: a `mailto:` link is handed on as it was parsed** (RFC
+    /// 6068 § 2): rebuilt from its recipients and its headers, each value
+    /// percent-decoded and encoded again, so `subject=x?bcc=e@x` is handed
+    /// over as one subject, `x%3Fbcc%3De%40x`, never a hidden recipient; a
+    /// value already encoded keeps its bytes, and a `#` is escaped as
+    /// `%23`. A recipient in a `to` header alone is a recipient; no
+    /// recipient at all, or a header other than `to`, `subject` and `body`,
+    /// is refused. Named break: hand over the URI as printed -- the
+    /// subject's `?bcc=` reaches the mail client raw.
+    #[test]
+    fn a_mailto_link_is_handed_on_as_it_was_parsed() {
+        let handed = |uri: &str| admit(uri.as_bytes(), NONE).map(|t| t.handed().into_owned());
+        assert_eq!(
+            handed("mailto:a@b?subject=x?bcc=e@x"),
+            Ok("mailto:a@b?subject=x%3Fbcc%3De%40x".to_owned())
+        );
+        assert_eq!(
+            admit(b"mailto:a@b?subject=x?bcc=e@x", NONE).map(|t| t.to_admitted().into_string()),
+            Ok("mailto:a@b?subject=x%3Fbcc%3De%40x".to_owned()),
+            "what the opener gets"
+        );
+        assert_eq!(
+            handed("mailto:a@b?Subject=caf%C3%A9&body=a%20b#c"),
+            Ok("mailto:a@b?subject=caf%C3%A9&body=a%20b%23c".to_owned())
+        );
+        assert_eq!(handed("mailto:a@b"), Ok("mailto:a@b".to_owned()));
+        assert_eq!(handed("mailto:?to=a@b"), Ok("mailto:?to=a%40b".to_owned()));
+        assert_eq!(handed("mailto:"), Err(Refused::Host));
+        assert_eq!(handed("mailto:?subject=x"), Err(Refused::Host));
+        assert_eq!(handed("mailto:a@b?bcc=e@x"), Err(Refused::Header));
+        assert_eq!(
+            handed("https://h/?a=b").as_deref(),
+            Ok("https://h/?a=b"),
+            "another scheme as admitted"
+        );
+    }
+
+    /// **M1: a line break decoded into a mail header is refused** (RFC
+    /// 6068 § 5): a `subject` or `to` value, or the recipients, decoding to
+    /// a control -- `%0D%0A` above all, which would end the header and
+    /// begin a `Bcc:` of its own -- is refused; the body keeps `%0D%0A`,
+    /// the line break it is to carry. Named break: decode without the
+    /// check -- the subject's and the recipients' line breaks are admitted.
+    #[test]
+    fn a_line_break_decoded_into_a_mail_header_is_refused() {
+        for uri in [
+            "mailto:a@b?subject=x%0D%0ABcc:%20e@x",
+            "mailto:a%0D%0Ab@x",
+            "mailto:?to=a@b%0ABcc:e@x",
+            "mailto:a@b?subject=%7F",
+        ] {
+            assert_eq!(
+                admit(uri.as_bytes(), NONE).err(),
+                Some(Refused::Header),
+                "{uri}"
+            );
+        }
+        let body = admit(b"mailto:a@b?body=a%0D%0Ab", NONE).map(|t| t.handed().into_owned());
+        assert_eq!(
+            body,
+            Ok("mailto:a@b?body=a%0D%0Ab".to_owned()),
+            "the body's line break"
         );
     }
 
@@ -4072,6 +4405,37 @@ mod tests {
         assert_eq!(text(0, 30), "Won't open  ftp://f.example/x", "a narrow row");
     }
 
+    /// **The hover shows a `mailto:` link as it is handed on**: a link
+    /// whose subject spells `?bcc=` shows the subject rebuilt, the `?`, the
+    /// `=` and the `@` in it escaped, as the mail client gets it. Named
+    /// break: show the address as printed -- the hidden `bcc` shows raw.
+    #[test]
+    fn the_hover_shows_a_mailto_link_as_it_is_handed_on() {
+        let mut owned = Owned::new(&WinSize {
+            ws_col: 80,
+            ws_row: 6,
+        });
+        let mut t = Term::new(
+            owned.storage(),
+            &WinSize {
+                ws_col: 80,
+                ws_row: 6,
+            },
+        );
+        feed(
+            &mut t,
+            b"\x1b]8;;mailto:a@b?subject=x?bcc=e@x\x1b\\mail\x1b]8;;\x1b\\",
+        );
+        let link = hovered(&t, spot(Scrolled::START, Row::ZERO, Col::ZERO)).unwrap();
+        let text = preview_text(
+            &link,
+            &t,
+            &crate::link::MachineNames::NONE,
+            Cols::of_index(80),
+        );
+        assert_eq!(text.as_deref(), Some("mailto:a@b?subject=x%3Fbcc%3De%40x"));
+    }
+
     /// **The bar moves off the link**: the bottom row's left end, its right
     /// end while the link is under the left, the top row while it is under
     /// both. The control: a link elsewhere leaves it bottom left.
@@ -4604,7 +4968,7 @@ mod tests {
         assert!(
             include_str!("link_layer.rs").contains(concat!(
                 "Then::Window(t.rule()",
-                ".and_then(|ix| uris.rules().window(ix, t.as_str())))"
+                ".and_then(|ix| uris.rules().window(ix, &t.handed())))"
             )),
             "the shared decision's window"
         );

@@ -1831,7 +1831,7 @@ impl Driver {
                     Click::Command => {
                         let built = t
                             .rule()
-                            .and_then(|ix| self.uris.rules().command(ix, t.as_str()));
+                            .and_then(|ix| self.uris.rules().command(ix, &t.handed()));
                         match built.map(|b| b.map(|cmd| self.opener.start(cmd))) {
                             Some(Ok(Ok(()))) => {
                                 self.report.links.opened.bump();
@@ -1857,7 +1857,7 @@ impl Driver {
                     Click::Window => {
                         let built = t
                             .rule()
-                            .and_then(|ix| self.uris.rules().window(ix, t.as_str()));
+                            .and_then(|ix| self.uris.rules().window(ix, &t.handed()));
                         match built {
                             Some(Ok(run)) => {
                                 let dir = crate::windows::inherited(
@@ -1877,7 +1877,7 @@ impl Driver {
                             }
                         }
                     }
-                    Click::Open => match self.opener.start(crate::opener::command(t.as_str())) {
+                    Click::Open => match self.opener.start(crate::opener::command(&t.handed())) {
                         Ok(()) => {
                             self.report.links.opened.bump();
                             crate::info!("link opened ({:?}): {said}", t.scheme());

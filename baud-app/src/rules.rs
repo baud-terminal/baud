@@ -36,8 +36,8 @@
 //!   ([`optioned`]). The list of programs that run their arguments as code
 //!   cannot be complete, so the guide says why.
 //! * **The defaults' own rules stay**: a `file` link names this machine or
-//!   none, and a `mailto` carries only `subject` and `body`, whichever handler
-//!   or command takes it (`link::admit_link`). A `file` link and a printed
+//!   none, and a `mailto` carries only its recipients, `subject` and `body`,
+//!   rebuilt as it was read, whichever handler or command takes it (`link::admit_link`). A `file` link and a printed
 //!   path are shown in Finder, never opened by the system: only a command of
 //!   yours opens one.
 //! * **The address still shows under the modifier**, in the same opaque bar,
@@ -2133,7 +2133,7 @@ mod tests {
         assert!(scheme_ok("javascript").is_err());
     }
 
-    /// **E7: `file` stays local, `mailto` keeps only `subject` and `body`,
+    /// **E7: `file` stays local, `mailto` keeps only `to`, `subject` and `body`,
     /// whichever handler or command takes them**, and `file` is never opened
     /// by the system. Perturbation: skip the default's checks when a rule
     /// names its scheme -- the `bcc` and remote host links are admitted.

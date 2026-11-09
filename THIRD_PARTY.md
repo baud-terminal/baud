@@ -1730,9 +1730,9 @@ THIS SOFTWARE.
 |---|---|---|---|
 | open | 0 | 1 | an open question, recorded where the file is |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 335 | 68 | redistributable, and its notice is satisfied |
+| kept | 337 | 68 | redistributable, and its notice is satisfied |
 | own | 10 | 8 | the work of baud's author |
-| total | 346 | 77 | |
+| total | 348 | 77 | |
 
 ## Licence texts in LICENSES/
 
@@ -2832,7 +2832,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-IETF-RFC (https://trustee.ietf.org/documents/trust-legal-provisions/)
 - **Notice:** in the file
-- **Files:** 6
+- **Files:** 8
 
 | file | copied from |
 |---|---|
@@ -2840,8 +2840,10 @@ notice is, and the URL each file was copied from.
 | [rfc1951-deflate.txt](docs/research/sources/rfc1951-deflate.txt) | https://www.rfc-editor.org/rfc/rfc1951.txt |
 | [rfc3986-uri.txt](docs/research/sources/rfc3986-uri.txt) | https://www.rfc-editor.org/rfc/rfc3986.txt |
 | [rfc4648-base64.txt](docs/research/sources/rfc4648-base64.txt) | https://www.rfc-editor.org/rfc/rfc4648.txt |
+| [rfc6068-mailto.txt](docs/research/sources/rfc6068-mailto.txt) | https://www.rfc-editor.org/rfc/rfc6068.txt |
 | [rfc8089-file-uri.txt](docs/research/sources/rfc8089-file-uri.txt) | https://www.rfc-editor.org/rfc/rfc8089.txt |
 | [rfc8259-json.txt](docs/research/sources/rfc8259-json.txt) | https://www.rfc-editor.org/rfc/rfc8259.txt |
+| [rfc9110-http-semantics.txt](docs/research/sources/rfc9110-http-semantics.txt) | https://www.rfc-editor.org/rfc/rfc9110.txt |
 
 ### iTerm2's OSC 1337 key names, written by baud: the 39 its documentation names and the 54 its VT100Terminal.m compares
 
