@@ -95,67 +95,95 @@ macro_rules! entered {
     };
 }
 
-/// **A [`Responder`] whose every method runs through [`guard`].** What the
-/// view is given: a key the inner one panicked on is consumed, and nothing
-/// else answers anything.
+/// **What a responder does once each of its calls has returned**: the
+/// display link paused, or its restart scheduled, from what the call left
+/// (baud-app's `Driver::settle`, `frames.rs`). [`Guarded`] calls it after
+/// every method but `cursor_rect`, which changes nothing, so no early
+/// return inside a method skips it.
+pub trait Settles {
+    fn settle(&mut self);
+}
+
+/// **A [`Responder`] whose every method runs through [`guard`]**, and then
+/// settles ([`Settles`]). What the view is given: a key the inner one
+/// panicked on is consumed, and nothing else answers anything.
 pub struct Guarded<R>(pub R);
 
-impl<R: Responder> Responder for Guarded<R> {
+impl<R: Settles> Guarded<R> {
+    /// The inner responder settled, through a guard of its own.
+    fn settled(&mut self) {
+        guard(SiteName("the view's settle"), (), || self.0.settle());
+    }
+}
+
+impl<R: Responder + Settles> Responder for Guarded<R> {
     fn key(&mut self, key: &KeyPress) -> Handled {
         entered!(InCallback);
-        guard(SiteName("the view's key"), Handled::Consumed, || {
+        let handled = guard(SiteName("the view's key"), Handled::Consumed, || {
             self.0.key(key)
-        })
+        });
+        self.settled();
+        handled
     }
     fn key_released(&mut self, key: &KeyPress) {
         entered!(InCallback);
         guard(SiteName("the view's key_released"), (), || {
             self.0.key_released(key)
         });
+        self.settled();
     }
     fn modifiers_changed(&mut self, change: &ModifierChange) {
         entered!(InCallback);
         guard(SiteName("the view's modifiers_changed"), (), || {
             self.0.modifiers_changed(change);
         });
+        self.settled();
     }
     fn text(&mut self, text: &str) {
         entered!(InCallback);
         guard(SiteName("the view's text"), (), || self.0.text(text));
+        self.settled();
     }
     fn command(&mut self, selector: &str) {
         entered!(InCallback);
         guard(SiteName("the view's command"), (), || {
             self.0.command(selector)
         });
+        self.settled();
     }
     fn marked_text(&mut self, text: &str) {
         entered!(InCallback);
         guard(SiteName("the view's marked_text"), (), || {
             self.0.marked_text(text)
         });
+        self.settled();
     }
     fn mouse(&mut self, event: &Mouse) {
         entered!(InCallback);
         guard(SiteName("the view's mouse"), (), || self.0.mouse(event));
+        self.settled();
     }
     fn scroll(&mut self, event: &Scroll) {
         entered!(InCallback);
         guard(SiteName("the view's scroll"), (), || self.0.scroll(event));
+        self.settled();
     }
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
         entered!(InCallback);
         guard(SiteName("the view's resized"), (), || {
             self.0.resized(size, scale)
         });
+        self.settled();
     }
     fn frame(&mut self, target: f64) {
         entered!(InFrame);
         guard(SiteName("the view's frame"), (), || self.0.frame(target));
+        self.settled();
     }
     fn focus(&mut self, focus: Focus) {
         entered!(InCallback);
         guard(SiteName("the view's focus"), (), || self.0.focus(focus));
+        self.settled();
     }
     fn cursor_rect(&self) -> Rect {
         entered!(InCallback);
@@ -168,15 +196,18 @@ impl<R: Responder> Responder for Guarded<R> {
         #[cfg(feature = "effect-probe")]
         crate::probe::woke();
         guard(SiteName("the view's wake"), (), || self.0.wake());
+        self.settled();
     }
     fn presented(&mut self) {
         entered!(InCallback);
         guard(SiteName("the view's presented"), (), || self.0.presented());
+        self.settled();
     }
     fn appearance(&mut self, appearance: Appearance) {
         entered!(InCallback);
         guard(SiteName("the view's appearance"), (), || {
             self.0.appearance(appearance)
         });
+        self.settled();
     }
 }

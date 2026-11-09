@@ -41,7 +41,10 @@
 #![cfg(target_os = "macos")]
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
-use baud_present_macos::rig_call::{EventRig, Iterations, RigAct, RigCall, RigFocus, RigTicks};
+use baud_present_macos::rig_call::{
+    EventRig, FrameRig, Iterations, RigAct, RigCall, RigFocus, RigHolders, RigKeys, RigTicks,
+    RigWindow,
+};
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -53,6 +56,9 @@ enum Stage {
     One,
     Two,
     Three,
+    /// The window crate's pause in place, published and taken: closed by
+    /// that bump alone, so stage 3 does not wait on its publish.
+    PauseInPlace,
     Done,
 }
 
@@ -80,6 +86,11 @@ enum Failure {
     NeverPaced(EffectKind),
     /// The child said something else was wrong.
     Child,
+    /// A frame row's kept arm: a poll still the tick's held the display
+    /// link ([`HOLDERS`]).
+    Held,
+    /// More than one display link was made for one window's restarts.
+    Remade,
 }
 
 /// A row's state.
@@ -185,6 +196,13 @@ const READ: Shape = Shape {
 /// flood bound lets four through at once (`notify::BURST`), and the rows'
 /// iterations come faster than its one a second.
 const FOUR_POSTS: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(4),
+};
+
+/// **Four iterations of a row whose reads a ReGIS delay holds half a
+/// second each**: four releases, inside the run's time.
+const DELAYS: Shape = Shape {
     polled: Polled::Read,
     iterations: Iterations(4),
 };
@@ -306,7 +324,7 @@ const KITTY_OK: &str = concat!(
     r"case $r in *OK*) printf '\033]52;c;aGk=\007';; esac",
 );
 
-const SITES: [Site; 26] = [
+const SITES: [Site; 27] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -420,6 +438,24 @@ const SITES: [Site; 26] = [
             line: KITTY_OK,
             config: "",
             shape: READ,
+        }),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Green,
+    },
+    // **A ReGIS delay's held reads go on at its deadline, with no tick**:
+    // `S(T30)` holds what follows it half a second, and the copy after it
+    // is made once the wake scheduled for the deadline releases it
+    // (`Driver::pace_wake`), the frame undriven as from a covered window.
+    // Break: no wake at the deadline, and the undriven arm never copies.
+    Site {
+        name: SiteName("a ReGIS delay's held reads, released with or without a tick"),
+        cause: Cause::Program(Program {
+            line: r"printf '\033PpS(T30)\033\\\033]52;c;aGk=\007'",
+            config: "",
+            shape: DELAYS,
         }),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -1073,4 +1109,438 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
         assert_eq!(status.code(), Some(2), "{args:?}: {said}");
         assert!(said.starts_with("baud: "), "{args:?}: {said}");
     }
+}
+
+/// **The polls still the tick's**, as a settle names them
+/// (`frames::Holder`): while any is held a real build's display link runs,
+/// and the frame rows' kept arms fail as recorded. Each row that moves a
+/// poll to its event takes its name out; with none left the kept arms
+/// must pass.
+const HOLDERS: &[&str] = &[
+    "FS-A2", "FS-A3", "FS-A4", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16",
+    "FS-A17",
+];
+
+/// The display link's state as a frame rig's child printed it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LinkSeen {
+    Run,
+    Pause,
+}
+
+/// **What a frame rig's child printed**: the link's state at the end, the
+/// ticks delivered, the door's sends and the frames drawn over the offered
+/// ticks, the links made in all, and the polls still the tick's, what the
+/// last settle found owed, and the palettes applied.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Counters {
+    link: LinkSeen,
+    delivered: u32,
+    sends: u32,
+    made: u32,
+    drawn: u64,
+    holders: Vec<String>,
+    owed: String,
+    styled: u32,
+}
+
+impl Counters {
+    fn parse(text: &str) -> Option<Counters> {
+        let line = text.lines().find_map(|l| l.strip_prefix("frames "))?;
+        let field = |name: &str| {
+            line.split(' ')
+                .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+        };
+        let count = |name: &str| field(name)?.parse().ok();
+        Some(Counters {
+            link: match field("link")? {
+                "run" => LinkSeen::Run,
+                "pause" => LinkSeen::Pause,
+                _ => return None,
+            },
+            delivered: count("delivered")?,
+            sends: count("sends")?,
+            made: count("made")?,
+            drawn: field("drawn")?.parse().ok()?,
+            holders: match field("holders")? {
+                "-" => Vec::new(),
+                list => list.split(',').map(str::to_owned).collect(),
+            },
+            owed: field("owed")?.to_owned(),
+            styled: count("styled")?,
+        })
+    }
+}
+
+/// What a frame row expects of the link over the offered ticks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Settles {
+    /// Nothing owed: paused all through, no tick delivered, nothing sent,
+    /// nothing drawn.
+    Still,
+    /// Run again by what was owed -- the act's frame or a clock's -- and
+    /// paused again: at least `drawn` frames drawn, at most `delivered`
+    /// ticks taken for them, at least a run and a pause sent, paused at the
+    /// end. A frame owed on a wake may draw on that wake, with no tick.
+    Restarts { drawn: u64, delivered: u32 },
+    /// A clock that keeps restarting it, a blinking caret's: at least
+    /// `drawn` frames drawn, at most `delivered` ticks taken for them, and
+    /// at least a send for each frame, the link run and paused between
+    /// them; the state at the end is the clock's.
+    Blinks { drawn: u64, delivered: u32 },
+    /// Every run resumes the one link: at most one made in all.
+    OneLink,
+    /// **Run by a frame no one who runs the link owes, until it is paid**:
+    /// a latency record a key opened and no echo closed runs the link, and
+    /// its expiry, which only a tick reads, lets it pause -- at least a
+    /// tick delivered, a run and a pause sent, paused at the end with
+    /// nothing owed.
+    Expires,
+    /// **A light/dark flip drawn while the link was paused**: a palette
+    /// applied, a frame drawn, and paused again at the end.
+    Restyled,
+}
+
+impl Settles {
+    fn holds(self, c: &Counters) -> bool {
+        match self {
+            Settles::Still => {
+                c.link == LinkSeen::Pause && c.delivered == 0 && c.sends == 0 && c.drawn == 0
+            }
+            Settles::Restarts { drawn, delivered } => {
+                c.link == LinkSeen::Pause
+                    && c.drawn >= drawn
+                    && c.delivered <= delivered
+                    && c.sends >= 2
+            }
+            Settles::Blinks { drawn, delivered } => {
+                c.drawn >= drawn && c.delivered <= delivered && u64::from(c.sends) >= drawn
+            }
+            Settles::OneLink => c.made <= 1,
+            Settles::Expires => {
+                c.link == LinkSeen::Pause && c.delivered >= 1 && c.sends >= 2 && c.owed == "Nothing"
+            }
+            Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
+        }
+    }
+}
+
+/// One frame row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct FrameSite {
+    name: SiteName,
+    /// The screen's line, ending with the `OSC 52` clear that signs it.
+    setup: &'static str,
+    /// What is sent once the link has settled; empty for none.
+    act: &'static str,
+    /// How the act is sent.
+    keys: RigKeys,
+    /// What the window is told after the act.
+    window: RigWindow,
+    /// The child's environment beyond the rig's own.
+    env: &'static [(&'static str, &'static str)],
+    config: &'static str,
+    focus: RigFocus,
+    attempts: Iterations,
+    expect: Settles,
+    /// The kept arm's state; `Pending` on [`Failure::Held`] while
+    /// [`HOLDERS`] is not empty.
+    state: RowState,
+}
+
+/// **No launch splash and no cursor trail**: the rig's window is never
+/// shown, so a splash would wait for it for ever and its wait (`FS-A17`)
+/// hold the link; a trail owes every frame while it burns, motion of its
+/// own that these rows are not about.
+const NO_SPLASH: &str = "[cursor]\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n";
+
+/// A screen of text and the clear that signs it.
+const STILL: &str = r"printf 'baud\033]52;c;!\007'";
+
+const FRAME_SITES: [FrameSite; 8] = [
+    // **R1, the done-condition's row**: a static screen's link pauses and
+    // no tick reaches the view. Stage 3 closes on this row's kept arm,
+    // never on its lifted one.
+    FrameSite {
+        name: SiteName("a static screen pauses the display link"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: NO_SPLASH,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Still,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **R2**: a blinking caret runs the link at each flip, scheduled a
+    // frame before it, and pauses between.
+    FrameSite {
+        name: SiteName("a blinking caret runs the link at each flip"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: concat!(
+            "[cursor]\nblink = \"true\"\ntrail = \"off\"\n",
+            "[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(150),
+        expect: Settles::Blinks {
+            drawn: 4,
+            delivered: 40,
+        },
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **R3, eager start**: a read's echo owes a frame, and owing it runs
+    // the link (`App::owe_frame`), which no settle starts; once drawn it
+    // pauses again.
+    FrameSite {
+        name: SiteName("an echo runs the link, and it pauses again"),
+        setup: STILL,
+        act: "printf y",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: NO_SPLASH,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Restarts {
+            drawn: 1,
+            delivered: 30,
+        },
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **R4**: a visual bell runs the link to its end, then it pauses.
+    FrameSite {
+        name: SiteName("a flash runs the link to its end, then it pauses"),
+        setup: STILL,
+        act: r"printf '\007'",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: concat!(
+            "bell = \"flash\"\n",
+            "[cursor]\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Restarts {
+            drawn: 2,
+            delivered: 60,
+        },
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **A frame no one who runs the link owes**: a key the shell does not
+    // echo opens a latency record (`BAUD_KEYLAT`), and the record, owed
+    // the tick its expiry is read on, runs the link until it expires, then
+    // it pauses. The screen reads with echo off and draws nothing.
+    FrameSite {
+        name: SiteName("a key with no echo runs the link until its record expires"),
+        setup: r"stty -echo; printf 'baud\033]52;c;!\007'; cat >/dev/null",
+        act: "x",
+        keys: RigKeys::Pressed,
+        window: RigWindow::Untold,
+        env: &[("BAUD_KEYLAT", "1")],
+        config: NO_SPLASH,
+        focus: RigFocus::Real,
+        attempts: Iterations(400),
+        expect: Settles::Expires,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **A light/dark flip while the link is paused** is drawn then, not at
+    // the next event: the appearance owes the frame whose pump applies it.
+    FrameSite {
+        name: SiteName("a flip of light and dark while paused is drawn"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Restyled,
+        env: &[],
+        config: NO_SPLASH,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Restyled,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **The splash's wait holds the link** (`FS-A17`): the one row with the
+    // splash on, so its kept arm names it among the polls; the window is
+    // never shown, and the splash waits for ever.
+    FrameSite {
+        name: SiteName("a splash waiting for its window holds the link"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: "[cursor]\ntrail = \"off\"\n",
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::Still,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **One link, paused and resumed, never made again per restart**: red
+    // while the door's backend starts a new link each run, until
+    // macos-liquid-glass's pause in place is published and baud
+    // moves to it. Lifted arm only. Its stage is that bump's
+    // (`Stage::PauseInPlace`), so stage 3 closes without it.
+    FrameSite {
+        name: SiteName("one display link, paused, not made again per restart"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        window: RigWindow::Untold,
+        env: &[],
+        config: concat!(
+            "[cursor]\nblink = \"true\"\ntrail = \"off\"\n",
+            "[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(150),
+        expect: Settles::OneLink,
+        state: RowState::Pending {
+            stage: Stage::PauseInPlace,
+            recorded: Failure::Remade,
+        },
+    },
+];
+
+/// **The polls a row's settle names**: [`HOLDERS`], `FS-A17` only where the
+/// splash is on -- every row but one turns it off.
+fn holders_of(site: &FrameSite) -> Vec<&'static str> {
+    let splash_off = site.config.contains("splash = \"off\"");
+    HOLDERS
+        .iter()
+        .copied()
+        .filter(|h| !(splash_off && *h == "FS-A17"))
+        .collect()
+}
+
+/// One frame row's child, the holders kept or lifted.
+fn run_frames(site: &FrameSite, slug: &str, holders: RigHolders) -> Result<Counters, String> {
+    let dir = scratch(slug);
+    let conf = dir.join("config.toml");
+    std::fs::write(&conf, site.config).expect("the config");
+    let call = RigCall::Frames(FrameRig {
+        setup: site.setup.to_owned(),
+        act: site.act.to_owned(),
+        attempts: site.attempts,
+        focus: site.focus,
+        holders,
+        window: site.window,
+        keys: site.keys,
+    });
+    let out = Command::new(env!("CARGO_BIN_EXE_baud"))
+        .args(call.to_args())
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("ZDOTDIR", dir.join("home"))
+        .env("SHELL", "/bin/sh")
+        .env("HISTFILE", "/dev/null")
+        .env("PATH", "/usr/bin:/bin")
+        .env("BAUD_CONFIG", &conf)
+        .env("BAUD_TYPING", "off")
+        .envs(site.env.iter().copied())
+        .current_dir(&dir)
+        .output()
+        .expect("the child");
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let _ = std::fs::write(dir.join("stdout"), &out.stdout);
+    let _ = std::fs::write(dir.join("stderr"), &out.stderr);
+    match (out.status.success(), Counters::parse(&text)) {
+        (true, Some(c)) => Ok(c),
+        _ => Err(format!("{:?}: {}", out.status, text.trim())),
+    }
+}
+
+/// **Each frame row, its kept arm and its lifted arm**, read like a
+/// ceiling arm: both arms' counters printed and compared, and a lifted arm
+/// whose counters equal the kept arm's is red, the lift having done
+/// nothing. The lifted arm's polls must be the row's [`holders_of`], the kept
+/// arm's recorded list, so the lift hides no poll off it. The lifted arm must
+/// meet the row; the kept arm is judged by [`verdict`] at [`CURRENT`], a
+/// pending row failing as [`Failure::Held`] while any poll holds the link.
+#[test]
+fn every_frame_row_comes_to_its_state() {
+    let mut red = Vec::new();
+    for (i, site) in FRAME_SITES.iter().enumerate() {
+        let lifted = run_frames(site, &format!("frame{i}-lifted"), RigHolders::Lifted);
+        println!("{:?}, lifted: {lifted:?}", site.name);
+        let lifted = match lifted {
+            Ok(c) => c,
+            Err(e) => {
+                red.push((site.name, format!("lifted arm: {e}")));
+                continue;
+            }
+        };
+        if lifted.holders != holders_of(site) {
+            red.push((site.name, format!("the lift hid {:?}", lifted.holders)));
+        }
+        if site.expect == Settles::OneLink {
+            let observed = match site.expect.holds(&lifted) {
+                true => Observed::Passed,
+                false => Observed::Failed(Failure::Remade),
+            };
+            let v = verdict(site.state, observed, CURRENT);
+            println!("{:?}: {observed:?} -> {v:?}", site.name);
+            if v != Verdict::Pass {
+                red.push((site.name, format!("{v:?}")));
+            }
+            continue;
+        }
+        if !site.expect.holds(&lifted) {
+            red.push((site.name, format!("lifted arm missed the row: {lifted:?}")));
+        }
+        let kept = run_frames(site, &format!("frame{i}-kept"), RigHolders::Kept);
+        println!("{:?}, kept: {kept:?}", site.name);
+        let kept = match kept {
+            Ok(c) => c,
+            Err(e) => {
+                red.push((site.name, format!("kept arm: {e}")));
+                continue;
+            }
+        };
+        if kept.holders != lifted.holders {
+            red.push((site.name, format!("kept {:?}", kept.holders)));
+        }
+        let seen = |c: &Counters| (c.link, c.delivered, c.sends, c.drawn);
+        if seen(&kept) == seen(&lifted) {
+            red.push((site.name, "the lift did nothing".to_owned()));
+        }
+        let observed = match (site.expect.holds(&kept), kept.holders.is_empty()) {
+            (true, _) => Observed::Passed,
+            (false, false) => Observed::Failed(Failure::Held),
+            (false, true) => Observed::Failed(Failure::Child),
+        };
+        let v = verdict(site.state, observed, CURRENT);
+        println!("{:?}: {observed:?} -> {v:?}", site.name);
+        if v != Verdict::Pass {
+            red.push((site.name, format!("{v:?}")));
+        }
+    }
+    assert!(red.is_empty(), "{red:?}");
 }

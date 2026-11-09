@@ -176,6 +176,21 @@ impl Watch {
         due
     }
 
+    /// **When the indicator line's next read is due**, on a display that
+    /// ticks every `tick`: none while one is out, whose landing wakes the
+    /// window, and at once before the first.
+    #[cfg(target_os = "macos")]
+    pub fn next(
+        &self,
+        now: std::time::Instant,
+        tick: std::time::Duration,
+    ) -> Option<std::time::Instant> {
+        match self.out {
+            Out::Reading => None,
+            Out::Idle => Some(self.last.map_or(now, |l| l + indicator_every(tick))),
+        }
+    }
+
     /// The read came back.
     pub fn landed(&mut self) {
         self.out = Out::Idle;

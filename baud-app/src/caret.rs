@@ -284,7 +284,6 @@ impl BlinkAnimation {
 
     /// Where, from `h` into a hidden phase `off` long, the drawing next
     /// starts to move or the phase ends: `h` itself while it moves.
-    #[cfg(any(target_os = "linux", test))]
     fn next_motion(self, h: Duration, off: Duration) -> Duration {
         match self {
             BlinkAnimation::None => off,
@@ -467,15 +466,23 @@ impl<M: Moment> Caret<M> {
     }
 
     /// Input -- a key sent, a paste, a focus gain: the cycle restarts shown,
-    /// and the stop is a whole quiet time away again.
-    pub fn input(&mut self, now: M) {
+    /// and the stop is a whole quiet time away again. Owes the frame that
+    /// shows the caret when the last drawn hid it: with the link paused
+    /// nothing else draws it before the next flip, which hides it again.
+    #[must_use = "a hidden caret shown again owes a frame"]
+    pub fn input(&mut self, now: M) -> Owes {
         self.epoch = now;
         self.quiet_since = now;
+        match self.drawn == CursorPhase::SHOWN {
+            true => Owes::Nothing,
+            false => Owes::Frame,
+        }
     }
 
     /// A click or the wheel: the stop is a whole quiet time away again, and
     /// the phase is left alone -- unless the blink had stopped, when it
-    /// starts again, shown.
+    /// starts again, shown. It owes no frame: the phase drawn stays, and a
+    /// stopped caret was drawn shown; its next flip is the settle's.
     pub fn quiet(&mut self, now: M) {
         self.quiet_since = now;
     }
@@ -595,9 +602,8 @@ impl<M: Moment> Caret<M> {
     /// When the drawing next changes, for a `poll` timeout: the next flip,
     /// the next start of an animation's motion, a frame's time while it
     /// moves, or the stop if it comes first; `None` while the cursor does
-    /// not blink, so a steady cursor adds no wakeup. The macOS driver reads
-    /// the display link instead and has no use for it.
-    #[cfg(any(target_os = "linux", test))]
+    /// not blink, so a steady cursor adds no wakeup. The macOS driver's
+    /// paused display link restarts at it (`frames.rs`).
     pub fn next_change(&self, now: M, blinks: Blinks) -> Option<M> {
         if self.blinking(now, blinks) == Blinks::No {
             return None;
@@ -743,7 +749,7 @@ mod tests {
         let system = std::cell::Cell::new(NonBlinking::Off);
         let gain = |c: &mut Caret<Instant>, ms| {
             let read = c.read_system(rate, BlinkChoice::Auto, || system.get());
-            c.input(at(ms));
+            let _ = c.input(at(ms));
             read
         };
         assert_eq!(gain(&mut c, 0), (NonBlinking::Off, Overridden::No));
@@ -839,7 +845,9 @@ mod tests {
                 Event::Output => {
                     c.present(now, at_col(Col::at_index(usize::try_from(tick).unwrap())));
                 }
-                Event::Key => c.input(now),
+                Event::Key => {
+                    let _ = c.input(now);
+                }
                 Event::Click => c.quiet(now),
                 Event::None => {}
             }
@@ -1074,7 +1082,7 @@ mod tests {
             BlinkAnimation::None,
         );
         c.set_system(rate(set(250), 1000.0, 200.0), Gate::Free);
-        c.input(at(10));
+        let _ = c.input(at(10));
         c.plan(at(10), Blinks::Yes);
         assert_eq!(c.plan(at(259), Blinks::Yes), SHOWN);
         assert_eq!(c.plan(at(260), Blinks::Yes), HIDDEN);
@@ -1406,7 +1414,9 @@ mod tests {
             assert_eq!(hidden, HIDDEN);
             c.commit(hidden);
             match restart {
-                Event::Key => c.input(at(750)),
+                Event::Key => {
+                    let _ = c.input(at(750));
+                }
                 _ => c.present(at(750), at_col(Col::at_index(1))),
             }
             assert_eq!(
@@ -1432,6 +1442,45 @@ mod tests {
         c.commit(hidden);
         assert_eq!(c.due(at(710), Blinks::No), Owes::Frame);
         assert_eq!(c.plan(at(710), Blinks::No), SHOWN);
+    }
+
+    /// **Input with the caret drawn hidden owes the frame that shows it**:
+    /// the cycle restarts shown, and with the link paused nothing else
+    /// would draw it before the next flip, a whole shown phase away, which
+    /// draws it hidden again. Drawn shown, it owes nothing. Break: `input`
+    /// owing nothing, and a key with no echo leaves the caret hidden.
+    #[test]
+    fn input_over_a_hidden_caret_owes_the_frame_that_shows_it() {
+        let t0 = Instant::now();
+        let mut c = caret(t0);
+        let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
+        c.plan(t0, Blinks::Yes);
+        let hidden = c.plan(at(700), Blinks::Yes);
+        assert_eq!(hidden, HIDDEN);
+        c.commit(hidden);
+        assert_eq!(c.input(at(710)), Owes::Frame);
+        assert_eq!(c.plan(at(710), Blinks::Yes), SHOWN, "shown again");
+        c.commit(SHOWN);
+        assert_eq!(c.input(at(720)), Owes::Nothing, "the control: shown");
+    }
+
+    /// **A click after the stop owes no frame, only the restart**: the
+    /// stopped caret was drawn shown, and `quiet` starts it blinking again
+    /// shown, so what is drawn does not change; what does is that it has a
+    /// next flip again, which a paused link's settle restarts at.
+    #[test]
+    fn quiet_after_the_stop_owes_no_frame_but_a_next_flip() {
+        let t0 = Instant::now();
+        let mut c = stopping(t0);
+        let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
+        c.plan(t0, Blinks::Yes);
+        let stopped = c.plan(at(6000), Blinks::Yes);
+        assert_eq!(stopped, SHOWN);
+        c.commit(stopped);
+        assert_eq!(c.next_change(at(6000), Blinks::Yes), None, "stopped");
+        c.quiet(at(6000));
+        assert_eq!(c.due(at(6000), Blinks::Yes), Owes::Nothing);
+        assert!(c.next_change(at(6000), Blinks::Yes).is_some(), "a flip");
     }
 
     /// A cursor that starts blinking again starts shown, whatever the old
@@ -1592,7 +1641,7 @@ mod tests {
         let at = |ms: u64| t0 + MS * u32::try_from(ms).unwrap();
         c.plan(t0, Blinks::Yes);
         assert_eq!(c.plan(at(5700), Blinks::Yes), SHOWN, "stopped");
-        c.input(at(6000));
+        let _ = c.input(at(6000));
         // The frame the key draws: the first plan after the blink resumes
         // is where its cycle restarts.
         assert_eq!(c.plan(at(6000), Blinks::Yes), SHOWN);
@@ -1795,7 +1844,7 @@ mod tests {
         c.plan(t0, Blinks::Yes);
         c.plan(at(300), Blinks::No);
         c.set_system(cycle(MS * 1000, MS * 200), Gate::Free);
-        c.input(at(400));
+        let _ = c.input(at(400));
         c.plan(at(410), Blinks::Yes);
         assert_eq!(c.plan(at(1409), Blinks::Yes), SHOWN);
         assert_eq!(c.plan(at(1410), Blinks::Yes), HIDDEN);
@@ -1816,7 +1865,7 @@ mod tests {
             let now = t0 + Duration::from_nanos(tick * 1_000_000_000 / 120);
             if tick == 600 {
                 c.set_system(cycle(MS * 400, MS * 400), Gate::Free);
-                c.input(now);
+                let _ = c.input(now);
             }
             let b = if focused(tick) {
                 Blinks::Yes

@@ -371,7 +371,7 @@ mod tests {
         const FRAME: &str = r#"
             let shows = match self.last_tick {
                 Some(_) => self.fireworks.frame(
-                    self.tick_target,
+                    self.effects_secs(),
                     &self.term,
                     cells,
                     self.scale as f32,
@@ -391,13 +391,13 @@ mod tests {
         let tick = body(app, "fn frame(&mut self, target: f64) {");
         const SPLASH: &str = r#"
             if self.app.splash.owes(target) == crate::splash::Owes::Frame {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         "#;
         assert!(tick.contains(&bare(SPLASH)), "the control");
         const TICK: &str = r#"
             if self.app.fireworks.owes(&self.app.term) == crate::fireworks::Owes::Frame {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         "#;
         assert!(tick.contains(&bare(TICK)), "the tick owes them a frame");

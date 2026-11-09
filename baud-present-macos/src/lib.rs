@@ -39,6 +39,7 @@ pub mod announce;
 pub mod bell;
 pub mod clipboard;
 pub mod closing;
+pub mod display_link;
 pub mod full_screen;
 pub mod hover;
 pub mod journal;

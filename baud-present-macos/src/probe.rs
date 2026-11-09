@@ -258,6 +258,29 @@ thread_local! {
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
     static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
+    /// The state the display link's door last sent (`display_link.rs`),
+    /// and how many times it sent one.
+    static LINK: Cell<(crate::display_link::LinkState, Sends)> =
+        const { Cell::new((crate::display_link::LinkState::Pause, Sends(0))) };
+    /// The polls a window's last settle found still the tick's, by their
+    /// rows' names (baud-app's `frames::Holder`).
+    static HELD: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    /// The target the frame rig gives its next tick, as a real link would
+    /// (`set_target`).
+    static TARGET: Cell<Option<f64>> = const { Cell::new(None) };
+    /// The frames the window had drawn at its last settle.
+    static DRAWN: Cell<Option<baud_render::Tally>> = const { Cell::new(None) };
+    /// What the window's last settle found owed, as it spells it.
+    static OWED: RefCell<String> = const { RefCell::new(String::new()) };
+    /// Whether the polls still the tick's hold the link (`Lift`).
+    static LIFT: Cell<Lift> = const { Cell::new(Lift::Kept) };
+    /// How many display links a run made: one per run while the door
+    /// starts a new link each time, one in all once it resumes the one.
+    static MADE: Cell<Made> = const { Cell::new(Made(0)) };
+    /// How many of the rig's ticks reached the view's `tick:`.
+    static DELIVERED: Cell<Delivered> = const { Cell::new(Delivered(0)) };
+    /// How many palettes the window's appearance applied.
+    static STYLED: Cell<Styled> = const { Cell::new(Styled(0)) };
 }
 
 /// Hold `run` for the next frame ([`Inline::InFrame`]).
@@ -404,6 +427,128 @@ pub fn record(kind: EffectKind) {
     });
 }
 
+/// How many times the display link's door sent a state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Sends(pub u32);
+
+/// How many of the rig's ticks reached the view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Delivered(pub u32);
+
+/// **Whether the polls still the tick's hold the display link**: kept, as
+/// in every real build, or lifted, the frame rig's ceiling arm
+/// (`rig_call::RigHolders`). Only a probe build has the lift.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lift {
+    Kept,
+    Lifted,
+}
+
+/// The lift the frame rig asked for.
+pub fn set_lift(lift: Lift) {
+    LIFT.with(|l| l.set(lift));
+}
+
+/// Whether the polls still the tick's hold the link.
+pub fn lift() -> Lift {
+    LIFT.with(Cell::get)
+}
+
+/// How many display links the door's runs made.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Made(pub u32);
+
+/// The links the door's runs made.
+pub fn made() -> Made {
+    MADE.with(Cell::get)
+}
+
+/// **The display link's door, recorded** (`display_link::ViewLink`):
+/// under the probe it sends nothing to AppKit, and the rig's
+/// [`Ticker`] delivers only while the state is
+/// [`LinkState::Run`](crate::display_link::LinkState::Run). A run that
+/// would make a new link counts it.
+pub fn linked(to: crate::display_link::LinkState, making: crate::display_link::Making) {
+    if to == crate::display_link::LinkState::Run && making == crate::display_link::Making::New {
+        MADE.with(|m| m.set(Made(m.get().0.saturating_add(1))));
+    }
+    LINK.with(|l| {
+        let (_, Sends(n)) = l.get();
+        l.set((to, Sends(n.saturating_add(1))));
+    });
+}
+
+/// The state the door last sent, and how many it has sent.
+pub fn link() -> (crate::display_link::LinkState, Sends) {
+    LINK.with(Cell::get)
+}
+
+/// **The polls still the tick's**, as the last settle found them.
+pub fn held(rows: impl Iterator<Item = &'static str>) {
+    HELD.with_borrow_mut(|h| {
+        h.clear();
+        h.extend(rows);
+    });
+}
+
+/// **The vsync the frame rig's next tick is due at**, on the display
+/// link's clock: the [`Ticker`]'s link is never on a run loop, so its own
+/// `targetTimestamp` is zero, and a frame that read it would see the
+/// clock stand still.
+pub fn set_target(secs: f64) {
+    TARGET.with(|t| t.set(Some(secs)));
+}
+
+/// The target the frame rig set, if it set one.
+pub fn target() -> Option<f64> {
+    TARGET.with(Cell::get)
+}
+
+/// **The frames the window had drawn**, as its last settle counted them.
+pub fn drawn(frames: baud_render::Tally) {
+    DRAWN.with(|d| d.set(Some(frames)));
+}
+
+/// The frames drawn at the last settle.
+pub fn frames() -> baud_render::Tally {
+    DRAWN.with(Cell::get).unwrap_or_default()
+}
+
+/// **What the last settle found owed**, for the frame rig to print.
+pub fn owed(what: String) {
+    OWED.with_borrow_mut(|o| *o = what);
+}
+
+/// What the last settle found owed.
+pub fn owes() -> String {
+    OWED.with_borrow(Clone::clone)
+}
+
+/// The polls the last settle found still the tick's.
+pub fn holders() -> Vec<&'static str> {
+    HELD.with_borrow(Clone::clone)
+}
+
+/// How many palettes a window's appearance applied.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Styled(pub u32);
+
+/// **A palette applied for the window's appearance** (baud-app's
+/// `apply_style`), counted for the frame rig.
+pub fn restyled() {
+    STYLED.with(|s| s.set(Styled(s.get().0.saturating_add(1))));
+}
+
+/// The palettes applied.
+pub fn styled() -> Styled {
+    STYLED.with(Cell::get)
+}
+
+/// How many of the rig's ticks have reached the view.
+pub fn delivered() -> Delivered {
+    DELIVERED.with(Cell::get)
+}
+
 /// One pass of the main run loop in the default mode, for at most
 /// `seconds`, returning after the first source it handles.
 pub fn pass(seconds: f64) {
@@ -432,8 +577,14 @@ impl Ticker {
         }
     }
 
-    /// One frame: the view's `tick:`, sent as the display link sends it.
+    /// One frame: the view's `tick:`, sent as the display link sends it,
+    /// while the door's state is `Run`; while it is paused a link sends
+    /// nothing, and neither does this.
     pub fn tick(&self) {
+        if link().0 != crate::display_link::LinkState::Run {
+            return;
+        }
+        DELIVERED.with(|d| d.set(Delivered(d.get().0.saturating_add(1))));
         // SAFETY: `tick:` is the view's own method, taking the link.
         let () = unsafe { msg_send![&*self.view, tick: &*self.link] };
     }

@@ -257,9 +257,9 @@ impl Splash {
     }
 
     /// **When the reduced-motion hold ends** on the clock alone: what
-    /// bounds the Linux loop's wait. The window's being shown is an event
+    /// bounds the Linux loop's wait, and restarts the macOS driver's
+    /// paused display link (`frames.rs`). The window's being shown is an event
     /// of its own, so a wait for it has no deadline.
-    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn deadline(&self) -> Option<f64> {
         match self.state {
             State::Held(Some(since)) => Some(since + CAP),

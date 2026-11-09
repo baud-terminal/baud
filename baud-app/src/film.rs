@@ -841,7 +841,9 @@ fn play(
                     crate::reads::owed(&mut term, &mut |o: &[u8]| replies.extend_from_slice(o));
                 }
                 Event::Typed(b) => {
-                    caret.input(when);
+                    // The film draws a frame at every period, so what the
+                    // input owes is drawn by the next.
+                    let _ = caret.input(when);
                     replies.extend_from_slice(&b);
                 }
                 Event::Step(i) => step = Some(i),

@@ -861,10 +861,10 @@ impl<M: Moment> Chase<M> {
 
     /// **When the next frame this trail owes is due, if it is not owed
     /// already**: the end of a move's dwell. While a trail is in flight or
-    /// a fire burns every frame is owed ([`Chase::owes`]), and the Linux
-    /// loop paces those on the compositor's frame events rather than on a
-    /// deadline, so this names none for them.
-    #[cfg(any(target_os = "linux", test))]
+    /// a fire burns every frame is owed ([`Chase::owes`]): the Linux loop
+    /// paces those on the compositor's frame events and the macOS display
+    /// link runs for them, rather than either waiting on a deadline, so
+    /// this names none for them.
     pub fn deadline(&self) -> Option<M> {
         match (self.moving, self.fire, self.pending) {
             (None, None, Some((_, since))) => Some(since.after(DWELL)),

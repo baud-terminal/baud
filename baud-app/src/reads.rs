@@ -140,7 +140,6 @@ impl<T: Copy> Pace<T> {
     }
 
     /// When the held reads go on, while a delay holds them.
-    #[cfg(any(target_os = "linux", test))]
     pub fn deadline(&self) -> Option<Instant> {
         self.until
     }

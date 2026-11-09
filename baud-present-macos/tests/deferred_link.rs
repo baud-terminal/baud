@@ -67,7 +67,7 @@ mod checks {
     use baud_present_macos::link::{Ask, Opened, checks};
     use baud_present_macos::turn;
     use baud_present_macos::unwind::SiteName;
-    use baud_present_macos::unwind::{Caught, Guarded, caught};
+    use baud_present_macos::unwind::{Caught, Guarded, Settles, caught};
     use core::cell::Cell;
     use macos_liquid_glass::drawable::{
         DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
@@ -206,6 +206,11 @@ mod checks {
         fn drop(&mut self) {
             IN_CALL.with(|c| c.set(Call::Free));
         }
+    }
+
+    /// Nothing to settle: this view has no display link.
+    impl Settles for Asker {
+        fn settle(&mut self) {}
     }
 
     impl Responder for Asker {

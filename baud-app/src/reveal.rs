@@ -244,7 +244,6 @@ pub fn motion(scroller: Scroller, place: Place) -> Takes {
 }
 
 /// What [`Reveal::pending`] says the look owes.
-#[cfg(any(target_os = "linux", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pending {
     Nothing,
@@ -342,7 +341,6 @@ impl Reveal {
     /// changes nothing until it runs out, so its end is the one deadline;
     /// a fade changes the look on every frame, so it owes each one, paced
     /// by the compositor; hidden or hovered, the look moves only on input.
-    #[cfg(any(target_os = "linux", test))]
     pub fn pending(&self) -> Pending {
         match self.state {
             State::Held { until } => Pending::At(until),

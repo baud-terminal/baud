@@ -113,6 +113,10 @@ mod find;
 // held and ended on the clock, pure.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod fireworks;
+/// What a window owes its display link (`frames.rs`): macOS, whose link
+/// pauses; the Linux loop bounds its own wait.
+#[cfg(target_os = "macos")]
+mod frames;
 // The foreground program and its folder, read from the kernel for the
 // window's title (`title.rs`).
 #[cfg(any(target_os = "macos", target_os = "linux"))]

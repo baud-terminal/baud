@@ -518,6 +518,9 @@ struct App {
     gpu: Option<Gpu>,
     cell: Option<CellMemory>,
     waker: Waker,
+    /// The display link's door (`display_link.rs`): run by a frame or a
+    /// tick owed ([`App::owe_frame`]), paused by the driver's settle.
+    link: baud_present_macos::display_link::Link<baud_present_macos::display_link::ViewLink>,
     /// What this window asks of the desktop, made on the effect queue's
     /// turn (`os_effect.rs`); the outcomes taken by the next pump that is
     /// not a tick.
@@ -794,7 +797,7 @@ struct App {
     tick_target: f64,
     /// **The launch splash's timing** (`splash.rs`): waiting for the
     /// window to be shown, emerging, then vanishing, read off
-    /// `tick_target` like the trail.
+    /// the effects' clock like the trail.
     splash: crate::splash::Splash,
     /// What the logo's frames and the shell's first reads did, said under
     /// `BAUD_STARTUP=1` once the logo is gone (`splash::LaunchLog`).
@@ -1219,13 +1222,14 @@ impl App {
         ws: WinSize,
         sizing: Sizing,
         scale: CGFloat,
-        waker: Waker,
+        view: &DrawableView,
         pty: Pty,
         boot: Boot,
         probe: std::thread::JoinHandle<Option<Gpu>>,
     ) -> App {
         // The display's wrap `prepare` gave the renderer, which a copy
         // under `?96` reads its lines by.
+        let waker = view.waker();
         let wrap_words = boot.renderer.word_wrap();
         let Boot {
             request,
@@ -1548,6 +1552,9 @@ impl App {
             },
             os_done: Vec::new(),
             waker,
+            link: baud_present_macos::display_link::Link::new(
+                baud_present_macos::display_link::ViewLink::of(view),
+            ),
             pty,
             outbox: Outbox::default(),
             hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -1726,6 +1733,55 @@ impl App {
         }
     }
 
+    /// **A frame owed, and the display link running to draw it**: the one
+    /// door a frame is owed through, so a turn that never settles still
+    /// draws (`frames.rs`). Running a link that runs sends nothing
+    /// (`display_link::Link`).
+    fn owe_frame(&mut self) {
+        self.pending = Pending::Dirty;
+        self.owe_tick();
+    }
+
+    /// **The display link running, with no frame owed**: the window's
+    /// first frame, the ticks a latency record's bounds are taken on, and
+    /// the restart a deadline scheduled, and a settle that finds a frame
+    /// owed (`Driver::settle`). The door's only start.
+    fn owe_tick(&mut self) {
+        let _ = self
+            .link
+            .set(baud_present_macos::display_link::LinkState::Run);
+    }
+
+    /// **The effects' clock** (`frames::effects_now`): the display link's
+    /// last target on a tick, the host's time when that is later -- between
+    /// ticks, and after a pause above all. The one reader of `tick_target`.
+    fn effects_now(&self) -> HostTime {
+        crate::frames::effects_now(host_now(), HostTime::of_secs(self.tick_target))
+    }
+
+    /// [`App::effects_now`] in the display link's seconds.
+    fn effects_secs(&self) -> f64 {
+        self.effects_now()
+            .since(HostTime::ZERO)
+            .map_or(0.0, |d| d.as_secs_f64())
+    }
+
+    /// **Input to the caret** (`Caret::input`): its cycle restarted shown,
+    /// and the frame that shows it owed when the last drawn hid it.
+    fn caret_input(&mut self) {
+        if self.caret.input(host_now()) == crate::caret::Owes::Frame {
+            self.owe_frame();
+        }
+    }
+
+    /// What a config read owes once every part is applied, owed through
+    /// the door ([`read_owes`]).
+    fn owe_read(&mut self, before: Tally) {
+        if read_owes(before, self.frames, self.pending) == Pending::Dirty {
+            self.owe_frame();
+        }
+    }
+
     /// **The cursor as the focus has it**: `[cursor] unfocused_hollow`'s
     /// look while another window has the keyboard, its shape while this one
     /// has it.
@@ -1738,7 +1794,7 @@ impl App {
         let look = crate::caret::look(f, self.unfocused_cursor);
         if look != self.renderer.cursor_look() {
             self.renderer.set_cursor_look(look);
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
     }
 
@@ -1800,7 +1856,7 @@ impl App {
         // and took it away: a frame, and the tick's pump feeds the reads
         // the input held (`reads::Pace`).
         if self.term.images().generation() != drawn {
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
         // A key shows the cursor and restarts its blink, whether or not the
         // child echoes it back, and is input to the stop (`caret.rs`). The
@@ -1808,7 +1864,7 @@ impl App {
         // here: `Route::Keys` sends them through `Term::wheel_key`, which
         // KAM does not lock and SRM does not draw, and restarts the caret
         // itself.
-        self.caret.input(host_now());
+        self.caret_input();
         match (encoded, self.flush_reply(Asked::Typed)) {
             (true, Sent::Bytes) => Sent::Bytes,
             _ => Sent::Nothing,
@@ -1964,7 +2020,7 @@ impl App {
             // A press is tested against what is on the screen: the look
             // the last frame drew, not the one the hover will draw.
             drawn: self.drawn_look,
-            now: HostTime::of_secs(self.tick_target),
+            now: Some(self.effects_now()),
         }
     }
 
@@ -2286,7 +2342,7 @@ impl App {
         // now: a read or a wheel may have changed what is under it since
         // the tick read it (`Driver::poll_hover`).
         if self.read_hover() {
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
         self.scan_lines();
         self.renderer.set_link(self.hover.look().cloned());
@@ -2294,23 +2350,20 @@ impl App {
         // The hover text over DEC's line's words, read again on the line
         // as it is now (`line_tip.rs`).
         if self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes {
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
         self.renderer.set_tip(self.line_tip.look().cloned());
         // What a copy says, over that slot for its moment, and none under the
         // link preview, which keeps the bar (`copied.rs`). Asked on every
         // tick, so what it ends owes the frame here too.
-        let seen = {
-            let now = host_now();
-            HostTime::of_secs(self.tick_target).map_or(now, |t| t.max(now))
-        };
+        let seen = self.effects_now();
         let (cols, rows) = self.term.geometry();
         let preview = crate::copied::Preview::of(self.hover.look());
         let signal = self
             .copied
             .frame(seen, preview, highlight.as_ref(), cols, rows);
         if signal.owes == crate::copied::Owes::Frame {
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
         // A held window's line, after whatever that slot shows (`held.rs`).
         let held = match &self.holding {
@@ -2337,7 +2390,7 @@ impl App {
         self.say_copied();
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
-        let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
+        let look = self.look(self.effects_now());
         self.drawn_look = look;
         // The thumb this frame draws decides who a left press goes to, so
         // the pointer over a link under its strip is read again with it.
@@ -2358,8 +2411,9 @@ impl App {
         self.renderer.set_scrollbar(bar);
         // The cursor trail, spawned here, where the post-feed cursor is
         // known and before any path converts; advanced and cleared off
-        // `tick_target`, the display link's own clock, so the renderer only
-        // draws what it is handed and the frame is a pure function of it.
+        // the effects' clock (`effects_now`), the display link's on a
+        // tick, so the renderer only draws what it is handed and the frame is
+        // a pure function of it.
         // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
@@ -2369,7 +2423,7 @@ impl App {
             &self.term,
             &self.renderer,
             self.scale,
-            self.tick_target,
+            self.effects_secs(),
             (&mut self.chase, &mut self.trail, &mut self.last_cursor_cell),
             (&mut self.carried, ridden),
         );
@@ -2379,12 +2433,13 @@ impl App {
         });
         // The alternate-screen switch: the new screen sliding in over the
         // old one, or the veil under Reduce Motion, advanced and cleared off
-        // `tick_target` like the trail. Settled, this frame draws neither --
+        // the effects' clock like the trail. Settled, this frame draws neither --
         // the veil's end repaints the screen once, the slide's goes to the
         // surfaces whole -- and the tick stops forcing frames.
+        let now = self.effects_secs();
         let switch = self
             .transition
-            .and_then(|st| switch_at(st.start, st.form, self.tick_target));
+            .and_then(|st| switch_at(st.start, st.form, now));
         if switch.is_none() {
             self.transition = None;
         }
@@ -2393,12 +2448,12 @@ impl App {
         if let Some(p) = self.presenter.as_mut() {
             p.set_slide(slide);
         }
-        // The launch splash, off `tick_target` like the fade: waiting for
+        // The launch splash, off the effects' clock like the fade: waiting for
         // the window, emerging, held, vanishing or gone. The synchronous
         // first frame comes before the window is shown, so it draws nothing
         // of the logo -- or the held logo, under reduced motion -- and
         // starts no clock.
-        let now = self.last_tick.map(|_| self.tick_target);
+        let now = self.last_tick.map(|_| self.effects_secs());
         let splash = self.splash.look(now, &self.term, self.motion);
         if let Some(baud_render::SplashLook {
             phase: baud_render::SplashPhase::Plasma(_),
@@ -2411,7 +2466,7 @@ impl App {
             None => crate::splash::Logo::None,
         };
         self.renderer.set_splash(splash);
-        // iTerm2's fireworks, off `tick_target` like the trail: a show a
+        // iTerm2's fireworks, off the effects' clock like the trail: a show a
         // request started, held and gone on the display link's clock. A
         // frame before the first tick has no reading, so a request waits
         // for one, as the splash's clock does.
@@ -2424,7 +2479,7 @@ impl App {
         };
         let shows = match self.last_tick {
             Some(_) => self.fireworks.frame(
-                self.tick_target,
+                self.effects_secs(),
                 &self.term,
                 cells,
                 self.scale as f32,
@@ -2520,7 +2575,7 @@ impl App {
                     );
                 }
             }
-            self.pending = Pending::Dirty;
+            self.owe_frame();
         }
         if self.pending == Pending::Clean {
             return;
@@ -2547,8 +2602,7 @@ impl App {
         // update state is the clock's as the pump last left it: a resize or a
         // zoom draws from outside the pump's hold check, and the clock is what
         // says whether the update open now is honoured.
-        let now = host_now();
-        let seen_at = HostTime::of_secs(self.tick_target).map_or(now, |t| t.max(now));
+        let seen_at = self.effects_now();
         let update = self.updates.state(&self.term, Instant::now());
         let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
@@ -4826,6 +4880,15 @@ fn palette_switch(
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
+    /// A paused display link's restart (`Driver::settle`): scheduled for a
+    /// deadline, then owed the tick that reaches it.
+    restart: crate::frames::Restart,
+    /// The frame interval's measure, between two ticks in a row
+    /// (`frames::TickClock`): a pause forgets it.
+    tick_clock: crate::frames::TickClock,
+    /// The deadline of the ReGIS delay a wake was last scheduled for
+    /// (`Driver::pace_wake`).
+    paced_at: Option<Instant>,
     /// The Dock icon, set on the first display-link tick: vImage converts
     /// the image for the Dock on this thread, ~10 ms, and nothing on
     /// screen waits for it.
@@ -5156,7 +5219,7 @@ fn closed(
     let Some((open, left)) = OPEN.with_borrow_mut(|o| o.close(id)) else {
         return;
     };
-    open.view.stop_display_link();
+    baud_present_macos::display_link::closed(&open.view);
     open.view.set_responder(Box::new(Gone));
     let back = open.returns_to;
     drop(open);
@@ -7079,7 +7142,7 @@ mod alt_window_tests {
         let poll = body(POLL);
         assert!(
             poll.contains(concat!("self.app.read_", "hover()"))
-                && poll.contains("self.app.pending = Pending::Dirty;"),
+                && poll.contains("self.app.owe_frame();"),
             "the poll owes no frame when the preview changes"
         );
         let read = body(READ);
@@ -8212,7 +8275,7 @@ mod drag_tests {
             "",
         );
         let stopped = close
-            .find(concat!(".stop_display_", "link();"))
+            .find(concat!("display_link::", "closed(&open.view);"))
             .expect("its display link stops");
         let swapped = close
             .find(concat!(".set_responder(Box::new(", "Gone));"))
@@ -9137,7 +9200,7 @@ mod refont_tests {
             "== Drew::No {"
         ));
         assert!(at("self.app.next_damage = Damage::Full;") < relayout);
-        assert!(at("self.app.pending = Pending::Dirty;") < relayout);
+        assert!(at("self.app.owe_frame();") < relayout);
         let present = concat!("self.app.", "present(");
         assert_eq!(body.matches(present).count(), 1, "one present in refont");
         assert!(
@@ -9182,10 +9245,7 @@ mod refont_tests {
         let before = at("let before = self.app.frames;");
         assert!(at("for &p in parts {") < before, "after every part");
         assert!(before < at("if parts.contains(&Part::Fonts) {"));
-        let owes = at(concat!(
-            "self.app.pending = read_owes(",
-            "before, self.app.frames, self.app.pending);"
-        ));
+        let owes = at(concat!("self.app.owe_", "read(before);"));
         assert!(
             at(concat!(
                 "if self.relayout(self.view.frame().size, self.app.scale) ",
@@ -9194,7 +9254,7 @@ mod refont_tests {
         );
         assert_eq!(
             config
-                .matches("self.app.pending = Pending::Dirty;\n        said")
+                .matches("self.app.owe_frame();\n        said")
                 .count(),
             0
         );
@@ -9972,7 +10032,7 @@ mod restart_tests {
         let reveal = &pump[at("if thumb == Thumb::Reveal {")..];
         let reveal = &reveal[..reveal.find("\n        }\n").expect("the arm ends")];
         assert!(
-            reveal.contains("self.app.reveal.reveal(now);"),
+            reveal.contains("self.app.reveal.reveal(self.app.effects_now());"),
             "the reveal arm reveals the thumb"
         );
         assert!(call < at("if surface == Surface::Switched {"));
@@ -10640,7 +10700,7 @@ mod ride_tests {
             "ride_trail asks no slide"
         );
         assert!(
-            body.contains(concat!("HostTime::of_secs(self.app.", "tick_target)")),
+            body.contains(concat!("self.app.effects", "_now()")),
             "the ride is on the display link's clock"
         );
         assert!(body.contains(ride), "and it is the chase's one ride");
@@ -10967,7 +11027,7 @@ mod motion_tests {
             set.contains("effectiveAppearance()"),
             "under the window's appearance: {set}"
         );
-        assert!(set.contains("Pending::Dirty"), "a frame is owed: {set}");
+        assert!(set.contains("owe_frame()"), "a frame is owed: {set}");
         assert!(
             set.contains("baud_core::Focus::Gained => None,"),
             "none once the window is key: {set}"
@@ -11235,7 +11295,7 @@ mod motion_tests {
                 .core_refusals(&self.app.term, self.app.clipboard.budget)
             { crate::warn!("{line}"); }
             if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
             if let Rings::Ring(volume) = self.app.ringer
                 .hear(&self.app.term, Instant::now(), self.app.interval)
@@ -11285,7 +11345,7 @@ mod motion_tests {
             if ring.sound == Sound::Beep { let _ = self.app.os.ask(OsEffect::Beep); }
             if ring.shown == Shown::Flash {
                 self.app.bell.ring();
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
             if ring.attention == Attention::Request {
                 let _ = self.app.os.ask(OsEffect::BellAttention);
@@ -11903,7 +11963,7 @@ impl Driver {
         // SRM reset: the core drew the key itself, so its frame is owed now,
         // as a read's echo is, and nothing else pumps the loop for it.
         if self.app.term.local_echo() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.app.echo = Echo::Fed;
             self.pump(Trigger::Wake);
         } else if self.app.guess == Guess::Owed {
@@ -11919,7 +11979,7 @@ impl Driver {
     fn sent_alone(&mut self, e: KeyEvent) {
         let _ = self.app.send(e);
         if self.app.term.local_echo() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.pump(Trigger::Wake);
         }
     }
@@ -12013,7 +12073,7 @@ impl Driver {
             at: Instant::now(),
             rot: app.term.rotation(),
         });
-        app.pending = Pending::Dirty;
+        app.owe_frame();
         app.guess = Guess::Owed;
     }
 
@@ -12106,7 +12166,7 @@ impl Driver {
             }
             app.hold = Hold::UntilNextPrompt;
             app.guess = Guess::None;
-            app.pending = Pending::Dirty;
+            app.owe_frame();
         }
     }
 
@@ -12321,7 +12381,7 @@ impl Driver {
             crate::warn!("{line}");
         }
         if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // **The bells this read brought ring now**, before the early returns
         // for a held update or a busy frame: a sound, a bounce and a raise
@@ -12512,10 +12572,8 @@ impl Driver {
         if thumb == Thumb::Reveal {
             // A programmatic scroll, which AppKit reveals, as `snap_to_live`
             // does for a key.
-            self.app.pending = Pending::Dirty;
-            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-                self.app.reveal.reveal(now);
-            }
+            self.app.owe_frame();
+            self.app.reveal.reveal(self.app.effects_now());
         }
         if surface == Surface::Switched {
             // A trail does not cross a switch: the cursor it would come from
@@ -12527,15 +12585,15 @@ impl Driver {
             self.app.trail = None;
             self.app.carried.forget();
             // The alternate screen swapped: slide the new one in over the
-            // old one, kept now with its cursor hidden, off `tick_target` the
-            // way the trail is spawned -- or veil it, under Reduce Motion.
+            // old one, kept now with its cursor hidden, off the effects' clock
+            // the way the trail is spawned -- or veil it, under Reduce Motion.
             if self.app.screen_transition == crate::config::ScreenTransition::On {
                 let form = switch_form(self.app.term.screen(), self.app.motion);
                 if let SwitchForm::Slide(_) = form {
                     self.app.keep_frame();
                 }
                 self.app.transition = Some(TransitionState {
-                    start: self.app.tick_target,
+                    start: self.app.effects_secs(),
                     form,
                 });
             }
@@ -12565,9 +12623,10 @@ impl Driver {
                         crate::find::selection_of(&self.app.term, self.app.scrolled, m)
                     });
                 }
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
+        self.pace_wake();
         self.app.flush_reply(Asked::Unasked);
         self.decode_turn(
             trigger,
@@ -12719,17 +12778,17 @@ impl Responder for Driver {
         // A key without Command, or with Shift, says the link chord is not
         // held, and the preview goes with this key rather than after it.
         if (!key.modifiers.command || key.modifiers.shift) && self.app.hover.clear() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.app.reshape_pointer();
         }
         // A key dismisses the hover text over DEC's line, and still goes
         // on to the program (`line_tip.rs`, WCAG 2.2's 1.4.13).
         if self.app.line_tip.dismiss(&self.app.term) == crate::line_tip::Changed::Yes {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // And a copy's words, the same way (`copied.rs`).
         if self.app.copied.dismiss() == crate::copied::Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
@@ -12859,7 +12918,7 @@ impl Responder for Driver {
     /// unless the find field has the keys, a release when its press went.
     fn modifiers_changed(&mut self, change: &ModifierChange) {
         if self.app.read_hover_as(link_chord(change.modifiers)) {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.pump(Trigger::Wake);
         }
         let kind = match change.pressed {
@@ -12941,7 +13000,7 @@ impl Responder for Driver {
         }
         self.app.composing = composing;
         self.app.marked = Marked::Owed;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.pump(Trigger::Wake);
     }
 
@@ -13078,7 +13137,7 @@ impl Responder for Driver {
             self.app.flush_reply(Asked::Typed);
         }
         if self.app.term.highlight() != tracked {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.pump(Trigger::Wake);
         }
     }
@@ -13139,7 +13198,7 @@ impl Responder for Driver {
                         |b| outbox.push(b),
                     );
                 }
-                self.app.caret.input(host_now());
+                self.app.caret_input();
                 self.app.flush_reply(Asked::Typed);
                 return;
             }
@@ -13159,9 +13218,7 @@ impl Responder for Driver {
         // A wheel that moved the window reveals the thumb, as AppKit's
         // does -- the one that lands on the live screen too, which shows it
         // at the bottom of its travel and fades it.
-        if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-            self.app.reveal.reveal(now);
-        }
+        self.app.reveal.reveal(self.app.effects_now());
         // The view left the live screen for history: a slide names rows of
         // the live screen, so settle it. The scrolled-back frame is drawn
         // un-panned regardless (`sliding` checks `back == 0`); this only
@@ -13169,7 +13226,7 @@ impl Responder for Driver {
         if back.index() != 0 {
             self.app.slide.snap();
         }
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.pump(Trigger::Wake);
     }
 
@@ -13185,7 +13242,7 @@ impl Responder for Driver {
             if let Some(px) = PxSize::of(self.app.font_size * scale as f32) {
                 if self.app.rescale(px).is_some() {
                     self.app.next_damage = Damage::Full;
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                 }
             }
         }
@@ -13193,6 +13250,12 @@ impl Responder for Driver {
     }
 
     fn frame(&mut self, target: f64) {
+        // The frame rig's tick: a link never on a run loop has no target of
+        // its own, so the rig gives the one a real link would.
+        #[cfg(feature = "effect-probe")]
+        let target = baud_present_macos::probe::target().unwrap_or(target);
+        // A restart's tick, run: what its deadline changed is this frame's.
+        self.restart.ticked();
         let (began, start) = (host_now(), Instant::now());
         // The event rig's frame control: what the probe parked runs here,
         // inside the frame, as the reveal did before it had a turn.
@@ -13212,11 +13275,8 @@ impl Responder for Driver {
             self.read_caret_system();
             startup_mark("caret os");
         }
-        if let Some(last) = self.app.last_tick {
-            let dt = target - last;
-            if dt > 0.001 && dt < 0.1 {
-                self.app.interval = Duration::from_secs_f64(dt);
-            }
+        if let Some(interval) = self.tick_clock.tick(target) {
+            self.app.interval = interval;
         }
         self.app.last_tick = Some(target);
         self.app.tick_target = target;
@@ -13233,7 +13293,7 @@ impl Responder for Driver {
         if phase != self.app.blink {
             if self.app.blink_present.flips(self.app.blink, phase) {
                 self.app.next_damage = Damage::Full;
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
             self.app.blink = phase;
         }
@@ -13242,7 +13302,7 @@ impl Responder for Driver {
         // so, which owes a frame.
         if self.app.term.set_regis_blink(regis_phase(phase.slow)) == RegisRepainted::Yes {
             self.app.next_damage = Damage::Full;
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // The cursor's blink owes a frame at each flip, and when it stops in
         // the off phase -- focus lost, a steady style, hidden, looked away
@@ -13257,7 +13317,7 @@ impl Responder for Driver {
             );
             let update = self.app.updates.state(&self.app.term, Instant::now());
             if self.app.caret.tick(now, blinks, update) == Owes::Frame {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
         // A flash on screen ends on this clock: the tick whose target
@@ -13265,11 +13325,11 @@ impl Responder for Driver {
         // frame's own plan reads the same target (`present`), so it is one
         // frame, not one a tick until the wall clock catches up.
         if HostTime::of_secs(target).is_some_and(|now| self.app.bell.is_due(now)) {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // A copy's words and pulse end on the same clock (`copied.rs`).
         if HostTime::of_secs(target).is_some_and(|now| self.app.copied.is_due(now)) {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // A trail keeps building frames while it sweeps, the way a blink
         // flip does -- but incrementally: the ghost's bounded damage is the
@@ -13277,7 +13337,7 @@ impl Responder for Driver {
         // When the sweep lands the trail clears itself and this stops
         // firing, so an idle screen returns to no frames.
         if self.app.trail.is_some() || self.app.transition.is_some() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // **The window is shown to the splash** once a frame has reached
         // the layer and AppKit reports the window on screen and not wholly
@@ -13301,25 +13361,25 @@ impl Responder for Driver {
                 startup_first("window visible", &FIRST_VISIBLE);
             }
             if visible && self.app.splash.shown() == crate::splash::Owes::Frame {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
                 startup_mark("splash shown");
             }
         }
         // The launch splash owes every frame while it plays or fades, and
         // the one a reduced-motion hold ends on.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // iTerm2's fireworks owe every frame while a show is up, and the
         // one a request starts.
         if self.app.fireworks.owes(&self.app.term) == crate::fireworks::Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // The quad owes every frame while it is in flight, and the one a
         // move's dwell runs out on: after a lone keystroke's echo nothing
         // else would draw it (`trail.rs`).
         if HostTime::of_secs(target).is_some_and(|now| self.app.chase.owes(now) == Owes::Frame) {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // The scrollbar's reveal steps off the same clock, and forces a
         // frame only when the look it gives differs from the one drawn: a
@@ -13331,7 +13391,7 @@ impl Responder for Driver {
             let drag = self.bar_hold.drag();
             self.app.reveal.tick(now, self.app.pointer, back, drag);
             if self.app.look(now) != self.app.drawn_look {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
         // Smooth scroll: advance the slide toward settled off the display
@@ -13343,7 +13403,7 @@ impl Responder for Driver {
             self.app
                 .slide
                 .advance(self.app.interval.as_secs_f64() as f32);
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         self.app.ticks.bump();
         // A kitty animation's next frame, off the display link's clock and
@@ -13358,7 +13418,7 @@ impl Responder for Driver {
             );
             if self.app.term.animate_images(now, motion) == baud_domain::Animated::Changed {
                 self.app.next_damage = Damage::Full;
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
         self.pump(Trigger::Tick);
@@ -13381,6 +13441,10 @@ impl Responder for Driver {
     /// the view's borrow held, and swapping the palette repaints.
     fn appearance(&mut self, appearance: Appearance) {
         self.style.0.set(Some(appearance));
+        // Applied by the next pump: a frame owed, so the link runs and its
+        // tick's pump applies and draws it, a flip while the link is paused
+        // included, and not at the next event.
+        self.app.owe_frame();
     }
 
     fn presented(&mut self) {
@@ -13390,6 +13454,8 @@ impl Responder for Driver {
 
     fn wake(&mut self) {
         startup_first("run loop", &FIRST_WAKE);
+        // A paused link's restart, on the wake its deadline scheduled.
+        self.restarted();
         // The event rig's click on a printed path, taken as a click is.
         #[cfg(feature = "effect-probe")]
         if let Some(path) = rig::take_click() {
@@ -13399,6 +13465,14 @@ impl Responder for Driver {
         #[cfg(feature = "effect-probe")]
         if let Some(line) = rig::take_typed() {
             self.app.outbox.push(&line);
+        }
+        // The event rig's key presses, sent through the key path as a
+        // key the user pressed is.
+        #[cfg(feature = "effect-probe")]
+        if let Some(keys) = rig::take_pressed() {
+            for c in keys.chars().filter_map(|c| Codepoint::new(u32::from(c))) {
+                self.typed(KeyEvent::press(KeyCode::Char(c), Modifiers::NONE), None);
+            }
         }
         if self.app.frames.value() > 0
             && self.app.presenter.as_ref().map(Presenter::in_flight) != Some(InFlight::Busy)
@@ -13948,7 +14022,7 @@ impl Opening {
                 Sizing::Window
             },
             scale,
-            view.waker(),
+            &view,
             pty,
             boot,
             gpu_probe,
@@ -13988,6 +14062,9 @@ impl Opening {
         let mut driver = Driver {
             app: probe,
             view: view.clone(),
+            restart: crate::frames::Restart::Idle,
+            tick_clock: crate::frames::TickClock::NEW,
+            paced_at: None,
             dock_icon,
             held: None,
             buttons: LocatorButtons::NONE,
@@ -14349,6 +14426,10 @@ impl Opening {
         }
         driver.window_id = Some(id);
         driver.app.os.name(id);
+        // The window's first frame is owed from its making, and the display
+        // link runs to draw it (`App::owe_tick`); it pauses once nothing
+        // more is owed (`Driver::settle`).
+        driver.app.owe_tick();
         // Every method through `catch_unwind`: a panic in the driver stops
         // at the view's callback rather than unwind into AppKit, which
         // aborts on it (`baud_present_macos::unwind`).
@@ -14362,7 +14443,6 @@ impl Opening {
                 open._keyups = Some(keyups);
             }
         });
-        view.start_display_link();
         startup_mark("display link");
         view.waker().wake();
     }
@@ -14371,6 +14451,208 @@ impl Opening {
 /// **A window's driver, dropped when its window closes** (`closed`):
 /// the notifications still waiting for their pictures' checks post
 /// first (`Driver::notices_at_close`).
+/// **The display link settled once each responder call has returned**
+/// (`unwind::Settles`, `frames.rs`): paused when nothing owes a frame,
+/// with its restart scheduled a frame before the soonest deadline, and
+/// left as it is while a frame is owed, which the door that owed it has
+/// already run ([`App::owe_frame`]). Settling on the state the link is in
+/// sends AppKit nothing (`display_link::Link`).
+impl baud_present_macos::unwind::Settles for Driver {
+    fn settle(&mut self) {
+        // The polls still the tick's, for the event rig to name.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::held(self.held().map(crate::frames::Holder::word));
+        let now = host_now();
+        let owes = self.owes(now);
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::owed(format!("{owes:?}"));
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::drawn(self.app.frames);
+        match crate::frames::act(owes) {
+            // Whoever owed the frame may not have run the link -- a
+            // deadline within one interval, a latency record open -- so the
+            // settle runs it: sent nothing when it already runs.
+            crate::frames::Act::Run => self.app.owe_tick(),
+            crate::frames::Act::PauseUntil(at) => {
+                self.pause();
+                self.restart(at, now);
+            }
+            crate::frames::Act::Pause => self.pause(),
+        }
+    }
+}
+
+impl Driver {
+    /// **What the display link owes at `now`** (`frames::owes`): a frame
+    /// while one is owed, motion runs, a latency record waits for its
+    /// bounds or a poll is still the tick's; else the soonest deadline a
+    /// timed effect keeps -- the clocks the Linux loop bounds its wait by,
+    /// read the same way -- or nothing.
+    fn owes(&self, now: HostTime) -> crate::frames::Owes {
+        use crate::frames::{Deadline, Moving, Why};
+        let app = &self.app;
+        let instant = Instant::now();
+        let host = |at: Instant| now.plus(at.saturating_duration_since(instant));
+        let secs = now.since(HostTime::ZERO).map_or(0.0, |d| d.as_secs_f64());
+        let overlay = app.scroller == Scroller::Overlay;
+        let reveal = app.reveal.pending();
+        let moving = [
+            (
+                app.trail.is_some() || app.transition.is_some(),
+                Moving::Trail,
+            ),
+            (app.slide.active(), Moving::Slide),
+            (
+                app.splash.owes(secs) == crate::splash::Owes::Frame,
+                Moving::Splash,
+            ),
+            (
+                app.fireworks.owes(&app.term) == crate::fireworks::Owes::Frame,
+                Moving::Fireworks,
+            ),
+            (app.chase.owes(now) == Owes::Frame, Moving::Chase),
+            (
+                overlay && reveal == crate::reveal::Pending::EveryFrame,
+                Moving::Reveal,
+            ),
+        ]
+        .into_iter()
+        .find_map(|(on, m)| on.then_some(Why::Moving(m)));
+        let frame = (app.pending == Pending::Dirty)
+            .then_some(Why::Owed)
+            .or(self.restart.owes_tick().then_some(Why::Restarted))
+            .or(moving)
+            .or_else(|| (app.latency.open() != Tally::default()).then_some(Why::Presented))
+            .or_else(|| self.holding().map(Why::Held));
+        let seen = match app.term.regis_blink() {
+            baud_domain::RegisBlink::On => app.blink_present.with(baud_render::Blinking::SLOW),
+            baud_domain::RegisBlink::Off => app.blink_present,
+        };
+        let blinks =
+            crate::caret::blinks(app.term.cursor_style(), app.focus, live_cursor(&app.term));
+        let playing =
+            crate::access::image_motion(app.image_animation, app.motion, auto_play(app.animated))
+                == baud_domain::ImageMotion::Play;
+        let indicator = app.term.status_type() == baud_core::StatusType::Indicator
+            && app.printing == crate::config::Printing::On;
+        let deadlines = [
+            (
+                Deadline::TextBlink,
+                crate::effects::next_flip(secs, seen, app.motion).and_then(HostTime::of_secs),
+            ),
+            (Deadline::Caret, app.caret.next_change(now, blinks)),
+            (Deadline::Bell, app.bell.deadline()),
+            (Deadline::Copied, app.copied.deadline()),
+            (Deadline::Chase, app.chase.deadline()),
+            (
+                Deadline::Reveal,
+                match reveal {
+                    crate::reveal::Pending::At(t) if overlay => Some(t),
+                    _ => None,
+                },
+            ),
+            (
+                Deadline::Splash,
+                app.splash.deadline().and_then(HostTime::of_secs),
+            ),
+            (
+                Deadline::Images,
+                playing.then(|| app.term.next_image_frame(now)).flatten(),
+            ),
+            (
+                Deadline::Predictions,
+                app.predictions.first().map(|p| host(p.at + PREDICT_MAX)),
+            ),
+            (
+                Deadline::Indicator,
+                indicator
+                    .then(|| app.watch.next(instant, app.interval))
+                    .flatten()
+                    .map(host),
+            ),
+            (
+                Deadline::Report,
+                crate::log::enabled(crate::log::Level::Info)
+                    .then(|| host(instant + app.reported.until(instant))),
+            ),
+        ];
+        crate::frames::owes(frame, &deadlines, now, app.interval)
+    }
+
+    /// **The first poll that holds the link**: [`Driver::held`]'s, unless
+    /// the frame rig lifted them (`probe::Lift`), its ceiling arm, which
+    /// only a probe build has.
+    fn holding(&self) -> Option<crate::frames::Holder> {
+        #[cfg(feature = "effect-probe")]
+        if baud_present_macos::probe::lift() == baud_present_macos::probe::Lift::Lifted {
+            return None;
+        }
+        self.held().next()
+    }
+
+    /// **The polls still the tick's** (`frames::Holder`): while any is
+    /// held the link runs, so the poll keeps its pace. Each row that moves
+    /// a poll to its event takes its arm out.
+    fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
+        use crate::frames::Holder;
+        Holder::ALL.into_iter().filter(|h| match h {
+            Holder::A17Splash => self.app.splash.waiting(),
+            Holder::A2Focus
+            | Holder::A3Hover
+            | Holder::A4Motion
+            | Holder::A5Notices
+            | Holder::A9Front
+            | Holder::A12Title
+            | Holder::A13Hosts
+            | Holder::A14Paths
+            | Holder::A15Reap
+            | Holder::A16Settings => true,
+        })
+    }
+
+    /// **The display link paused**: and the tick clock forgotten, so the
+    /// first tick after the pause does not read the time paused as a frame
+    /// interval (`Driver::frame`, which measures the interval between two
+    /// ticks in a row).
+    fn pause(&mut self) {
+        use baud_present_macos::display_link::{LinkState, Sent};
+        if self.app.link.set(LinkState::Pause) == Sent::Once {
+            self.tick_clock.paused();
+        }
+    }
+
+    /// **A paused link's restart, scheduled** a frame interval before
+    /// `at` (`frames::Restart::schedule`), on a wake of its own.
+    fn restart(&mut self, at: HostTime, now: HostTime) {
+        if let Some(wait) = self.restart.schedule(at, now, self.app.interval) {
+            self.wake_at(Instant::now() + wait);
+        }
+    }
+
+    /// **The reads a ReGIS delay holds go on at its deadline**, on a wake
+    /// scheduled for it, whose pump releases them (`reads::paced`): with
+    /// no tick, as from a covered window or a paused link. One wake a
+    /// deadline: a delay the reads move is scheduled again.
+    fn pace_wake(&mut self) {
+        let at = self.app.pace.deadline();
+        if let Some(t) = at.filter(|_| at != self.paced_at) {
+            self.wake_at(t);
+        }
+        self.paced_at = at;
+    }
+
+    /// **The restart a deadline scheduled, on its wake**: once the deadline
+    /// is within a frame, the link run through the door ([`App::owe_tick`])
+    /// and the tick owed until a frame has run, so a wake that lands after
+    /// the deadline still draws what it changed; a wake for a restart
+    /// already taken, or for one still ahead, runs nothing.
+    fn restarted(&mut self) {
+        if self.restart.landed(host_now()) == crate::frames::Landed::Run {
+            self.app.owe_tick();
+        }
+    }
+}
+
 impl Drop for Driver {
     fn drop(&mut self) {
         self.notices_at_close();
@@ -14456,7 +14738,7 @@ impl Driver {
                     baud_core::BytePos::ZERO,
                     baud_core::ReadLen::from_index(bytes.len()),
                 );
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
     }
@@ -14494,12 +14776,10 @@ impl Driver {
     fn snap_to_live(&mut self) {
         if snap_live(&mut self.app.term) {
             self.app.travel.settle();
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             // A programmatic scroll, which AppKit reveals: the thumb shows
             // at the bottom and fades.
-            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-                self.app.reveal.reveal(now);
-            }
+            self.app.reveal.reveal(self.app.effects_now());
         }
     }
 
@@ -14630,7 +14910,7 @@ impl Driver {
                 }
                 MacAction::Redraw => {
                     self.app.next_damage = Damage::Full;
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                 }
                 _ => window_later(&w, action),
             }
@@ -14647,7 +14927,7 @@ impl Driver {
     /// `poll_focus`, so a focus lost has cleared the preview first.
     fn poll_hover(&mut self) {
         if self.app.read_hover() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -14668,7 +14948,7 @@ impl Driver {
         let names = crate::link::MachineNames::of(names.to_vec());
         crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
         self.app.lines.forget();
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
     }
 
     /// **A kitty picture's decode, a step a turn** (`reads::decode_step`):
@@ -14690,7 +14970,7 @@ impl Driver {
         }
         let (progress, shown) = crate::reads::decode_step(&mut self.app.term);
         if shown == crate::reads::Shown::Changed {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         if !self.app.term.reply().is_empty() {
             self.app.flush_reply(Asked::Unasked);
@@ -14718,7 +14998,7 @@ impl Driver {
         let turn = crate::link_layer::tick(&mut app.probes, &mut layer, host_now(), master);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
-            app.pending = Pending::Dirty;
+            app.owe_frame();
         }
     }
 
@@ -14740,7 +15020,7 @@ impl Driver {
         let turn = crate::link_layer::answers(&mut app.probes, &mut layer);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
-            app.pending = Pending::Dirty;
+            app.owe_frame();
         }
         if let Some(done) = turn.clicked {
             self.path_checked(done);
@@ -14908,7 +15188,7 @@ impl Driver {
         };
         if let Some(n) = note {
             if self.app.copied.path(n) == crate::copied::Owes::Frame {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
         }
     }
@@ -15204,7 +15484,7 @@ impl Driver {
         }
         if ring.shown == Shown::Flash {
             self.app.bell.ring();
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         if ring.attention == Attention::Request {
             let _ = self.app.os.ask(OsEffect::BellAttention);
@@ -15229,10 +15509,9 @@ impl Driver {
             return;
         };
         self.app.ridden = Rows::of_count(self.app.ridden.index() + n.index());
-        if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-            self.app.chase.ride(dy, now, floor, cell_h);
-        }
-        let tick = self.app.tick_target;
+        let now = self.app.effects_now();
+        self.app.chase.ride(dy, now, floor, cell_h);
+        let tick = self.app.effects_secs();
         self.app.trail = self.app.trail.and_then(|st| {
             let p = crate::trail::ghost_progress(st.start, tick);
             ride_ghost(st, dy, p, cell_h)
@@ -15262,16 +15541,17 @@ impl Driver {
             return;
         };
         crate::info!("motion: {m:?}; trail: {next:?}");
+        let now = self.app.effects_now();
         let owes = retrail(
             &mut self.app.chase,
             &mut self.app.trail,
             &mut self.app.last_cursor_cell,
             next,
-            HostTime::of_secs(self.app.tick_target),
+            Some(now),
         );
         self.app.cursor_trail = next;
         if owes == Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -15296,7 +15576,7 @@ impl Driver {
         crate::info!("display: {display:?}");
         self.show_theme(in_force(self.theme_choice, self.palette_for));
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
     }
 
     /// **A setting AppKit said changed, followed on this tick**: the
@@ -15380,7 +15660,7 @@ impl Driver {
                 );
                 self.app.rescaled();
                 self.app.next_damage = Damage::Full;
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
             }
             Some(Err(e)) => crate::warn!("fonts: a system face did not load: {e}"),
         }
@@ -15516,7 +15796,7 @@ impl Driver {
                 Part::Message => {
                     self.app.renderer.set_message_colours(c.message.colours);
                     self.app.copied.set(c.message);
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                 }
                 Part::Link => {
                     self.app.link_config = c.link.clone();
@@ -15534,7 +15814,7 @@ impl Driver {
                     self.app.probes.set_programs(c.link.programs());
                     self.app.probes.owe_programs();
                     self.app.lines.forget();
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                 }
                 // Put up or taken down at the next tick, and a line of their
                 // own given its pixels now.
@@ -15545,7 +15825,7 @@ impl Driver {
                         c.activity_lights_colours,
                         baud_render::Halo::of(c.activity_lights_glow),
                     );
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                     self.app
                         .renderer
                         .set_lights_line(c.activity_lights.line(), self.app.scale as f32);
@@ -15564,7 +15844,7 @@ impl Driver {
                     );
                     if self.app.splash.set(setting) == crate::splash::Owes::Frame {
                         self.app.next_damage = Damage::Full;
-                        self.app.pending = Pending::Dirty;
+                        self.app.owe_frame();
                     }
                 }
                 Part::AmbiguousWidth => self.app.term.set_ambiguous_width(c.ambiguous_width),
@@ -15576,16 +15856,17 @@ impl Driver {
                     self.app.trail_scroll = c.trail_scroll;
                     let next = c.cursor_trail.effective(self.app.motion);
                     if next != self.app.cursor_trail {
+                        let now = self.app.effects_now();
                         let owes = retrail(
                             &mut self.app.chase,
                             &mut self.app.trail,
                             &mut self.app.last_cursor_cell,
                             next,
-                            HostTime::of_secs(self.app.tick_target),
+                            Some(now),
                         );
                         self.app.cursor_trail = next;
                         if owes == Owes::Frame {
-                            self.app.pending = Pending::Dirty;
+                            self.app.owe_frame();
                         }
                     }
                 }
@@ -15668,12 +15949,12 @@ impl Driver {
         );
         if relayout {
             self.app.next_damage = Damage::Full;
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             if self.relayout(self.view.frame().size, self.app.scale) == Drew::No {
                 self.app.present(&self.view, Show::Event);
             }
         }
-        self.app.pending = read_owes(before, self.app.frames, self.app.pending);
+        self.app.owe_read(before);
         said
     }
 
@@ -15713,7 +15994,7 @@ impl Driver {
             baud_core::Overrides::Keep,
         );
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         said
     }
 
@@ -15744,7 +16025,7 @@ impl Driver {
         self.app.renderer.set_notice(notice.codepoints());
         self.notice = notice;
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         if rows_moved && self.relayout(self.view.frame().size, self.app.scale) == Drew::No {
             self.app.present(&self.view, Show::Event);
         }
@@ -15783,12 +16064,12 @@ impl Driver {
             for e in self.downs.let_go() {
                 let _ = self.app.send(e);
                 if self.app.term.local_echo() {
-                    self.app.pending = Pending::Dirty;
+                    self.app.owe_frame();
                 }
             }
             hide_pointer(self.hiding.crossed(&self.app.term));
             if self.app.hover.clear() {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
                 self.app.reshape_pointer();
             }
         }
@@ -15804,7 +16085,7 @@ impl Driver {
             // And the keyboard layouts, which DECHEBM needs a Hebrew one of
             // (`layouts.rs`).
             crate::host::set_hebrew_layout(&mut self.app.term, crate::layouts::hebrew_layout());
-            self.app.caret.input(host_now());
+            self.app.caret_input();
             // And the printer list, off this thread: a printer added in
             // System Settings is the core's at the next gain (`print.rs`).
             self.app.read_printers(crate::print::Ask::Now);
@@ -15825,7 +16106,7 @@ impl Driver {
         };
         if pair != self.app.renderer.inactive_selection() {
             self.app.renderer.set_inactive_selection(pair);
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -15842,7 +16123,7 @@ impl Driver {
         if self.app.term.printer() != was
             && self.app.term.status_type() == baud_core::StatusType::Indicator
         {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -15893,7 +16174,7 @@ impl Driver {
         // A badge naming the job, its folder or the title is drawn again
         // when they change, though the screen did not.
         if self.app.session != was && self.app.term.badge_format().is_some() {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         let Some(title) = self.titles.sent() else {
             return;
@@ -16051,7 +16332,7 @@ impl Driver {
             app.reshape_pointer();
         }
         if hovered {
-            app.pending = Pending::Dirty;
+            app.owe_frame();
             app.present(&self.view, Show::Event);
         }
     }
@@ -16158,7 +16439,7 @@ impl Driver {
                         && self.app.copied.path(crate::copied::PathNote::NoApp(scheme))
                             == crate::copied::Owes::Frame
                     {
-                        self.app.pending = Pending::Dirty;
+                        self.app.owe_frame();
                     }
                 }
                 Outcome::Opened { opened, shown, .. } => {
@@ -16270,7 +16551,7 @@ impl Driver {
         }
         self.app.os_done = done;
         if self.app.copied.program(programs, host_now()) == crate::copied::Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         self.app.say_copied();
     }
@@ -16479,7 +16760,7 @@ impl Driver {
                 }
             }
         }
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.pump(Trigger::Wake);
     }
 
@@ -16515,13 +16796,11 @@ impl Driver {
         if !self.app.term.jump_to_prompt(to) {
             return;
         }
-        if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-            self.app.reveal.reveal(now);
-        }
+        self.app.reveal.reveal(self.app.effects_now());
         if self.app.term.window_back().index() != 0 {
             self.app.slide.snap();
         }
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.pump(Trigger::Wake);
     }
 
@@ -16561,12 +16840,12 @@ impl Driver {
             c,
         );
         if a.hover == Hover::Changed {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         match a.did {
             Did::Nothing | Did::Started | Did::Scrolled(Moved::No) => {}
             Did::Ended => {
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
                 self.pump(Trigger::Wake);
             }
             Did::Scrolled(Moved::Yes) => {
@@ -16576,7 +16855,7 @@ impl Driver {
                 if self.app.term.window_back().index() != 0 {
                     self.app.slide.snap();
                 }
-                self.app.pending = Pending::Dirty;
+                self.app.owe_frame();
                 self.pump(Trigger::Wake);
             }
         }
@@ -16611,7 +16890,7 @@ impl Driver {
         let lamps = crate::line_lamps::read(&self.app.term, &self.app.outbox, cd, oh);
         let given = crate::line_lamps::given(self.app.status_line_lights, clause, lamps);
         if crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         // SYN and FAX: the core's state at the tick, SYN's reading taken
         // whether or not the lights show, so showing them again lights
@@ -16677,7 +16956,7 @@ impl Driver {
             if let Some((shown, glow)) = line {
                 self.app.renderer.set_lights(shown, glow);
             }
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         self.place_tips();
     }
@@ -16736,7 +17015,7 @@ impl Driver {
         let pixel = Some((at.0 * scale, at.1 * scale));
         if self.app.line_tip.update_at(&self.app.term, over, pixel) == crate::line_tip::Changed::Yes
         {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -16825,7 +17104,7 @@ impl Driver {
         self.app.grid = ws;
         self.app.selection = None;
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         let scale = self.app.scale;
         let bar = shown_gutter(
             self.app.scroller,
@@ -16856,7 +17135,7 @@ impl Driver {
         self.app.bar_shown = shown;
         self.bar_hold.end_drag();
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         let full = match self.view.window() {
             Some(w) if w.styleMask().contains(NSWindowStyleMask::FullScreen) => Full::Yes,
             _ => Full::No,
@@ -16905,7 +17184,7 @@ impl Driver {
         }
         self.app.status_rows = now;
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         let (Some(w), Some(mtm)) = (self.view.window(), MainThreadMarker::new()) else {
             return None;
         };
@@ -16943,7 +17222,7 @@ impl Driver {
             return;
         }
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.app.line_shown = None;
         let resize = match (self.view.window(), MainThreadMarker::new()) {
             (Some(w), Some(mtm)) => {
@@ -17031,7 +17310,7 @@ impl Driver {
         let reframed = reframed || line != self.app.renderer.lights_height();
         if reframed {
             self.app.next_damage = Damage::Full;
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
         if self.app.sizing == Sizing::Fixed {
             // The grid is pinned, and a zoom still moves the pixels.
@@ -17145,7 +17424,7 @@ impl Driver {
             // A new grid is a new surface, so repaint every row of it rather
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             // Ask for a frame at the new size, asynchronously -- nothing
             // waits. The GPU draws off the main thread and its completion
             // hands the surface to the layer through a wake delivered in the
@@ -17317,7 +17596,7 @@ impl Driver {
         // drew nothing. Two renders on a font change, the first at the old
         // size, is what that looked like from outside.
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         if self.relayout(self.view.frame().size, scale) == Drew::No {
             // The grid did not change -- a fixed size, or a step too small
             // to move the column count -- so nothing has drawn the new
@@ -17378,6 +17657,9 @@ impl Driver {
         };
         self.palette_for = Some(appearance);
         self.show_theme(appearance);
+        // What the frame rig counts, under the probe only.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::restyled();
         // The one place a palette change drops the application's colours.
         crate::host::tell_defaults(
             &mut self.app.term,
@@ -17385,7 +17667,7 @@ impl Driver {
             baud_core::Overrides::Drop,
         );
         self.app.next_damage = Damage::Full;
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.app.present(&self.view, Show::Event);
     }
 
@@ -17438,7 +17720,7 @@ impl Driver {
         if f.key(&self.app.term, key) == crate::find::Open::Closed {
             self.app.find_left = Some(f.left());
             self.app.finding = None;
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
             self.app.present(&self.view, Show::Event);
             return;
         }
@@ -17472,11 +17754,9 @@ impl Driver {
         }
         if self.app.term.window_back() != back {
             self.app.travel.settle();
-            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
-                self.app.reveal.reveal(now);
-            }
+            self.app.reveal.reveal(self.app.effects_now());
         }
-        self.app.pending = Pending::Dirty;
+        self.app.owe_frame();
         self.app.present(&self.view, Show::Event);
     }
 
@@ -17540,7 +17820,7 @@ impl Driver {
             false => crate::copied::Pulse::Skip,
         };
         if app.copied.selection(count, pulse) == crate::copied::Owes::Frame {
-            app.pending = Pending::Dirty;
+            app.owe_frame();
         }
         app.take_copied();
         app.say_copied();
@@ -17559,7 +17839,7 @@ impl Driver {
             return;
         }
         self.snap_to_live();
-        self.app.caret.input(host_now());
+        self.app.caret_input();
         // Through the outbox, behind anything owed and ahead of anything
         // typed after it: a paste longer than the slave's queue -- 1022
         // bytes on Darwin -- waited in `write(2)` for the child to read it.
@@ -17637,7 +17917,7 @@ impl Driver {
             self.app.flush_reply(Asked::Typed);
         }
         if owed.frame == LineFrame::Owed {
-            self.app.pending = Pending::Dirty;
+            self.app.owe_frame();
         }
     }
 
@@ -21699,9 +21979,7 @@ mod deferred_tests {
             .expect("the find's refresh");
         let gate = pump[..at].rfind("if ").expect("its gate");
         assert_eq!(pump[gate..at].trim(), fed, "the find's gate");
-        let dirty = pump
-            .find("self.app.pending = Pending::Dirty;")
-            .expect("the frame's");
+        let dirty = pump.find("self.app.owe_frame();").expect("the frame's");
         let frame = pump[..dirty].rfind("if ").expect("its gate");
         assert_eq!(pump[frame..dirty].trim(), fed, "the frame's gate");
     }
@@ -22747,5 +23025,35 @@ mod gate_tests {
             1
         );
         assert!(!pump.contains("let due = "), "no second gate in the pump");
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    /// **The effects read one clock** (`App::effects_now`): `tick_target`
+    /// is read there alone and written by the tick, so no effect starts at
+    /// a target a pause left stale -- a wheel's reveal ending before it is
+    /// seen, a transition or a trail done at once. Break: a reveal reading
+    /// the target again, and a second reader is named.
+    #[test]
+    fn the_effects_read_one_clock() {
+        const SRC: &str = include_str!("app.rs");
+        let field = concat!(".tick", "_target");
+        let lines: Vec<&str> = SRC
+            .lines()
+            .filter(|l| l.contains(field))
+            .map(str::trim)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                concat!(
+                    "crate::frames::effects_now(host_now(), ",
+                    "HostTime::of_secs(self.tick",
+                    "_target))"
+                ),
+                concat!("self.app.tick", "_target = target;"),
+            ]
+        );
     }
 }

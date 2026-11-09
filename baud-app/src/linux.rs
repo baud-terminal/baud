@@ -1154,7 +1154,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     d.renderer
                         .set_cursor_look(crate::caret::look(f, d.unfocused_cursor));
                     if f == Focus::Gained {
-                        d.caret.input(Instant::now());
+                        if d.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+                            d.pending = Pending::Dirty;
+                        }
                         // Back from another app: what is struck is asked
                         // again.
                         d.seat.paths.recheck();
@@ -1677,7 +1679,11 @@ impl Driver {
         match owed {
             Owed::Nothing => {}
             Owed::Frame => self.pending = Pending::Dirty,
-            Owed::Keys => self.caret.input(Instant::now()),
+            Owed::Keys => {
+                if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+                    self.pending = Pending::Dirty;
+                }
+            }
             // A selection made is SELECT's: the primary, or the clipboard
             // under `?1041`, as xterm's `select-end(SELECT, CUT_BUFFER0)`
             // (note V's V13 copy-on-select is this on Linux).
@@ -2859,7 +2865,9 @@ impl Driver {
         }
         // A key shows the cursor, restarts its blink, and is input to its
         // stop.
-        self.caret.input(Instant::now());
+        if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
         // SRM reset: the core drew the key itself, a frame owed now rather
         // than at the next read.
         if self.term.local_echo() {
@@ -2997,7 +3005,9 @@ impl Driver {
         if self.seat.key(&mut self.term) {
             self.reveal_thumb();
         }
-        self.caret.input(Instant::now());
+        if self.caret.input(Instant::now()) == crate::caret::Owes::Frame {
+            self.pending = Pending::Dirty;
+        }
         self.flush_reply();
         let pty = &self.pty;
         let form = crate::paste::form(&self.term, || pty.literal_next(), || pty.specials());

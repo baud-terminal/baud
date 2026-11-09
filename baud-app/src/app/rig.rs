@@ -92,6 +92,8 @@ thread_local! {
     static CLICK: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     /// The line the next `wake` sends the shell.
     static TYPED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    /// The characters the next `wake` sends as key presses.
+    static PRESSED: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// The click a `wake` takes, if the rig queued one.
@@ -102,6 +104,11 @@ pub(super) fn take_click() -> Option<Vec<u8>> {
 /// The line a `wake` sends the shell, if the rig queued one.
 pub(super) fn take_typed() -> Option<Vec<u8>> {
     TYPED.with(|c| c.borrow_mut().take())
+}
+
+/// The characters a `wake` sends as key presses, if the rig queued them.
+pub(super) fn take_pressed() -> Option<String> {
+    PRESSED.with(|c| c.borrow_mut().take())
 }
 
 /// The bound on one iteration: reaching it is that iteration's failure.
@@ -120,14 +127,17 @@ const SPACING: Duration = Duration::from_millis(50);
 /// already parsed into `RigCall`, the one type the parent builds too.
 pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
     use probe_call::{RigAct, RigCall, RigFocus, RigTicks};
-    let RigCall::Event(probe_call::EventRig {
+    let probe_call::EventRig {
         act,
         arg,
         iterations,
         ticks,
         focus,
         each,
-    }) = call;
+    } = match call {
+        RigCall::Event(e) => e,
+        RigCall::Frames(f) => return run_frames(f),
+    };
     // The focus door: baud believes its never-key window is key, or not.
     probe::set_key(match focus {
         RigFocus::Real => probe::Key::No,
@@ -266,6 +276,9 @@ fn run(
     driver.window_id = Some(id);
     driver.app.os.name(id);
     CLOSE.with_borrow_mut(|c| *c = Some((driver.app.os.closer(), id)));
+    // The display link run for the first frame, as `show` runs it, so the
+    // rig's ticks are delivered (`probe::Ticker`).
+    driver.app.owe_tick();
     driver.pump(Trigger::Opening);
     let cells = [0, 1, 2, 3].map(|col| driver.rig_point(Row::ZERO, Col::at_index(col)));
     view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
@@ -407,6 +420,147 @@ fn run(
     }
     // No panic stopped anywhere: a borrow taken twice in a nested turn
     // (the effect queue's re-entry) would be one, swallowed by its guard.
+    if baud_present_macos::unwind::caught() != baud_present_macos::unwind::Caught::NONE {
+        println!("a panic was caught");
+        failed = true;
+    }
+    match failed {
+        true => std::process::ExitCode::from(1),
+        false => std::process::ExitCode::SUCCESS,
+    }
+}
+
+/// **The frame rig** (`rig_call::FrameRig`): the window made as the event
+/// rig makes it and never shown; `setup` typed and read to its sign, the
+/// clear of the pasteboard it ends with; the display link left to settle;
+/// then `act` typed, if any, and the rig's ticks offered `attempts`
+/// times, each delivered only while the door's state is `Run`
+/// (`probe::Ticker`). Printed: the link's state at the end, the ticks
+/// delivered and the door's sends over the offered ticks, the links made
+/// in all, and the polls the last settle found still the tick's, and the
+/// palettes applied over them.
+/// **The window given the appearance it does not have**: dark for light,
+/// light for dark, as a light/dark flip gives it. AppKit tells the view,
+/// which tells its responder (`Responder::appearance`).
+fn restyle(window: &NSWindow) {
+    use macos_liquid_glass::objc2_app_kit::NSAppearance;
+    let to = match macos_liquid_glass::is_dark(&window.effectiveAppearance()) {
+        true => "NSAppearanceNameAqua",
+        false => "NSAppearanceNameDarkAqua",
+    };
+    let named = NSAppearance::appearanceNamed(&NSString::from_str(to));
+    window.setAppearance(named.as_deref());
+}
+
+fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
+    use probe_call::{RigFocus, RigHolders, RigKeys, RigWindow};
+    let Some(mtm) = MainThreadMarker::new() else {
+        return std::process::ExitCode::from(3);
+    };
+    probe::set_key(match rig.focus {
+        RigFocus::Real => probe::Key::No,
+        RigFocus::Believed => probe::Key::Yes,
+    });
+    probe::set_lift(match rig.holders {
+        RigHolders::Kept => probe::Lift::Kept,
+        RigHolders::Lifted => probe::Lift::Lifted,
+    });
+    let ns_app = NSApplication::sharedApplication(mtm);
+    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
+    crate::os_effect::install();
+    let size = WINDOW_SIZE;
+    let scale = 2.0;
+    let inset = predicted_inset(mtm, size);
+    let shell = Shell::start(scale, size, inset, None, None);
+    let Opening {
+        mut driver,
+        view,
+        window,
+        ..
+    } = Opening::new(mtm, size, scale, inset, shell, None);
+    let id = crate::windows::Windows::<()>::new().open(());
+    driver.window_id = Some(id);
+    driver.app.os.name(id);
+    // The first frame owed, as `show` owes it.
+    driver.app.owe_tick();
+    driver.pump(Trigger::Opening);
+    view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
+    let _ = window.ns_window().makeFirstResponder(Some(&view));
+    probe::set_waker(view.waker());
+    let ticker = probe::Ticker::new(&view);
+    // Each offered tick due a frame after now, on the display link's clock
+    // (`probe::set_target`), as a real link's would be.
+    let offer = |n: u16| {
+        for _ in 0..n {
+            let now = host_now().since(HostTime::ZERO).unwrap_or_default();
+            probe::set_target((now + Duration::from_micros(8333)).as_secs_f64());
+            ticker.tick();
+            probe::pass(0.01);
+        }
+    };
+    TYPED.with(|c| *c.borrow_mut() = Some([rig.setup.as_bytes(), b"\n"].concat()));
+    post(view.waker());
+    let start = Instant::now();
+    let mut ready = false;
+    while !ready && start.elapsed() < BOUND {
+        offer(1);
+        ready = probe::take()
+            .iter()
+            .any(|r| r.kind == probe::EffectKind::Clear);
+    }
+    if !ready {
+        println!("the row's screen was never drawn");
+        return std::process::ExitCode::from(1);
+    }
+    // Settled: what the setup owed drawn, and the link left as it then is.
+    offer(30);
+    let (_, sends) = probe::link();
+    let delivered = probe::delivered();
+    let drawn = probe::frames();
+    let styled = probe::styled();
+    match (rig.act.is_empty(), rig.keys) {
+        (true, _) => {}
+        (false, RigKeys::Line) => {
+            TYPED.with(|c| *c.borrow_mut() = Some([rig.act.as_bytes(), b"\n"].concat()));
+            post(view.waker());
+        }
+        (false, RigKeys::Pressed) => {
+            PRESSED.with(|c| *c.borrow_mut() = Some(rig.act.clone()));
+            post(view.waker());
+        }
+    }
+    // The window told, after the act.
+    match rig.window {
+        RigWindow::Untold => {}
+        RigWindow::Restyled => restyle(window.ns_window()),
+    }
+    offer(rig.attempts.0);
+    let (link, sends_after) = probe::link();
+    let holders = probe::holders();
+    println!(
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={}",
+        match link {
+            baud_present_macos::display_link::LinkState::Run => "run",
+            baud_present_macos::display_link::LinkState::Pause => "pause",
+        },
+        probe::delivered().0.saturating_sub(delivered.0),
+        sends_after.0.saturating_sub(sends.0),
+        probe::made().0,
+        probe::frames().value().saturating_sub(drawn.value()),
+        match holders.is_empty() {
+            true => "-".to_owned(),
+            false => holders.join(","),
+        },
+        probe::owes().replace(' ', ""),
+        probe::styled().0.saturating_sub(styled.0),
+    );
+    let _ = probe::take();
+    let w = window.ns_window();
+    let mut failed = false;
+    if w.isVisible() || w.isKeyWindow() || w.isMiniaturized() {
+        println!("the window was shown, made key or minimised");
+        failed = true;
+    }
     if baud_present_macos::unwind::caught() != baud_present_macos::unwind::Caught::NONE {
         println!("a panic was caught");
         failed = true;

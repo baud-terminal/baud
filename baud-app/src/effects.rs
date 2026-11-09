@@ -7,7 +7,6 @@
 
 use baud_core::Term;
 use baud_domain::{Chan, Col, RegisPhase, Row, Rows};
-#[cfg(any(target_os = "linux", test))]
 use baud_render::Blinking;
 use baud_render::{Blink, BlinkPhases, GuideLook, Window};
 
@@ -64,7 +63,6 @@ pub(crate) fn text_blink(target: f64, motion: crate::config::SystemMotion) -> Bl
 /// of `k`, and a wake that read the old phase would find its own deadline
 /// already behind it and wait for nothing else. A millisecond is far under
 /// a frame.
-#[cfg(any(target_os = "linux", test))]
 const PAST_FLIP: f64 = 0.001;
 
 /// **When blinking text next changes, at or after `target`**: the earliest
@@ -73,7 +71,6 @@ const PAST_FLIP: f64 = 0.001;
 /// holds both phases shown, so no wait is bounded by a blink. A slow-only
 /// screen wakes at the slow flips alone, as the macOS tick repaints only
 /// for a rate on screen (`Blinking::flips`).
-#[cfg(any(target_os = "linux", test))]
 pub(crate) fn next_flip(
     target: f64,
     seen: Blinking,
@@ -1223,9 +1220,21 @@ mod tests {
     /// they change under a badge, so a job started silently is shown.
     #[test]
     fn both_apps_bring_the_session_up_to_date() {
-        for (name, src, at) in [
-            ("app.rs", include_str!("app.rs"), "self.app.session"),
-            ("linux.rs", include_str!("linux.rs"), "self.session"),
+        // The macOS driver owes a frame through its door, which runs the
+        // display link (`App::owe_frame`).
+        for (name, src, at, owes) in [
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                "self.app.session",
+                "owe_frame()",
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                "self.session",
+                "pending = Pending::Dirty",
+            ),
         ] {
             let send = src.split_once("fn send_title(&mut self) {").expect(name).1;
             let body = &send[..send.find("\n    }\n").expect(name)];
@@ -1241,10 +1250,7 @@ mod tests {
             }
             assert!(body.contains(at), "{name}: {at}");
             let owed = body.split_once("badge_format().is_some()").expect(name).1;
-            assert!(
-                owed.contains("pending = Pending::Dirty"),
-                "{name}: a frame owed"
-            );
+            assert!(owed.contains(owes), "{name}: a frame owed");
         }
     }
 

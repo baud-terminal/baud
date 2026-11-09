@@ -321,6 +321,63 @@ const CALLS: &[(&str, Sites)] = &[
     ),
     // A turn is made in one place, which checks the main thread.
     ("Turn(", &[("src/turn.rs", "on_main", 1)]),
+    // The display link is started and stopped by its door alone, and a
+    // closing window's by the close's own stop beside it.
+    (
+        ".start_display_link(",
+        &[("src/display_link.rs", "send", 1)],
+    ),
+    (".stop_display_link(", &[("src/display_link.rs", "send", 1)]),
+    // The door is told to run only where a frame or a tick is owed, and
+    // to pause only where the driver settles (`pause`).
+    (
+        "LinkState::Run",
+        &[
+            ("../baud-app/src/app.rs", "owe_tick", 1),
+            // The frame rig prints the state the probe recorded.
+            ("../baud-app/src/app/rig.rs", "run_frames", 1),
+            // The call table both builds read.
+            ("src/display_link.rs", "call", 1),
+            ("src/probe.rs", "linked", 1),
+            ("src/probe.rs", "tick", 1),
+        ],
+    ),
+    (
+        "LinkState::Pause",
+        &[
+            ("../baud-app/src/app.rs", "pause", 1),
+            ("../baud-app/src/app/rig.rs", "run_frames", 1),
+            ("src/display_link.rs", "closed", 1),
+            ("src/display_link.rs", "call", 1),
+            ("src/display_link.rs", "new", 1),
+            ("src/probe.rs", "", 1),
+        ],
+    ),
+    // The holders are lifted only by the frame rig, in a probe build: the
+    // probe module exists only under the feature, so a build without it
+    // cannot name the lift at all.
+    (
+        "Lift::Lifted",
+        &[
+            ("../baud-app/src/app.rs", "holding", 1),
+            ("../baud-app/src/app/rig.rs", "run_frames", 1),
+        ],
+    ),
+    // A tick is owed through one door: a frame owed, the window's first
+    // frame at its opening (the rig's as well), a deadline's restart, and a
+    // settle that finds a frame owed.
+    (
+        "owe_tick(",
+        &[
+            ("../baud-app/src/app.rs", "owe_frame", 1),
+            ("../baud-app/src/app.rs", "owe_tick", 1),
+            ("../baud-app/src/app.rs", "restarted", 1),
+            ("../baud-app/src/app.rs", "settle", 1),
+            ("../baud-app/src/app.rs", "show", 1),
+            ("../baud-app/src/app/rig.rs", "run", 1),
+            ("../baud-app/src/app/rig.rs", "run_frames", 1),
+        ],
+    ),
 ];
 
 /// **Each desktop call is made in its own function, as many times as
@@ -339,6 +396,64 @@ fn each_desktop_call_is_made_in_its_own_function() {
         };
         let found = census(&sources, whole, call);
         assert_eq!(found, want(allowed), "{call}");
+    }
+}
+
+/// **A macOS window's frame is owed through `owe_frame` alone**, which
+/// runs the display link as it owes the frame, so a turn that never
+/// settles still draws: in the macOS driver's sources (`app.rs` and
+/// `app/`) the assignment is made in that one function. The Linux loop
+/// keeps its own, and waits on its own clock. Named break: a
+/// `self.app.pending = Pending::Dirty;` in `frame`.
+#[test]
+fn a_macos_frame_is_owed_only_through_its_door() {
+    let sources: Vec<_> = sources()
+        .into_iter()
+        .filter(|(name, _)| {
+            name == "../baud-app/src/app.rs" || name.starts_with("../baud-app/src/app/")
+        })
+        .collect();
+    assert!(sources.len() > 2, "the driver's sources: {}", sources.len());
+    let found = census(&sources, |_, _| true, "pending = Pending::Dirty");
+    assert_eq!(found, want(&[("../baud-app/src/app.rs", "owe_frame", 1)]));
+}
+
+/// **Every responder call settles once it returns, but `cursor_rect`**:
+/// each method of `Guarded`'s `Responder` ends by settling the inner
+/// responder (`unwind::Settles`), after its guarded call, so an early
+/// return inside the driver's method never skips the display link's
+/// settle. Named break: `frame` without `self.settled();`.
+#[test]
+fn every_responder_call_settles_but_the_cursor_rect() {
+    let src =
+        read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/unwind.rs")).expect("unwind.rs");
+    let code = production(&src);
+    let start = code
+        .find("impl<R: Responder + Settles> Responder for Guarded<R> {")
+        .expect("Guarded's responder");
+    let end = matching(
+        code.as_bytes(),
+        start + code[start..].find('{').expect("its body"),
+    )
+    .expect("its end");
+    let body = &code[start..end];
+    let spans = functions(body);
+    let names: Vec<&str> = spans.iter().map(|(n, ..)| n.as_str()).collect();
+    assert!(names.len() >= 15, "every method read: {names:?}");
+    for (name, from, to) in &spans {
+        let f = &body[*from..*to];
+        let settles = f.matches("self.settled();").count();
+        match name.as_str() {
+            "cursor_rect" => assert_eq!(settles, 0, "{name} changes nothing"),
+            _ => {
+                assert_eq!(settles, 1, "{name} settles once");
+                let guarded = f.find("guard(").expect("guarded");
+                assert!(
+                    guarded < f.find("self.settled();").expect("settled"),
+                    "{name}: after"
+                );
+            }
+        }
     }
 }
 

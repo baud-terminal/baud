@@ -56,8 +56,7 @@ impl<T: Moment> Every<T> {
     }
 
     /// How long from `now` until the report is due; zero once it is.
-    #[cfg(any(target_os = "linux", test))]
-    fn until(&self, now: T) -> Duration {
+    pub fn until(&self, now: T) -> Duration {
         self.last.after(EVERY).elapsed_since(now)
     }
 }

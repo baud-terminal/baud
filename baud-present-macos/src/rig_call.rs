@@ -18,12 +18,87 @@ use crate::probe::EffectKind;
 /// The event rig's flag.
 const EVENT_RIG: &str = "--event-rig";
 
+/// The frame rig's flag.
+const FRAME_RIG: &str = "--frame-rig";
+
 /// A rig's call: every mode a probe build runs as.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum RigCall {
     /// The event rig (`baud-app/src/app/rig.rs`).
     Event(EventRig),
+    /// The frame rig: what the display link does once a screen settles
+    /// (`baud-app/src/app/rig.rs`, `run_frames`).
+    Frames(FrameRig),
 }
+
+/// **The frame rig's call**: a screen drawn by `setup`, typed once and
+/// read to its sign; the display link left to settle; then `act` sent, if
+/// any, as `keys` says, the window told what `window` says, and the rig's
+/// ticks offered `attempts` times, each delivered only while the link
+/// runs. The child prints what the window's display link did over the
+/// offered ticks.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FrameRig {
+    /// The line that draws the screen; it ends with an `OSC 52` clear,
+    /// the sign it was read.
+    pub setup: String,
+    /// What is sent once the link has settled; empty for none.
+    pub act: String,
+    /// How many ticks are offered.
+    pub attempts: Iterations,
+    /// Whether baud believes the window is key (`probe::Key`).
+    pub focus: RigFocus,
+    /// Whether the polls still the tick's hold the link (`probe::Lift`).
+    pub holders: RigHolders,
+    /// What the window is told once the act is sent.
+    pub window: RigWindow,
+    /// How the act is sent.
+    pub keys: RigKeys,
+}
+
+/// **Whether the polls still the tick's hold the display link**: kept,
+/// as every real build has them, or lifted, the probe's ceiling arm, so
+/// the pause can be seen before every poll has its event. A row reads
+/// both arms' counters, and a lifted arm whose counters equal the kept
+/// arm's lifted nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigHolders {
+    Kept,
+    Lifted,
+}
+
+const HOLDERS: [(RigHolders, &str); 2] = [
+    (RigHolders::Kept, "holders-kept"),
+    (RigHolders::Lifted, "holders-lifted"),
+];
+
+/// **What the frame rig's window is told**, after the act and before the
+/// ticks, as AppKit tells it; the window is never shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigWindow {
+    /// Nothing.
+    Untold,
+    /// The appearance it does not have, dark for light or light for dark,
+    /// as a light/dark flip gives it: AppKit tells the view, and the view
+    /// its responder.
+    Restyled,
+}
+
+const WINDOW: [(RigWindow, &str); 2] = [
+    (RigWindow::Untold, "untold"),
+    (RigWindow::Restyled, "restyled"),
+];
+
+/// **How the frame rig's act is sent**: as a line to the shell, a newline
+/// after it, or as key presses through the driver's own key path, one a
+/// character and no newline, each opening what a key opens.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigKeys {
+    Line,
+    Pressed,
+}
+
+const KEYS: [(RigKeys, &str); 2] = [(RigKeys::Line, "line"), (RigKeys::Pressed, "pressed")];
 
 /// The event rig's call.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -132,14 +207,37 @@ impl RigCall {
     /// The arguments that make this call, the program's name not among
     /// them.
     pub fn to_args(&self) -> Vec<String> {
-        let RigCall::Event(EventRig {
+        let event = match self {
+            RigCall::Event(e) => e,
+            RigCall::Frames(FrameRig {
+                setup,
+                act,
+                attempts,
+                focus,
+                holders,
+                window,
+                keys,
+            }) => {
+                return vec![
+                    FRAME_RIG.to_owned(),
+                    setup.clone(),
+                    act.clone(),
+                    attempts.0.to_string(),
+                    word(&FOCUS, *focus).to_owned(),
+                    word(&HOLDERS, *holders).to_owned(),
+                    word(&WINDOW, *window).to_owned(),
+                    word(&KEYS, *keys).to_owned(),
+                ];
+            }
+        };
+        let EventRig {
             act,
             arg,
             iterations,
             ticks,
             focus,
             each,
-        }) = self;
+        } = event;
         vec![
             EVENT_RIG.to_owned(),
             word(&ACTS, *act).to_owned(),
@@ -154,6 +252,23 @@ impl RigCall {
     /// The call `args` make, the program's name not among them, or why
     /// they make none: anything but a well-formed rig call is refused.
     pub fn parse(args: &[String]) -> Result<RigCall, Refused> {
+        if args.first().is_some_and(|f| f == FRAME_RIG) {
+            let [_, setup, act, attempts, focus, holders, window, keys] = args else {
+                return Err(Refused("--frame-rig takes seven arguments"));
+            };
+            return Ok(RigCall::Frames(FrameRig {
+                setup: setup.clone(),
+                act: act.clone(),
+                attempts: attempts
+                    .parse()
+                    .map(Iterations)
+                    .map_err(|_| Refused("--frame-rig: attempts are a count"))?,
+                focus: of(&FOCUS, focus).ok_or(Refused("--frame-rig: no such focus"))?,
+                holders: of(&HOLDERS, holders).ok_or(Refused("--frame-rig: no such holders"))?,
+                window: of(&WINDOW, window).ok_or(Refused("--frame-rig: no such window event"))?,
+                keys: of(&KEYS, keys).ok_or(Refused("--frame-rig: no such keys"))?,
+            }));
+        }
         let [flag, act, arg, iterations, ticks, focus, each] = args else {
             return Err(match args.first() {
                 Some(f) if f == EVENT_RIG => Refused("--event-rig takes six arguments"),
@@ -209,10 +324,69 @@ mod tests {
             each: vec![EffectKind::Copy, EffectKind::Announce],
         });
         assert_eq!(RigCall::parse(&call.to_args()), Ok(call));
+        let frames = RigCall::Frames(FrameRig {
+            setup: "printf x".to_owned(),
+            act: String::new(),
+            attempts: Iterations(60),
+            focus: RigFocus::Real,
+            holders: RigHolders::Lifted,
+            window: RigWindow::Restyled,
+            keys: RigKeys::Pressed,
+        });
+        assert_eq!(RigCall::parse(&frames.to_args()), Ok(frames));
         for refused in [
             args(&[]),
             args(&["README.md"]),
             args(&["--event-rig"]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-kept",
+                "untold",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-gone",
+                "untold",
+                "line",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-kept",
+                "made-key",
+                "line",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-kept",
+                "untold",
+                "typed",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "-1",
+                "focus-real",
+                "holders-kept",
+                "untold",
+                "line",
+            ]),
             args(&["--event-rig", "path", "/a", "3", "tick", "copy"]),
             args(&[
                 "--event-rig",

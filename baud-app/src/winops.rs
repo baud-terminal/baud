@@ -1609,7 +1609,7 @@ mod tests {
             "            self.app.flush_reply(Asked::Typed);\n",
             "        }\n",
             "        if owed.frame == LineFrame::Owed {\n",
-            "            self.app.pending = Pending::Dirty;\n",
+            "            self.app.owe_frame();\n",
             "        }\n"
         );
         assert_eq!(
