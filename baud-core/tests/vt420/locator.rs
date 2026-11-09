@@ -159,13 +159,13 @@ fn a_dropped_decrqlp_answer_leaves_a_one_shot_decelr_on() {
     support::with_term(&WS, |t| {
         t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[2'z");
-        let before = t.reply_overflows;
-        while t.reply_overflows == before {
+        let before = t.reply_counts().overflows;
+        while t.reply_counts().overflows == before {
             support::feed(t, b"\x1b[5n");
         }
-        let full = t.reply_overflows;
+        let full = t.reply_counts().overflows;
         support::feed(t, b"\x1b['|");
-        assert_eq!(t.reply_overflows, full + 1, "dropped and counted");
+        assert_eq!(t.reply_counts().overflows, full + 1, "dropped and counted");
         t.clear_reply();
         support::feed(t, b"\x1b['|\x1b['|");
         assert_eq!(show(t.reply()), show(b"\x1b[1;0&w\x1b[0&w"));

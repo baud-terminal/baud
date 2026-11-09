@@ -71,7 +71,8 @@ impl Paint<'_, '_> {
                     let mut buf = [0u8; NOTICE_CHUNK_MAX];
                     let len = r.len();
                     buf[..len].copy_from_slice(r);
-                    self.push_reply(&[&buf[..len]]);
+                    let frame = StringReply::osc(StringTerm::St);
+                    self.reply.lend(self.cold).string(frame, &[&buf[..len]]);
                 }
             }
             // Metadata that is not the text's form is a string this core

@@ -189,8 +189,9 @@ impl Paint<'_, '_> {
     fn report_terminal_state(&mut self) {
         let mut data = [0u8; TSR_DATA_MAX + 2];
         let n = self.terminal_state().encode(&mut data);
-        let c1 = self.cold.replies.c1();
-        self.push_reply(&[c1.dcs(), b"1$s", &data[..n], c1.st()]);
+        self.reply
+            .lend(self.cold)
+            .string(StringReply::dcs(), &[b"1$s", &data[..n]]);
     }
 
     /// DECCTR, `DCS 2 $ s Pc;Pu;Px;Py;Pz/... ST`: a group for each colour
@@ -199,13 +200,9 @@ impl Paint<'_, '_> {
     /// is left out, as that query answers nothing for it. Sent whole or
     /// not at all.
     fn report_color_table(&mut self, space: ColorSpace) {
-        let c1 = self.cold.replies.c1();
         let mut out = [0u8; CTR_REPLY_MAX];
-        let mut n = 0;
-        for part in [c1.dcs(), b"2$s"] {
-            out[n..n + part.len()].copy_from_slice(part);
-            n += part.len();
-        }
+        out[..3].copy_from_slice(b"2$s");
+        let mut n = 3;
         let mut first = true;
         for pc in 0..=255u8 {
             let i = usize::from(pc);
@@ -224,10 +221,9 @@ impl Paint<'_, '_> {
             first = false;
             n += color_group(pc, rgb, space, &mut out[n..]);
         }
-        let st = c1.st();
-        out[n..n + st.len()].copy_from_slice(st);
-        n += st.len();
-        self.push_reply(&[&out[..n]]);
+        self.reply
+            .lend(self.cold)
+            .string(StringReply::dcs(), &[&out[..n]]);
     }
 
     /// DECRSTS, `DCS Ps $ p`: 1 restores a DECTSR, kept to its terminator

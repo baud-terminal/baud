@@ -1145,9 +1145,11 @@ pub struct NoticeDesk {
     pub refusals: NoticeRefusals,
 }
 
-/// The reply a desk owes, borrowed from its area for the caller to write.
+/// The reply a desk owes, borrowed from its area for the caller to write:
+/// the body of an `OSC 99`, from `99 ;`, which the caller frames as `OSC`
+/// ... `ST` in the controls S7C1T/S8C1T chose.
 pub struct Reply<'a> {
-    parts: [&'a [u8]; 5],
+    parts: [&'a [u8]; 4],
     n: usize,
 }
 
@@ -1156,11 +1158,6 @@ impl<'a> Reply<'a> {
         &self.parts[..self.n]
     }
 }
-
-/// The bytes a reply is written into before it is lent: the id, and for a
-/// query its list, each in the area's chunk, which no chunk is using once
-/// one has ended.
-const ST: &[u8] = b"\x1b\\";
 
 impl NoticeDesk {
     pub const NEW: NoticeDesk = NoticeDesk {
@@ -1736,7 +1733,7 @@ impl NoticeDesk {
             buf: &mut area[l.chunk..l.chunk + NOTICE_CHUNK_MAX],
             n: 0,
         };
-        w.put(b"\x1b]99;i=");
+        w.put(b"99;i=");
         w.put(if id.is_empty() { b"0" } else { id });
         w.put(b":p=?;");
         let mut first = true;
@@ -1790,7 +1787,6 @@ impl NoticeDesk {
         if s.expiry == ExpirySupport::Expires {
             key(&mut w, b"w=1");
         }
-        w.put(ST);
         let len = w.n;
         self.owed = Owed::Query(Span { at: l.chunk, len });
         ChunkEnd::Replied
@@ -1805,7 +1801,7 @@ impl NoticeDesk {
             buf: &mut head[l.chunk..l.chunk + NOTICE_CHUNK_MAX],
             n: 0,
         };
-        w.put(b"\x1b]99;i=");
+        w.put(b"99;i=");
         w.put(id);
         w.put(b":p=alive;");
         let mut first = true;
@@ -1821,13 +1817,13 @@ impl NoticeDesk {
                 w.put(&rest[i * NOTICE_ID_MAX..][..x.id]);
             }
         }
-        w.put(ST);
         let len = w.n;
         self.owed = Owed::Alive(Span { at: l.chunk, len });
         ChunkEnd::Replied
     }
 
-    /// The reply a chunk's end composed, once; the caller writes it.
+    /// The reply a chunk's end composed, once: the body of an `OSC 99`,
+    /// from `99 ;`, which the caller frames.
     pub fn take_reply<'a>(&mut self, area: &'a [u8]) -> Option<&'a [u8]> {
         let s = match core::mem::replace(&mut self.owed, Owed::Nothing) {
             Owed::Nothing => return None,
@@ -1860,8 +1856,8 @@ impl NoticeDesk {
             Some(b) => BUTTON_DIGITS[usize::from(b.0)],
         };
         Some(Reply {
-            parts: [b"\x1b]99;i=", id, b";", n, ST],
-            n: 5,
+            parts: [b"99;i=", id, b";", n],
+            n: 4,
         })
     }
 
@@ -1918,8 +1914,8 @@ impl NoticeDesk {
             n => &area[l.live + slot * NOTICE_ID_MAX..][..n],
         };
         Some(Reply {
-            parts: [b"\x1b]99;i=", id, b":p=close;", tail, ST],
-            n: 5,
+            parts: [b"99;i=", id, b":p=close;", tail],
+            n: 4,
         })
     }
 

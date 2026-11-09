@@ -188,24 +188,14 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// The stream's replies into the reply buffer, each whole or counted.
+    /// The stream's replies into the reply buffer, each whole or counted,
+    /// framed as `APC` ... `ST` in the controls S7C1T/S8C1T chose.
     pub(crate) fn kitty_replies(&mut self) {
-        let s = &mut *self.strs;
-        let b = s.kitty.replies();
-        if b.is_empty() {
-            return;
+        let frame = StringReply::apc();
+        for body in self.strs.kitty.replies() {
+            self.reply.lend(self.cold).string(frame, &[body]);
         }
-        let at = self.reply_len.index();
-        match at + b.len() <= self.reply.len() {
-            true => {
-                for (d, x) in self.reply[at..at + b.len()].iter_mut().zip(b) {
-                    *d = *x;
-                }
-                self.reply_len = ByteLen::from_index(at + b.len());
-            }
-            false => self.reply_overflows += 1,
-        }
-        s.kitty.clear_replies();
+        self.strs.kitty.clear_replies();
     }
 }
 
@@ -222,20 +212,13 @@ impl Term<'_> {
         let p = s
             .kitty
             .step(budget, &mut self.store.images, s.kitty_scratch);
-        let b = s.kitty.replies();
-        if !b.is_empty() {
-            let at = self.reply_len.index();
-            match at + b.len() <= self.store.reply.len() {
-                true => {
-                    for (d, x) in self.store.reply[at..at + b.len()].iter_mut().zip(b) {
-                        *d = *x;
-                    }
-                    self.reply_len = ByteLen::from_index(at + b.len());
-                }
-                false => self.reply_overflows += 1,
-            }
-            s.kitty.clear_replies();
+        // Framed with the controls in force now, as a reply written later
+        // than its query is.
+        let frame = StringReply::apc();
+        for body in s.kitty.replies() {
+            self.store.reply.lend(&self.cold).string(frame, &[body]);
         }
+        s.kitty.clear_replies();
         p
     }
 

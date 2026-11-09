@@ -24,6 +24,84 @@ pub enum StringTerm {
     Bel,
 }
 
+impl StringTerm {
+    /// **The terminator a reply ends with**, the query's: `BEL` as `BEL`,
+    /// and `ST` as `ESC \` or, after S8C1T, 9C -- xterm's `unparseputc1`
+    /// sends the final it was given, in C1 when it is one
+    /// (`[[source: xterm-sgr]]` charproc.c 9356-9365).
+    pub fn bytes(self, c1: C1Transmit) -> &'static [u8] {
+        match self {
+            StringTerm::St => c1.st(),
+            StringTerm::Bel => b"\x07",
+        }
+    }
+}
+
+/// Which control string a reply is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StringIntro {
+    /// `OSC`: a colour, a font, an allow list, iTerm2's and kitty's answers.
+    Osc,
+    /// `DCS`: XTVERSION, DECRQSS, the presentation state reports.
+    Dcs,
+    /// `APC`: kitty's graphics replies.
+    Apc,
+}
+
+/// **A string reply's frame**: its introducer, and the terminator of the
+/// query it answers, each spelled in the C1 form the terminal sends in,
+/// which the writer passes as it writes: the frame carries no mode of its
+/// own, so no caller can pick one. The one way a reply's `OSC`, `DCS`,
+/// `APC` and `ST` are spelled, so a reply after S8C1T opens with 9D, 90 or
+/// 9F and closes with 9C, as xterm's do (`ReportAnsiColorRequest`,
+/// `[[source: xterm-misc]]` 2636-2655), and a `BEL` query is answered with
+/// `BEL`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StringReply {
+    pub intro: StringIntro,
+    pub term: StringTerm,
+}
+
+impl StringReply {
+    /// An `OSC` reply to a query that ended with `term`.
+    pub fn osc(term: StringTerm) -> StringReply {
+        StringReply {
+            intro: StringIntro::Osc,
+            term,
+        }
+    }
+
+    /// A `DCS` reply, ended by `ST`.
+    pub fn dcs() -> StringReply {
+        StringReply {
+            intro: StringIntro::Dcs,
+            term: StringTerm::St,
+        }
+    }
+
+    /// An `APC` reply, ended by `ST`.
+    pub fn apc() -> StringReply {
+        StringReply {
+            intro: StringIntro::Apc,
+            term: StringTerm::St,
+        }
+    }
+
+    /// The introducer, in the C1 form `c1` names.
+    pub fn open(self, c1: C1Transmit) -> &'static [u8] {
+        match self.intro {
+            StringIntro::Osc => c1.osc(),
+            StringIntro::Dcs => c1.dcs(),
+            StringIntro::Apc => c1.apc(),
+        }
+    }
+
+    /// The terminator, in the C1 form `c1` names.
+    pub fn close(self, c1: C1Transmit) -> &'static [u8] {
+        self.term.bytes(c1)
+    }
+}
+
 /// **Whether a read stops so its answers can go out**
 /// (`Term::set_reply_hold`): once the replies a read has queued leave less
 /// room than the longest answer one control can owe, the read stops after
@@ -413,15 +491,21 @@ impl VersionText {
         self.version
     }
 
-    /// The reply's bytes in order: `DCS > | baud(`, the text and `) ST`.
-    /// `ESC P` under `S8C1T` too, as `Report::Version` encodes it.
-    pub const fn reply_parts(self) -> [&'static [u8]; 3] {
-        [b"\x1bP>|baud(", self.version.as_bytes(), b")\x1b\\"]
+    /// The reply's bytes in order: `DCS > | baud(`, the text and `) ST`,
+    /// `DCS` and `ST` in the C1 form `c1` sends, as xterm's
+    /// `CASE_REPORT_VERSION` writes them with `unparseputc1`
+    /// (`[[source: xterm-sgr]]` charproc.c 5461-5470).
+    pub const fn reply_parts(self, c1: C1Transmit) -> [&'static [u8]; 3] {
+        match c1 {
+            C1Transmit::SevenBit => [b"\x1bP>|baud(", self.version.as_bytes(), b")\x1b\\"],
+            C1Transmit::EightBit => [b"\x90>|baud(", self.version.as_bytes(), b")\x9c"],
+        }
     }
 
-    /// How long the reply is, in bytes.
+    /// How long the reply is, in bytes, in 7-bit: the longer of its two
+    /// forms, so the room it is checked against holds either.
     pub const fn reply_len(self) -> usize {
-        let [a, b, c] = self.reply_parts();
+        let [a, b, c] = self.reply_parts(C1Transmit::SevenBit);
         a.len() + b.len() + c.len()
     }
 }
@@ -544,11 +628,27 @@ impl C1Transmit {
             C1Transmit::EightBit => b"\x9b",
         }
     }
+    /// OSC: the introducer for an operating system command reply, 9D in C1
+    /// as xterm's `unparseputc1(xw, ANSI_OSC)` sends it.
+    pub fn osc(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1b]",
+            C1Transmit::EightBit => b"\x9d",
+        }
+    }
     /// DCS: the introducer for a device control string reply.
     pub fn dcs(self) -> &'static [u8] {
         match self {
             C1Transmit::SevenBit => b"\x1bP",
             C1Transmit::EightBit => b"\x90",
+        }
+    }
+    /// APC: the introducer for an application program command reply, 9F
+    /// in C1, as S8C1T governs every C1 control the terminal sends.
+    pub fn apc(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1b_",
+            C1Transmit::EightBit => b"\x9f",
         }
     }
     /// SS3: the single-shift the cursor and keypad keys use in application
@@ -1075,7 +1175,7 @@ impl Report {
                 // (`Paint::want_reply`), which may be longer than this
                 // buffer.
                 e.len = ByteLen::ZERO;
-                for part in VersionText::PACKAGE.reply_parts() {
+                for part in VersionText::PACKAGE.reply_parts(c1) {
                     for &b in part {
                         e.push(b);
                     }
@@ -1092,8 +1192,10 @@ impl Report {
                 // encoder starts with, the way `Version` and `Vt52Identity`
                 // do.
                 e.len = ByteLen::ZERO;
-                e.push(0x1b);
-                e.push(b']');
+                let frame = StringReply::osc(term);
+                for b in frame.open(c1) {
+                    e.push(*b);
+                }
                 e.push(b'4');
                 e.push(b';');
                 e.push_num(index.get() as u16);
@@ -1106,12 +1208,8 @@ impl Report {
                 e.push_hex(g);
                 e.push(b'/');
                 e.push_hex(b);
-                match term {
-                    StringTerm::St => {
-                        e.push(0x1b);
-                        e.push(b'\\');
-                    }
-                    StringTerm::Bel => e.push(0x07),
+                for b in frame.close(c1) {
+                    e.push(*b);
                 }
             }
             Report::SpecialColor {
@@ -1125,8 +1223,10 @@ impl Report {
                 // `OSC 5 ; c ; spec` or `OSC 4 ; 256+c ; spec`, the rewind
                 // and spec form of `Color`.
                 e.len = ByteLen::ZERO;
-                e.push(0x1b);
-                e.push(b']');
+                let frame = StringReply::osc(term);
+                for b in frame.open(c1) {
+                    e.push(*b);
+                }
                 match via {
                     SpecialVia::Special => {
                         e.push(b'5');
@@ -1148,12 +1248,8 @@ impl Report {
                 e.push_hex(g);
                 e.push(b'/');
                 e.push_hex(b);
-                match term {
-                    StringTerm::St => {
-                        e.push(0x1b);
-                        e.push(b'\\');
-                    }
-                    StringTerm::Bel => e.push(0x07),
+                for b in frame.close(c1) {
+                    e.push(*b);
                 }
             }
             Report::DynamicColor {
@@ -1167,8 +1263,10 @@ impl Report {
                 // same spec form as `Color`, with the colour's own code in
                 // place of `4 ; index`.
                 e.len = ByteLen::ZERO;
-                e.push(0x1b);
-                e.push(b']');
+                let frame = StringReply::osc(term);
+                for b in frame.open(c1) {
+                    e.push(*b);
+                }
                 e.push_num(which.code());
                 e.push(b';');
                 for &c in b"rgb:" {
@@ -1179,12 +1277,8 @@ impl Report {
                 e.push_hex(g);
                 e.push(b'/');
                 e.push_hex(b);
-                match term {
-                    StringTerm::St => {
-                        e.push(0x1b);
-                        e.push(b'\\');
-                    }
-                    StringTerm::Bel => e.push(0x07),
+                for b in frame.close(c1) {
+                    e.push(*b);
                 }
             }
             Report::ModeStatus {

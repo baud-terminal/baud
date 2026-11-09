@@ -19,7 +19,7 @@
 
 use baud_domain::{
     ByteLen, FontChanges, FontEntry, FontIndex, FontRequest, FontSize, FontWritten, SizeStep,
-    StringTerm,
+    StringReply, StringTerm,
 };
 
 use crate::paint::Paint;
@@ -234,17 +234,13 @@ impl Paint<'_, '_> {
         let Some(name) = asks.known() else {
             return;
         };
-        let end: &[u8] = match term {
-            StringTerm::Bel => b"\x07",
-            StringTerm::St => b"\x1b\\",
+        let frame = StringReply::osc(term);
+        let body: [&[u8]; 2] = match (asks.entry(i), i.written) {
+            (Entry::None, _) | (Entry::Unnumbered, FontWritten::Yes) => [b"50", b""],
+            (_, FontWritten::No) => [b"50;", name],
+            (Entry::Numbered, FontWritten::Yes) => [b"50;#0 ", name],
         };
-        match (asks.entry(i), i.written) {
-            (Entry::None, _) | (Entry::Unnumbered, FontWritten::Yes) => {
-                self.push_reply(&[b"\x1b]50", end])
-            }
-            (_, FontWritten::No) => self.push_reply(&[b"\x1b]50;", name, end]),
-            (Entry::Numbered, FontWritten::Yes) => self.push_reply(&[b"\x1b]50;#0 ", name, end]),
-        }
+        self.reply.lend(self.cold).string(frame, &body);
     }
 
     /// **Queue a change for the embedder**, or count it: refused while

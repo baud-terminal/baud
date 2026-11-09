@@ -171,7 +171,6 @@ impl Term<'_> {
             self.cluster,
             self.last_cp,
             &mut self.cold,
-            self.reply_len,
             self.title_len,
             self.icon_len,
             self.link,
@@ -384,9 +383,6 @@ impl Term<'_> {
         self.flags = p.flags;
         self.charset = p.charset;
         self.cluster = p.cluster;
-        // Replies queued during the read, carried back like the cursor.
-        self.reply_len = p.reply_len;
-        self.reply_overflows += p.reply_overflows;
         // Control-string results, carried back like the cursor. The three
         // states are assignments and the four counters accumulate, which is
         // the same split every counter here has: a length is where the string

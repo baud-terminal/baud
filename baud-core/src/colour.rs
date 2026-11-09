@@ -19,13 +19,13 @@
 //! that is not `ST` reaches none, so a cancelled sequence changes nothing,
 //! as ECMA-48 cancels a control string.
 //!
-//! **The reply is kitty's exactly**: one `OSC 21 ; key=value ; ... ESC \`
+//! **The reply is kitty's exactly**: one `OSC 21 ; key=value ; ... ST`
 //! for the queries of a sequence, none when it asked nothing; each key as
 //! it was sent and once, where it was first asked, with what the last ask
 //! found, as kitty's responses dict keeps them; a colour as
 //! `rgb:rr/gg/bb`; a colour with no defined value empty; a key baud does
-//! not know `?`. Always `ESC \`, whatever ended the request, as kitty's
-//! write_escape_code_to_child ends every OSC (`[[source:
+//! not know `?`. Always `ST`, in C1 after S8C1T, whatever ended the request, as
+//! kitty's write_escape_code_to_child ends every OSC (`[[source:
 //! kitty-6d5d0c4-screen]]` 1728-1741).
 
 use crate::osc::StrKind;
@@ -159,8 +159,8 @@ const BODY_MAX: usize = REPLY_MOST - 7;
 /// is the protocol's state.
 pub struct KittyColours {
     /// `key=value` entries joined by `;`, the reply's body after `21;`.
-    reply: [u8; BODY_MAX],
-    reply_len: ByteLen,
+    body: [u8; BODY_MAX],
+    body_len: ByteLen,
     room: Room,
     record: Record,
     /// A palette entry's override after the records so far: `None` where
@@ -172,8 +172,8 @@ pub struct KittyColours {
 impl KittyColours {
     /// Nothing in flight.
     pub const NEW: KittyColours = KittyColours {
-        reply: [0; BODY_MAX],
-        reply_len: ByteLen::ZERO,
+        body: [0; BODY_MAX],
+        body_len: ByteLen::ZERO,
         room: Room::Fits,
         record: Record::Whole,
         palette: [None; 256],
@@ -209,7 +209,7 @@ impl KittyColours {
     }
 
     fn begin(&mut self) {
-        self.reply_len = ByteLen::ZERO;
+        self.body_len = ByteLen::ZERO;
         self.room = Room::Fits;
         self.record = Record::Whole;
         self.palette = [None; 256];
@@ -240,47 +240,47 @@ impl KittyColours {
             Answer::Undefined => b"",
             Answer::Unknown => b"?",
         };
-        let len = self.reply_len.index();
+        let len = self.body_len.index();
         // The entry already there, if this key was asked before.
         let mut at = 0;
         while at < len {
-            let end = self.reply[at..len]
+            let end = self.body[at..len]
                 .iter()
                 .position(|&b| b == b';')
                 .map_or(len, |p| at + p);
-            let entry = &self.reply[at..end];
+            let entry = &self.body[at..end];
             let eq = entry.iter().position(|&b| b == b'=').unwrap_or(entry.len());
             if &entry[..eq] == key {
                 let (from, to) = (at + eq + 1, end);
                 let grown = len - (to - from) + v.len();
-                if grown > self.reply.len() {
+                if grown > self.body.len() {
                     self.room = Room::Overflowed;
                     return;
                 }
-                self.reply.copy_within(to..len, from + v.len());
-                self.reply[from..from + v.len()].copy_from_slice(v);
-                self.reply_len = ByteLen::from_index(grown);
+                self.body.copy_within(to..len, from + v.len());
+                self.body[from..from + v.len()].copy_from_slice(v);
+                self.body_len = ByteLen::from_index(grown);
                 return;
             }
             at = end + 1;
         }
         let sep = usize::from(len > 0);
         let need = len + sep + key.len() + 1 + v.len();
-        if need > self.reply.len() {
+        if need > self.body.len() {
             self.room = Room::Overflowed;
             return;
         }
         let mut w = len;
         if sep == 1 {
-            self.reply[w] = b';';
+            self.body[w] = b';';
             w += 1;
         }
-        self.reply[w..w + key.len()].copy_from_slice(key);
+        self.body[w..w + key.len()].copy_from_slice(key);
         w += key.len();
-        self.reply[w] = b'=';
+        self.body[w] = b'=';
         w += 1;
-        self.reply[w..w + v.len()].copy_from_slice(v);
-        self.reply_len = ByteLen::from_index(need);
+        self.body[w..w + v.len()].copy_from_slice(v);
+        self.body_len = ByteLen::from_index(need);
     }
 }
 
@@ -333,17 +333,19 @@ impl Paint<'_, '_> {
     /// control's answer, `REPLY_MOST`, for the framing it goes out in,
     /// `ESC ] 2 1 ;` and `ESC \`, so the room a hold leaves always takes
     /// it. A longer body is dropped and counted by [`Room::Overflowed`], and
-    /// one behind replies that leave it no room by `push_reply`. Either
-    /// drops the reply whole, never a cut one.
+    /// one behind replies that leave it no room by the reply buffer. Either
+    /// drops the reply whole, never a cut one. Framed in the controls
+    /// S7C1T/S8C1T chose, and always ended by `ST` (the module's doc).
     fn colour_reply(&mut self) {
         let c = &*self.strs.colours;
-        let len = c.reply_len.index();
+        let len = c.body_len.index();
         match c.room {
-            Room::Overflowed => self.reply_overflows += 1,
+            Room::Overflowed => self.reply.lend(self.cold).dropped(),
             Room::Fits if len > 0 => {
-                let mut body = [0u8; BODY_MAX];
-                body[..len].copy_from_slice(&c.reply[..len]);
-                self.push_reply(&[b"\x1b]21;", &body[..len], b"\x1b\\"]);
+                let frame = StringReply::osc(StringTerm::St);
+                self.reply
+                    .lend(self.cold)
+                    .string(frame, &[b"21;", &c.body[..len]]);
             }
             Room::Fits => {}
         }

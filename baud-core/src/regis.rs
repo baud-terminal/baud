@@ -395,9 +395,7 @@ impl Paint<'_, '_> {
         self.images.set_page_zoom(regis.zoom());
         let mut out = Out {
             reply: &mut *self.reply,
-            reply_len: &mut self.reply_len,
-            overflows: &mut self.reply_overflows,
-            c1: self.cold.replies.c1(),
+            cold: &*self.cold,
             hold: self.cold.width.reply_hold,
             images: &mut *self.images,
             page: &mut self.strs.regis_page,
@@ -953,11 +951,10 @@ enum Recolor {
 
 /// What ReGIS draws on and answers through.
 struct Out<'a, 'b> {
-    reply: &'a mut [u8],
-    reply_len: &'a mut ByteLen,
-    overflows: &'a mut usize,
-    /// How the null button's `CSI` is sent (S7C1T, S8C1T).
-    c1: C1Transmit,
+    reply: &'a mut crate::outgoing::Outgoing<'b>,
+    /// The terminal's state, read for what S7C1T and S8C1T last set: how
+    /// the null button's `CSI` and every report are sent.
+    cold: &'a crate::term::Cold,
     /// Whether a read stops for its answers (`Paint::replies_low`).
     hold: ReplyHold,
     images: &'a mut ImageStore<'b>,
@@ -1142,16 +1139,9 @@ impl RegisOut for Out<'_, '_> {
 
     /// **A report is sent whole or not at all**, the rule `want_reply`
     /// follows: a truncated one is a wrong answer, so one that does not fit
-    /// is dropped and counted in `reply_overflows`.
+    /// is dropped and counted in `ReplyCounts::overflows`.
     fn reply(&mut self, bytes: &[u8]) {
-        let at = self.reply_len.index();
-        match self.reply.get_mut(at..at + bytes.len()) {
-            Some(dst) => {
-                dst.copy_from_slice(bytes);
-                *self.reply_len = ByteLen::from_index(at + bytes.len());
-            }
-            None => *self.overflows += 1,
-        }
+        self.reply.lend(self.cold).regis(&RegisReport(bytes));
     }
 
     /// The test `Paint::replies_low` makes between two controls, made
@@ -1159,8 +1149,7 @@ impl RegisOut for Out<'_, '_> {
     /// the playing stops once its reports leave less room than one control
     /// can owe, and `Paint::regis_hold` stops the read there.
     fn replies_low(&self) -> bool {
-        self.reply_len.index() > crate::storage::REPLY - crate::storage::REPLY_MOST
-            && self.hold == ReplyHold::On
+        self.reply.low() && self.hold == ReplyHold::On
     }
 
     fn delay(&mut self, _: RegisTicks) {}
@@ -1190,9 +1179,10 @@ impl RegisOut for Out<'_, '_> {
     /// whole or dropped.
     fn interactive(&mut self, pos: &[u8]) {
         let mut b = [0u8; REPORT_MAX];
-        let null = LocatorKeys::DEFAULT.string(LocatorTransition::Null, self.c1.csi());
+        let null =
+            LocatorKeys::DEFAULT.string(LocatorTransition::Null, self.cold.replies.c1().csi());
         let r = report_bytes(&mut b, null.as_bytes(), pos);
-        self.reply(r);
+        self.reply.lend(self.cold).regis(&r);
     }
 }
 
@@ -1205,18 +1195,25 @@ pub(crate) const REPORT_MAX: usize = KeyBytes::MAX_LEN + 64;
 /// button pressed. Following this code is the current position of the
 /// input cursor ... The report ends with the carriage return character
 /// (CR)" (`[[source: vt3xx-locator]]`). The bytes written.
-pub(crate) fn report_bytes<'o>(
-    out: &'o mut [u8; REPORT_MAX],
-    prefix: &[u8],
-    pos: &[u8],
-) -> &'o [u8] {
+fn report_bytes<'o>(out: &'o mut [u8; REPORT_MAX], prefix: &[u8], pos: &[u8]) -> RegisReport<'o> {
     let mut n = 0;
     for part in [prefix, pos, b"\r"] {
         let take = part.len().min(out.len() - n);
         out[n..n + take].copy_from_slice(&part[..take]);
         n += take;
     }
-    &out[..n]
+    RegisReport(&out[..n])
+}
+
+/// **A ReGIS input report**, as [`report_bytes`] builds it or the
+/// carriage return alone: the one shape of reply [`crate::outgoing::Outgoing`]
+/// takes from ReGIS, built only in this file.
+pub(crate) struct RegisReport<'a>(&'a [u8]);
+
+impl RegisReport<'_> {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.0
+    }
 }
 
 impl Term<'_> {
@@ -1352,18 +1349,7 @@ impl Term<'_> {
         let k = self.store.strs.regis.input_position(&mut pos);
         let mut b = [0u8; REPORT_MAX];
         let r = report_bytes(&mut b, prefix, &pos[..k]);
-        let (at, n) = (self.reply_len.index(), r.len());
-        match at + n <= self.store.reply.len() {
-            true => {
-                self.store.reply[at..at + n].copy_from_slice(r);
-                self.reply_len = ByteLen::from_index(at + n);
-                true
-            }
-            false => {
-                self.reply_overflows += 1;
-                false
-            }
-        }
+        self.store.reply.lend(&self.cold).regis(&r)
     }
 
     /// **A key while one-shot input waits**: `None` when none does, and the
@@ -1477,17 +1463,6 @@ impl Term<'_> {
         }
         self.store.strs.regis.input_abandon();
         self.regis_cursor_redraw();
-        let at = self.reply_len.index();
-        match at < self.store.reply.len() {
-            true => {
-                self.store.reply[at] = b'\r';
-                self.reply_len = ByteLen::from_index(at + 1);
-                true
-            }
-            false => {
-                self.reply_overflows += 1;
-                false
-            }
-        }
+        self.store.reply.lend(&self.cold).regis(&RegisReport(b"\r"))
     }
 }

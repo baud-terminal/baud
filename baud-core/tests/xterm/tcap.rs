@@ -280,10 +280,10 @@ fn xtgettcap_is_sent_whole_or_dropped_and_counted() {
             support::feed(t, b"\x1b[c");
             pending.extend_from_slice(&da);
         }
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         support::feed(t, &q);
         assert_eq!(t.reply(), &pending[..], "nothing of it is sent");
-        assert_eq!(t.reply_overflows, before + 1);
+        assert_eq!(t.reply_counts().overflows, before + 1);
     });
 }
 

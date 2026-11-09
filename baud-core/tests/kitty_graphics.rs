@@ -840,16 +840,16 @@ fn a_relative_placement_naming_no_placement_is_refused_and_a_frame_made() {
     });
 }
 
-/// **A reply is `ESC _ G ... ESC \\` whatever S8C1T says**: the shape the
-/// text gives ("`<ESC>_Gi=31;OK<ESC>\\`"). Following S8C1T is an open
-/// question. The DA after it is the control: S8C1T took.
+/// **A reply follows S8C1T**: the text's shape ("`<ESC>_Gi=31;OK<ESC>\\`")
+/// with `APC` and `ST` in C1, 9F ... 9C, as S8C1T governs every C1 control
+/// the terminal sends. The DA after it is the control: S8C1T took.
 #[test]
-fn replies_keep_the_seven_bit_shape_under_s8c1t() {
+fn replies_follow_s8c1t() {
     with(64, |t| {
         let mut r = Vec::new();
         feed(t, b"\x1b G", &mut r);
         feed(t, &apc("a=q,i=1,f=24,s=1,v=1", b"AAAA"), &mut r);
-        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+        assert_eq!(r, b"\x9fGi=1;OK\x9c");
         let mut da = Vec::new();
         feed(t, b"\x1b[c", &mut da);
         assert_eq!(da.first(), Some(&0x9b), "S8C1T is on: {da:?}");

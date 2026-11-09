@@ -50,7 +50,7 @@ fn answered(setup: &[u8], body: &[u8], chunk: usize, hold: ReplyHold) -> (Vec<u8
     t.set_reply_hold(hold);
     support::feed(&mut t, setup);
     t.clear_reply();
-    let before = t.reply_overflows;
+    let before = t.reply_counts().overflows;
     let mut out = Vec::new();
     for read in body.chunks(chunk) {
         t.write_at(BytePos::ZERO, read);
@@ -65,7 +65,7 @@ fn answered(setup: &[u8], body: &[u8], chunk: usize, hold: ReplyHold) -> (Vec<u8
             next = t.take_held();
         }
     }
-    (out, t.reply_overflows - before)
+    (out, t.reply_counts().overflows - before)
 }
 
 /// The reference: a byte at a time, drained after each, every answer apart.
@@ -83,7 +83,11 @@ fn answers(setup: &[u8], body: &[u8]) -> Vec<Vec<u8>> {
         }
         t.clear_reply();
     }
-    assert_eq!(t.reply_overflows, 0, "a byte at a time, every answer fits");
+    assert_eq!(
+        t.reply_counts().overflows,
+        0,
+        "a byte at a time, every answer fits"
+    );
     out
 }
 

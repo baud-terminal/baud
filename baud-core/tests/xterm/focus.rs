@@ -98,7 +98,7 @@ fn the_vim_recording_enables_it() {
 }
 
 /// **A report the reply buffer cannot hold returns `false`.** `focus` said
-/// `true` for a report `queue` had dropped -- counted in `reply_overflows`,
+/// `true` for a report `queue` had dropped -- counted in `ReplyCounts::overflows`,
 /// and then announced as sent -- the same defect `mouse_report` had, found
 /// beside it on 2026-10-09.
 #[test]
@@ -112,13 +112,13 @@ fn a_report_that_does_not_fit_says_so() {
     for i in 0..fit {
         assert!(t.focus(Focus::Gained), "report {i} fits");
     }
-    let before = t.reply_overflows;
+    let before = t.reply_counts().overflows;
     assert!(
         !t.focus(Focus::Lost),
         "the next does not fit, and must say so"
     );
     assert_eq!(t.reply().len(), fit * 3, "dropped whole");
-    assert_eq!(t.reply_overflows, before + 1, "and counted");
+    assert_eq!(t.reply_counts().overflows, before + 1, "and counted");
     // Positive control: into a drained buffer it is queued.
     t.clear_reply();
     assert!(t.focus(Focus::Lost));

@@ -174,7 +174,7 @@ impl Paint<'_, '_> {
     /// **XTGETTCAP is answered** by `encode_tcap_reply`, from xterm's table
     /// and the keys as they would be sent now, whole or not at all: an
     /// answer that does not fit behind the replies already pending is
-    /// dropped and counted in `reply_overflows`, as DECRQSS's is. A list cut
+    /// dropped and counted in `ReplyCounts::overflows`, as DECRQSS's is. A list cut
     /// at `OSC_MAX` ends before the name the cut fell in, which an
     /// even-length cut could make a different name.
     ///
@@ -202,17 +202,10 @@ impl Paint<'_, '_> {
                     let kept = list.iter().rposition(|&b| b == b';').unwrap_or(0);
                     list = &list[..kept];
                 }
-                let at = self.reply_len.index();
-                match encode_tcap_reply(
-                    list,
-                    self.cold.replies.c1(),
-                    self.cold.key_state(),
-                    self.strs.tcap.name,
-                    &mut self.reply[at..],
-                ) {
-                    Some(len) => self.reply_len = ByteLen::from_index(at + len.index()),
-                    None => self.reply_overflows += 1,
-                }
+                let (keys, name) = (self.cold.key_state(), self.strs.tcap.name);
+                let mut b = self.reply.lend(self.cold).body(StringReply::dcs());
+                b.fill(|room| encode_tcap_reply(list, keys, name, room));
+                b.finish();
             }
             Some(b'p') => {
                 self.strs.tcap.sets_refused = self.strs.tcap.sets_refused.next();
@@ -258,23 +251,17 @@ impl Paint<'_, '_> {
             XResource::CjkWidth => XValue::of(cold.widths.ambiguous() == AmbiguousWidth::Wide),
         };
         let mut out = [0u8; XTGETXRES_MAX];
-        match encode_xres_reply(list, cold.replies.c1(), value, &mut out) {
+        match encode_xres_reply(list, value, &mut out) {
             // No first name xterm reads, and so no reply: counted as a
             // parameter not acted on, as XTQMODKEYS counts a resource it
             // does not have.
             Some(ByteLen::ZERO) => self.unsupported_param += 1,
             Some(len) => {
-                let len = len.index();
-                let at = self.reply_len.index();
-                match self.reply.get_mut(at..at + len) {
-                    Some(dst) => {
-                        dst.copy_from_slice(&out[..len]);
-                        self.reply_len = ByteLen::from_index(at + len);
-                    }
-                    None => self.reply_overflows += 1,
-                }
+                self.reply
+                    .lend(self.cold)
+                    .string(StringReply::dcs(), &[&out[..len.index()]]);
             }
-            None => self.reply_overflows += 1,
+            None => self.reply.lend(self.cold).dropped(),
         }
     }
 
@@ -298,7 +285,7 @@ impl Paint<'_, '_> {
     /// after it on the application's side. Now the answer is assembled in a
     /// [`DECRQSS_MAX`]-byte [`Status`] on the stack and copied under one check,
     /// as `want_reply` copies a `Report`; one that does not fit is dropped and
-    /// counted once in `reply_overflows`.
+    /// counted once in `ReplyCounts::overflows`.
     #[cold]
     #[inline(never)]
     pub(crate) fn report_status(&mut self, t: StatusTarget) {
@@ -318,10 +305,9 @@ impl Paint<'_, '_> {
         // every `CSI` reply to the eight-bit form and left DECRQSS announcing
         // itself with `ESC P` -- read as the start of something else by an
         // application that asked for eight-bit replies and parses them as
-        // such. `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`.
-        let c1 = self.cold.replies.c1();
+        // such. `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`. The
+        // reply buffer's doors frame it in the live form.
         let mut s = Status::new();
-        s.push(c1.dcs());
         match t {
             // **A setting this core does not record answers `0$r`, not
             // silence.** `docs/vt-coverage.md`'s rule is never to answer a
@@ -499,17 +485,14 @@ impl Paint<'_, '_> {
                 s.push(b"f");
             }
         }
-        s.push(c1.st());
-        let at = self.reply_len.index();
+        // **A truncated reply is a wrong answer**, so a reply that does not
+        // fit is dropped whole and counted once -- the rule `want_reply`,
+        // `Term::queue` and `Term::key` follow.
         match s.bytes() {
-            Some(b) if at + b.len() <= self.reply.len() => {
-                self.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
+            Some(b) => {
+                self.reply.lend(self.cold).string(StringReply::dcs(), &[b]);
             }
-            // **A truncated reply is a wrong answer**, so a reply that does
-            // not fit is dropped whole and counted once -- the rule
-            // `want_reply`, `Term::queue` and `Term::key` follow.
-            _ => self.reply_overflows += 1,
+            None => self.reply.lend(self.cold).dropped(),
         }
     }
 }
@@ -523,16 +506,13 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn report_rendition(&mut self, w: StyleWord) {
         let mut s = Status::new();
-        s.push(self.cold.replies.c1().csi());
         s.sgr(w);
         s.push(b"m");
-        let at = self.reply_len.index();
         match s.bytes() {
-            Some(b) if at + b.len() <= self.reply.len() => {
-                self.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
+            Some(b) => {
+                self.reply.lend(self.cold).csi(b);
             }
-            _ => self.reply_overflows += 1,
+            None => self.reply.lend(self.cold).dropped(),
         }
     }
 }

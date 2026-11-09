@@ -106,16 +106,16 @@ fn the_longest_answer_is_within_its_bound_and_whole_or_nothing() {
         list.extend_from_slice(&one);
     }
     let mut out = vec![0u8; tcap_reply_max(OSC_LIST)];
-    let n = encode_tcap_reply(&list, C1Transmit::SevenBit, state(), name, &mut out)
+    let n = encode_tcap_reply(&list, state(), name, &mut out)
         .expect("the bound holds it")
         .index();
     assert_eq!(list.len(), 509);
     assert!(n <= tcap_reply_max(list.len()));
-    assert!(out[..n].starts_with(b"\x1bP1+r544E="));
+    assert!(out[..n].starts_with(b"1+r544E="));
     let mut short = vec![0u8; n - 1];
-    assert!(encode_tcap_reply(&list, C1Transmit::SevenBit, state(), name, &mut short).is_none());
+    assert!(encode_tcap_reply(&list, state(), name, &mut short).is_none());
     let mut exact = vec![0u8; n];
-    assert!(encode_tcap_reply(&list, C1Transmit::SevenBit, state(), name, &mut exact).is_some());
+    assert!(encode_tcap_reply(&list, state(), name, &mut exact).is_some());
 }
 
 /// A list the core's string buffer holds after its `q`.

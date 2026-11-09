@@ -947,17 +947,14 @@ impl Paint<'_, '_> {
             }
             AllowQuery::Disallowed(None) | AllowQuery::Allowable(None) | AllowQuery::Malformed => {}
         }
-        let end: &[u8] = match term {
-            StringTerm::Bel => b"\x07",
-            StringTerm::St => b"\x1b\\",
-        };
         // A truncated reply is a wrong answer (`Paint::want_reply`).
         if out.state == ListState::Cut {
-            self.reply_overflows += 1;
+            self.reply.lend(self.cold).dropped();
             return;
         }
         let len = out.len.index();
-        self.push_reply(&[&out.buf[..len], end]);
+        let frame = StringReply::osc(term);
+        self.reply.lend(self.cold).string(frame, &[&out.buf[..len]]);
     }
 
     /// Whether `OSC 60` lists category `c` now: the one reading XTGETXRES
@@ -1184,7 +1181,6 @@ impl AllowList {
             len: ByteLen::ZERO,
             state: ListState::Empty,
         };
-        l.put(b"\x1b]");
         l.put(ps);
         l
     }

@@ -224,9 +224,9 @@ impl Paint<'_, '_> {
     /// told the program nothing, as [`Term::locator`]'s.
     fn locator_reply(&mut self, t: LocatorTrigger) {
         let r = report_of(self.cold, self.rows, self.cols, t);
-        let dropped = self.reply_overflows;
+        let dropped = self.reply.counts().overflows;
         self.want_reply(r);
-        if self.reply_overflows == dropped {
+        if self.reply.counts().overflows == dropped {
             reported(self.cold);
         }
     }

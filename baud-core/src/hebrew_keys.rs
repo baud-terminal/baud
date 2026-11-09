@@ -88,7 +88,6 @@ impl Term<'_> {
             self.cluster,
             self.last_cp,
             &mut self.cold,
-            self.reply_len,
             self.title_len,
             self.icon_len,
             self.link,

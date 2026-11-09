@@ -314,14 +314,15 @@ const fn digits(v: usize) -> usize {
     n
 }
 
-/// DECTABSR, `DCS 2 $ u D...D ST`, into `out`: "a string of numeric
+/// DECTABSR, `DCS 2 $ u D...D ST`, its body into `out`, which the caller
+/// frames as `DCS` ... `ST` in the controls S7C1T/S8C1T chose: "a string of numeric
 /// parameters specifying where tabulation stops are currently set in the
 /// terminal, separated by slash ("/") characters" (`[[source: dec-std-070]]`
 /// p. 5-204), each a column from 1, `tabs[i]` the stop at column `i + 1`.
 /// **Whole or nothing**: `None`, and nothing written, when `out` cannot hold
 /// it all, since a truncated reply is a wrong answer.
-pub fn encode_tab_report(tabs: &[bool], c1: C1Transmit, out: &mut [u8]) -> Option<ByteLen> {
-    let mut len = c1.dcs().len() + 3 + c1.st().len();
+pub fn encode_tab_report(tabs: &[bool], out: &mut [u8]) -> Option<ByteLen> {
+    let mut len = 3;
     for (k, (i, _)) in tabs.iter().enumerate().filter(|(_, t)| **t).enumerate() {
         len += digits(i + 1) + usize::from(k > 0);
     }
@@ -333,7 +334,6 @@ pub fn encode_tab_report(tabs: &[bool], c1: C1Transmit, out: &mut [u8]) -> Optio
         out[w..w + bytes.len()].copy_from_slice(bytes);
         w += bytes.len();
     };
-    put(c1.dcs());
     put(b"2$u");
     for (k, (i, _)) in tabs.iter().enumerate().filter(|(_, t)| **t).enumerate() {
         if k > 0 {
@@ -352,7 +352,6 @@ pub fn encode_tab_report(tabs: &[bool], c1: C1Transmit, out: &mut [u8]) -> Optio
         }
         put(&d[20 - n..]);
     }
-    put(c1.st());
     Some(ByteLen::from_index(len))
 }
 

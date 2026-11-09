@@ -849,7 +849,7 @@ fn the_longest_feature_reply_fits() {
         t.reply()
             .ends_with(b",SetSelection,SetXprop,StatusLine\x07")
     );
-    assert_eq!(t.reply_overflows, 0);
+    assert_eq!(t.reply_counts().overflows, 0);
 }
 
 // ── the pointer ─────────────────────────────────────────────────────────────

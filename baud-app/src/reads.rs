@@ -509,7 +509,7 @@ mod tests {
             assert!(done * longest <= REPLY, "a read holds {done} queries");
             at += read.len();
         }
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         let mut child = Vec::new();
         feed(
             &mut t,
@@ -521,7 +521,7 @@ mod tests {
         let answered = child.windows(4).filter(|w| w == b"\x1b]4;").count();
         assert_eq!(answered, 256, "every index is answered");
         assert_eq!(child, want, "in order, each with its query's terminator");
-        assert_eq!(t.reply_overflows, before, "and nothing overflowed");
+        assert_eq!(t.reply_counts().overflows, before, "and nothing overflowed");
         assert!(t.reply().is_empty(), "nothing is left behind");
     }
 
@@ -555,7 +555,7 @@ mod tests {
                 |_| {},
                 &mut crate::hostlog::NoLog,
             );
-            (one, child, t.reply_overflows)
+            (one, child, t.reply_counts().overflows)
         };
         let (one, child, lost) = run(true);
         let n = stream.len() / query.len();
@@ -584,7 +584,7 @@ mod tests {
         t.write_at(BytePos::ZERO, &earlier);
         t.feed(BytePos::ZERO, ReadLen::from_index(earlier.len()));
         assert_eq!(t.reply().len(), 228, "the answers are pending");
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         let read = b"\x1b]4;1;?\x07\x1b]4;2;?\x1b\\";
         let mut child = Vec::new();
         feed(
@@ -598,7 +598,7 @@ mod tests {
         want.extend_from_slice(b"\x1b]4;1;rgb:1212/3434/5656\x07");
         want.extend_from_slice(b"\x1b]4;2;rgb:1212/3434/5656\x1b\\");
         assert_eq!(child, want, "the earlier answers, then the read's");
-        assert_eq!(t.reply_overflows, before, "and nothing overflowed");
+        assert_eq!(t.reply_counts().overflows, before, "and nothing overflowed");
     }
 
     /// **A read a page-width request held is fed on after `after`**, which
@@ -700,7 +700,7 @@ mod tests {
         let sent = run(&mut t, &mut pace, done, &[]);
         assert_eq!(sent, 605 * report.len(), "and the five after it");
         assert_eq!(row0(&t), "AB");
-        assert_eq!(t.reply_overflows, 0);
+        assert_eq!(t.reply_counts().overflows, 0);
         assert!(child.chunks(report.len()).all(|c| c == report));
     }
 
@@ -995,7 +995,7 @@ mod tests {
         t.write_at(BytePos::ZERO, &read);
         t.feed(BytePos::ZERO, ReadLen::from_index(read.len()));
         assert_eq!(t.reply().len(), 252, "the answers are pending");
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         let mut child = Vec::new();
         let up = KeyEvent::press(KeyCode::Up, Modifiers::SHIFT.with(Modifiers::CTRL));
         let queued = input(&mut t, |t| t.key(up), |b| child.extend_from_slice(b));
@@ -1003,7 +1003,7 @@ mod tests {
         let mut want = b"\x1b[0n".repeat(63);
         want.extend_from_slice(b"\x1b[1;6A");
         assert_eq!(child, want, "the answers, then the key");
-        assert_eq!(t.reply_overflows, before, "and nothing overflowed");
+        assert_eq!(t.reply_counts().overflows, before, "and nothing overflowed");
     }
 
     /// Base64, padded, for the kitty payload below.

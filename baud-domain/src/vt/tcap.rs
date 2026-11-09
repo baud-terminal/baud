@@ -318,10 +318,11 @@ impl Put<'_> {
     }
 }
 
-/// Answer an XTGETTCAP whose list, the bytes after its `q`, is `list`, into
-/// `out`, in the controls `c1` names. **Whole or nothing**: `None`, and
-/// nothing to send, when `out` cannot hold all of it, since a truncated
-/// reply is a wrong answer.
+/// Answer an XTGETTCAP whose list, the bytes after its `q`, is `list`: the
+/// body into `out`, which the caller frames as `DCS` ... `ST` in the
+/// controls S7C1T/S8C1T chose. **Whole or nothing**: `None`, and nothing
+/// to send, when `out` cannot hold all of it, since a truncated reply is a
+/// wrong answer.
 ///
 /// One response, `DCS 1 + r n1=v1;n2=v2 ST`, ending at the first name
 /// refused, without the `;` before it; `DCS 0 + r ST` when the first is.
@@ -329,7 +330,6 @@ impl Put<'_> {
 /// request's bytes.
 pub fn encode_tcap_reply(
     list: &[u8],
-    c1: C1Transmit,
     keys: KeyState,
     term: TermName,
     out: &mut [u8],
@@ -339,7 +339,6 @@ pub fn encode_tcap_reply(
         w: 0,
         fit: Fit::Whole,
     };
-    p.raw(c1.dcs());
     let (mut found, mut end) = name_at(list, 0, &term);
     let mut at = 0;
     match found {
@@ -376,7 +375,6 @@ pub fn encode_tcap_reply(
             p.raw(b";");
         }
     }
-    p.raw(c1.st());
     match p.fit {
         Fit::Whole => Some(ByteLen::from_index(p.w)),
         Fit::Overflowed => None,

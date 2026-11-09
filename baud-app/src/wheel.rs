@@ -359,7 +359,7 @@ mod tests {
     /// **A 40-line fling reaches the child as 40 reports.** It reached it as
     /// 21: the loop queued a twelve-byte report a line into the core's
     /// 256-byte reply buffer and drained it once, after the loop, so the
-    /// 22nd to the 40th were dropped -- counted in `reply_overflows`, and
+    /// 22nd to the 40th were dropped -- counted in `ReplyCounts::overflows`, and
     /// answered `true` by a `mouse_report` that had not queued them.
     #[test]
     fn a_long_fling_under_herdr_reaches_the_child_whole() {
@@ -367,7 +367,7 @@ mod tests {
         let mut t = Term::new(s.storage(), &WS);
         feed(&mut t, HERDR);
         t.clear_reply();
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         let mut child = Vec::new();
         report(
             &mut t,
@@ -380,7 +380,7 @@ mod tests {
         let reports = child.windows(one.len()).filter(|w| w == one).count();
         assert_eq!(reports, 40, "one report a line, and none dropped");
         assert_eq!(child, one.repeat(40), "and nothing else");
-        assert_eq!(t.reply_overflows, before, "nothing overflowed");
+        assert_eq!(t.reply_counts().overflows, before, "nothing overflowed");
         assert!(t.reply().is_empty(), "nothing left behind");
     }
 
@@ -441,7 +441,7 @@ mod tests {
             |b| calls += usize::from(!b.is_empty()),
         );
         assert_eq!(calls, 0);
-        assert_eq!(t.reply_overflows, 0);
+        assert_eq!(t.reply_counts().overflows, 0);
     }
 
     /// **`?1007 l` takes the wheel off the arrow keys.** `[[source:

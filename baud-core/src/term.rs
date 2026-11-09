@@ -2375,12 +2375,6 @@ pub struct Term<'b> {
     pub scroll_rot: usize,
     #[cfg(feature = "diag")]
     pub scroll_copy: usize,
-    /// How many bytes of `store.reply` are pending.
-    pub(crate) reply_len: ByteLen,
-    /// Replies dropped because the buffer was full. Counted rather than
-    /// silently lost: a truncated reply is a wrong answer, and this file's
-    /// rule is that a wrong answer is worse than silence.
-    pub reply_overflows: usize,
     /// How much of the title and icon buffers is live, and the open link.
     pub(crate) title_len: ByteLen,
     pub(crate) icon_len: ByteLen,
@@ -2391,7 +2385,7 @@ pub struct Term<'b> {
     ///
     /// A count rather than a callback, because the core cannot make a sound
     /// and an embedder can -- and a **field** rather than an accessor, which
-    /// is the convention its neighbours already set: `reply_overflows` and
+    /// is the convention its neighbours already set: `ReplyCounts::overflows` and
     /// `string_truncations` are read the same way. The audit is what settled
     /// it, refusing a `-> usize` return where a public field is not a
     /// signature at all.
@@ -3756,8 +3750,6 @@ impl<'b> Term<'b> {
             scroll_rot: 0,
             #[cfg(feature = "diag")]
             scroll_copy: 0,
-            reply_len: ByteLen::ZERO,
-            reply_overflows: 0,
             title_len: ByteLen::ZERO,
             icon_len: ByteLen::ZERO,
             link: LinkId::NONE,
@@ -4400,7 +4392,6 @@ impl<'b> Term<'b> {
                 self.cluster,
                 self.last_cp,
                 &mut self.cold,
-                self.reply_len,
                 self.title_len,
                 self.icon_len,
                 self.link,
@@ -4642,7 +4633,6 @@ impl<'b> Term<'b> {
             self.cluster,
             self.last_cp,
             &mut self.cold,
-            self.reply_len,
             self.title_len,
             self.icon_len,
             self.link,
@@ -5219,7 +5209,7 @@ impl<'b> Term<'b> {
     /// you send [`Term::reply`] and feed the rest [`Term::take_held`] hands
     /// back, as after a page-width request: then no answer is dropped, however
     /// many questions one read asks. Off, a reply that does not fit is
-    /// dropped whole and counted in `reply_overflows`.
+    /// dropped whole and counted in `ReplyCounts::overflows`.
     pub fn set_reply_hold(&mut self, hold: baud_domain::ReplyHold) {
         self.cold.width.reply_hold = hold;
     }
@@ -5803,12 +5793,18 @@ impl<'b> Term<'b> {
     /// Write these back to wherever the input came from, then call
     /// [`Term::clear_reply`]. Empty when there is nothing to say.
     pub fn reply(&self) -> &[u8] {
-        &self.store.reply[..self.reply_len.index()]
+        self.store.reply.bytes()
     }
 
     /// Drop the pending reply after sending it.
     pub fn clear_reply(&mut self) {
-        self.reply_len = ByteLen::ZERO;
+        self.store.reply.clear();
+    }
+
+    /// **What became of the replies that did not go in**: each dropped
+    /// whole and counted, never cut ([`ReplyCounts`]).
+    pub fn reply_counts(&self) -> crate::ReplyCounts {
+        self.store.reply.counts()
     }
 
     /// The codepoints attached to the cell at `(r, c)`, after its base.
@@ -6586,20 +6582,7 @@ impl<'b> Term<'b> {
     /// resize or a cell-size change, `?2031` after a theme change -- are
     /// counted and nothing more.
     pub(crate) fn queue(&mut self, r: Report) -> bool {
-        let bytes = r.encode(self.cold.replies.c1());
-        let b = bytes.as_bytes();
-        let at = self.reply_len.index();
-        match at + b.len() <= self.store.reply.len() {
-            true => {
-                self.store.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
-                true
-            }
-            false => {
-                self.reply_overflows += 1;
-                false
-            }
-        }
+        self.store.reply.lend(&self.cold).report(r)
     }
 
     /// ANSI or VT52.
@@ -6719,12 +6702,11 @@ impl<'b> Term<'b> {
     pub fn notice_activated(&mut self, token: NoticeToken, button: Option<NoticeButton>) -> bool {
         let strs = &self.store.strs;
         match strs.notices.activated(strs.notice_area, token, button) {
-            Some(r) => put_reply(
-                self.store.reply,
-                &mut self.reply_len,
-                &mut self.reply_overflows,
-                r.parts(),
-            ),
+            Some(r) => self
+                .store
+                .reply
+                .lend(&self.cold)
+                .string(StringReply::osc(StringTerm::St), r.parts()),
             None => false,
         }
     }
@@ -6734,12 +6716,11 @@ impl<'b> Term<'b> {
     pub fn notice_closed(&mut self, token: NoticeToken) -> bool {
         let strs = &mut self.store.strs;
         match strs.notices.closed(strs.notice_area, token) {
-            Some(r) => put_reply(
-                self.store.reply,
-                &mut self.reply_len,
-                &mut self.reply_overflows,
-                r.parts(),
-            ),
+            Some(r) => self
+                .store
+                .reply
+                .lend(&self.cold)
+                .string(StringReply::osc(StringTerm::St), r.parts()),
             None => false,
         }
     }
@@ -6750,12 +6731,11 @@ impl<'b> Term<'b> {
     pub fn notice_shown(&mut self, token: NoticeToken) -> bool {
         let strs = &self.store.strs;
         match strs.notices.shown(strs.notice_area, token) {
-            Some(r) => put_reply(
-                self.store.reply,
-                &mut self.reply_len,
-                &mut self.reply_overflows,
-                r.parts(),
-            ),
+            Some(r) => self
+                .store
+                .reply
+                .lend(&self.cold)
+                .string(StringReply::osc(StringTerm::St), r.parts()),
             None => false,
         }
     }
@@ -7163,22 +7143,13 @@ impl<'b> Term<'b> {
     /// key that sends nothing or does not fit.
     fn queue_key(&mut self, e: KeyEvent) -> Option<KeyBytes> {
         let k = self.encode(e)?;
-        let b = k.as_bytes();
-        let at = self.reply_len.index();
         // A truncated key is a wrong answer, so it is dropped whole and
         // counted rather than half-sent -- the same rule `want_reply` follows,
         // and for the same reason: an application reads the first byte as the
         // start of a sequence that never arrives.
-        match at + b.len() <= self.store.reply.len() {
-            true => {
-                self.store.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
-                Some(k)
-            }
-            false => {
-                self.reply_overflows += 1;
-                None
-            }
+        match self.store.reply.lend(&self.cold).key(&k) {
+            true => Some(k),
+            false => None,
         }
     }
 
@@ -7295,23 +7266,4 @@ impl Term<'_> {
     pub fn local_echo(&self) -> bool {
         !self.cold.modes.is_set(ModeBit::SendReceive)
     }
-}
-
-/// A reply of `parts` into the reply buffer, whole or not at all: a
-/// truncated reply is a wrong answer, so one that does not fit is dropped
-/// and counted, as [`Term::queue`] drops one.
-fn put_reply(reply: &mut [u8], len: &mut ByteLen, overflows: &mut usize, parts: &[&[u8]]) -> bool {
-    let at = len.index();
-    let n: usize = parts.iter().map(|p| p.len()).sum();
-    if at + n > reply.len() {
-        *overflows += 1;
-        return false;
-    }
-    let mut w = at;
-    for p in parts {
-        reply[w..w + p.len()].copy_from_slice(p);
-        w += p.len();
-    }
-    *len = ByteLen::from_index(w);
-    true
 }

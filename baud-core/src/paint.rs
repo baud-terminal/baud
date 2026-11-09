@@ -152,10 +152,8 @@ pub(crate) struct Paint<'a, 'b> {
     /// **A slice rather than a report queued for later.** A single read can
     /// carry several queries -- an application probing on startup sends `DA`
     /// and `DSR` together -- so there is nothing to hold them in but the
-    /// buffer itself.
-    pub(crate) reply: &'a mut [u8],
-    pub(crate) reply_len: ByteLen,
-    pub(crate) reply_overflows: usize,
+    /// buffer itself, behind [`crate::outgoing::Outgoing`]'s doors.
+    pub(crate) reply: &'a mut crate::outgoing::Outgoing<'b>,
     /// How much of `title` and `icon` is live. Lengths rather than a
     /// terminator, because a title may legitimately contain any byte.
     pub(crate) title_len: ByteLen,
@@ -411,7 +409,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         cluster: ClusterBreak,
         last_cp: Option<(Codepoint, Width, Pen)>,
         cold: &'a mut crate::term::Cold,
-        reply_len: ByteLen,
         title_len: ByteLen,
         icon_len: ByteLen,
         link: LinkId,
@@ -483,8 +480,6 @@ impl<'a, 'b> Paint<'a, 'b> {
             tmpl,
             tabs,
             reply,
-            reply_len,
-            reply_overflows: 0,
             title_len,
             icon_len,
             link,
@@ -2086,32 +2081,12 @@ impl<'a, 'b> Paint<'a, 'b> {
                 .strs
                 .version
                 .unwrap_or(&baud_domain::VersionText::PACKAGE);
-            let at = self.reply_len.index();
-            match at + told.reply_len() <= self.reply.len() {
-                true => {
-                    let mut end = at;
-                    for part in told.reply_parts() {
-                        self.reply[end..end + part.len()].copy_from_slice(part);
-                        end += part.len();
-                    }
-                    self.reply_len = ByteLen::from_index(end);
-                }
-                false => self.reply_overflows += 1,
-            }
+            self.reply.lend(self.cold).version(told);
             return;
         }
-        let bytes = r.encode(self.cold.replies.c1());
-        let b = bytes.as_bytes();
-        let at = self.reply_len.index();
-        match at + b.len() <= self.reply.len() {
-            true => {
-                self.reply[at..at + b.len()].copy_from_slice(b);
-                self.reply_len = ByteLen::from_index(at + b.len());
-            }
-            // A truncated reply is a wrong answer, so it is dropped whole and
-            // counted rather than half-sent.
-            false => self.reply_overflows += 1,
-        }
+        // A truncated reply is a wrong answer, so it is dropped whole and
+        // counted rather than half-sent.
+        self.reply.lend(self.cold).report(r);
     }
 
     /// Move to the start of the next line, scrolling if there is no next line.

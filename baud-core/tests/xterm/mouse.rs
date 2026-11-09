@@ -411,7 +411,7 @@ fn one_parameter_t_is_still_scroll_down() {
 
 /// **A report the reply buffer cannot hold returns `false`, the way
 /// [`Term::key`] already does.** `mouse_report` returned `true` for it: the
-/// report was dropped whole and counted in `reply_overflows`, which is right,
+/// report was dropped whole and counted in `ReplyCounts::overflows`, which is right,
 /// and then the return value said it had been sent, which is not. An
 /// embedder that asks `true` to mean "queued" -- the wheel loop draining the
 /// buffer only when it fills -- could not tell the drop from the send.
@@ -443,13 +443,13 @@ fn a_report_that_does_not_fit_says_so() {
         assert!(term.mouse_report(wheel), "report {i} fits and is queued");
     }
     assert_eq!(term.reply(), one.repeat(fit).as_slice());
-    let before = term.reply_overflows;
+    let before = term.reply_counts().overflows;
     assert!(
         !term.mouse_report(wheel),
         "a report that does not fit is not queued, and must not answer true"
     );
     assert_eq!(term.reply().len(), fit * one.len(), "dropped whole");
-    assert_eq!(term.reply_overflows, before + 1, "and counted");
+    assert_eq!(term.reply_counts().overflows, before + 1, "and counted");
     // Positive control: the same report into a drained buffer is queued, so
     // the `false` above meant "did not fit" and not "not wanted".
     term.clear_reply();
@@ -472,9 +472,9 @@ fn an_x10_report_that_does_not_fit_says_so() {
     for i in 0..fit {
         assert!(term.mouse_report(press), "report {i} fits");
     }
-    let before = term.reply_overflows;
+    let before = term.reply_counts().overflows;
     assert!(!term.mouse_report(press), "the next does not fit");
-    assert_eq!(term.reply_overflows, before + 1);
+    assert_eq!(term.reply_counts().overflows, before + 1);
     assert_eq!(
         term.mouse_unencodable, 0,
         "a full buffer is not unencodable"

@@ -3982,8 +3982,7 @@ impl Paint<'_, '_> {
     /// the room is there, where the buffer's own length was a second load.
     #[inline(always)]
     pub(crate) fn replies_low(&self) -> bool {
-        self.reply_len.index() > crate::storage::REPLY - crate::storage::REPLY_MOST
-            && self.cold.width.reply_hold == ReplyHold::On
+        self.reply.low() && self.cold.width.reply_hold == ReplyHold::On
     }
 
     /// DECSCPP, `CSI Pn $ |`: the width asked for and nothing else here.

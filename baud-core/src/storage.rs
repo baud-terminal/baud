@@ -177,7 +177,8 @@ pub struct Storage<'b> {
     /// core keeps. Without one the queries were recognised, counted and
     /// deliberately unanswered, which `docs/vt-coverage.md` rates as better
     /// than answering in the wrong shape but worse than answering.
-    pub(crate) reply: &'b mut [u8],
+    /// Every reply goes in through [`crate::outgoing::Outgoing`]'s doors.
+    pub(crate) reply: crate::outgoing::Outgoing<'b>,
     /// Stored images and their placements; see [`ImageStore`]. Bounded,
     /// refuse-and-count, caller-owned like everything else.
     ///
@@ -1606,7 +1607,7 @@ impl<'b> Storage<'b> {
         cells3: &'b mut [PackedCell],
         styles: StyleTable<'b>,
         tabs: &'b mut [bool],
-        reply: &'b mut [u8],
+        answers: &'b mut [u8],
         alt: &'b mut [PackedCell],
         alt_used: &'b mut [RowExtent],
         clusters: &'b mut [ClusterSlot],
@@ -1703,7 +1704,7 @@ impl<'b> Storage<'b> {
             "a written rendition table holds the default in slot 0"
         );
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
-        assert!(reply.len() >= REPLY, "the reply buffer is REPLY bytes");
+        assert!(answers.len() >= REPLY, "the reply buffer is REPLY bytes");
         assert!(
             clusters.len() == NCLUSTER,
             "the cluster store is NCLUSTER slots"
@@ -1723,7 +1724,7 @@ impl<'b> Storage<'b> {
                 frozen: None,
             },
             tabs,
-            reply,
+            reply: crate::outgoing::Outgoing::new(answers),
             clusters: ClusterStore::new(clusters),
             alt: AltBuf {
                 cells: alt,

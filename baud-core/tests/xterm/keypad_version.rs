@@ -201,11 +201,11 @@ fn a_reply_with_no_room_is_counted_not_cut() {
         None => panic!("at the bound"),
     };
     t.set_version_text(&TEXT);
-    let before = t.reply_overflows;
+    let before = t.reply_counts().overflows;
     let many = b"\x1b[>q".repeat(baud_core::REPLY);
     support::feed(&mut t, &many);
     let reply = t.reply().to_vec();
-    assert!(t.reply_overflows > before, "the buffer filled");
+    assert!(t.reply_counts().overflows > before, "the buffer filled");
     let one = TEXT.reply_len();
     assert_eq!(reply.len() % one, 0, "whole replies only");
     assert!(reply.ends_with(b"\x1b\\"), "and the last one closed");

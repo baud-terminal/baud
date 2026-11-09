@@ -2729,10 +2729,10 @@ impl Driver {
     /// where kitty's event types asked for one.
     fn let_go(&mut self) {
         for e in self.pressed.let_go() {
-            let overflows = self.term.reply_overflows;
+            let overflows = self.term.reply_counts().overflows;
             let outbox = &mut self.outbox;
             let queued = crate::reads::input(&mut self.term, |t| t.key(e), |b| outbox.push(b));
-            if !queued && self.term.reply_overflows != overflows {
+            if !queued && self.term.reply_counts().overflows != overflows {
                 crate::warn!("a key's release was dropped: the reply buffer had no room for it");
             }
         }
@@ -2799,7 +2799,7 @@ impl Driver {
         // read's answers and its `false` ignored, so a key after a
         // reply-heavy read was lost. A full buffer here would be that
         // again, and is said.
-        let overflows = self.term.reply_overflows;
+        let overflows = self.term.reply_counts().overflows;
         let drawn = self.term.images().generation();
         let outbox = &mut self.outbox;
         let queued = crate::reads::input(&mut self.term, |t| t.key(k), |b| outbox.push(b));
@@ -2808,7 +2808,7 @@ impl Driver {
         if self.term.images().generation() != drawn {
             self.pending = Pending::Dirty;
         }
-        if !queued && self.term.reply_overflows != overflows {
+        if !queued && self.term.reply_counts().overflows != overflows {
             crate::warn!("a key was dropped: the reply buffer had no room for it");
         }
         // A key that sent bytes hides the pointer as XTSMPOINTER says

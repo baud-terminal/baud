@@ -421,16 +421,16 @@ impl Paint<'_, '_> {
         };
         let (mut a, mut b, mut c) = ([0u8; 16], [0u8; 16], [0u8; 16]);
         let s = u32::from(scale.hundredths());
-        let parts: [&[u8]; 7] = [
-            b"\x1b]1337;ReportCellSize=",
+        let parts: [&[u8]; 6] = [
+            b"1337;ReportCellSize=",
             compact_hundredths(h, &mut a),
             b";",
             compact_hundredths(w, &mut b),
             b";",
             compact_hundredths(s, &mut c),
-            terminator(term),
         ];
-        self.push_reply(&parts);
+        let frame = StringReply::osc(term);
+        self.reply.lend(self.cold).string(frame, &parts);
     }
 
     /// **`ReportVariable=base64`: answered in iTerm2's shape**,
@@ -450,7 +450,10 @@ impl Paint<'_, '_> {
         if core::str::from_utf8(&out[..n]).is_err() {
             return self.not_acted(ItermKey::ReportVariable);
         }
-        self.push_reply(&[b"\x1b]1337;ReportVariable=", terminator(term)]);
+        let frame = StringReply::osc(term);
+        self.reply
+            .lend(self.cold)
+            .string(frame, &[b"1337;ReportVariable="]);
     }
 
     /// **`SetUserVar=name=base64`: `user.<name>` set to the decoded value,
@@ -676,10 +679,10 @@ impl Paint<'_, '_> {
             .with(Feature::Progress, Claim::Yes);
         let mut out = [0u8; 64];
         let codes = f.encode(&mut out);
-        let mut buf = [0u8; 64];
-        let n = codes.len();
-        buf[..n].copy_from_slice(codes);
-        self.push_reply(&[b"\x1b]1337;Capabilities=", &buf[..n], b"\x1b\\"]);
+        let frame = StringReply::osc(StringTerm::St);
+        self.reply
+            .lend(self.cold)
+            .string(frame, &[b"1337;Capabilities=", codes]);
     }
 
     /// **`SetMark`: a line to jump back to**, "record a location and then
@@ -859,11 +862,4 @@ fn decode_whole(data: &[u8], out: &mut [u8]) -> Option<ByteLen> {
     }
     keep(b64.finish().ok()?, &mut n)?;
     Some(ByteLen::from_index(n))
-}
-
-fn terminator(term: StringTerm) -> &'static [u8] {
-    match term {
-        StringTerm::Bel => b"\x07",
-        StringTerm::St => b"\x1b\\",
-    }
 }

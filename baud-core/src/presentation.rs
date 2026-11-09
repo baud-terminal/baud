@@ -71,8 +71,9 @@ impl Paint<'_, '_> {
     fn report_cursor_information(&mut self) {
         let mut data = [0u8; CIR_DATA_MAX];
         let n = self.cursor_information().encode(&mut data);
-        let c1 = self.cold.replies.c1();
-        self.push_reply(&[c1.dcs(), b"1$u", &data[..n], c1.st()]);
+        self.reply
+            .lend(self.cold)
+            .string(StringReply::dcs(), &[b"1$u", &data[..n]]);
     }
 
     /// DECTABSR ([`encode_tab_report`]), in the controls `S7C1T`/`S8C1T`
@@ -80,32 +81,10 @@ impl Paint<'_, '_> {
     /// stop at every column of the widest screen (`storage::REPLY_MOST`).
     fn report_tab_stops(&mut self) {
         let cols = self.cols.index().min(self.tabs.len());
-        let at = self.reply_len.index();
-        match encode_tab_report(
-            &self.tabs[..cols],
-            self.cold.replies.c1(),
-            &mut self.reply[at..],
-        ) {
-            Some(n) => self.reply_len = ByteLen::from_index(at + n.index()),
-            None => self.reply_overflows += 1,
-        }
-    }
-
-    /// Append `parts` to the reply buffer whole, or count an overflow: a
-    /// truncated reply is a wrong answer (`Paint::want_reply`).
-    pub(crate) fn push_reply(&mut self, parts: &[&[u8]]) {
-        let len: usize = parts.iter().map(|p| p.len()).sum();
-        let at = self.reply_len.index();
-        if at + len > self.reply.len() {
-            self.reply_overflows += 1;
-            return;
-        }
-        let mut w = at;
-        for p in parts {
-            self.reply[w..w + p.len()].copy_from_slice(p);
-            w += p.len();
-        }
-        self.reply_len = ByteLen::from_index(w);
+        let tabs = &self.tabs[..cols];
+        let mut b = self.reply.lend(self.cold).body(StringReply::dcs());
+        b.fill(|room| encode_tab_report(tabs, room));
+        b.finish();
     }
 
     /// DECRSPS, `DCS Ps $ t`: which report's format the body is in, as the

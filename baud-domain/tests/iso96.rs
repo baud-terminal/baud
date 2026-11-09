@@ -155,10 +155,10 @@ fn a_tab_report_is_whole_or_nothing_and_reads_back() {
     tabs[4] = true;
     tabs[12] = true;
     let mut out = [0u8; 64];
-    let n = encode_tab_report(&tabs, C1Transmit::SevenBit, &mut out).expect("fits");
-    assert_eq!(&out[..n.index()], b"\x1bP2$u5/13\x1b\\");
-    let mut small = [0u8; 8];
-    assert!(encode_tab_report(&tabs, C1Transmit::SevenBit, &mut small).is_none());
+    let n = encode_tab_report(&tabs, &mut out).expect("fits");
+    assert_eq!(&out[..n.index()], b"2$u5/13");
+    let mut small = [0u8; 6];
+    assert!(encode_tab_report(&tabs, &mut small).is_none());
     assert_eq!(tab_report_max(9), 2 + 3 + 2 + 9 + 8);
     let mut st = TabRestore::START;
     let mut got = Vec::new();

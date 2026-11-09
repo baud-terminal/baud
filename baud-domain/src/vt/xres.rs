@@ -244,14 +244,14 @@ fn decode_name(
     Some((at + digits, Some(len)))
 }
 
-/// Answer an XTGETXRES whose list, the bytes after its `Q`, is `list`, into
-/// `out`, in the controls `c1` names, each known resource's value from
+/// Answer an XTGETXRES whose list, the bytes after its `Q`, is `list`: the
+/// body into `out`, which the caller frames as `DCS` ... `ST` in the
+/// controls S7C1T/S8C1T chose, each known resource's value from
 /// `value`. **Whole or nothing**: `None`, and nothing to send, when `out`
 /// cannot hold it; `Some(ByteLen::ZERO)`, and nothing to send, when the list
 /// has no first name xterm reads.
 pub fn encode_xres_reply(
     list: &[u8],
-    c1: C1Transmit,
     value: impl Fn(XResource) -> XValue,
     out: &mut [u8],
 ) -> Option<ByteLen> {
@@ -280,7 +280,6 @@ pub fn encode_xres_reply(
         }
         let found = len.and_then(|n| XResource::of(&name[..n]));
         if first {
-            put(&mut w, c1.dcs());
             put(
                 &mut w,
                 match found {
@@ -306,9 +305,6 @@ pub fn encode_xres_reply(
         if found.is_none() {
             break;
         }
-    }
-    if !first {
-        put(&mut w, c1.st());
     }
     match fits {
         true => Some(ByteLen::from_index(w)),

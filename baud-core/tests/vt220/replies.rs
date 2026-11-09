@@ -190,7 +190,7 @@ pub(crate) fn fill(n: usize, short: usize) -> Vec<u8> {
 /// and the reply it must produce -- then behind every pending length from
 /// `short * short` to one short of `REPLY`, which crosses the point where it stops
 /// fitting. Below that point the tail is the whole reply and nothing is
-/// counted; past it the tail is empty and `reply_overflows` rose by exactly
+/// counted; past it the tail is empty and `ReplyCounts::overflows` rose by exactly
 /// one. What was already owed is never touched.
 ///
 /// DECRQSS failed this until 2026-10-09: its emitter checked each fragment
@@ -216,7 +216,7 @@ pub(crate) fn whole_or_nothing(setup: &[u8], answer: impl Fn(&mut Term<'_>)) {
         support::feed(&mut t, &fill(pending, short));
         assert_eq!(t.reply().len(), pending, "the filler queues exactly that");
         let owed = t.reply().to_vec();
-        let before = t.reply_overflows;
+        let before = t.reply_counts().overflows;
         answer(&mut t);
         let r = t.reply();
         assert_eq!(
@@ -233,7 +233,8 @@ pub(crate) fn whole_or_nothing(setup: &[u8], answer: impl Fn(&mut Term<'_>)) {
                     "a reply that fits is sent whole at {pending}"
                 );
                 assert_eq!(
-                    t.reply_overflows, before,
+                    t.reply_counts().overflows,
+                    before,
                     "and nothing is counted at {pending}"
                 );
                 whole += 1;
@@ -244,7 +245,7 @@ pub(crate) fn whole_or_nothing(setup: &[u8], answer: impl Fn(&mut Term<'_>)) {
                     "a reply that does not fit is not sent at all at {pending}: {tail:02x?}"
                 );
                 assert_eq!(
-                    t.reply_overflows,
+                    t.reply_counts().overflows,
                     before + 1,
                     "and counted once at {pending}"
                 );
@@ -299,7 +300,10 @@ fn overflow_is_counted_not_silent() {
         t.reply().len() <= REPLY,
         "the buffer must not grow past REPLY"
     );
-    assert!(t.reply_overflows > 0, "dropped replies must be observable");
+    assert!(
+        t.reply_counts().overflows > 0,
+        "dropped replies must be observable"
+    );
 }
 
 /// CPR never reports a column the page does not have.

@@ -36,11 +36,12 @@
 //! **Replies** are
 //! `ESC _ G i=<id>[,I=<number>][,p=<placement>];<OK or error> ESC \`, sent
 //! only for a command that named an image by `i` or `I` ("If it does so,
-//! the terminal emulator will reply"), in 7-bit form whatever S8C1T says,
-//! the shape the text writes: "`<ESC>_Gi=<id>;OK<ESC>\\`". Following S8C1T,
-//! as baud's other replies do, would be a departure, and is an open
-//! question. `q=1` silences `OK` and `q=2` everything, as the placeholder
-//! section's "(q=2) so that there are no responses" and kitty's
+//! the terminal emulator will reply"), in the shape the text writes,
+//! "`<ESC>_Gi=<id>;OK<ESC>\\`": the stream keeps each body, and the core
+//! frames it with `APC` and `ST` in the form S7C1T/S8C1T chose, 9F ... 9C
+//! after S8C1T, which governs every C1 control the terminal sends.
+//! `q=1` silences `OK` and `q=2` everything, as the placeholder section's
+//! "(q=2) so that there are no responses" and kitty's
 //! `finish_command_response` (`[[source: kitty-graphics-c]]`) have it. The
 //! error codes are the ones the text names -- ENOENT for a put naming no
 //! image, EINVAL for `i` and `I` together, kitty's one EBADF string for a
@@ -705,14 +706,22 @@ fn signed(v: &[u8]) -> Option<i32> {
     }
 }
 
-/// The longest reply: `ESC _ G`, four numbers of ten digits with their
-/// keys -- `i`, `I`, `p` and an animation command's `r` -- `;`, the longest
-/// message ([`KittyError::OVERLAP`]'s) and `ESC \`.
-const REPLY_MAX: usize = 192;
+/// The longest reply's body: `G`, four numbers of ten digits with their
+/// keys -- `i`, `I`, `p` and an animation command's `r` -- `;` and the
+/// longest message ([`KittyError::OVERLAP`]'s). The core frames it as
+/// `APC` ... `ST` in the controls S7C1T/S8C1T chose, at most four bytes
+/// more.
+const REPLY_MAX: usize = 188;
 
-/// Replies owed, in order: two at most per call -- a pending decode's,
-/// finished before a new command, and the new command's.
-const OUTBOX: usize = 2 * REPLY_MAX;
+/// Replies owed, in order, each its length in a byte and its body: two at
+/// most per call -- a pending decode's, finished before a new command, and
+/// the new command's.
+const OUTBOX: usize = 2 * (1 + REPLY_MAX);
+
+const _: () = assert!(
+    REPLY_MAX <= u8::MAX as usize,
+    "a body's length fits its byte"
+);
 
 /// The control data kept, past which a command is malformed.
 pub const KITTY_CONTROL_MAX: usize = 256;
@@ -941,7 +950,7 @@ pub struct KittyCounts {
     pub excess: usize,
     /// Replies dropped whole because the outbox had no room for them: an
     /// embedder that did not drain [`KittyStream::replies`] between calls.
-    /// The stream's own count, beside the core's `reply_overflows` for its
+    /// The stream's own count, beside the core's `ReplyCounts::overflows` for its
     /// reply buffer: a different buffer, emptied by a different caller.
     pub replies_dropped: usize,
     /// Virtual placements (`U=1`) not made because every slot of the
@@ -1250,9 +1259,13 @@ impl KittyStream {
         }
     }
 
-    /// The replies owed since [`KittyStream::clear_replies`].
-    pub fn replies(&self) -> &[u8] {
-        &self.outbox[..self.out_len]
+    /// **The replies owed since [`KittyStream::clear_replies`]**, each a
+    /// body, `G` to its message, for the caller to frame as `APC` ... `ST`
+    /// in the controls S7C1T/S8C1T chose.
+    pub fn replies(&self) -> KittyReplies<'_> {
+        KittyReplies {
+            rest: &self.outbox[..self.out_len],
+        }
     }
 
     /// Drop the replies once the caller has sent them.
@@ -3195,9 +3208,9 @@ impl KittyStream {
             return;
         }
         let mut r = ReplyBuf::new();
-        // `ESC _` and `ESC \\` whatever S8C1T says: the text's shape,
-        // "`<ESC>_Gi=<id>;OK<ESC>\\`".
-        r.put(b"\x1b_G");
+        // The body of the text's shape, "`<ESC>_Gi=<id>;OK<ESC>\\`": the core
+        // frames it in the controls S7C1T/S8C1T chose.
+        r.put(b"G");
         let mut first = Sep::First;
         // "`,r=`" an animation command's frame, kitty's
         // `finish_command_response`.
@@ -3236,16 +3249,33 @@ impl KittyStream {
                 }
             }
         }
-        r.put(b"\x1b\\");
         let b = &r.buf[..r.len];
-        if self.out_len + b.len() <= OUTBOX {
-            for (d, s) in self.outbox[self.out_len..].iter_mut().zip(b) {
+        if self.out_len + 1 + b.len() <= OUTBOX {
+            // `ReplyBuf` holds at most `REPLY_MAX` bytes, which fits a byte.
+            self.outbox[self.out_len] = u8::try_from(b.len()).unwrap_or(u8::MAX);
+            for (d, s) in self.outbox[self.out_len + 1..].iter_mut().zip(b) {
                 *d = *s;
             }
-            self.out_len += b.len();
+            self.out_len += 1 + b.len();
         } else {
             self.counts.replies_dropped += 1;
         }
+    }
+}
+
+/// The replies a stream owes, each a body ([`KittyStream::replies`]).
+pub struct KittyReplies<'a> {
+    rest: &'a [u8],
+}
+
+impl<'a> Iterator for KittyReplies<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<&'a [u8]> {
+        let (&n, rest) = self.rest.split_first()?;
+        let (body, rest) = rest.split_at(usize::from(n).min(rest.len()));
+        self.rest = rest;
+        Some(body)
     }
 }
 

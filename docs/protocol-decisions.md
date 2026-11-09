@@ -16,7 +16,7 @@ Two things block whole tiers and are not any single sequence.
 **~~No reply channel.~~** Resolved. `Storage.reply` is a buffer the
 core fills and the caller drains with `Term::reply()` / `Term::clear_reply()`,
 mirroring the input side -- the core is `no_std` with no I/O, so it cannot own a
-PTY. Overflow is counted in `reply_overflows`, never silent.
+PTY. Overflow is counted in `ReplyCounts::overflows`, never silent.
 
 DA, DSR, DECRQM and XTVERSION all go through it. XTVERSION is the one report
 that is **not** a CSI — `[[source: ctlseqs]]` gives the response as

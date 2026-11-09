@@ -479,13 +479,13 @@ fn a_report_that_does_not_fit_is_dropped_and_a_one_shot_waits() {
     support::with_term(&WS, |t| {
         t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[2'z\x1b[1'{");
-        let before = t.reply_overflows;
-        while t.reply_overflows == before {
+        let before = t.reply_counts().overflows;
+        while t.reply_counts().overflows == before {
             support::feed(t, b"\x1b[5n");
         }
-        let full = t.reply_overflows;
+        let full = t.reply_counts().overflows;
         assert!(!t.locator(press(Left, cell(0, 0), NONE)));
-        assert_eq!(t.reply_overflows, full + 1, "counted");
+        assert_eq!(t.reply_counts().overflows, full + 1, "counted");
         assert_eq!(t.mouse_tracking(), MouseTracking::Locator, "still on");
         t.clear_reply();
         assert!(t.locator(press(Left, cell(0, 0), NONE)));
