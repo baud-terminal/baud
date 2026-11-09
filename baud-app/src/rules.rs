@@ -52,7 +52,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::link::{Refused, Unit};
-use crate::paths::{Forms, Turned};
+use crate::paths::{Forms, NameLook, Turned};
 
 /// The most rules read; the rest are refused and said. Each is a compare at
 /// a `:` the frame's scan meets, so the number is kept small.
@@ -66,7 +66,7 @@ pub const SCHEME_MAX: usize = 32;
 pub const RULE_KEYS: [&str; 3] = ["scheme", "action", "command"];
 
 /// **The keys of `[link.path]`**, the printed-path rule.
-pub const PATH_KEYS: [&str; 5] = ["forms", "line_col", "spaces", "action", "command"];
+pub const PATH_KEYS: [&str; 6] = ["forms", "names", "line_col", "spaces", "action", "command"];
 
 /// **The values of a `[link.NAME]` rule's `action`**, the one list the
 /// reader's refusal, the guide and the example are held to.
@@ -83,7 +83,10 @@ pub const PATH_RULE: &str = "path";
 pub const REFUSED_SCHEMES: [&str; 5] = ["javascript", "data", "vbscript", "blob", "about"];
 
 /// The printed-path forms `[link.path] forms` names, in [`Forms`]' order.
-pub const FORM_NAMES: [&str; 5] = ["/", "~/", "./", "../", "relative"];
+pub const FORM_NAMES: [&str; 7] = ["/", "~/", "./", "../", "relative", "name", "word"];
+
+/// **The values of `[link.path]`'s `names`**, in [`NameLook`]'s order.
+pub const NAME_LOOKS: [&str; 2] = ["line", "hover"];
 
 /// The placeholder a scheme rule's command takes the link in.
 pub const URL: &str = "{url}";
@@ -1338,6 +1341,17 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
         forms.dot = on("./");
         forms.parent = on("../");
         forms.bare = on("relative");
+        forms.name = on("name");
+        forms.word = on("word");
+    }
+    if let Some(v) = get("names") {
+        forms.names = match scalar(v).map_err(|e| format!("names: {e}"))? {
+            "line" => NameLook::Line,
+            "hover" => NameLook::Hover,
+            other => {
+                return Err(format!("names {other:?} is not {}", one_of(&NAME_LOOKS)));
+            }
+        };
     }
     if let Some(v) = get("line_col") {
         forms.line_col = turned("line_col", v)?;
@@ -2083,18 +2097,20 @@ mod tests {
         assert_eq!(said, Vec::<String>::new());
         let f = r.forms();
         assert_eq!(
-            (
-                f.absolute, f.home, f.dot, f.parent, f.bare, f.line_col, f.spaces
-            ),
-            (
+            [
+                f.absolute, f.home, f.dot, f.parent, f.bare, f.name, f.word, f.line_col, f.spaces
+            ],
+            [
                 Turned::On,
                 Turned::Off,
                 Turned::Off,
                 Turned::On,
                 Turned::On,
+                Turned::Off,
+                Turned::Off,
                 Turned::On,
                 Turned::On
-            )
+            ]
         );
         assert_eq!(r.path_act(), &PathAct::Reveal);
         for bad in [
@@ -2111,6 +2127,50 @@ mod tests {
         }
         let (r, _) = rules(&[section("path", &[("action", "\"reveal\"")])]);
         assert_eq!(r.path_act(), &PathAct::Reveal);
+    }
+
+    /// **Single names: off by default, read once `forms` lists `"name"`
+    /// and gone when it leaves it out, `"word"` read when named, and
+    /// `names` sets their look, an unknown value ignoring the section with
+    /// a warning.** Named breaks: default names on -- the first assertion;
+    /// keep `name` on whatever `forms` names -- the list without it still
+    /// reads names; read `names` as `"line"` whatever it says -- `"hover"`
+    /// is lost.
+    #[test]
+    fn the_path_rule_sets_the_names() {
+        assert_eq!(
+            (Forms::DEFAULT.name, Forms::DEFAULT.word),
+            (Turned::Off, Turned::Off),
+            "neither by default"
+        );
+        assert_eq!(Forms::DEFAULT.names, NameLook::Line);
+        let (r, said) = rules(&[section(
+            "path",
+            &[("forms", "[\"/\", \"~/\", \"./\", \"name\"]")],
+        )]);
+        assert_eq!(said, Vec::<String>::new());
+        assert_eq!(r.forms().name, Turned::On, "listed: read");
+        let (r, said) = rules(&[section("path", &[("forms", "[\"/\", \"~/\", \"./\"]")])]);
+        assert_eq!(said, Vec::<String>::new());
+        assert_eq!(r.forms().name, Turned::Off, "left out: none read");
+        let (r, said) = rules(&[section(
+            "path",
+            &[("forms", "[\"name\", \"word\"]"), ("names", "\"hover\"")],
+        )]);
+        assert_eq!(said, Vec::<String>::new());
+        let f = r.forms();
+        assert_eq!(
+            (f.absolute, f.name, f.word, f.names),
+            (Turned::Off, Turned::On, Turned::On, NameLook::Hover)
+        );
+        let (r, said) = rules(&[section("path", &[("names", "\"line\"")])]);
+        assert_eq!((said.len(), r.forms().names), (0, NameLook::Line));
+        for bad in ["\"underline\"", "\"Hover\"", "on"] {
+            let (r, said) = rules(&[section("path", &[("forms", "[\"/\"]"), ("names", bad)])]);
+            assert_eq!(r.forms(), Forms::DEFAULT, "{bad}: the section ignored");
+            assert_eq!(said.len(), 1, "{bad}: one warning, {said:?}");
+            assert!(said[0].contains("names"), "{said:?}");
+        }
     }
 
     /// **The scan's prefilter never misses an added scheme**: every name, of

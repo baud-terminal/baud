@@ -2705,6 +2705,7 @@ impl Config {
                 // example's gates read them; each is read with the rest of
                 // its section after the loop.
                 ("link.path", "forms") => pend("path", "forms", &value),
+                ("link.path", "names") => pend("path", "names", &value),
                 ("link.path", "line_col") => pend("path", "line_col", &value),
                 ("link.path", "spaces") => pend("path", "spaces", &value),
                 ("link.path", "action") => pend("path", "action", &value),
@@ -6172,14 +6173,55 @@ mod reader {
 
     /// The values the `action` row of a guide's section lists, unquoted.
     fn action_row(section: &str) -> std::collections::BTreeSet<&str> {
+        key_row(section, "action")
+    }
+
+    /// The values the `key` row of a guide's section lists, unquoted, a
+    /// list's `a list of` left out.
+    fn key_row<'a>(section: &'a str, key: &str) -> std::collections::BTreeSet<&'a str> {
+        let head = format!("| `{key}` |");
         let row = section
             .lines()
-            .find(|l| l.starts_with("| `action` |"))
-            .expect("an action row");
+            .find(|l| l.starts_with(&head))
+            .unwrap_or_else(|| panic!("a {key} row"));
         let cell = row.split(" | ").nth(1).expect("its values");
-        cell.split(", ")
+        cell.trim_start_matches("a list of ")
+            .split(", ")
             .map(|v| v.trim_matches(['`', '"']))
             .collect()
+    }
+
+    /// **`[link.path]`'s `forms` and `names` rows, and the example's
+    /// comments, name every value the reader takes, and the rows no
+    /// other**, as the action rows do. Break: leave `"word"` out of the
+    /// guide's `forms` row.
+    #[test]
+    fn the_guide_and_example_name_every_form_and_name_look() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/guide/configuration.md"
+        ))
+        .expect("docs/guide/configuration.md");
+        let path = between(&page, "\n## [link.path]\n", "\n## ");
+        assert_eq!(
+            key_row(path, "forms"),
+            crate::rules::FORM_NAMES.into_iter().collect()
+        );
+        assert_eq!(
+            key_row(path, "names"),
+            crate::rules::NAME_LOOKS.into_iter().collect()
+        );
+        let example = include_str!("../../config.toml.example");
+        let comments = between(example, "# [link.path]\n", "# Your own link types");
+        for v in crate::rules::FORM_NAMES
+            .iter()
+            .chain(&crate::rules::NAME_LOOKS)
+        {
+            assert!(
+                comments.contains(&format!("\"{v}\"")),
+                "[link.path]: the example never names \"{v}\""
+            );
+        }
     }
 
     /// **The guide's `action` rows and the example's comments name every

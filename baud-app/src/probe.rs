@@ -4129,4 +4129,206 @@ mod tests {
             "the positive control: the key is read"
         );
     }
+
+    /// **What single names cost the worker**, for the record rather than a
+    /// gate, with `"name"` read, on this machine's file system through
+    /// [`System`]: a 200x50
+    /// window after `OSC 7` names a scratch folder of 2,000 entries, its
+    /// collections answered by [`answer`] until none is owed, for `ls -l`
+    /// and `ls -C` of the folder, a 2,000-line log of dotted identifiers,
+    /// and a 10,000-line one fed 1,000 lines before each batch, the
+    /// worker's ceiling of one a second, for ten. Prints each batch's paths
+    /// and names asked, `lstat`/`readlink` calls and time, and the kept
+    /// answers after; asserts every batch keeps [`crate::paths::NAMES_MAX`]
+    /// and [`crate::paths::BATCH_MAX`] and the kept answers stay within one
+    /// screen. Run with `--run-ignored only --no-capture`.
+    #[test]
+    #[ignore = "a measurement, printed"]
+    fn names_cost_the_worker() {
+        use crate::paths::{BATCH_MAX, Form, NAMES_MAX};
+        use std::os::unix::ffi::OsStrExt;
+        let ws = WinSize {
+            ws_col: 200,
+            ws_row: 50,
+        };
+        let dir = std::env::temp_dir().join(format!("baud-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the folder");
+        for n in 0..2000 {
+            let name = match n % 10 {
+                9 => format!("dir{n:04}"),
+                k => format!("f{n:04}.{}", ["rs", "md", "toml", "txt", "tar.gz"][k % 5]),
+            };
+            let p = dir.join(&name);
+            match n % 10 {
+                9 => std::fs::create_dir(&p).expect("a folder"),
+                _ => std::fs::write(&p, b"").expect("a file"),
+            }
+        }
+        let dir = std::fs::canonicalize(&dir).expect("the folder's path");
+        let ls = |args: &[&str]| -> Vec<u8> {
+            let out = std::process::Command::new("/bin/ls")
+                .args(args)
+                .current_dir(&dir)
+                .env("LC_ALL", "C")
+                .env("COLUMNS", "200")
+                .output()
+                .expect("ls");
+            out.stdout
+        };
+        let log = |lines: core::ops::Range<u32>| -> Vec<u8> {
+            lines
+                .map(|n| {
+                    format!(
+                        "2026-11-08T10:{:02}:{:02}.{:03}Z INFO svc.handler.Request id=req.{n} \
+                         path=api.v1.items took {}.{}ms\n",
+                        n / 3600 % 60,
+                        n / 60 % 60,
+                        n % 1000,
+                        n % 7,
+                        n % 10
+                    )
+                })
+                .collect::<String>()
+                .into_bytes()
+        };
+        let crlf = |b: &[u8]| -> Vec<u8> {
+            b.iter()
+                .flat_map(|&c| match c {
+                    b'\n' => vec![b'\r', b'\n'],
+                    c => vec![c],
+                })
+                .collect()
+        };
+        let feed = |t: &mut Term<'_>, bytes: &[u8]| {
+            for c in bytes.chunks(4096) {
+                t.write_at(BytePos::ZERO, c);
+                t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+            }
+        };
+        let me = Pid::try_from(std::process::id()).expect("a pid");
+        let folder = dir.as_os_str().as_bytes().to_vec();
+        let mut fs = System;
+        let mut named = HashMap::new();
+        /// Batches until none is owed, or one a chunk, as the ceiling sends
+        /// while output goes on.
+        #[derive(Clone, Copy, PartialEq)]
+        enum Batches {
+            Settle,
+            OneAChunk,
+        }
+        let run = |label: &str,
+                   chunks: Vec<Vec<u8>>,
+                   batches: Batches,
+                   fs: &mut System,
+                   named: &mut HashMap<_, _>| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let mut osc = b"\x1b]7;file://bench.example".to_vec();
+            osc.extend_from_slice(&folder);
+            osc.push(0x07);
+            feed(&mut t, &osc);
+            let names = Forms {
+                name: Turned::On,
+                ..Forms::DEFAULT
+            };
+            let mut p = Paths::new(None, names);
+            p.set(Turned::On);
+            p.set_names(vec!["bench.example".to_string()]);
+            let scrolled = Scrolled::START.advanced(Rows::of_count(1 << 40));
+            let _ = p.observe(&t, scrolled);
+            let (mut l, mut u) = (Lines::default(), Uris::default());
+            let mut id = Id::default();
+            for (i, chunk) in chunks.iter().enumerate() {
+                feed(&mut t, &crlf(chunk));
+                let _ = p.observe(&t, scrolled);
+                for _ in 0..20 {
+                    p.begin_collect();
+                    l.forget();
+                    let _ = l.scan(
+                        &t,
+                        scrolled,
+                        &mut Links {
+                            uris: &mut u,
+                            urls: Turned::On,
+                            paths: &mut p,
+                        },
+                    );
+                    let queue = p.end_collect();
+                    let names = queue
+                        .iter()
+                        .filter(|c| matches!(c.form, Form::Name | Form::Word))
+                        .count();
+                    assert!(names <= NAMES_MAX && queue.len() <= BATCH_MAX, "{label}");
+                    let asked = queue.len();
+                    id = id.next();
+                    let t0 = Instant::now();
+                    let got = answer(
+                        fs,
+                        Ask {
+                            id,
+                            kind: Kind::Screen,
+                            group: Some(me),
+                            cursor: scrolled.line(Rows::ZERO, t.cursor().0),
+                            paths: queue,
+                            seen: Vec::new(),
+                            unnamed: None,
+                            programs: Vec::new(),
+                        },
+                        named,
+                        &|| {},
+                        &mut || false,
+                    );
+                    let took = t0.elapsed();
+                    let found = got
+                        .probes
+                        .iter()
+                        .filter(|(_, pr)| *pr == Probe::Exists)
+                        .count();
+                    let _ = p.merge(got.probes);
+                    let (n, bytes) = p.known_size();
+                    eprintln!(
+                        "{label} [{i}]: asked {asked} (names {names}), found {found}, calls {}, \
+                         {:.2} ms; known {n} entries, {bytes} bytes",
+                        got.calls,
+                        took.as_secs_f64() * 1e3
+                    );
+                    assert!(n <= 200 * 50 / 2, "{label}: known stays within a screen");
+                    if batches == Batches::OneAChunk || p.owed() == Owed::No {
+                        break;
+                    }
+                }
+            }
+        };
+        run(
+            "ls -l",
+            vec![ls(&["-l"])],
+            Batches::Settle,
+            &mut fs,
+            &mut named,
+        );
+        run(
+            "ls -C",
+            vec![ls(&["-C"])],
+            Batches::Settle,
+            &mut fs,
+            &mut named,
+        );
+        run(
+            "log 2000",
+            vec![log(0..2000)],
+            Batches::Settle,
+            &mut fs,
+            &mut named,
+        );
+        let scrolling = (0..10).map(|s| log(s * 1000..(s + 1) * 1000)).collect();
+        run(
+            "log 10000 / 10 s",
+            scrolling,
+            Batches::OneAChunk,
+            &mut fs,
+            &mut named,
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

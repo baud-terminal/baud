@@ -12,14 +12,23 @@
 //! row of the window then. So output with no path in it pays one compare a
 //! cell, not a read of every row a `/` starts a word on.
 //!
-//! **The forms.** A printed `/`, `~/` or `./` starts a path, after the start
+//! **The forms.** A printed `/`, `~/`, `./` or `../` starts a path, after the start
 //! of a line, a space or one of `([{<"'` and `` ` `` or `=`, and never after
 //! a `:`, so neither `https://a/b`'s `//a/b` nor `host:/x`'s `/x` is one.
-//! `../`, a bare relative path such as `src/app.rs`, a `:line:col` suffix and
-//! a quoted path with spaces are each a [`Forms`] switch, off, for the
-//! settings that will name them; none is read until one is turned on. A path
-//! runs to the next space, quote, `<`, `>` or `|`; trailing `.,;:!?*` and a
-//! closing bracket it did not open are prose, as a URI's are (`link.rs`).
+//! A bare relative path such as `src/app.rs`, a single name holding a
+//! `.` not at its end such as `README.md` or `.zshrc` ([`Form::Name`]), any
+//! single word ([`Form::Word`]), a `:line:col` suffix and a quoted path with
+//! spaces are each a [`Forms`] switch, off, for the settings that will name
+//! them; none is read until one is turned on. A path runs to the next space, quote, `<`,
+//! `>` or `|`; trailing `.,;:!?*` and a closing bracket it did not open are
+//! prose, as a URI's are (`link.rs`).
+//!
+//! **A name is a link only where its file is.** A version number, a domain
+//! or a dotted identifier in a log is a name too, and the worker's lookup
+//! misses it, so it gets no line: the existence check is the guard, and a
+//! name is never struck at rest. A batch asks at most [`NAMES_MAX`] of them,
+//! after every other path the screen holds, and `[link.path] names =
+//! "hover"` ([`NameLook`]) draws them only under the pointer.
 //!
 //! **What a path is resolved against**: `/` this machine, `~/` the home
 //! folder `HOME` named when baud started, `./` the folder the shell last
@@ -109,6 +118,13 @@ pub const MACHINE: &str = "this computer";
 /// rest in the batches after it, at most one a second (`probe::Pace`).
 pub const BATCH_MAX: usize = 512;
 
+/// **The most single names one batch asks about**, of [`BATCH_MAX`]: a
+/// name or word ([`Form::Name`], [`Form::Word`]) takes a slot only after
+/// every prefixed or relative path the screen holds has one, and never
+/// more than these, so a screen of dotted identifiers neither starves a
+/// `/` or `./` path of its answer nor asks more than this many a batch.
+pub const NAMES_MAX: usize = 256;
+
 /// A switch: a form read, a kind of link shown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Turned {
@@ -126,25 +142,53 @@ pub enum Form {
     Home,
     /// `./`: the reported folder.
     Dot,
-    /// `../`: the reported folder's parent. Off by default.
+    /// `../`: the reported folder's parent.
     Parent,
     /// `src/app.rs`, no prefix and a `/` inside: the reported folder. Off by
     /// default.
     Bare,
+    /// `README.md`, `.zshrc`: one component, no `/`, holding a `.` not at its
+    /// end, read against the reported folder.
+    Name,
+    /// `Makefile`, `src`: any one component, read against the reported
+    /// folder. Off by default.
+    Word,
 }
 
 impl Form {
     /// Whether it is read against the reported folder, which a multiplexer
     /// hides.
     pub fn relative(self) -> bool {
-        matches!(self, Form::Dot | Form::Parent | Form::Bare)
+        matches!(
+            self,
+            Form::Dot | Form::Parent | Form::Bare | Form::Name | Form::Word
+        )
+    }
+
+    /// Whether it is a single name, which [`NameLook`] governs and
+    /// [`NAMES_MAX`] bounds.
+    fn single(self) -> bool {
+        matches!(self, Form::Name | Form::Word)
     }
 }
 
-/// **Which forms are read**: the three printed prefixes by default, and the
-/// rest only once `[link.path]` names them (`rules.rs`). Nothing else changes when one is
-/// turned on: the worker, the mount check and the click are the same for
-/// every form.
+/// **How a single name the worker found is drawn** (`[link.path] names`):
+/// governs [`Form::Name`] and [`Form::Word`] only; every other form keeps
+/// its line at rest.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NameLook {
+    /// Underlined at rest, as every other link is.
+    #[default]
+    Line,
+    /// No line at rest: lit only under the pointer, as the look a click
+    /// would open shows (`link::Hover`).
+    Hover,
+}
+
+/// **Which forms are read**: the four printed prefixes by default, and the
+/// rest, single names among them, only once `[link.path]` names them
+/// (`rules.rs`). Nothing else changes when one is turned on: the worker, the
+/// mount check and the click are the same for every form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Forms {
     pub absolute: Turned,
@@ -152,6 +196,10 @@ pub struct Forms {
     pub dot: Turned,
     pub parent: Turned,
     pub bare: Turned,
+    pub name: Turned,
+    pub word: Turned,
+    /// How a single name found is drawn.
+    pub names: NameLook,
     /// A `:line` or `:line:col` suffix, kept under the line and left out of
     /// the path looked up.
     pub line_col: Turned,
@@ -164,8 +212,11 @@ impl Forms {
         absolute: Turned::On,
         home: Turned::On,
         dot: Turned::On,
-        parent: Turned::Off,
+        parent: Turned::On,
         bare: Turned::Off,
+        name: Turned::Off,
+        word: Turned::Off,
+        names: NameLook::Line,
         line_col: Turned::Off,
         spaces: Turned::Off,
     };
@@ -177,7 +228,19 @@ impl Forms {
             Form::Dot => self.dot,
             Form::Parent => self.parent,
             Form::Bare => self.bare,
+            Form::Name => self.name,
+            Form::Word => self.word,
         }
+    }
+
+    /// Whether a path with no prefix is read at all, in any of its forms.
+    fn unprefixed(&self) -> bool {
+        [self.bare, self.name, self.word].contains(&Turned::On)
+    }
+
+    /// Whether a found path of `form` is underlined at rest.
+    fn at_rest(&self, form: Form) -> bool {
+        !(form.single() && self.names == NameLook::Hover)
     }
 }
 
@@ -387,11 +450,27 @@ fn is(u: Option<&Unit>, c: char) -> bool {
 
 /// **Whether `tail`, the last eight ASCII bytes read, may end a path's
 /// start**, for the scan's one compare a cell: a `/` after an opener, `~`, `.`
-/// or `..`; any `/` once bare paths are read.
+/// or `..`; any `/` once bare paths are read; a `.` before a character a
+/// path may hold once names are read, which every name holds (its `.` is
+/// not at its end); and a name's first character after an opener once words
+/// are read. A byte outside ASCII, and an empty cell, read as zero, which
+/// may be either, so zero is let through and the text decides.
 pub fn starts(tail: [u8; 8], forms: &Forms) -> bool {
     // The newest byte last: `at(1)` is the one before the `/`.
     let at = |k: usize| tail[7 - k];
     let opens = |k: usize| OPENS.contains(&at(k));
+    // A byte a name may hold after its `.`, or zero, which may be one: never
+    // a `/`, which makes it a `./` or `../`.
+    let held = |b: u8| b == 0 || (b.is_ascii_graphic() && !b"\"'`<>|/".contains(&b));
+    if forms.name == Turned::On && at(1) == b'.' && held(at(0)) {
+        return true;
+    }
+    if forms.word == Turned::On
+        && (at(0) == 0 || at(0).is_ascii_alphanumeric() || b"_.-@+".contains(&at(0)))
+        && opens(1)
+    {
+        return true;
+    }
     if at(0) != b'/' {
         return false;
     }
@@ -429,11 +508,30 @@ fn start_at(before: Option<Unit>, rest: &[Unit], forms: &Forms) -> Option<Form> 
     } else if is(u(0), '.') && is(u(1), '.') && is(u(2), '/') && first(3) {
         Form::Parent
     } else if u(0).is_some_and(names) {
-        Form::Bare
+        // No prefix: which of its forms it is, [`unprefixed_form`] says once
+        // its end is known.
+        return forms.unprefixed().then_some(Form::Bare);
     } else {
         return None;
     };
     (forms.of(form) == Turned::On).then_some(form)
+}
+
+/// **What a path with no prefix is, its text known**: a relative path with
+/// a `/` inside, a name holding a `.` (never at its end, since the trailing
+/// prose is cut first), or a word; none with a `:`, since `host:path`
+/// names another machine and `http:` is a scheme.
+fn unprefixed_form(text: &[Unit]) -> Option<Form> {
+    if text.iter().any(|u| is(Some(u), ':')) {
+        return None;
+    }
+    Some(if text.iter().any(|u| is(Some(u), '/')) {
+        Form::Bare
+    } else if text.iter().any(|u| is(Some(u), '.')) {
+        Form::Name
+    } else {
+        Form::Word
+    })
 }
 
 /// **Whether `u` is a closing bracket `run` did not open**: as many of its
@@ -458,11 +556,13 @@ fn unopened(run: &[Unit], u: Unit) -> bool {
 /// **The paths in a line's text**, each once, in order: from a start
 /// [`start_at`] reads, over path characters, to the first that ends one, its
 /// trailing prose cut off. A path the walk's end touches, one past `MAX`
-/// characters, one with a character it must not hold, or a bare one with no
-/// `/` inside or a `:` (`host:path` names another machine) is none. A bare
-/// one starts at a name's character ([`names`]) and ends at a closing
+/// characters, or one with a character it must not hold is none. One with
+/// no prefix starts at a name's character ([`names`]) and ends at a closing
 /// bracket it did not open ([`unopened`]), so a Markdown link's path is read
-/// without the brackets around it.
+/// without the brackets around it; it is a relative path, a name or a word
+/// ([`unprefixed_form`]), and none with a `:` (`host:path` names another
+/// machine). One whose form is not read leaves the text after its first
+/// character to be read again, so `--file=/tmp/a` still holds `/tmp/a`.
 pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &mut Vec<Token>) {
     out.clear();
     let n = units.len();
@@ -508,7 +608,11 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
         let next = end.max(i + 1);
         let touches = (i == 0 && head == Edge::Cut) || (end == n && tail == Edge::Cut);
         if refused || touches || end - i > MAX {
-            i = next;
+            // One with no prefix may hold a prefixed one after an opener.
+            i = match form {
+                Form::Bare => i + 1,
+                _ => next,
+            };
             continue;
         }
         let end = i + trimmed(&units[i..end]).len();
@@ -517,14 +621,25 @@ pub fn tokens(units: &[Unit], (head, tail): (Edge, Edge), forms: &Forms, out: &m
             Turned::Off => end,
         };
         let text = &units[i..path_end];
-        let bare_ok = form != Form::Bare
-            || (text.iter().any(|u| is(Some(u), '/')) && !text.iter().any(|u| is(Some(u), ':')));
+        // `start_at` reads every path with no prefix as `Bare` until its end
+        // is known: what it is decides whether it is read.
+        let form = match form {
+            Form::Bare => match unprefixed_form(text).filter(|f| forms.of(*f) == Turned::On) {
+                Some(f) => f,
+                None => {
+                    i += 1;
+                    continue;
+                }
+            },
+            f => f,
+        };
         let prefix = match form {
             Form::Absolute | Form::Bare => 1,
             Form::Home | Form::Dot => 2,
             Form::Parent => 3,
+            Form::Name | Form::Word => 0,
         };
-        if bare_ok && path_end - i > prefix {
+        if path_end - i > prefix {
             out.push(Token {
                 span: i..end,
                 path: i..path_end,
@@ -585,7 +700,7 @@ fn without_line_col(t: &[Unit]) -> &[Unit] {
 fn below_folder(form: Form, text: &[Unit]) -> &[Unit] {
     match form {
         Form::Dot => text.get(2..).unwrap_or(&[]),
-        Form::Absolute | Form::Home | Form::Parent | Form::Bare => text,
+        Form::Absolute | Form::Home | Form::Parent | Form::Bare | Form::Name | Form::Word => text,
     }
 }
 
@@ -839,6 +954,9 @@ struct Collect {
     /// The `OSC 8` `file://` links' answers the screen still shows.
     marked: HashMap<Vec<u8>, State>,
     queue: Vec<Candidate>,
+    /// Single names to ask, at most [`NAMES_MAX`], given the slots `queue`
+    /// leaves at the batch's end.
+    names: Vec<Candidate>,
     over: Over,
 }
 
@@ -1023,6 +1141,13 @@ impl Paths {
         self.join = join;
         self.generation = self.generation.next();
         Moved::Yes
+    }
+
+    /// **The answers kept for printed paths**: how many, and their keys'
+    /// bytes, for the measurement of what names cost (`probe.rs`).
+    #[cfg(test)]
+    pub fn known_size(&self) -> (usize, usize) {
+        (self.known.len(), self.known.keys().map(Vec::len).sum())
     }
 
     /// **`[link] missing`**: off strikes nothing and asks nothing for it.
@@ -1361,13 +1486,25 @@ impl Paths {
     }
 
     /// **The collection's batch**: what the screen holds that has no answer,
-    /// at most [`BATCH_MAX`], each once. The screen's answers replace the
-    /// kept ones, so what is off the screen is forgotten; a screen with more
-    /// than a batch stays owed.
+    /// at most [`BATCH_MAX`], each once, single names last and at most
+    /// [`NAMES_MAX`] of them. The screen's answers replace the kept ones, so
+    /// what is off the screen is forgotten; a screen with more than a batch
+    /// stays owed.
     pub fn end_collect(&mut self) -> Vec<Candidate> {
-        let Some(c) = self.collect.take() else {
+        let Some(mut c) = self.collect.take() else {
             return Vec::new();
         };
+        let room = BATCH_MAX.saturating_sub(c.queue.len());
+        if c.names.len() > room {
+            // Not asked this batch: no longer waiting on an answer.
+            for n in c.names.drain(room..) {
+                if c.kept.get(&n.path) == Some(&State::Asked) {
+                    c.kept.remove(&n.path);
+                }
+            }
+            c.over = Over::Yes;
+        }
+        c.queue.append(&mut c.names);
         self.known = c.kept;
         self.marked = c.marked;
         self.owed = match c.over {
@@ -1454,7 +1591,7 @@ impl Paths {
                 push_utf8(&text[1..], &mut self.key);
                 return true;
             }
-            Form::Dot | Form::Parent | Form::Bare => {
+            Form::Dot | Form::Parent | Form::Bare | Form::Name | Form::Word => {
                 // `Paths::folder`, spelled over the fields: `self.key` is
                 // borrowed beside it.
                 let folder = match Resolve::on(screen) {
@@ -1505,9 +1642,18 @@ impl Paths {
             looked += 1;
             let state = self.known.get(self.key.as_slice()).copied();
             if let Some(c) = &mut self.collect {
+                let room = match t.form.single() {
+                    true => c.names.len() < NAMES_MAX,
+                    false => c.queue.len() < BATCH_MAX,
+                };
                 if c.kept.get(self.key.as_slice()) == Some(&State::Asked) {
                     // Printed again lower down: asked at its last line.
-                    if let Some(q) = c.queue.iter_mut().find(|q| q.path == self.key) {
+                    if let Some(q) = c
+                        .queue
+                        .iter_mut()
+                        .chain(c.names.iter_mut())
+                        .find(|q| q.path == self.key)
+                    {
                         q.line = q.line.max(text.lines.1);
                     }
                 } else if !c.kept.contains_key(self.key.as_slice()) {
@@ -1515,17 +1661,21 @@ impl Paths {
                         Some(State::Is(p)) => {
                             c.kept.insert(self.key.clone(), State::Is(p));
                         }
-                        s if c.queue.len() < BATCH_MAX => {
+                        s if room => {
                             let s = match s {
                                 Some(State::Stale(p)) => State::Stale(p),
                                 _ => State::Asked,
                             };
                             c.kept.insert(self.key.clone(), s);
-                            c.queue.push(Candidate {
+                            let asked = Candidate {
                                 path: self.key.clone(),
                                 form: t.form,
                                 line: text.lines.1,
-                            });
+                            };
+                            match t.form.single() {
+                                true => c.names.push(asked),
+                                false => c.queue.push(asked),
+                            }
                         }
                         Some(s @ State::Stale(_)) => {
                             c.kept.insert(self.key.clone(), s);
@@ -1536,6 +1686,7 @@ impl Paths {
                 }
             }
             match state.and_then(State::probe) {
+                Some(Probe::Exists) if !self.forms.at_rest(t.form) => {}
                 Some(Probe::Exists) if opens_as_uri(&self.key) => {
                     found.push(Run {
                         units: t.span.clone(),
@@ -1875,7 +2026,7 @@ impl PathsAt for Paths {
                 key.extend_from_slice(self.home.as_deref()?);
                 push_utf8(&body[1..], &mut key);
             }
-            Form::Dot | Form::Parent | Form::Bare => {
+            Form::Dot | Form::Parent | Form::Bare | Form::Name | Form::Word => {
                 key.extend_from_slice(self.folder(screen)?);
                 if key.last() != Some(&b'/') {
                     key.push(b'/');
@@ -2066,14 +2217,15 @@ mod tests {
         (runs(&l), p)
     }
 
-    /// **The default forms are exactly `/`, `~/` and `./`**, after an
-    /// opener, and never inside a URI or after `host:`; trailing prose and
-    /// an unopened bracket are cut, and a lone prefix is no path. The other
-    /// forms are off until turned on, and each reads once it is.
-    /// Perturbation: read `:` as an opener; default `parent` on; drop the
-    /// length check after the prefix.
+    /// **The default forms are exactly `/`, `~/`, `./` and `../`**, after
+    /// an opener, and never inside a URI or after `host:`; trailing prose
+    /// and an unopened bracket are cut, a lone prefix is no path, and a path
+    /// after `=` is read whatever is before it. The other forms are off
+    /// until turned on, and each reads once it is. Named breaks: the old
+    /// default, `parent` off -- `../up` is not read; read `:` as an opener;
+    /// drop the length check after the prefix.
     #[test]
-    fn the_default_forms_are_the_three_prefixes() {
+    fn the_default_forms_are_the_four_prefixes() {
         let d = Forms::DEFAULT;
         assert_eq!(
             found("see /etc/hosts, and ~/notes.txt.", &d),
@@ -2087,8 +2239,11 @@ mod tests {
             found("https://a.example/b host:/x a/b /", &d),
             Vec::<String>::new()
         );
-        assert_eq!(found("../up src/app.rs /x/y.rs:12:3", &d), ["/x/y.rs:12:3"]);
-        assert_eq!(found("//server/share ~/ ./", &d), Vec::<String>::new());
+        assert_eq!(
+            found("../up src/app.rs /x/y.rs:12:3", &d),
+            ["../up", "/x/y.rs:12:3"]
+        );
+        assert_eq!(found("//server/share ~/ ./ ../", &d), Vec::<String>::new());
         assert_eq!(found("--file=/tmp/a \"/tmp/b\"", &d), ["/tmp/a", "/tmp/b"]);
         let all = Forms {
             parent: Turned::On,
@@ -2184,17 +2339,17 @@ mod tests {
                 .to_be_bytes()
         };
         let d = Forms::DEFAULT;
-        for s in [" /", "(/", "=/", " ~/", " ./", "/"] {
+        for s in [" /", "(/", "=/", " ~/", " ./", " ../", "/"] {
             assert!(starts(tail(s), &d), "{s:?}");
         }
-        for s in ["a/", ":/", "//", " ../"] {
+        for s in ["a/", ":/", "//", "x../"] {
             assert!(!starts(tail(s), &d), "{s:?}");
         }
-        let parent = Forms {
-            parent: Turned::On,
+        let no_parent = Forms {
+            parent: Turned::Off,
             ..d
         };
-        assert!(starts(tail(" ../"), &parent));
+        assert!(!starts(tail(" ../"), &no_parent));
     }
 
     /// **The URI is the path, percent-encoded, with no host**: unreserved
@@ -4161,6 +4316,325 @@ mod tests {
         p.trim_spans(l(3));
         assert_eq!(p.origin(l(1)), Origin::Unknown, "gone with its history");
         assert_eq!(p.origin(l(3)), Origin::Remote);
+    }
+
+    /// The default forms with single names read: what `[link.path] forms`
+    /// listing `"name"` reads.
+    const NAMES: Forms = Forms {
+        name: Turned::On,
+        ..Forms::DEFAULT
+    };
+
+    /// A window of `ws` with `bytes` fed after an `OSC 7` naming this
+    /// machine's folder `/w`, and its paths with `forms`, the report seen.
+    fn in_folder<'a>(t: &mut Term<'a>, forms: Forms, bytes: &[u8]) -> Paths {
+        feed(t, b"\x1b]7;file://here.example/w\x07");
+        let mut p = Paths::new(None, forms);
+        p.set(Turned::On);
+        p.set_names(vec!["here.example".to_string()]);
+        let _ = p.observe(t, at());
+        feed(t, bytes);
+        let _ = p.observe(t, at());
+        p
+    }
+
+    /// One collection of `t`'s window: what it asks, as paths.
+    fn collect(t: &Term<'_>, p: &mut Paths, l: &mut Lines, u: &mut Uris) -> Vec<Candidate> {
+        p.begin_collect();
+        l.forget();
+        let _ = l.scan(
+            t,
+            at(),
+            &mut Links {
+                uris: u,
+                urls: Turned::On,
+                paths: p,
+            },
+        );
+        p.end_collect()
+    }
+
+    /// A frame's scan of `t`, outside a collection.
+    fn frame(t: &Term<'_>, p: &mut Paths, l: &mut Lines, u: &mut Uris) {
+        let _ = l.scan(
+            t,
+            at(),
+            &mut Links {
+                uris: u,
+                urls: Turned::On,
+                paths: p,
+            },
+        );
+    }
+
+    fn paths_of(asked: &[Candidate]) -> Vec<String> {
+        asked
+            .iter()
+            .map(|c| String::from_utf8_lossy(&c.path).into_owned())
+            .collect()
+    }
+
+    /// **A single name is a candidate when it holds a `.` not at its end,
+    /// and a word only once `word` is read**: `README.md`, `.zshrc` and
+    /// `a.tar.gz` are names; `README.` (its `.` is prose), `Library`, `1`
+    /// and `http://x.y` are not. A name read does not swallow a prefixed
+    /// path after an opener inside it. Named break: read every word as a
+    /// name (`unprefixed_form` without the `.` test) -- `Library` and `1`
+    /// come back.
+    #[test]
+    fn a_name_holds_a_dot_and_a_word_is_read_only_when_asked() {
+        let d = NAMES;
+        assert_eq!(
+            found("README.md .zshrc a.tar.gz", &d),
+            ["README.md", ".zshrc", "a.tar.gz"]
+        );
+        assert_eq!(
+            found("README. Library 1 http://x.y", &d),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            found("(see `Cargo.toml`), and 'notes.txt'.", &d),
+            ["Cargo.toml", "notes.txt"]
+        );
+        assert_eq!(
+            found("--file=/tmp/a main.rs:12 a.b:c", &d),
+            ["/tmp/a"],
+            "a `:` is no name, and the prefixed path inside stays"
+        );
+        let words = Forms {
+            word: Turned::On,
+            ..d
+        };
+        assert_eq!(
+            found("README. Library 1 Cargo.toml", &words),
+            ["README", "Library", "1", "Cargo.toml"]
+        );
+        let names = |s: &str, f: &Forms| {
+            let u = units(s);
+            let mut out = Vec::new();
+            tokens(&u, (Edge::Line, Edge::Line), f, &mut out);
+            out.iter().map(|t| t.form).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(
+                "Makefile a.rs src/a.rs",
+                &Forms {
+                    bare: Turned::On,
+                    ..words
+                }
+            ),
+            [Form::Word, Form::Name, Form::Bare]
+        );
+    }
+
+    /// **The scan's tail test lets every name and word through**: a name's
+    /// `.` before any character it may hold, a byte outside ASCII among
+    /// them; a word's first character after an opener; and never a `./` or
+    /// `../` for a name. Named break: drop the name arm of `starts` -- the
+    /// default forms' `README.md` is never read.
+    #[test]
+    fn the_tail_test_admits_names_and_words() {
+        let tail = |s: &[u8]| {
+            s.iter()
+                .fold(0u64, |a, &b| (a << 8) | u64::from(b))
+                .to_be_bytes()
+        };
+        let d = NAMES;
+        for s in [&b" README.m"[..], b" .z", b"a.\0", b"v1.2"] {
+            assert!(starts(tail(s), &d), "{s:?}");
+        }
+        for s in [&b"a. "[..], b"x./", b"x../", b"Library"] {
+            assert!(!starts(tail(s), &d), "{s:?}");
+        }
+        let words = Forms {
+            word: Turned::On,
+            ..d
+        };
+        assert!(starts(tail(b" L"), &words));
+        assert!(!starts(tail(b"aL"), &words), "inside a word");
+        assert!(
+            !starts(tail(b" README.m"), &Forms::DEFAULT),
+            "names off by default"
+        );
+    }
+
+    /// **A name gets a line only where the worker found it in the
+    /// reported folder**: `README.md` there is underlined, `NOTES.md`,
+    /// answered missing, is not, and both were asked as files of `/w`.
+    /// Named break: draw a path whatever its answer -- `NOTES.md` is lit.
+    #[test]
+    fn a_name_lights_only_where_the_worker_found_it() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = in_folder(&mut t, NAMES, b"README.md NOTES.md\r\n");
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let asked = collect(&t, &mut p, &mut l, &mut u);
+        assert_eq!(paths_of(&asked), ["/w/README.md", "/w/NOTES.md"]);
+        let _ = p.merge(asked.into_iter().map(|c| {
+            let there = c.path == b"/w/README.md";
+            (c.path, if there { Probe::Exists } else { Probe::Missing })
+        }));
+        l.forget();
+        frame(&t, &mut p, &mut l, &mut u);
+        assert_eq!(runs(&l), [(0, 0, 8)], "README.md alone");
+        assert_eq!(l.struck(), &[], "a missing name is never struck at rest");
+    }
+
+    /// **A name is read against the folder it was printed in, and only
+    /// there**: printed before the report, none; on the alternate screen,
+    /// against the program's folder ([`ProgramDir`]); under `ssh` and a multiplexer,
+    /// none. Named breaks: read a name on any row (drop `Form::Name` from
+    /// `relative`) -- the row above the report and the multiplexer ask it.
+    #[test]
+    fn a_name_is_read_in_its_folder_and_refused_where_baud_cannot_tell() {
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"early.md\r\n");
+        let mut p = in_folder(&mut t, NAMES, b"late.md\r\n");
+        assert_eq!(
+            paths_of(&collect(&t, &mut p, &mut l, &mut u)),
+            ["/w/late.md"],
+            "the row before the report gets none"
+        );
+        // The alternate screen: the program's folder.
+        feed(&mut t, b"\x1b[?1049h\x1b[Hdoc.md\r\n");
+        let _ = p.observe(&t, at());
+        assert!(
+            collect(&t, &mut p, &mut l, &mut u).is_empty(),
+            "no program folder read yet: none"
+        );
+        let _ = p.set_program_dir(Some(ProgramDir(b"/prog".to_vec())));
+        assert_eq!(
+            paths_of(&collect(&t, &mut p, &mut l, &mut u)),
+            ["/prog/doc.md"]
+        );
+        feed(&mut t, b"\x1b[?1049l");
+        let _ = p.observe(&t, at());
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        p.set_front(Front::Multiplexer, first.below().below().below());
+        assert!(
+            collect(&t, &mut p, &mut l, &mut u).is_empty(),
+            "a multiplexer hides the folder"
+        );
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = in_folder(&mut t, NAMES, b"late.md\r\n");
+        assert_eq!(collect(&t, &mut p, &mut l, &mut u).len(), 1, "the control");
+        p.set_front(Front::Elsewhere, first.below().below());
+        assert!(
+            collect(&t, &mut p, &mut l, &mut u).is_empty(),
+            "ssh: nothing"
+        );
+    }
+
+    /// **`names = "hover"` draws no line at rest and lights the name under
+    /// the pointer**, and a prefixed path keeps its line. Named break:
+    /// ignore the key in `read` -- the name is underlined at rest.
+    #[test]
+    fn names_hover_lights_only_under_the_pointer() {
+        use crate::link::{AtRest, Chord, Hover};
+        use baud_core::Focus;
+        use baud_domain::{Col, Row};
+        let hover = Forms {
+            names: NameLook::Hover,
+            ..NAMES
+        };
+        for (forms, want) in [
+            (NAMES, vec![(0, 0, 8), (0, 10, 19)]),
+            (hover, vec![(0, 10, 19)]),
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut p = in_folder(&mut t, forms, b"README.md ./notes.md\r\n");
+            let (mut l, mut u) = (Lines::default(), Uris::default());
+            let asked = collect(&t, &mut p, &mut l, &mut u);
+            assert_eq!(asked.len(), 2, "both asked, whatever the look");
+            let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Exists)));
+            l.forget();
+            frame(&t, &mut p, &mut l, &mut u);
+            assert_eq!(runs(&l), want, "{:?}", forms.names);
+            let mut h = Hover::default();
+            h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
+            let _ = h.update_with(
+                &t,
+                Some((Row::ZERO, Col::at_index(3))),
+                at(),
+                Chord::Other,
+                Focus::Gained,
+                Host(""),
+                &p,
+            );
+            assert!(
+                h.over().is_some(),
+                "{:?}: lit under the pointer",
+                forms.names
+            );
+        }
+    }
+
+    /// **A batch asks every prefixed path first and at most [`NAMES_MAX`]
+    /// names**: 600 names above 10 `./` paths ask all 10 and 256 names,
+    /// and the screen stays owed for the rest, which the next batch asks.
+    /// Named break: no sub-cap (names into `queue`) -- 512 names fill the
+    /// batch first and no `./` path is asked.
+    #[test]
+    fn a_batch_asks_paths_first_and_at_most_256_names() {
+        let ws = WinSize {
+            ws_col: 200,
+            ws_row: 40,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut text = String::new();
+        for n in 0..600 {
+            text.push_str(&format!("n{n:03}.x "));
+            if n % 25 == 24 {
+                text.push_str("\r\n");
+            }
+        }
+        for n in 0..10 {
+            text.push_str(&format!("./p{n} "));
+        }
+        let mut p = in_folder(&mut t, NAMES, text.as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let asked = collect(&t, &mut p, &mut l, &mut u);
+        let names = asked.iter().filter(|c| c.form == Form::Name).count();
+        let dots = asked.iter().filter(|c| c.form == Form::Dot).count();
+        assert_eq!((dots, names), (10, NAMES_MAX));
+        assert_eq!(p.owed(), Owed::Yes, "the rest are owed");
+        let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Missing)));
+        let again = collect(&t, &mut p, &mut l, &mut u);
+        assert_eq!(again.len(), NAMES_MAX, "the next 256");
+        assert!(again.iter().all(|c| c.form == Form::Name));
+        assert!(
+            p.known.len() <= 600 + 10,
+            "known holds the screen's answers, no more: {}",
+            p.known.len()
+        );
+    }
+
+    /// **A frame looks nothing up for a name**: it only owes a batch, the
+    /// new name unanswered, and nothing in this file calls the file system.
+    /// Named break: a `std::fs::symlink_metadata` call in `read` -- the
+    /// source check fails.
+    #[test]
+    fn no_name_is_looked_up_in_a_frame() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = in_folder(&mut t, NAMES, b"README.md\r\n");
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let asked = collect(&t, &mut p, &mut l, &mut u);
+        let _ = p.merge(asked.into_iter().map(|c| (c.path, Probe::Exists)));
+        feed(&mut t, b"other.md\r\n");
+        frame(&t, &mut p, &mut l, &mut u);
+        assert_eq!(p.owed(), Owed::Yes, "a frame owes");
+        assert_eq!(p.result(b"/w/other.md"), None, "and asks nothing");
+        let src = include_str!("paths.rs");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").expect("the tests")];
+        for call in ["std::fs", "symlink_metadata", "read_link", "File::open"] {
+            assert!(!code.contains(call), "{call}");
+        }
     }
 }
 

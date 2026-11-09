@@ -607,12 +607,13 @@
 # work for either; Cmd-click (Ctrl-click on Linux) still works.
 # urls = "on"
 #
-# "on" or "off". A file path printed as plain text, starting with /, ~/ or
-# ./, is underlined once baud has checked that the file exists on this
-# computer. The check runs on a thread of its own and never holds up drawing,
-# and looks nothing up on a network or automounted disk. A ./ needs your shell
-# to report its folder with OSC 7, naming this computer. A click shows the
-# file in Finder (the file manager on Linux), and never opens or runs it.
+# "on" or "off". A file path printed as plain text, starting with /, ~/, ./
+# or ../, is underlined once baud has checked that the file exists on this
+# computer. The check runs on a thread of its own and never holds up
+# drawing, and looks nothing up on a network or automounted disk. A ./ or ../
+# needs your shell to report its folder with OSC 7, naming this computer. A
+# click shows the file in Finder (the file manager on Linux), and never opens
+# or runs it.
 # "off" checks nothing.
 # paths = "on"
 #
@@ -664,10 +665,18 @@
 #
 # [link.path]
 #
-# The kinds read: "/", "~/", "./", "../", and "relative", a path with no
-# prefix and a / inside such as src/app.rs. Like ./, "../" and "relative"
-# need your shell to report its folder, and get no line in a multiplexer.
-# forms = ["/", "~/", "./"]
+# The kinds read: "/", "~/", "./", "../"; "relative", a path with no prefix
+# and a / inside such as src/app.rs; "name", a file name alone with a dot in
+# it, such as README.md, Cargo.toml or .zshrc; and "word", any name alone,
+# such as Makefile or src. Like ./, the last four need your shell to report
+# its folder, and get no line in a multiplexer. A name lights only when a
+# file of exactly that name is in the folder, so a version number or a
+# word in a sentence gets no line. Add "name" to the list to read names.
+# forms = ["/", "~/", "./", "../"]
+#
+# How a name or word found is drawn: "line", underlined like any other
+# link, or "hover", lit only under the pointer.
+# names = "line"
 #
 # "on" reads a :12 or :12:3 after a path as a line and a column, for a
 # command's {line} and {col}.

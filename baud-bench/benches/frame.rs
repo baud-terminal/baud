@@ -40,6 +40,12 @@
 //! `https`, so every web link the recording prints is struck, its text
 //! drawn as a field in `missing_color`, the gray: the strike's frame-path
 //! work, the input untouched. Its row's scans count the struck runs.
+//! `FRAME_FOLDER=<path>` has the `paths` arms read relative paths and single
+//! names against that folder, as a shell reporting it by `OSC 7` would make
+//! them: the report is fed before the recording, naming a host the paths
+//! are told is this machine's, and the folder is never looked at.
+//! `FRAME_NAMES=on` reads single names too, `[link.path] forms` with
+//! `"name"` added, which `FRAME_FOLDER` gives a folder to be read against.
 //!
 //! `FRAME_BIDI=explicit` resets BDSM (`CSI 8 l`) before the recording, so
 //! each frame draws its rows in stored order; the default leaves it set,
@@ -476,11 +482,30 @@ fn main() {
         let mut uris = lined::Uris::default();
         // No home, no names: `~/` and `./` resolve to nothing, as they would
         // before a window knows either; `/` is read as the app reads it.
-        let mut printed = paths::Paths::new(None, paths::Forms::DEFAULT);
+        let forms = match std::env::var("FRAME_NAMES").as_deref() {
+            Ok("on") => paths::Forms {
+                name: paths::Turned::On,
+                ..paths::Forms::DEFAULT
+            },
+            Ok("off") | Err(_) => paths::Forms::DEFAULT,
+            Ok(other) => panic!("FRAME_NAMES is on or off, not {other}"),
+        };
+        let mut printed = paths::Paths::new(None, forms);
         printed.set(match links {
             Links::Paths | Links::PathsExist => paths::Turned::On,
             _ => paths::Turned::Off,
         });
+        // `FRAME_FOLDER`: the folder reported before the recording.
+        if let Ok(folder) = std::env::var("FRAME_FOLDER") {
+            let osc = format!("\x1b]7;file://frame.example{folder}\x07");
+            t.write_at(BytePos::ZERO, osc.as_bytes());
+            t.feed(BytePos::ZERO, ReadLen::from_index(osc.len()));
+            printed.set_names(vec!["frame.example".to_string()]);
+            let _ = printed.observe(
+                &t,
+                baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40)),
+            );
+        }
         if links == Links::NoApp {
             let none = [link::Scheme::Https, link::Scheme::Http]
                 .into_iter()
