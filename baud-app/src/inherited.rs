@@ -73,6 +73,8 @@ pub(crate) fn open_from_three() -> Vec<Fd> {
         .collect()
 }
 
+/// The descriptors this process holds, from 3 up, as Linux lists them in
+/// `/proc/self/fd`.
 #[cfg(target_os = "linux")]
 pub(crate) fn open_from_three() -> Vec<Fd> {
     let Ok(dir) = std::fs::read_dir("/proc/self/fd") else {
