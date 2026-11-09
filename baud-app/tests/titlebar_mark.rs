@@ -609,7 +609,12 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
 /// **A window just too narrow for the name and every light gives up the
 /// name and keeps the lights**; at its width plus a point it has both, and
 /// the smallest window has neither. The small system font is what the
-/// composed strip draws at, so its layout is this one's. Perturbation:
+/// composed strip draws at, so its layout is this one's. The widths are
+/// the window's own: the traffic lights, and the lockup sized beside them,
+/// are AppKit's and follow the SDK the binary links -- linked against the
+/// 14.4 SDK the buttons end at 69 points, against 27.2 at 78 with a
+/// narrower lockup, so the numbers `lights.rs` holds for a 28-point strip
+/// past 69 hold only under the first. Perturbation:
 /// `Mark::fit` that always shows the name fails the first half, and one that
 /// forgets the accessory's width fails `check_panel`.
 #[cfg(target_os = "macos")]
@@ -659,19 +664,38 @@ fn name_yields_first(mtm: MainThreadMarker) {
     place_panel(w, &strip, &mark);
     assert!(!mark.lights_moved(strip.fitted()), "placed again");
     let across = mark.version_label().frame().size.width;
-    let left = strip::edges(w).left;
-    let room = left + across + mark::VERSION_GAP + 221.0 + 5.0;
+    let edges = strip::edges(w);
+    let left = edges.left;
+    // The plate's span from its left to the window's edge, whole at 1x and
+    // so the same at every whole width: the name shows from where the plate
+    // starts a gap past its end.
+    let plate = strip.place(edges).expect("a plate at the window's size");
+    let room = left + across + mark::VERSION_GAP + (edges.width - plate.plate_left);
+    // Every light is placed from where the plate's left before rounding
+    // reaches the traffic lights' end (`lights::panel`): the pad, the
+    // lockup, the gap and the lamps' letters, the pad, and the right inset.
+    let every = {
+        use baud_render::lights::{PANEL_LOGO_GAP, PANEL_PAD, PANEL_RIGHT};
+        let c = strip.columns();
+        let letters = c.letters.syn.0 + c.letters.syn.1 - c.letters.hs.0;
+        let exact = 2.0 * CGFloat::from(PANEL_PAD)
+            + mark.size().width
+            + CGFloat::from(PANEL_LOGO_GAP)
+            + letters
+            + CGFloat::from(PANEL_RIGHT);
+        (left + exact).ceil()
+    };
     for (width, shown) in [
         (room.ceil(), true),
         (room.ceil() - 1.0, false),
-        (295.0, false),
-        (294.0, false),
+        (every, false),
+        (every - 1.0, false),
     ] {
         w.setContentSize(NSSize::new(width, WINDOW_SIZE.height));
         place_panel(w, &strip, &mark);
         assert_eq!(!mark.version_label().isHidden(), shown, "at {width} points");
         let lamp = strip.lamp_view(baud_render::Led::Hs).expect("HS's view");
-        assert_eq!(!lamp.isHidden(), width >= 295.0, "at {width} points");
+        assert_eq!(!lamp.isHidden(), width >= every, "at {width} points");
         check_panel_views(w, &mark, &strip, &format!("at {width} points"));
     }
 }
