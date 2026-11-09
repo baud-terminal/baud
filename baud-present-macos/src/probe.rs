@@ -260,6 +260,10 @@ thread_local! {
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
+    /// What the last read found under the pointer (`Previewed`).
+    static PREVIEWED: Cell<Previewed> = const { Cell::new(Previewed::Unset) };
+    /// The reads of the link under the pointer (`HoverReads`).
+    static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
     /// What baud reads of the display options (`Access`).
     static ACCESS: Cell<Access> = const { Cell::new(Access::System) };
     /// The changes of the motion preference and the display settings taken.
@@ -432,6 +436,42 @@ pub fn taken(o: DisplayOption) -> Taken {
         DisplayOption::Motion => m,
         DisplayOption::Display => d,
     }
+}
+
+/// **What the last read of the link under a resting pointer found for
+/// the next frame**, for the frame rig: no read yet, a link's preview, or
+/// none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Previewed {
+    Unset,
+    Link,
+    Nothing,
+}
+
+/// Record what a read found under the pointer.
+pub fn previewed(p: Previewed) {
+    PREVIEWED.with(|c| c.set(p));
+}
+
+/// What the last read found under the pointer.
+pub fn preview() -> Previewed {
+    PREVIEWED.with(Cell::get)
+}
+
+/// How many times baud-app read the link under a resting pointer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HoverReads(pub u32);
+
+/// **A read of the link under the pointer** (baud-app's `read_hover_as`),
+/// counted for the frame rig: what output that moves nothing the last read
+/// went over must not add to.
+pub fn hover_read() {
+    HOVER_READS.with(|r| r.set(HoverReads(r.get().0.saturating_add(1))));
+}
+
+/// The reads of the link under the pointer.
+pub fn hover_reads() -> HoverReads {
+    HOVER_READS.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.
@@ -719,6 +759,8 @@ pub enum Press {
     Down,
     Dragged,
     Up,
+    /// The pointer moved, no button held.
+    Moved,
 }
 
 /// Whether Command is held with a [`Press`].
@@ -740,6 +782,7 @@ pub fn press(view: &DrawableView, press: Press, at: NSPoint, chord: Chord) {
         Press::Down => NSEventType::LeftMouseDown,
         Press::Dragged => NSEventType::LeftMouseDragged,
         Press::Up => NSEventType::LeftMouseUp,
+        Press::Moved => NSEventType::MouseMoved,
     };
     let flags = match chord {
         Chord::Plain => NSEventModifierFlags(0),
@@ -771,6 +814,7 @@ pub fn press(view: &DrawableView, press: Press, at: NSPoint, chord: Chord) {
             Press::Down => msg_send![view, mouseDown: &*event],
             Press::Dragged => msg_send![view, mouseDragged: &*event],
             Press::Up => msg_send![view, mouseUp: &*event],
+            Press::Moved => msg_send![view, mouseMoved: &*event],
         };
     }
 }

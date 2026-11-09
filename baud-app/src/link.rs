@@ -86,8 +86,8 @@ pub use crate::paths::{Gone, PathsAt};
 use crate::rules::{NO_RULES, Rules};
 
 use baud_domain::{
-    AdmittedUri, Attrs, Codepoint, Col, Cols, DirectoryReport, FileHost, FileUri, LinkEpoch,
-    LinkId, PackedCell, Row, Rows, Wrap,
+    AdmittedUri, Attrs, ClusterEpoch, Codepoint, Col, Cols, DirectoryReport, FileHost, FileUri,
+    LineRendition, LinkEpoch, LinkId, PackedCell, Row, Rows, Wrap,
 };
 use baud_render::{
     AbsLine, Field, Hints, HoverPaint, LinkHover, LinkLook, LinkSpan, Point, Scrolled, row_of,
@@ -1400,6 +1400,17 @@ struct Reading {
     text: Vec<u8>,
     spans: Vec<LinkSpan>,
     struck: Vec<baud_render::LinkLine>,
+    /// The first and last line the reads since it was cleared went over:
+    /// what the hover keeps a copy of ([`Covered`]).
+    visited: Option<(AbsLine, AbsLine)>,
+}
+
+/// The lines `visited` holds, `line` among them.
+fn visit(visited: &mut Option<(AbsLine, AbsLine)>, line: AbsLine) {
+    *visited = Some(match *visited {
+        None => (line, line),
+        Some((a, b)) => (a.min(line), b.max(line)),
+    });
 }
 
 /// [`window`], into `read`'s window. With `across`, a row the writer ended is read on into the
@@ -1421,6 +1432,7 @@ fn read_window(
         left,
         right,
         window,
+        visited,
         ..
     } = read;
     left.clear();
@@ -1430,6 +1442,7 @@ fn read_window(
     let mut head = Edge::Line;
     let (mut l, mut cells, mut i) = (line, row, c);
     'left: loop {
+        visit(visited, l);
         let styles = row_styles_of(term, scrolled, l);
         while i > 0 {
             i -= 1;
@@ -1460,6 +1473,7 @@ fn read_window(
     let mut tail = Edge::Line;
     let (mut l, mut cells, mut wraps, mut i) = (line, row, wrap, c);
     'right: loop {
+        visit(visited, l);
         let styles = row_styles_of(term, scrolled, l);
         while i < cells.len() {
             if !cells[i].content.is_wide_tail() {
@@ -2408,7 +2422,8 @@ pub enum Held {
 pub struct Taken(pub usize);
 
 /// **All a read of the link under the pointer depends on**: a read with the
-/// same ones answers the same, so a tick over a still screen reads no text.
+/// same ones answers the same, so a read owed over a still screen reads no
+/// text.
 /// The bytes the core has taken stand for its grid: nothing moves a cell but
 /// a byte, a resize or the window, each of which is here.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -2448,17 +2463,111 @@ impl ReadOf {
     }
 }
 
+/// **Whether the link under a resting pointer is owed a read**: set by what
+/// a read depends on that an event delivers -- the focus, a worker's answer,
+/// this machine's names, the config -- and by a change to what the last read
+/// covered ([`Hover::under_moved`]); a driver reads the hover on a turn only
+/// when it is set.
+/// The macOS driver's: the Linux driver reads at each frame.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HoverOwed {
+    #[default]
+    No,
+    Yes,
+}
+
+/// **What the last read of the text under the pointer went over**, as it
+/// then was.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+enum Text {
+    /// No text was read: no chord and no look at rest asked for one, or
+    /// the pointer's row is past the grid. Only an event changes that.
+    #[default]
+    Unread,
+    /// An `OSC 8` link: its cells are every cell naming its slot on the
+    /// view, which a write to any row may add to, so a byte taken or a
+    /// moved window owes a read.
+    Slot,
+    /// The text around the pointer: the lines the read went over and the
+    /// one past each end, which a URI's run-on and cut tests read
+    /// (`runs_on`, `may_be_cut`), from `first`; the pointer's line and its
+    /// rendition, which places the pointer's character column and decides
+    /// a link drawn whole; the cluster epoch, under which equal cells hold
+    /// equal text.
+    Lines {
+        first: AbsLine,
+        line: AbsLine,
+        rendition: LineRendition,
+        clusters: ClusterEpoch,
+    },
+}
+
+/// **[`Text`], with the cells and wrap of each line it covers**, a line
+/// past the history's or the screen's end held as none: the copy a turn's
+/// output is compared with, the idiom of `lined.rs`'s rows.
+#[derive(Debug, Default)]
+struct Covered {
+    text: Text,
+    cells: Vec<PackedCell>,
+    rows: Vec<Option<(usize, Wrap)>>,
+}
+
+impl Covered {
+    /// The copy of what a read just went over: `text`, and for its lines,
+    /// through `last`, the cells and wraps the term holds now.
+    fn take(&mut self, term: &Term<'_>, scrolled: Scrolled, text: Text, last: Option<AbsLine>) {
+        self.cells.clear();
+        self.rows.clear();
+        if let (Text::Lines { first, .. }, Some(last)) = (&text, last) {
+            let mut l = *first;
+            while l <= last {
+                self.rows
+                    .push(row_of(term, scrolled, l).map(|(cells, wrap)| {
+                        self.cells.extend_from_slice(cells);
+                        (cells.len(), wrap)
+                    }));
+                l = l.below();
+            }
+        }
+        self.text = text;
+    }
+
+    /// Whether every line it covers holds now what it held.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn kept(&self, term: &Term<'_>, scrolled: Scrolled, first: AbsLine) -> bool {
+        let mut l = first;
+        let mut from = 0;
+        for row in &self.rows {
+            let now = row_of(term, scrolled, l);
+            let same = match (row, now) {
+                (None, None) => true,
+                (Some((n, wrap)), Some((cells, w))) => {
+                    *wrap == w && self.cells.get(from..from + n) == Some(cells)
+                }
+                _ => false,
+            };
+            if !same {
+                return false;
+            }
+            from += row.map_or(0, |(n, _)| n);
+            l = l.below();
+        }
+        true
+    }
+}
+
 /// **The link preview's state**: the cell under the pointer, whatever the
 /// modifiers, and what it draws. A driver updates it on each pointer
 /// event and modifier change, refreshes it while the pointer is over the
-/// text at each frame and, on macOS, at each display-link tick, owing a
-/// frame when it changes, and clears it when the window loses the
-/// keyboard. Every read builds its [`Spot`] from the view shown then, as
+/// text -- on Linux at each frame, on macOS on a turn that owes it a read
+/// ([`HoverOwed`], [`Hover::under_moved`]) -- owing a frame when it
+/// changes, and clears it when the window loses the keyboard. Every read builds its [`Spot`] from the view shown then, as
 /// a click at the same place would: a window held on its line while
 /// output retires lines, or moved by a wheel, shows other lines under a
 /// pointer that has not moved. A read repeated over what has not changed
 /// reads no text ([`ReadOf`]), since with [`AtRest::Look`] it runs with no
-/// modifier, at every tick the pointer rests over the text.
+/// modifier, at every frame the pointer rests over the text on Linux.
 ///
 /// **Two looks, kept apart.** [`Hover::look`] is the chord's: the bar and the
 /// hand, which take the copy signal's bar. [`Hover::over`] is the look of the
@@ -2483,6 +2592,8 @@ pub struct Hover {
     at_rest: AtRest,
     held: Held,
     read: Option<ReadOf>,
+    /// What the last read went over, as it then was.
+    covered: Covered,
     reads: baud_render::Tally,
     buffers: Reading,
 }
@@ -2580,12 +2691,24 @@ impl Hover {
         let mut struck = core::mem::take(&mut self.buffers.struck);
         struck.clear();
         let mut gone_link = None;
+        let mut text = Text::Unread;
+        self.buffers.visited = None;
         let found = at
             .filter(|_| previewing || paint.is_some())
             .and_then(|(row, col)| {
                 let s = spot_now(term, scrolled, row, col)?;
                 self.reads.bump();
+                let line = s.scrolled.line(s.back, s.row);
+                text = Text::Lines {
+                    first: line,
+                    line,
+                    rendition: term.view(s.back).rendition(s.row),
+                    clusters: term.cluster_epoch(),
+                };
                 let link = hovered_in(term, s, &mut self.buffers, paths)?;
+                if matches!(link, Under::Osc8(_)) {
+                    text = Text::Slot;
+                }
                 let printed = paths.printed(term, &link);
                 let opens = matches!(
                     verdict(&link, term, host, paths, printed),
@@ -2628,6 +2751,27 @@ impl Hover {
                 Some((look, opens, over))
             });
         let (look, opens, over) = found.unwrap_or((None, Opens::No, None));
+        let (text, last) = match text {
+            Text::Lines {
+                line,
+                rendition,
+                clusters,
+                ..
+            } => {
+                let (lo, hi) = self.buffers.visited.unwrap_or((line, line));
+                let (lo, hi) = (lo.min(line), hi.max(line));
+                let first = lo.above().unwrap_or(lo);
+                let text = Text::Lines {
+                    first,
+                    line,
+                    rendition,
+                    clusters,
+                };
+                (text, Some(hi.below()))
+            }
+            other => (other, None),
+        };
+        self.covered.take(term, scrolled, text, last);
         let changed =
             look != self.look || opens != self.opens || over != self.over || struck != self.struck;
         self.look = look;
@@ -2708,6 +2852,64 @@ impl Hover {
         match self.at {
             Some(at) => self.update_with(term, Some(at), scrolled, chord, focus, host, paths),
             None => false,
+        }
+    }
+
+    /// **Whether what the last read went over moved**, so the link under a
+    /// resting pointer is owed a read ([`HoverOwed`]): the window moved under
+    /// the pointer onto another line, the grid resized, a line it read
+    /// written, wrapped or sized again, or what names its links, its
+    /// clusters, this machine or the paths' answers moved. Off the text, or
+    /// where no text was read, only an event or a resize can change what a
+    /// read finds. It reads no text: each covered line is compared with its
+    /// copy (`Covered`), a few rows of cells, where a read would walk the
+    /// line, find its link and judge it. Under an `OSC 8` link, a byte
+    /// taken or a window moved owes the read, since the link's cells are any
+    /// on the view naming its slot.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn under_moved(
+        &self,
+        term: &Term<'_>,
+        scrolled: Scrolled,
+        host: &MachineNames,
+        paths: &dyn PathsAt,
+    ) -> HoverOwed {
+        let Some((row, _)) = self.at else {
+            return HoverOwed::No;
+        };
+        let Some(read) = &self.read else {
+            return HoverOwed::Yes;
+        };
+        let back = term.window_back();
+        let kept = read.geometry == term.geometry()
+            && match &self.covered.text {
+                Text::Unread => true,
+                Text::Slot => {
+                    read.bytes == Taken(term.amplification().0)
+                        && read.back == back
+                        && read.scrolled == scrolled
+                        && read.epoch == term.link_epoch()
+                        && read.host == *host
+                        && read.paths == (paths.generation(), paths.origins())
+                }
+                Text::Lines {
+                    first,
+                    line,
+                    rendition,
+                    clusters,
+                } => {
+                    read.epoch == term.link_epoch()
+                        && read.host == *host
+                        && read.paths == (paths.generation(), paths.origins())
+                        && *clusters == term.cluster_epoch()
+                        && scrolled.line(back, row) == *line
+                        && term.view(back).rendition(row) == *rendition
+                        && self.covered.kept(term, scrolled, *first)
+                }
+            };
+        match kept {
+            true => HoverOwed::No,
+            false => HoverOwed::Yes,
         }
     }
 
@@ -4650,6 +4852,78 @@ mod tests {
         assert_eq!(h.look(), shown.as_ref(), "the same URI, on the same row");
     }
 
+    /// **Output owes the hover a read only where its last read went**
+    /// ([`Hover::under_moved`]). The look at rest over a URI a soft wrap
+    /// carries from the first row onto the third: a write to the last row
+    /// owes nothing; a write to the third row, which the read reached two
+    /// rows from the pointer, owes one, as do a write to the fourth, which
+    /// the URI's run-on test reads, and to the pointer's own row, and
+    /// another line under the pointer. Off the text, or with no look and no
+    /// chord, nothing is owed by any write. Over an `OSC 8` link any byte
+    /// owes one, since its cells are any naming its slot. Perturbations:
+    /// the copy kept of the pointer's line alone -- the third row's write
+    /// owes nothing; the line past the read's end left out -- the fourth's
+    /// owes nothing; the compare dropped -- no write owes one.
+    #[test]
+    fn output_owes_the_hover_a_read_only_where_its_last_read_went() {
+        use baud_render::HoverPaint;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        // Fifty bytes on twenty columns: two rows and ten cells of the third.
+        feed(
+            &mut t,
+            b"https://a.example/abcdefghijklmnopqrstuvwxyz012345",
+        );
+        let (at, s, key) = (
+            Some((Row::ZERO, Col::at_index(2))),
+            Scrolled::START,
+            Focus::Gained,
+        );
+        let mut h = Hover::default();
+        h.set_at_rest(AtRest::Look(HoverPaint::Box));
+        let _ = h.update(&t, at, s, Chord::Other, key, NONE);
+        assert!(h.over().is_some(), "the URI is drawn at rest");
+        let moved = |h: &Hover, t: &Term<'_>| h.under_moved(t, s, NONE, &NoPaths);
+        assert_eq!(moved(&h, &t), HoverOwed::No, "nothing written yet");
+        feed(&mut t, b"\x1b[6;1Haway");
+        assert_eq!(moved(&h, &t), HoverOwed::No, "the last row is not read");
+        for (row, what) in [
+            (3, "the row the wrap carried it onto"),
+            (4, "the row past the read's end"),
+            (1, "the pointer's own row"),
+        ] {
+            feed(&mut t, format!("\x1b[{row};19Hz").as_bytes());
+            assert_eq!(moved(&h, &t), HoverOwed::Yes, "{what}");
+            let _ = h.refresh(&t, s, Chord::Other, key, NONE);
+            assert_eq!(moved(&h, &t), HoverOwed::No, "read again: {what}");
+        }
+        let later = s.advanced(Rows::of_count(1));
+        assert_eq!(
+            h.under_moved(&t, later, NONE, &NoPaths),
+            HoverOwed::Yes,
+            "another line under the pointer"
+        );
+        // Off the text, and with no look and no chord, no write owes one.
+        let _ = h.update(&t, None, s, Chord::Other, key, NONE);
+        feed(&mut t, b"\x1b[1;1Hx");
+        assert_eq!(moved(&h, &t), HoverOwed::No, "off the text");
+        h.set_at_rest(AtRest::Off);
+        let _ = h.update(&t, at, s, Chord::Other, key, NONE);
+        feed(&mut t, b"\x1b[1;1Hy");
+        assert_eq!(moved(&h, &t), HoverOwed::No, "nothing to read");
+        // An `OSC 8` link: a byte anywhere owes the read.
+        h.set_at_rest(AtRest::Look(HoverPaint::Box));
+        feed(
+            &mut t,
+            b"\x1b[1;1H\x1b]8;;https://b.example/\x1b\\link\x1b]8;;\x1b\\",
+        );
+        let _ = h.update(&t, at, s, Chord::Other, key, NONE);
+        assert!(h.over().is_some(), "the link is drawn at rest");
+        assert_eq!(moved(&h, &t), HoverOwed::No);
+        feed(&mut t, b"\x1b[5;1Hb");
+        assert_eq!(moved(&h, &t), HoverOwed::Yes, "a byte under a slot");
+    }
+
     /// **Command pressed with the pointer resting shows the preview at
     /// the next frame**: a move without Command, then a frame's refresh
     /// with it held, which says the frame changed so the driver draws it.
@@ -4681,6 +4955,44 @@ mod tests {
         let _ = h.update(&t, at, s, Chord::Other, Focus::Lost, NONE);
         let _ = h.refresh(&t, s, Chord::Cmd, Focus::Lost, NONE);
         assert!(h.look().is_none(), "no keyboard, no preview");
+    }
+
+    /// **A program's `OSC 22` shape reaches the pointer with no read**: the
+    /// shape over the text is [`Hover::pointer`]'s answer from the look the
+    /// last read left and the shape asked, which the driver asks again after
+    /// each read it feeds (`reshape_pointer`). So a new shape over plain text
+    /// at rest is the pointer's at once, the hover's read count unchanged,
+    /// and the shape written owes no read ([`Hover::under_moved`]): it moves
+    /// no cell the read went over. Perturbation: a read owed by any byte
+    /// taken -- the last assertion fails.
+    #[test]
+    fn a_programs_pointer_shape_needs_no_read_of_the_link() {
+        use baud_render::HoverPaint;
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"plain words");
+        let (at, s, key) = (
+            Some((Row::ZERO, Col::at_index(2))),
+            Scrolled::START,
+            Focus::Gained,
+        );
+        let mut h = Hover::default();
+        h.set_at_rest(AtRest::Look(HoverPaint::Box));
+        let _ = h.update(&t, at, s, Chord::Other, key, NONE);
+        let reads = h.reads();
+        assert_eq!(
+            h.pointer(t.pointer_shape()),
+            None,
+            "the control: none asked"
+        );
+        feed(&mut t, b"\x1b]22;crosshair\x1b\\");
+        assert_eq!(
+            h.pointer(t.pointer_shape()),
+            Some(PointerShape::Crosshair),
+            "the shape asked, at once"
+        );
+        assert_eq!(h.reads(), reads, "and no read for it");
+        assert_eq!(h.under_moved(&t, s, NONE, &NoPaths), HoverOwed::No);
     }
 
     /// **The pointing hand shows exactly while a click would open the

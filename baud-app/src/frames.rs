@@ -18,8 +18,6 @@ use baud_domain::HostTime;
 /// row's change.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Holder {
-    /// FS-A3: `poll_hover`, until the modifier and pointer events.
-    A3Hover,
     /// FS-A5: `notice_turn`, until the notification center's callbacks
     /// wake the window.
     A5Notices,
@@ -43,8 +41,7 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 9] = [
-        Holder::A3Hover,
+    pub(crate) const ALL: [Holder; 8] = [
         Holder::A5Notices,
         Holder::A9Front,
         Holder::A12Title,
@@ -59,7 +56,6 @@ impl Holder {
     #[cfg(any(feature = "effect-probe", test))]
     pub(crate) fn word(self) -> &'static str {
         match self {
-            Holder::A3Hover => "FS-A3",
             Holder::A5Notices => "FS-A5",
             Holder::A9Front => "FS-A9",
             Holder::A12Title => "FS-A12",
@@ -340,9 +336,9 @@ mod tests {
                 Owes::Frame(Why::Owed),
             ),
             (
-                Some(Why::Held(Holder::A3Hover)),
+                Some(Why::Held(Holder::A5Notices)),
                 &[],
-                Owes::Frame(Why::Held(Holder::A3Hover)),
+                Owes::Frame(Why::Held(Holder::A5Notices)),
             ),
             (
                 None,
@@ -542,19 +538,18 @@ mod tests {
         struct Place(usize);
         fn place(h: Holder) -> Place {
             match h {
-                Holder::A3Hover => Place(0),
-                Holder::A5Notices => Place(1),
-                Holder::A9Front => Place(2),
-                Holder::A12Title => Place(3),
-                Holder::A13Hosts => Place(4),
-                Holder::A14Paths => Place(5),
-                Holder::A15Reap => Place(6),
-                Holder::A16Settings => Place(7),
-                Holder::A17Splash => Place(8),
+                Holder::A5Notices => Place(0),
+                Holder::A9Front => Place(1),
+                Holder::A12Title => Place(2),
+                Holder::A13Hosts => Place(3),
+                Holder::A14Paths => Place(4),
+                Holder::A15Reap => Place(5),
+                Holder::A16Settings => Place(6),
+                Holder::A17Splash => Place(7),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=8).map(Place).collect();
+        let want: Vec<Place> = (0..=7).map(Place).collect();
         assert_eq!(places, want);
     }
 

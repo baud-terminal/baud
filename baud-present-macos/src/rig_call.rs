@@ -54,6 +54,8 @@ pub struct FrameRig {
     pub window: RigWindow,
     /// How the act is sent.
     pub keys: RigKeys,
+    /// Whether the ticks after the act reach the view.
+    pub ticks: RigFrameTicks,
 }
 
 /// **Whether the polls still the tick's hold the display link**: kept,
@@ -96,15 +98,19 @@ pub enum RigWindow {
     /// notification posted with the probe's access door turned from both
     /// off to both on (`settings::rig_post_display_options`).
     DisplayOptions,
+    /// The pointer moved over the first row's second cell, no button held,
+    /// sent to the view's own `mouseMoved:` (`probe::press`).
+    PointerOver,
 }
 
-const WINDOW: [(RigWindow, &str); 6] = [
+const WINDOW: [(RigWindow, &str); 7] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
     (RigWindow::ResignedKey, "resigned-key"),
     (RigWindow::Refocused, "refocused"),
     (RigWindow::DisplayOptions, "display-options"),
+    (RigWindow::PointerOver, "pointer-over"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline
@@ -117,6 +123,20 @@ pub enum RigKeys {
 }
 
 const KEYS: [(RigKeys, &str); 2] = [(RigKeys::Line, "line"), (RigKeys::Pressed, "pressed")];
+
+/// **Whether the frame rig's ticks reach the view after the act**: offered,
+/// each delivered while the link runs, or withheld, the run loop run with
+/// no tick at all -- what drives the state is then the act's own turns.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigFrameTicks {
+    Offered,
+    Withheld,
+}
+
+const FRAME_TICKS: [(RigFrameTicks, &str); 2] = [
+    (RigFrameTicks::Offered, "offered"),
+    (RigFrameTicks::Withheld, "withheld"),
+];
 
 /// The event rig's call.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -235,6 +255,7 @@ impl RigCall {
                 holders,
                 window,
                 keys,
+                ticks,
             }) => {
                 return vec![
                     FRAME_RIG.to_owned(),
@@ -245,6 +266,7 @@ impl RigCall {
                     word(&HOLDERS, *holders).to_owned(),
                     word(&WINDOW, *window).to_owned(),
                     word(&KEYS, *keys).to_owned(),
+                    word(&FRAME_TICKS, *ticks).to_owned(),
                 ];
             }
         };
@@ -271,8 +293,8 @@ impl RigCall {
     /// they make none: anything but a well-formed rig call is refused.
     pub fn parse(args: &[String]) -> Result<RigCall, Refused> {
         if args.first().is_some_and(|f| f == FRAME_RIG) {
-            let [_, setup, act, attempts, focus, holders, window, keys] = args else {
-                return Err(Refused("--frame-rig takes seven arguments"));
+            let [_, setup, act, attempts, focus, holders, window, keys, ticks] = args else {
+                return Err(Refused("--frame-rig takes eight arguments"));
             };
             return Ok(RigCall::Frames(FrameRig {
                 setup: setup.clone(),
@@ -285,6 +307,7 @@ impl RigCall {
                 holders: of(&HOLDERS, holders).ok_or(Refused("--frame-rig: no such holders"))?,
                 window: of(&WINDOW, window).ok_or(Refused("--frame-rig: no such window event"))?,
                 keys: of(&KEYS, keys).ok_or(Refused("--frame-rig: no such keys"))?,
+                ticks: of(&FRAME_TICKS, ticks).ok_or(Refused("--frame-rig: no such ticks"))?,
             }));
         }
         let [flag, act, arg, iterations, ticks, focus, each] = args else {
@@ -350,6 +373,7 @@ mod tests {
             holders: RigHolders::Lifted,
             window: RigWindow::Restyled,
             keys: RigKeys::Pressed,
+            ticks: RigFrameTicks::Withheld,
         });
         assert_eq!(RigCall::parse(&frames.to_args()), Ok(frames));
         for refused in [
@@ -374,6 +398,7 @@ mod tests {
                 "holders-gone",
                 "untold",
                 "line",
+                "offered",
             ]),
             args(&[
                 "--frame-rig",
@@ -384,6 +409,7 @@ mod tests {
                 "holders-kept",
                 "made-key",
                 "line",
+                "offered",
             ]),
             args(&[
                 "--frame-rig",
@@ -394,6 +420,7 @@ mod tests {
                 "holders-kept",
                 "untold",
                 "typed",
+                "offered",
             ]),
             args(&[
                 "--frame-rig",
@@ -404,6 +431,18 @@ mod tests {
                 "holders-kept",
                 "untold",
                 "line",
+                "offered",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-kept",
+                "untold",
+                "line",
+                "dropped",
             ]),
             args(&["--event-rig", "path", "/a", "3", "tick", "copy"]),
             args(&[

@@ -42,8 +42,8 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, RigAct, RigCall, RigFocus, RigHolders, RigKeys, RigTicks,
-    RigWindow,
+    EventRig, FrameRig, Iterations, RigAct, RigCall, RigFocus, RigFrameTicks, RigHolders, RigKeys,
+    RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -1117,7 +1117,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
 const HOLDERS: &[&str] = &[
-    "FS-A3", "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
+    "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
 ];
 
 /// The focus baud last set, as a frame rig's child printed it.
@@ -1126,6 +1126,15 @@ enum FocusSeen {
     Unset,
     Gained,
     Lost,
+}
+
+/// What the last read found under the pointer, as a frame rig's child
+/// printed it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PreviewSeen {
+    Unset,
+    Link,
+    Nothing,
 }
 
 /// The display link's state as a frame rig's child printed it.
@@ -1138,8 +1147,9 @@ enum LinkSeen {
 /// **What a frame rig's child printed**: the link's state at the end, the
 /// ticks delivered, the door's sends and the frames drawn over the offered
 /// ticks, the links made in all, the polls still the tick's, what the last
-/// settle found owed, the palettes applied, the focus baud last set, and
-/// the display options' changes taken.
+/// settle found owed, the palettes applied, the focus baud last set, the
+/// display options' changes taken, and what the last read found under
+/// the pointer.
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct Counters {
     link: LinkSeen,
@@ -1153,6 +1163,8 @@ struct Counters {
     focus: FocusSeen,
     motion: u32,
     display: u32,
+    preview: PreviewSeen,
+    reads: u32,
 }
 
 impl Counters {
@@ -1187,6 +1199,13 @@ impl Counters {
             },
             motion: count("motion")?,
             display: count("display")?,
+            preview: match field("preview")? {
+                "unset" => PreviewSeen::Unset,
+                "link" => PreviewSeen::Link,
+                "none" => PreviewSeen::Nothing,
+                _ => return None,
+            },
+            reads: count("reads")?,
         })
     }
 }
@@ -1225,6 +1244,14 @@ enum Settles {
     /// motion preference and the display settings each taken, and the link
     /// paused at the end.
     Accessed,
+    /// **A link moved under a resting pointer, read with no tick**: the
+    /// ticks withheld, the last read found the link's preview.
+    Previewed,
+    /// **Output on rows away from a resting pointer, and no read of it**:
+    /// the link under the pointer previewed by the pointer's own event, at
+    /// least `drawn` frames of the output drawn, and not one read of the
+    /// link under the pointer after the settle.
+    Unread { drawn: u64 },
 }
 
 impl Settles {
@@ -1249,6 +1276,10 @@ impl Settles {
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
             Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
             Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
+            Settles::Previewed => c.delivered == 0 && c.preview == PreviewSeen::Link,
+            Settles::Unread { drawn } => {
+                c.reads == 0 && c.preview == PreviewSeen::Link && c.drawn >= drawn
+            }
         }
     }
 }
@@ -1263,6 +1294,8 @@ struct FrameSite {
     act: &'static str,
     /// How the act is sent.
     keys: RigKeys,
+    /// Whether the ticks after the act reach the view.
+    ticks: RigFrameTicks,
     /// What the window is told after the act.
     window: RigWindow,
     /// The child's environment beyond the rig's own.
@@ -1290,7 +1323,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 13] = [
+const FRAME_SITES: [FrameSite; 15] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1299,6 +1332,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: NO_SPLASH,
@@ -1317,6 +1351,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: concat!(
@@ -1342,6 +1377,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "printf y",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: NO_SPLASH,
@@ -1362,6 +1398,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: r"printf '\007'",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: concat!(
@@ -1388,6 +1425,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: r"stty -echo; printf 'baud\033]52;c;!\007'; cat >/dev/null",
         act: "x",
         keys: RigKeys::Pressed,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[("BAUD_KEYLAT", "1")],
         config: NO_SPLASH,
@@ -1406,6 +1444,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Restyled,
         env: &[],
         config: NO_SPLASH,
@@ -1425,6 +1464,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: "[cursor]\ntrail = \"off\"\n",
@@ -1443,6 +1483,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::BecameKey,
         env: &[],
         config: STEADY,
@@ -1460,6 +1501,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::ResignedKey,
         env: &[],
         config: STEADY,
@@ -1480,6 +1522,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: STEADY,
@@ -1499,6 +1542,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Refocused,
         env: &[],
         config: STEADY,
@@ -1518,6 +1562,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::DisplayOptions,
         env: &[],
         config: STEADY,
@@ -1529,6 +1574,52 @@ const FRAME_SITES: [FrameSite; 13] = [
             recorded: Failure::Held,
         },
     },
+    // **FS-A3**: a link printed under a resting pointer is previewed, the
+    // ticks withheld: the hover is read on the read's own turn, after its
+    // feed, and no tick polls for it.
+    FrameSite {
+        name: SiteName("a link printed under a resting pointer is previewed with no tick"),
+        setup: STILL,
+        act: r"printf '\033[H\033]8;;https://example.com/\033\\LINK\033]8;;\033\\'",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: concat!(
+            "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Previewed,
+        // Green on both arms: with no tick, the polls still the tick's
+        // hold nothing that could read it.
+        state: RowState::Green,
+    },
+    // **FS-A3, the other side**: output on rows away from a resting pointer
+    // reads nothing under it. The pointer rests on a URI on the first row;
+    // a loop writes rows nine to fourteen by cursor address, so no row
+    // scrolls, over many turns and the ticks offered, each drawn. Not one
+    // read of the link under the pointer follows the settle: a turn's
+    // output owes the hover a read only where it wrote what the last read
+    // went over.
+    FrameSite {
+        name: SiteName("output away from a resting pointer reads nothing under it"),
+        setup: r"printf '\033[2J\033[Hhttps://example.com/\033[5H\033]52;c;!\007'",
+        act: r"i=0; while [ $i -lt 40 ]; do printf '\033[%d;1Hout %d' $((i%6+9)) $i; i=$((i+1)); sleep 0.02; done",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: concat!(
+            "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(200),
+        expect: Settles::Unread { drawn: 10 },
+        state: RowState::Green,
+    },
     // **One link, paused and resumed, never made again per restart**: red
     // while the door's backend starts a new link each run, until
     // macos-liquid-glass's pause in place is published and baud
@@ -1539,6 +1630,7 @@ const FRAME_SITES: [FrameSite; 13] = [
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::Untold,
         env: &[],
         config: concat!(
@@ -1579,6 +1671,7 @@ fn run_frames(site: &FrameSite, slug: &str, holders: RigHolders) -> Result<Count
         holders,
         window: site.window,
         keys: site.keys,
+        ticks: site.ticks,
     });
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
         .args(call.to_args())

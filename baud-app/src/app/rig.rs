@@ -452,9 +452,10 @@ fn restyle(window: &NSWindow) {
 /// delivered and the door's sends over the offered ticks, the links made
 /// in all, the polls the last settle found still the tick's, what it
 /// found owed, the palettes applied over the ticks, the focus baud last
-/// set, and the display options' changes taken.
+/// set, the display options' changes taken, and what the last read found
+/// under the pointer.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
-    use probe_call::{RigFocus, RigHolders, RigKeys, RigWindow};
+    use probe_call::{RigFocus, RigFrameTicks, RigHolders, RigKeys, RigWindow};
     let Some(mtm) = MainThreadMarker::new() else {
         return std::process::ExitCode::from(3);
     };
@@ -492,6 +493,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);
+    // Where `PointerOver` moves the pointer: the first row's second cell.
+    let over = driver.rig_point(Row::ZERO, Col::at_index(1));
     // The view made first responder before its responder is set, as
     // `show` does: the view's hook then tells no one, and the focus the
     // window opens with is the opening pump's reading (`KeyHeard`).
@@ -529,6 +532,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let delivered = probe::delivered();
     let drawn = probe::frames();
     let styled = probe::styled();
+    let reads = probe::hover_reads();
     let (motions, displays) = (
         probe::taken(probe::DisplayOption::Motion),
         probe::taken(probe::DisplayOption::Display),
@@ -563,13 +567,24 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             });
             baud_present_macos::settings::rig_post_display_options();
         }
+        RigWindow::PointerOver => {
+            probe::press(&view, probe::Press::Moved, over, probe::Chord::Plain)
+        }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
-    offer(rig.attempts.0);
+    match rig.ticks {
+        RigFrameTicks::Offered => offer(rig.attempts.0),
+        // The run loop run as long, with no tick: the act's own turns.
+        RigFrameTicks::Withheld => {
+            for _ in 0..rig.attempts.0 {
+                probe::pass(0.01);
+            }
+        }
+    }
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -595,6 +610,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         probe::taken(probe::DisplayOption::Display)
             .0
             .saturating_sub(displays.0),
+        match probe::preview() {
+            probe::Previewed::Unset => "unset",
+            probe::Previewed::Link => "link",
+            probe::Previewed::Nothing => "none",
+        },
+        probe::hover_reads().0.saturating_sub(reads.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

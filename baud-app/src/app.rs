@@ -66,7 +66,7 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage, NSScreen,
+    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEventModifierFlags, NSImage, NSScreen,
     NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowAnimationBehavior,
     NSWindowOcclusionState, NSWindowStyleMask,
 };
@@ -578,6 +578,17 @@ struct App {
     /// The link preview (`link.rs`, `Hover`): the link under the pointer
     /// while Command is held, underlined, and its address in a bar.
     hover: crate::link::Hover,
+    /// **The modifiers the last event that reported them held**, as the
+    /// link gesture reads them: a modifier change (`modifiers_changed`) or
+    /// a mouse event (`hover_mouse`), and none held once the window loses
+    /// the keyboard, whose changes then go to another window. What a read
+    /// of the hover on a later turn goes by.
+    link_chord: crate::link::Chord,
+    /// **Whether the hover is owed a read** on this turn
+    /// (`link::HoverOwed`): set by the focus, a worker's answer, this
+    /// machine's names, the config, and what the last read covered
+    /// moving; taken by the turn's read (`App::read_owed_hover`).
+    hover_owed: crate::link::HoverOwed,
     /// The lines at rest the frame draws, and what reads them (`lined.rs`).
     lines: crate::lined::Lines,
     uris: crate::lined::Uris,
@@ -1586,6 +1597,8 @@ impl App {
                 h.set_at_rest(link_config.at_rest());
                 h
             },
+            link_chord: crate::link::Chord::Other,
+            hover_owed: crate::link::HoverOwed::No,
             lines: crate::lined::Lines::default(),
             uris: {
                 let mut u = crate::lined::Uris::default();
@@ -1933,34 +1946,49 @@ impl App {
         }
     }
 
-    /// **The link preview read again** while the pointer is over the
-    /// text (`link::Hover::refresh`): on the view shown now, with the
-    /// modifiers AppKit says are held now, `NSEvent.modifierFlags`. A
-    /// press or release of a modifier key alone is read as it happens
-    /// (`modifiers_changed`); this read, at each tick, follows the view as
-    /// output moves it under a held chord. Whether what the frame draws
-    /// changed.
-    fn read_hover(&mut self) -> bool {
-        if !self.hover.over_text() {
-            return false;
+    /// **The hover owed a read, if what the last read went over moved**
+    /// (`link::Hover::under_moved`): a few rows of cells compared with
+    /// their copy, no text read. Asked where output or the window may have
+    /// moved it -- after a turn's feed, and before a frame, which follows a
+    /// wheel, a scrollbar drag, a find or a resize.
+    fn owe_hover_if_moved(&mut self) {
+        let moved =
+            self.hover
+                .under_moved(&self.term, self.scrolled, self.uris.names(), &self.paths);
+        if moved == crate::link::HoverOwed::Yes {
+            self.hover_owed = crate::link::HoverOwed::Yes;
         }
-        let flags = NSEvent::modifierFlags_class();
-        // Command, and not Shift, which is the selection's.
-        let chord = match flags.contains(NSEventModifierFlags::Command)
-            && !flags.contains(NSEventModifierFlags::Shift)
-        {
-            true => crate::link::Chord::Cmd,
-            false => crate::link::Chord::Other,
-        };
-        self.read_hover_as(chord)
     }
 
-    /// The link preview read again with `chord` held: what `read_hover`
-    /// does with the modifiers it reads.
+    /// **The link preview read again on a turn that owes it**
+    /// (`link::HoverOwed`), and the mark taken; on no other turn, so a
+    /// turn whose output leaves what the last read covered reads no text.
+    /// Whether what the frame draws changed.
+    fn read_owed_hover(&mut self) -> bool {
+        match core::mem::take(&mut self.hover_owed) {
+            crate::link::HoverOwed::No => false,
+            crate::link::HoverOwed::Yes => self.read_hover(),
+        }
+    }
+
+    /// **The link preview read again** while the pointer is over the
+    /// text (`link::Hover::refresh`): on the view shown now, with the
+    /// modifiers the last event that reported them held (`link_chord`).
+    /// Whether what the frame draws changed.
+    fn read_hover(&mut self) -> bool {
+        self.read_hover_as(self.link_chord)
+    }
+
+    /// The link preview read again with `chord` held, which the next read
+    /// goes by too: a modifier change's read.
     fn read_hover_as(&mut self, chord: crate::link::Chord) -> bool {
+        self.link_chord = chord;
         if !self.hover.over_text() {
             return false;
         }
+        // Every read under the pointer, counted for the frame rig.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::hover_read();
         let changed = self.hover.refresh_with(
             &self.term,
             self.scrolled,
@@ -1972,7 +2000,20 @@ impl App {
         if changed {
             self.reshape_pointer();
         }
+        self.record_preview();
         changed
+    }
+
+    /// What the frame rig prints, under the probe only: what the last read
+    /// found for the next frame, the chord's preview or the look at rest.
+    fn record_preview(&self) {
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::previewed(
+            match self.hover.look().is_some() || self.hover.over().is_some() {
+                true => baud_present_macos::probe::Previewed::Link,
+                false => baud_present_macos::probe::Previewed::Nothing,
+            },
+        );
     }
 
     /// **The pointer over the text**: the pointing hand while the link
@@ -2340,9 +2381,12 @@ impl App {
         });
         self.renderer.set_find(&self.term, look);
         // The link preview, read again under the pointer on the view shown
-        // now: a read or a wheel may have changed what is under it since
-        // the tick read it (`Driver::poll_hover`).
-        if self.read_hover() {
+        // now where it is owed: a wheel, a drag of the thumb, a find or a
+        // resize may have moved what is under it since the turn's read
+        // (`Driver::poll_hover`), which the copy of what that read went over
+        // tells with no text read.
+        self.owe_hover_if_moved();
+        if self.read_owed_hover() {
             self.owe_frame();
         }
         self.scan_lines();
@@ -7137,31 +7181,39 @@ mod alt_window_tests {
         }
     }
 
-    /// **The display-link tick reads the link preview's modifiers**, so a
-    /// press or release of Command with the pointer resting shows on an
-    /// idle screen even where no modifier change reaches the view, and a
-    /// steady or hidden cursor draws no frame to read them in. The
-    /// tick branch is AppKit-bound and no test drives it, so this holds
-    /// the source: the pump's tick branch polls the hover after the focus
-    /// (a focus lost clears it first), and the poll reads the modifiers
-    /// held now, refreshes the hover and owes a frame when it changed.
-    /// `link.rs`'s `a_press_of_command_alone_shows_on_the_next_frame` holds
-    /// what the refresh does. Perturbations: delete the tick's call, or
-    /// the frame it owes -- each fails here.
+    /// **The hover is read only on a turn that owes it, after its feed**
+    /// (`link::HoverOwed`): the pump compares what the last read went over
+    /// after a turn that fed bytes, and the frame before it draws, and
+    /// reads only where that or an event marked the turn; the read goes by
+    /// the modifiers the last event reported, not by AppKit's state asked
+    /// on each turn. The pump is AppKit-bound, so this holds the source:
+    /// the compare inside the feed's branch, after the feed and before the
+    /// poll; the poll out of the tick, after the focus is read (a focus lost
+    /// clears the preview first); the poll and the frame read through the
+    /// one reader that takes the mark, which is the only caller of the read;
+    /// and the read goes by `link_chord`. `link.rs`'s
+    /// `output_owes_the_hover_a_read_only_where_its_last_read_went` holds the
+    /// compare, and the frame rig's two FS-A3 rows what the turns do.
+    /// Perturbations: the poll or the frame reading every time, the compare
+    /// before the feed or on every turn, or the read asking AppKit again --
+    /// each fails here.
     #[test]
-    fn the_display_link_tick_reads_the_link_preview() {
+    fn the_hover_is_read_only_on_a_turn_that_owes_it() {
         const SRC: &str = include_str!("app.rs");
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
         const FOCUS: &str = concat!("self.poll_", "focus();");
         const CALL: &str = concat!("self.poll_", "hover();");
-        const POLL: &str = concat!("    fn poll_", "hover(&mut self) {");
-        const READ: &str = concat!("    fn read_", "hover(&mut self) -> bool {");
-        const READ_AS: &str = concat!(
-            "    fn read_",
-            "hover_as(&mut self, chord: crate::link::Chord) -> bool {"
+        const MOVED: &str = concat!("self.app.owe_hover_", "if_moved();");
+        const FED: &str = concat!(
+            "if !drained.chunks.is_empty() || fed == crate::reads::",
+            "Fed::Some {\n            self.app.owe_hover_if_moved();"
         );
+        const POLL: &str = concat!("    fn poll_", "hover(&mut self) {");
+        const OWED: &str = concat!("    fn read_owed_", "hover(&mut self) -> bool {");
+        const READ: &str = concat!("    fn read_", "hover(&mut self) -> bool {");
+        const READS: &str = concat!("self.read_", "hover()");
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
             let b = SRC.split(head).nth(1).expect(head);
@@ -7170,25 +7222,50 @@ mod alt_window_tests {
         let pump = body(PUMP);
         let tick = pump.split(TICK).nth(1).expect("the tick branch");
         let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
-        assert!(tick.contains(CALL), "the tick does not poll the hover");
+        assert!(!tick.contains(CALL), "the tick polls the hover");
+        let fed = pump
+            .find(concat!("crate::reads::", "paced("))
+            .expect("the feed");
         let (focus, call) = (pump.find(FOCUS), pump.find(CALL));
         assert!(focus.is_some(), "the pump does not read the focus");
         assert!(focus < call, "the hover is polled before the focus");
+        assert!(call > Some(fed), "the hover is polled before the feed");
         assert_eq!(SRC.matches(CALL).count(), 1, "and nowhere else");
+        assert_eq!(pump.matches(MOVED).count(), 1, "one compare in the pump");
+        let moved = pump.find(FED).expect("the compare is not the fed turn's");
+        assert!(
+            fed < moved && Some(moved) < call,
+            "the compare is out of order"
+        );
         let poll = body(POLL);
         assert!(
-            poll.contains(concat!("self.app.read_", "hover()"))
+            poll.contains(concat!("self.app.read_owed_", "hover()"))
                 && poll.contains("self.app.owe_frame();"),
-            "the poll owes no frame when the preview changes"
+            "the poll reads with no mark, or owes no frame when it changed"
+        );
+        let owed = body(OWED);
+        assert!(
+            owed.contains(concat!("core::mem::take(&mut self.", "hover_owed)"))
+                && owed.contains(concat!("HoverOwed::No => ", "false")),
+            "the reader does not take the mark, or reads on an unmarked turn"
+        );
+        assert_eq!(SRC.matches(READS).count(), 1, "the read has another caller");
+        assert!(
+            owed.contains(READS),
+            "the one caller is not the mark's reader"
+        );
+        assert!(
+            SRC.contains(concat!(
+                "self.owe_hover_if_moved();\n        if self.read_owed_",
+                "hover() {"
+            )),
+            "the frame reads the hover with no mark"
         );
         let read = body(READ);
         assert!(
-            read.contains(concat!("NSEvent::modifier", "Flags_class()"))
-                && read.contains(concat!("self.read_", "hover_as(chord)"))
-                && [".refresh(", ".refresh_with("]
-                    .iter()
-                    .any(|r| body(READ_AS).contains(r)),
-            "the read does not refresh with the modifiers held now"
+            read.contains(concat!("self.read_hover_as(self.", "link_chord)"))
+                && !SRC.contains(concat!("NSEvent::modifier", "Flags_class()")),
+            "the read asks AppKit for the modifiers"
         );
     }
 
@@ -11088,7 +11165,7 @@ mod motion_tests {
             .map(|(arm, _)| arm)
             .expect("the tick arm");
         assert!(
-            tick.contains(concat!("self.poll_", "hover();")),
+            tick.contains(concat!("self.notice_", "turn();")),
             "the control: {tick}"
         );
         assert!(!tick.contains(concat!("self.poll_", "motion();")), "{tick}");
@@ -11162,7 +11239,7 @@ mod motion_tests {
             .map(|(arm, _)| arm)
             .expect("the tick arm");
         assert!(
-            tick.contains(concat!("self.poll_", "hover();")),
+            tick.contains(concat!("self.notice_", "turn();")),
             "the control: {tick}"
         );
         assert!(
@@ -12267,7 +12344,6 @@ impl Driver {
             self.paths_turn();
             self.app.commands.reap();
             self.notice_turn();
-            self.poll_hover();
             self.follow_settings();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
@@ -12687,6 +12763,18 @@ impl Driver {
                 self.app.owe_frame();
             }
         }
+        // The link under a resting pointer, after the feed: a read that
+        // wrote what the last read of it went over, or moved the window
+        // under it, owes it a read (`App::owe_hover_if_moved`), which the
+        // copy of those rows tells with no text read; output elsewhere owes
+        // none. Then read on a turn that owes it, so a link written under
+        // the pointer is drawn by the frame it owes, and no tick polls for
+        // it. Modifier keys alone are read as they happen
+        // (`modifiers_changed`).
+        if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
+            self.app.owe_hover_if_moved();
+        }
+        self.poll_hover();
         self.pace_wake();
         self.app.flush_reply(Asked::Unasked);
         self.decode_turn(
@@ -14663,8 +14751,7 @@ impl Driver {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
             Holder::A17Splash => self.app.splash.waiting(),
-            Holder::A3Hover
-            | Holder::A5Notices
+            Holder::A5Notices
             | Holder::A9Front
             | Holder::A12Title
             | Holder::A13Hosts
@@ -14982,15 +15069,17 @@ impl Driver {
         }
     }
 
-    /// **The link preview at each display-link tick**: a press or release
-    /// of Command alone is read as it happens (`modifiers_changed`), and
-    /// the tick reads the modifiers held now as well (`App::read_hover`),
-    /// for the view output moves under a held chord, and owes a
-    /// frame when the preview changes, on an idle screen too -- a steady
-    /// or hidden cursor draws no frame of its own to read them in. After
-    /// `poll_focus`, so a focus lost has cleared the preview first.
+    /// **The link preview on a turn that owes it** (`App::read_owed_hover`):
+    /// a press or release of Command alone is read as it happens
+    /// (`modifiers_changed`) and a pointer event reads it itself
+    /// (`hover_mouse`); this reads what a turn's events marked -- the focus,
+    /// a worker's answer, this machine's names, the config, output that
+    /// moved what the last read covered -- and owes a frame when the
+    /// preview changes, on an idle screen too, where a steady or hidden
+    /// cursor draws no frame of its own to read it in. After `poll_focus`,
+    /// so a focus lost has cleared the preview first.
     fn poll_hover(&mut self) {
-        if self.app.read_hover() {
+        if self.app.read_owed_hover() {
             self.app.owe_frame();
         }
     }
@@ -15012,6 +15101,8 @@ impl Driver {
         let names = crate::link::MachineNames::of(names.to_vec());
         crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
         self.app.lines.forget();
+        // A `file` link under the pointer is this machine's or not by them.
+        self.app.hover_owed = crate::link::HoverOwed::Yes;
         self.app.owe_frame();
     }
 
@@ -15062,6 +15153,9 @@ impl Driver {
         let turn = crate::link_layer::tick(&mut app.probes, &mut layer, host_now(), master);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
+            // An answer merged: a printed path under the pointer may open
+            // now, or be gone.
+            app.hover_owed = crate::link::HoverOwed::Yes;
             app.owe_frame();
         }
     }
@@ -15084,6 +15178,9 @@ impl Driver {
         let turn = crate::link_layer::answers(&mut app.probes, &mut layer);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
+            // An answer merged: a printed path under the pointer may open
+            // now, or be gone.
+            app.hover_owed = crate::link::HoverOwed::Yes;
             app.owe_frame();
         }
         if let Some(done) = turn.clicked {
@@ -15868,6 +15965,8 @@ impl Driver {
                 Part::Link => {
                     self.app.link_config = c.link.clone();
                     self.app.hover.set_at_rest(c.link.at_rest());
+                    // The look at rest and the rules a link is read by.
+                    self.app.hover_owed = crate::link::HoverOwed::Yes;
                     if self.app.uris.rules() != &c.link.rules {
                         for told in c.link.rules.told() {
                             crate::info!("{told}");
@@ -16125,6 +16224,13 @@ impl Driver {
             return;
         }
         self.app.focus = f;
+        // The preview is the key window's: a change owes the hover a read,
+        // and a loss lets the modifiers go, whose changes go to another
+        // window from now on.
+        self.app.hover_owed = crate::link::HoverOwed::Yes;
+        if f == baud_core::Focus::Lost {
+            self.app.link_chord = crate::link::Chord::Other;
+        }
         if self.app.term.focus(f) {
             self.app.flush_reply(Asked::Unasked);
         }
@@ -16356,12 +16462,11 @@ impl Driver {
     /// (and not Shift, the selection's), the link under the pointer is
     /// underlined and its address shown (`link::Hover`); a move without it,
     /// or the pointer leaving, takes them away. Mouse events carry the
-    /// modifiers, and a press or release of Command alone with the pointer
-    /// still is read from the window's modifier change
-    /// (`modifiers_changed`) and again at each display-link tick, from
-    /// `NSEvent.modifierFlags`, which owes a frame when the preview changes
-    /// (`poll_hover`).
-    /// The pointer's cell is kept whatever the modifiers, for that read.
+    /// modifiers, kept as the chord a later turn's read goes by
+    /// (`link_chord`), and a press or release of Command alone with the
+    /// pointer still is read from the window's modifier change
+    /// (`modifiers_changed`). The pointer's cell is kept whatever the
+    /// modifiers, for the reads a turn owes (`poll_hover`).
     fn hover_mouse(&mut self, event: &Mouse) {
         use crate::link::Chord;
         let chord = if event.modifiers.command && !event.modifiers.shift {
@@ -16401,6 +16506,8 @@ impl Driver {
             app.uris.names(),
             &app.paths,
         );
+        app.link_chord = chord;
+        app.record_preview();
         if hovered || pressed {
             app.reshape_pointer();
         }
@@ -22230,7 +22337,7 @@ mod link_pointer_tests {
     /// the pointer shown is the preview's: the mouse handler shows it after
     /// the preview reads the move, every function that updates, refreshes
     /// or clears the preview, or tells it who a left press goes to -- a
-    /// move, the display-link tick and a frame's read, the frame's thumb,
+    /// move, a turn's owed read and a frame's, the frame's thumb,
     /// a key without Command, the keyboard lost -- shows it again,
     /// leaving takes the hand back before what shows is unknown, and
     /// showing it asks the preview with the program's `OSC 22` shape.
