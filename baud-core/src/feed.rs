@@ -587,6 +587,7 @@ fn step(
     {
         crate::graph::count_node(&mut p.hist, *node);
         crate::graph::count_act(&mut p.hist, e.act);
+        p.hist.take(*enc, *node, b);
     }
     *node = e.next;
     act(p, e.act, node, enc, utf8, min, csi, from, left)

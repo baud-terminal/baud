@@ -358,7 +358,11 @@ impl Paint<'_, '_> {
         };
         let host = len.map(|n| &self.strs.iterm.host[..n]);
         match crate::cwd::keep_as_sent(self.strs.cwd, host, dir) {
-            Some(k) => self.strs.cwd_at.kept = k,
+            Some(k) => {
+                self.strs.cwd_at.kept = k;
+                #[cfg(feature = "read-record")]
+                self.cold.record.folder(crate::record::Folder::Kept);
+            }
             None => self.refuse_directory(),
         }
     }

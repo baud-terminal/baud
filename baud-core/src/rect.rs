@@ -316,6 +316,20 @@ impl Paint<'_, '_> {
         if h > 0 {
             let bottom = Row::from_index(top.index() + h - 1);
             self.edit_reaches(EditRows::Span(top, bottom));
+            // The source's text stands on the destination's lines now.
+            #[cfg(feature = "read-record")]
+            {
+                let src_bottom = Row::from_index(src.top.index() + h - 1);
+                let by = match top.index().checked_sub(src.top.index()) {
+                    Some(d) => crate::record::LineShift::Down(Rows::of_count(d)),
+                    None => {
+                        crate::record::LineShift::Up(Rows::of_count(src.top.index() - top.index()))
+                    }
+                };
+                if top != src.top {
+                    self.record_move((src.top, src_bottom), by);
+                }
+            }
         }
         let mut buf = [PackedCell::EMPTY; MAX_COLS];
         let down = top > src.top;
@@ -446,6 +460,11 @@ impl Paint<'_, '_> {
                 self.view.put(r, c, cell);
                 self.cells = self.cells.plus(1);
             }
+        }
+        // A rendition changed on rows off the cursor's is a write of them.
+        #[cfg(feature = "read-record")]
+        if rect.top < self.cy || rect.bottom > self.cy {
+            self.record_rows(rect.top, rect.bottom);
         }
         self.row_changed_to(self.cy);
     }

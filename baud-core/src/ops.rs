@@ -676,6 +676,10 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn retire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
+            #[cfg(feature = "read-record")]
+            {
+                self.cold.alt_top = self.cold.alt_top.next();
+            }
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Up, self.book.top);
             }
@@ -1021,6 +1025,8 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn unretire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
+            #[cfg(feature = "read-record")]
+            self.alt_unretired();
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Down, self.book.top);
             }
@@ -1052,6 +1058,16 @@ impl Paint<'_, '_> {
         match self.book.top.minus(Rows::of_count(1)) {
             Some(t) => self.book.top = t,
             None => {
+                // No line to number the row taken in: the screen's text moves
+                // down a line under the numbers it had.
+                #[cfg(feature = "read-record")]
+                self.record_move(
+                    (
+                        Row::ZERO,
+                        Row::from_index(self.rows.index().saturating_sub(2)),
+                    ),
+                    crate::record::LineShift::Down(Rows::of_count(1)),
+                );
                 if self.cold.watched == crate::term::Watched::Rows {
                     self.cold.watch_uncounted(Scroll::Down, self.book.top);
                 }
@@ -1163,6 +1179,15 @@ impl Paint<'_, '_> {
             // selection on the status line under it was renumbered as if it
             // had scrolled.
             self.cold.region_scrolls = self.cold.region_scrolls.next();
+            // The rows under the region keep their text and take the numbers
+            // of the lines below them, as the region retires its lines.
+            #[cfg(feature = "read-record")]
+            if bot.index() < last {
+                self.record_move(
+                    (Row::from_index(bot.index() + 1), Row::from_index(last)),
+                    crate::record::LineShift::Down(Rows::of_count(k)),
+                );
+            }
             #[cfg(feature = "diag")]
             {
                 self.scroll_rot += k;
@@ -1584,6 +1609,8 @@ impl Paint<'_, '_> {
             // rep on `less`, 593,934 to 592,725.
             if self.past_edge() {
                 self.scroll_down_past_edge(Rows::of_count(k));
+                #[cfg(feature = "read-record")]
+                self.record_rows(Row::ZERO, Row::from_index(k - 1));
                 self.path_rows(Row::ZERO, Row::from_index(k - 1));
                 return;
             }
@@ -1593,6 +1620,10 @@ impl Paint<'_, '_> {
                 self.watch_taken_back();
                 self.fill_row_counted(Row::ZERO);
             }
+            // The lines taken back are blanked on the top rows, the cursor's
+            // among them: the line it stands on moved under it.
+            #[cfg(feature = "read-record")]
+            self.record_rows(Row::ZERO, Row::from_index(k - 1));
             if self.strs.print.areas.held() {
                 self.areas_scrolled_down();
             }
@@ -2416,6 +2447,19 @@ impl Paint<'_, '_> {
         let hist = self.book.hist;
         let n = self.on_primary(|v| v.selective_wipe_behind(hist));
         self.cells = self.cells.plus(n);
+        // The primary's history lines it erased in place, whichever screen
+        // is up.
+        #[cfg(feature = "read-record")]
+        if let (Some(first), Some(last)) = (
+            self.book.top.minus(hist),
+            self.book.top.minus(Rows::of_count(1)),
+        ) {
+            if hist.index() > 0 {
+                self.cold
+                    .record
+                    .reached(Screen::Normal, crate::record::Span::of(first, last));
+            }
+        }
         self.cold.history_wipes = self.cold.history_wipes.next();
         if self.cold.screen == Screen::Normal && hist.index() > 0 {
             let (from, to) = (
@@ -4639,6 +4683,10 @@ impl Paint<'_, '_> {
                 self.cold.modes.reset(ModeBit::SideMargins);
                 if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
                     self.clear_screen();
+                    #[cfg(feature = "read-record")]
+                    if self.cold.screen == crate::term::Screen::Alternate {
+                        self.alt_cleared();
+                    }
                 }
                 self.status_column_mode();
                 self.home();
@@ -5138,6 +5186,10 @@ impl Paint<'_, '_> {
         use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
+                // The line the cursor leaves on the primary is the read's
+                // there, whatever follows on the alternate screen.
+                #[cfg(feature = "read-record")]
+                self.record_rows(self.cy, self.cy);
                 // **Into the primary's `DECSC` slot**, "Save cursor as in
                 // DECSC" (`[[source: ctlseqs]]`), xterm's `CursorSave` before
                 // `ToAlternate`; the style and `?12` ride beside it.
@@ -5224,6 +5276,16 @@ impl Paint<'_, '_> {
                         self.cx = c;
                     }
                 }
+                // The record forgets the alternate screen's lines where its
+                // text is cleared, and the line the cursor lands on there is
+                // the read's.
+                #[cfg(feature = "read-record")]
+                {
+                    if how == AltSwitch::SaveAndClear {
+                        self.alt_cleared();
+                    }
+                    self.record_rows(self.cy, self.cy);
+                }
                 // Its image numbering starts again with the screen. No image
                 // can be on it: leaving is the only way off it, and leaving
                 // deletes them.
@@ -5237,7 +5299,11 @@ impl Paint<'_, '_> {
                 // cursor stays, as it does under `?47`.
                 if how == AltSwitch::ClearOnExit {
                     self.clear_screen();
+                    #[cfg(feature = "read-record")]
+                    self.alt_cleared();
                 }
+                #[cfg(feature = "read-record")]
+                self.record_rows(self.cy, self.cy);
                 // **The editor's images go with the editor's screen**, a
                 // kitty picture kept below it included. foot deletes its
                 // Sixels here (`[[source: foot-csi]]`), and also clears the
@@ -5284,8 +5350,19 @@ impl Paint<'_, '_> {
                 // cursor `?1049 h` saved outlives a `?47 l` exit, as the
                 // cursor xterm saves outlives `FromAlternate`, and `ESC 8` on
                 // the primary finds it.
+                //
+                // Where the cursor stood on the alternate screen is no row of
+                // the primary's, so the restore is not a climb of the read's:
+                // only the line it lands on is recorded.
+                #[cfg(feature = "read-record")]
+                let kept = self.cold.record;
                 if how == AltSwitch::SaveAndClear {
                     self.restore_alt();
+                }
+                #[cfg(feature = "read-record")]
+                {
+                    self.cold.record = kept;
+                    self.record_rows(self.cy, self.cy);
                 }
             }
             // **`?1049 h` while the alternate screen is up saves and clears
@@ -5302,6 +5379,11 @@ impl Paint<'_, '_> {
                 if how == AltSwitch::SaveAndClear {
                     self.cold.saved = Some(self.save());
                     self.clear_screen();
+                    #[cfg(feature = "read-record")]
+                    {
+                        self.alt_cleared();
+                        self.record_rows(self.cy, self.cy);
+                    }
                 }
             }
             // **`?1049 l` on the primary restores as `DECRC`**, as xterm's
@@ -5465,6 +5547,10 @@ impl Paint<'_, '_> {
 
     /// RIS. **Everything a soft reset does, and the screen as well.**
     pub(crate) fn hard_reset(&mut self) {
+        // The alternate screen's text goes with the reset, whichever screen
+        // it is issued from.
+        #[cfg(feature = "read-record")]
+        self.alt_cleared();
         // **RIS erases and leaves the status line**, "The Status Display will
         // be erased and exited" (070-14 p. 14-10), to the power-up type,
         // none: first, so the rest resets the main display.
@@ -5595,7 +5681,7 @@ impl Paint<'_, '_> {
         // names neither. xterm's `ReallyReset` touches neither its UTF-8
         // mode nor `alternateScroll` (`[[source: xterm-reset]]`'s file), a
         // practice not followed.
-        self.cold.encoding = InputEncoding::Utf8;
+        self.cold.set_input_encoding(InputEncoding::Utf8);
         self.reselect();
         self.cold.alternate_scroll = AlternateScroll::On;
         // BDSM to its initial state, set: ECMA-48 8.3.105 resets a device
@@ -5880,6 +5966,9 @@ impl Paint<'_, '_> {
         // 14451-14455).
         self.cold.keyboard = Keyboard::Default;
         self.last_cp = None;
+        // The screen the reset cleared is the read's, every row.
+        #[cfg(feature = "read-record")]
+        self.record_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
         self.goto(Row::ZERO, Col::ZERO);
     }
 

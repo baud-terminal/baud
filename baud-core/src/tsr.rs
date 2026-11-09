@@ -306,7 +306,7 @@ impl Paint<'_, '_> {
         // loop's live copy takes up from here when the string ends.
         if let Some(e) = r.encoding {
             let was = self.cold.strips();
-            self.cold.encoding = e;
+            self.cold.set_input_encoding(e);
             self.reselect();
             self.restrip_from(was, node);
         }

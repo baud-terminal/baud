@@ -73,7 +73,7 @@ impl LineIdx {
     /// An absolute line by number. A caller that tracks the scroll position
     /// (`scrolled - back`, or `hist + row`) names a line this way; an image
     /// placement anchors to one.
-    pub fn of(n: u64) -> LineIdx {
+    pub const fn of(n: u64) -> LineIdx {
         LineIdx(n)
     }
     /// The absolute line number, for a renderer positioning against the scroll.

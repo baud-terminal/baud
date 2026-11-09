@@ -543,6 +543,17 @@ impl Paint<'_, '_> {
         if above > 0 && !retained {
             return;
         }
+        // The block's lines, from its first to the cursor's, are erased
+        // where they lie, behind the window or on the screen: the read's.
+        #[cfg(feature = "read-record")]
+        {
+            let cursor = self.record_line(self.cy);
+            if let Some(first) = cursor.line.minus(Rows::of_count(d)) {
+                self.cold
+                    .record
+                    .reached(cursor.screen, crate::record::Span::of(first, cursor.line));
+            }
+        }
         let gives_up = rows - above.min(rows)..rows;
         let back = above > 0
             && gives_up

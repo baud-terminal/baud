@@ -1499,6 +1499,18 @@ pub struct Cold {
     /// the reading the watch was armed at is `Book::watched_at`, which only
     /// the embedder's two calls touch.
     pub(crate) first_erasure: Option<Erasure>,
+    /// **What the read being fed did off its forward path**
+    /// (`crate::record`), handed out and begun again by `Term::take_record`.
+    /// Written by a climb of the cursor, an erase or edit off its row, a move
+    /// of text between lines, a switch, a change of encoding, a folder
+    /// report and a prompt mark -- control functions all, never a glyph.
+    #[cfg(feature = "read-record")]
+    pub(crate) record: crate::record::Recording,
+    /// **The alternate screen's count of the rows it scrolled up**, the
+    /// number its top row's line takes in the record: counted, never read
+    /// round its ring, and back to the first where its text is cleared.
+    #[cfg(feature = "read-record")]
+    pub(crate) alt_top: LineIdx,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -1661,10 +1673,17 @@ pub struct Cold {
 // The keyboard `?1050` to `?1061` select (`keyboard`) landed in its padding:
 // written by DECSET, DECRST, XTRESTORE and `RIS`, read by a key, DECRQM and
 // XTSAVE, never by a glyph.
+// The read record (`record` and `alt_top`, `crate::record`) took it to 1720
+// with `read-record` on: written by a climb of the cursor, an erase or edit
+// off its row, a move of text between lines, a switch, a change of encoding,
+// a folder report and a prompt mark, and read by `Term::take_record` once a
+// read, never by a glyph. Without the feature it stays 1016.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
-#[cfg(not(feature = "sgr-table"))]
+#[cfg(all(not(feature = "sgr-table"), not(feature = "read-record")))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1016);
+#[cfg(all(not(feature = "sgr-table"), feature = "read-record"))]
+const _: () = assert!(core::mem::size_of::<Cold>() == 1720);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1798,6 +1817,19 @@ enum SelectionPage {
 }
 
 impl Cold {
+    /// **The input encoding, set**: `ESC % @`, `ESC % G`, `RIS` and DECRSTS's
+    /// restore, the only writers of the field. A switch to ISO 8859-1 is
+    /// recorded (`crate::record`): every byte after it runs under it.
+    pub(crate) fn set_input_encoding(&mut self, e: InputEncoding) {
+        #[cfg(feature = "read-record")]
+        if e != InputEncoding::Utf8 {
+            self.record.latin1();
+        }
+        self.encoding = e;
+    }
+}
+
+impl Cold {
     /// The state a key is encoded in: `Term::key`'s, and XTGETTCAP's, whose
     /// answer is what the key would send (`Paint::tcap_end`). One spelling,
     /// so the two cannot disagree.
@@ -1906,6 +1938,8 @@ impl Cold {
     /// one place the count moves, so the count and the watch cannot come
     /// apart.
     pub(crate) fn moved_in_place(&mut self, from: Row, to: Row, top: LineIdx) {
+        #[cfg(feature = "read-record")]
+        self.record_within((from, to), top);
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(from, to);
         self.test_watch(from, to, top);
@@ -1924,6 +1958,8 @@ impl Cold {
         way: crate::ops::Scroll,
         top: LineIdx,
     ) {
+        #[cfg(feature = "read-record")]
+        self.record_band((from, to), k, way, top);
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(from, to);
         if self.watched == Watched::Rows {
@@ -1950,6 +1986,8 @@ impl Cold {
     /// open inside it, and otherwise the rows carry it down. Counted for
     /// [`Term::row_moves`].
     pub(crate) fn lines_inserted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
+        #[cfg(feature = "read-record")]
+        self.record_band((at, bot), k, crate::ops::Scroll::Down, top);
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(at, bot);
         if self.watched != Watched::Rows {
@@ -1970,6 +2008,8 @@ impl Cold {
     /// xterm's `DeleteLine` disowns the selection when a deleted row lies
     /// in it, whose text goes, and otherwise the rows carry it up.
     pub(crate) fn lines_deleted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
+        #[cfg(feature = "read-record")]
+        self.record_band((at, bot), k, crate::ops::Scroll::Up, top);
         self.row_moves = self.row_moves.next();
         self.bell.rows_moved(at, bot);
         if self.watched != Watched::Rows {
@@ -2143,6 +2183,17 @@ impl Cold {
             tab_restore: TabRestore::Stopped,
             placement: crate::placed::Placement::NONE,
             first_erasure: None,
+            #[cfg(feature = "read-record")]
+            record: crate::record::Recording::begun(
+                crate::record::At {
+                    screen: Screen::Normal,
+                    line: LineIdx::FIRST,
+                },
+                crate::record::Grounded::Ansi,
+                crate::record::ReadEncoding::Utf8,
+            ),
+            #[cfg(feature = "read-record")]
+            alt_top: crate::record::ALT_BASE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,
@@ -2968,6 +3019,12 @@ impl<'b> Term<'b> {
         let mut whole = (self.rot, Rows::ZERO);
         let mut recut = Recut::No;
         if let Some(cut) = widths.then(|| self.primary_cut(rows)).flatten() {
+            // A re-cut renumbers the primary's lines by where they land, which
+            // no count says: the next record says so (`crate::record`).
+            #[cfg(feature = "read-record")]
+            self.cold
+                .record
+                .renumbered(crate::record::Renumbered::Resize);
             if frozen == FrozenResize::Held {
                 self.frozen_normalized(rows);
                 recut = Recut::Yes;
@@ -3867,6 +3924,38 @@ impl<'b> Term<'b> {
             }
             _ => v,
         }
+    }
+
+    /// **Either screen as the read record names it**, the one up or the one
+    /// parked: a view of its screen rows, the line the record names its top
+    /// row by, and how many history lines lie behind it (the primary's; the
+    /// alternate screen keeps none). For the record's own tests, which read
+    /// both surfaces of a read that switches; a renderer draws through
+    /// [`Term::view`]. Raw cells: a frozen line names ids in its
+    /// generation's words, which this leaves unresolved. Built only with
+    /// the tests' `record-test`.
+    #[cfg(all(feature = "read-record", feature = "record-test"))]
+    pub fn record_surface(&self, screen: Screen) -> (Viewport<'_>, LineIdx, Rows) {
+        let (cells, used, ring, rot, top, hist) = match screen {
+            Screen::Normal => (
+                &self.store.vp[..],
+                &self.store.used[..],
+                self.store.ring_rows(),
+                self.rot,
+                self.store.book.top,
+                self.store.book.hist,
+            ),
+            Screen::Alternate => (
+                &self.store.alt.cells[..],
+                &self.store.alt.used[..],
+                self.store.row_capacity(),
+                self.store.alt.rot,
+                self.cold.alt_top,
+                Rows::ZERO,
+            ),
+        };
+        let v = Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        (v, top, hist)
     }
 
     /// The screen scrolled `back` lines into the history: the window that

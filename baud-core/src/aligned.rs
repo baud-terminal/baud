@@ -76,8 +76,8 @@ pub(crate) struct Open {
     at: Col,
 }
 
-/// **The lines an erase or edit reaches**, read only while a string is
-/// open ([`Paint::edit_reaches`]).
+/// **The lines an erase or edit reaches**, read while a string is open and by
+/// the read record ([`Paint::edit_reaches`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EditRows {
     /// The cursor's line: EL, ECH, EF and DECSEL.
@@ -230,19 +230,19 @@ impl Paint<'_, '_> {
     /// and `DECDC` ask past the guards that ignore them.
     #[inline(always)]
     pub(crate) fn edit_reaches(&mut self, rows: EditRows) {
+        #[cfg(feature = "read-record")]
+        if rows != EditRows::Line {
+            self.record_edit(rows);
+        }
         if self.cold.modes.is_set(ModeBit::Aligning) {
             self.aligned_edited(rows);
         }
     }
 
-    #[cold]
-    #[inline(never)]
-    fn aligned_edited(&mut self, rows: EditRows) {
-        let Some(o) = self.strs.aligned.open else {
-            return;
-        };
+    /// **The rows an erase or edit of `rows` reaches**, first to last.
+    pub(crate) fn edit_rows(&self, rows: EditRows) -> (Row, Row) {
         let last = Row::from_index(self.rows.index() - 1);
-        let (top, bottom) = match rows {
+        match rows {
             EditRows::Line => (self.cy, self.cy),
             EditRows::Chars => match (self.cold.extent, self.cold.modes) {
                 (None | Some(EditExtent::Line | EditExtent::Field), _) => (self.cy, self.cy),
@@ -255,7 +255,28 @@ impl Paint<'_, '_> {
             EditRows::Display(EraseExtent::All) => (Row::ZERO, last),
             EditRows::Region => (self.cold.top, self.cold.bot),
             EditRows::Span(a, b) => (a, b),
+        }
+    }
+
+    /// An erase or edit reaching `rows`, recorded where they leave the
+    /// cursor's row (`crate::record`).
+    #[cfg(feature = "read-record")]
+    #[cold]
+    #[inline(never)]
+    fn record_edit(&mut self, rows: EditRows) {
+        let (top, bottom) = self.edit_rows(rows);
+        if top < self.cy || bottom > self.cy {
+            self.record_rows(top, bottom);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn aligned_edited(&mut self, rows: EditRows) {
+        let Some(o) = self.strs.aligned.open else {
+            return;
         };
+        let (top, bottom) = self.edit_rows(rows);
         if o.row >= top && o.row <= bottom {
             self.aligned_ends();
         }

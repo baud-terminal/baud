@@ -24,7 +24,7 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 # reads. Off, it is flat on btop and asciiquarium and **better** on cat-scroll,
 # git-log and less-pager, which is the rodata-layout class this file records
 # three times.
-# **`neon-scan` is on**, and it is the only default feature. It swaps the
+# **`neon-scan` is on by default**, beside `read-record`. It swaps the
 # printable and stride-three run scans to `baud-isa-aarch64::Neon`, which
 # extracts a lane mask with `shrn` where `core::simd`'s `to_bitmask` lowers to a
 # horizontal reduction. Measured **+4.2% on cat-cjk and +4.0% on less-cjk**,
@@ -49,7 +49,18 @@ include = ["/src/", "/README.md", "/LICENSE", "/NOTICE"]
 # `RUN_SCAN`, and `scripts/check-features.sh` builds it so. By
 # disassembly, baud's own functions in `ingest2` carry 12 `shrn.8b` and 7
 # `addv.8h` with the scan, and none and 19 without.
-default = ["neon-scan"]
+default = ["neon-scan", "read-record"]
+# **What each read did, recorded by the core** (`src/record.rs`,
+# `Term::take_record`): on by default. Off, `take_record` vouches for
+# nothing, so an embedder that files lines by it files none as its own.
+read-record = []
+# **Tests only**: what the record's tests read from the core --
+# `Term::record_surface`, either screen's rows as the record numbers them,
+# which the differential reads on both surfaces of a read that switches,
+# and `table_edges`, every edge of the parse table with bytes that reach
+# it, which the corpus feeds. Enabled by the dev-dependency below, never by
+# a build of the core.
+record-test = []
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
 # the storage themselves. It turns on `baud-domain/alloc` for
@@ -259,7 +270,16 @@ baud-isa-x86-64 = { workspace = true, optional = true }
 # history was found by something it did not have. Both are this crate's now.
 [dev-dependencies]
 proptest = "1"
-baud-core = { path = ".", features = ["alloc"] }
+# **Without the defaults, and `neon-scan` named**: a test build has the scan
+# whatever the command line says, as it always had, and `read-record` only
+# when the command line asks, so the build without the defaults runs the
+# suite with the record off (`tests/read_record_off.rs`,
+# `scripts/test-features.sh`).
+baud-core = { path = ".", default-features = false, features = [
+  "alloc",
+  "neon-scan",
+  "record-test",
+] }
 # **Tests only.** `every_national_replacement_renders_as_its_table_says` reads
 # `nrcs_table` so its expectations come from the generated tables rather than
 # from a list transcribed into the test -- a transcribed table drifts from its

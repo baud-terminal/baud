@@ -506,7 +506,11 @@ impl Paint<'_, '_> {
     /// has to travel with it.
     #[cold]
     #[inline(never)]
-    pub(crate) fn str_end(&mut self, b: StreamByte, node: &mut crate::graph::Node) {
+    pub(crate) fn str_end(&mut self, b: StreamByte, at: BytePos, node: &mut crate::graph::Node) {
+        #[cfg(feature = "read-record")]
+        self.cold.record.string_ended(at);
+        #[cfg(not(feature = "read-record"))]
+        let _ = at;
         let term = match b.raw_byte() {
             0x07 => StringTerm::Bel,
             _ => StringTerm::St,
@@ -823,6 +827,10 @@ impl Paint<'_, '_> {
                 self.unsupported_total += 1;
             }
             Osc::Semantic(mark) => {
+                #[cfg(feature = "read-record")]
+                if let Some(&letter) = pending[..n].strip_prefix(b"133;").and_then(<[u8]>::first) {
+                    self.cold.record.mark_ran(StreamByte::from_stream(letter));
+                }
                 self.semantic(mark);
                 self.semantic_marks += 1;
             }

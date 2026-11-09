@@ -87,8 +87,13 @@ mod presentation;
 mod print;
 mod prompt;
 mod query;
+mod record;
 mod rect;
 mod regis;
+pub use record::{
+    At, Cleared, Events, Feeds, Fill, Folder, FolderEvent, Grounded, LineShift, MarkEvent, Move,
+    ReadEncoding, ReadRecord, Renumbered, Sources, Span,
+};
 mod search;
 mod shift;
 mod sixel;
@@ -235,6 +240,8 @@ pub use cwd::{DirectoriesRefused, WorkingDirectory};
 pub use dcs::TcapSetsRefused;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontFamily, FontsRefused};
 pub use graph::Node;
+#[cfg(any(feature = "diag", feature = "record-test"))]
+pub use graph::{TableEdge, WalkRoot, table_edges};
 pub use iterm::{ItermCounts, SessionHost};
 pub use logging::LogsRefused;
 pub use notice::ReportCount;

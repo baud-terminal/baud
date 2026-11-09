@@ -590,6 +590,30 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
 pub struct Hist {
     pub node: [usize; NNODE],
     pub act: [usize; NACT],
+    /// **Which edges the steps took**, a bit an edge: encoding, node and
+    /// byte. What shows a corpus reaches every edge of the table
+    /// ([`table_edges`], [`Hist::took`]).
+    edges: [u64; EDGE_WORDS],
+}
+
+/// The words of [`Hist::took`]'s bits: two encodings, every node, every
+/// byte.
+#[cfg(feature = "diag")]
+const EDGE_WORDS: usize = 2 * NNODE * 256 / 64;
+
+/// Where an edge's bit lies: its word and its place in the word.
+#[cfg(feature = "diag")]
+fn edge_bit(enc: InputEncoding, node: Node, b: StreamByte) -> (usize, u64) {
+    let e = match enc {
+        InputEncoding::Utf8 => 0,
+        InputEncoding::Latin1 => 1,
+    };
+    let n = Node::FROM_INDEX
+        .iter()
+        .position(|m| *m == node)
+        .unwrap_or(0);
+    let i = (e * NNODE + n) * 256 + b.index();
+    (i / 64, 1 << (i % 64))
 }
 
 /// A node's name, from the same file the node is declared in.
@@ -752,6 +776,7 @@ impl Hist {
     pub const ZERO: Hist = Hist {
         node: [0; NNODE],
         act: [0; NACT],
+        edges: [0; EDGE_WORDS],
     };
     /// The counts with their names, **derived rather than paired with a list
     /// the reader keeps.** A parallel name array in the benchmark drifted
@@ -802,6 +827,22 @@ impl Hist {
         for (a, b) in self.act.iter_mut().zip(o.act.iter()) {
             *a += *b;
         }
+        for (a, b) in self.edges.iter_mut().zip(o.edges.iter()) {
+            *a |= *b;
+        }
+    }
+
+    /// A step took the edge `b` leads out of `node` under `enc`.
+    pub(crate) fn take(&mut self, enc: InputEncoding, node: Node, b: StreamByte) {
+        let (w, bit) = edge_bit(enc, node, b);
+        self.edges[w] |= bit;
+    }
+
+    /// **Whether a step took the edge `b` leads out of `node` under
+    /// `enc`**: the check that a corpus reaches each edge it was built to.
+    pub fn took(&self, enc: InputEncoding, node: Node, b: StreamByte) -> bool {
+        let (w, bit) = edge_bit(enc, node, b);
+        self.edges[w] & bit != 0
     }
 }
 
@@ -2304,6 +2345,160 @@ impl Act {
             _ => ByteLen::ONE,
         }
     }
+}
+
+/// **Where a walk of the table starts**: a node the parser reaches by a
+/// mode or an embedder's call rather than by an edge, and what a test sets
+/// before the walk's bytes ([`table_edges`]).
+#[cfg(any(feature = "diag", feature = "record-test"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WalkRoot {
+    /// Power-on: the ANSI ground.
+    Ground,
+    /// VT52 mode's ground, after `CSI ? 2 l`.
+    Vt52,
+    /// A read held after a page-width request (`CSI ? 3 h` under
+    /// `CSI ? 40 h`) under `WidthHold::On`, the rest of that read.
+    Held,
+    /// Printer controller mode, after `CSI 5 i`: every byte the printer's
+    /// until `CSI 4 i`.
+    Printer,
+}
+
+/// The longest walk to a node, in bytes.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+const WALK: usize = 24;
+
+/// How the walk reaches one node: from which root, by which bytes.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+#[derive(Clone, Copy)]
+struct Reach {
+    root: WalkRoot,
+    path: [u8; WALK],
+    len: ReadLen,
+}
+
+/// **One edge of the parse table, and bytes that reach it**: the bytes
+/// from the root to the edge's node ([`TableEdge::path`]), then the edge's
+/// byte. Fed a byte a read, every byte is a step of the table: no fast path
+/// sees a sequence whole, and a lead alone waits in the node its
+/// continuations are read from.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+#[derive(Clone, Copy)]
+pub struct TableEdge {
+    reach: Reach,
+    node: Node,
+    byte: StreamByte,
+}
+
+#[cfg(any(feature = "diag", feature = "record-test"))]
+impl TableEdge {
+    pub fn root(&self) -> WalkRoot {
+        self.reach.root
+    }
+
+    /// The bytes from the root to the edge's node.
+    pub fn path(&self) -> &[u8] {
+        &self.reach.path[..self.reach.len.index()]
+    }
+
+    pub fn node(&self) -> Node {
+        self.node
+    }
+
+    pub fn byte(&self) -> StreamByte {
+        self.byte
+    }
+}
+
+/// **Every node the table reaches under `enc`, and a shortest way there**:
+/// breadth first from the roots, over each edge's next node, and over a
+/// lead cut at the end of a read to the node its continuations wait in
+/// ([`split`], [`waits_after`]). A character whose bytes all arrive leaves
+/// for a ground, which the walk reaches by other edges.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+fn reached(enc: InputEncoding) -> [Option<Reach>; NNODE] {
+    let g = match enc {
+        InputEncoding::Utf8 => &UTF8,
+        InputEncoding::Latin1 => &LATIN1,
+    };
+    let slot = |n: Node| Node::FROM_INDEX.iter().position(|m| *m == n);
+    let mut seen: [Option<Reach>; NNODE] = [None; NNODE];
+    let mut queue = [Node::Ground; NNODE];
+    let mut tail = 0;
+    for (root, node) in [
+        (WalkRoot::Ground, Node::Ground),
+        (WalkRoot::Vt52, Node::Vt52Ground),
+        (WalkRoot::Held, Node::Held),
+        (WalkRoot::Printer, Node::Printing),
+    ] {
+        if let Some(i) = slot(node) {
+            seen[i] = Some(Reach {
+                root,
+                path: [0; WALK],
+                len: ReadLen::ZERO,
+            });
+            queue[tail] = node;
+            tail += 1;
+        }
+    }
+    let mut head = 0;
+    while head < tail {
+        let n = queue[head];
+        head += 1;
+        let Some(r) = slot(n).and_then(|i| seen[i]) else {
+            continue;
+        };
+        if r.len.index() == WALK {
+            continue;
+        }
+        for b in StreamByte::ALL {
+            let e = Edge::of_graph(g, n, b);
+            let next = match e.act.width() == ByteLen::ONE {
+                true => e.next,
+                false => waits_after(split(e.act, n).next, b),
+            };
+            let Some(i) = slot(next) else { continue };
+            if seen[i].is_some() {
+                continue;
+            }
+            let mut path = r.path;
+            path[r.len.index()] = b.raw_byte();
+            seen[i] = Some(Reach {
+                root: r.root,
+                path,
+                len: r.len.plus(ReadLen::ONE),
+            });
+            queue[tail] = next;
+            tail += 1;
+        }
+    }
+    seen
+}
+
+/// **Every node**, for a test that holds the walk to all of them
+/// ([`table_edges`]): a node no root and no edge reaches is outside a corpus
+/// built from the walk, and only a list of them says so.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+impl Node {
+    pub const ALL: [Node; NNODE] = Node::FROM_INDEX;
+}
+
+/// **Every edge out of every node the table reaches under `enc`**, each
+/// with bytes that reach it ([`TableEdge`]): the corpus a test feeds to
+/// show the parser takes every edge it has, and what the record says of
+/// each.
+#[cfg(any(feature = "diag", feature = "record-test"))]
+pub fn table_edges(enc: InputEncoding) -> impl Iterator<Item = TableEdge> {
+    Node::FROM_INDEX
+        .into_iter()
+        .zip(reached(enc))
+        .filter_map(|(node, r)| r.map(|reach| (node, reach)))
+        .flat_map(|(node, reach)| {
+            StreamByte::ALL
+                .into_iter()
+                .map(move |byte| TableEdge { reach, node, byte })
+        })
 }
 
 #[cfg(test)]

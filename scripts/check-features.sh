@@ -96,7 +96,7 @@ base=${CARGO_TARGET_DIR:-${CARGO_BUILD_TARGET_DIR:-target}}
 # repo's own rule -- a budget that is not equal to the count is not
 # measuring anything -- so the floors sit at the counts and a dropped arm
 # fails here. Adding a feature means changing the number beside it.
-CRATES="baud-bench:53 baud-core:49 baud-domain:7 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:4 baud-present-macos:2 baud-app:3 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+CRATES="baud-bench:53 baud-core:51 baud-domain:7 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:4 baud-present-macos:2 baud-app:3 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
 
 # **The control on the list itself.** Every crate carrying a `[features]`
 # block must be named above, or the gate silently checks fewer crates than

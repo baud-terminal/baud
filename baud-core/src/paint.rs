@@ -2284,6 +2284,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// takes [`Paint::step_row`], and under DECRLM [`Paint::line_feed`]'s
     /// moded arm, which ends it.
     pub(crate) fn set_row(&mut self, r: Row) {
+        #[cfg(feature = "read-record")]
+        if r < self.cy {
+            self.record_climb(r);
+        }
         self.end_left_edge();
         self.step_row(r);
     }
@@ -2605,6 +2609,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// joined to a cell through the same byte.
     #[inline(always)]
     pub(crate) fn wrote_rows(&mut self, from: Row, to: Row) {
+        #[cfg(feature = "read-record")]
+        if from < self.cy || to > self.cy {
+            self.record_rows(from, to);
+        }
         if self.cold.watched == crate::term::Watched::Rows {
             self.watch_written(from, to);
         }
@@ -2755,6 +2763,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             // it held, where this zeroed it.
             if self.cy.index() < last {
                 self.step_row(Row::from_index(self.cy.index() + 1));
+            } else {
+                #[cfg(feature = "read-record")]
+                self.cold.record.stuck();
             }
             return self.view.rot();
         }

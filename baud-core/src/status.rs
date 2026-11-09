@@ -167,6 +167,13 @@ pub(crate) struct Parked {
     /// screen's, which keeps no history, so a scroll on the line retires
     /// nothing.
     screen: Screen,
+    /// The alternate screen's count of its lines (`crate::record`): the
+    /// line reads as the alternate screen while it is written, and its
+    /// scrolls reach `Paint::retire`, which keeps no test of the line, so
+    /// each display counts on its own copy, and the one not written waits
+    /// here.
+    #[cfg(feature = "read-record")]
+    pub(crate) alt_top: baud_domain::LineIdx,
 }
 
 impl Parked {
@@ -224,6 +231,8 @@ impl Parked {
             armed: None,
             reach: cols,
             screen: Screen::Alternate,
+            #[cfg(feature = "read-record")]
+            alt_top: crate::record::ALT_BASE,
         }
     }
 }
@@ -714,6 +723,8 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cold.bell.armed, &mut p.armed);
         core::mem::swap(&mut self.book.reach, &mut p.reach);
         core::mem::swap(&mut self.cold.screen, &mut p.screen);
+        #[cfg(feature = "read-record")]
+        core::mem::swap(&mut self.cold.alt_top, &mut p.alt_top);
         self.strs.status.park = p;
         self.strs.status.swapped = into;
         self.view.swap_surface(&mut self.status);

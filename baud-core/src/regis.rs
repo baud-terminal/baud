@@ -309,7 +309,11 @@ impl Paint<'_, '_> {
             };
             return left;
         }
-        self.str_end(StreamByte::from_stream(self.arena[from.index()]), node);
+        self.str_end(
+            StreamByte::from_stream(self.arena[from.index()]),
+            from,
+            node,
+        );
         ReadLen::ONE
     }
 

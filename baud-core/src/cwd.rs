@@ -111,7 +111,11 @@ impl Paint<'_, '_> {
             _ => None,
         };
         match kept {
-            Some(k) => self.strs.cwd_at.kept = k,
+            Some(k) => {
+                self.strs.cwd_at.kept = k;
+                #[cfg(feature = "read-record")]
+                self.cold.record.folder(crate::record::Folder::Kept);
+            }
             None => self.refuse_directory(),
         }
     }
@@ -119,6 +123,8 @@ impl Paint<'_, '_> {
     /// A report that cannot be read: it replaces the directory known
     /// before it, leaving none, and is counted.
     pub(crate) fn refuse_directory(&mut self) {
+        #[cfg(feature = "read-record")]
+        self.cold.record.folder(crate::record::Folder::Refused);
         self.strs.cwd_at.refused = self.strs.cwd_at.refused.next();
         self.unsupported_total += 1;
         self.strs.cwd_at.kept = Kept::Nothing;
@@ -128,6 +134,8 @@ impl Paint<'_, '_> {
     /// RemoteHost` moved the shell to a host whose directory has not been
     /// said.
     pub(crate) fn forget_directory(&mut self) {
+        #[cfg(feature = "read-record")]
+        self.cold.record.folder(crate::record::Folder::Forgot);
         self.strs.cwd_at.kept = Kept::Nothing;
     }
 }

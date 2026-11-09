@@ -21,7 +21,16 @@ publish = false
 # without their own defaults, which turn the scan on, and `ingest2` does
 # not compile when the scan this crate's features name (`SCAN_ARM`, in
 # `src/lib.rs`) is not the one `baud-core` runs (`RUN_SCAN`).
-baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
+#
+# **`read-record` is named here, so only the scan toggles.** It is a
+# default of the core's, so the portable arm (`--no-default-features`)
+# dropped it with the scan, and a NEON A/B compared the scan and the record
+# against the portable scan and no record. An arm with the record off
+# would be a feature of its own.
+baud-core = { path = "../baud-core", default-features = false, features = [
+  "alloc",
+  "read-record",
+] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render", default-features = false, features = ["exceptions"] }

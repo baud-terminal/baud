@@ -43,8 +43,13 @@
 #             its reason printed, on one that is. `route-stride` reroutes the
 #             portable stride scan, which `neon-scan` replaces on aarch64,
 #             and `neon-scan` is on in every test build of baud-core: its
-#             dev-dependency on itself turns the default features back on,
-#             so `--no-default-features` does not take it off.
+#             dev-dependency on itself names it, so `--no-default-features`
+#             does not take it off.
+#   DEFAULT_OFF  a default feature the dev-dependency does not name, run
+#             off by one build without the defaults (`--no-default-features
+#             --features neon-scan`): `read-record`, whose red with it off
+#             is `tests/read_record_off.rs`, and which every other build
+#             has on.
 #   EXCLUDED  not run, for one of three reasons: wrong by construction,
 #             naming a test it turns red, or for `ceiling-no-act` the tests
 #             that ran past 1320 s under it; covered by another gate; or not
@@ -61,7 +66,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 MANIFEST=baud-core/Cargo.toml
-FLOOR=49
+FLOOR=51
 
 BUILDS="
 two-pass-csi,probe-double-final-scan
@@ -80,9 +85,12 @@ probe-double-put"
 
 OFF_ARM64="route-stride"
 
+DEFAULT_OFF="read-record"
+
 # name  reason
 EXCLUDED="
 alloc                    on in every test build: the dev-dependency on baud-core itself enables it
+record-test              on in every test build: the dev-dependency on baud-core itself enables it
 neon-scan                the default feature, so test:unit runs it
 avx2-scan                inert off x86-64; test:x86-avx2 runs the workspace suite with it and +avx2
 ceiling-no-write         wrong by construction: the_cell_table_is_what_the_write_path_writes
@@ -123,7 +131,7 @@ fi
 builds=$(printf '%s\n' "$BUILDS" | grep . || true)
 together=$(printf '%s\n' "$TOGETHER" | tr ' ' '\n' | grep . || true)
 off=$(printf '%s\n' "$OFF_ARM64" | tr ' ' '\n' | grep . || true)
-listed=$(printf '%s\n' "$(printf '%s\n' "$builds" | tr ',' '\n')" "$together" "$off" "$(names "$EXCLUDED")" | grep . | sort)
+listed=$(printf '%s\n' "$(printf '%s\n' "$builds" | tr ',' '\n')" "$together" "$off" "$DEFAULT_OFF" "$(names "$EXCLUDED")" | grep . | sort)
 dups=$(printf '%s\n' "$listed" | uniq -d)
 if [ -n "$dups" ]; then
   echo "FAIL: in more than one class:" "$dups"
@@ -167,6 +175,15 @@ for f in $builds; do
   n=$((n + 1))
 done
 run "$(printf '%s\n' "$together" | paste -sd, -)"
+n=$((n + 1))
+
+# The defaults off: the suite with each `DEFAULT_OFF` feature off at once.
+echo "=== baud-core --no-default-features --features neon-scan (off: $DEFAULT_OFF)"
+if ! RUSTFLAGS="-D warnings" cargo nextest run --release --cargo-quiet --no-fail-fast \
+  -p baud-core --no-default-features --features neon-scan; then
+  fail=1
+  echo "  RED  baud-core without the defaults"
+fi
 n=$((n + 1))
 
 if [ "$fail" -ne 0 ]; then

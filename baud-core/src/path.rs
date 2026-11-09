@@ -252,6 +252,10 @@ impl Paint<'_, '_> {
     /// erased whole -- given the direction in force, while one has been
     /// selected.
     pub(crate) fn path_rows(&mut self, from: Row, to: Row) {
+        #[cfg(feature = "read-record")]
+        if from < self.cy || to > self.cy {
+            self.record_rows(from, to);
+        }
         if !self.cold.modes.is_set(ModeBit::PathSelected) {
             return;
         }

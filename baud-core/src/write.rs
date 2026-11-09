@@ -901,7 +901,7 @@ pub(crate) fn act(
                 p.restore_terminal_state(node, from);
                 *enc = p.cold.encoding;
             }
-            p.str_end(StreamByte::from_stream(p.arena[from.index()]), node);
+            p.str_end(StreamByte::from_stream(p.arena[from.index()]), from, node);
             if p.cold.restored_shift.take().is_some() {
                 match *node {
                     Node::Held => p.cold.width.resume = Node::SingleShift,
@@ -2852,7 +2852,7 @@ fn esc_final(
                     }
                 };
                 let was = p.cold.strips();
-                p.cold.encoding = want;
+                p.cold.set_input_encoding(want);
                 p.reselect();
                 *enc = want;
                 p.restrip_from(was, node);
