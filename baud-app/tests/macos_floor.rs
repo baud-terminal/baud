@@ -118,6 +118,46 @@ fn the_bundle_the_binary_and_the_shaders_name_one_floor() {
     );
 }
 
+/// **The installed app links an SDK of 26 or later**, as `cargo install`
+/// links Xcode's: AppKit lays the title bar out by the linked SDK, so an
+/// app linked against nixpkgs' default, 14.4, would draw the bar from
+/// before macOS 26 beside a clone's build that draws the new one. The
+/// flake gives its macOS build `darwinSdk`, and every SDK that names is 26
+/// or later; `checks.<darwin>.sdk` reads the built binary's
+/// `LC_BUILD_VERSION` back. Named break: leave `buildInputs` out, or name
+/// `apple-sdk_15`.
+#[test]
+fn the_installed_app_links_an_sdk_of_26_or_later() {
+    let flake = read("flake.nix");
+    assert!(
+        flake.contains(
+            "buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (darwinSdk pkgs) ];"
+        ),
+        "the flake's macOS build takes darwinSdk"
+    );
+    let def = flake
+        .find("darwinSdk =")
+        .expect("the flake defines darwinSdk");
+    let body = &flake[def..];
+    let body = &body[..body.find(';').expect("darwinSdk ends")];
+    let sdks: Vec<u32> = body
+        .match_indices("apple-sdk_")
+        .map(|(at, m)| {
+            let digits: String = body[at + m.len()..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            digits.parse().expect("an SDK's major release")
+        })
+        .collect();
+    // The control: a definition naming no SDK would pass "every one" vacuously.
+    assert!(!sdks.is_empty(), "darwinSdk names an apple-sdk: {body}");
+    assert!(
+        sdks.iter().all(|&major| major >= 26),
+        "darwinSdk names {sdks:?}, every one 26 or later"
+    );
+}
+
 /// `LC_BUILD_VERSION`'s `minos`, packed `xxxx.yy.zz` in nibbles, from a thin
 /// 64-bit Mach-O.
 #[cfg(target_os = "macos")]

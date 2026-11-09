@@ -68,6 +68,13 @@
 
       cargoToml = lib.importTOML ./Cargo.toml;
 
+      # The SDK baud links on macOS, 26 or later (see `buildInputs` below);
+      # a nixpkgs with none is refused rather than built against an older one.
+      darwinSdk =
+        pkgs:
+          pkgs.apple-sdk_27 or pkgs.apple-sdk_26
+            or (throw "baud links an apple-sdk of 26 or later, and this nixpkgs has none");
+
       baud =
         pkgs:
         let
@@ -118,6 +125,17 @@
           nativeBuildInputs =
             lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.desktop-file-utils ]
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.rcodesign ];
+
+          # **The SDK the app links, 26 or later**, as `cargo install` links
+          # Xcode's. AppKit lays a window out by the SDK a binary was linked
+          # against: linked against nixpkgs' default, 14.4, the title bar is
+          # the one from before macOS 26, its traffic lights ending at 69
+          # points; linked against Xcode's 27.2 it is 32 points tall and they
+          # end at 78 (`baud-app/tests/titlebar_mark.rs` measures both). The
+          # newest at the pin, 27.0, is nearest the 27.2 a clone's build
+          # takes.
+          # `checks.<darwin>.sdk` reads the linked SDK back.
+          buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (darwinSdk pkgs) ];
 
           # **The app**, assembled by the script a clone's build uses, so the
           # two bundles carry the same Info.plist, icon, fonts' licences and
@@ -199,6 +217,30 @@
             pkgs = nixpkgs-demo-mac.legacyPackages.aarch64-darwin;
           };
         };
+
+      # **The app's linked SDK, read back**: `nix flake check` (or `nix
+      # build .#checks.aarch64-darwin.sdk`) fails if the binary's
+      # LC_BUILD_VERSION names an SDK below 26, so the installed app and a
+      # `cargo install` cannot drift back apart.
+      checks = lib.genAttrs (lib.filter (lib.hasSuffix "darwin") systems) (
+        system:
+        let
+          pkgs = pkgsFor system;
+        in
+        {
+          sdk = pkgs.runCommand "baud-linked-sdk" { nativeBuildInputs = [ pkgs.cctools ]; } ''
+            bin=${baud pkgs}/Applications/baud.app/Contents/MacOS/baud
+            sdk=$(otool -l "$bin" | awk '/cmd LC_BUILD_VERSION/ { f = 1 } f && $1 == "sdk" { print $2; exit }')
+            echo "baud links SDK $sdk"
+            major=''${sdk%%.*}
+            if [ -z "$major" ] || [ "$major" -lt 26 ]; then
+              echo "the app links SDK '$sdk', below 26" >&2
+              exit 1
+            fi
+            echo "$sdk" > $out
+          '';
+        }
+      );
 
       # For a configuration that builds baud with its own nixpkgs.
       overlays.default = lib.composeExtensions rust-overlay.overlays.default (final: _: { baud = baud final; });
