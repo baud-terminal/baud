@@ -871,8 +871,9 @@ impl Seat {
         Owed::Nothing
     }
 
-    /// The count that numbers the selection's lines.
-    #[cfg(target_os = "linux")]
+    /// The count that numbers the selection's lines: the Linux driver's,
+    /// and the film's tap's (`film/tap.rs`).
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn scrolled(&self) -> Scrolled {
         self.scrolled
     }

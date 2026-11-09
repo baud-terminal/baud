@@ -285,6 +285,13 @@ impl<'t, 's> Under<'t, 's> {
         }
     }
 
+    /// The pty's master, which the link layer samples the foreground
+    /// group on (`film/tap.rs`).
+    #[cfg(target_os = "macos")]
+    pub(crate) fn master(&self) -> crate::sys::Fd {
+        self.master
+    }
+
     /// The child this harness forked: the shell, for the lights' reads.
     #[cfg(target_os = "macos")]
     pub(crate) fn pid(&self) -> crate::sys::Pid {

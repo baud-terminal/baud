@@ -4148,13 +4148,15 @@ mod tests {
     }
 
     /// The text of the arm starting at `head`, through the line that closes
-    /// it at `head`'s own indent.
+    /// it at `head`'s own indent, a `}` or a match arm's `},`.
     fn arm<'a>(src: &'a str, head: &str) -> &'a str {
         let at = src.find(head).unwrap_or_else(|| panic!("no {head:?}"));
         let line = src[..at].rfind('\n').map_or(0, |n| n + 1);
-        let close = format!("\n{}}}\n", &src[line..at]);
-        let end = src[at..]
-            .find(&close)
+        let indent = &src[line..at];
+        let end = [format!("\n{indent}}}\n"), format!("\n{indent}}},\n")]
+            .iter()
+            .filter_map(|close| src[at..].find(close.as_str()))
+            .min()
             .unwrap_or_else(|| panic!("{head:?} never closes"));
         &src[at..at + end]
     }
@@ -4167,12 +4169,31 @@ mod tests {
     /// return the arm no longer compiles here, since it moves the click.
     #[test]
     fn a_window_click_is_refused_until_its_driver_opens_it() {
+        // The app's link arm is the shared decision's window
+        // (`link_layer::decide`).
         let drivers = [
-            ("app.rs", include_str!("app.rs"), "OsEffect::OpenWindow"),
-            ("linux.rs", include_str!("linux.rs"), "Later::Window("),
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                "OsEffect::OpenWindow",
+                "Then::Window(built) => match built {",
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                "Later::Window(",
+                "Click::Window => {",
+            ),
         ];
-        for (name, src, ask) in drivers {
-            for head in ["Click::Window => {", "if let Found::Window("] {
+        assert!(
+            include_str!("link_layer.rs").contains(concat!(
+                "Then::Window(t.rule()",
+                ".and_then(|ix| uris.rules().window(ix, t.as_str())))"
+            )),
+            "the shared decision's window"
+        );
+        for (name, src, ask, link) in drivers {
+            for head in [link, "if let Found::Window("] {
                 let body = arm(src, head);
                 assert!(body.contains(ask), "{name} {head}: no {ask}");
                 assert!(!body.contains("Reveal"), "{name} {head}: a reveal");

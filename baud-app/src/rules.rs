@@ -1858,10 +1858,16 @@ mod tests {
             // Linux, and on macOS where the turn's answer comes back.
             assert!(src.contains(said), "{name}: the words");
             assert!(!body.contains(".start("), "{name}: no process");
-            assert!(
-                src.contains("let text = t.as_str().to_string();\n"),
-                "{name}: the link as written"
-            );
+            // The app's copy is the shared decision's (`link_layer::decide`).
+            let written = match name {
+                "app.rs" => {
+                    src.contains(concat!("Then::Copy(text) => ", "self.link_copied(text)"))
+                        && include_str!("link_layer.rs")
+                            .contains(concat!("Then::Copy(t.as_str()", ".to_string())"))
+                }
+                _ => src.contains("let text = t.as_str().to_string();\n"),
+            };
+            assert!(written, "{name}: the link as written");
         }
         let (p, said) = rules(&[section("path", &[("action", "\"copy\"")])]);
         assert_eq!(said, Vec::<String>::new());

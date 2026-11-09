@@ -1604,10 +1604,11 @@ mod tests {
             "a click reads no name"
         );
         assert!(
-            src.contains(concat!(
-                "admit_printed(\n            uri,\n            Host(self.app.uris.",
-                "host()),\n            self.app.uris.rules(),"
-            )),
+            src.contains(concat!("crate::link_layer::", "decide(link, line,"))
+                && include_str!("link_layer.rs").contains(concat!(
+                    "admit_printed(uri, Host(uris.",
+                    "host()), uris.rules(), origin)"
+                )),
             "a click admits against the name the lines do"
         );
         let unknown = Uris::default();
@@ -1674,14 +1675,19 @@ mod tests {
         assert!(!l.lines().is_empty());
         l.off();
         assert!(l.lines().is_empty());
-        for (name, src) in [
-            ("app.rs", include_str!("app.rs")),
-            ("linux.rs", include_str!("linux.rs")),
+        // The app's frame is the shared one (`link_layer::frame`).
+        assert!(include_str!("app.rs").contains(concat!("crate::link_layer::", "frame(")));
+        for (name, src, config) in [
+            (
+                "link_layer.rs",
+                include_str!("link_layer.rs"),
+                "layer.config.",
+            ),
+            ("linux.rs", include_str!("linux.rs"), "self.link_config."),
         ] {
-            let at = src
-                .find(concat!("self.link_config.", "lines()"))
-                .expect(name);
-            let scan = src.find(concat!("self.lines.", "scan(")).expect(name);
+            let lines = format!("{config}{}", concat!("lines", "()"));
+            let at = src.find(lines.as_str()).expect(name);
+            let scan = src.find(concat!(".lines.", "scan(")).expect(name);
             assert!(at < scan, "{name}: the scan is behind the config's answer");
         }
     }

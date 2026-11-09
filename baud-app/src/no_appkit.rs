@@ -11,9 +11,10 @@
 //! or [`Follow::AllFns`] is followed fn by fn instead: only the fns reached
 //! and the fns they call by name. A *sink* module is never read: the items
 //! reached in it are recorded, for the caller to hold to a list. Another
-//! module's unit tests (a `mod ...tests {` block) are not on any path and
-//! are not followed. A small lexer blanks comments and counts only braces
-//! that are code, so a brace in a string ends no block early.
+//! module's unit tests (a `mod ...tests {` block), and every item
+//! `#[cfg(test)]` marks, are not on any path and are not followed. A small
+//! lexer blanks comments and counts only braces that are code, so a brace
+//! in a string ends no block early.
 //!
 //! Used by baud-app's tests and, through `#[path]`, by the demo's: each
 //! uses its part.
@@ -28,6 +29,19 @@ pub const FORBIDDEN: [&str; 4] = [
     concat!("NSWin", "dow"),
     concat!("baud_present", "_macos"),
 ];
+
+/// **The link worker's question whether an app opens a scheme**, allowed
+/// wherever a walk reaches the worker: NSWorkspace's
+/// `URLForApplicationToOpenURL`, a LaunchServices lookup made off the main
+/// thread in its own autorelease pool, which starts no AppKit application,
+/// window or Dock icon and opens nothing.
+pub const LINK_WORKER: (&[&str], &str, &str) = (
+    &["probe"],
+    concat!("baud_present", "_macos::link::has_handler(address)"),
+    "the link worker's question whether an app opens a scheme: NSWorkspace's \
+     URLForApplicationToOpenURL, a LaunchServices lookup made off the main thread in \
+     its own autorelease pool, which starts no AppKit application, window or Dock icon",
+);
 
 /// What one reached part is: a module's file, or one fn of a module
 /// followed fn by fn.
@@ -234,21 +248,47 @@ fn ident(s: &str) -> &str {
     &s[..n]
 }
 
-/// `code` with every `mod NAME {` block whose name ends in `tests` cut.
+/// `code` with every `mod NAME {` block whose name ends in `tests` cut, and
+/// every item with a body that `#[cfg(test)]` marks: a test's helper is on
+/// no path the app takes.
 pub fn without_tests(code: &str) -> String {
     let mut out = String::new();
     let mut lines = code.lines();
     let mut rest_from = 0;
     let mut at = 0;
+    let mut marked = false;
     for line in lines.by_ref() {
         let t = line.trim_start();
+        let attribute = t.starts_with("#[") || t.starts_with("///") || t.is_empty();
         let t = t.strip_prefix("pub(crate) ").unwrap_or(t);
         let head = t.strip_prefix("mod ").map(ident);
         let is_tests = head.is_some_and(|n| n.ends_with("tests")) && t.trim_end().ends_with('{');
-        if is_tests && at >= rest_from {
-            out.push_str(&code[rest_from..at]);
-            let open = at + line.find('{').expect("a block");
-            rest_from = block_end(code, Offset(open)).0;
+        // The item a `#[cfg(test)]` marks, when it has a body: its first
+        // `{` comes before any `;`.
+        let body = match (
+            marked && !attribute,
+            code[at..].find('{'),
+            code[at..].find(';'),
+        ) {
+            (true, Some(b), Some(s)) if b < s => Some(at + b),
+            (true, Some(b), None) => Some(at + b),
+            _ => None,
+        };
+        if t.trim_end() == "#[cfg(test)]" {
+            marked = true;
+        } else if !attribute {
+            marked = false;
+        }
+        if at >= rest_from {
+            let open = match (is_tests, body) {
+                (true, _) => Some(at + line.find('{').expect("a block")),
+                (false, Some(b)) => Some(b),
+                (false, None) => None,
+            };
+            if let Some(open) = open {
+                out.push_str(&code[rest_from..at]);
+                rest_from = block_end(code, Offset(open)).0;
+            }
         }
         at += line.len() + 1;
     }

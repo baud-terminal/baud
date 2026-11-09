@@ -204,6 +204,10 @@ mod os_effect;
 // A file path printed as plain text, underlined only if it exists: the scan's
 // half, pure, so its tests run on every platform; and the one worker thread
 // that asks the file system, which both drivers run.
+// The link layer's sequences, written once: the macOS app's and the
+// film's tap's, so the tap records the app's own.
+#[cfg(target_os = "macos")]
+mod link_layer;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod paths;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

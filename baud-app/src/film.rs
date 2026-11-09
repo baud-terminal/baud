@@ -67,6 +67,9 @@ pub(crate) mod session;
 // The window's title strip, composed over the session's frames.
 #[cfg(target_os = "macos")]
 pub(crate) mod chrome;
+// The link layer on the take, written down for the README session.
+#[cfg(target_os = "macos")]
+pub(crate) mod tap;
 // mpv's kitty video, replayed from its capture and held to what it sent.
 mod mpv;
 
@@ -113,6 +116,8 @@ pub(crate) enum Child<'a> {
     Session {
         steps: &'a [session::Step],
         dir: &'a Path,
+        /// Where the link layer's dumps go (`tap.rs`), or none for no tap.
+        links: Option<&'a Path>,
     },
 }
 
@@ -177,6 +182,10 @@ pub(crate) struct Take {
     /// What the activity lights showed through the take.
     #[cfg(target_os = "macos")]
     pub(crate) lit: session::Lit,
+    /// What the link layer showed through the take, and the dumps it wrote,
+    /// when the session asked for them (`tap.rs`).
+    #[cfg(target_os = "macos")]
+    pub(crate) links: Option<(tap::Report, Vec<PathBuf>)>,
 }
 
 /// How many frames a film drew.
@@ -499,6 +508,8 @@ struct Recorded {
     lit: session::Lit,
     #[cfg(target_os = "macos")]
     timeline: Vec<(Duration, baud_render::Shown)>,
+    #[cfg(target_os = "macos")]
+    links: Option<(tap::Report, Vec<PathBuf>)>,
 }
 
 /// **The take**: the child in real time against a terminal of the stage's,
@@ -537,6 +548,19 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
     };
     #[cfg(target_os = "macos")]
     let mut lights = session::Lights::new(u.pid());
+    // The link layer on the take, as the app runs it, when asked for.
+    #[cfg(target_os = "macos")]
+    let (mut tap, hovers) = match f.child {
+        Child::Session {
+            links: Some(dir),
+            steps,
+            ..
+        } => (
+            Some(tap::Tap::new(dir, &stage.cfg, &f.env, u.master(), u.pid())),
+            steps,
+        ),
+        _ => (None, &[][..]),
+    };
     let mut watch = f.source.map(Watch::new);
     loop {
         let t = epoch.elapsed();
@@ -572,7 +596,20 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
         };
         match u.read(wait) {
             Heard::Bytes(b) => {
+                // Who wrote it, at the read, and the line it began on.
+                #[cfg(target_os = "macos")]
+                let taken = tap.as_mut().map(|t| {
+                    let began = u
+                        .seat
+                        .scrolled()
+                        .line(baud_domain::Rows::ZERO, u.term.cursor().0);
+                    (began, t.read(&b))
+                });
                 let _answered = u.take(&b);
+                #[cfg(target_os = "macos")]
+                if let (Some(t), Some((began, read))) = (tap.as_mut(), taken) {
+                    t.fed(u.term, u.seat.scrolled(), began, read);
+                }
                 #[cfg(target_os = "macos")]
                 lights.read(&b, _answered, epoch.elapsed());
                 heard.extend_from_slice(&b);
@@ -601,6 +638,26 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
             Some(p) => p.turn(epoch.elapsed(), &heard, &mut u, &mut steps, &mut log, epoch),
             None => session::Turn::Going,
         };
+        // The tap's frame: answers merged, the clock ticked, the lines
+        // scanned; and what a Command-click would take at each hover's
+        // cell, read as its step ends.
+        #[cfg(target_os = "macos")]
+        if let (Some(t), Some(p)) = (tap.as_mut(), player.as_ref()) {
+            let step = p.step();
+            let left = t.step().filter(|&s| s != step);
+            t.turn(u.term, u.seat.scrolled(), Some(step), epoch.elapsed());
+            if let Some(s) = left {
+                if let Some(session::Step::Hover(cell)) = hovers.get(s.0) {
+                    t.hover(
+                        u.term,
+                        u.seat.scrolled(),
+                        s,
+                        baud_domain::Row::from_index(usize::from(cell.row)),
+                        baud_domain::Col::at_index(usize::from(cell.col)),
+                    );
+                }
+            }
+        }
         #[cfg(target_os = "macos")]
         lights.turn(
             epoch.elapsed(),
@@ -621,6 +678,11 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
         }
         if done {
             let wrote = std::mem::take(&mut u.wrote);
+            #[cfg(target_os = "macos")]
+            let links = tap.take().map(|mut t| {
+                let files = t.write(u.term, u.seat.scrolled());
+                (t.report, files)
+            });
             return Recorded {
                 log,
                 heard,
@@ -632,6 +694,8 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                 lit: lights.lit(),
                 #[cfg(target_os = "macos")]
                 timeline: lights.timeline(),
+                #[cfg(target_os = "macos")]
+                links,
             };
         }
     }
@@ -680,6 +744,8 @@ fn play(
         lit,
         #[cfg(target_os = "macos")]
         timeline,
+        #[cfg(target_os = "macos")]
+        links,
     } = recorded;
     #[cfg(target_os = "macos")]
     let mut seen = 0;
@@ -982,6 +1048,8 @@ fn play(
         cell: (m.cell_w, m.cell_h),
         #[cfg(target_os = "macos")]
         lit,
+        #[cfg(target_os = "macos")]
+        links,
     }
 }
 
@@ -1325,6 +1393,8 @@ fn written(f: &Film<'_>, stage: &Stage, log: Vec<Logged>, end: Duration) -> Reco
         lit: session::Lit::default(),
         #[cfg(target_os = "macos")]
         timeline: Vec::new(),
+        #[cfg(target_os = "macos")]
+        links: None,
     }
 }
 

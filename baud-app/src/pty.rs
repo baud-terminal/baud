@@ -997,6 +997,20 @@ fn login_shell(program: Option<&str>, parent: &[(OsString, OsString)]) -> (Strin
 
 /// `PATH` as `parent` has it, the first entry of the name, as `getenv`
 /// reads it.
+/// **The program a window started for `run` executes**, resolved as
+/// `Exec::running` resolves it on `parent`'s `PATH`
+/// (`exec::Program::of`), or none when it is not there: what the film's
+/// tap records for a link's window (`film/tap.rs`), which opens none.
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn window_program(
+    run: &crate::rules::Run,
+    parent: &[(OsString, OsString)],
+) -> Option<String> {
+    exec::Program::of(run.program(), path_var(parent))
+        .as_str()
+        .map(str::to_string)
+}
+
 fn path_var(parent: &[(OsString, OsString)]) -> Option<&OsStr> {
     parent
         .iter()
@@ -2487,12 +2501,8 @@ fn reader(
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
-        let (writers, linked) = match sampler.read(std::time::Instant::now(), bytes) {
-            crate::probe::Asks::Yes(l) => {
-                (sampler.writers(crate::fg::group(fd), watched.take()), l)
-            }
-            crate::probe::Asks::No => (crate::probe::Writers::default(), crate::probe::Linked::No),
-        };
+        let (writers, linked) =
+            crate::link_layer::read(&mut sampler, std::time::Instant::now(), bytes, fd, watched);
         if let Some(f) = log.as_mut() {
             use std::io::Write;
             let _ = f.write_all(bytes);

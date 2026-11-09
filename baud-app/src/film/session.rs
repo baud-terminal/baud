@@ -118,7 +118,7 @@ pub(crate) struct Player<'a> {
 }
 
 /// A step of the session, by its place in the list.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct StepAt(pub(crate) usize);
 
 /// A count of baud's prompt marks.
@@ -1019,10 +1019,13 @@ fn the_readme_session_lights_every_light() {
         .map(|v| Duration::from_millis(v.parse().expect("BAUD_SESSION_PERIOD_MS")))
         .unwrap_or(Duration::from_millis(40));
     let dir = root.join("home/baud");
+    // The link layer's dumps, under the stills (`tap.rs`).
+    let links = std::env::var_os("BAUD_SESSION_LINKS").map(std::path::PathBuf::from);
     let f = super::Film {
         child: super::Child::Session {
             steps: &steps,
             dir: &dir,
+            links: links.as_deref(),
         },
         env,
         grid,
@@ -1155,6 +1158,35 @@ fn the_readme_session_lights_every_light() {
     }
     if stills.is_some() {
         println!("stills:  {written} written");
+    }
+    // **The link layer's three checks**, on what the tap saw (`tap.rs`),
+    // and its dumps naming nothing of the machine.
+    if let Some((report, files)) = &take.links {
+        let cfg = {
+            let mut c = crate::config::Config::defaults();
+            let env = crate::config::ConfigEnv {
+                home: Some(root.join("home")),
+                path: env_path(&f.env),
+            };
+            let said = c.apply_in(&config, &env);
+            assert_eq!(said, Vec::<String>::new(), "the session's config");
+            c
+        };
+        let failed = link_checks(report, &steps, &cfg, &f.env);
+        for f in files {
+            println!("links:   {}", f.display());
+        }
+        let names = super::machine_names(&[]);
+        for file in files {
+            let bytes = std::fs::read(file).expect("a dump");
+            assert_eq!(
+                super::named(&bytes, &names),
+                Vec::<String>::new(),
+                "{} names this machine",
+                file.display()
+            );
+        }
+        assert_eq!(failed, Vec::<String>::new(), "the link checks");
     }
     // What the programs printed and what was sent them, for the demo's
     // search of what must never be filmed, and searched here for the
@@ -1713,4 +1745,261 @@ fn nothing_takes_a_main_thread_marker_by_hand() {
         }
     }
     assert_eq!(found, Vec::<String>::new(), "a marker taken by hand");
+}
+
+/// The `PATH` in a film's environment, as its config reads a command.
+fn env_path(env: &[(std::ffi::OsString, std::ffi::OsString)]) -> Option<std::ffi::OsString> {
+    env.iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.clone())
+}
+
+/// The URL the storyline's link names: scene 9, "The Nix link opens
+/// nixos.org in Chawan (F1, on the Mac)", at [`steps::NIX_AT`].
+const NIX_URL: &str = "https://nixos.org";
+
+/// **The link layer's three checks on what the tap saw**, each from the
+/// storyline (the designer's `commands.md`); the failures, in words.
+///
+/// 1. Scene 9's link lights, by the first frame after the worker's answer
+///    that could light it, and a Command-click at [`steps::NIX_AT`] takes a
+///    window running the argv the session's `[link.https]` rule builds for
+///    it on the session's `PATH`.
+/// 2. No row goes darker while its text stays and it stays on the normal
+///    screen: what a typed prompt line going dark after a quick command is.
+/// 3. "Its helix runs over ssh, where no path is looked up": no printed path
+///    lit on a row written while `ssh demo` ran, nor on helix's screen
+///    there, and no such row is taken as written on this machine.
+fn link_checks(
+    report: &super::tap::Report,
+    steps: &[Step],
+    cfg: &crate::config::Config,
+    env: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> Vec<String> {
+    use super::tap::Opens;
+    let mut failed = Vec::new();
+    // 1. The rule's argv for the link, its program found on the session's
+    // `PATH` as a window finds it.
+    let rules = &cfg.link.rules;
+    let want: Option<Vec<String>> = rules.rule_for("https").and_then(|(ix, _)| {
+        rules
+            .window(ix, NIX_URL)
+            .and_then(Result::ok)
+            .map(|run| super::tap::window_argv(&run, env))
+    });
+    let hover = steps.iter().position(|s| *s == Step::Hover(steps::NIX_AT));
+    match (hover, &want) {
+        (Some(h), Some(want)) => match report.hovered.iter().find(|(s, _)| *s == StepAt(h)) {
+            Some((_, Opens::Window(argv))) if argv == want => {}
+            other => failed.push(format!(
+                "1: a Command-click at the Nix link takes {other:?}, not a window running {want:?}"
+            )),
+        },
+        _ => failed.push(format!(
+            "1: no hover over the Nix link ({hover:?}) or no window rule for it ({want:?})"
+        )),
+    }
+    if let Some(argv) = &want {
+        if !argv.first().is_some_and(|p| p.starts_with('/')) {
+            failed.push(format!("1: the rule's program is not absolute: {argv:?}"));
+        }
+    }
+    match report.first_lit(NIX_URL) {
+        Some((shown, Some(lit))) => {
+            let answer = report.answered.iter().copied().find(|&a| a >= shown);
+            let by = answer.map_or(shown, |a| a.max(shown));
+            if lit > by {
+                failed.push(format!(
+                    "1: the Nix link showed at frame {shown:?} and lit at {lit:?}, after the first \
+                     frame that could light it ({by:?})"
+                ));
+            }
+        }
+        other => failed.push(format!("1: the Nix link never lit: {other:?}")),
+    }
+    // 2.
+    for d in &report.darkened {
+        failed.push(format!(
+            "2: {:?} step {:?}: {:?} went from {:?} lit cells to {:?}, its text unchanged: |{}|",
+            d.frame, d.step, d.line, d.was, d.now, d.text
+        ));
+    }
+    // 3.
+    let at = |want: Step| steps.iter().position(|s| *s == want);
+    match (at(Step::Run("ssh demo")), at(Step::Run("exit"))) {
+        (Some(ssh), Some(exit)) => {
+            let spans: Vec<_> = (ssh..exit)
+                .filter_map(|s| report.written.get(&StepAt(s)).copied())
+                .collect();
+            let lo = spans.iter().map(|s| s.0).min();
+            let hi = spans.iter().map(|s| s.1).max();
+            let mut rows = 0;
+            for snap in report
+                .snapshots
+                .iter()
+                .filter(|s| (ssh..exit).contains(&s.step.0))
+            {
+                for r in &snap.rows {
+                    let over_ssh = match snap.screen {
+                        baud_core::Screen::Alternate => true,
+                        baud_core::Screen::Normal => lo
+                            .zip(hi)
+                            .is_some_and(|(lo, hi)| lo <= r.line && r.line <= hi),
+                    };
+                    if !over_ssh || r.text.is_empty() {
+                        continue;
+                    }
+                    rows += 1;
+                    for (from, to, opens) in &r.lit {
+                        if let Opens::Path { .. } = opens {
+                            failed.push(format!(
+                                "3: {:?} {:?}: a path lit at {}..{} on a row written over \
+                                 ssh: |{}|",
+                                snap.step,
+                                r.line,
+                                from.index(),
+                                to.index(),
+                                r.text
+                            ));
+                        }
+                    }
+                    if snap.screen == baud_core::Screen::Normal
+                        && r.origin == crate::paths::Origin::Local
+                    {
+                        failed.push(format!(
+                            "3: {:?} {:?} written over ssh is taken as this machine's: |{}|",
+                            snap.step, r.line, r.text
+                        ));
+                    }
+                }
+            }
+            if rows == 0 {
+                failed.push("3: the control: no row written over ssh was read".to_string());
+            }
+        }
+        other => failed.push(format!("3: no ssh in the session: {other:?}")),
+    }
+    failed
+}
+
+/// The demo's link rules read against a home holding `bin/demo-open` and a
+/// `PATH` holding `cha`, in a folder of the test's own for the caller to
+/// remove; and the environment naming that `PATH`.
+fn demo_link_config(
+    tag: &str,
+) -> (
+    crate::config::Config,
+    std::path::PathBuf,
+    Vec<(std::ffi::OsString, std::ffi::OsString)>,
+) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = std::env::temp_dir().join(format!("demo-links-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (home, bin) = (dir.join("home"), dir.join("path"));
+    for exe in [home.join("bin/demo-open"), bin.join("cha")] {
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let vars = vec![("PATH".into(), bin.clone().into_os_string())];
+    let env = crate::config::ConfigEnv {
+        home: Some(home),
+        path: Some(bin.into_os_string()),
+    };
+    let mut c = crate::config::Config::defaults();
+    let said = c.apply_in(include_str!("../../examples/demo/links.toml"), &env);
+    assert_eq!(said, Vec::<String>::new());
+    (c, dir, vars)
+}
+
+/// **The link checks fail on what each guards**, on a report the tap could
+/// have made: one that holds all three passes; a Command-click at the Nix
+/// link that opens anything but the rule's window, or a link lit a frame
+/// after the first that could light it, fails check 1; a row gone dark
+/// with its text unchanged fails check 2; a path lit on a row written over
+/// ssh, or such a row taken as this machine's, fails check 3. The control:
+/// the passing report reads a row written over ssh.
+#[test]
+fn the_link_checks_catch_what_each_guards() {
+    use super::tap::{Cells, Change, FrameNo, Opens, Report, RowDump, Snapshot};
+    use baud_domain::{Col, Rows};
+    use baud_render::AbsLine;
+    let (cfg, dir, env) = demo_link_config("checks");
+    let steps = windowless(SESSION);
+    let at = |s: Step| steps.iter().position(|t| *t == s).expect("the step");
+    let (hover, ssh) = (at(Step::Hover(steps::NIX_AT)), at(Step::Run("ssh demo")));
+    let rules = &cfg.link.rules;
+    let (ix, _) = rules.rule_for("https").expect("the https rule");
+    let run = rules.window(ix, NIX_URL).expect("a window").expect("built");
+    let want = super::tap::window_argv(&run, &env);
+    assert!(
+        want[0].starts_with('/') && want[0].ends_with("/cha"),
+        "{want:?}"
+    );
+    let line = |n: usize| AbsLine::at(Rows::of_count(n));
+    let row = |n: usize, text: &str| RowDump {
+        line: line(n),
+        text: text.to_string(),
+        lit: Vec::new(),
+        struck: Vec::new(),
+        origin: crate::paths::Origin::Remote,
+    };
+    let mut good = Report::default();
+    good.hovered
+        .push((StepAt(hover), Opens::Window(want.clone())));
+    good.seen.insert(
+        format!("29 [Nix]({NIX_URL}) (with flakes)"),
+        (FrameNo(10), Some(FrameNo(10))),
+    );
+    good.answered.push(FrameNo(4));
+    good.written.insert(StepAt(ssh), (line(5), line(9)));
+    good.snapshots.push(Snapshot {
+        step: StepAt(ssh),
+        screen: baud_core::Screen::Normal,
+        rows: vec![row(2, "~/baud ❯ ssh demo"), row(6, "~ ❯ cat hello.txt")],
+    });
+    assert_eq!(
+        link_checks(&good, &steps, &cfg, &env),
+        Vec::<String>::new(),
+        "the control"
+    );
+    let fails = |r: &Report, check: &str| {
+        let f = link_checks(r, &steps, &cfg, &env);
+        assert!(
+            !f.is_empty() && f.iter().all(|s| s.starts_with(check)),
+            "{check} {f:?}"
+        );
+    };
+    let mut r = good.clone();
+    r.hovered[0].1 = Opens::Other("Open Https".to_string());
+    fails(&r, "1:");
+    let mut r = good.clone();
+    r.seen.values_mut().for_each(|v| v.1 = Some(FrameNo(11)));
+    fails(&r, "1:");
+    let mut r = good.clone();
+    r.darkened.push(Change {
+        frame: FrameNo(30),
+        step: Some(StepAt(ssh)),
+        at: Duration::from_secs(3),
+        line: line(1),
+        text: "~/baud ❯ sed -i '' s/a/b/ ~/.config/baud/config.toml".to_string(),
+        was: Cells(31),
+        now: Cells(0),
+        screen: baud_core::Screen::Normal,
+    });
+    fails(&r, "2:");
+    let mut r = good.clone();
+    r.snapshots[0].rows[1].lit.push((
+        Col::at_index(9),
+        Col::at_index(17),
+        Opens::Path {
+            text: "hello.txt".to_string(),
+            found: "Exists".to_string(),
+        },
+    ));
+    fails(&r, "3:");
+    let mut r = good;
+    r.snapshots[0].rows[1].origin = crate::paths::Origin::Local;
+    fails(&r, "3:");
+    let _ = std::fs::remove_dir_all(&dir);
 }

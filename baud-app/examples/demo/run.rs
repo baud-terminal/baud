@@ -523,6 +523,9 @@ fn headless(
         .env("BAUD_FILM_FFMPEG", &ffmpeg)
         .env("BAUD_SESSION_FILM", &film)
         .env("BAUD_SESSION_PERIOD_MS", CENSUS_PERIOD_MS.to_string())
+        // The link layer's dumps, beside the stills (`film/tap.rs`): they
+        // write the session's home as `~` and its root as `<root>`.
+        .env("BAUD_SESSION_LINKS", stills.join("links"))
         // The account the shell runs as, given to the test and written
         // nowhere (`mac::with_account`).
         .env("BAUD_SESSION_ACCOUNT", mac::account()?)

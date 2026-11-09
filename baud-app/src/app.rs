@@ -1971,22 +1971,18 @@ impl App {
     /// **The lines at rest for this frame** (`lined.rs`), against the machine
     /// name [`Driver::link_host_check`] handed over, or none yet.
     fn scan_lines(&mut self) {
-        match self.link_config.lines() {
+        // The reported folder, which a `./` is read against, read before the
+        // rows are (`Paths::observe`), then the rows (`link_layer::frame`).
+        let style = crate::link_layer::frame(&mut crate::link_layer::Layer {
+            term: &self.term,
+            scrolled: self.scrolled,
+            lines: &mut self.lines,
+            uris: &mut self.uris,
+            paths: &mut self.paths,
+            config: &self.link_config,
+        });
+        match style {
             Some(style) => {
-                // The reported folder, which a `./` is read against, read
-                // before the rows are (`Paths::observe`).
-                if self.paths.observe(&self.term, self.scrolled) == crate::paths::Moved::Yes {
-                    self.lines.forget();
-                }
-                self.lines.scan(
-                    &self.term,
-                    self.scrolled,
-                    &mut crate::paths::Links {
-                        uris: &mut self.uris,
-                        urls: self.link_config.urls_read(),
-                        paths: &mut self.paths,
-                    },
-                );
                 self.renderer.set_link_lines(self.lines.lines(), style);
                 self.renderer
                     .set_line_colour(self.link_config.line_colour());
@@ -1994,7 +1990,6 @@ impl App {
                     .set_link_strikes(self.lines.struck(), self.hover.struck());
             }
             None => {
-                self.lines.off();
                 self.renderer.set_link_lines(&[], Default::default());
                 self.renderer.set_link_strikes(&[], self.hover.struck());
             }
@@ -12191,11 +12186,12 @@ impl Driver {
         // resize the read asked for, as the reads after it are.
         let ended = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
         let span = crate::paths::LineSpan::of(began, ended);
-        for chunk in &drained.chunks {
-            self.app
-                .probes
-                .read_taken(&mut self.app.paths, chunk.writers, span, chunk.linked);
-        }
+        crate::link_layer::fed(
+            &mut self.app.probes,
+            &mut self.app.paths,
+            drained.chunks.iter().map(|c| (c.writers, c.linked)),
+            span,
+        );
         self.app.say_copied();
         if answered == Answered::Yes {
             self.app.activity.seen(Led::Aa, host_now());
@@ -14525,17 +14521,15 @@ impl Driver {
     fn paths_turn(&mut self) {
         let app = &mut self.app;
         let master = app.pty.reads().master;
-        let seen = crate::probe::Seen {
+        let mut layer = crate::link_layer::Layer {
             term: &app.term,
             scrolled: app.scrolled,
             lines: &mut app.lines,
             uris: &mut app.uris,
-            urls: app.link_config.urls_read(),
             paths: &mut app.paths,
+            config: &app.link_config,
         };
-        let turn = app
-            .probes
-            .tick(host_now(), seen, || crate::fg::group(master));
+        let turn = crate::link_layer::tick(&mut app.probes, &mut layer, host_now(), master);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
             app.pending = Pending::Dirty;
@@ -14549,15 +14543,15 @@ impl Driver {
     /// (`paths_turn`).
     fn paths_answered(&mut self) {
         let app = &mut self.app;
-        let mut seen = crate::probe::Seen {
+        let mut layer = crate::link_layer::Layer {
             term: &app.term,
             scrolled: app.scrolled,
             lines: &mut app.lines,
             uris: &mut app.uris,
-            urls: app.link_config.urls_read(),
             paths: &mut app.paths,
+            config: &app.link_config,
         };
-        let turn = app.probes.answers(&mut seen);
+        let turn = crate::link_layer::answers(&mut app.probes, &mut layer);
         app.links.checks = app.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
             app.pending = Pending::Dirty;
@@ -16118,7 +16112,8 @@ impl Driver {
     /// the same policy), and it holds a `Target` the policy built rather
     /// than a string, so a URI the policy did not admit cannot reach it.
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
-        use crate::link::{Action, Host, Under};
+        use crate::link::{Action, Under};
+        use crate::link_layer::{Decision, Then};
         use baud_present_macos::link as opener;
         let show = |uri: &[u8]| {
             uri.iter()
@@ -16128,172 +16123,144 @@ impl Driver {
                 .escape_ascii()
                 .to_string()
         };
-        let uri = match link {
+        // What the click comes to, decided as the film's tap decides it
+        // (`link_layer::decide`): the link takes its origin from its line,
+        // as the worker named who wrote it (`Paths::printed_origin`).
+        let decided =
+            crate::link_layer::decide(link, line, &self.app.term, &self.app.paths, &self.app.uris);
+        let (uri, then) = match decided {
             // Asked again off the frame, and opened or said at a later tick.
-            Under::Path(p) => {
-                self.check_path(p);
+            Decision::Path => {
+                if let Under::Path(p) = link {
+                    self.check_path(p);
+                }
                 return;
             }
-            Under::Osc8(link) => match link.uri(&self.app.term) {
-                Some(uri) => uri,
-                None => {
-                    // Gone: a sweep freed a slot of the link table after
-                    // the link was read (`crate::link::Osc8`), so the index
-                    // may name another target now; counted, and not
-                    // opened.
-                    self.app.links.refused.bump();
-                    crate::warn!("link refused (gone)");
-                    return;
-                }
-            },
-            Under::Bare(bare) => match bare.uri() {
-                Ok(uri) => uri,
-                Err(why) => {
-                    self.app.links.refused.bump();
-                    crate::warn!("link refused ({why:?}): {}", show(bare.text()));
-                    return;
-                }
-            },
+            // Gone: a sweep freed a slot of the link table after the link
+            // was read (`crate::link::Osc8`), so the index may name another
+            // target now; counted, and not opened.
+            Decision::Gone => {
+                self.app.links.refused.bump();
+                crate::warn!("link refused (gone)");
+                return;
+            }
+            Decision::Unreadable(why, text) => {
+                self.app.links.refused.bump();
+                crate::warn!("link refused ({why:?}): {}", show(text));
+                return;
+            }
+            Decision::Read { uri, then } => (uri, then),
         };
         let shown = crate::os_effect::ShownLink(show(uri));
-        // The link takes its origin from its line, as the worker named who
-        // wrote it (`Paths::printed_origin`).
-        let origin = self.app.paths.printed_origin(link, line);
-        let admitted = crate::link::admit_printed(
-            uri,
-            Host(self.app.uris.host()),
-            self.app.uris.rules(),
-            origin,
-        );
-        match admitted {
-            Err(why) => {
+        match then {
+            Then::Refused(why) => {
                 self.app.links.refused.bump();
                 crate::warn!("link refused ({why:?}): {shown}");
             }
-            Ok(t) => {
-                use crate::link::Click;
-                match crate::link::click(&t, &self.app.paths) {
-                    // A rule's `copy`: the link's text to the pasteboard, said
-                    // as a copy of a selection is; nothing is opened.
-                    Click::Copy => {
-                        let text = t.as_str().to_string();
-                        self.link_copied(text);
-                    }
-                    // A command of yours: no shell, null streams, reaped on a
-                    // tick.
-                    Click::Command => {
-                        let built = t
-                            .rule()
-                            .and_then(|ix| self.app.uris.rules().command(ix, t.as_str()));
-                        // Started on the effect queue's turn; what it did
-                        // comes back to `turns_answered`, counted and said.
-                        match built {
-                            Some(Ok(cmd)) => {
-                                let _ = self.app.os.ask(crate::os_effect::OsEffect::Command {
-                                    cmd,
-                                    from: crate::os_effect::Asked::Link(shown),
-                                });
-                            }
-                            Some(Err(why)) => {
-                                self.app.links.refused.bump();
-                                crate::warn!("link refused ({why:?}): {shown}");
-                            }
-                            None => {
-                                self.app.links.refused.bump();
-                                crate::warn!("link refused (no command): {shown}");
-                            }
-                        }
-                    }
-                    // A window of yours: the rule's argv, built once here and
-                    // moved, opened in this window's folder on the effect
-                    // queue's turn (`os_effect.rs`), its terminal running the
-                    // program in place of a shell.
-                    Click::Window => {
-                        let built = t
-                            .rule()
-                            .and_then(|ix| self.app.uris.rules().window(ix, t.as_str()));
-                        match built {
-                            Some(Ok(run)) => {
-                                let at = self.folder();
-                                let over = self.over();
-                                let _ = self.app.os.ask(crate::os_effect::OsEffect::OpenWindow {
-                                    run,
-                                    at,
-                                    over,
-                                });
-                            }
-                            Some(Err(why)) => {
-                                self.app.links.refused.bump();
-                                crate::warn!("link refused ({why:?}): {shown}");
-                            }
-                            None => {
-                                self.app.links.refused.bump();
-                                crate::warn!("link refused (no command): {shown}");
-                            }
-                        }
-                    }
-                    // A file the worker found gone is asked about again, as a
-                    // printed path's click is: revealed if it came back, said
-                    // if not.
-                    Click::Again(path) => {
-                        self.app.path_click = Some((path.clone(), crate::paths::Asked::Link));
-                        self.check_file(crate::paths::Candidate {
-                            path,
-                            form: crate::paths::Form::Absolute,
-                            line,
-                        });
-                    }
-                    // Asked of the effect queue (`os_effect.rs`): an
-                    // open's answer comes back to `turns_answered`, and a
-                    // reveal, which answers nothing, is counted here.
-                    Click::Open | Click::Reveal => match t.action() {
-                        Action::Open => {
-                            // The address copied once, here, out of the
-                            // terminal's storage; it and the words for the
-                            // log move into the turn and back.
-                            let scheme = t.scheme();
-                            let uri_owned = t.to_admitted();
-                            match opener::checks(uri_owned.as_str()) {
-                                Ok(()) => {
-                                    let _ = self.app.os.ask(crate::os_effect::OsEffect::Open {
-                                        uri: uri_owned,
-                                        scheme,
-                                        shown,
-                                    });
-                                }
-                                Err(why) => {
-                                    self.app.links.refused.bump();
-                                    crate::warn!("link refused ({why:?}): {}", show(uri));
-                                }
-                            }
-                        }
-                        Action::Reveal => {
-                            let uri_owned = t.to_admitted();
-                            match opener::checks(uri_owned.as_str()) {
-                                Ok(()) => {
-                                    // Said now, and the words moved into the
-                                    // turn, for a refusal to say.
-                                    self.app.links.revealed.bump();
-                                    crate::info!("link revealed: {shown}");
-                                    let _ = self.app.os.ask(crate::os_effect::OsEffect::Reveal {
-                                        uri: uri_owned,
-                                        from: crate::os_effect::Asked::Link(shown),
-                                    });
-                                }
-                                Err(why) => {
-                                    self.app.links.refused.bump();
-                                    crate::warn!("link refused ({why:?}): {shown}");
-                                }
-                            }
-                        }
-                        // Taken by the arms above: nothing is handed over.
-                        Action::Command | Action::Window | Action::Copy => {
-                            self.app.links.refused.bump();
-                            crate::warn!("link refused (Declined): {shown}");
-                        }
-                    },
+            // A rule's `copy`: the link's text to the pasteboard, said as a
+            // copy of a selection is; nothing is opened.
+            Then::Copy(text) => self.link_copied(text),
+            // A command of yours: no shell, null streams, reaped on a tick.
+            // Started on the effect queue's turn; what it did comes back to
+            // `turns_answered`, counted and said.
+            Then::Command(built) => match built {
+                Some(Ok(cmd)) => {
+                    let _ = self.app.os.ask(crate::os_effect::OsEffect::Command {
+                        cmd,
+                        from: crate::os_effect::Asked::Link(shown),
+                    });
                 }
+                Some(Err(why)) => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused ({why:?}): {shown}");
+                }
+                None => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused (no command): {shown}");
+                }
+            },
+            // A window of yours: the rule's argv, built once and moved,
+            // opened in this window's folder on the effect queue's turn
+            // (`os_effect.rs`), its terminal running the program in place of
+            // a shell.
+            Then::Window(built) => match built {
+                Some(Ok(run)) => {
+                    let at = self.folder();
+                    let over = self.over();
+                    let _ =
+                        self.app
+                            .os
+                            .ask(crate::os_effect::OsEffect::OpenWindow { run, at, over });
+                }
+                Some(Err(why)) => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused ({why:?}): {shown}");
+                }
+                None => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused (no command): {shown}");
+                }
+            },
+            // A file the worker found gone is asked about again, as a
+            // printed path's click is: revealed if it came back, said if
+            // not.
+            Then::Again(path) => {
+                self.app.path_click = Some((path.clone(), crate::paths::Asked::Link));
+                self.check_file(crate::paths::Candidate {
+                    path,
+                    form: crate::paths::Form::Absolute,
+                    line,
+                });
             }
+            // Asked of the effect queue (`os_effect.rs`): an open's answer
+            // comes back to `turns_answered`, and a reveal, which answers
+            // nothing, is counted here.
+            Then::OpenOrReveal(t) => match t.action() {
+                Action::Open => {
+                    // The address copied once, here, out of the terminal's
+                    // storage; it and the words for the log move into the
+                    // turn and back.
+                    let scheme = t.scheme();
+                    let uri_owned = t.to_admitted();
+                    match opener::checks(uri_owned.as_str()) {
+                        Ok(()) => {
+                            let _ = self.app.os.ask(crate::os_effect::OsEffect::Open {
+                                uri: uri_owned,
+                                scheme,
+                                shown,
+                            });
+                        }
+                        Err(why) => {
+                            self.app.links.refused.bump();
+                            crate::warn!("link refused ({why:?}): {}", show(uri));
+                        }
+                    }
+                }
+                Action::Reveal => {
+                    let uri_owned = t.to_admitted();
+                    match opener::checks(uri_owned.as_str()) {
+                        Ok(()) => {
+                            // Said now, and the words moved into the turn,
+                            // for a refusal to say.
+                            self.app.links.revealed.bump();
+                            crate::info!("link revealed: {shown}");
+                            let _ = self.app.os.ask(crate::os_effect::OsEffect::Reveal {
+                                uri: uri_owned,
+                                from: crate::os_effect::Asked::Link(shown),
+                            });
+                        }
+                        Err(why) => {
+                            self.app.links.refused.bump();
+                            crate::warn!("link refused ({why:?}): {shown}");
+                        }
+                    }
+                }
+                // Taken by the arms above: nothing is handed over.
+                Action::Command | Action::Window | Action::Copy => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused (Declined): {shown}");
+                }
+            },
         }
     }
 
@@ -22052,7 +22019,10 @@ mod mark_tests {
             .expect("paths_turn");
         let (paths_turn, _) = paths_turn.split_once("\n    }\n").expect("its end");
         assert!(
-            paths_turn.contains(concat!(".tick(", "host_now(),")),
+            paths_turn.contains(concat!(
+                "link_layer::tick(",
+                "&mut app.probes, &mut layer, host_now(),"
+            )),
             "{paths_turn}"
         );
         assert!(!paths_turn.contains(".answers("), "no answer on the tick");

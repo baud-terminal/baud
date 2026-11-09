@@ -1456,10 +1456,4 @@ fn the_launch_path_names_no_appkit() {
 
 /// **The reaches allowed**: the module, the code on the line, and why it
 /// opens nothing.
-pub(crate) const ALLOWED: [(&[&str], &str, &str); 1] = [(
-    &["probe"],
-    concat!("baud_present", "_macos::link::has_handler(address)"),
-    "the link worker's question whether an app opens a scheme: NSWorkspace's \
-     URLForApplicationToOpenURL, a LaunchServices lookup made off the main thread in \
-     its own autorelease pool, which starts no AppKit application, window or Dock icon",
-)];
+pub(crate) const ALLOWED: [(&[&str], &str, &str); 1] = [crate::no_appkit::LINK_WORKER];
