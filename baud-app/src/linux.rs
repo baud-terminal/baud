@@ -992,15 +992,25 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     // gone by the batch (`Probes::read_taken`), and a read
                     // carrying a link always asks.
                     let master = d.pty.reads().master;
-                    let (group, linked) = match d.groups.read(Instant::now(), &bytes) {
-                        crate::probe::Asks::Yes(l) => (crate::fg::group(master), l),
-                        crate::probe::Asks::No => (None, crate::probe::Linked::No),
+                    // No process watch here: a job that writes and ends
+                    // between two reads is the residual race
+                    // (`probe::Writers`).
+                    let (writers, linked) = match d.groups.read(Instant::now(), &bytes) {
+                        crate::probe::Asks::Yes(l) => (
+                            d.groups
+                                .writers(crate::fg::group(master), crate::probe::Watched::Nothing),
+                            l,
+                        ),
+                        crate::probe::Asks::No => {
+                            (crate::probe::Writers::default(), crate::probe::Linked::No)
+                        }
                     };
                     let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
                     d.feed(&bytes);
                     let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
                     let span = crate::paths::LineSpan::of(began, ended);
-                    d.probes.read_taken(&mut d.seat.paths, group, span, linked);
+                    d.probes
+                        .read_taken(&mut d.seat.paths, writers, span, linked);
                 }
             }
         }

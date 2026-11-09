@@ -62,6 +62,10 @@ pub struct Pty {
     /// been drained, so a flood of reads sends one wake, not one a read.
     #[cfg(target_os = "macos")]
     signalled: Arc<AtomicBool>,
+    /// What the window's process watch saw between two reads, which the
+    /// reader takes (`probe::WatchCell`).
+    #[cfg(target_os = "macos")]
+    watched: crate::probe::WatchCell,
     /// The write end of the pipe the reader waits on beside the master:
     /// dropped with the window's `Pty`, it ends the reader, which closes
     /// its copy of the master (`Reading`). `None` when the reader shares this
@@ -148,11 +152,12 @@ pub enum Stream {
 pub struct Read {
     pub at: HostTime,
     pub bytes: Vec<u8>,
-    /// The foreground process group just after the read, when the reader
-    /// asked (`probe::Sampler`): which program wrote these bytes, for the
-    /// printed paths, read here because the program may be gone by the time
-    /// anything else asks.
-    pub group: Option<crate::sys::Pid>,
+    /// The foreground process group just after the read and at the read
+    /// before it, and what the process watch saw between, when the reader
+    /// asked (`probe::Sampler::writers`): which program wrote these bytes,
+    /// for the printed paths and a link's origin, read here because the
+    /// program may be gone by the time anything else asks.
+    pub writers: crate::probe::Writers,
     /// Whether the bytes carried an `OSC 8` link's introducer, which always
     /// asks for the group (`probe::Sampler::read`).
     pub linked: crate::probe::Linked,
@@ -1657,7 +1662,9 @@ impl Pty {
         let signalled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&signalled);
         let (held, closing) = Reading::of(master);
-        std::thread::spawn(move || reader(held, tx, flag, wake));
+        let watched = crate::probe::WatchCell::default();
+        let taken = watched.clone();
+        std::thread::spawn(move || reader(held, tx, flag, &taken, wake));
         Pty {
             master,
             child,
@@ -1665,6 +1672,7 @@ impl Pty {
             line: LineDiscipline::of(master),
             rx,
             signalled,
+            watched,
             closing,
             ending: Ending::of(program),
         }
@@ -1868,6 +1876,13 @@ impl Pty {
             pid: self.child?,
             slot: Arc::clone(&self.ending.slot),
         })
+    }
+
+    /// **Where the window's process watch leaves what it saw** for the
+    /// reader to take (`fg::Watch`, `probe::WatchCell`).
+    #[cfg(target_os = "macos")]
+    pub fn watched(&self) -> crate::probe::WatchCell {
+        self.watched.clone()
     }
 
     /// **The master to poll**, until it hangs up ([`Pty::hung_up`]): a
@@ -2085,7 +2100,13 @@ pub(crate) fn reap_now(pid: crate::sys::Pid) -> Reap {
 }
 
 #[cfg(target_os = "macos")]
-fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+fn reader(
+    held: Reading,
+    tx: Sender<Read>,
+    signalled: Arc<AtomicBool>,
+    watched: &crate::probe::WatchCell,
+    wake: impl Fn(),
+) {
     let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
     let mut sampler = crate::probe::Sampler::default();
@@ -2142,9 +2163,11 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
-        let (group, linked) = match sampler.read(std::time::Instant::now(), bytes) {
-            crate::probe::Asks::Yes(l) => (crate::fg::group(fd), l),
-            crate::probe::Asks::No => (None, crate::probe::Linked::No),
+        let (writers, linked) = match sampler.read(std::time::Instant::now(), bytes) {
+            crate::probe::Asks::Yes(l) => {
+                (sampler.writers(crate::fg::group(fd), watched.take()), l)
+            }
+            crate::probe::Asks::No => (crate::probe::Writers::default(), crate::probe::Linked::No),
         };
         if let Some(f) = log.as_mut() {
             use std::io::Write;
@@ -2154,7 +2177,7 @@ fn reader(held: Reading, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: imp
             .send(Read {
                 at,
                 bytes: bytes.to_vec(),
-                group,
+                writers,
                 linked,
             })
             .is_err()
@@ -3851,7 +3874,7 @@ mod tests {
         );
         let (ended, reader_ended) = channel();
         std::thread::spawn(move || {
-            reader(held, tx, flag, || {});
+            reader(held, tx, flag, &crate::probe::WatchCell::default(), || {});
             let _ = ended.send(());
         });
         let opened = fifo.clone();
@@ -3867,6 +3890,7 @@ mod tests {
             line: LineDiscipline::of(master),
             rx,
             signalled,
+            watched: crate::probe::WatchCell::default(),
             closing,
             ending: Ending::of(None),
         };
@@ -4677,7 +4701,7 @@ mod tests {
             let pty = Pty::reading(master, Some(pid), told, program, move || {
                 let _ = woke.send(());
             });
-            let watch = crate::fg::Watch::start(pty.reaps(), move || {
+            let watch = crate::fg::Watch::start(pty.reaps(), pty.watched(), move || {
                 let _ = woke_too.send(());
             })
             .expect("a kqueue");
@@ -4959,6 +4983,7 @@ mod tests {
                 pid,
                 slot: Arc::clone(&slot),
             }),
+            crate::probe::WatchCell::default(),
             || {},
         )
         .expect("a kqueue");
@@ -5093,6 +5118,114 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// **How often a short ssh's link is read as local on Linux**, where no
+    /// process watch sees a job that writes and ends between two reads
+    /// (`probe::Writers`): `ssh localhost cat <file>` holding one `OSC 8`
+    /// link, run `BAUD_SSH_RACE_N` times (200 by default) as a job of its
+    /// own under a monitor-mode bash, a line of the shell's own before
+    /// each, as a prompt is. Each read is taken as the Linux loop takes it
+    /// -- the poll, [`Pty::read_chunk`], [`crate::probe::Sampler`] and the
+    /// group's `TIOCGPGRP` -- and each sampled group named at once as the
+    /// paths worker names it (`probe::front_of`, a group gone naming
+    /// nothing, which is not local). It counts the links whose read had
+    /// local groups at both samples: the race left. Needs an sshd on
+    /// localhost that takes this user's key, as the VM container gives it;
+    /// so it is ignored, and run there by hand.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "needs an sshd on localhost that takes this user's key"]
+    fn a_short_ssh_link_read_on_linux_is_counted() {
+        use crate::probe::{Asks, Linked, Sampler, Watched};
+        use std::os::fd::AsFd;
+        let n: u32 = std::env::var("BAUD_SSH_RACE_N")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(200);
+        let dir = std::env::temp_dir().join(format!("baud-ssh-race-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let link = dir.join("link");
+        std::fs::write(
+            &link,
+            b"\x1b]8;;file://localhost/etc/hostname\x1b\\x\x1b]8;;\x1b\\\n",
+        )
+        .expect("the link");
+        let script = dir.join("loop.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "for i in $(seq {n}); do sleep 0.02; printf 'prompt\\n'; \
+                 ssh -o BatchMode=yes localhost cat {}; done; printf 'end\\n'\n",
+                link.display()
+            ),
+        )
+        .expect("the script");
+        let w = Polled::of(
+            &format!("exec /bin/bash -m {}", script.display()),
+            Runs::Shell,
+        );
+        let master = w.pty.reads().master;
+        let mut sampler = Sampler::default();
+        let mut named = std::collections::HashMap::new();
+        let mut front = |g: Option<crate::sys::Pid>| -> Option<crate::paths::Front> {
+            let g = g?;
+            Some(*named.entry(g).or_insert_with(|| {
+                let names: Vec<String> = [crate::fg::name(g), crate::fg::exe_name(g)]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                crate::probe::front_of(&names)
+            }))
+        };
+        let (mut links, mut local, mut ssh_at) = (0u32, 0u32, 0u32);
+        let mut all = Vec::new();
+        loop {
+            let (_, m, _) = wait(
+                w.socket.0.as_fd(),
+                w.pty.polled_master(),
+                Owed::Nothing,
+                &[],
+                Some(Duration::from_secs(60)),
+            )
+            .expect("the wait");
+            assert_eq!(m, Ready::Readable, "output before the bound");
+            let bytes = match w.pty.read_chunk() {
+                Chunk::Bytes(b) => b,
+                Chunk::Closed => break,
+            };
+            let asks = sampler.read(std::time::Instant::now(), &bytes);
+            let writers = match asks {
+                Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
+                Asks::No => crate::probe::Writers::default(),
+            };
+            all.extend_from_slice(&bytes);
+            if asks != Asks::Yes(Linked::Yes) {
+                continue;
+            }
+            let here = u32::try_from(bytes.windows(9).filter(|x| *x == b"\x1b]8;;file").count())
+                .expect("a count");
+            let (before, at) = (front(writers.before), front(writers.at));
+            let elsewhere = Some(crate::paths::Front::Elsewhere);
+            if at == elsewhere {
+                ssh_at += here;
+            }
+            if before != elsewhere && at != elsewhere {
+                local += here;
+            }
+            links += here;
+            if holds(&all, b"end\r\n") {
+                break;
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("links {links}, ssh named at the read {ssh_at}, read as local {local}");
+        assert_eq!(
+            links,
+            n,
+            "every link was read: {:?}",
+            String::from_utf8_lossy(&all)
+        );
     }
 
     /// **The Linux loop reaps a window's child by its pidfd, and the window
@@ -5317,7 +5450,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn holds(haystack: &[u8], needle: &[u8]) -> bool {
         haystack.windows(needle.len()).any(|w| w == needle)
     }
@@ -5463,7 +5596,7 @@ mod tests {
         #[cfg(target_os = "macos")]
         {
             let (tx, rx) = std::sync::mpsc::channel();
-            let w = crate::fg::Watch::start(None, move || {
+            let w = crate::fg::Watch::start(None, crate::probe::WatchCell::default(), move || {
                 let _ = tx.send(());
             })
             .expect("a kqueue");

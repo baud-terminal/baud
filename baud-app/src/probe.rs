@@ -209,6 +209,82 @@ pub struct Sampler {
     /// The last bytes of the reads so far, at most three: an introducer
     /// split across two reads is still seen.
     tail: [Option<u8>; 3],
+    /// The group the last read that asked was taken with, and what the
+    /// process watch had named by then: the next read's "before"
+    /// ([`Sampler::writers`]).
+    previous: Option<Pid>,
+    previous_watched: Watched,
+}
+
+/// **Whether the process watch named a program not on this machine** since
+/// the reader last took it (`fg::Watch`, macOS): a job that started, wrote
+/// and ended between two reads, which no sample of the group in front saw.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Watched {
+    #[default]
+    Nothing,
+    Elsewhere,
+}
+
+impl Watched {
+    /// Either's verdict: not local if either is.
+    fn or(self, other: Watched) -> Watched {
+        match (self, other) {
+            (Watched::Nothing, Watched::Nothing) => Watched::Nothing,
+            _ => Watched::Elsewhere,
+        }
+    }
+}
+
+/// **Where the process watch leaves its verdict for the reader** (macOS's
+/// `fg::Watch`): raised on its thread when an exec, or a child found at a
+/// fork, is named not local, and taken -- read and cleared -- by the
+/// thread taking the reads, at a read that asks for the group. One flag and
+/// no pid: the watch has already named the program, and a pid handed on
+/// could be gone, or another program's, by the time it was named again.
+#[derive(Clone, Default, Debug)]
+pub struct WatchCell(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl WatchCell {
+    /// A program not on this machine was seen.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn raise(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// What was seen since the last take, cleared.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn take(&self) -> Watched {
+        match self.0.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            true => Watched::Elsewhere,
+            false => Watched::Nothing,
+        }
+    }
+}
+
+/// **Who may have written a read**: the group in front at the sample before
+/// it, the group in front just after it, and whether the process watch
+/// named a program not on this machine in between. The read is local only
+/// if every one of them is ([`Probes::read_taken`]): a program that wrote
+/// and ended before the sample after its read is still named by the one
+/// before, or by the watch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Writers {
+    pub before: Option<Pid>,
+    pub at: Option<Pid>,
+    pub watched: Watched,
+}
+
+impl Writers {
+    /// One group, sampled at the read, and nothing before it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn at(group: Option<Pid>) -> Writers {
+        Writers {
+            before: None,
+            at: group,
+            watched: Watched::Nothing,
+        }
+    }
 }
 
 /// Whether a read carried an `OSC 8` link's introducer.
@@ -228,6 +304,25 @@ pub enum Asks {
 }
 
 impl Sampler {
+    /// **The writers of a read that asked**, from `at`, the group sampled
+    /// just after it, and `watched`, the process watch's verdict taken at
+    /// it: the group before is the one the last read that asked was taken
+    /// with, a group the kernel names, and a verdict counts for the next
+    /// read that asks as well, so a read the pace asked for cannot use it up
+    /// before the link's read comes.
+    pub fn writers(&mut self, at: Option<Pid>, watched: Watched) -> Writers {
+        let w = Writers {
+            before: self.previous,
+            at,
+            watched: watched.or(self.previous_watched),
+        };
+        if at.is_some() {
+            self.previous = at;
+        }
+        self.previous_watched = watched;
+        w
+    }
+
     /// Whether the read at `now` asks, by the pace alone.
     pub fn due(&mut self, now: std::time::Instant) -> bool {
         let due = self
@@ -1268,25 +1363,35 @@ impl<T: Moment> Probes<T> {
         self.started
     }
 
-    /// **A read was taken with `group` in front, writing `span`**, from the
-    /// line the cursor was on as it began to the line it ended on: the
-    /// group kept with its lines, and a new one sent to be named at once,
-    /// while it may still run. `group` is the [`Sampler`]'s: none for a read
-    /// that did not ask, or a group the kernel no longer names. With
-    /// `[link] paths = "off"` only a read that `linked` an `OSC 8` link is
-    /// kept, since only a link's click reads who printed it
-    /// ([`Paths::origin`]).
+    /// **A read was taken with `writers` in front, writing `span`**, from
+    /// the line the cursor was on as it began to the line it ended on: each
+    /// group sampled for it, before the read and just after it, kept with
+    /// its lines, and a new one sent to be named at once, while it may still
+    /// run; the lines of a read the process watch saw a program not on this
+    /// machine for count as not local outright. So a read is local only when
+    /// both samples and the watch are, and a program that wrote and ended
+    /// before the sample after its read is named by the one before it.
+    /// `writers` is the [`Sampler`]'s: none for a read that did not ask, or
+    /// a group the kernel no longer names. With `[link] paths = "off"` only
+    /// a read that `linked` an `OSC 8` link is kept, since only a link's
+    /// click reads who printed it ([`Paths::origin`]).
     pub fn read_taken(
         &mut self,
         paths: &mut Paths,
-        group: Option<Pid>,
+        writers: Writers,
         span: LineSpan,
         linked: Linked,
     ) {
-        let Some(g) = group else {
-            return;
+        if let Some(g) = writers.at {
+            self.front_group = Some(g);
+        }
+        let groups = match (writers.before, writers.at) {
+            (Some(b), Some(a)) if b == a => [Some(a), None],
+            (b, a) => [b, a],
         };
-        self.front_group = Some(g);
+        if groups == [None, None] && writers.watched == Watched::Nothing {
+            return;
+        }
         let kept = match paths.marks() {
             Marks::On => true,
             Marks::Off => linked == Linked::Yes,
@@ -1295,6 +1400,17 @@ impl<T: Moment> Probes<T> {
         if !kept || matches!(self.slot, Slot::Closed) {
             return;
         }
+        // Counted with the lines written past `GROUPS`: not local.
+        if writers.watched == Watched::Elsewhere {
+            self.unnamed = joined(self.unnamed, Some(span));
+        }
+        for g in groups.into_iter().flatten() {
+            self.group_wrote(paths, g, span);
+        }
+    }
+
+    /// `g` wrote `span`: kept with its lines, and named now if it is new.
+    fn group_wrote(&mut self, paths: &mut Paths, g: Pid, span: LineSpan) {
         if let Some(e) = self.seen.iter_mut().find(|e| e.0 == g) {
             e.1 = e.1.joined(span);
             return;
@@ -2667,7 +2783,7 @@ mod tests {
             let s = Scrolled::START;
             let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
             let span = crate::paths::LineSpan::of(printed, printed);
-            pr.read_taken(&mut paths, Some(at_read), span, Linked::No);
+            pr.read_taken(&mut paths, Writers::at(Some(at_read)), span, Linked::No);
             let t0 = Instant::now();
             let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
                 let _ = lines.scan(
@@ -2859,7 +2975,7 @@ mod tests {
         let line = s.line(Rows::ZERO, t.cursor().0);
         pr.read_taken(
             &mut paths,
-            Some(front(0)),
+            Writers::at(Some(front(0))),
             LineSpan::of(line, line),
             Linked::No,
         );
@@ -2874,7 +2990,7 @@ mod tests {
                 let line = s.line(Rows::ZERO, t.cursor().0);
                 pr.read_taken(
                     &mut paths,
-                    Some(front(step)),
+                    Writers::at(Some(front(step))),
                     LineSpan::of(line, line),
                     Linked::No,
                 );
@@ -3155,7 +3271,12 @@ mod tests {
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
-            pr.read_taken(&mut paths, Some(9), LineSpan::of(line, line), linked);
+            pr.read_taken(
+                &mut paths,
+                Writers::at(Some(9)),
+                LineSpan::of(line, line),
+                linked,
+            );
             let t0 = Instant::now();
             for i in 0..1_000_000u32 {
                 let seen = Seen {
@@ -3185,5 +3306,122 @@ mod tests {
             (0, Origin::Unknown),
             "no link: nothing started"
         );
+    }
+
+    /// The origin a link's line takes from a read taken with `writers`,
+    /// with `[link] paths = "off"`: ssh is group 9, zsh group 1.
+    fn origin_of(writers: Writers) -> Origin {
+        let mut f = Fake::with(&[]);
+        f.groups.insert(9, vec!["ssh".into()]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"x\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(3));
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+        pr.read_taken(&mut paths, writers, LineSpan::of(line, line), Linked::Yes);
+        let t0 = Instant::now();
+        for i in 0..1_000_000u32 {
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.turn(t0 + Duration::from_millis(u64::from(i)), seen, || Some(1));
+            if paths.origin(line) != Origin::Unknown {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        paths.origin(line)
+    }
+
+    /// **A link's read is local only if the sample before it and the one
+    /// at it both are**: ssh at the sample before the read and the shell
+    /// at the one after -- a short ssh that wrote and ended in between --
+    /// makes the line remote, and so does ssh at the read; the shell at
+    /// both, the control, is local. Named break: take the group at the read
+    /// alone in `read_taken` -- the first case reads local.
+    #[test]
+    fn a_read_is_remote_if_the_sample_before_it_is() {
+        let w = |before, at| Writers {
+            before: Some(before),
+            at: Some(at),
+            watched: Watched::Nothing,
+        };
+        assert_eq!(origin_of(w(9, 1)), Origin::Remote, "ssh before, zsh at");
+        assert_eq!(origin_of(w(1, 9)), Origin::Remote, "zsh before, ssh at");
+        assert_eq!(
+            origin_of(w(1, 1)),
+            Origin::Local,
+            "the control: zsh at both"
+        );
+        let gone = Writers {
+            before: Some(9),
+            at: None,
+            watched: Watched::Nothing,
+        };
+        assert_eq!(
+            origin_of(gone),
+            Origin::Remote,
+            "ssh before, and no group the kernel names at the read"
+        );
+    }
+
+    /// **A program the process watch named not local between two local
+    /// samples makes the read remote**: `ssh host 'printf <link>'` started,
+    /// wrote and ended between two reads that each found the shell in
+    /// front, and only its exec, named by the watch, says it ran. Through
+    /// the reader's half too: the verdict taken from the cell between the
+    /// two samples reaches the link's read, though a read the pace asked
+    /// for took it first. Named breaks: ignore the watch in `read_taken` --
+    /// the line reads local; keep no verdict for the next read that asks
+    /// (`Sampler::writers`) -- the link's read carries none.
+    #[test]
+    fn a_job_the_watch_named_between_two_local_samples_is_remote() {
+        let cell = WatchCell::default();
+        let mut s = Sampler::default();
+        let first = s.writers(Some(1), cell.take());
+        assert_eq!(origin_of(first), Origin::Local, "the control: the shell");
+        // The watch names ssh's exec, and a read the pace asked for takes
+        // the cell before the link's read comes.
+        cell.raise();
+        let paced = s.writers(Some(1), cell.take());
+        assert_eq!(paced.watched, Watched::Elsewhere);
+        assert_eq!(cell.take(), Watched::Nothing, "the cell is taken");
+        let link = s.writers(Some(1), cell.take());
+        assert_eq!(
+            (link.before, link.at, link.watched),
+            (Some(1), Some(1), Watched::Elsewhere),
+            "the shell at both samples, the watch's verdict carried"
+        );
+        assert_eq!(origin_of(link), Origin::Remote, "the link's read");
+        let after = s.writers(Some(1), cell.take());
+        assert_eq!(
+            after.watched,
+            Watched::Nothing,
+            "carried once, not for ever"
+        );
+        assert_eq!(origin_of(after), Origin::Local, "the read after it");
+    }
+
+    /// **The group before a read is the one the last read that asked was
+    /// taken with**: none at the first, and a read whose group the kernel
+    /// no longer names leaves the last one named as the next read's
+    /// before. Named break: keep no previous sample -- `before` is none.
+    #[test]
+    fn the_sample_before_a_read_is_the_last_one_taken() {
+        let mut s = Sampler::default();
+        assert_eq!(s.writers(Some(1), Watched::Nothing).before, None);
+        assert_eq!(s.writers(Some(9), Watched::Nothing).before, Some(1));
+        assert_eq!(s.writers(None, Watched::Nothing).before, Some(9));
+        assert_eq!(s.writers(Some(1), Watched::Nothing).before, Some(9));
     }
 }

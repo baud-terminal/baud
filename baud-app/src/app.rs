@@ -12140,7 +12140,7 @@ impl Driver {
         for chunk in &drained.chunks {
             self.app
                 .probes
-                .read_taken(&mut self.app.paths, chunk.group, span, chunk.linked);
+                .read_taken(&mut self.app.paths, chunk.writers, span, chunk.linked);
         }
         if self.app.copied.program(copies, host_now()) == crate::copied::Owes::Frame {
             self.app.pending = Pending::Dirty;
@@ -13607,7 +13607,7 @@ impl Shell {
         // waking the main thread as the pty's reader does.
         let wake_watch = Arc::clone(&late);
         // And the window's child, which it reaps (`held.rs`).
-        let watch = crate::fg::Watch::start(pty.reaps(), move || {
+        let watch = crate::fg::Watch::start(pty.reaps(), pty.watched(), move || {
             if let Some(w) = wake_watch.get() {
                 w.wake();
             }

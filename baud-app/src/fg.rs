@@ -242,6 +242,21 @@ pub enum Moved {
 /// and the other windows' too, so it only asks after this one, and wakes
 /// nothing unless it was reaped.
 ///
+/// **It names what a job runs, for a link's origin** ([`crate::probe::
+/// WatchCell`]): a job that starts, writes a link and ends between two of
+/// the reader's reads -- `ssh host 'printf <link>'` -- is in front at no
+/// read, and only these events see it. At a `NOTE_FORK` the thread lists
+/// the forking process's children itself, watches each new one and names
+/// it at once, since its exec may already have happened by then; at a
+/// `NOTE_EXEC` it names the process. One named not on this machine
+/// (`probe::front_of`) raises the cell, which the reader takes at its next
+/// read that asks. A child the thread watched itself is marked by its
+/// event's `udata`, and its events wake no one: the title and the paths'
+/// re-checks see the processes they saw before, those the main thread
+/// adds ([`Watch::add`]). A process gone before it is named -- one that
+/// forked, ran and ended before the thread listed it -- names nothing and
+/// raises nothing: the race that is left.
+///
 /// **Dropped with its window, it takes its thread and kqueue with it**: a
 /// user event registered at the start is raised, the thread returns on
 /// it, the drop joins it, and the kqueue closes with the last of the two
@@ -335,9 +350,43 @@ fn wake_event(flags: core::ffi::c_ushort, fflags: core::ffi::c_uint) -> crate::s
     }
 }
 
+/// Who watches a process: the main thread, whose events are the title's
+/// and wake it, or the watch's own thread, whose are only named.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum By {
+    Main,
+    Thread,
+}
+
+#[cfg(target_os = "macos")]
+impl By {
+    /// The mark an event carries back in its `udata`: none for the main
+    /// thread's, and a pointer never read for the thread's.
+    fn udata(self) -> *mut core::ffi::c_void {
+        match self {
+            By::Main => std::ptr::null_mut(),
+            By::Thread => std::ptr::dangling_mut(),
+        }
+    }
+
+    fn of(e: &crate::sys::Kevent) -> By {
+        match e.udata.is_null() {
+            true => By::Main,
+            false => By::Thread,
+        }
+    }
+}
+
 /// A process watch on `pid` for `fflags`.
 #[cfg(target_os = "macos")]
 fn proc_event(pid: Pid, fflags: core::ffi::c_uint) -> Option<crate::sys::Kevent> {
+    proc_event_by(pid, fflags, By::Main)
+}
+
+/// A process watch on `pid` for `fflags`, marked with who added it.
+#[cfg(target_os = "macos")]
+fn proc_event_by(pid: Pid, fflags: core::ffi::c_uint, by: By) -> Option<crate::sys::Kevent> {
     use crate::sys::{EV_ADD, EV_CLEAR, EVFILT_PROC, Kevent};
     Some(Kevent {
         ident: core::ffi::c_ulong::try_from(pid).ok()?,
@@ -345,17 +394,87 @@ fn proc_event(pid: Pid, fflags: core::ffi::c_uint) -> Option<crate::sys::Kevent>
         flags: EV_ADD | EV_CLEAR,
         fflags,
         data: 0,
-        udata: std::ptr::null_mut(),
+        udata: by.udata(),
     })
+}
+
+/// **Whether `pid` runs a program not on this machine**, by the names the
+/// paths worker reads (`probe::front_of`); a process gone, which names
+/// nothing, is not counted.
+#[cfg(target_os = "macos")]
+fn named_elsewhere(pid: Pid) -> bool {
+    let names: Vec<String> = [name(pid), exe_name(pid)].into_iter().flatten().collect();
+    !names.is_empty() && crate::probe::front_of(&names) == crate::paths::Front::Elsewhere
+}
+
+/// The children of `parent`, at most 64: `proc_listchildpids` answers a
+/// count of pids (`[[source: xnu-libproc-c]]` 87-97).
+#[cfg(target_os = "macos")]
+fn children(parent: Pid) -> impl Iterator<Item = Pid> {
+    let mut kids = [0 as Pid; 64];
+    let n = match core::ffi::c_int::try_from(core::mem::size_of_val(&kids)) {
+        // SAFETY: a buffer of the size passed beside it.
+        Ok(size) => unsafe {
+            crate::sys::proc_listchildpids(parent, kids.as_mut_ptr().cast(), size)
+        },
+        Err(_) => 0,
+    };
+    kids.into_iter().take(usize::try_from(n).unwrap_or(0))
+}
+
+/// **What the thread makes of one batch of events**: each new child of a
+/// process that forked watched, by the thread, and each process that
+/// exec'd or was just found named; `cell` raised when one is not on this
+/// machine. `known` holds the children the thread watches, until they
+/// exit, so a busy parent's children are named once each.
+#[cfg(target_os = "macos")]
+fn name_moves(
+    kq: Fd,
+    got: &[crate::sys::Kevent],
+    known: &mut std::collections::HashSet<Pid>,
+    cell: &crate::probe::WatchCell,
+) {
+    use crate::sys::{EVFILT_PROC, NOTE_EXEC, NOTE_EXIT, NOTE_FORK};
+    for e in got.iter().filter(|e| e.filter == EVFILT_PROC) {
+        let Ok(pid) = Pid::try_from(e.ident) else {
+            continue;
+        };
+        if e.fflags & NOTE_EXEC != 0 && named_elsewhere(pid) {
+            cell.raise();
+        }
+        if e.fflags & NOTE_FORK != 0 {
+            for kid in children(pid) {
+                if !known.insert(kid) {
+                    continue;
+                }
+                if let Some(ev) = proc_event_by(kid, NOTE_FORK | NOTE_EXEC | NOTE_EXIT, By::Thread)
+                {
+                    let _ = change(kq, &ev);
+                }
+                if named_elsewhere(kid) {
+                    cell.raise();
+                }
+            }
+        }
+        if e.fflags & NOTE_EXIT != 0 {
+            known.remove(&pid);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl Watch {
     /// A kqueue and the thread that waits on it; `wake` runs after each
-    /// batch of events that moved a watched process or reaped `child`.
-    pub fn start(child: Option<Child>, wake: impl Fn() + Send + 'static) -> Option<Watch> {
+    /// batch of events that moved a process the main thread watches or
+    /// reaped `child`, and `cell` is raised when a job is named not local.
+    pub fn start(
+        child: Option<Child>,
+        cell: crate::probe::WatchCell,
+        wake: impl Fn() + Send + 'static,
+    ) -> Option<Watch> {
         use crate::sys::{
-            EV_ADD, EV_CLEAR, EVFILT_PROC, EVFILT_SIGNAL, Kevent, NOTE_EXIT, SIGCHLD,
+            EV_ADD, EV_CLEAR, EVFILT_PROC, EVFILT_SIGNAL, Kevent, NOTE_EXEC, NOTE_EXIT, NOTE_FORK,
+            SIGCHLD,
         };
         use std::sync::atomic::{AtomicBool, Ordering};
         // SAFETY: no arguments; a descriptor or -1.
@@ -385,8 +504,10 @@ impl Watch {
             if change(fd, &signal) < 0 {
                 return None;
             }
-            // `ESRCH` for a child already gone, which the look reaps.
-            if let Some(exit) = proc_event(c.pid, NOTE_EXIT) {
+            // `ESRCH` for a child already gone, which the look reaps. Its
+            // forks and execs from the start too: the first job is named
+            // before any title check has watched the shell.
+            if let Some(exit) = proc_event(c.pid, NOTE_FORK | NOTE_EXEC | NOTE_EXIT) {
                 let _ = change(fd, &exit);
             }
             let _ = c.reap();
@@ -400,6 +521,7 @@ impl Watch {
             .spawn(move || {
                 let kq = std::os::fd::AsRawFd::as_raw_fd(&*held);
                 let mut wake = Some(wake);
+                let mut known = std::collections::HashSet::new();
                 let mut events = [Kevent {
                     ident: 0,
                     filter: 0,
@@ -447,7 +569,10 @@ impl Watch {
                         }
                         continue;
                     }
-                    let moves = got.iter().any(|e| e.filter == EVFILT_PROC);
+                    name_moves(kq, got, &mut known, &cell);
+                    let moves = got
+                        .iter()
+                        .any(|e| e.filter == EVFILT_PROC && By::of(e) == By::Main);
                     if moves {
                         flag.store(true, Ordering::Release);
                     }
@@ -484,13 +609,7 @@ impl Watch {
     /// takes the terminal and execs. `proc_listchildpids` answers a count
     /// of pids (`[[source: xnu-libproc-c]]` 87-97).
     pub fn add_children(&self, parent: Pid) {
-        let mut kids = [0 as Pid; 64];
-        let Ok(size) = core::ffi::c_int::try_from(core::mem::size_of_val(&kids)) else {
-            return;
-        };
-        // SAFETY: a buffer of the size passed beside it.
-        let n = unsafe { crate::sys::proc_listchildpids(parent, kids.as_mut_ptr().cast(), size) };
-        for &kid in kids.iter().take(usize::try_from(n).unwrap_or(0)) {
+        for kid in children(parent) {
             self.add(kid);
         }
     }
@@ -540,7 +659,7 @@ mod tests {
     fn a_dropped_process_watch_ends_its_thread_and_closes_its_kqueue() {
         let held = std::sync::Arc::new(());
         let in_thread = std::sync::Arc::clone(&held);
-        let watch = Watch::start(None, move || {
+        let watch = Watch::start(None, crate::probe::WatchCell::default(), move || {
             let _ = &in_thread;
         })
         .expect("a kqueue and its thread");
@@ -567,6 +686,147 @@ mod tests {
             unsafe { crate::sys::fcntl(kq, crate::sys::F_GETFD) } < 0,
             "the kqueue is closed"
         );
+    }
+
+    /// A fresh directory holding `ssh` and `true`, each a link to
+    /// `/bin/sleep`: argv[0] names the first not local and the second
+    /// local, and either lives as long as it is told.
+    #[cfg(target_os = "macos")]
+    fn programs(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("baud-fg-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("a scratch directory");
+        for n in ["ssh", "true"] {
+            std::os::unix::fs::symlink("/bin/sleep", d.join(n)).expect("a link");
+        }
+        d
+    }
+
+    /// One `EVFILT_PROC` event, as the kernel returns it.
+    #[cfg(target_os = "macos")]
+    fn event(pid: Pid, fflags: core::ffi::c_uint) -> crate::sys::Kevent {
+        crate::sys::Kevent {
+            ident: core::ffi::c_ulong::try_from(pid).expect("a pid"),
+            filter: crate::sys::EVFILT_PROC,
+            flags: 0,
+            fflags,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        }
+    }
+
+    /// **The watch's thread names a forking process's new children and a
+    /// process that exec'd, and raises the cell only for one not on this
+    /// machine**: this test's own child run as `true`, found at a fork or
+    /// named at its exec, raises nothing; one run as `ssh` raises it, either
+    /// way; and a child already listed is not named again. Named breaks:
+    /// list no children at a fork -- the fork's case raises nothing; name
+    /// nothing at an exec -- the exec's case raises nothing. Lists this
+    /// process's children, so it holds only with one process a test, as
+    /// nextest runs it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_fork_or_exec_raises_the_cell_only_for_a_remote_program() {
+        use crate::sys::{NOTE_EXEC, NOTE_FORK};
+        let dir = programs("names");
+        let me = Pid::try_from(std::process::id()).expect("a pid");
+        // SAFETY: no arguments; a descriptor or -1.
+        let raw = unsafe { crate::sys::kqueue() };
+        assert!(raw >= 0, "a kqueue");
+        // SAFETY: the descriptor `kqueue` just gave, closed once, here.
+        let kq = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) };
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&kq);
+        let run = |name: &str, fflags| {
+            let mut child = std::process::Command::new(dir.join(name))
+                .arg("5")
+                .spawn()
+                .expect("spawned");
+            let pid = Pid::try_from(child.id()).expect("a pid");
+            let cell = crate::probe::WatchCell::default();
+            let mut known = std::collections::HashSet::new();
+            let ident = match fflags {
+                NOTE_FORK => me,
+                _ => pid,
+            };
+            name_moves(fd, &[event(ident, fflags)], &mut known, &cell);
+            let got = cell.take();
+            let listed = known.len();
+            name_moves(fd, &[event(ident, fflags)], &mut known, &cell);
+            let again = cell.take();
+            let _ = child.kill();
+            let _ = child.wait();
+            (got, listed, again)
+        };
+        use crate::probe::Watched::{Elsewhere, Nothing};
+        assert_eq!(
+            run("true", NOTE_FORK),
+            (Nothing, 1, Nothing),
+            "the control, forked"
+        );
+        assert_eq!(
+            run("true", NOTE_EXEC),
+            (Nothing, 0, Nothing),
+            "the control, exec'd"
+        );
+        assert_eq!(
+            run("ssh", NOTE_FORK),
+            (Elsewhere, 1, Nothing),
+            "found at the fork, and named once"
+        );
+        assert_eq!(
+            run("ssh", NOTE_EXEC),
+            (Elsewhere, 0, Elsewhere),
+            "named at its exec"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A short ssh started by a watched shell raises the cell, through
+    /// the kernel's own events**, the main thread having watched only the
+    /// shell, as its title check does: one exec'd at once and one exec'd
+    /// from a subshell after a pause. The watch's thread lists the shell's
+    /// children at its fork and finds each as `sh`, named at the exec it
+    /// then watches, or already `ssh`, named as it is found: the ending is
+    /// the same either way the race falls. Named breaks: leave the children
+    /// to the main thread (no listing in `name_moves`), or name nothing at
+    /// an exec -- neither raises.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_short_ssh_under_a_watched_shell_raises_the_cell() {
+        use std::io::Write;
+        let dir = programs("events");
+        let ssh = dir.join("ssh");
+        let ssh = ssh.to_str().expect("a UTF-8 path");
+        for script in [
+            format!("read x; {ssh} 0.2"),
+            format!("read x; ( /bin/sleep 0.3; exec {ssh} 0.2 ); :"),
+        ] {
+            let cell = crate::probe::WatchCell::default();
+            let w = Watch::start(None, cell.clone(), || {}).expect("a kqueue");
+            let mut sh = std::process::Command::new("/bin/sh")
+                .args(["-c", &script])
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .expect("a shell");
+            w.add(Pid::try_from(sh.id()).expect("a pid"));
+            assert_eq!(cell.take(), crate::probe::Watched::Nothing, "the control");
+            sh.stdin
+                .take()
+                .expect("its input")
+                .write_all(b"\n")
+                .expect("written");
+            let mut got = crate::probe::Watched::Nothing;
+            let bound = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while got == crate::probe::Watched::Nothing && std::time::Instant::now() < bound {
+                got = cell.take();
+                if got == crate::probe::Watched::Nothing {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            let _ = sh.wait();
+            assert_eq!(got, crate::probe::Watched::Elsewhere, "{script}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

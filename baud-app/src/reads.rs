@@ -867,7 +867,7 @@ mod tests {
         );
         assert_eq!((fed, child.as_slice()), (Fed::Some, &b"\r"[..]));
         assert_eq!(t.regis_counts().inputs_abandoned, 1);
-        assert_eq!(row0(&t).len(), WS.ws_col.into(), "the output fed");
+        assert_eq!(row0(&t).len(), usize::from(WS.ws_col), "the output fed");
     }
 
     /// **A held DSR `?15` waits for the driver's printer, and the reads
