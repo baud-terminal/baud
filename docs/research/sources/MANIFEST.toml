@@ -18676,6 +18676,24 @@ group  = "AH"
 # other call -- which is what lets a window's child list its own
 # descriptors between `fork` and `execve` (`pty`'s close of what it inherited).
 
+[sources.xnu-proc-info-c]
+key    = "xnu-proc-info-c"
+title  = "XNU xnu-12377.121.6, bsd/kern/proc_info.c -- proc_pidfdlist lists at most buffersize / sizeof(struct proc_fdinfo) descriptors and returns the bytes written"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/proc_info.c"
+file   = ""
+sha256 = "dc99b9a8105fc1376ba0b7d14de1aa6e065c7b13899ac9ede2fb1dccab649178"
+bytes  = 106345
+status = "external"
+group  = "AH"
+# `proc_pidfdlist` (lines 514-552), what `PROC_PIDLISTFDS` runs: `needfds =
+# buffersize / sizeof(struct proc_fdinfo)`, the count capped at it, and
+# `*retval = count * sizeof(struct proc_fdinfo)`. So an answer that fills
+# the buffer may have left descriptors out, and one under it is the whole
+# list -- the rule `inherited::close_from_three` reads its answer by.
+
 [sources.linux-man-proc-pid-io]
 key    = "linux-man-proc-pid-io"
 title  = "proc_pid_io(5), Linux man-pages git adb436b -- read_bytes/write_bytes \"really fetched from\"/\"sent to\" the storage layer; waited-for children; PTRACE_MODE_READ_FSCREDS"

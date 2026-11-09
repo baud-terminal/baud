@@ -18,10 +18,12 @@
 
 use crate::sys::Fd;
 
-/// Every descriptor open from 3 up marked close-on-exec: run once, before
-/// any thread starts.
-pub(crate) fn keep_from_children() {
-    close_on_exec(&open_from_three());
+/// **Every descriptor `listed` marked close-on-exec**: run once, before any
+/// thread starts, with [`open_from_three`], every descriptor from 3 up.
+/// The listing is given so a test drives this body over its own
+/// descriptors, never the test process's others.
+pub(crate) fn keep_from_children(listed: impl FnOnce() -> Vec<Fd>) {
+    close_on_exec(&listed());
 }
 
 /// The descriptors this process holds, from 3 up, as the kernel lists
@@ -204,6 +206,9 @@ pub(crate) unsafe fn close_from_three(highest: Highest, room: Room) {
                 let n = e.get(FDINFO_FD..FDINFO_FD + 4)?;
                 Some(Fd::from_ne_bytes(n.try_into().ok()?))
             });
+        // The kernel lists at most as many as fit and answers with the bytes
+        // written (`[[source: xnu-proc-info-c]]` 514-552): an answer under
+        // the room is the whole list, and one that fills it may not be.
         if got > 0 && got < len {
             for fd in listed.filter(|fd| *fd >= 3) {
                 // SAFETY: a descriptor the child holds; closing it is the point.
@@ -251,10 +256,11 @@ mod tests {
     }
 
     /// **A descriptor open without close-on-exec comes out with it, and one
-    /// with it is unchanged**: the pass over two descriptors this test
-    /// opened, given by number so no other descriptor of the test process
-    /// is touched. Both stay open. The list the start-up pass walks names
-    /// both, the control that it would reach them.
+    /// with it is unchanged**: the start-up pass, [`keep_from_children`],
+    /// over two descriptors this test opened, listed by number so no other
+    /// descriptor of the test process is touched. Both stay open. The list
+    /// `main` gives the pass names both, the control that it would reach
+    /// them. Named break: an empty pass, and the bare one stays bare.
     #[test]
     fn an_inherited_descriptor_is_marked_close_on_exec_and_stays_open() {
         let bare = std::fs::File::open("/dev/null").expect("a descriptor");
@@ -267,14 +273,16 @@ mod tests {
         assert_ne!(before & crate::sys::FD_CLOEXEC, 0, "the control: set");
         let listed = open_from_three();
         assert!(listed.contains(&b) && listed.contains(&k), "{listed:?}");
-        close_on_exec(&[b, k]);
+        keep_from_children(|| vec![b, k]);
         assert_ne!(flags(b) & crate::sys::FD_CLOEXEC, 0, "marked");
         assert_eq!(flags(k), before, "unchanged");
         assert!(flags(b) >= 0 && flags(k) >= 0, "both open");
     }
 
-    /// **`main` runs the pass first**, right after the rig door and before
-    /// anything that could start a thread, so no other open races it.
+    /// **`main` runs the pass first, over every descriptor from 3 up**,
+    /// right after the rig door and before anything that could start a
+    /// thread, so no other open races it. Named break: `main` gives the
+    /// pass an empty listing.
     #[test]
     fn main_marks_what_it_inherited_first() {
         let main = include_str!("main.rs");
@@ -282,7 +290,7 @@ mod tests {
             .find("let admitted = rig_door::admitted();")
             .expect("the rig door");
         let pass = main
-            .find("inherited::keep_from_children();")
+            .find("inherited::keep_from_children(inherited::open_from_three);")
             .expect("the pass");
         let next = main[door..]
             .find(";\n")

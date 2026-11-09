@@ -6838,6 +6838,46 @@ mod tests {
     /// fail by the other's timing.
     static FAR_COPIES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// **The number a far copy is made at**: a thousand past the highest
+    /// descriptor `seen`, well past the bound [`MARGIN`] sets, so the
+    /// descriptors other tests in the same process open meanwhile do not
+    /// carry the bound up to it. [`room_for`] makes the limit fit it.
+    ///
+    /// [`MARGIN`]: crate::inherited::MARGIN
+    fn far_past(seen: crate::sys::Fd) -> crate::sys::Fd {
+        seen + 1000
+    }
+
+    /// **Room for a descriptor numbered `far`**: `dup2` refuses a number at
+    /// or past the soft limit on open descriptors, 256 in a stock macOS
+    /// shell, so it is raised to `far + 1` when it is under that, never
+    /// past the hard limit and never lowered. Process-wide, which a higher
+    /// limit leaves every other test as it was. Asserted to fit before the
+    /// copy, so a limit the hard one holds down says so rather than
+    /// failing as the copy.
+    fn room_for(far: crate::sys::Fd) {
+        use crate::sys::{RLIMIT_NOFILE, RlimT, Rlimit, getrlimit, setrlimit};
+        let mut now = Rlimit::default();
+        // SAFETY: a `struct rlimit` that lives for the call.
+        assert_eq!(unsafe { getrlimit(RLIMIT_NOFILE, &mut now) }, 0, "read");
+        let want = RlimT::try_from(far + 1).expect("a positive number");
+        if now.rlim_cur < want {
+            let raised = Rlimit {
+                rlim_cur: want.min(now.rlim_max),
+                rlim_max: now.rlim_max,
+            };
+            // SAFETY: as above; the soft value is no higher than the hard.
+            assert_eq!(unsafe { setrlimit(RLIMIT_NOFILE, &raised) }, 0, "raised");
+            // SAFETY: as above.
+            assert_eq!(unsafe { getrlimit(RLIMIT_NOFILE, &mut now) }, 0, "read");
+        }
+        assert!(
+            RlimT::try_from(far).is_ok_and(|f| f < now.rlim_cur),
+            "{far} fits under the soft limit {}",
+            now.rlim_cur
+        );
+    }
+
     /// What a window's child, forked by [`Pty::fork_from`], says of each
     /// descriptor in `fds` through `/dev/fd`: `held` or `free`.
     fn child_holds(fds: &[crate::sys::Fd]) -> Vec<String> {
@@ -6872,8 +6912,9 @@ mod tests {
     /// never reaches a window's child**: in the moment the terminal is open
     /// and the child not yet forked ([`OPENED`]), after the parent found
     /// the highest descriptor it holds, a descriptor without close-on-exec
-    /// is made at a thousand past the highest this test saw -- past the
-    /// bound a child closes to when it cannot list its own. The child lists
+    /// is made at a thousand past the highest this test saw ([`far_past`])
+    /// -- past the bound a child closes to when it cannot list its own --
+    /// the soft limit raised to fit it ([`room_for`]). The child lists
     /// them and closes this one too; on Linux `close_range` does. The
     /// control: descriptor 0, its terminal, is held.
     #[test]
@@ -6888,7 +6929,8 @@ mod tests {
             .into_iter()
             .max()
             .unwrap_or(2);
-        let far = seen + 1000;
+        let far = far_past(seen);
+        room_for(far);
         assert!(
             far > seen + crate::inherited::MARGIN,
             "the control: past the bound"
@@ -6926,7 +6968,8 @@ mod tests {
             .into_iter()
             .max()
             .unwrap_or(2);
-        let far = seen + 1000;
+        let far = far_past(seen);
+        room_for(far);
         set_opened(Some(Box::new(move |_, _| {
             // SAFETY: both descriptors are numbers this test owns.
             assert_eq!(unsafe { crate::sys::dup2(n, far) }, far, "the copy");

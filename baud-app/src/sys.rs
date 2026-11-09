@@ -128,6 +128,40 @@ pub const EREDRIVEOPEN: c_int = -6;
 pub const F_GETFD: c_int = 1;
 pub const F_SETFD: c_int = 2;
 pub const FD_CLOEXEC: c_int = 1;
+
+/// **`RLIMIT_NOFILE`, the limit on how many descriptors a process holds**,
+/// and its `struct rlimit`: the tests that make a descriptor far past the
+/// highest open raise the soft value toward the hard one (`pty.rs`), which
+/// is 256 in a stock macOS shell. Darwin's resource is 8 and glibc's 7;
+/// `rlim_t` is eight bytes on both.
+#[cfg(all(test, target_os = "macos"))]
+pub const RLIMIT_NOFILE: c_int = 8;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const RLIMIT_NOFILE: c_int = 7;
+#[cfg(all(test, target_os = "macos"))]
+pub type RlimT = core::ffi::c_ulonglong;
+#[cfg(all(test, not(target_os = "macos")))]
+pub type RlimT = c_ulong;
+
+/// `struct rlimit`: the soft value, which a process may raise to the hard
+/// one.
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Rlimit {
+    pub rlim_cur: RlimT,
+    pub rlim_max: RlimT,
+}
+
+#[cfg(test)]
+unsafe extern "C" {
+    /// Reads `resource`'s soft and hard values into `rlp`; 0 on success.
+    pub fn getrlimit(resource: c_int, rlp: *mut Rlimit) -> c_int;
+
+    /// Sets `resource`'s values from `rlp`: the soft value no higher than
+    /// the hard one; 0 on success.
+    pub fn setrlimit(resource: c_int, rlp: *const Rlimit) -> c_int;
+}
 #[cfg(target_os = "macos")]
 pub const O_NONBLOCK: c_int = 0x4;
 #[cfg(not(target_os = "macos"))]
@@ -1854,6 +1888,7 @@ mod tests {
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -1916,6 +1951,11 @@ int main(void) {
     printf("F_GETFD=%lld\n", (long long)F_GETFD);
     printf("F_SETFD=%lld\n", (long long)F_SETFD);
     printf("FD_CLOEXEC=%lld\n", (long long)FD_CLOEXEC);
+    printf("RLIMIT_NOFILE=%lld\n", (long long)RLIMIT_NOFILE);
+    printf("rlimit.size=%zu\n", sizeof(struct rlimit));
+    printf("rlimit.cur=%zu\n", offsetof(struct rlimit, rlim_cur));
+    printf("rlimit.max=%zu\n", offsetof(struct rlimit, rlim_max));
+    printf("rlim.size=%zu\n", sizeof(rlim_t));
     printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
     printf("O_NOCTTY=%lld\n", (long long)O_NOCTTY);
     printf("O_RDWR=%lld\n", (long long)O_RDWR);
@@ -2211,6 +2251,10 @@ int main(void) {
         assert_eq!(h["pollfd.events"], offset_of!(PollFd, events) as i128);
         assert_eq!(h["pollfd.revents"], offset_of!(PollFd, revents) as i128);
         assert_eq!(h["nfds.size"], size_of::<Nfds>() as i128);
+        assert_eq!(h["rlimit.size"], size_of::<Rlimit>() as i128);
+        assert_eq!(h["rlimit.cur"], offset_of!(Rlimit, rlim_cur) as i128);
+        assert_eq!(h["rlimit.max"], offset_of!(Rlimit, rlim_max) as i128);
+        assert_eq!(h["rlim.size"], size_of::<RlimT>() as i128);
         assert_eq!(h["request.size"], size_of::<c_ulong>() as i128);
         assert_eq!(h["termios.size"], size_of::<Termios>() as i128);
         assert_eq!(h["termios.align"], align_of::<Termios>() as i128);
@@ -2342,6 +2386,7 @@ int main(void) {
         assert_eq!(h["F_GETFD"], i128::from(F_GETFD));
         assert_eq!(h["F_SETFD"], i128::from(F_SETFD));
         assert_eq!(h["FD_CLOEXEC"], i128::from(FD_CLOEXEC));
+        assert_eq!(h["RLIMIT_NOFILE"], i128::from(RLIMIT_NOFILE));
         assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
         assert_eq!(h["O_NOCTTY"], i128::from(O_NOCTTY));
         assert_eq!(h["O_RDWR"], i128::from(O_RDWR));

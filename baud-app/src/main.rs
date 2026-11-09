@@ -363,7 +363,7 @@ fn main() {
     // while this is the one thread, so no child baud starts inherits one
     // (`inherited.rs`).
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    inherited::keep_from_children();
+    inherited::keep_from_children(inherited::open_from_three);
     if version::asks(std::env::args_os().skip(1)) {
         print!("{}", version::text(version::BUILD));
         return;
