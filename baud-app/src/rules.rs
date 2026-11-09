@@ -30,9 +30,11 @@
 //! * **No shell.** `command` is an argv run with no shell between, its
 //!   standard streams the null device and reaped without waiting, as
 //!   `opener.rs` runs `xdg-open`; `command[0]` is literal, never a
-//!   placeholder; and a placeholder in the script a shell or an interpreter
-//!   runs is refused at read ([`scripted`]). The list of programs that run
-//!   their arguments as code cannot be complete, so the guide says why.
+//!   placeholder; a placeholder in the script a shell or an interpreter
+//!   runs is refused at read ([`scripted`]), and so is one attached to a
+//!   short option, or in a `--name=` option of a program that runs code
+//!   ([`optioned`]). The list of programs that run their arguments as code
+//!   cannot be complete, so the guide says why.
 //! * **The defaults' own rules stay**: a `file` link names this machine or
 //!   none, and a `mailto` carries only `subject` and `body`, whichever handler
 //!   or command takes it (`link::admit_link`). A `file` link and a printed
@@ -96,6 +98,126 @@ pub const PATH: &str = "{path}";
 pub const LINE: &str = "{line}";
 pub const COL: &str = "{col}";
 
+/// **A value a command takes**, by the placeholder that names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Placeholder {
+    Url,
+    Path,
+    Line,
+    Col,
+}
+
+impl Placeholder {
+    /// Every placeholder, with its spelling.
+    const ALL: [(Placeholder, &'static str); 4] = [
+        (Placeholder::Url, URL),
+        (Placeholder::Path, PATH),
+        (Placeholder::Line, LINE),
+        (Placeholder::Col, COL),
+    ];
+}
+
+/// **A run of an argument**: text as the config wrote it, or a value.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Piece {
+    Lit(String),
+    Value(Placeholder),
+}
+
+/// **An argument of a command, read once**: text taken as it is, or pieces
+/// with a value among them -- `{url}`, or `{path}:{line}:{col}` -- so a
+/// click fills the values in and reads nothing the config wrote again, and
+/// a value that itself spells a placeholder is never read as one.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Element {
+    Literal(String),
+    Pieces(Vec<Piece>),
+}
+
+impl Element {
+    /// `e` split at each placeholder it names.
+    fn read(e: &str) -> Element {
+        let mut pieces = Vec::new();
+        let mut lit = String::new();
+        let mut rest = e;
+        while let Some(c) = rest.chars().next() {
+            match Placeholder::ALL.iter().find(|(_, s)| rest.starts_with(s)) {
+                Some((p, s)) => {
+                    if !lit.is_empty() {
+                        pieces.push(Piece::Lit(core::mem::take(&mut lit)));
+                    }
+                    pieces.push(Piece::Value(*p));
+                    rest = &rest[s.len()..];
+                }
+                None => {
+                    lit.push(c);
+                    rest = &rest[c.len_utf8()..];
+                }
+            }
+        }
+        if pieces.is_empty() {
+            return Element::Literal(lit);
+        }
+        if !lit.is_empty() {
+            pieces.push(Piece::Lit(lit));
+        }
+        Element::Pieces(pieces)
+    }
+
+    /// **What an argument that starts with `-` and takes a value is**, by
+    /// its first piece: a long option, `--name=...`, or a short flag the
+    /// value is attached to, `-X...`; none for any other.
+    fn option(&self) -> Option<Opt> {
+        match self {
+            Element::Pieces(p) => match p.first() {
+                Some(Piece::Lit(s)) if s.starts_with("--") => Some(Opt::Long),
+                Some(Piece::Lit(s)) if s.starts_with('-') => Some(Opt::Short),
+                Some(Piece::Lit(_) | Piece::Value(_)) | None => None,
+            },
+            Element::Literal(_) => None,
+        }
+    }
+
+    /// The argument with each value put in, and whether any was.
+    fn filled(&self, values: &[(Placeholder, &[u8], Value)]) -> Result<(Vec<u8>, Put), Refused> {
+        match self {
+            Element::Literal(s) => Ok((s.as_bytes().to_vec(), Put::No)),
+            Element::Pieces(pieces) => {
+                let mut out = Vec::new();
+                for piece in pieces {
+                    match piece {
+                        Piece::Lit(s) => out.extend_from_slice(s.as_bytes()),
+                        Piece::Value(p) => {
+                            let (_, v, _) = values
+                                .iter()
+                                .find(|(q, _, _)| q == p)
+                                .ok_or(Refused::Byte)?;
+                            out.extend_from_slice(v);
+                        }
+                    }
+                }
+                Ok((out, Put::Yes))
+            }
+        }
+    }
+}
+
+/// An argument that starts with `-` and takes a value ([`Element::option`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Opt {
+    /// `--name=...`.
+    Long,
+    /// `-X...`, the value attached to a short flag.
+    Short,
+}
+
+/// Whether a value went into an argument.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Put {
+    Yes,
+    No,
+}
+
 /// **How a program runs an argument as code**, for [`scripted`]: a
 /// placeholder there is the link's bytes in a script, which no check of
 /// those bytes makes safe.
@@ -119,17 +241,23 @@ enum Code {
     /// Any element after it may be code, or a module it fetches and runs,
     /// after a subcommand (`deno eval`, `deno run`, `bun run`): `deno`, `bun`.
     Every,
+    /// These flags split their argument into words, which would make a
+    /// placeholder there a list of arguments, an option or a program among
+    /// them: `env -S`.
+    Split(&'static [&'static str]),
 }
 
 /// `ssh`'s flags that take an argument (`ssh(1)`'s synopsis).
 const SSH_ARGS: &str = "BbcDEeFIiJLlmOoPpQRSWw";
 
-/// **The programs [`scripted`] knows, by file name**: a name ending in a
-/// version, `python3.12` or `perl5.36`, is read as the name before it
-/// ([`program_of`]). A program may have more than one way in: `et` takes a
-/// command after `-c` and after its destination. The list cannot be
-/// complete, and the guide says so.
-const PROGRAMS: [(&str, Code); 37] = [
+/// **The programs baud knows run code, by file name**, the one list both
+/// checks read: [`scripted`], for a placeholder in what they run, and
+/// [`optioned`], which refuses a placeholder in a `--name=` option of a
+/// command naming one. A name ending in a version, `python3.12` or
+/// `perl5.36`, is read as the name before it ([`program_of`]). A program
+/// may have more than one way in: `et` takes a command after `-c` and after
+/// its destination. The list cannot be complete, and the guide says so.
+const PROGRAMS: [(&str, Code); 38] = [
     ("sh", Code::Flag(&['c'])),
     ("bash", Code::Flag(&['c'])),
     ("zsh", Code::Flag(&['c'])),
@@ -221,6 +349,7 @@ const PROGRAMS: [(&str, Code); 37] = [
     ("mosh", Code::Remote { values: "p" }),
     ("et", Code::Remote { values: "uptxrjlc" }),
     ("et", Code::Flag(&['c'])),
+    ("env", Code::Split(&["-S", "--split-string"])),
 ];
 
 /// Long flags that take a script, for the [`Code::Flag`] programs.
@@ -246,10 +375,6 @@ fn program_of(e: &str) -> &str {
         false => name,
     }
 }
-
-/// `env`'s flags that split their argument into words, which would make a
-/// placeholder there a list of arguments, an option among them.
-const ENV_SPLIT: [&str; 2] = ["-S", "--split-string"];
 
 /// What a rule does with a link a click opens.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -293,10 +418,15 @@ pub enum PathAct {
 
 /// **A command, as the config names it**: `command[0]` the program, by its
 /// absolute path once read (`~/` taken against the home folder) or a name
-/// looked up on `PATH` when it runs, and the rest its arguments, with their
-/// placeholders.
+/// looked up on `PATH` when it runs, never a placeholder; and the rest its
+/// arguments, each read once into an [`Element`]. Minted only by
+/// [`command`], which refuses a value in a script ([`scripted`]) or in an
+/// option ([`optioned`]).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Argv(Vec<String>);
+pub struct Argv {
+    program: String,
+    args: Vec<Element>,
+}
 
 /// Whether a rule's program is there to run: what the strike asks, off the
 /// frame ([`Argv::program`]).
@@ -309,7 +439,31 @@ pub enum Program {
 impl Argv {
     /// The program, as written or made absolute.
     pub fn program(&self) -> &str {
-        &self.0[0]
+        &self.program
+    }
+
+    /// The arguments as the config wrote them, each placeholder spelled.
+    #[cfg(test)]
+    pub fn written(&self) -> Vec<String> {
+        let spelled = |p: Placeholder| {
+            Placeholder::ALL
+                .iter()
+                .find(|(q, _)| *q == p)
+                .map_or("", |(_, s)| s)
+        };
+        self.args
+            .iter()
+            .map(|e| match e {
+                Element::Literal(s) => s.clone(),
+                Element::Pieces(pieces) => pieces
+                    .iter()
+                    .map(|piece| match piece {
+                        Piece::Lit(s) => s.as_str(),
+                        Piece::Value(p) => spelled(*p),
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     /// **Whether the program is there**: an executable file at its path, or
@@ -609,7 +763,7 @@ impl Rules {
         let (argv, Runs::Command) = self.at(ix)?.act().runs()? else {
             return None;
         };
-        Some(filled(argv, &[(URL, uri.as_bytes(), Value::Uri)]).map(command_of))
+        Some(filled(argv, &[(Placeholder::Url, uri.as_bytes(), Value::Uri)]).map(command_of))
     }
 
     /// **The argv a new window runs for a click on `uri`, admitted under rule
@@ -621,7 +775,10 @@ impl Rules {
         let (argv, Runs::Window) = self.at(ix)?.act().runs()? else {
             return None;
         };
-        Some(filled(argv, &[(URL, uri.as_bytes(), Value::Uri)]))
+        Some(filled(
+            argv,
+            &[(Placeholder::Url, uri.as_bytes(), Value::Uri)],
+        ))
     }
 
     /// **The command a click on printed path `path` runs**, the `:line:col`
@@ -769,32 +926,28 @@ fn path_filled(argv: &Argv, path: &[u8], line: &str, col: &str) -> Result<Run, R
     filled(
         argv,
         &[
-            (PATH, path, Value::Path),
-            (LINE, line.as_bytes(), Value::Uri),
-            (COL, col.as_bytes(), Value::Uri),
+            (Placeholder::Path, path, Value::Path),
+            (Placeholder::Line, line.as_bytes(), Value::Uri),
+            (Placeholder::Col, col.as_bytes(), Value::Uri),
         ],
     )
 }
 
-/// `argv` with each placeholder replaced by its value, checked where it
-/// landed: the one substitution a command and a window share.
-fn filled(argv: &Argv, values: &[(&str, &[u8], Value)]) -> Result<Run, Refused> {
+/// `argv` with each value put in where its placeholder was read, checked
+/// where it landed: the one substitution a command and a window share.
+fn filled(argv: &Argv, values: &[(Placeholder, &[u8], Value)]) -> Result<Run, Refused> {
     use std::os::unix::ffi::OsStringExt;
     for (_, v, what) in values {
         landed(v, *what)?;
     }
-    let mut out: Vec<std::ffi::OsString> = Vec::with_capacity(argv.0.len());
-    for (i, e) in argv.0.iter().enumerate() {
-        // `command[0]` is literal: a placeholder there was refused at read.
-        if i == 0 {
-            out.push(e.into());
-            continue;
-        }
-        let (bytes, put) = substituted(e.as_bytes(), values);
+    let mut out: Vec<std::ffi::OsString> = Vec::with_capacity(1 + argv.args.len());
+    out.push(argv.program.as_str().into());
+    for e in &argv.args {
+        let (bytes, put) = e.filled(values)?;
         // An element is checked whole once a value is in it: nothing the
         // config wrote can hold a control either, but this is the bytes that
         // are handed over.
-        if put && landed_element(&bytes).is_err() {
+        if put == Put::Yes && landed_element(&bytes).is_err() {
             return Err(Refused::Byte);
         }
         out.push(std::ffi::OsString::from_vec(bytes));
@@ -810,32 +963,6 @@ fn landed_element(b: &[u8]) -> Result<(), Refused> {
         true => Err(Refused::Byte),
         false => Ok(()),
     }
-}
-
-/// **`element` with each placeholder replaced by its value, in one pass**
-/// over what the config wrote, so a value that itself spells `{line}` is
-/// never read as a placeholder; and whether any was.
-fn substituted(element: &[u8], values: &[(&str, &[u8], Value)]) -> (Vec<u8>, bool) {
-    let mut out = Vec::with_capacity(element.len());
-    let mut put = false;
-    let mut i = 0;
-    while i < element.len() {
-        let hit = values
-            .iter()
-            .find(|(name, _, _)| element[i..].starts_with(name.as_bytes()));
-        match hit {
-            Some((name, v, _)) => {
-                out.extend_from_slice(v);
-                i += name.len();
-                put = true;
-            }
-            None => {
-                out.push(element[i]);
-                i += 1;
-            }
-        }
-    }
-    (out, put)
 }
 
 /// **Whether a link's parts are free of a leading `-`**: what follows
@@ -1088,9 +1215,10 @@ fn placeholders(e: &str) -> impl Iterator<Item = &str> {
 /// **A command as the config wrote it, read**: a list of strings, the first
 /// a program by its absolute path, under `~/`, or a name with no `/`; each
 /// placeholder one of `allowed`, none in the program and `needed` among
-/// them; none in a script ([`scripted`]); and no control in any element.
+/// them; none in a script ([`scripted`]) or an option ([`optioned`]); and
+/// no control in any element.
 fn command(v: &str, allowed: &[&str], needed: &str, home: Option<&Path>) -> Result<Argv, String> {
-    let mut argv = list(v).map_err(|e| format!("command: {e}"))?;
+    let argv = list(v).map_err(|e| format!("command: {e}"))?;
     let Some(prog) = argv.first().cloned() else {
         return Err("command names no program".to_string());
     };
@@ -1119,7 +1247,11 @@ fn command(v: &str, allowed: &[&str], needed: &str, home: Option<&Path>) -> Resu
     if let Some(why) = scripted(&argv) {
         return Err(why);
     }
-    argv[0] = match prog.strip_prefix("~/") {
+    let args: Vec<Element> = argv[1..].iter().map(|e| Element::read(e)).collect();
+    if let Some(why) = optioned(&argv, &args) {
+        return Err(why);
+    }
+    let program = match prog.strip_prefix("~/") {
         Some(rest) => match home {
             Some(h) => h.join(rest).to_string_lossy().into_owned(),
             None => return Err("command's program is under ~/, and baud has no home folder".into()),
@@ -1132,7 +1264,43 @@ fn command(v: &str, allowed: &[&str], needed: &str, home: Option<&Path>) -> Resu
         }
         None => prog,
     };
-    Ok(Argv(argv))
+    Ok(Argv { program, args })
+}
+
+/// **A placeholder in an option**: an argument that starts with `-` and
+/// takes a value. A short flag the value is attached to, `-c{url}` or
+/// `-Ssh -c {url}`, is refused for every program, since a program reading
+/// its options with getopt takes the value as the next argument too, so the
+/// two can always be written apart. A long option, `--name={url}`, is
+/// refused when the command names a program [`PROGRAMS`] knows runs code,
+/// wherever it stands, and taken for any other: a browser's `--app={url}`
+/// has no form with the value apart. A program that runs code from a
+/// `--name=` option and is not in the list is not caught, and the guide
+/// says so.
+fn optioned(argv: &[String], args: &[Element]) -> Option<String> {
+    let runs_code = argv.iter().find_map(|e| {
+        let name = program_of(e);
+        PROGRAMS.iter().any(|(n, _)| *n == name).then_some(name)
+    });
+    for (e, written) in args.iter().zip(&argv[1..]) {
+        match (e.option(), runs_code) {
+            (Some(Opt::Short), _) => {
+                return Some(format!(
+                    "command attaches a placeholder to the option {written:?}; write the option \
+                     and its placeholder as two elements"
+                ));
+            }
+            (Some(Opt::Long), Some(name)) => {
+                return Some(format!(
+                    "command puts a placeholder in the option {written:?} of {name}, which runs \
+                     code; write the option and its placeholder as two elements, or pass it to \
+                     a script of your own"
+                ));
+            }
+            (Some(Opt::Long), None) | (None, _) => {}
+        }
+    }
+    None
 }
 
 /// **A placeholder where a program would run it as code**, by
@@ -1175,16 +1343,6 @@ fn scripted(argv: &[String]) -> Option<String> {
     };
     for (i, e) in argv.iter().enumerate() {
         let name = program_of(e);
-        if name == "env" {
-            for (j, f) in argv.iter().enumerate().skip(i + 1) {
-                let splits = ENV_SPLIT
-                    .iter()
-                    .any(|s| f == s || f.starts_with(&format!("{s}=")));
-                if splits && (holds(f) || argv.get(j + 1).is_some_and(holds)) {
-                    return Some("command splits a placeholder into arguments with env -S".into());
-                }
-            }
-        }
         for (_, code) in PROGRAMS.iter().filter(|(n, _)| *n == name) {
             let script = || {
                 Some(format!(
@@ -1234,6 +1392,18 @@ fn scripted(argv: &[String]) -> Option<String> {
                         return Some(format!(
                             "command puts a placeholder where {name} may run it as code"
                         ));
+                    }
+                }
+                Code::Split(splits) => {
+                    for (j, f) in argv.iter().enumerate().skip(i + 1) {
+                        let split = splits
+                            .iter()
+                            .any(|s| f == s || f.starts_with(&format!("{s}=")));
+                        if split && (holds(f) || argv.get(j + 1).is_some_and(holds)) {
+                            return Some(format!(
+                                "command splits a placeholder into arguments with {name} {f}"
+                            ));
+                        }
                     }
                 }
             }
@@ -1613,10 +1783,10 @@ mod tests {
         )]);
         assert_eq!(
             r.rule_for("tel").map(|(_, x)| x.act()),
-            Some(&Act::Command(Argv(vec![
-                "/home/u/bin/dial".into(),
-                "{url}".into()
-            ])))
+            Some(&Act::Command(Argv {
+                program: "/home/u/bin/dial".into(),
+                args: vec![Element::Pieces(vec![Piece::Value(Placeholder::Url)])],
+            }))
         );
         let (r, _) = rules(&[section("tel", &[("command", "[\"bin/dial\", \"{url}\"]")])]);
         assert!(r.list().is_empty());
@@ -2535,5 +2705,102 @@ mod tests {
             "the control"
         );
         assert_eq!(run("sh").found(path_var), Program::Found);
+    }
+
+    /// **DT-L2: a script flag with the placeholder attached to it is a
+    /// script too**: `python3` given `-c{url}`, `perl -e{url}`, `bash -lc{url}`
+    /// and `env -Ssh -c {url}` run the link's text as code, as the spelled-out
+    /// forms `a_placeholder_in_a_script_is_refused_at_read` refuses do.
+    /// Named break: take a short flag with a value attached (drop
+    /// `Opt::Short`'s refusal in `optioned`).
+    #[test]
+    fn an_attached_script_flag_is_refused_at_read() {
+        for cmd in [
+            "[\"python3\", \"-c{url}\"]",
+            "[\"perl\", \"-e{url}\"]",
+            "[\"bash\", \"-lc{url}\"]",
+            "[\"/usr/bin/env\", \"-Ssh -c {url}\"]",
+        ] {
+            let (r, said) = rules(&[section("tel", &[("command", cmd)])]);
+            assert!(r.list().is_empty(), "{cmd}: read");
+            assert_eq!(said.len(), 1, "{cmd}: {said:?}");
+        }
+    }
+
+    /// **DT-L2: a placeholder in an option, for every program baud knows
+    /// runs code and for one it does not**: for each entry of `PROGRAMS`,
+    /// `env` among them, a value attached to any short flag -- each of a
+    /// `Code::Flag` program's script flags too -- and in a `--name=` long
+    /// option is refused at read, the warning saying to write the two
+    /// apart; for a browser baud does not know, `--app={url}` is taken, as
+    /// it has no form with the value apart, `-a{url}` is refused, and the
+    /// two written apart are taken. Named breaks: take a long option for
+    /// every program (drop `runs_code`'s arm) -- a shell's long option is
+    /// read; refuse one for every program (ignore `runs_code`) -- the
+    /// browser's `--app={url}` is refused.
+    #[test]
+    fn a_placeholder_in_an_option_is_refused_for_a_program_that_runs_code() {
+        let refused = |cmd: &str| {
+            let (r, said) = rules(&[section("tel", &[("command", cmd)])]);
+            assert!(r.list().is_empty(), "{cmd}: read");
+            assert_eq!(said.len(), 1, "{cmd}: {said:?}");
+            said.into_iter().next().unwrap_or_default()
+        };
+        for (name, code) in PROGRAMS {
+            let _ = refused(&format!("[\"{name}\", \"--name={{url}}\"]"));
+            let _ = refused(&format!("[\"{name}\", \"-z{{url}}\"]"));
+            let _ = refused(&format!(
+                "[\"/usr/bin/env\", \"{name}\", \"--name={{url}}\"]"
+            ));
+            if let Code::Flag(flags) = code {
+                for f in flags {
+                    let _ = refused(&format!("[\"{name}\", \"-{f}{{url}}\"]"));
+                }
+            }
+        }
+        let long = refused("[\"sh\", \"--name={url}\"]");
+        assert!(
+            long.contains("two elements") && long.contains("script of your own"),
+            "{long}"
+        );
+        assert!(
+            read_cmd("[\"/usr/bin/chromium\", \"--app={url}\"]"),
+            "--app="
+        );
+        assert!(
+            read_cmd("[\"/usr/bin/chromium\", \"--app\", \"{url}\"]"),
+            "apart"
+        );
+        let short = refused("[\"/usr/bin/chromium\", \"-a{url}\"]");
+        assert!(short.contains("two elements"), "{short}");
+    }
+
+    /// **An argument is read once into its pieces**: text alone is text;
+    /// `{path}:{line}:{col}` is three values with the text between; and a
+    /// filled value that spells a placeholder is put in as it is, never read
+    /// as one; and a rule's arguments read back as written.
+    #[test]
+    fn an_argument_is_read_once_into_its_pieces() {
+        let (r, said) = rules(&[section(
+            "tel",
+            &[("command", "[\"/usr/bin/dial\", \"-o\", \"a{url}b\"]")],
+        )]);
+        match r.rule_for("tel").map(|(_, x)| x.act()) {
+            Some(Act::Command(argv)) => assert_eq!(argv.written(), ["-o", "a{url}b"]),
+            other => panic!("{other:?}: {said:?}"),
+        }
+        assert_eq!(Element::read("--goto"), Element::Literal("--goto".into()));
+        assert_eq!(
+            Element::read("{path}:{line}:{col}"),
+            Element::Pieces(vec![
+                Piece::Value(Placeholder::Path),
+                Piece::Lit(":".into()),
+                Piece::Value(Placeholder::Line),
+                Piece::Lit(":".into()),
+                Piece::Value(Placeholder::Col),
+            ])
+        );
+        let filled = Element::read("x{url}y").filled(&[(Placeholder::Url, b"{url}", Value::Uri)]);
+        assert_eq!(filled, Ok((b"x{url}y".to_vec(), Put::Yes)));
     }
 }

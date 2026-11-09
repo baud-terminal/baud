@@ -837,18 +837,14 @@ fn the_demos_link_rules_open_their_windows() {
     match r.rule_for("https").map(|(_, x)| x.act()) {
         Some(Act::Window(argv)) => {
             assert_eq!(argv.program(), "cha");
-            let said = format!("{argv:?}");
-            assert!(
-                said.contains("\"-o\", \"buffer.images=true\", \"{url}\""),
-                "{said}"
-            );
+            assert_eq!(argv.written(), ["-o", "buffer.images=true", "{url}"]);
         }
         other => panic!("https opens {other:?}"),
     }
     match r.path_act() {
         PathAct::Window(argv) => {
             assert!(argv.program().ends_with("/bin/demo-open"), "{argv:?}");
-            assert!(format!("{argv:?}").contains("\"{path}\""), "{argv:?}");
+            assert!(argv.written().iter().any(|e| e == "{path}"), "{argv:?}");
         }
         other => panic!("a path opens {other:?}"),
     }
