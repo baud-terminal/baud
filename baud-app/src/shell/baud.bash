@@ -20,6 +20,12 @@ fi
 # and out of what the user's startup files and commands see.
 __baud_ssh_env=${BAUD_SSH_ENV-}
 unset BAUD_SSH_ENV
+# The token baud made for this window's shell, sent on its C and D marks:
+# baud ends a remote command, or lowers a row, only at a mark that carries
+# it, which no program on the other end of an ssh can know. Taken out of the
+# environment here, before the user's startup files run, and never exported.
+__baud_token=${BAUD_SHELL_TOKEN-}
+unset BAUD_SHELL_TOKEN
 set +o posix
 # POSIX mode turned these on; bash outside it starts with them off.
 shopt -u inherit_errexit 2>/dev/null
@@ -75,11 +81,6 @@ __baud_marks() {
   # shellcheck disable=SC2016
   __baud_c='$(__baud_command "$HISTCMD" 2>/dev/null)'
   __baud_c0='\e]133;C\a'
-  # A token of this shell's own, on its C and D marks: baud ends a remote
-  # command only at a D that carries it, which no program on the other
-  # end of an ssh can know. Never exported.
-  __baud_token=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null)
-  __baud_token=${__baud_token//[^0-9a-f]/}
   # Whether PS0 was set when it was last marked; whether the DEBUG trap
   # is wanted; the DEBUG trap read at the prompt, and the user's own.
   __baud_ps0=

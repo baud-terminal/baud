@@ -367,11 +367,21 @@ impl<'t, 's> Under<'t, 's> {
     /// `before_read` and `after_read`, and every answer it owed written to
     /// the child: whether the core queued one of its own, which AA shows.
     pub(crate) fn take(&mut self, read: &[u8]) -> Answered {
+        self.take_parts(read, ()).0
+    }
+
+    /// [`Under::take`] with the read's `tag`, and each part's as the read
+    /// was fed in parts (`reads::feed_parts`): what the film's tap files.
+    pub(crate) fn take_parts<T: crate::reads::Part>(
+        &mut self,
+        read: &[u8],
+        tag: T,
+    ) -> (Answered, Vec<T>) {
         let mut out = Vec::new();
         let before = self.seat.before_read(self.term);
-        crate::reads::feed(
+        let parts = crate::reads::feed_parts(
             self.term,
-            [read],
+            [(read, tag)],
             |b| out.extend_from_slice(b),
             |_| {},
             &mut crate::hostlog::NoLog,
@@ -379,10 +389,11 @@ impl<'t, 's> Under<'t, 's> {
         self.seat.after_read(self.term, before);
         let out = self.withheld.strip(out);
         self.send(&out);
-        match (out.is_empty(), self.answer()) {
+        let answered = match (out.is_empty(), self.answer()) {
             (true, Answered::Nothing) => Answered::Nothing,
             _ => Answered::Bytes,
-        }
+        };
+        (answered, parts)
     }
 
     /// **One step of a kitty picture's decode** (`reads::decode_step`), as

@@ -25,7 +25,7 @@ use baud_core::{Focus, Term};
 use baud_domain::{Col, Row, Rows};
 use baud_render::{AbsLine, LinkLine, Scrolled};
 
-use crate::link::{Chord, Press, Spot, Under};
+use crate::link::{Chord, Press, Spot};
 use crate::link_layer::{Decision, Layer, Then};
 use crate::paths::{Asked, Found, Origin};
 use crate::probe::{Linked, Writers};
@@ -294,21 +294,24 @@ impl Tap {
         )
     }
 
-    /// **After the read was fed**: its writers kept with the lines it wrote,
-    /// from `began` to where the cursor is now (`link_layer::fed`).
+    /// **After the read was fed**: each part of it, under the writers it
+    /// was fed with, kept with the lines it wrote, from `began` to where the
+    /// cursor is now (`link_layer::fed`).
     pub(crate) fn fed(
         &mut self,
         term: &Term<'_>,
         scrolled: Scrolled,
         began: AbsLine,
-        read: (Writers, Linked),
+        parts: &[(Writers, Linked)],
     ) {
         let ended = scrolled.line(Rows::ZERO, term.cursor().0);
         crate::link_layer::fed(
             &mut self.probes,
             &mut self.paths,
-            [read],
-            crate::paths::LineSpan::of(began, ended),
+            term,
+            parts.iter().copied(),
+            began,
+            ended,
         );
         if let Some(s) = self.step {
             let w = self.report.written.entry(s).or_insert((began, ended));
@@ -362,10 +365,7 @@ impl Tap {
     /// not show it, that, in words.
     pub(crate) fn hover(&mut self, term: &Term<'_>, scrolled: Scrolled, step: StepAt, text: &str) {
         let opens = match cell_of(&cells(term), text) {
-            Some((row, col)) => {
-                let line = scrolled.line(Rows::ZERO, row);
-                self.opens(term, scrolled, row, col, line)
-            }
+            Some((row, col)) => self.opens(term, scrolled, row, col),
             None => Opens::Other(format!("{text:?} is not on the screen")),
         };
         self.report.hovered.push((step, opens));
@@ -420,7 +420,7 @@ impl Tap {
             };
             let lit = runs(self.lines.lines())
                 .into_iter()
-                .map(|(from, to)| (from, to, self.opens(term, scrolled, row, from, line)))
+                .map(|(from, to)| (from, to, self.opens(term, scrolled, row, from)))
                 .collect();
             out.push(RowDump {
                 line,
@@ -434,14 +434,7 @@ impl Tap {
     }
 
     /// What a click on the link at `(row, col)` comes to, decided.
-    fn opens(
-        &self,
-        term: &Term<'_>,
-        scrolled: Scrolled,
-        row: Row,
-        col: Col,
-        line: AbsLine,
-    ) -> Opens {
+    fn opens(&self, term: &Term<'_>, scrolled: Scrolled, row: Row, col: Col) -> Opens {
         let spot = Spot {
             scrolled,
             back: term.window_back(),
@@ -459,32 +452,29 @@ impl Tap {
         ) else {
             return Opens::Nothing;
         };
-        match crate::link_layer::decide(&under, line, term, &self.paths, &self.uris) {
-            Decision::Path => match &under {
-                Under::Path(p) => {
-                    let found = match self.paths.result(p.path()) {
-                        Some(crate::paths::Probe::Exists) => {
-                            let asked = Asked::Printed(p.line_col().clone());
-                            match crate::link_layer::decide_found(&asked, p.path(), &self.uris) {
-                                Found::Window(Ok(run)) => {
-                                    format!("window {:?}", window_argv(&run, &self.env))
-                                }
-                                Found::Window(Err(why)) => format!("refused {why:?}"),
-                                Found::Command(Ok(c)) => format!("command {:?}", c.get_program()),
-                                Found::Command(Err(why)) => format!("refused {why:?}"),
-                                Found::Copy => "copy".to_string(),
-                                Found::Reveal => "reveal".to_string(),
+        match crate::link_layer::decide(&under, term, &self.paths, &self.uris) {
+            Decision::Path(p) => {
+                let found = match self.paths.result(p.path()) {
+                    Some(crate::paths::Probe::Exists) => {
+                        let asked = Asked::Printed(p.line_col().clone());
+                        match crate::link_layer::decide_found(&asked, p.path(), &self.uris) {
+                            Found::Window(Ok(run)) => {
+                                format!("window {:?}", window_argv(&run, &self.env))
                             }
+                            Found::Window(Err(why)) => format!("refused {why:?}"),
+                            Found::Command(Ok(c)) => format!("command {:?}", c.get_program()),
+                            Found::Command(Err(why)) => format!("refused {why:?}"),
+                            Found::Copy => "copy".to_string(),
+                            Found::Reveal => "reveal".to_string(),
                         }
-                        other => format!("{other:?}"),
-                    };
-                    Opens::Path {
-                        text: self.redacted(&String::from_utf8_lossy(p.path())),
-                        found: self.redacted(&found),
                     }
+                    other => format!("{other:?}"),
+                };
+                Opens::Path {
+                    text: self.redacted(&String::from_utf8_lossy(p.path())),
+                    found: self.redacted(&found),
                 }
-                _ => Opens::Nothing,
-            },
+            }
             Decision::Gone => Opens::Other("gone".to_string()),
             Decision::Unreadable(why, _) => Opens::Other(format!("unreadable {why:?}")),
             Decision::Read { then, .. } => match then {

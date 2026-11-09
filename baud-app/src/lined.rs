@@ -61,7 +61,7 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, Joins, MAX, Target, Unit, admit_with, class, found_in, may_be_cut, runs_on,
+    Class, Edge, Host, Joins, MAX, Target, Unit, admit_link, class, found_in, may_be_cut, runs_on,
     scheme_at, scheme_ends, unit,
 };
 use crate::rules::{Rules, Tail};
@@ -77,8 +77,29 @@ pub struct Text<'a> {
     pub shown: (usize, usize),
     /// The line's first and last line, as read.
     pub lines: (AbsLine, AbsLine),
+    /// Where each unit was read from, one a unit: what a link found in the
+    /// text spans ([`Text::lines_of`]). Empty for a text read without them.
+    pub points: &'a [Point],
     /// The screen it is on.
     pub screen: Screen,
+}
+
+impl Text<'_> {
+    /// **The first and last line the units `span` were read from**: the rows
+    /// a link found there covers, whose writers its origin is judged by,
+    /// at rest as at its click. The whole line's where no points were kept.
+    pub fn lines_of(&self, span: &Range<usize>) -> (AbsLine, AbsLine) {
+        let first = self.points.get(span.start).map(|p| p.line);
+        let last = span
+            .end
+            .checked_sub(1)
+            .and_then(|e| self.points.get(e))
+            .map(|p| p.line);
+        match (first, last) {
+            (Some(a), Some(b)) => (a, b),
+            _ => self.lines,
+        }
+    }
 }
 
 /// **How a link is drawn at rest**: underlined, as a link a click opens, or
@@ -139,6 +160,24 @@ struct Wait {
     crosses: Crosses,
 }
 
+/// The slots on `cells` added to `ids`, each once.
+fn note_slots(ids: &mut Vec<LinkId>, cells: &[PackedCell]) {
+    for c in cells {
+        let id = c.flags.link();
+        if id != LinkId::NONE && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+}
+
+/// Whether this scan has read the view's rows holding each slot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum SlotsRead {
+    #[default]
+    No,
+    Yes,
+}
+
 /// Whether a batch of answers came since the last scan, whose waiting runs
 /// it redraws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -148,12 +187,95 @@ enum Answers {
     Came,
 }
 
-/// Where an `OSC 8` run is: its line and the screen it is on, which say
-/// whether output there is known to be this machine's (`paths.rs`).
+/// **Where an `OSC 8` link's cell is read at rest**: its line, its slot, the
+/// rows of the view holding that slot -- the cells its look draws, which its
+/// origin is judged over (`paths::Paths::link_origin`) -- and the screen,
+/// which says whether output there is known to be this machine's. Made only
+/// by the scan, from one [`SlotRows`] of the view.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct At {
-    pub line: AbsLine,
-    pub screen: Screen,
+pub struct At<'a> {
+    line: AbsLine,
+    id: LinkId,
+    rows: &'a [AbsLine],
+    screen: Screen,
+}
+
+impl<'a> At<'a> {
+    /// The cell's line.
+    pub fn line(&self) -> AbsLine {
+        self.line
+    }
+
+    /// The slot.
+    pub fn id(&self) -> LinkId {
+        self.id
+    }
+
+    /// The rows of the view holding the slot, top first.
+    pub fn rows(&self) -> &'a [AbsLine] {
+        self.rows
+    }
+
+    /// The first and last of those rows.
+    pub fn span(&self) -> (AbsLine, AbsLine) {
+        let first = self.rows.first().copied().unwrap_or(self.line);
+        let last = self.rows.last().copied().unwrap_or(self.line);
+        (first, last)
+    }
+
+    /// The screen it is on.
+    pub fn screen(&self) -> Screen {
+        self.screen
+    }
+}
+
+/// **The rows of a view holding each `OSC 8` slot**, built in one pass over
+/// the view's cells: what a link's look draws, so what its origin is judged
+/// over, once a slot a scan and bounded by the view however long a link
+/// left open has run.
+#[derive(Clone, Debug, Default)]
+pub struct SlotRows {
+    /// Each slot's rows, by slot and then line, one entry a row.
+    pairs: Vec<(usize, AbsLine)>,
+    lines: Vec<AbsLine>,
+}
+
+impl SlotRows {
+    /// **The view's rows holding a slot**: every slot's, or `only`'s.
+    pub fn of(term: &Term<'_>, scrolled: Scrolled, back: Rows, only: Option<LinkId>) -> SlotRows {
+        let mut s = SlotRows::default();
+        s.fill(term, scrolled, back, only);
+        s
+    }
+
+    fn fill(&mut self, term: &Term<'_>, scrolled: Scrolled, back: Rows, only: Option<LinkId>) {
+        self.pairs.clear();
+        let rows = term.view(back).rows().index();
+        for y in 0..rows {
+            let line = scrolled.line(back, Row::from_index(y));
+            let Some((cells, _)) = row_of(term, scrolled, line) else {
+                continue;
+            };
+            let start = self.pairs.len();
+            for c in cells {
+                let id = c.flags.link();
+                let wanted = id != LinkId::NONE && only.is_none_or(|o| o == id);
+                if wanted && !self.pairs[start..].iter().any(|&(i, _)| i == id.index()) {
+                    self.pairs.push((id.index(), line));
+                }
+            }
+        }
+        self.pairs.sort_unstable_by_key(|&(i, l)| (i, l));
+        self.lines.clear();
+        self.lines.extend(self.pairs.iter().map(|&(_, l)| l));
+    }
+
+    /// Slot `id`'s rows, top first.
+    pub fn rows(&self, id: LinkId) -> &[AbsLine] {
+        let from = self.pairs.partition_point(|&(i, _)| i < id.index());
+        let to = self.pairs.partition_point(|&(i, _)| i <= id.index());
+        &self.lines[from..to]
+    }
 }
 
 /// **What finds links in a line's text.** Only ever called with what the
@@ -170,7 +292,7 @@ pub trait Reader {
 
     /// How an `OSC 8` link's target at `at` is drawn: none for one that
     /// would not open.
-    fn marked(&mut self, uri: &[u8], at: At) -> Option<Mark>;
+    fn marked(&mut self, uri: &[u8], at: At<'_>) -> Option<Mark>;
 
     /// A scan found a row of the window changed: called once a scan, before
     /// any row is read, so it costs a frame one call however many changed.
@@ -242,32 +364,49 @@ impl Uris {
     }
 }
 
+/// URIs alone, with no worker to have named who printed a line: every line
+/// taken as this machine's. The drivers read through `paths::Links`, so
+/// only tests read through this.
+#[cfg(test)]
 impl Reader for Uris {
     #[inline]
     fn wants(&self, tail: Tail) -> bool {
-        scheme_ends(tail, &self.rules)
+        Uris::wants(self, tail)
     }
 
     fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
-        crate::paths::Looked(self.read_marking(text, found, &|_| Mark::Line))
+        let local = |_| crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
+        crate::paths::Looked(self.read_marking(text, found, &local, &|_| Some(Mark::Line)))
     }
 
-    fn marked(&mut self, uri: &[u8], _: At) -> Option<Mark> {
-        admit_with(uri, Host(self.host()), &self.rules)
+    fn marked(&mut self, uri: &[u8], _: At<'_>) -> Option<Mark> {
+        let local = crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
+        admit_link(uri, Host(self.host()), &self.rules, local)
             .is_ok()
             .then_some(Mark::Line)
     }
 }
 
 impl Uris {
-    /// [`Reader::read`], each URI `admit` opens marked as `mark` says of its
-    /// target: a reader that knows which kinds have no app, or which rules'
-    /// commands are missing, strikes those.
+    /// Whether a URI may end where `tail` does: a scheme's name runs back
+    /// from it ([`Reader::wants`]).
+    #[inline]
+    pub fn wants(&self, tail: Tail) -> bool {
+        scheme_ends(tail, &self.rules)
+    }
+
+    /// [`Reader::read`], each URI a click opens marked as `mark` says of its
+    /// target, judged as its click is with `origin` of the lines it covers,
+    /// where the program that printed them ran ([`crate::link::admit_link`]),
+    /// the most cautious over them, so a `file://` URI
+    /// a click refuses is unmarked: a reader that knows which kinds have no
+    /// app, or which rules' commands are missing, strikes those.
     pub fn read_marking(
         &mut self,
         text: Text<'_>,
         found: &mut Vec<Run>,
-        mark: &dyn Fn(&Target<'_>) -> Mark,
+        origin: &dyn Fn((AbsLine, AbsLine)) -> crate::paths::LinkOrigin,
+        mark: &dyn Fn(&Target<'_>) -> Option<Mark>,
     ) -> usize {
         let Text {
             units, head, tail, ..
@@ -319,10 +458,13 @@ impl Uris {
                             Unit::Marked | Unit::Gap => None,
                         }));
                     let bytes = core::mem::take(&mut self.bytes);
-                    if let Ok(t) = admit_with(&bytes, Host(self.host()), &self.rules) {
+                    let lines = text.lines_of(&span);
+                    let admitted =
+                        admit_link(&bytes, Host(self.host()), &self.rules, origin(lines));
+                    if let Some(m) = admitted.ok().and_then(|t| mark(&t)) {
                         found.push(Run {
                             units: span,
-                            mark: mark(&t),
+                            mark: m,
                             key: Key::Fixed,
                         });
                     }
@@ -377,6 +519,14 @@ enum Read {
 /// **The lines on the window, and the window as the last scan saw it.**
 #[derive(Debug, Default)]
 pub struct Lines {
+    /// The view's rows holding each `OSC 8` slot, read once a scan when a
+    /// row read holds a link, and each slot's mark as judged this scan.
+    slot_rows: SlotRows,
+    slots_read: SlotsRead,
+    judged: Vec<(LinkId, Option<Mark>)>,
+    /// The slots this scan found shown on other rows than the last scan
+    /// did, or on a row read again: every row showing one is read again.
+    slots_moved: Vec<LinkId>,
     cells: Vec<PackedCell>,
     wraps: Vec<Wrap>,
     sizes: Vec<LineRendition>,
@@ -465,6 +615,13 @@ impl Lines {
             Shift::Down(k) => (k.min(rows), false),
         };
         let keep = rows - k;
+        // The slots on the rows leaving the window are shown on fewer rows
+        // now: each is judged again on the rows it keeps.
+        let leaving = match up {
+            true => 0..k * cols,
+            false => keep * cols..rows * cols,
+        };
+        note_slots(&mut self.slots_moved, &self.cells[leaving]);
         // The row that ran on into the new top row left the window: what the
         // top row's links are now reads the lines above the window, which a
         // trim of the history may have taken, so the top row is read again.
@@ -638,6 +795,8 @@ impl Lines {
     /// lines retired. Allocates nothing once its buffers have grown to the
     /// window and to the longest line read.
     pub fn scan<R: Reader>(&mut self, term: &Term<'_>, scrolled: Scrolled, reader: &mut R) -> Scan {
+        self.slots_read = SlotsRead::No;
+        self.slots_moved.clear();
         let back = term.window_back();
         let view = term.view(back);
         let (cols, rows) = (view.cols().index(), view.rows().index());
@@ -723,6 +882,10 @@ impl Lines {
                 false => Read::Again,
             };
             if !same {
+                // A slot on the row before or after is shown on other rows
+                // now.
+                note_slots(&mut self.slots_moved, kept);
+                note_slots(&mut self.slots_moved, &row[..n]);
                 kept.copy_from_slice(&row[..n]);
                 self.wraps[y] = wrap;
                 self.sizes[y] = size;
@@ -797,6 +960,28 @@ impl Lines {
                 any = true;
             }
         }
+        // **A slot is judged over every row of the view showing it**, so a
+        // row read again, or a row come or gone, holding a slot moves the
+        // look of every row showing it: those are read again too, and one
+        // slot has one look on every row.
+        for y in 0..rows {
+            if self.again[y] == Read::Again {
+                note_slots(&mut self.slots_moved, &self.cells[y * cols..(y + 1) * cols]);
+            }
+        }
+        if !self.slots_moved.is_empty() {
+            for y in 0..rows {
+                let row = &self.cells[y * cols..(y + 1) * cols];
+                if self.again[y] == Read::Kept
+                    && row
+                        .iter()
+                        .any(|c| self.slots_moved.contains(&c.flags.link()))
+                {
+                    self.again[y] = Read::Again;
+                    any = true;
+                }
+            }
+        }
         if !any {
             if moved {
                 self.publish();
@@ -818,23 +1003,45 @@ impl Lines {
         // the writer ended that join are one line here, as a soft wrap's are.
         let continues =
             |y: usize| self.wraps[y] == Wrap::Continues || self.below[y] == Below::Joined;
-        let mut top = 0;
         let mut groups = core::mem::take(&mut self.groups);
-        groups.clear();
-        for y in 0..rows {
-            if y + 1 < rows && continues(y) {
-                continue;
+        loop {
+            groups.clear();
+            let mut top = 0;
+            for y in 0..rows {
+                if y + 1 < rows && continues(y) {
+                    continue;
+                }
+                let (a, b) = (top, y);
+                top = y + 1;
+                let changed = self.again[a..=b].contains(&Read::Again);
+                let under = b + 1 < rows && self.again[b + 1] == Read::Again;
+                if changed || under {
+                    groups.push(a..b + 1);
+                }
             }
-            let (a, b) = (top, y);
-            top = y + 1;
-            let changed = self.again[a..=b].contains(&Read::Again);
-            let under = b + 1 < rows && self.again[b + 1] == Read::Again;
-            if changed || under {
-                groups.push(a..b + 1);
+            for g in &groups {
+                self.again[g.clone()].fill(Read::Again);
             }
-        }
-        for g in &groups {
-            self.again[g.clone()].fill(Read::Again);
+            // A group read whole that holds a slot not yet seen this scan
+            // reads every row showing it too, and their lines with them.
+            let seen = self.slots_moved.len();
+            for y in 0..rows {
+                if self.again[y] == Read::Again {
+                    note_slots(&mut self.slots_moved, &self.cells[y * cols..(y + 1) * cols]);
+                }
+            }
+            if self.slots_moved.len() == seen {
+                break;
+            }
+            for y in 0..rows {
+                let row = &self.cells[y * cols..(y + 1) * cols];
+                if row
+                    .iter()
+                    .any(|c| self.slots_moved.contains(&c.flags.link()))
+                {
+                    self.again[y] = Read::Again;
+                }
+            }
         }
         let again = &self.again;
         self.fixed.retain(|l| again[l.row.index()] == Read::Kept);
@@ -1129,6 +1336,7 @@ impl Lines {
                     tail,
                     shown,
                     lines: (a, b),
+                    points: &self.points,
                     screen: term.screen(),
                 },
                 found,
@@ -1222,7 +1430,15 @@ impl Lines {
         reader: &mut R,
         scan: &mut Scan,
     ) {
-        let mut last: Option<(LinkId, Option<Mark>)> = None;
+        // The view's rows holding each slot, built once a scan, and each
+        // slot's mark once judged: a slot is judged once a scan, over every
+        // row of the view it is shown on.
+        if self.slots_read == SlotsRead::No {
+            self.slots_read = SlotsRead::Yes;
+            self.slot_rows.fill(term, scrolled, back, None);
+            self.judged.clear();
+        }
+        let mut judged = core::mem::take(&mut self.judged);
         let screen = term.screen();
         for y in top..=bottom {
             let r = Row::from_index(y);
@@ -1236,13 +1452,17 @@ impl Lines {
                 if id == LinkId::NONE {
                     continue;
                 }
-                let mark = match last {
-                    Some((l, m)) if l == id => m,
-                    _ => {
-                        let m = term
-                            .link_uri(id)
-                            .and_then(|u| reader.marked(u, At { line, screen }));
-                        last = Some((id, m));
+                let mark = match judged.iter().find(|(l, _)| *l == id) {
+                    Some(&(_, m)) => m,
+                    None => {
+                        let at = At {
+                            line,
+                            id,
+                            rows: self.slot_rows.rows(id),
+                            screen,
+                        };
+                        let m = term.link_uri(id).and_then(|u| reader.marked(u, at));
+                        judged.push((id, m));
                         m
                     }
                 };
@@ -1260,6 +1480,7 @@ impl Lines {
                 }
             }
         }
+        self.judged = judged;
     }
 }
 
@@ -1588,7 +1809,7 @@ mod tests {
                 ),
             ),
             (layer, concat!("pub(crate) fn ", "frame(")),
-            (layer, concat!("pub(crate) fn ", "decide<'a>(")),
+            (layer, concat!("pub(crate) fn ", "decide<'l: 'a, 'a>(")),
         ] {
             let body = crate::no_appkit::fn_body(src, start);
             assert!(body.len() > 2, "the control");
@@ -1617,14 +1838,15 @@ mod tests {
             src,
             concat!("fn open_", "link(&mut self, link: &crate::link::Under,"),
         );
-        let decide = crate::no_appkit::fn_body(layer, concat!("pub(crate) fn ", "decide<'a>("));
+        let decide =
+            crate::no_appkit::fn_body(layer, concat!("pub(crate) fn ", "decide<'l: 'a, 'a>("));
         assert!(
             open.contains(concat!(
-                "crate::link_layer::decide(link, line, &self.app.term, ",
+                "crate::link_layer::decide(link, &self.app.term, ",
                 "&self.app.paths, &self.app.uris);"
             )) && decide.contains(concat!(
-                "admit_printed(uri, Host(uris.",
-                "host()), uris.rules(), origin)"
+                "click_on(link, term, Host(uris.",
+                "host()), uris.rules(), paths)"
             )),
             "a click admits against the name the lines do"
         );

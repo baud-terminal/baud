@@ -35,7 +35,7 @@
 //!   their arguments as code cannot be complete, so the guide says why.
 //! * **The defaults' own rules stay**: a `file` link names this machine or
 //!   none, and a `mailto` carries only `subject` and `body`, whichever handler
-//!   or command takes it (`link::admit_with`). A `file` link and a printed
+//!   or command takes it (`link::admit_link`). A `file` link and a printed
 //!   path are shown in Finder, never opened by the system: only a command of
 //!   yours opens one.
 //! * **The address still shows under the modifier**, in the same opaque bar,
@@ -1397,7 +1397,17 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link::{Host, admit, admit_with};
+    use crate::link::{Host, Target, admit};
+
+    /// A link read off a local program's line, judged with `rules`.
+    fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
+        crate::link::admit_link(
+            uri,
+            host,
+            rules,
+            crate::paths::LinkOrigin::given(crate::paths::Origin::Local),
+        )
+    }
 
     fn section(name: &str, fields: &[(&str, &str)]) -> Section {
         Section {

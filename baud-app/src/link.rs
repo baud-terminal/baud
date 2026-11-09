@@ -244,12 +244,13 @@ impl Admitted {
     }
 }
 
-/// **[`admit`], keeping the `String` it checked**: the same checks, and
+/// **[`admit_with`], keeping the `String` it checked**: the same checks, and
 /// the URI moved into the answer rather than borrowed, so it can cross to
-/// a later turn with no copy.
-pub fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
+/// a later turn with no copy. Reached only through a door named for where
+/// the URI came from ([`admit_path_owned`], [`admit_about`]).
+fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
     let (scheme, action) = {
-        let t = admit(uri.as_bytes(), host)?;
+        let t = admit_with(uri.as_bytes(), host, &NO_RULES)?;
         (t.scheme(), t.action())
     };
     Ok(Admitted {
@@ -257,6 +258,21 @@ pub fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
         scheme,
         action,
     })
+}
+
+/// **[`admit_path`], owned**: the `file://` URI baud built for a printed
+/// path a click asked about again and the worker found on this machine.
+pub fn admit_path_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
+    admit_owned(uri, host)
+}
+
+/// **The address the About window's picture opens**: one baud ships, read
+/// from no screen and printed by no program, judged by the policy alone.
+/// Its scheme is `https`, which the policy judges without this machine's
+/// name, so none is passed.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn admit_about(url: String) -> Result<Admitted, Refused> {
+    admit_owned(url, Host(""))
 }
 
 impl Target<'_> {
@@ -280,7 +296,9 @@ pub struct Host<'a>(pub &'a str);
 pub const MAX: usize = LINK_MAX;
 
 /// Decide whether `uri` may be handed to the OS, and what for, by baud's own
-/// list alone.
+/// list alone: the policy's own tests. Code reads through a door named for
+/// where its URI came from ([`admit_link`], [`admit_path`], [`admit_about`]).
+#[cfg(test)]
 pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
     admit_with(uri, host, &NO_RULES)
 }
@@ -292,7 +310,7 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
 /// takes it -- `file` names this machine or none, `mailto` carries only
 /// `subject` and `body`; and a link a rule routes has no part that starts
 /// with `-` ([`crate::rules::dashless`]).
-pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
+fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
     if uri.is_empty() || uri.len() > MAX {
         return Err(Refused::Length);
     }
@@ -378,28 +396,49 @@ pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Ta
     })
 }
 
-/// **[`admit_with`], for a link a click reads off the cells**: a link,
+/// **Where a link read off the screen came from**, which decides what it
+/// may open: every URI read from the cells, marked with `OSC 8` or written
+/// as plain text, with the origin of the program that printed it
+/// ([`crate::paths::Paths::printed`]); or a printed path, which its own
+/// check found on this machine and which carries none. There is no
+/// default: a reader with no worker to have named a writer says what it
+/// takes the line for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Printed {
+    Link { origin: crate::paths::LinkOrigin },
+    Path,
+}
+
+/// **A URI read off the screen, judged as a click on it is**: a link,
 /// marked with `OSC 8` or written as plain text, is printed by some
 /// program, and a `file://` one names a file on that program's machine.
-/// One `admit_with` lets through names this machine -- the empty host,
+/// One [`admit_with`] lets through names this machine -- the empty host,
 /// `localhost` or one of its names -- so it is refused unless the program
 /// that printed it was this machine's: `origin` is the link's line's, as
 /// the worker named it when the line was written, never what is in front
-/// at the click ([`crate::paths::Paths::printed_origin`]). `origin` none
-/// asks nothing, for a caller with no line to ask about.
-pub fn admit_printed<'a>(
+/// at the click ([`crate::paths::Paths::printed`]). Its look at rest, the
+/// look under the pointer, the hand, the preview and the click all ask
+/// this, so none of them says a click opens what it refuses.
+pub fn admit_link<'a>(
     uri: &'a [u8],
     host: Host<'_>,
     rules: &Rules,
-    origin: Option<crate::paths::Origin>,
+    origin: crate::paths::LinkOrigin,
 ) -> Result<Target<'a>, Refused> {
     use crate::paths::Origin;
     let t = admit_with(uri, host, rules)?;
-    match (t.scheme(), origin) {
-        (Scheme::File, Some(Origin::Remote)) => Err(Refused::Remote),
-        (Scheme::File, Some(Origin::Unknown)) => Err(Refused::Unnamed),
+    match (t.scheme(), origin.origin()) {
+        (Scheme::File, Origin::Remote) => Err(Refused::Remote),
+        (Scheme::File, Origin::Unknown) => Err(Refused::Unnamed),
         _ => Ok(t),
     }
+}
+
+/// **The `file://` URI baud built for a printed path**, which the worker
+/// found on this machine: the path's own check stands for its origin
+/// (`paths::Paths::readable_on`), and the policy judges the rest.
+pub fn admit_path<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
+    admit_with(uri, host, &NO_RULES)
 }
 
 /// Whether `name` is one of the four schemes baud opens by default, which
@@ -992,6 +1031,12 @@ pub struct Bare {
 }
 
 impl Bare {
+    /// The first and last line its text was read from: the rows whose
+    /// writers its origin is judged by.
+    pub fn lines(&self) -> (AbsLine, AbsLine) {
+        (self.from.line, self.to.line)
+    }
+
     /// The URI to admit, or why it is refused before `admit` sees it.
     pub fn uri(&self) -> Result<&[u8], Refused> {
         self.verdict.map(|()| &*self.text)
@@ -1220,7 +1265,7 @@ pub fn under_with(
 ) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
-    let link = Osc8::of(term, cell);
+    let link = Osc8::at(term, spot, cell);
     if link.uri(term).is_some() {
         return Some(Under::Osc8(link));
     }
@@ -1239,17 +1284,17 @@ pub fn under_with(
 /// cell that `paths` has an answer for, its cells, and the URI a click hands
 /// [`admit`]. One the worker found gone is refused as [`Refused::NotFound`],
 /// so the bar says so and nothing opens.
-fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<Printed> {
+fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<PrintedPath> {
     let lines = (w.cells.first()?.line, w.cells.last()?.line);
     let at = paths.at(&w.text, w.at, (w.head, w.tail), lines, term.screen())?;
     let from = *w.cells.get(at.span.start)?;
     let to = *w.cells.get(at.span.end.checked_sub(1)?)?;
     let uri = crate::paths::file_uri(&at.path);
     let verdict = match at.probe {
-        crate::paths::Probe::Exists => admit(uri.as_bytes(), Host("")).map(|_| ()),
+        crate::paths::Probe::Exists => admit_path(uri.as_bytes(), Host("")).map(|_| ()),
         crate::paths::Probe::Missing | crate::paths::Probe::Unknown => Err(Refused::NotFound),
     };
-    Some(Printed {
+    Some(PrintedPath {
         from,
         to,
         path: at.path,
@@ -1264,7 +1309,7 @@ fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<Printe
 /// its cells, the path as resolved, and its `file://` URI, which is the
 /// address the bar shows and the one `admit` is handed.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Printed {
+pub struct PrintedPath {
     from: Point,
     to: Point,
     path: Vec<u8>,
@@ -1275,7 +1320,7 @@ pub struct Printed {
     verdict: Result<(), Refused>,
 }
 
-impl Printed {
+impl PrintedPath {
     /// The `:line:col` printed after it, empty where none was or
     /// `[link.path] line_col` is off.
     pub fn line_col(&self) -> &crate::paths::LineCol {
@@ -1310,7 +1355,7 @@ impl Printed {
 pub enum Under {
     Osc8(Osc8),
     Bare(Bare),
-    Path(Printed),
+    Path(PrintedPath),
 }
 
 /// **An `OSC 8` link as a gesture holds it**: the cell's index, and the
@@ -1323,19 +1368,50 @@ pub enum Under {
 /// the epoch is the one it was read under, and two are the same link only
 /// if both agree: a release over a cell that took the freed slot is not
 /// the link that was pressed.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// It keeps the view it was read in, whose rows holding its slot are the
+/// cells its look draws, and so the rows its origin is judged over
+/// ([`crate::paths::Paths::link_origin`]); two are the same link whatever
+/// view each was read in.
+#[derive(Clone, Copy, Debug)]
 pub struct Osc8 {
     id: LinkId,
     epoch: LinkEpoch,
+    view: (Scrolled, Rows),
 }
 
+/// The same slot under the same epoch.
+impl PartialEq for Osc8 {
+    fn eq(&self, other: &Osc8) -> bool {
+        (self.id, self.epoch) == (other.id, other.epoch)
+    }
+}
+
+impl Eq for Osc8 {}
+
 impl Osc8 {
-    /// The link `cell` names, as read now.
-    pub fn of(term: &Term<'_>, cell: PackedCell) -> Osc8 {
+    /// The link `cell`, at `spot`, names, as read now, in the view it is
+    /// read in.
+    pub fn at(term: &Term<'_>, spot: Spot, cell: PackedCell) -> Osc8 {
         Osc8 {
             id: cell.flags.link(),
             epoch: term.link_epoch(),
+            view: (spot.scrolled, spot.back),
         }
+    }
+
+    /// Its slot.
+    pub fn id(&self) -> LinkId {
+        self.id
+    }
+
+    /// **The rows of its view holding its slot**, top first: every cell its
+    /// look draws is on one ([`crate::lined::SlotRows`]).
+    pub fn view_rows(&self, term: &Term<'_>) -> Vec<AbsLine> {
+        let (scrolled, back) = self.view;
+        crate::lined::SlotRows::of(term, scrolled, back, Some(self.id))
+            .rows(self.id)
+            .to_vec()
     }
 
     /// Its target, while no sweep has freed a slot since it was read.
@@ -1562,29 +1638,32 @@ pub fn shortened(address: &str, room: Cols) -> String {
 /// [`preview_text_with`], so only tests call it.
 #[cfg(test)]
 pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
-    preview_text_with(link, term, host, room, &NoPaths)
+    let printed = NoPaths.printed(term, link);
+    preview_text_with(link, term, host, room, &NoPaths, printed)
 }
 
-/// [`preview_text`], with what `paths` found gone said as the reason, and
-/// the link admitted with the rules `paths` holds: a link a rule takes
-/// shows its address as any other does.
+/// [`preview_text`], with what `paths` found gone said as the reason, the
+/// link admitted with the rules `paths` holds -- a link a rule takes
+/// shows its address as any other does -- and as `printed`, with where the
+/// program that printed it ran ([`crate::paths::Paths::printed`]): a
+/// `file://` link a click refuses for it says it won't open.
 pub fn preview_text_with(
     link: &Under,
     term: &Term<'_>,
     host: Host<'_>,
     room: Cols,
     paths: &dyn PathsAt,
+    printed: Printed,
 ) -> Option<String> {
     let room = room.index();
     let rules = paths.rules();
-    let (uri, verdict) = verdict(link, term, host, paths)?;
+    let (uri, verdict) = verdict(link, term, host, paths, printed)?;
     let address = escaped(uri);
     // A click that copies says so: it opens nothing.
     let copies = match link {
         Under::Path(_) => *rules.path_act() == crate::rules::PathAct::Copy,
-        Under::Osc8(_) | Under::Bare(_) => {
-            admit_with(uri, host, rules).is_ok_and(|t| t.action() == Action::Copy)
-        }
+        Under::Osc8(_) | Under::Bare(_) => admit_link(uri, host, rules, origin_of(printed))
+            .is_ok_and(|t| t.action() == Action::Copy),
     };
     let label = match (verdict, link) {
         (Ok(()), _) if copies => "Copies  ".to_string(),
@@ -1608,18 +1687,22 @@ pub fn preview_text_with(
 }
 
 /// **The bytes a link shows and whether a click opens it**: an `OSC 8`
-/// link's URI, or the text of a URI read from the cells, and [`admit`]'s
-/// answer for it, then what `paths` found gone of one it admits; none for
-/// an `OSC 8` slot whose link is gone.
+/// link's URI, or the text of a URI read from the cells, and the answer for
+/// it as a click's ([`admit_link`], with where the program that printed it
+/// ran, `printed`), then what `paths` found gone of one it
+/// admits; none for an `OSC 8` slot whose link is gone. The look under
+/// the pointer, the hand and the preview read this, so none says a click
+/// opens what it refuses.
 fn verdict<'a>(
     link: &'a Under,
     term: &'a Term<'_>,
     host: Host<'_>,
     paths: &dyn PathsAt,
+    printed: Printed,
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
     let rules = paths.rules();
     let admitted = |uri: &[u8]| {
-        let t = admit_with(uri, host, rules)?;
+        let t = admit_link(uri, host, rules, origin_of(printed))?;
         match paths.gone(&t) {
             Some(g) => Err(gone_refusal(&g)),
             None => Ok(()),
@@ -1645,15 +1728,95 @@ fn gone_refusal(g: &Gone) -> Refused {
 }
 
 /// **What the worker found gone of `link`**: a printed path's file, or what
-/// `paths` says of a link `admit` lets through.
-pub fn gone_of(link: &Under, term: &Term<'_>, host: Host<'_>, paths: &dyn PathsAt) -> Option<Gone> {
+/// `paths` says of a link [`admit_link`] lets through as `printed`.
+pub fn gone_of(
+    link: &Under,
+    term: &Term<'_>,
+    host: Host<'_>,
+    paths: &dyn PathsAt,
+    printed: Printed,
+) -> Option<Gone> {
+    let admitted = |uri| admit_link(uri, host, paths.rules(), origin_of(printed)).ok();
     match link {
         Under::Path(p) => match p.verdict {
             Err(Refused::NotFound) => Some(Gone::File(p.path.clone())),
             _ => None,
         },
-        Under::Osc8(o) => paths.gone(&admit_with(o.uri(term)?, host, paths.rules()).ok()?),
-        Under::Bare(b) => paths.gone(&admit_with(b.uri().ok()?, host, paths.rules()).ok()?),
+        Under::Osc8(o) => paths.gone(&admitted(o.uri(term)?)?),
+        Under::Bare(b) => paths.gone(&admitted(b.uri().ok()?)?),
+    }
+}
+
+/// The origin a link `printed` carries; a printed path carries none, and
+/// a URI judged as one is not known.
+fn origin_of(printed: Printed) -> crate::paths::LinkOrigin {
+    match printed {
+        Printed::Link { origin } => origin,
+        Printed::Path => crate::paths::LinkOrigin::unknown(),
+    }
+}
+
+/// **What a click on a link does with it**, as [`click_on`] decides.
+#[derive(Debug)]
+pub enum ClickOn<'l, 'a> {
+    /// A printed path: asked about again off the frame.
+    Path(&'l PrintedPath),
+    /// An `OSC 8` link whose slot a sweep freed after it was read: its
+    /// index may name another target now.
+    Gone,
+    /// A URI read from the text that is no URI, with the text.
+    Unreadable(Refused, &'a [u8]),
+    /// A URI refused, with the URI.
+    Refused(Refused, &'a [u8]),
+    /// A URI let through, with the URI as read.
+    Admitted(Target<'a>, &'a [u8]),
+}
+
+/// **The one decision a click on `link` makes**, the same on both drivers:
+/// a printed path is asked about again; an `OSC 8` link reads its URI from
+/// the link table, and a URI read from the text its own; and either is
+/// judged by [`admit_link`] with the origin of the programs that printed the
+/// rows it covers ([`PathsAt::printed`]), the answer its look at rest took,
+/// never what is in front at the click.
+pub fn click_on<'l: 'a, 'a>(
+    link: &'l Under,
+    term: &'a Term<'_>,
+    host: Host<'_>,
+    rules: &Rules,
+    paths: &dyn PathsAt,
+) -> ClickOn<'l, 'a> {
+    let uri = match link {
+        Under::Path(p) => return ClickOn::Path(p),
+        Under::Osc8(l) => match l.uri(term) {
+            Some(uri) => uri,
+            None => return ClickOn::Gone,
+        },
+        Under::Bare(b) => match b.uri() {
+            Ok(uri) => uri,
+            Err(why) => return ClickOn::Unreadable(why, b.text()),
+        },
+    };
+    match admit_link(uri, host, rules, origin_of(paths.printed(term, link))) {
+        Ok(t) => ClickOn::Admitted(t, uri),
+        Err(why) => ClickOn::Refused(why, uri),
+    }
+}
+
+/// [`click_on`], then [`click`] on what it lets through: what a click on a
+/// link does, for a test to read. A printed path, or an `OSC 8` slot gone,
+/// is not a link these tests click.
+#[cfg(test)]
+pub fn clicked(
+    link: &Under,
+    term: &Term<'_>,
+    host: Host<'_>,
+    rules: &Rules,
+    paths: &dyn PathsAt,
+) -> Result<Click, Refused> {
+    match click_on(link, term, host, rules, paths) {
+        ClickOn::Admitted(t, _) => Ok(click(&t, paths)),
+        ClickOn::Refused(why, _) | ClickOn::Unreadable(why, _) => Err(why),
+        ClickOn::Path(_) | ClickOn::Gone => panic!("not a link a test clicks: {link:?}"),
     }
 }
 
@@ -1714,7 +1877,7 @@ fn hovered_in(
 ) -> Option<Under> {
     let view = term.view(spot.back);
     let cell = *view.row(spot.row).get(spot.col.index())?;
-    let link = Osc8::of(term, cell);
+    let link = Osc8::at(term, spot, cell);
     if link.uri(term).is_some() {
         return Some(Under::Osc8(link));
     }
@@ -1808,7 +1971,7 @@ fn link_spans_into(term: &Term<'_>, spot: Spot, link: &Under, out: &mut Vec<Link
             to: b_to,
             ..
         })
-        | Under::Path(Printed {
+        | Under::Path(PrintedPath {
             from: b_from,
             to: b_to,
             ..
@@ -1891,12 +2054,14 @@ pub fn preview_with(
 ) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
+    let printed = paths.printed(term, link);
     let text = preview_text_with(
         link,
         term,
         host,
         Cols::of_index(cols.saturating_sub(2)),
         paths,
+        printed,
     )?;
     let spans = link_spans(term, spot, link);
     let text: Vec<Codepoint> = format!(" {text} ")
@@ -1910,7 +2075,7 @@ pub fn preview_with(
         Rows::of_index(rows),
     );
     let n = text.len();
-    let opens = matches!(verdict(link, term, host, paths), Some((_, Ok(()))));
+    let opens = matches!(verdict(link, term, host, paths, printed), Some((_, Ok(()))));
     Some(LinkLook {
         spans: match opens {
             true => spans,
@@ -2129,11 +2294,17 @@ impl Hover {
                 let s = spot_now(term, scrolled, row, col)?;
                 self.reads.bump();
                 let link = hovered_in(term, s, &mut self.buffers, paths)?;
-                let opens = matches!(verdict(&link, term, host, paths), Some((_, Ok(()))));
+                let printed = paths.printed(term, &link);
+                let opens = matches!(
+                    verdict(&link, term, host, paths, printed),
+                    Some((_, Ok(())))
+                );
                 // Gone: under the chord its cells are struck, whether or not
                 // they are at rest, and the bar says why; nothing is struck
                 // while `missing` is off.
-                if let Some(g) = gone_of(&link, term, host, paths).filter(|_| paths.strikes()) {
+                if let Some(g) =
+                    gone_of(&link, term, host, paths, printed).filter(|_| paths.strikes())
+                {
                     if previewing && drawn_whole(term, s, &link) {
                         link_spans_into(term, s, &link, &mut self.buffers.spans);
                         struck_runs(term, s, &self.buffers.spans, &mut struck);
@@ -2590,6 +2761,7 @@ mod tests {
         Under::Osc8(Osc8 {
             id: LinkId::from_index(3),
             epoch: LinkEpoch::ZERO,
+            view: (Scrolled::START, Rows::ZERO),
         })
     }
 
@@ -2598,6 +2770,7 @@ mod tests {
         Under::Osc8(Osc8 {
             id: LinkId::from_index(4),
             epoch: LinkEpoch::ZERO,
+            view: (Scrolled::START, Rows::ZERO),
         })
     }
 
@@ -3990,6 +4163,10 @@ mod tests {
             crate::paths::Generation::default()
         }
 
+        fn printed(&self, term: &Term<'_>, link: &Under) -> Printed {
+            NoPaths.printed(term, link)
+        }
+
         fn at(
             &self,
             _: &[Unit],
@@ -4200,6 +4377,38 @@ mod tests {
                 let ends = head.starts_with("if let") && !body.contains("return;");
                 assert!(!ends, "{name} {head}: falls through");
             }
+        }
+    }
+    /// **No door lets a URI through without saying where it came from**:
+    /// `admit_with`, the policy with no origin, is private to this module,
+    /// behind `admit_link` (a URI read off the screen, with its origin),
+    /// `admit_path` (a printed path baud found here) and `admit_about` (an
+    /// address baud ships); the bare `admit` is the policy's own tests'.
+    /// baud-app is a binary crate, where no `compile_fail` runs, so the
+    /// source is read, with the private definition as its positive
+    /// control. Named break: make `admit_with` public again.
+    #[test]
+    fn admit_with_is_reached_only_through_a_named_door() {
+        let src = include_str!("link.rs");
+        let (code, _) = src
+            .split_once("\n#[cfg(test)]\nmod tests")
+            .expect("the tests");
+        assert!(
+            code.contains(concat!("\nfn admit_", "with<'a>(")),
+            "the control: defined here, private"
+        );
+        for open in ["pub ", "pub(crate) ", "pub(super) "] {
+            assert!(
+                !code.contains(&format!("{open}fn admit_{}", "with")),
+                "{open}admit_with"
+            );
+        }
+        assert!(
+            code.contains(concat!("#[cfg(test)]\npub fn admit", "<'a>(")),
+            "the bare policy is the tests'"
+        );
+        for door in ["admit_link", "admit_path", "admit_about"] {
+            assert!(code.contains(&format!("pub fn {door}")), "{door}");
         }
     }
 }

@@ -20,6 +20,12 @@ fi
 # files and commands see.
 builtin typeset -g __baud_ssh_env=${BAUD_SSH_ENV-}
 builtin unset BAUD_SSH_ENV
+# The token baud made for this window's shell, sent on its C and D marks:
+# baud ends a remote command, or lowers a row, only at a mark that carries
+# it, which no program on the other end of an ssh can know. Taken out of the
+# environment here, before the user's startup files run, and never exported.
+builtin typeset -g __baud_token=${BAUD_SHELL_TOKEN-}
+builtin unset BAUD_SHELL_TOKEN
 
 if [[ -o interactive ]]; then
   # zsh loads this module just before $ZDOTDIR/.zshenv, and it looks for
@@ -40,10 +46,6 @@ if [[ -o interactive ]]; then
   builtin typeset -g __baud_p="%{${__baud_osc}P;k=i${__baud_bel}%}"
   builtin typeset -g __baud_s="%{${__baud_osc}P;k=s${__baud_bel}%}"
   builtin typeset -g __baud_b="%{${__baud_osc}B${__baud_bel}%}"
-  # A token of this shell's own, on its C and D marks: baud ends a remote
-  # command only at a D that carries it, which no program on the other
-  # end of an ssh can know. Never exported.
-  builtin typeset -g __baud_token="${$(od -An -N8 -tx1 /dev/urandom 2>/dev/null)//[^0-9a-f]/}"
 
   # The prompts as the user set them: baud's marks taken out.
   __baud_unmark() {

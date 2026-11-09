@@ -6164,6 +6164,14 @@ impl<'b> Term<'b> {
         self.store.clusters.sweeps()
     }
 
+    /// **The link the pen writes under now**: the `OSC 8` link left open,
+    /// none once closed, refused or reset. A getter an embedder reads after
+    /// a feed, to file which reads wrote under which link; nothing on the
+    /// per-byte path reads it, and it writes nothing.
+    pub fn open_link(&self) -> Option<LinkId> {
+        (self.link != LinkId::NONE).then_some(self.link)
+    }
+
     /// Moves whenever a slot of the `OSC 8` link table may have been given
     /// to another target: a sweep that freed one, or a reset. A reader
     /// holding a [`LinkId`] across reads resolves it only while this is the

@@ -758,7 +758,10 @@ mod tests {
         );
         let feed = body(
             LINUX,
-            concat!("    fn feed(&mut self, ", "bytes: &[u8]) {"),
+            concat!(
+                "    fn feed(&mut self, ",
+                "bytes: &[u8], tag: Taken) -> Vec<Taken> {"
+            ),
             "    ",
         );
         assert!(feed.contains(owe), "a Linux read owes it");

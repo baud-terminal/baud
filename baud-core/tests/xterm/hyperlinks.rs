@@ -899,3 +899,28 @@ fn hyperlinks_are_chunk_invariant() {
 fn the_cell_is_still_eight_bytes() {
     assert_eq!(core::mem::size_of::<PackedCell>(), 8);
 }
+
+/// **The pen's open link is the one left open, until it is closed**: an
+/// `OSC 8` with no close leaves its slot open after the read, the text
+/// after it written under it; the close, and `RIS`, leave none. Named
+/// break: answer the last link interned -- the closed link stays open.
+#[test]
+fn the_open_link_is_the_one_left_open_until_closed() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    assert_eq!(t.open_link(), None, "none at power-on");
+    support::feed(&mut t, b"\x1b]8;;file:///etc/passwd\x1b\\x");
+    let open = t.open_link().expect("left open");
+    assert_eq!(t.link_uri(open), Some(&b"file:///etc/passwd"[..]));
+    support::feed(&mut t, b"y");
+    assert_eq!(
+        support::screen(&t)[1].flags.link(),
+        open,
+        "written under it"
+    );
+    support::feed(&mut t, b"\x1b]8;;\x1b\\");
+    assert_eq!(t.open_link(), None, "closed");
+    support::feed(&mut t, b"\x1b]8;;http://example.com/\x1b\\\x1bc");
+    assert_eq!(t.open_link(), None, "RIS");
+}

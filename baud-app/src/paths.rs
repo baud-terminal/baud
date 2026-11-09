@@ -103,11 +103,11 @@ use core::ops::Range;
 use std::collections::HashMap;
 
 use baud_core::{FileHost, Screen, Term};
-use baud_domain::{Cols, Rows};
-use baud_render::{AbsLine, Scrolled, row_of};
+use baud_domain::{Cols, LinkEpoch, LinkId, Rows};
+use baud_render::{AbsLine, Scrolled, Tally, row_of};
 
 use crate::lined::{At, Drawn, Key, Lines, Mark, Reader, Run, Text, Uris};
-use crate::link::{Edge, Host, Ix, Joins, MAX, Scheme, Target, Unit, admit_with};
+use crate::link::{Edge, Host, Ix, Joins, MAX, Scheme, Target, Unit, admit_link};
 use crate::rules::{NO_RULES, Rules};
 
 /// What the bar calls this machine.
@@ -883,6 +883,21 @@ impl LineSpan {
         }
     }
 
+    /// **The lines a read wrote**, the cursor on `began` as it began and on
+    /// `ended` after it: to the line above `ended` when nothing in the read
+    /// could have written on the line it ended on ([`crate::reach::Reach`]:
+    /// text and forward motion only, ending on a line feed) -- where the
+    /// shell draws its next prompt. Any other read may have written on the
+    /// cursor's line, and keeps it.
+    pub fn read(began: AbsLine, ended: AbsLine, reach: crate::reach::Reach) -> LineSpan {
+        match (reach, ended.above()) {
+            (crate::reach::Reach::Below, Some(above)) if ended > began => {
+                LineSpan::of(began, above)
+            }
+            _ => LineSpan::of(began, ended),
+        }
+    }
+
     /// The span and `other` as one, the lines between included.
     pub fn joined(self, other: LineSpan) -> LineSpan {
         LineSpan {
@@ -896,8 +911,14 @@ impl LineSpan {
         self.last
     }
 
-    fn holds(self, line: AbsLine) -> bool {
+    pub(crate) fn holds(self, line: AbsLine) -> bool {
         self.first <= line && line <= self.last
+    }
+
+    /// Whether `other` overlaps this span or begins on the line after it, or
+    /// the other way round: two that make one run of lines.
+    pub(crate) fn touches(self, other: LineSpan) -> bool {
+        other.first <= self.last.below() && self.first <= other.last.below()
     }
 }
 
@@ -917,6 +938,114 @@ pub enum Origin {
     Unknown,
 }
 
+impl Origin {
+    /// **The more cautious of two**: remote over not known over local.
+    fn or(self, other: Origin) -> Origin {
+        match (self, other) {
+            (Origin::Remote, _) | (_, Origin::Remote) => Origin::Remote,
+            (Origin::Unknown, _) | (_, Origin::Unknown) => Origin::Unknown,
+            (Origin::Local, Origin::Local) => Origin::Local,
+        }
+    }
+}
+
+/// **Where the program that printed a link ran, judged once for every way
+/// the link is shown or used**: its look at rest, under the pointer, the
+/// hand pointer, the preview and its click all take this one value
+/// ([`crate::link::admit_link`]). Made only by [`Paths::link_origin`] and
+/// [`Paths::bare_origin`], so no caller hands a link an origin of its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LinkOrigin(Origin);
+
+impl LinkOrigin {
+    /// The origin judged.
+    pub fn origin(self) -> Origin {
+        self.0
+    }
+
+    /// **Not known**: what a link no row vouches for, or a gesture over
+    /// something no longer a link, is taken as.
+    pub fn unknown() -> LinkOrigin {
+        LinkOrigin(Origin::Unknown)
+    }
+
+    /// An origin a test hands a link.
+    #[cfg(test)]
+    pub fn given(o: Origin) -> LinkOrigin {
+        LinkOrigin(o)
+    }
+}
+
+/// A link target's bytes, hashed: what a slot of the link table names, to
+/// tell a slot given another target from the one it held.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct UriHash(u64);
+
+impl UriHash {
+    /// FNV-1a over the target's bytes.
+    fn of(uri: &[u8]) -> UriHash {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in uri {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        UriHash(h)
+    }
+}
+
+/// **The `OSC 8` link the pen wrote under**, as read after a part of a read
+/// was fed (`Term::open_link`): its slot and its target.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Pen {
+    id: LinkId,
+    uri: UriHash,
+}
+
+impl Pen {
+    /// The link the pen holds now, if one is open.
+    pub fn of(term: &Term<'_>) -> Option<Pen> {
+        let id = term.open_link()?;
+        let uri = term.link_uri(id)?;
+        Some(Pen {
+            id,
+            uri: UriHash::of(uri),
+        })
+    }
+}
+
+/// **The links the pen held as a part of a read was fed**: at its start and
+/// at its end, so the read that opened a link and every read under it are
+/// filed against its slot (`probe::Probes::drain_taken`). A link opened and
+/// closed inside one part is in neither, and needs not be: its cells are on
+/// the screen, and the look and the click judge it over them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Pens {
+    at_start: Option<Pen>,
+    at_end: Option<Pen>,
+}
+
+impl Pens {
+    /// The pen at a part's start and at its end.
+    pub fn of(at_start: Option<Pen>, at_end: Option<Pen>) -> Pens {
+        Pens { at_start, at_end }
+    }
+
+    /// Each link held, once.
+    pub fn each(self) -> impl Iterator<Item = Pen> {
+        let end = self.at_end.filter(|e| Some(*e) != self.at_start);
+        self.at_start.into_iter().chain(end)
+    }
+}
+
+/// **Every read that opened a link or wrote under it**, for one slot of the
+/// link table: the target it held then and the lines those reads wrote,
+/// joined ([`Paths::slot_wrote`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SlotRecord {
+    uri: UriHash,
+    lines: LineSpan,
+}
+
 /// What the program in front is, as the worker last named it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Front {
@@ -928,6 +1057,149 @@ pub enum Front {
     /// `ssh` and its kin, or a program baud could not name: not known to be
     /// on this machine.
     Elsewhere,
+}
+
+/// **Who the worker found wrote a span**: a program it named, or none it
+/// could name -- one gone before it was asked about, or rows written past
+/// the groups a batch keeps, which no one looked at. Not named is neither
+/// local nor remote: its rows fail closed and touch no other row, unless a
+/// command the shell named here, with its token, wrote them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Seen {
+    Named(Front),
+    NotNamed,
+}
+
+/// **What wrote a row**, from the facts filed over it ([`Facts::provenance`]),
+/// in the order one outweighs another: a row is local only if everything
+/// filed over it is, any remote writer makes it remote, and a writer not
+/// named makes it not known unless a command the shell named here, with its
+/// token, wrote it. What decides whether a path printed there is read
+/// ([`Paths::readable_on`]) and where a `file://` link there was printed
+/// ([`Paths::origin`]).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Provenance {
+    /// A program named on this machine, or a writer not named that a
+    /// command the shell named here wrote under.
+    Local,
+    /// A multiplexer: its panes are this machine's, and `./` is a pane's.
+    Multiplexed,
+    /// A writer not named: gone before it was asked about, or past the
+    /// groups a batch keeps.
+    NotNamed,
+    /// A program named not on this machine, by the worker, the job watch or
+    /// the shell's marks.
+    Remote,
+}
+
+/// **The weightiest writer named over a run of rows**, in that order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Writer {
+    Local,
+    Multiplexed,
+    Remote,
+}
+
+/// Whether a writer not named wrote a run of rows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Unnamed {
+    #[default]
+    No,
+    Yes,
+}
+
+/// Whether a command the shell named here, with its token, wrote a run of
+/// rows (`crate::ran::Ran::Here`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Here {
+    #[default]
+    No,
+    Yes,
+}
+
+/// **What was filed over a run of rows**, each kind of fact kept apart, so
+/// the order the facts arrive in -- a worker's verdict usually after the
+/// read it is about -- changes nothing ([`Facts::provenance`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct Facts {
+    writer: Option<Writer>,
+    unnamed: Unnamed,
+    here: Here,
+}
+
+/// One fact filed over a span of rows ([`Paths::file`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fact {
+    /// A writer named: the worker's verdict on a group, the front it left,
+    /// the job watch's or the shell's marks' remote command.
+    Writer(Writer),
+    /// A writer the worker could not name.
+    NotNamed,
+    /// A command the shell named here wrote the rows.
+    Here,
+}
+
+impl Fact {
+    fn of(seen: Seen) -> Fact {
+        match seen {
+            Seen::Named(Front::Local) => Fact::Writer(Writer::Local),
+            Seen::Named(Front::Multiplexer) => Fact::Writer(Writer::Multiplexed),
+            Seen::Named(Front::Elsewhere) => Fact::Writer(Writer::Remote),
+            Seen::NotNamed => Fact::NotNamed,
+        }
+    }
+
+    /// `facts` with this one added: the weightier writer kept, a flag set.
+    fn added_to(self, facts: Facts) -> Facts {
+        match self {
+            Fact::Writer(w) => Facts {
+                writer: Some(facts.writer.map_or(w, |was| was.max(w))),
+                ..facts
+            },
+            Fact::NotNamed => Facts {
+                unnamed: Unnamed::Yes,
+                ..facts
+            },
+            Fact::Here => Facts {
+                here: Here::Yes,
+                ..facts
+            },
+        }
+    }
+}
+
+impl Facts {
+    /// **What wrote the rows, by every fact filed over them**: the
+    /// weightiest of the writer named and a writer not named, the second
+    /// lifted to local where a command the shell named here wrote them --
+    /// a lift of that fact alone, never of a remote writer or a
+    /// multiplexer, and nothing where no writer was named at all. None for
+    /// no fact, which no reader takes as local.
+    fn provenance(self) -> Option<Provenance> {
+        let named = self.writer.map(|w| match w {
+            Writer::Local => Provenance::Local,
+            Writer::Multiplexed => Provenance::Multiplexed,
+            Writer::Remote => Provenance::Remote,
+        });
+        let unnamed = match (self.unnamed, self.here) {
+            (Unnamed::No, _) => None,
+            (Unnamed::Yes, Here::Yes) => Some(Provenance::Local),
+            (Unnamed::Yes, Here::No) => Some(Provenance::NotNamed),
+        };
+        named.max(unnamed)
+    }
+}
+
+/// **Whether the folder the core holds may be read against**: the last read
+/// that carried a folder report decides (`probe::Probes::read_taken`). One
+/// written under a command the shell named not local is that program's,
+/// which can name this machine as well as the shell can, and leaves the
+/// folder read against as it was until a report of the shell's comes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Report {
+    #[default]
+    Taken,
+    Refused,
 }
 
 /// Whether path marks are on, and if not, why.
@@ -1026,6 +1298,8 @@ pub struct Paths {
     home: Option<Vec<u8>>,
     names: Vec<String>,
     dir: Dir,
+    /// Whether the last folder report may be read against ([`Report`]).
+    report: Report,
     /// The folder of the program in front, while the alternate screen is up.
     program_dir: Option<ProgramDir>,
     geometry: Option<(Cols, Rows)>,
@@ -1047,14 +1321,17 @@ pub struct Paths {
     /// Whether a scan read a row while printed paths were not read, since
     /// the last collection read every row: a row it kept no run for.
     unread: Unread,
-    /// What is in front, and the last line written while what is in front
-    /// now, or anything not known to be local, was.
+    /// What is in front, and the line it was named at when it is not
+    /// local: rows from there are its while it stays.
     front: Front,
-    elsewhere_through: Option<AbsLine>,
-    multiplexed_through: Option<AbsLine>,
-    /// The lines each named program wrote, in order, adjacent ones of one
-    /// origin merged, each local or remote ([`Paths::origin`]).
-    spans: Vec<(Origin, LineSpan)>,
+    front_from: Option<AbsLine>,
+    /// **What was filed over each run of rows**, sorted, apart, and runs of
+    /// equal facts that touch merged ([`Paths::file`]): a writer not local
+    /// darkens its own rows and no other. A buffer the filing reuses, and
+    /// the steps every lookup has taken ([`Paths::facts_at`]).
+    runs: Vec<(LineSpan, Facts)>,
+    pieces: Vec<(LineSpan, Facts)>,
+    looked: core::cell::Cell<Tally>,
     /// Moved by every span named, which may join or part two rows
     /// ([`PathsAt::origins`]).
     origins: Generation,
@@ -1066,6 +1343,12 @@ pub struct Paths {
     /// Your `[link.*]` rules, the forms among them, which a read of the link
     /// under the pointer goes by ([`PathsAt::rules`]).
     rules: Rules,
+    /// **Each slot of the `OSC 8` link table's record** ([`SlotRecord`]),
+    /// by its index, and the table's epoch it was last checked at: a slot
+    /// given another target since forgets its record
+    /// ([`Paths::observe`]).
+    slots: Vec<Option<SlotRecord>>,
+    slots_at: Option<LinkEpoch>,
 }
 
 impl Paths {
@@ -1340,6 +1623,7 @@ impl Paths {
     /// line down to it. Whether the rows a `./` may be read on moved, which
     /// reads every row again.
     pub fn observe(&mut self, term: &Term<'_>, scrolled: Scrolled) -> Moved {
+        self.check_slots(term);
         if self.marks != Marks::On {
             return Moved::No;
         }
@@ -1371,7 +1655,7 @@ impl Paths {
             }
             _ => false,
         };
-        if !same {
+        if !same && self.report == Report::Taken {
             self.dir.kept = now.map(|d| {
                 let host = match d.host {
                     FileHost::Local => None,
@@ -1396,6 +1680,19 @@ impl Paths {
         moved
     }
 
+    /// The folder a `./` path on the normal screen is read against now.
+    #[cfg(test)]
+    pub(crate) fn folder_now(&self) -> Option<&[u8]> {
+        self.dir.local.as_deref()
+    }
+
+    /// **A read carried a folder report**, which `report` says may be read
+    /// against or not ([`Report`]): the next [`Paths::observe`] takes the
+    /// core's folder, or leaves the one it has.
+    pub fn folder_reported(&mut self, report: Report) {
+        self.report = report;
+    }
+
     /// **The folder of the program in front**, as the worker read it, or
     /// none: the rows are read again against it, and a batch is owed so a
     /// screen that does not change is asked about too. One that is not an
@@ -1413,116 +1710,344 @@ impl Paths {
     }
 
     /// **What the worker named in front**, at the line the cursor was on
-    /// when it was asked: rows to there were written while it, or anything
-    /// before it not known to be local, was in front.
+    /// when it was asked: rows from there are its while it stays in front,
+    /// and rows to there were filed by the spans it and the programs before
+    /// it wrote. A program not on this machine, or a multiplexer, leaves its
+    /// rows from that line on behind it when another comes in front.
     pub fn set_front(&mut self, front: Front, through: AbsLine) {
-        match front {
-            Front::Elsewhere => self.elsewhere_through = self.elsewhere_through.max(Some(through)),
-            Front::Multiplexer => {
-                self.multiplexed_through = self.multiplexed_through.max(Some(through));
-            }
-            Front::Local => {}
-        }
-        if self.front == Front::Elsewhere && front != Front::Elsewhere {
-            self.elsewhere_through = self.elsewhere_through.max(Some(through));
-        }
-        if self.front == Front::Multiplexer && front != Front::Multiplexer {
-            self.multiplexed_through = self.multiplexed_through.max(Some(through));
-        }
         if self.front != front {
+            self.leave_front(through);
+            self.front_from = match front {
+                Front::Local => None,
+                Front::Elsewhere | Front::Multiplexer => Some(through),
+            };
             self.front = front;
             self.generation = self.generation.next();
         }
     }
 
-    /// **Rows `span` were written while `front` was in front**, named by
-    /// the worker after the program had gone: they keep no mark if it is
-    /// not local, and no `./` under a multiplexer; and an `OSC 8` link on
-    /// them takes its origin from it ([`Paths::origin`]). What is in front
-    /// now is [`Paths::set_front`]'s, and does not change.
-    pub fn written_under(&mut self, front: Front, span: LineSpan) {
-        let through = span.last;
-        let (before, mux) = (self.elsewhere_through, self.multiplexed_through);
-        match front {
-            Front::Elsewhere => self.elsewhere_through = before.max(Some(through)),
-            Front::Multiplexer => self.multiplexed_through = mux.max(Some(through)),
-            Front::Local => {}
+    /// The program in front leaves: its rows from where it was named to
+    /// `through` are filed under it.
+    fn leave_front(&mut self, through: AbsLine) {
+        let writer = match self.front {
+            Front::Local => return,
+            Front::Elsewhere => Writer::Remote,
+            Front::Multiplexer => Writer::Multiplexed,
+        };
+        if let Some(from) = self.front_from.take() {
+            self.file_since(Fact::Writer(writer), LineSpan::of(from, through));
         }
-        if (before, mux) != (self.elsewhere_through, self.multiplexed_through) {
+    }
+
+    /// **Rows `span` were written by `seen`**, named by the worker after
+    /// the program had gone: they keep no mark if it is not local or not
+    /// named, and no `./` under a multiplexer; and a `file://` link on them
+    /// takes its origin from it ([`Paths::origin`]). Only those rows: the
+    /// rows above them keep what their own writers made of them. What is
+    /// in front now is [`Paths::set_front`]'s, and does not change.
+    pub fn written_under(&mut self, seen: Seen, span: LineSpan) {
+        self.file_since(Fact::of(seen), span);
+    }
+
+    /// **A program not on this machine wrote `span`**, as the job watch or
+    /// the shell's marks say of a read (`probe::Watched`, [`crate::ran`]):
+    /// its rows keep no mark, and a `file://` link on them takes a remote
+    /// origin ([`Paths::origin`]). Only those rows, as for any writer.
+    pub fn written_remote(&mut self, span: LineSpan) {
+        let _ = self.file(Fact::Writer(Writer::Remote), span);
+    }
+
+    /// **The shell named the command that wrote `span` a program on this
+    /// machine**, with its token ([`crate::ran::Ran::Here`]): a writer of
+    /// those rows the worker could not name is that command's, and local. A
+    /// writer named not local, or a multiplexer, keeps what it made of them,
+    /// and rows no writer was named for stay not known.
+    pub fn written_here(&mut self, span: LineSpan) {
+        let _ = self.file(Fact::Here, span);
+    }
+
+    /// **The shell itself wrote `span`**, after its `D` with its token and
+    /// with no command open after it ([`crate::ran::Ran::Shell`]): its
+    /// prompt after a command, which a read that sampled no group leaves to
+    /// this, the shell being on this machine.
+    pub fn written_by_shell(&mut self, span: LineSpan) {
+        let _ = self.file(Fact::Writer(Writer::Local), span);
+    }
+
+    /// **`fact` filed over `span`**: each run of rows it covers gets it
+    /// added to what was filed there, split at the span's ends, rows no
+    /// run held getting a run of their own, and runs of equal facts that
+    /// touch merged, so the runs stay sorted, apart and bounded by how
+    /// often writers alternate. Whether anything changed.
+    fn file(&mut self, fact: Fact, span: LineSpan) -> Moved {
+        let from = self.runs.partition_point(|(r, _)| r.last < span.first);
+        let mut pieces = core::mem::take(&mut self.pieces);
+        pieces.clear();
+        let mut moved = Moved::No;
+        // The next line of `span` no run has covered yet; none once past
+        // its end.
+        let mut next = Some(span.first);
+        let mut to = from;
+        while let Some(&(run, facts)) = self.runs.get(to) {
+            if run.first > span.last {
+                break;
+            }
+            if let (Some(n), Some(before)) = (next, run.first.above()) {
+                if n < run.first {
+                    pieces.push((LineSpan::of(n, before), fact.added_to(Facts::default())));
+                    moved = Moved::Yes;
+                }
+            }
+            if let Some(left) = span.first.above().filter(|_| run.first < span.first) {
+                pieces.push((LineSpan::of(run.first, left), facts));
+            }
+            let now = fact.added_to(facts);
+            if now != facts {
+                moved = Moved::Yes;
+            }
+            pieces.push((
+                LineSpan::of(run.first.max(span.first), run.last.min(span.last)),
+                now,
+            ));
+            if run.last > span.last {
+                pieces.push((LineSpan::of(span.last.below(), run.last), facts));
+            }
+            next = (run.last < span.last).then(|| run.last.below());
+            to += 1;
+        }
+        if let Some(n) = next.filter(|n| *n <= span.last) {
+            pieces.push((LineSpan::of(n, span.last), fact.added_to(Facts::default())));
+            moved = Moved::Yes;
+        }
+        let placed = pieces.len();
+        self.runs.splice(from..to, pieces.drain(..));
+        self.pieces = pieces;
+        // Merge runs of equal facts that touch, around what was placed.
+        let mut i = from.saturating_sub(1);
+        let end = from + placed;
+        while i < end && i + 1 < self.runs.len() {
+            let (a, fa) = self.runs[i];
+            let (b, fb) = self.runs[i + 1];
+            if fa == fb && a.last.below() == b.first {
+                self.runs[i] = (LineSpan::of(a.first, b.last), fa);
+                self.runs.remove(i + 1);
+            } else {
+                i += 1;
+            }
+        }
+        if moved == Moved::Yes {
+            self.origins = self.origins.next();
+        }
+        moved
+    }
+
+    /// [`Paths::file`], of rows written before now: every row is read
+    /// again, as an answer moves them, since the fact may change what a
+    /// row reads. Rows a read just wrote are read again for their cells,
+    /// and need no more.
+    fn file_since(&mut self, fact: Fact, span: LineSpan) {
+        if self.file(fact, span) == Moved::Yes {
             self.generation = self.generation.next();
         }
-        // A multiplexer's panes are this machine's programs: local.
-        let origin = match front {
-            Front::Elsewhere => Origin::Remote,
-            Front::Local | Front::Multiplexer => Origin::Local,
-        };
-        let was = self.spans.last().copied();
-        match self.spans.last_mut() {
-            Some((o, s))
-                if *o == origin && span.first <= s.last.below() && s.first <= span.last =>
-            {
-                *s = s.joined(span);
-            }
-            _ => self.spans.push((origin, span)),
-        }
-        if self.spans.last().copied() != was {
-            self.origins = self.origins.next();
-        }
     }
 
-    /// **A program not on this machine may have written `span`**, as the
-    /// job watch says of a read (`probe::Watched`): an `OSC 8` link on it
-    /// takes a remote origin ([`Paths::origin`]), and nothing else changes.
-    /// The printed paths' watermark is not raised: the watch names any job
-    /// the shell's started, `git pull`'s ssh among them, and the paths above
-    /// what it wrote keep their marks.
-    pub fn written_remote(&mut self, span: LineSpan) {
-        let was = self.spans.last().copied();
-        match self.spans.last_mut() {
-            Some((Origin::Remote, s)) if span.first <= s.last.below() && s.first <= span.last => {
-                *s = s.joined(span);
-            }
-            _ => self.spans.push((Origin::Remote, span)),
-        }
-        if self.spans.last().copied() != was {
-            self.origins = self.origins.next();
-        }
+    /// **Every row filed as written by a program on this machine**, for a
+    /// test that feeds the terminal itself, with no reader to say who wrote
+    /// what: as the reader files the rows of a local program's reads.
+    #[cfg(test)]
+    pub(crate) fn all_written_here(&mut self) {
+        let all = LineSpan::of(
+            AbsLine::at(Rows::ZERO),
+            AbsLine::at(Rows::of_count(1 << 30)),
+        );
+        let _ = self.file(Fact::Writer(Writer::Local), all);
     }
 
-    /// **Where the program that printed `line` runs**: remote if any program
-    /// not known to be local wrote to it, local if only local ones did,
-    /// unknown if none was named for it.
+    /// **The facts filed over `line`**, found by a binary search of the
+    /// runs, the steps it took counted ([`Paths::lookups`]).
+    fn facts_at(&self, line: AbsLine) -> Option<Facts> {
+        let mut steps = Tally::default();
+        let i = self.runs.partition_point(|(r, _)| {
+            steps.bump();
+            r.last < line
+        });
+        let mut looked = self.looked.get();
+        looked.add(steps);
+        self.looked.set(looked);
+        self.runs
+            .get(i)
+            .filter(|(r, _)| r.first <= line)
+            .map(|&(_, f)| f)
+    }
+
+    /// The steps every lookup of a row's facts has taken so far.
+    #[cfg(test)]
+    fn lookups(&self) -> Tally {
+        self.looked.get()
+    }
+
+    /// **What wrote `line`** ([`Facts::provenance`]); none if nothing was
+    /// filed over it.
+    fn wrote(&self, line: AbsLine) -> Option<Provenance> {
+        self.facts_at(line).and_then(Facts::provenance)
+    }
+
+    /// **Where the program that printed `line` runs**: remote if a program
+    /// named not local wrote it, local if only local ones did (a writer not
+    /// named lifted by the shell's marks included), not known otherwise --
+    /// a writer not named, or nothing filed ([`Paths::wrote`]).
     pub fn origin(&self, line: AbsLine) -> Origin {
-        let mut found = Origin::Unknown;
-        for &(origin, s) in &self.spans {
-            if s.holds(line) {
-                if origin == Origin::Remote {
-                    return Origin::Remote;
-                }
-                found = origin;
-            }
+        match self.wrote(line) {
+            Some(Provenance::Remote) => Origin::Remote,
+            Some(Provenance::NotNamed) | None => Origin::Unknown,
+            Some(Provenance::Local | Provenance::Multiplexed) => Origin::Local,
         }
-        found
     }
 
-    /// **Where the program that printed `link` at `line` ran, for its
-    /// click** ([`crate::link::admit_printed`]): its line's
-    /// ([`Paths::origin`]), for a link marked with `OSC 8` and for one read
-    /// from the text alike, since a `file://` URI a remote program prints
-    /// as plain text names its machine's file just as a marked one does. A
-    /// printed path is asked about by its own check, and has none.
-    pub fn printed_origin(&self, link: &crate::link::Under, line: AbsLine) -> Option<Origin> {
-        use crate::link::Under;
+    /// **Where the program that printed `link` ran, for what it may open**
+    /// ([`crate::link::admit_link`]): the most cautious origin over the rows
+    /// the link itself covers ([`Paths::origin_over`]) -- an `OSC 8` link's
+    /// run, a URI read from the text's own rows -- the one answer its look
+    /// at rest, under the pointer, in the preview and at its click all take,
+    /// for a link marked with `OSC 8` and for one read from the text alike,
+    /// since a `file://` URI a remote program prints as plain text names its
+    /// machine's file just as a marked one does. A printed path is asked
+    /// about by its own check, and has none.
+    pub fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
+        use crate::link::{Printed, Under};
         match link {
-            Under::Osc8(_) | Under::Bare(_) => Some(self.origin(line)),
-            Under::Path(_) => None,
+            Under::Osc8(o) => Printed::Link {
+                origin: match o.uri(term) {
+                    Some(uri) => self.link_origin(o.id(), uri, &o.view_rows(term)),
+                    None => LinkOrigin::unknown(),
+                },
+            },
+            Under::Bare(b) => Printed::Link {
+                origin: self.bare_origin(b.lines()),
+            },
+            Under::Path(_) => Printed::Path,
         }
+    }
+
+    /// **Where the program that printed the `OSC 8` link `id` to `uri` ran**,
+    /// the most cautious of two: every row in view holding its slot, `rows`
+    /// -- the cells its look draws -- and every read that opened it or wrote
+    /// under it, filed against the slot ([`Paths::slot_wrote`]). So a link a
+    /// remote program left open and a local prompt then wrote under is the
+    /// remote program's, and one slot shown over two runs gives either row
+    /// the same answer. A record's rows that have left history read as not
+    /// known, never local: a link a local program left open past history
+    /// stays dark.
+    pub fn link_origin(&self, id: LinkId, uri: &[u8], rows: &[AbsLine]) -> LinkOrigin {
+        // A slot no row in view shows has no row to vouch for it.
+        let shown = match rows {
+            [] => Origin::Unknown,
+            _ => rows
+                .iter()
+                .fold(Origin::Local, |o, &line| o.or(self.origin(line))),
+        };
+        let opened = self
+            .slots
+            .get(id.index())
+            .copied()
+            .flatten()
+            .filter(|r| r.uri == UriHash::of(uri))
+            .map_or(Origin::Local, |r| {
+                self.origin_over((r.lines.first, r.lines.last))
+            });
+        LinkOrigin(shown.or(opened))
+    }
+
+    /// **Where the program that printed a URI read from the text on the
+    /// lines `first` to `last` ran** ([`Paths::origin_over`]).
+    pub fn bare_origin(&self, lines: (AbsLine, AbsLine)) -> LinkOrigin {
+        LinkOrigin(self.origin_over(lines))
+    }
+
+    /// **A part of a read was fed under the link `pen`, writing `span`**:
+    /// the slot's record joins the span, or, where the slot holds another
+    /// target than its record says, starts over at it.
+    pub fn slot_wrote(&mut self, pen: Pen, span: LineSpan) {
+        let i = pen.id.index();
+        if self.slots.len() <= i {
+            self.slots.resize(i + 1, None);
+        }
+        let joined = match self.slots[i] {
+            Some(r) if r.uri == pen.uri => r.lines.joined(span),
+            _ => span,
+        };
+        if self.slots[i].map(|r| r.lines) != Some(joined) {
+            self.slots[i] = Some(SlotRecord {
+                uri: pen.uri,
+                lines: joined,
+            });
+            self.generation = self.generation.next();
+            self.changed();
+        }
+    }
+
+    /// **The link table's slots checked against their records** once its
+    /// epoch moved: a record is kept only while its slot holds the target
+    /// it was filed under, so a slot freed and given another target, or a
+    /// reset, forgets it, and the same target given the slot again keeps
+    /// it -- the cautious side.
+    fn check_slots(&mut self, term: &Term<'_>) {
+        let epoch = term.link_epoch();
+        if self.slots_at == Some(epoch) {
+            return;
+        }
+        self.slots_at = Some(epoch);
+        for (i, slot) in self.slots.iter_mut().enumerate() {
+            let held = term.link_uri(LinkId::from_index(i)).map(UriHash::of);
+            if slot.is_some_and(|r| Some(r.uri) != held) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// **Where the program that printed the lines `first` to `last` ran**:
+    /// remote if one of them is, local if every one is, else not known --
+    /// a URI read across them is the one program's. Walked over the runs
+    /// that touch the lines, not line by line, a line no run holds not
+    /// known, so a span a link left open the length of history costs the
+    /// runs in it.
+    fn origin_over(&self, (first, last): (AbsLine, AbsLine)) -> Origin {
+        let from = self.runs.partition_point(|(r, _)| r.last < first);
+        let mut all = Origin::Local;
+        let mut next = Some(first);
+        for (r, facts) in &self.runs[from..] {
+            let Some(want) = next else {
+                break;
+            };
+            if r.first > last {
+                break;
+            }
+            if r.first > want {
+                all = all.or(Origin::Unknown);
+            }
+            match facts.provenance() {
+                Some(Provenance::Remote) => return Origin::Remote,
+                Some(Provenance::NotNamed) | None => all = all.or(Origin::Unknown),
+                Some(Provenance::Local | Provenance::Multiplexed) => {}
+            }
+            next = (r.last < last).then(|| r.last.below());
+        }
+        if next.is_some() {
+            all = all.or(Origin::Unknown);
+        }
+        all
     }
 
     /// **The spans that have left history dropped**: those ending above
     /// `oldest`, the oldest line kept, so the set is bounded by history.
     pub fn trim_spans(&mut self, oldest: AbsLine) {
-        self.spans.retain(|(_, s)| s.last >= oldest);
+        let was = self.runs.len();
+        self.runs.retain(|(r, _)| r.last >= oldest);
+        // A link a read on those lines opened is read again: they read as
+        // not known now (`Paths::link_origin`).
+        if self.runs.len() != was {
+            self.generation = self.generation.next();
+        }
     }
 
     /// **Another program is in front than the worker last named**: until it
@@ -1530,7 +2055,7 @@ impl Paths {
     /// rows after it are read as the next answer says.
     pub fn front_moved(&mut self, through: AbsLine) {
         if self.front == Front::Elsewhere {
-            self.elsewhere_through = self.elsewhere_through.max(Some(through));
+            self.leave_front(through);
             self.front = Front::Local;
             self.generation = self.generation.next();
         }
@@ -1655,19 +2180,35 @@ impl Paths {
         self.readable_on(text.lines, text.screen, form)
     }
 
-    /// [`Paths::readable`], of the lines `first` to `last` on `screen`.
+    /// [`Paths::readable`], of the lines `first` to `last` on `screen`: every
+    /// row of them filed as written on this machine, none by a program not
+    /// local or not known, nor by the
+    /// program in front since it was named when that is not local; and for
+    /// a relative form, none a multiplexer's pane wrote, and a folder to
+    /// read it against.
     fn readable_on(&self, (first, last): (AbsLine, AbsLine), screen: Screen, form: Form) -> bool {
-        if self.marks != Marks::On
-            || self.front == Front::Elsewhere
-            || self.elsewhere_through.is_some_and(|t| last <= t)
-        {
+        let since_front =
+            |f: Front| self.front == f && self.front_from.is_none_or(|from| last >= from);
+        if self.marks != Marks::On || since_front(Front::Elsewhere) {
             return false;
+        }
+        let mut muxed = false;
+        let mut line = first;
+        loop {
+            match self.wrote(line) {
+                Some(Provenance::Remote | Provenance::NotNamed) | None => return false,
+                Some(Provenance::Multiplexed) => muxed = true,
+                Some(Provenance::Local) => {}
+            }
+            if line >= last {
+                break;
+            }
+            line = line.below();
         }
         if !form.relative() {
             return true;
         }
-        if self.front == Front::Multiplexer || self.multiplexed_through.is_some_and(|t| first <= t)
-        {
+        if muxed || since_front(Front::Multiplexer) {
             return false;
         }
         match Resolve::on(screen) {
@@ -1831,14 +2372,14 @@ impl Paths {
     /// and outside one owed when it has no answer. Nothing is asked while
     /// `missing` is off, for output not known to be this machine's, or for
     /// a name [`file_path`] refuses.
-    fn file_link(&mut self, uri: &[u8], at: At) -> Mark {
+    fn file_link(&mut self, uri: &[u8], at: At<'_>) -> Mark {
         if self.marks != Marks::On || self.missing != Turned::On {
             return Mark::Line;
         }
         let Some((named, path)) = file_path(uri, &self.names) else {
             return Mark::Line;
         };
-        if !self.readable_on((at.line, at.line), at.screen, Form::Absolute) {
+        if !self.readable_on(at.span(), at.screen(), Form::Absolute) {
             if self.front == Front::Elsewhere {
                 self.owed = Owed::Yes;
             }
@@ -1849,7 +2390,7 @@ impl Paths {
             if c.marked.get(path.as_slice()) == Some(&State::Asked) {
                 // Linked again lower down: asked at its last line.
                 if let Some(q) = c.queue.iter_mut().find(|q| q.path == path) {
-                    q.line = q.line.max(at.line);
+                    q.line = q.line.max(at.line());
                 }
             } else if !c.marked.contains_key(path.as_slice()) {
                 match state {
@@ -1865,7 +2406,7 @@ impl Paths {
                         c.queue.push(Candidate {
                             path: path.clone(),
                             form: Form::Absolute,
-                            line: at.line,
+                            line: at.line(),
                         });
                     }
                     Some(s) => {
@@ -1978,7 +2519,7 @@ pub fn on_found(asked: &Asked, path: &[u8], host: crate::link::Host<'_>, rules: 
         return Found::Copy;
     }
     let uri = file_uri(path);
-    if crate::link::admit(uri.as_bytes(), host).is_err() {
+    if crate::link::admit_path(uri.as_bytes(), host).is_err() {
         return Found::Reveal;
     }
     if let Some(built) = rules.path_command(path, &lc.line, &lc.col) {
@@ -2043,6 +2584,12 @@ pub trait PathsAt {
         Generation::default()
     }
 
+    /// **Where the program that printed `link` ran**, over the rows it
+    /// covers, for what the link looks like and does ([`Paths::printed`]). No default: a
+    /// reader with no worker to have named a writer says what it takes the
+    /// line for.
+    fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed;
+
     /// The path at unit `at` of a click's window of text, `lines` its first
     /// and last line, on `screen`, if the worker found it or found it gone.
     fn at(
@@ -2080,6 +2627,18 @@ impl PathsAt for NoPaths {
         Generation::default()
     }
 
+    /// With no worker, every line is taken as this machine's: what the
+    /// tests that read through this take a link's line for.
+    fn printed(&self, _: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
+        use crate::link::{Printed, Under};
+        match link {
+            Under::Path(_) => Printed::Path,
+            Under::Osc8(_) | Under::Bare(_) => Printed::Link {
+                origin: LinkOrigin(Origin::Local),
+            },
+        }
+    }
+
     fn at(
         &self,
         _: &[Unit],
@@ -2095,6 +2654,10 @@ impl PathsAt for NoPaths {
 impl PathsAt for Paths {
     fn generation(&self) -> Generation {
         self.generation
+    }
+
+    fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
+        Paths::printed(self, term, link)
     }
 
     /// On, both rows of one provenance: written while the same kind of
@@ -2135,6 +2698,7 @@ impl PathsAt for Paths {
             tail: edges.1,
             shown: (0, text.len()),
             lines,
+            points: &[],
             screen,
         };
         if !self.readable(&probe_text, t.form) {
@@ -2233,9 +2797,14 @@ impl Reader for Links<'_> {
         let mut n = 0;
         if self.urls == Turned::On {
             let paths = &*self.paths;
+            // A plain `file://` URI a program not local, or not known,
+            // printed on any of the lines it covers names its machine's
+            // file: unmarked, as its click refuses it
+            // ([`crate::link::admit_link`]).
+            let origin = |lines| paths.bare_origin(lines);
             n += self
                 .uris
-                .read_marking(text, found, &|t| paths.target_mark(t));
+                .read_marking(text, found, &origin, &|t| Some(paths.target_mark(t)));
         }
         if self.paths.reads == Reads::Yes {
             n += self.paths.read(text, found).0;
@@ -2244,11 +2813,15 @@ impl Reader for Links<'_> {
         Looked(n)
     }
 
-    fn marked(&mut self, uri: &[u8], at: At) -> Option<Mark> {
+    fn marked(&mut self, uri: &[u8], at: At<'_>) -> Option<Mark> {
         if self.urls != Turned::On {
             return None;
         }
-        let t = admit_with(uri, Host(self.uris.host()), self.uris.rules()).ok()?;
+        // A `file://` link a program not local, or not known, printed on any
+        // row its slot is shown on, or a read that opened it wrote, names its
+        // machine's file: unmarked, as its click refuses it.
+        let origin = self.paths.link_origin(at.id(), uri, at.rows());
+        let t = admit_link(uri, Host(self.uris.host()), self.uris.rules(), origin).ok()?;
         Some(match t.scheme() {
             Scheme::File => self.paths.file_link(uri, at),
             _ => self.paths.target_mark(&t),
@@ -2319,6 +2892,7 @@ mod tests {
         feed(&mut t, bytes);
         let mut p = Paths::new(Some(b"/home/user".to_vec()), Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let _ = p.observe(&t, at());
         p.begin_collect();
@@ -2568,6 +3142,7 @@ mod tests {
         feed(&mut t, b"/a /a /b\r\n");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let _ = l.scan(
             &t,
@@ -2652,6 +3227,7 @@ mod tests {
         feed(&mut t, b"./early\r\n\x1b]7;file://here.example/w\x07");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let _ = p.observe(&t, at());
         feed(&mut t, b"./late\r\n");
         let (mut l, mut u) = (Lines::default(), Uris::default());
@@ -2687,19 +3263,25 @@ mod tests {
         assert!(ask(&mut p, &t).is_empty(), "another machine's");
     }
 
-    /// **Rows written while a program not known to be local was in front get
-    /// no mark after it ends, and a multiplexer takes only `./`.**
-    /// Perturbation: clear `elsewhere_through` when the front comes back
-    /// local; read `./` under a multiplexer.
+    /// **Rows a program not known to be local wrote get no mark, after it
+    /// ends too, and rows a multiplexer wrote take only `./` away.** The row
+    /// filed as the worker files the groups seen at its reads. Named breaks:
+    /// drop the span when the front comes back local; read `./` on a row a
+    /// multiplexer wrote.
     #[test]
     fn rows_from_ssh_keep_no_mark_after_it_ends() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"\x1b]7;file://here.example/w\x07");
-        let mut p = Paths::new(None, Forms::DEFAULT);
-        p.set(Turned::On);
-        p.set_names(vec!["here.example".to_string()]);
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let fresh = || {
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.all_written_here();
+            p.set_names(vec!["here.example".to_string()]);
+            p
+        };
+        let mut p = fresh();
         let _ = p.observe(&t, at());
         feed(&mut t, b"/etc/hosts ./x\r\n");
         let (mut l, mut u) = (Lines::default(), Uris::default());
@@ -2721,12 +3303,16 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(ask(&mut p).len(), 2, "the control: both");
+        p.written_under(Seen::Named(Front::Multiplexer), LineSpan::of(first, first));
         p.set_front(Front::Multiplexer, first.below());
         assert_eq!(
             ask(&mut p),
             [b"/etc/hosts".to_vec()],
             "a multiplexer: no ./"
         );
+        let mut p = fresh();
+        let _ = p.observe(&t, at());
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, first));
         p.set_front(Front::Elsewhere, first.below());
         assert!(ask(&mut p).is_empty(), "ssh in front: nothing");
         p.set_front(Front::Local, first.below());
@@ -2745,6 +3331,7 @@ mod tests {
         feed(&mut t, b"/// a comment\r\nx /etc/hosts\r\n");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let mut scan = |p: &mut Paths, l: &mut Lines| {
             l.scan(
@@ -2788,6 +3375,7 @@ mod tests {
         assert_eq!(p.result(b"/etc/hosts"), None);
         assert!(!p.wants(u64::from(b'/').to_be_bytes()));
         p.set(Turned::On);
+        p.all_written_here();
         p.close();
         p.set(Turned::On);
         assert_eq!(p.marks(), Marks::Closed);
@@ -2817,6 +3405,7 @@ mod tests {
         assert_eq!(read(0), None, "no path there");
         let mut q = Paths::new(None, Forms::DEFAULT);
         q.set(Turned::On);
+        q.all_written_here();
         assert_eq!(
             q.at(
                 &u,
@@ -2870,6 +3459,7 @@ mod tests {
         feed(&mut t, text);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
         let _ = l.scan(
@@ -2991,6 +3581,7 @@ mod tests {
         feed(&mut t, b"/etc/hosts https://a.example/");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
         let _ = l.scan(
@@ -3036,6 +3627,7 @@ mod tests {
         assert!(!before.is_empty(), "the control: the query answers");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         p.begin_collect();
         let _ = l.scan(
@@ -3099,6 +3691,7 @@ mod tests {
         feed(&mut t, bytes);
         let mut p = Paths::new(Some(b"/home/user".to_vec()), Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         p.set_names(vec![HERE.to_string()]);
         set(&mut p);
         let mut u = Uris::default();
@@ -3143,6 +3736,7 @@ mod tests {
         feed(&mut t, b"/etc/hosts /etc/passwd\r\n");
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         let (mut l, mut u) = (Lines::default(), Uris::default());
         let _ = p.observe(&t, at());
         let asked = collect(&t, &mut p, &mut l, &mut u);
@@ -3317,7 +3911,9 @@ mod tests {
         let none = rule("");
         let mut came = Vec::new();
         for (name, rules) in [("copy", &copy), ("command", &command)] {
-            let t = crate::link::admit_with(uri, Host(HERE), rules).expect("the rule's");
+            let t =
+                crate::link::admit_link(uri, Host(HERE), rules, LinkOrigin::given(Origin::Local))
+                    .expect("the rule's");
             for (state, again) in [("missing", Probe::Missing), ("back", Probe::Exists)] {
                 came.push((name, state, click_came(&t, &p, again, rules)));
             }
@@ -3332,7 +3928,9 @@ mod tests {
             ],
             "each case runs its rule"
         );
-        let plain = crate::link::admit_with(uri, Host(HERE), &none).expect("admitted");
+        let plain =
+            crate::link::admit_link(uri, Host(HERE), &none, LinkOrigin::given(Origin::Local))
+                .expect("admitted");
         assert_eq!(
             click_came(&plain, &p, Probe::Missing, &none),
             Came::SaidGone
@@ -3347,6 +3945,10 @@ mod tests {
     impl PathsAt for AllGone {
         fn generation(&self) -> Generation {
             Generation::default()
+        }
+
+        fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
+            NoPaths.printed(term, link)
         }
 
         fn at(
@@ -3502,6 +4104,7 @@ mod tests {
         feed(&mut t, text.as_bytes());
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         p.set_names(vec![HERE.to_string()]);
         let mut u = Uris::default();
         u.set_host(HERE.to_string());
@@ -3633,8 +4236,9 @@ mod tests {
                 col: Col::at_index(1),
             };
             let link = hovered(&t, spot).expect("the link");
-            let bar =
-                preview_text_with(&link, &t, Host(HERE), Cols::of_index(58), &p).expect("a bar");
+            let printed = p.printed(&t, &link);
+            let bar = preview_text_with(&link, &t, Host(HERE), Cols::of_index(58), &p, printed)
+                .expect("a bar");
             assert!(bar.contains(&format!("no such file on {MACHINE}")), "{bar}");
             assert!(
                 h.look().is_some_and(|l| l.spans.is_empty()),
@@ -3665,6 +4269,7 @@ mod tests {
         let cells = t.view(Rows::ZERO).row(baud_domain::Row::ZERO).to_vec();
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         p.set_names(vec![HERE.to_string()]);
         let mut u = Uris::default();
         u.set_host(HERE.to_string());
@@ -3906,7 +4511,13 @@ mod tests {
             Mark::Struck,
             "the control: no browser, struck"
         );
-        let copied = crate::link::admit_with(uri, Host(""), &c.link.rules).expect("the rule's");
+        let copied = crate::link::admit_link(
+            uri,
+            Host(""),
+            &c.link.rules,
+            LinkOrigin::given(Origin::Local),
+        )
+        .expect("the rule's");
         assert_eq!(copied.action(), crate::link::Action::Copy);
         assert_eq!(p.target_mark(&copied), Mark::Line, "a copy: a line");
         assert_eq!(
@@ -3938,8 +4549,13 @@ mod tests {
             p.set(Turned::On);
             p.set_rules(c.link.rules.clone());
             let gone = Program::Command("/no/such/dialer".to_owned());
-            let t = crate::link::admit_with(b"tel:+15550100", Host(""), &c.link.rules)
-                .expect("the rule's");
+            let t = crate::link::admit_link(
+                b"tel:+15550100",
+                Host(""),
+                &c.link.rules,
+                LinkOrigin::given(Origin::Local),
+            )
+            .expect("the rule's");
             assert_eq!(PathsAt::gone(&p, &t), None, "the control: not asked yet");
             let _ = p.set_programs(vec![(gone.clone(), Handler::Missing)]);
             let g = PathsAt::gone(&p, &t).expect("gone");
@@ -3968,6 +4584,7 @@ mod tests {
         feed(&mut t, text.as_bytes());
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
+        p.all_written_here();
         p.set_names(vec![HERE.to_string()]);
         let mut u = Uris::default();
         u.set_host(HERE.to_string());
@@ -4087,14 +4704,19 @@ mod tests {
     }
 
     /// The click both drivers make on an `OSC 8` link at `line`:
-    /// `link::admit_printed` with the line's origin, then `link::click`.
+    /// `link::admit_link` with the line's origin, then `link::click`.
     fn clicked_at(
         uri: &[u8],
         p: &Paths,
         line: AbsLine,
     ) -> Result<crate::link::Click, crate::link::Refused> {
-        crate::link::admit_printed(uri, Host(HERE), p.rules(), Some(p.origin(line)))
-            .map(|t| crate::link::click(&t, p))
+        crate::link::admit_link(
+            uri,
+            Host(HERE),
+            p.rules(),
+            LinkOrigin::given(p.origin(line)),
+        )
+        .map(|t| crate::link::click(&t, p))
     }
 
     /// The URI of the `OSC 8` link at `row`'s second cell.
@@ -4139,14 +4761,17 @@ mod tests {
                 let uri = format!("file://{h}/etc/hosts");
                 feed(&mut t, marked(&uri, "hosts").as_bytes());
                 // Named as the worker names the read's group.
-                p.written_under(front, LineSpan::of(line, line));
+                p.written_under(Seen::Named(front), LineSpan::of(line, line));
                 p.set_front(front, line);
                 let read = link_at(&t, baud_domain::Row::ZERO);
                 assert_eq!(read, uri.as_bytes(), "the bytes the core kept");
                 let in_front = clicked_at(&read, &p, line);
                 // It ends: the shell is in front again, and the link is
                 // clicked from what it printed.
-                p.written_under(Front::Local, LineSpan::of(line.below(), line.below()));
+                p.written_under(
+                    Seen::Named(Front::Local),
+                    LineSpan::of(line.below(), line.below()),
+                );
                 p.set_front(Front::Local, line.below());
                 let after = clicked_at(&read, &p, line);
                 let want = match (h, front) {
@@ -4161,6 +4786,411 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **DT-L1: what a link read off the screen looks like agrees with what
+    /// a click on it does, for every URI form and every origin**: over hosts
+    /// {empty, `localhost`, this machine} x the origin of the program that
+    /// printed it {local, remote, not named} x its form {marked with `OSC 8`,
+    /// written as plain text}, its mark at rest (`Links::marked`, or the
+    /// scan's line for the plain one), the preview's verdict
+    /// (`link::preview_text_with` with `Paths::printed`, which hover's hand
+    /// pointer reads) and the click (`link::click_on`, both drivers' one
+    /// decision) agree: a link a click refuses draws no line and the
+    /// preview says it won't open. The click opens only on a local line.
+    /// Named breaks: the mark at rest judged without the line's origin
+    /// (`Links::marked`) -- the remote `OSC 8` link draws a line; the plain
+    /// URI's mark without it (`Links::read`) -- the remote plain one does.
+    #[test]
+    fn a_links_look_agrees_with_its_click_for_every_form_and_origin() {
+        use crate::lined::Mark;
+        let hosts = ["", "localhost", HERE];
+        let origins = [
+            (Origin::Local, Some(Seen::Named(Front::Local))),
+            (Origin::Remote, Some(Seen::Named(Front::Elsewhere))),
+            (Origin::Unknown, Some(Seen::NotNamed)),
+        ];
+        for h in hosts {
+            for (origin, seen) in origins {
+                for osc8 in [true, false] {
+                    let mut owned = Owned::new(&WS);
+                    let mut t = Term::new(owned.storage(), &WS);
+                    let mut p = Paths::new(None, Forms::DEFAULT);
+                    p.set(Turned::On);
+                    p.set_names(vec![HERE.to_string()]);
+                    let mut uris = crate::lined::Uris::default();
+                    uris.set_host(HERE.to_string());
+                    let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+                    let uri = format!("file://{h}/etc/hosts");
+                    let text = match osc8 {
+                        true => format!(" {}", marked(&uri, "hosts")),
+                        false => format!(" {uri}"),
+                    };
+                    feed(&mut t, text.as_bytes());
+                    if let Some(seen) = seen {
+                        p.written_under(seen, LineSpan::of(line, line));
+                    }
+                    let spot = crate::link::Spot {
+                        scrolled: at(),
+                        back: Rows::ZERO,
+                        row: baud_domain::Row::ZERO,
+                        col: baud_domain::Col::at_index(1),
+                    };
+                    let under = crate::link::hovered(&t, spot).expect("the link");
+                    let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+                    // The look at rest, as the scan draws it, for either form.
+                    let mark = {
+                        let mut l = Lines::default();
+                        let _ = l.scan(
+                            &t,
+                            at(),
+                            &mut Links {
+                                uris: &mut uris,
+                                urls: Turned::On,
+                                paths: &mut p,
+                            },
+                        );
+                        (!l.lines().is_empty()).then_some(Mark::Line)
+                    };
+                    let preview = crate::link::preview_text_with(
+                        &under,
+                        &t,
+                        Host(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &p,
+                        p.printed(&t, &under),
+                    )
+                    .expect("a preview");
+                    let opens = click.is_ok();
+                    let what = format!(
+                        "{h:?}, {origin:?}, OSC 8 {osc8}: click {click:?}, mark {mark:?}, \
+                         preview {preview:?}"
+                    );
+                    assert_eq!(
+                        (mark == Some(Mark::Line), !preview.starts_with("Won't open")),
+                        (opens, opens),
+                        "{what}"
+                    );
+                    assert_eq!(opens, origin == Origin::Local, "{what}");
+                }
+            }
+        }
+    }
+
+    /// **B1: a link over two rows looks as its click acts on each row**: an
+    /// `OSC 8` link and a plain `file://` URI, each wrapped from a row a
+    /// local program wrote onto a row nothing was filed over, or one a
+    /// writer gone before it was named wrote, draw no line on either row,
+    /// say they won't open in the preview, and are refused by a click on
+    /// either row, since a link is judged over every row it covers. The
+    /// control: both rows local, lit and opened on both. Named breaks:
+    /// judge an `OSC 8` link over the row read alone -- its first row
+    /// lights while its click refuses; judge a bare URI's click by the row
+    /// clicked (`Bare::lines` of one row) -- the first row's click opens
+    /// while nothing lights.
+    #[test]
+    fn a_link_over_two_rows_looks_as_its_click_acts_on_each() {
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let second = first.below();
+        for osc8 in [true, false] {
+            for (case, below) in [
+                ("not filed", None),
+                ("not named", Some(Seen::NotNamed)),
+                ("the control", Some(Seen::Named(Front::Local))),
+            ] {
+                let mut owned = Owned::new(&WS);
+                let mut t = Term::new(owned.storage(), &WS);
+                let mut p = Paths::new(None, Forms::DEFAULT);
+                p.set(Turned::On);
+                p.set_names(vec![HERE.to_string()]);
+                let mut uris = crate::lined::Uris::default();
+                uris.set_host(HERE.to_string());
+                let text = match osc8 {
+                    true => format!(
+                        "{}{}",
+                        " ".repeat(54),
+                        marked("file:///etc/hosts", "abcdefghij")
+                    ),
+                    false => format!("{}file:///etc/hosts", " ".repeat(50)),
+                };
+                feed(&mut t, text.as_bytes());
+                p.written_under(Seen::Named(Front::Local), LineSpan::of(first, first));
+                if let Some(seen) = below {
+                    p.written_under(seen, LineSpan::of(second, second));
+                }
+                let mut l = Lines::default();
+                let _ = l.scan(
+                    &t,
+                    at(),
+                    &mut Links {
+                        uris: &mut uris,
+                        urls: Turned::On,
+                        paths: &mut p,
+                    },
+                );
+                let lit = runs(&l);
+                for (row, col) in [(0, 56), (1, 1)] {
+                    let spot = crate::link::Spot {
+                        scrolled: at(),
+                        back: Rows::ZERO,
+                        row: baud_domain::Row::from_index(row),
+                        col: baud_domain::Col::at_index(col),
+                    };
+                    let under = crate::link::hovered(&t, spot).expect("the link");
+                    let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+                    let preview = crate::link::preview_text_with(
+                        &under,
+                        &t,
+                        Host(HERE),
+                        baud_domain::Cols::of_index(120),
+                        &p,
+                        p.printed(&t, &under),
+                    )
+                    .expect("a preview");
+                    let shows = lit.iter().any(|r| r.0 == row);
+                    let what = format!(
+                        "OSC 8 {osc8}, {case}, row {row}: lit {lit:?}, click {click:?}, \
+                         preview {preview:?}"
+                    );
+                    assert_eq!(
+                        (shows, !preview.starts_with("Won't open")),
+                        (click.is_ok(), click.is_ok()),
+                        "{what}"
+                    );
+                    assert_eq!(click.is_ok(), case == "the control", "{what}");
+                }
+            }
+        }
+    }
+
+    /// The look at rest, the preview and the click of the link at `(row,
+    /// col)`, as `p` judges them: whether its row draws a line, and whether
+    /// the preview and the click open it.
+    fn look_preview_click(
+        t: &Term<'_>,
+        p: &mut Paths,
+        uris: &mut crate::lined::Uris,
+        (row, col): (usize, usize),
+    ) -> (bool, bool, bool) {
+        let mut l = Lines::default();
+        let _ = l.scan(
+            t,
+            at(),
+            &mut Links {
+                uris,
+                urls: Turned::On,
+                paths: p,
+            },
+        );
+        let lit = runs(&l);
+        let spot = crate::link::Spot {
+            scrolled: at(),
+            back: Rows::ZERO,
+            row: baud_domain::Row::from_index(row),
+            col: baud_domain::Col::at_index(col),
+        };
+        let under = crate::link::hovered(t, spot).expect("the link");
+        let click = crate::link::clicked(&under, t, Host(HERE), p.rules(), &*p);
+        let preview = crate::link::preview_text_with(
+            &under,
+            t,
+            Host(HERE),
+            baud_domain::Cols::of_index(120),
+            &*p,
+            p.printed(t, &under),
+        )
+        .expect("a preview");
+        (
+            lit.iter().any(|r| r.0 == row),
+            !preview.starts_with("Won't open"),
+            click.is_ok(),
+        )
+    }
+
+    /// **B1: one `OSC 8` slot shown on two runs gives one answer from
+    /// either**: two links with no `id` and one target share a slot, the
+    /// first on row 0, which a local program wrote, the second on row 2,
+    /// past a plain row, which a writer not named, or a remote one, wrote.
+    /// Neither row draws a line, the preview on either says it won't open,
+    /// and a click on either is refused: the slot is judged over every row
+    /// in view holding it, the cells its look draws. The control: row 2
+    /// local too, both lit and opened. Named break: judge the slot over the
+    /// row read alone -- row 0 lights and opens while row 2 does neither.
+    #[test]
+    fn one_slot_on_two_runs_gives_one_answer_from_either() {
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let (plain, third) = (first.below(), first.below().below());
+        for (case, seen) in [
+            ("not named", Seen::NotNamed),
+            ("remote", Seen::Named(Front::Elsewhere)),
+            ("the control", Seen::Named(Front::Local)),
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_names(vec![HERE.to_string()]);
+            let mut uris = crate::lined::Uris::default();
+            uris.set_host(HERE.to_string());
+            let uri = "file:///etc/hosts";
+            let text = format!("{}\r\nplain\r\n{}", marked(uri, "aaa"), marked(uri, "bbb"));
+            feed(&mut t, text.as_bytes());
+            p.written_under(Seen::Named(Front::Local), LineSpan::of(first, plain));
+            p.written_under(seen, LineSpan::of(third, third));
+            let from_first = look_preview_click(&t, &mut p, &mut uris, (0, 1));
+            let from_third = look_preview_click(&t, &mut p, &mut uris, (2, 1));
+            let opens = case == "the control";
+            assert_eq!(from_first, (opens, opens, opens), "{case}: row 0");
+            assert_eq!(from_third, (opens, opens, opens), "{case}: row 2");
+        }
+    }
+
+    /// **A slot no row in view shows, and no read filed against, is not
+    /// known**: no row vouches for it. The control: one local row shows
+    /// it, and it is local. Named break: fold the rows from local -- no
+    /// rows read as local.
+    #[test]
+    fn a_slot_no_row_shows_is_not_known() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        let (id, uri) = (LinkId::from_index(1), b"file:///etc/hosts".as_slice());
+        assert_eq!(p.link_origin(id, uri, &[]).origin(), Origin::Unknown);
+        let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(line, line));
+        assert_eq!(p.link_origin(id, uri, &[line]).origin(), Origin::Local);
+    }
+
+    /// Whether `row` draws a line once `l`, kept from scan to scan, scans
+    /// the window numbered by `scrolled`, and whether a click at `(row,
+    /// col)` opens the link there.
+    fn look_click_kept(
+        l: &mut Lines,
+        t: &Term<'_>,
+        p: &mut Paths,
+        uris: &mut crate::lined::Uris,
+        scrolled: Scrolled,
+        (row, col): (usize, usize),
+    ) -> (bool, bool) {
+        let _ = l.scan(
+            t,
+            scrolled,
+            &mut Links {
+                uris,
+                urls: Turned::On,
+                paths: p,
+            },
+        );
+        let spot = crate::link::Spot {
+            scrolled,
+            back: Rows::ZERO,
+            row: baud_domain::Row::from_index(row),
+            col: baud_domain::Col::at_index(col),
+        };
+        let under = crate::link::hovered(t, spot).expect("the link");
+        let click = crate::link::clicked(&under, t, Host(HERE), p.rules(), &*p);
+        (runs(l).iter().any(|r| r.0 == row), click.is_ok())
+    }
+
+    /// **One slot keeps one look as the rows showing it change, from scan
+    /// to scan of one window**: two links with no `id` and one target share
+    /// a slot. A local program's on row 0, above two plain rows, lights;
+    /// then a remote program's on row 3 joins the slot, and row 0, its
+    /// cells and the row below it unchanged, goes dark as its click is
+    /// refused. The other way: the local link on row 0 and
+    /// the remote one on row 2 are dark; then the remote row is erased, or
+    /// leaves the window as the screen scrolls, and the local row, unchanged,
+    /// lights as its click opens. Named break: read again only the rows
+    /// whose cells changed (no `note_slots`) -- the kept row keeps its old
+    /// look.
+    #[test]
+    fn one_slot_keeps_one_look_as_its_rows_change() {
+        let uri = "file:///etc/hosts";
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let third = first.below().below();
+        let fourth = third.below();
+        let start = || {
+            let owned = Owned::new(&WS);
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_names(vec![HERE.to_string()]);
+            let mut uris = crate::lined::Uris::default();
+            uris.set_host(HERE.to_string());
+            (owned, p, uris, Lines::default())
+        };
+        // A remote row joins the slot.
+        let (mut owned, mut p, mut uris, mut l) = start();
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(
+            &mut t,
+            format!("{}\r\nplain\r\nplain", marked(uri, "aaa")).as_bytes(),
+        );
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(first, third));
+        let lit = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (0, 1));
+        assert_eq!(lit, (true, true), "the local link alone");
+        feed(&mut t, format!("\r\n{}", marked(uri, "bbb")).as_bytes());
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(fourth, fourth));
+        let joined = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (0, 1));
+        assert_eq!(joined, (false, false), "a remote row joined the slot");
+        // The remote row leaves, erased or scrolled out of the window.
+        for leaves in ["erased", "scrolled out"] {
+            let (mut owned, mut p, mut uris, mut l) = start();
+            let mut t = Term::new(owned.storage(), &WS);
+            let (remote, local) = match leaves {
+                "erased" => (third, first),
+                _ => (first, third),
+            };
+            let text = format!("{}\r\nplain\r\n{}", marked(uri, "aaa"), marked(uri, "bbb"));
+            feed(&mut t, text.as_bytes());
+            p.written_under(Seen::Named(Front::Local), LineSpan::of(first, third));
+            p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(remote, remote));
+            let row = |line: AbsLine| match line == first {
+                true => 0,
+                false => 2,
+            };
+            let dark = look_click_kept(&mut l, &t, &mut p, &mut uris, at(), (row(local), 1));
+            assert_eq!(dark, (false, false), "{leaves}: both rows shown");
+            let (scrolled, row) = match leaves {
+                "erased" => {
+                    feed(&mut t, b"\x1b[3;1H\x1b[2Kplain");
+                    (at(), 0)
+                }
+                _ => {
+                    feed(&mut t, b"\r\n\r\n\r\n\r\n");
+                    (at().advanced(Rows::of_count(1)), 1)
+                }
+            };
+            let after = look_click_kept(&mut l, &t, &mut p, &mut uris, scrolled, (row, 1));
+            assert_eq!(after, (true, true), "{leaves}: the local row alone");
+        }
+    }
+
+    /// **B1: a URI read from the text is judged over its own rows**: a
+    /// plain `file://` URI on row 1 of a line wrapped from row 0, which a
+    /// remote program wrote, while a local one wrote row 1, lights and
+    /// opens: the remote row is the line's, not the URI's. Named break:
+    /// judge a URI over its whole logical line (`Text::lines_of` returning
+    /// the line's) -- it goes dark and its preview refuses.
+    #[test]
+    fn a_uri_on_the_local_rows_of_a_line_with_a_remote_row_opens() {
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        let mut uris = crate::lined::Uris::default();
+        uris.set_host(HERE.to_string());
+        let text = format!("{} file:///etc/hosts", "r".repeat(59));
+        feed(&mut t, text.as_bytes());
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, first));
+        p.written_under(
+            Seen::Named(Front::Local),
+            LineSpan::of(first.below(), first.below()),
+        );
+        assert_eq!(
+            look_preview_click(&t, &mut p, &mut uris, (1, 3)),
+            (true, true, true),
+            "lit, previewed and opened"
+        );
     }
 
     /// **A real `ssh` session's file links are its machine's**: the bytes
@@ -4181,7 +5211,7 @@ mod tests {
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
-        p.written_under(Front::Elsewhere, LineSpan::of(first, last));
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, last));
         p.set_front(Front::Elsewhere, last);
         let want = [
             ("file:///etc/passwd", Refused::Remote),
@@ -4193,7 +5223,7 @@ mod tests {
         for ended in [false, true] {
             if ended {
                 // It ends: the shell is in front again.
-                p.written_under(Front::Local, LineSpan::of(after, after));
+                p.written_under(Seen::Named(Front::Local), LineSpan::of(after, after));
                 p.set_front(Front::Local, after);
             }
             for (row, (uri, why)) in want.into_iter().enumerate() {
@@ -4211,8 +5241,8 @@ mod tests {
 
     /// The click both drivers make on the link under `row`'s second cell,
     /// marked or read from the text: its URI read back from the cells, then
-    /// `link::admit_printed` with [`Paths::printed_origin`], then
-    /// `link::click`.
+    /// `link::click_on`, with the origin of the rows it covers
+    /// ([`PathsAt::printed`]), then `link::click`.
     fn clicked_under(
         t: &Term<'_>,
         p: &Paths,
@@ -4231,10 +5261,7 @@ mod tests {
             Under::Bare(b) => b.uri().expect("its URI").to_vec(),
             Under::Path(_) => panic!("{row:?}: a path, not a link"),
         };
-        let line = at().line(Rows::ZERO, row);
-        let clicked =
-            crate::link::admit_printed(&uri, Host(HERE), p.rules(), p.printed_origin(&under, line))
-                .map(|target| crate::link::click(&target, p));
+        let clicked = crate::link::clicked(&under, t, Host(HERE), p.rules(), p);
         (uri, clicked)
     }
 
@@ -4243,7 +5270,7 @@ mod tests {
     /// `ssh` wrote, read from the text of the cells, is refused while `ssh`
     /// is in front and after it ends; on a line the shell wrote it is
     /// revealed, the control. Named break: give a link read from the text
-    /// no origin in `printed_origin` -- the remote line's is revealed.
+    /// no origin in `PathsAt::printed` -- the remote line's is revealed.
     #[test]
     fn a_plain_file_uri_printed_under_ssh_is_refused_here() {
         use crate::link::{Click, Refused};
@@ -4255,11 +5282,14 @@ mod tests {
             p.set_names(vec![HERE.to_string()]);
             let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
             feed(&mut t, b"file://localhost/etc/passwd\r\n");
-            p.written_under(front, LineSpan::of(line, line));
+            p.written_under(Seen::Named(front), LineSpan::of(line, line));
             p.set_front(front, line);
             let (uri, in_front) = clicked_under(&t, &p, baud_domain::Row::ZERO);
             assert_eq!(uri, b"file://localhost/etc/passwd", "read from the text");
-            p.written_under(Front::Local, LineSpan::of(line.below(), line.below()));
+            p.written_under(
+                Seen::Named(Front::Local),
+                LineSpan::of(line.below(), line.below()),
+            );
             p.set_front(Front::Local, line.below());
             let (_, after) = clicked_under(&t, &p, baud_domain::Row::ZERO);
             (in_front, after)
@@ -4286,7 +5316,7 @@ mod tests {
     /// is back. A plain one answers exactly as the marked one on the same
     /// row, and neither reaches a reveal or a window from a line `ssh`
     /// wrote. Named break: give a link read from the text no origin in
-    /// `printed_origin` -- a plain link from `ssh` reveals, or opens its
+    /// `PathsAt::printed` -- a plain link from `ssh` reveals, or opens its
     /// window. The rule is read under a `PATH` holding a stand-in `hx`, so
     /// the test holds whether or not helix is installed.
     #[test]
@@ -4330,7 +5360,7 @@ mod tests {
                     );
                     let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
                     let second = first.below();
-                    p.written_under(front, LineSpan::of(first, second));
+                    p.written_under(Seen::Named(front), LineSpan::of(first, second));
                     p.set_front(front, second);
                     let click = |p: &Paths| {
                         let (m, marked) = clicked_under(&t, p, baud_domain::Row::ZERO);
@@ -4343,7 +5373,7 @@ mod tests {
                     };
                     let in_front = click(&p);
                     let back = second.below();
-                    p.written_under(Front::Local, LineSpan::of(back, back));
+                    p.written_under(Seen::Named(Front::Local), LineSpan::of(back, back));
                     p.set_front(Front::Local, back);
                     let after = click(&p);
                     let opened = match rules {
@@ -4366,7 +5396,7 @@ mod tests {
     /// **A `file://` URI printed as plain text on a line no program has been
     /// named for yet is refused until it is, then revealed**, as a marked
     /// one is. Named break: give a link read from the text no origin in
-    /// `printed_origin` -- it is revealed before its line is named.
+    /// `PathsAt::printed` -- it is revealed before its line is named.
     #[test]
     fn a_plain_file_uri_on_an_unnamed_line_waits_for_its_name() {
         use crate::link::{Click, Refused};
@@ -4378,7 +5408,7 @@ mod tests {
         let (_, unnamed) = clicked_under(&t, &p, baud_domain::Row::ZERO);
         assert_eq!(unnamed, Err(Refused::Unnamed), "no program named yet");
         let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
-        p.written_under(Front::Local, LineSpan::of(line, line));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(line, line));
         let (_, named) = clicked_under(&t, &p, baud_domain::Row::ZERO);
         assert_eq!(named, Ok(Click::Reveal), "named the shell's");
     }
@@ -4390,7 +5420,7 @@ mod tests {
     /// three naming this machine are refused on a click, with `ssh` in front
     /// and after it ends, and the remote's own host is refused as any other
     /// host is. Named break: give a link read from the text no origin in
-    /// `printed_origin` -- the three are revealed.
+    /// `PathsAt::printed` -- the three are revealed.
     #[test]
     fn a_real_ssh_sessions_plain_file_uris_are_its_machines() {
         use crate::link::Refused;
@@ -4403,7 +5433,7 @@ mod tests {
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
-        p.written_under(Front::Elsewhere, LineSpan::of(first, last));
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, last));
         p.set_front(Front::Elsewhere, last);
         let want = [
             ("file:///etc/passwd", Refused::Remote),
@@ -4414,7 +5444,7 @@ mod tests {
         let after = last.below();
         for ended in [false, true] {
             if ended {
-                p.written_under(Front::Local, LineSpan::of(after, after));
+                p.written_under(Seen::Named(Front::Local), LineSpan::of(after, after));
                 p.set_front(Front::Local, after);
             }
             for (row, (uri, why)) in want.into_iter().enumerate() {
@@ -4446,12 +5476,12 @@ mod tests {
             marked("file://here.example/etc/hosts", "hosts").as_bytes(),
         );
         feed(&mut t, b"\r\n");
-        p.written_under(Front::Local, LineSpan::of(l0, l0));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l0, l0));
         feed(
             &mut t,
             marked("file://localhost/etc/hosts", "hosts").as_bytes(),
         );
-        p.written_under(Front::Elsewhere, LineSpan::of(l1, l1));
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(l1, l1));
         p.set_front(Front::Elsewhere, l1);
         assert_eq!(
             clicked_at(&link_at(&t, baud_domain::Row::ZERO), &p, l0),
@@ -4486,13 +5516,13 @@ mod tests {
         );
         let mut remote = Paths::new(None, Forms::DEFAULT);
         remote.set_names(vec![HERE.to_string()]);
-        p.written_under(Front::Local, LineSpan::of(line, line));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(line, line));
         assert_eq!(
             clicked_at(&read, &p, line),
             Ok(Click::Reveal),
             "named local"
         );
-        remote.written_under(Front::Elsewhere, LineSpan::of(line, line));
+        remote.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(line, line));
         assert_eq!(
             clicked_at(&read, &remote, line),
             Err(Refused::Remote),
@@ -4533,8 +5563,8 @@ mod tests {
             &mut t,
             marked("file://localhost/etc/hosts", "hosts").as_bytes(),
         );
-        p.written_under(Front::Elsewhere, LineSpan::of(l0, l0));
-        p.written_under(Front::Local, LineSpan::of(l1, l1));
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(l0, l0));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l1, l1));
         assert_eq!(
             clicked_at(&link_at(&t, baud_domain::Row::ZERO), &p, l0),
             Err(Refused::Remote),
@@ -4547,6 +5577,192 @@ mod tests {
         );
     }
 
+    /// **A row nothing was filed over is not known, everywhere**: with the
+    /// shell's folder reported and this machine named, a `./` path on a row
+    /// no read filed is asked about by no one and draws no line, and a plain
+    /// `file://` link there is unmarked and its click refused as not named.
+    /// The control: the same row filed as a local program's -- the path is
+    /// asked about and the link draws its line and opens. Named break: read
+    /// no facts as local (`Paths::wrote`).
+    #[test]
+    fn a_row_nothing_was_filed_over_is_not_known() {
+        for filed in [false, true] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(
+                &mut t,
+                b"\x1b]7;file://here.example/home/u\x07./a.txt file:///etc/hosts",
+            );
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_names(vec![HERE.to_string()]);
+            if filed {
+                p.all_written_here();
+            }
+            let mut u = crate::lined::Uris::default();
+            u.set_host(HERE.to_string());
+            let mut l = Lines::default();
+            let _ = p.observe(&t, at());
+            p.begin_collect();
+            let _ = l.scan(
+                &t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: &mut p,
+                },
+            );
+            let asked: Vec<Vec<u8>> = p.end_collect().into_iter().map(|c| c.path).collect();
+            let spot = crate::link::Spot {
+                scrolled: at(),
+                back: Rows::ZERO,
+                row: baud_domain::Row::ZERO,
+                col: baud_domain::Col::at_index(10),
+            };
+            let under = crate::link::hovered(&t, spot).expect("the link");
+            let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+            let path = b"/home/u/a.txt".to_vec();
+            match filed {
+                false => {
+                    assert_eq!(asked, Vec::<Vec<u8>>::new(), "the path asked about");
+                    assert_eq!(runs(&l), [], "no line");
+                    assert_eq!(click, Err(crate::link::Refused::Unnamed), "the click");
+                }
+                true => {
+                    assert_eq!(asked, [path], "the control: the path asked about");
+                    assert_eq!(runs(&l), [(0, 8, 24)], "the control: the link's line");
+                    assert_eq!(
+                        click,
+                        Ok(crate::link::Click::Reveal),
+                        "the control: the click"
+                    );
+                }
+            }
+        }
+    }
+
+    /// One fact filed over lines `a` to `b` of the window, for the property
+    /// below: a writer named local, a multiplexer, remote, one not named,
+    /// or the shell's local command.
+    #[derive(Clone, Copy, Debug)]
+    struct Filing {
+        fact: Fact,
+        first: baud_domain::Row,
+        last: baud_domain::Row,
+    }
+
+    /// The per-line answers of `filings` filed in the order given.
+    fn filed(filings: &[Filing]) -> Vec<Option<Provenance>> {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        let l = |n: usize| at().line(Rows::ZERO, baud_domain::Row::from_index(n));
+        let on = |r| at().line(Rows::ZERO, r);
+        for f in filings {
+            let _ = p.file(f.fact, LineSpan::of(on(f.first), on(f.last)));
+        }
+        (0..8).map(|n| p.wrote(l(n))).collect()
+    }
+
+    /// **R5: what wrote a line is one total function of the facts over it,
+    /// whatever order they came in**: over 20,000 random sequences of up to
+    /// six facts on eight lines -- writers named local, multiplexer and
+    /// remote, writers not named, the shell's local commands -- the answer
+    /// for every line is the same filed in order, reversed and rotated; a
+    /// line any remote writer wrote is remote; a line is local only if no
+    /// writer named over it is other than local and every writer not named
+    /// over it is under the shell's local command; and a line with no fact
+    /// has no answer. Named break: the last writer filed wins -- the orders
+    /// disagree.
+    #[test]
+    fn a_lines_writer_is_one_function_of_its_facts_in_any_order() {
+        let facts = [
+            Fact::Writer(Writer::Local),
+            Fact::Writer(Writer::Multiplexed),
+            Fact::Writer(Writer::Remote),
+            Fact::NotNamed,
+            Fact::Here,
+        ];
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            usize::try_from(seed % u64::try_from(n).expect("small")).expect("small")
+        };
+        for _ in 0..20_000 {
+            let len = 1 + next(6);
+            let filings: Vec<Filing> = (0..len)
+                .map(|_| {
+                    let (a, b) = (next(8), next(8));
+                    Filing {
+                        fact: facts[next(facts.len())],
+                        first: baud_domain::Row::from_index(a.min(b)),
+                        last: baud_domain::Row::from_index(a.max(b)),
+                    }
+                })
+                .collect();
+            let forward = filed(&filings);
+            let back: Vec<Filing> = filings.iter().rev().copied().collect();
+            let mut turned = filings.clone();
+            turned.rotate_left(len / 2);
+            assert_eq!(filed(&back), forward, "reversed: {filings:?}");
+            assert_eq!(filed(&turned), forward, "rotated: {filings:?}");
+            for (n, got) in forward.iter().enumerate() {
+                let over: Vec<Fact> = filings
+                    .iter()
+                    .filter(|f| (f.first.index()..=f.last.index()).contains(&n))
+                    .map(|f| f.fact)
+                    .collect();
+                let has = |f: Fact| over.contains(&f);
+                let what = format!("line {n}: {over:?} gave {got:?}");
+                if has(Fact::Writer(Writer::Remote)) {
+                    assert_eq!(*got, Some(Provenance::Remote), "{what}");
+                }
+                if *got == Some(Provenance::Local) {
+                    assert!(!has(Fact::Writer(Writer::Multiplexed)), "{what}");
+                    assert!(!has(Fact::Writer(Writer::Remote)), "{what}");
+                    assert!(!has(Fact::NotNamed) || has(Fact::Here), "{what}");
+                }
+                let named = has(Fact::Writer(Writer::Local))
+                    || has(Fact::Writer(Writer::Multiplexed))
+                    || has(Fact::Writer(Writer::Remote))
+                    || has(Fact::NotNamed);
+                if !named {
+                    assert_eq!(*got, None, "{what}");
+                }
+            }
+        }
+    }
+
+    /// **A row's facts are found by a binary search, however long the
+    /// session**: with 10,000 runs, writers alternating so none merge, the
+    /// 50 rows of a window are looked up, for their origin and for a link
+    /// read across them, in at most 15 steps a lookup (log2 of
+    /// 10,000 is 13.3), where a walk of every run took 10,000. Named break:
+    /// find the run by walking the list.
+    #[test]
+    fn a_long_sessions_rows_are_looked_up_in_log_steps() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let l = |n: usize| at().line(Rows::ZERO, baud_domain::Row::from_index(n));
+        for n in 0..10_000 {
+            let front = match n % 2 {
+                0 => Front::Local,
+                _ => Front::Elsewhere,
+            };
+            p.written_under(Seen::Named(front), LineSpan::of(l(n), l(n)));
+        }
+        assert_eq!(p.runs.len(), 10_000, "none merged");
+        let before = p.lookups().value();
+        for n in 9_950..10_000 {
+            let _ = p.origin(l(n));
+            let _ = p.origin_over((l(n), l(n)));
+        }
+        let steps = p.lookups().value() - before;
+        assert!(steps <= 2 * 50 * 15, "{steps} steps for 100 lookups");
+        assert!(steps >= 2 * 50, "every lookup counted: {steps}");
+    }
+
     /// **Spans of one origin that touch are one, and a span gone from
     /// history goes**: adjacent local reads merge, a remote one between
     /// stays its own, and trimming at a line drops only what ends above it.
@@ -4555,15 +5771,15 @@ mod tests {
     fn line_spans_merge_and_leave_with_history() {
         let mut p = Paths::new(None, Forms::DEFAULT);
         let l = |n: usize| at().line(Rows::ZERO, baud_domain::Row::from_index(n));
-        p.written_under(Front::Local, LineSpan::of(l(0), l(0)));
-        p.written_under(Front::Local, LineSpan::of(l(1), l(2)));
-        p.written_under(Front::Elsewhere, LineSpan::of(l(3), l(3)));
-        p.written_under(Front::Local, LineSpan::of(l(3), l(3)));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l(0), l(0)));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l(1), l(2)));
+        p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(l(3), l(3)));
+        p.written_under(Seen::Named(Front::Local), LineSpan::of(l(3), l(3)));
         assert_eq!(
-            p.spans.len(),
-            3,
-            "the two local reads merged: {:?}",
-            p.spans
+            p.runs.len(),
+            2,
+            "the two local reads merged, the line both wrote apart: {:?}",
+            p.runs
         );
         assert_eq!(
             p.origin(l(3)),
@@ -4583,12 +5799,14 @@ mod tests {
     };
 
     /// A window of `ws` with `bytes` fed after an `OSC 7` naming this
-    /// machine's folder `/w`, and its paths with `forms`, the report seen.
+    /// machine's folder `/w`, and its paths with `forms`, the report seen,
+    /// every row filed as a local program's.
     fn in_folder<'a>(t: &mut Term<'a>, forms: Forms, bytes: &[u8]) -> Paths {
         feed(t, b"\x1b]7;file://here.example/w\x07");
         let mut p = Paths::new(None, forms);
         p.set(Turned::On);
         p.set_names(vec!["here.example".to_string()]);
+        p.all_written_here();
         let _ = p.observe(t, at());
         feed(t, bytes);
         let _ = p.observe(t, at());
@@ -4743,9 +5961,11 @@ mod tests {
 
     /// **A name is read against the folder it was printed in, and only
     /// there**: printed before the report, none; on the alternate screen,
-    /// against the program's folder ([`ProgramDir`]); under `ssh` and a multiplexer,
-    /// none. Named breaks: read a name on any row (drop `Form::Name` from
-    /// `relative`) -- the row above the report and the multiplexer ask it.
+    /// against the program's folder ([`ProgramDir`]); on the rows `ssh` or a
+    /// multiplexer wrote, none, while the row above them is still read.
+    /// Named breaks: read a name on any row (drop `Form::Name` from
+    /// `relative`) -- the row above the report and the multiplexer's row ask
+    /// it.
     #[test]
     fn a_name_is_read_in_its_folder_and_refused_where_baud_cannot_tell() {
         let (mut l, mut u) = (Lines::default(), Uris::default());
@@ -4770,23 +5990,23 @@ mod tests {
             paths_of(&collect(&t, &mut p, &mut l, &mut u)),
             ["/prog/doc.md"]
         );
-        feed(&mut t, b"\x1b[?1049l");
-        let _ = p.observe(&t, at());
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
-        p.set_front(Front::Multiplexer, first.below().below().below());
-        assert!(
-            collect(&t, &mut p, &mut l, &mut u).is_empty(),
-            "a multiplexer hides the folder"
-        );
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let mut p = in_folder(&mut t, NAMES, b"late.md\r\n");
-        assert_eq!(collect(&t, &mut p, &mut l, &mut u).len(), 1, "the control");
-        p.set_front(Front::Elsewhere, first.below().below());
-        assert!(
-            collect(&t, &mut p, &mut l, &mut u).is_empty(),
-            "ssh: nothing"
-        );
+        for (front, what) in [
+            (Front::Multiplexer, "a multiplexer"),
+            (Front::Elsewhere, "ssh"),
+        ] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut p = in_folder(&mut t, NAMES, b"late.md\r\n");
+            p.set_front(front, first.below());
+            feed(&mut t, b"pane.md\r\n");
+            let _ = p.observe(&t, at());
+            assert_eq!(
+                paths_of(&collect(&t, &mut p, &mut l, &mut u)),
+                ["/w/late.md"],
+                "{what}: its row none, the row above it read"
+            );
+        }
     }
 
     /// **`names = "hover"` draws no line at rest and lights the name under
@@ -4922,6 +6142,7 @@ mod tests {
         let mut p = Paths::new(None, NAMES);
         p.set(Turned::On);
         p.set_names(vec!["here.example".to_string()]);
+        p.all_written_here();
         let _ = p.observe(&t, at);
         for n in 0..6 {
             let nl = if n == 0 { "" } else { "\r\n" };
@@ -5170,6 +6391,7 @@ mod joined_rows {
             let mut t = Term::new(owned.storage(), &ws);
             feed(&mut t, &bytes);
             let (mut p, mut l) = (paths(), Lines::default());
+            p.all_written_here();
             assert_eq!(scan(&t, &mut p, &mut l), want, "{name}: at rest");
             for (row, col) in [(0, 10), (1, 5)] {
                 let (over, chord, opens) =
@@ -5195,6 +6417,7 @@ mod joined_rows {
         }
         feed(&mut t, &bytes);
         let (mut p, mut l) = (paths(), Lines::default());
+        p.all_written_here();
         let rest = scan(&t, &mut p, &mut l);
         assert!(
             rest.iter().all(|r| r.0 == 0),
@@ -5206,6 +6429,41 @@ mod joined_rows {
                 .is_empty(),
             "nor read on under the pointer"
         );
+    }
+
+    /// **One address a program wrote across two reads stays joined**: its
+    /// first row filed by one read and its second by the next, both named
+    /// local, read as one provenance, so the address joins and opens whole.
+    /// The control: the second read's writer not named -- the rows part.
+    /// What joins two rows is each row's origin, a function of the facts
+    /// filed over it, not which read filed it.
+    #[test]
+    fn one_address_across_two_reads_stays_joined() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let whole: &[u8] = b"https://example.com/a/very/long/path/to/some/resource/index.html";
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        feed(&mut t, &pane(URL, Cols::of_index(40)));
+        for (second, joined) in [(Seen::Named(Front::Local), true), (Seen::NotNamed, false)] {
+            let (mut p, mut l) = (paths(), Lines::default());
+            p.written_under(
+                Seen::Named(Front::Local),
+                LineSpan::of(line(Row::ZERO), line(Row::ZERO)),
+            );
+            p.written_under(
+                second,
+                LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
+            );
+            let opens = pointed(&t, &p, (Row::from_index(1), Col::at_index(5))).2;
+            let _ = scan(&t, &mut p, &mut l);
+            match joined {
+                true => assert_eq!(opens.as_deref(), Some(whole), "one program's"),
+                false => assert_ne!(opens.as_deref(), Some(whole), "the control"),
+            }
+        }
     }
 
     /// **Rows of another provenance never join, and `join_rows = "off"`
@@ -5232,11 +6490,11 @@ mod joined_rows {
         // Another provenance: apart.
         let (mut p, mut l) = (paths(), Lines::default());
         p.written_under(
-            Front::Elsewhere,
+            Seen::Named(Front::Elsewhere),
             LineSpan::of(line(Row::ZERO), line(Row::ZERO)),
         );
         p.written_under(
-            Front::Local,
+            Seen::Named(Front::Local),
             LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
         );
         assert_eq!(scan(&t, &mut p, &mut l), [], "remote above local: cut");
@@ -5249,7 +6507,7 @@ mod joined_rows {
         // One provenance: joined.
         let (mut p, mut l) = (paths(), Lines::default());
         p.written_under(
-            Front::Local,
+            Seen::Named(Front::Local),
             LineSpan::of(line(Row::ZERO), line(Row::from_index(1))),
         );
         assert_eq!(scan(&t, &mut p, &mut l), both, "both local");
@@ -5263,7 +6521,7 @@ mod joined_rows {
         let (mut p, mut l) = (paths(), Lines::default());
         assert_eq!(scan(&t, &mut p, &mut l), both, "neither named yet");
         p.written_under(
-            Front::Elsewhere,
+            Seen::Named(Front::Elsewhere),
             LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
         );
         assert_eq!(scan(&t, &mut p, &mut l), [], "the lower row named remote");
@@ -5386,13 +6644,11 @@ mod joined_rows {
             Some(vec![(0, 4, 39), (1, 0, 27)]),
             "neither named: joined"
         );
-        // Named local, which moves no answer: only the provenance tells.
-        let g = p.generation();
+        // Row 1 named local, row 0 still not: their origins part them.
         p.written_under(
-            Front::Local,
+            Seen::Named(Front::Local),
             LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
         );
-        assert_eq!(p.generation(), g, "the control: no answer moved");
         let moved = h.refresh_with(&t, at(), Chord::Other, Focus::Gained, Host(""), &p);
         assert!(moved, "read again");
         assert_eq!(h.over(), None, "parted: the cut address has no look");
@@ -5510,6 +6766,7 @@ mod joined_rows {
                             feed(&mut t, &bytes);
                             let want: Vec<_> = (x0..x0 + n).map(|i| (i / w, i % w)).collect();
                             let (mut p, mut l) = (paths(), Lines::default());
+                            p.all_written_here();
                             let case = format!("kind {kind} {writer:?} w{w} n{n} x{x0}");
                             assert_eq!(expand(&scan(&t, &mut p, &mut l)), want, "{case}: at rest");
                             for &(r, c) in [want[1], want[n - 1]].iter() {
@@ -5527,6 +6784,7 @@ mod joined_rows {
                             }
                             // Off: a cut link is never lined whole.
                             let (mut p, mut l) = (paths(), Lines::default());
+                            p.all_written_here();
                             let _ = p.set_join(Turned::Off);
                             let rest = expand(&scan(&t, &mut p, &mut l));
                             match (writer, kind) {

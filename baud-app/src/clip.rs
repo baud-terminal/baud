@@ -607,7 +607,10 @@ mod tests {
     fn the_linux_driver_polls_after_every_read() {
         const SRC: &str = include_str!("linux.rs");
         // Spelled apart, so this test's own text is not what it finds.
-        const FEED_FN: &str = concat!("    fn feed(&mut self, ", "bytes: &[u8]) {");
+        const FEED_FN: &str = concat!(
+            "    fn feed(&mut self, ",
+            "bytes: &[u8], tag: Taken) -> Vec<Taken> {"
+        );
         const FEED: &str = concat!("crate::reads::", "paced(");
         const POLL: &str = concat!("clips.poll(", "t, osc52)");
         const AREA: &str = concat!(".with_clipboard(", "cfg.clipboard.budget)");

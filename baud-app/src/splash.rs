@@ -1133,7 +1133,10 @@ mod tests {
             "a window told apart: {spawn}"
         );
         for head in [
-            concat!("    fn feed(&mut self, ", "bytes: &[u8]) {"),
+            concat!(
+                "    fn feed(&mut self, ",
+                "bytes: &[u8], tag: Taken) -> Vec<Taken> {"
+            ),
             concat!(
                 "    fn route_key(&mut self, ",
                 "route: crate::pressed::Route) {"

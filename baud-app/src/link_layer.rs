@@ -16,12 +16,12 @@
 //! to, and the driver acts on it.
 
 use baud_core::Term;
-use baud_render::{LineStyle, Scrolled};
+use baud_render::{AbsLine, LineStyle, Scrolled};
 
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
-use crate::link::{Click, Host, Refused, Target, Under};
-use crate::paths::{LineSpan, Links, Moved, Paths};
+use crate::link::{Click, ClickOn, Host, Refused, Target, Under};
+use crate::paths::{Links, Moved, Paths};
 use crate::probe::{Asks, Linked, Probes, Sampler, Seen, Turn, WatchCell, Writers};
 use crate::rules::Run;
 
@@ -63,21 +63,22 @@ pub(crate) fn read(
 ) -> (Writers, Linked) {
     match sampler.read(now, bytes) {
         Asks::Yes(l) => (sampler.writers(crate::fg::group(master), watched.take()), l),
-        Asks::No => (Writers::default(), Linked::No),
+        Asks::No => (sampler.unasked(), Linked::No),
     }
 }
 
-/// **After a batch of reads was fed**: each read's writers kept with the
-/// lines the batch wrote, `span` (`Probes::read_taken`).
+/// **After a batch of reads was fed**: each part of each read, with the
+/// writers it was fed under (`reads::paced`), kept with the lines the batch
+/// wrote from `began` to `ended` (`Probes::drain_taken`).
 pub(crate) fn fed<T: Moment>(
     probes: &mut Probes<T>,
     paths: &mut Paths,
-    reads: impl IntoIterator<Item = (Writers, Linked)>,
-    span: LineSpan,
+    term: &Term<'_>,
+    parts: impl Iterator<Item = (Writers, Linked)> + Clone,
+    began: AbsLine,
+    ended: AbsLine,
 ) {
-    for (writers, linked) in reads {
-        probes.read_taken(paths, writers, span, linked);
-    }
+    probes.drain_taken(paths, term, began, ended, parts);
 }
 
 /// **The clock's half of a turn, at `now`**: the worker's hang watched and
@@ -139,10 +140,10 @@ pub(crate) fn frame(layer: &mut Layer<'_, '_>) -> Option<LineStyle> {
 }
 
 /// **What a click on a link comes to**, decided and not acted on.
-pub(crate) enum Decision<'a> {
+pub(crate) enum Decision<'l, 'a> {
     /// A printed path: asked of the worker again, and decided on its answer
     /// (`paths::on_found`).
-    Path,
+    Path(&'l crate::link::PrintedPath),
     /// An `OSC 8` link whose slot a sweep freed since it was read.
     Gone,
     /// A URI read from the text that is no URI.
@@ -166,41 +167,36 @@ pub(crate) enum Then<'a> {
     OpenOrReveal(Target<'a>),
 }
 
-/// **A click on `link` at `line`, decided**: its URI admitted with the
-/// origin of the line it was printed on (`Paths::printed_origin`), then
-/// what the click comes to (`link::click`) and what its rule builds.
-pub(crate) fn decide<'a>(
-    link: &'a Under,
-    line: baud_render::AbsLine,
+/// **A click on `link`, decided**: its URI admitted with the origin of
+/// the programs that printed the rows it covers (`link::click_on`, the
+/// Linux driver's decision too), then what the click comes to
+/// (`link::click`) and what its rule builds.
+pub(crate) fn decide<'l: 'a, 'a>(
+    link: &'l Under,
     term: &'a Term<'_>,
     paths: &Paths,
     uris: &Uris,
-) -> Decision<'a> {
-    let uri = match link {
-        Under::Path(_) => return Decision::Path,
-        Under::Osc8(l) => match l.uri(term) {
-            Some(uri) => uri,
-            None => return Decision::Gone,
-        },
-        Under::Bare(b) => match b.uri() {
-            Ok(uri) => uri,
-            Err(why) => return Decision::Unreadable(why, b.text()),
-        },
+) -> Decision<'l, 'a> {
+    let (t, uri) = match crate::link::click_on(link, term, Host(uris.host()), uris.rules(), paths) {
+        ClickOn::Path(p) => return Decision::Path(p),
+        ClickOn::Gone => return Decision::Gone,
+        ClickOn::Unreadable(why, text) => return Decision::Unreadable(why, text),
+        ClickOn::Refused(why, uri) => {
+            return Decision::Read {
+                uri,
+                then: Then::Refused(why),
+            };
+        }
+        ClickOn::Admitted(t, uri) => (t, uri),
     };
-    let origin = paths.printed_origin(link, line);
-    let then = match crate::link::admit_printed(uri, Host(uris.host()), uris.rules(), origin) {
-        Err(why) => Then::Refused(why),
-        Ok(t) => match crate::link::click(&t, paths) {
-            Click::Copy => Then::Copy(t.as_str().to_string()),
-            Click::Command => {
-                Then::Command(t.rule().and_then(|ix| uris.rules().command(ix, t.as_str())))
-            }
-            Click::Window => {
-                Then::Window(t.rule().and_then(|ix| uris.rules().window(ix, t.as_str())))
-            }
-            Click::Again(path) => Then::Again(path),
-            Click::Open | Click::Reveal => Then::OpenOrReveal(t),
-        },
+    let then = match crate::link::click(&t, paths) {
+        Click::Copy => Then::Copy(t.as_str().to_string()),
+        Click::Command => {
+            Then::Command(t.rule().and_then(|ix| uris.rules().command(ix, t.as_str())))
+        }
+        Click::Window => Then::Window(t.rule().and_then(|ix| uris.rules().window(ix, t.as_str()))),
+        Click::Again(path) => Then::Again(path),
+        Click::Open | Click::Reveal => Then::OpenOrReveal(t),
     };
     Decision::Read { uri, then }
 }

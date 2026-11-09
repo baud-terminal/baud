@@ -214,6 +214,12 @@ mod paths;
 mod probe;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod ran;
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod reach;
+// The shell's `D` cuts a read: the bytes before it the read's, those after
+// the shell's, judged by an allowlist.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod cut;
 // What baud was started with, marked close-on-exec before any thread
 // starts, so its children inherit none of it.
 #[cfg(any(target_os = "macos", target_os = "linux"))]

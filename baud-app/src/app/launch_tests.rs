@@ -150,13 +150,14 @@ impl Session {
             term,
             &mut self.pace,
             Instant::now(),
-            drained.chunks.iter().map(|c| &c.bytes[..]),
+            drained.chunks.iter().map(|c| (&c.bytes[..], ())),
             |b| {
                 outbox.push(b);
                 handed.extend_from_slice(b);
             },
             |_| {},
             &mut crate::hostlog::NoLog,
+            &mut Vec::new(),
         );
         self.pty.follow(self.term.input_encoding());
         self.flush();
@@ -1377,7 +1378,9 @@ fn a_kitty_query_read_on_a_wake_is_answered_on_that_wake() {
         .and_then(|(_, rest)| rest.split_once("\n    }\n"))
         .map(|(b, _)| b)
         .expect("the Linux loop");
-    let fed = turn.find("d.feed(&bytes);").expect("the Linux feed");
+    let fed = turn
+        .find("d.feed(&bytes, (writers, linked));")
+        .expect("the Linux feed");
     let flushed = turn.find("d.flush_reply();").expect("the Linux flush");
     assert!(fed < flushed, "the Linux flush after the feed");
     let exits: Vec<&str> = turn[fed..flushed]

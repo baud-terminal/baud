@@ -843,8 +843,9 @@ struct App {
     widths: crate::width::Widths,
     /// The reads a ReGIS delay holds, fed on the first tick at or after
     /// its deadline, and those behind a DSR `?15` waiting for the printer
-    /// list (`reads::paced`).
-    pace: crate::reads::Pace,
+    /// list (`reads::paced`), each with what its read was taken with, so it
+    /// is filed under its own verdict when it is fed.
+    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::Linked)>,
     /// `[screen] printing`, read once at launch and passed with each
     /// read of the printer list (`print.rs`).
     printing: crate::config::Printing,
@@ -5196,16 +5197,16 @@ fn give_back(t: &baud_present_macos::turn::Turn<'_>, back: Option<crate::windows
 }
 
 /// **A click on the About window's picture**: its address through the link
-/// policy every link baud opens passes (`crate::link::admit`), then the
+/// policy every link baud opens passes (`crate::link::admit_about`), then the
 /// OS's opener, as `open_link` hands one on; refused or declined, it is
 /// logged and nothing opens. The address is `https`, which the policy
 /// judges without the machine's name, so none is passed: reading it here
 /// would be a click reading the name, which `open_link` never does.
 fn open_from_about(url: &str) {
-    use crate::link::{Action, Host};
+    use crate::link::Action;
     use baud_present_macos::link::{self as opener, Ask, Opened};
     // The address owned once, here, and moved from then on.
-    match crate::link::admit_owned(url.to_owned(), Host("")) {
+    match crate::link::admit_about(url.to_owned()) {
         Err(why) => crate::warn!("link refused ({why:?}): {url}"),
         Ok(t) => {
             let ask = match t.action() {
@@ -9980,6 +9981,42 @@ mod restart_tests {
         );
     }
 
+    /// **A batch's lines are filed by the count its reads moved**: the line
+    /// it ended on is numbered with the lines it retired counted, as the
+    /// window's count is after it, so output that scrolled the screen is
+    /// filed over the lines it wrote and not the lines above them; the
+    /// Linux driver files after its seat renumbered, and the film's tap
+    /// too. The pump is AppKit-bound, so the source is held. Named break:
+    /// number it by the count before the batch -- the line is read off the
+    /// count the window had.
+    #[test]
+    fn a_batchs_lines_are_filed_by_the_count_it_moved() {
+        let pump = crate::no_appkit::fn_body(
+            include_str!("app.rs"),
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let fed = &pump[..pump
+            .find(concat!("crate::link_layer::", "fed("))
+            .expect("the batch filed")];
+        let ended = fed.rfind("let ended = ").expect("its last line");
+        assert!(
+            fed[ended..].starts_with(concat!(
+                "let ended = numbered_now.",
+                "line(Rows::ZERO, self.app.term.cursor().0);"
+            )),
+            "{}",
+            &fed[ended..]
+        );
+        let now = fed.rfind("let numbered_now = ").expect("the count moved");
+        assert!(
+            fed[now..ended].contains(concat!(
+                "match numbered(",
+                "&self.app.term, before, resized)"
+            )),
+            "numbered as the window's count is"
+        );
+    }
+
     /// **The pump keeps a selection's text as the Linux seat does**
     /// (`keep::KeptText`, whose rules the seat's tests hold): taken before
     /// the row watch is armed, kept where the watch drops the selection,
@@ -11163,7 +11200,7 @@ mod motion_tests {
                 Instant::now(),
                 drained.chunks.iter().map(|chunk| {
                     if let Some(t) = trace.as_mut() { t.fed(&chunk.bytes); }
-                    &chunk.bytes[..]
+                    (&chunk.bytes[..], (chunk.writers, chunk.linked))
                 }),
                 |b| {
                     outbox.push(b);
@@ -11187,6 +11224,7 @@ mod motion_tests {
                     t.clear_notices();
                 },
                 hostlog,
+                &mut took,
             );
             self.app.pty.follow("#,
             r#"self.app.term.input_encoding());
@@ -12229,6 +12267,9 @@ impl Driver {
         // **A ReGIS delay holds the reads behind it** until the tick its
         // deadline falls on; every tick calls this, so the held reads go
         // on with no chunk of their own.
+        // The reads it fed, each with what it was taken with, held ones
+        // when their bytes go on.
+        let mut took = Vec::new();
         let fed = crate::reads::paced(
             term,
             pace,
@@ -12237,7 +12278,7 @@ impl Driver {
                 if let Some(t) = trace.as_mut() {
                     t.fed(&chunk.bytes);
                 }
-                &chunk.bytes[..]
+                (&chunk.bytes[..], (chunk.writers, chunk.linked))
             }),
             |b| {
                 outbox.push(b);
@@ -12262,6 +12303,7 @@ impl Driver {
                 t.clear_notices();
             },
             hostlog,
+            &mut took,
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
@@ -12290,19 +12332,28 @@ impl Driver {
         {
             self.ring_bell(volume);
         }
-        // Which program wrote each read, to the line the batch ended on, for
-        // Which program wrote each read, and the lines the batch wrote, for
-        // the printed paths and a link's origin (`Probes::read_taken`): after
-        // the follow, which comes straight after the feed, and after the bell,
-        // which nothing between it and the read may delay; numbered after any
-        // resize the read asked for, as the reads after it are.
-        let ended = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
-        let span = crate::paths::LineSpan::of(began, ended);
+        // Which program wrote each part of each read this call fed -- a read
+        // a ReGIS delay held, when its bytes went on, and none still held --
+        // and the lines they wrote, for the printed paths and a link's origin
+        // (`link_layer::fed`): after the follow, which comes straight after
+        // the feed, and after the bell, which nothing between it and the read
+        // may delay; numbered after any resize the read asked for, as the
+        // reads after it are. The line the batch ended on is numbered with
+        // the lines it retired or took back counted (`numbered`), as the
+        // window's count is below, or a batch that scrolled would file the
+        // lines above the ones it wrote.
+        let numbered_now = match numbered(&self.app.term, before, resized) {
+            Ring::Retired(n) => self.app.scrolled.advanced(n),
+            Ring::Restored(n) => self.app.scrolled.retreated(n).unwrap_or(Scrolled::START),
+        };
+        let ended = numbered_now.line(Rows::ZERO, self.app.term.cursor().0);
         crate::link_layer::fed(
             &mut self.app.probes,
             &mut self.app.paths,
-            drained.chunks.iter().map(|c| (c.writers, c.linked)),
-            span,
+            &self.app.term,
+            took.iter().copied(),
+            began,
+            ended,
         );
         self.app.say_copied();
         if answered == Answered::Yes {
@@ -14670,7 +14721,7 @@ impl Driver {
     /// **A click on a printed path**: asked again of the worker, off the
     /// frame; the answer comes on the wake the worker sends with it
     /// (`paths_answered`), or now when there is no worker to ask.
-    fn check_path(&mut self, p: &crate::link::Printed) {
+    fn check_path(&mut self, p: &crate::link::PrintedPath) {
         self.app.path_click = Some((
             p.path().to_vec(),
             crate::paths::Asked::Printed(p.line_col().clone()),
@@ -14792,7 +14843,7 @@ impl Driver {
                     return;
                 }
                 let uri = crate::paths::file_uri(&path);
-                match crate::link::admit_owned(uri, Host(self.app.uris.host())) {
+                match crate::link::admit_path_owned(uri, Host(self.app.uris.host())) {
                     Ok(t) if t.action() == Action::Reveal => {
                         let uri = t.into_uri();
                         match opener::checks(uri.as_str()) {
@@ -16201,7 +16252,7 @@ impl Driver {
     /// the same policy), and it holds a `Target` the policy built rather
     /// than a string, so a URI the policy did not admit cannot reach it.
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
-        use crate::link::{Action, Under};
+        use crate::link::Action;
         use crate::link_layer::{Decision, Then};
         use baud_present_macos::link as opener;
         let show = |uri: &[u8]| {
@@ -16212,17 +16263,16 @@ impl Driver {
                 .escape_ascii()
                 .to_string()
         };
-        // What the click comes to, decided as the film's tap decides it
-        // (`link_layer::decide`): the link takes its origin from its line,
-        // as the worker named who wrote it (`Paths::printed_origin`).
+        // What the click comes to, decided as the film's tap and the Linux
+        // driver decide it (`link_layer::decide`, `link::click_on`): the
+        // link takes its origin from the rows it covers, as the worker named
+        // who wrote them.
         let decided =
-            crate::link_layer::decide(link, line, &self.app.term, &self.app.paths, &self.app.uris);
+            crate::link_layer::decide(link, &self.app.term, &self.app.paths, &self.app.uris);
         let (uri, then) = match decided {
             // Asked again off the frame, and opened or said at a later tick.
-            Decision::Path => {
-                if let Under::Path(p) = link {
-                    self.check_path(p);
-                }
+            Decision::Path(p) => {
+                self.check_path(p);
                 return;
             }
             // Gone: a sweep freed a slot of the link table after the link

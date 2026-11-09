@@ -102,7 +102,7 @@ pub enum SshEnv {
 /// own first. They are dropped from the parent's environment at every
 /// spawn (`pty::OUTER`), so a baud started inside a shell that somehow
 /// kept one passes none of them on.
-pub(crate) const HELPERS: [&str; 4] = [ZSH_ZDOTDIR, BASH_ENV, MARKER, SSH_ENV];
+pub(crate) const HELPERS: [&str; 5] = [ZSH_ZDOTDIR, BASH_ENV, MARKER, SSH_ENV, TOKEN];
 
 /// zsh's own `ZDOTDIR`, while baud's directory stands in it.
 const ZSH_ZDOTDIR: &str = "BAUD_ZSH_ZDOTDIR";
@@ -114,14 +114,19 @@ const MARKER: &str = "BAUD_SHELL_INTEGRATION";
 /// `[shell] ssh_env = "on"`, for zsh's and bash's script, which each
 /// unset it first and wrap `ssh` at its end.
 const SSH_ENV: &str = "BAUD_SSH_ENV";
+/// The token baud made for the window's shell (`ran::ShellToken`), for
+/// zsh's and bash's script, which each take it into a shell variable and
+/// unset it before the user's files run; fish's `-C` sets its variable.
+const TOKEN: &str = "BAUD_SHELL_TOKEN";
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) use inject::{Injection, inject};
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inject {
-    use super::{BASH_ENV, Integration, SSH_ENV, SshEnv, ZSH_ZDOTDIR};
+    use super::{BASH_ENV, Integration, SSH_ENV, SshEnv, TOKEN, ZSH_ZDOTDIR};
     use crate::child_env::{ChildEnv, EnvName};
+    use crate::ran::ShellToken;
     use std::ffi::{CString, OsString};
 
     /// The names an injection sets, each checked when the build is.
@@ -130,6 +135,7 @@ mod inject {
     const ZSH_ZDOTDIR_NAME: EnvName = EnvName::fixed(ZSH_ZDOTDIR);
     const BASH_ENV_NAME: EnvName = EnvName::fixed(BASH_ENV);
     const SSH_ENV_NAME: EnvName = EnvName::fixed(SSH_ENV);
+    const TOKEN_NAME: EnvName = EnvName::fixed(TOKEN);
     use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
@@ -177,6 +183,9 @@ mod inject {
     pub struct Injection {
         pub args: Vec<CString>,
         pub env: Vec<(EnvName, OsString)>,
+        /// The token handed to the shell, which the window's marks are read
+        /// against (`ran::Commands::new`).
+        pub token: Option<ShellToken>,
     }
 
     impl Injection {
@@ -224,17 +233,22 @@ mod inject {
                 return None;
             }
         };
-        Some(injection(kind, &dir, parent, ssh_env))
+        let token = ShellToken::mint();
+        Some(injection(kind, &dir, parent, ssh_env, token.as_ref()))
     }
 
     /// The arguments and variables for `kind`, its scripts under `dir`;
     /// with `ssh_env` on, zsh and bash told by [`SSH_ENV`] and fish by a
-    /// shell variable its `-C` sets before the script.
+    /// shell variable its `-C` sets before the script; and `token`, the
+    /// window's shell's, told the same ways ([`TOKEN`]), so fish's never
+    /// reaches its environment and zsh's and bash's leaves it before the
+    /// user's files run.
     pub(super) fn injection(
         kind: Kind,
         dir: &Path,
         parent: &[(OsString, OsString)],
         ssh_env: SshEnv,
+        token: Option<&ShellToken>,
     ) -> Injection {
         let os = |s: &str| OsString::from(s);
         let at = |p: &str| dir.join(p).into_os_string();
@@ -248,23 +262,29 @@ mod inject {
             SshEnv::On => Some((SSH_ENV_NAME, os("1"))),
             SshEnv::Off => None,
         };
+        let told = token.map(|t| (TOKEN_NAME, os(t.as_str())));
+        let kept_token = token.cloned();
         match kind {
             Kind::Zsh => {
                 let mut env = kept("ZDOTDIR", &ZSH_ZDOTDIR_NAME);
                 env.push((ZDOTDIR, at("zsh")));
                 env.extend(wrap);
+                env.extend(told);
                 Injection {
                     args: Vec::new(),
                     env,
+                    token: kept_token,
                 }
             }
             Kind::Bash => {
                 let mut env = kept("ENV", &BASH_ENV_NAME);
                 env.push((ENV, at("bash/baud.bash")));
                 env.extend(wrap);
+                env.extend(told);
                 Injection {
                     args: vec![c"--posix".to_owned()],
                     env,
+                    token: kept_token,
                 }
             }
             Kind::Fish => {
@@ -272,6 +292,12 @@ mod inject {
                     SshEnv::On => b"set -g __baud_ssh_env 1; ".to_vec(),
                     SshEnv::Off => Vec::new(),
                 };
+                // Hex digits alone: nothing fish reads as quoting.
+                if let Some(t) = token {
+                    source.extend_from_slice(b"set -g __baud_token ");
+                    source.extend_from_slice(t.as_str().as_bytes());
+                    source.extend_from_slice(b"; ");
+                }
                 source.extend_from_slice(b"source '");
                 source.extend_from_slice(at("fish/baud.fish").as_bytes());
                 source.push(b'\'');
@@ -281,6 +307,7 @@ mod inject {
                         .chain(CString::new(source).ok())
                         .collect(),
                     env: Vec::new(),
+                    token: kept_token,
                 }
             }
         }
@@ -466,7 +493,7 @@ mod tests {
     #[test]
     fn zsh_gets_zdotdir_and_keeps_the_users() {
         let dir = Path::new("/run/user/1000/baud/shell-x");
-        let none = injection(Kind::Zsh, dir, &env(&[("HOME", "/h")]), SshEnv::Off);
+        let none = injection(Kind::Zsh, dir, &env(&[("HOME", "/h")]), SshEnv::Off, None);
         assert_eq!(none.args, Vec::<std::ffi::CString>::new());
         assert_eq!(
             pairs(&none.env),
@@ -477,6 +504,7 @@ mod tests {
             dir,
             &env(&[("ZDOTDIR", "/h/.config/zsh")]),
             SshEnv::Off,
+            None,
         );
         assert_eq!(
             pairs(&own.env),
@@ -491,7 +519,13 @@ mod tests {
     #[test]
     fn bash_gets_posix_and_env_and_keeps_the_users() {
         let dir = Path::new("/d");
-        let i = injection(Kind::Bash, dir, &env(&[("ENV", "/h/.shrc")]), SshEnv::Off);
+        let i = injection(
+            Kind::Bash,
+            dir,
+            &env(&[("ENV", "/h/.shrc")]),
+            SshEnv::Off,
+            None,
+        );
         assert_eq!(i.args, [c"--posix".to_owned()]);
         assert_eq!(
             pairs(&i.env),
@@ -507,6 +541,7 @@ mod tests {
             Path::new("/d"),
             &env(&[("XDG_DATA_DIRS", "/x")]),
             SshEnv::Off,
+            None,
         );
         assert_eq!(
             i.args,
@@ -530,15 +565,15 @@ mod tests {
             (Kind::Zsh, env(&[("ZDOTDIR", "/d/zsh")])),
             (Kind::Bash, env(&[("ENV", "/d/bash/baud.bash")])),
         ] {
-            let off = injection(kind, dir, &parent, SshEnv::Off);
+            let off = injection(kind, dir, &parent, SshEnv::Off, None);
             assert_eq!(pairs(&off.env), base, "{kind:?} off");
-            let on = injection(kind, dir, &parent, SshEnv::On);
+            let on = injection(kind, dir, &parent, SshEnv::On, None);
             let mut want = base.clone();
             want.extend(env(&[("BAUD_SSH_ENV", "1")]));
             assert_eq!(pairs(&on.env), want, "{kind:?} on");
             assert_eq!(on.args, off.args, "{kind:?}: the arguments as they were");
         }
-        let fish = |s| injection(Kind::Fish, dir, &parent, s);
+        let fish = |s| injection(Kind::Fish, dir, &parent, s, None);
         assert_eq!(
             fish(SshEnv::Off).args,
             [c"-C".to_owned(), c"source '/d/fish/baud.fish'".to_owned()]
@@ -558,6 +593,136 @@ mod tests {
             HELPERS.contains(&"BAUD_SSH_ENV"),
             "dropped from the parent's"
         );
+    }
+
+    /// **B2: the token baud made is handed to the shell, one way a shell**:
+    /// zsh and bash `BAUD_SHELL_TOKEN` beside what they get anyway, which
+    /// each script takes into a shell variable and unsets before the user's
+    /// files run, and fish a shell variable its `-C` sets before the script,
+    /// with nothing in its environment; the injection keeps the token for
+    /// the window's scan of the marks. With none made, none is told. The
+    /// variable is one of the helpers a spawn drops from the parent's
+    /// environment. Named break: tell no shell the token -- zsh's and
+    /// bash's environment lack it.
+    #[test]
+    fn the_token_is_handed_to_each_shell() {
+        let dir = Path::new("/d");
+        let parent = env(&[("HOME", "/h")]);
+        let token = crate::ran::ShellToken::given("0123456789abcdef");
+        for kind in [Kind::Zsh, Kind::Bash] {
+            let told = injection(kind, dir, &parent, SshEnv::Off, Some(&token));
+            let mut want = pairs(&injection(kind, dir, &parent, SshEnv::Off, None).env);
+            want.extend(env(&[("BAUD_SHELL_TOKEN", "0123456789abcdef")]));
+            assert_eq!(pairs(&told.env), want, "{kind:?}");
+            assert_eq!(told.token.as_ref(), Some(&token), "{kind:?}: kept");
+        }
+        let fish = injection(Kind::Fish, dir, &parent, SshEnv::Off, Some(&token));
+        assert_eq!(
+            fish.args,
+            [
+                c"-C".to_owned(),
+                c"set -g __baud_token 0123456789abcdef; source '/d/fish/baud.fish'".to_owned()
+            ]
+        );
+        assert!(fish.env.is_empty(), "nothing in fish's environment");
+        let none = injection(Kind::Zsh, dir, &parent, SshEnv::Off, None);
+        assert!(none.token.is_none(), "no token, none kept");
+        assert!(
+            !pairs(&none.env)
+                .iter()
+                .any(|(k, _)| k == "BAUD_SHELL_TOKEN"),
+            "and none told"
+        );
+        assert!(
+            HELPERS.contains(&"BAUD_SHELL_TOKEN"),
+            "dropped from the parent's"
+        );
+        let minted = crate::ran::ShellToken::mint().expect("the random source");
+        assert!(
+            minted.as_str().len() == 16 && minted.as_str().bytes().all(|b| b.is_ascii_hexdigit()),
+            "{minted:?}"
+        );
+    }
+
+    /// **zsh and bash take the token out of the environment before any
+    /// file of the user's runs, and no script makes a token of its own**:
+    /// in each, the token is read and then unset above the first line that
+    /// sources a file (`.` or `source` as a word), and no script reads the system's
+    /// random source. A pure check of the sources, which holds on a machine
+    /// with neither shell; the real shells run it in `pty/shell_tests.rs`.
+    /// Named break: unset the token after the user's files -- the unset is
+    /// below the first `.`.
+    #[test]
+    fn the_token_leaves_the_environment_before_the_users_files() {
+        let zsh = include_str!("shell/zshenv.zsh");
+        let bash = include_str!("shell/baud.bash");
+        let fish = include_str!("shell/baud.fish");
+        // Where the first line that sources a file begins: one, not a
+        // comment, with `.` or `source` as a word of it.
+        let first_source = |text: &str| {
+            let mut at = 0;
+            for line in text.split_inclusive('\n') {
+                let code = !line.trim_start().starts_with('#');
+                if code && line.split_whitespace().any(|w| w == "." || w == "source") {
+                    return at;
+                }
+                at += line.len();
+            }
+            panic!("no file sourced")
+        };
+        for (name, text, read, unset) in [
+            (
+                "zsh",
+                zsh,
+                "__baud_token=${BAUD_SHELL_TOKEN-}",
+                "builtin unset BAUD_SHELL_TOKEN",
+            ),
+            (
+                "bash",
+                bash,
+                "__baud_token=${BAUD_SHELL_TOKEN-}",
+                "unset BAUD_SHELL_TOKEN",
+            ),
+        ] {
+            let (r, u) = (text.find(read).expect(read), text.find(unset).expect(unset));
+            assert!(r < u, "{name}: read, then unset");
+            assert!(
+                u < first_source(text),
+                "{name}: unset before the first file sourced"
+            );
+        }
+        for (name, text) in [("zsh", zsh), ("bash", bash), ("fish", fish)] {
+            assert!(!text.contains("urandom"), "{name}: no token of its own");
+        }
+    }
+
+    /// **`inject` hands every shell it marks a token**: zsh, bash and fish
+    /// each get one minted from the system's random source, sixteen hex
+    /// digits, a different one each time. The shells are named by paths
+    /// that cannot exist, so no machine's own shell, as Apple's bash is
+    /// told apart by where its path leads, decides the test. Named break:
+    /// mint none -- the injection keeps no token.
+    #[test]
+    fn inject_hands_each_shell_a_token() {
+        let d = scratch("token");
+        let parent = env(&[("TMPDIR", d.to_str().expect("UTF-8"))]);
+        let absent = d.join("absent");
+        let mut seen = Vec::new();
+        for name in ["zsh", "bash", "fish"] {
+            let path = absent.join(name);
+            let shell = path.to_str().expect("UTF-8");
+            let got = inject(Integration::On, SshEnv::Off, shell, shell, &parent)
+                .unwrap_or_else(|| panic!("{shell}: injected"));
+            let token = got.token.unwrap_or_else(|| panic!("{shell}: a token"));
+            assert!(
+                token.as_str().len() == 16 && token.as_str().bytes().all(|b| b.is_ascii_hexdigit()),
+                "{shell}: {token:?}"
+            );
+            seen.push(token);
+        }
+        seen.dedup();
+        assert_eq!(seen.len(), 3, "a token each");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// **Each script wraps `ssh` one way, only when told, and keeps the

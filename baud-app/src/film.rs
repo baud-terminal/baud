@@ -605,10 +605,18 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                         .line(baud_domain::Rows::ZERO, u.term.cursor().0);
                     (began, t.read(&b))
                 });
+                // Fed in the parts the app feeds it in, each under its own
+                // writers (`reads::paced`), when the tap files them.
+                #[cfg(target_os = "macos")]
+                let (_answered, parts) = match taken {
+                    Some((_, read)) => u.take_parts(&b, read),
+                    None => (u.take(&b), Vec::new()),
+                };
+                #[cfg(not(target_os = "macos"))]
                 let _answered = u.take(&b);
                 #[cfg(target_os = "macos")]
-                if let (Some(t), Some((began, read))) = (tap.as_mut(), taken) {
-                    t.fed(u.term, u.seat.scrolled(), began, read);
+                if let (Some(t), Some((began, _))) = (tap.as_mut(), taken) {
+                    t.fed(u.term, u.seat.scrolled(), began, &parts);
                 }
                 #[cfg(target_os = "macos")]
                 lights.read(&b, _answered, epoch.elapsed());

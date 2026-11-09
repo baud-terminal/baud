@@ -927,7 +927,7 @@ mod tests {
         "#;
         assert_eq!(bare(body), bare(RING), "the ring is this, and only this");
         let feed = src
-            .split_once("fn feed(&mut self, bytes: &[u8]) {")
+            .split_once("fn feed(&mut self, bytes: &[u8], tag: Taken) -> Vec<Taken> {")
             .map(|(_, rest)| rest)
             .expect("the feed");
         let read = feed.find("crate::reads::paced(").expect("the read");

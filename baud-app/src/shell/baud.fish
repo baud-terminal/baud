@@ -39,10 +39,12 @@ if set -q BAUD_SHELL_INTEGRATION
     # 0 before the first prompt, 1 at a prompt no command has run from,
     # 2 once a command has run.
     set -g __baud_prompted 0
-    # A token of this shell's own, on its C and D marks: baud ends a
-    # remote command only at a D that carries it, which no program on the
-    # other end of an ssh can know. Never exported.
-    set -g __baud_token (od -An -N8 -tx1 /dev/urandom 2>/dev/null | string replace -ra '[^0-9a-f]' '')
+    # The token baud made for this window's shell, which baud's `-C` set
+    # before this file, sent on its C and D marks: baud ends a remote
+    # command, or lowers a row, only at a mark that carries it, which no
+    # program on the other end of an ssh can know. Never exported, and
+    # never in fish's environment.
+    set -q __baud_token; or set -g __baud_token ''
 
     function __baud_prompt --on-event fish_prompt
         if test $__baud_prompted = 1

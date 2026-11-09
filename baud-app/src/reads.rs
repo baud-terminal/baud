@@ -18,12 +18,37 @@ pub fn feed<'r>(
     after: impl FnMut(&mut Term<'_>),
     log: &mut impl crate::hostlog::Tee,
 ) {
+    let tagged = reads.into_iter().map(|r| (r, ()));
+    let _ = feed_parts(term, tagged, sink, after, log);
+}
+
+/// [`feed`] with each read's tag, and each part's tag as [`paced`] fed it
+/// returned: what the film's tap files a read under, as the app does.
+#[cfg(test)]
+pub fn feed_parts<'r, T: Part>(
+    term: &mut Term<'_>,
+    reads: impl IntoIterator<Item = (&'r [u8], T)>,
+    sink: impl FnMut(&[u8]),
+    after: impl FnMut(&mut Term<'_>),
+    log: &mut impl crate::hostlog::Tee,
+) -> Vec<T> {
     let mut pace = Pace::new();
-    let _ = paced(term, &mut pace, Instant::now(), reads, sink, after, log);
+    let mut took = Vec::new();
+    let _ = paced(
+        term,
+        &mut pace,
+        Instant::now(),
+        reads,
+        sink,
+        after,
+        log,
+        &mut took,
+    );
     assert!(
         pace.deadline().is_none(),
         "a delay held: feed it with `paced`"
     );
+    took
 }
 
 /// **The reads a ReGIS delay holds back, and when they go on.** An `S(T)`
@@ -50,8 +75,13 @@ pub fn feed<'r>(
 /// under `PrinterHold::On`): they wait until the driver, which reads its
 /// printer list off the main thread, answers it through `Term::set_printer`,
 /// or at [`PRINTER_WAIT`] are answered from the printer it last had.
-pub struct Pace {
-    held: std::collections::VecDeque<Vec<u8>>,
+///
+/// **Each read held keeps its tag**, `T`, with its bytes: what the driver
+/// took the read with (`probe::Writers`), so the read is filed under its own
+/// verdict when its bytes are fed, not under the read that released it
+/// ([`paced`]'s `took`).
+pub struct Pace<T = ()> {
+    held: std::collections::VecDeque<(Vec<u8>, T)>,
     until: Option<Instant>,
     input: Input,
     why: Why,
@@ -92,8 +122,8 @@ impl DelaysCut {
 /// reads of `READ_CHUNK`.
 pub const HELD_MAX: usize = 4 << 20;
 
-impl Pace {
-    pub fn new() -> Pace {
+impl<T: Copy> Pace<T> {
+    pub fn new() -> Pace<T> {
         Pace {
             held: std::collections::VecDeque::new(),
             until: None,
@@ -128,10 +158,65 @@ impl Pace {
         self.input == Input::Waits && term.regis_input() != RegisInput::OneShot
     }
 
-    fn keep(&mut self, bytes: &[u8]) {
+    fn keep(&mut self, bytes: &[u8], tag: T) {
         if !bytes.is_empty() {
-            self.held.push_back(bytes.to_vec());
+            self.held.push_back((bytes.to_vec(), tag));
         }
+    }
+}
+
+/// **A read's tag, cut to a part of its bytes**: what a read carries of
+/// its bytes by where they are in it, as a folder report's verdict is
+/// carried by where the report ends (`ran::Reports`), so a part fed files
+/// only what its own bytes said, and a part held keeps the rest.
+pub trait Part: Copy + PartialEq {
+    /// The tag of the bytes from `from` to `to` of its read, fed.
+    fn part(self, from: BytePos, to: BytePos) -> Self;
+    /// The tag of the bytes from `from` on, held, counted from there.
+    fn rest(self, from: BytePos) -> Self;
+    /// The tag of a part fed while the pen held `pens`.
+    fn under(self, pens: crate::paths::Pens) -> Self;
+    /// **Where the read is to be cut at the shell's `D`** (`cut::Plan`):
+    /// none for a tag that carries no cut.
+    fn plan(&self) -> Option<crate::cut::Plan> {
+        None
+    }
+    /// The tag of a part before the cut, whose bytes reach `reach`.
+    fn before_cut(self, _reach: crate::reach::Reach) -> Self {
+        self
+    }
+    /// The tag from the cut on, taken with the terminal at `spot`.
+    fn after_cut(self, _spot: crate::cut::Spot) -> Self {
+        self
+    }
+}
+
+/// No tag: nothing to cut.
+impl Part for () {
+    fn part(self, _: BytePos, _: BytePos) {}
+    fn rest(self, _: BytePos) {}
+    fn under(self, _: crate::paths::Pens) {}
+}
+
+/// Two tags, the first cut and the second carried whole.
+impl<A: Part, B: Copy + PartialEq> Part for (A, B) {
+    fn part(self, from: BytePos, to: BytePos) -> (A, B) {
+        (self.0.part(from, to), self.1)
+    }
+    fn rest(self, from: BytePos) -> (A, B) {
+        (self.0.rest(from), self.1)
+    }
+    fn under(self, pens: crate::paths::Pens) -> (A, B) {
+        (self.0.under(pens), self.1)
+    }
+    fn plan(&self) -> Option<crate::cut::Plan> {
+        self.0.plan()
+    }
+    fn before_cut(self, reach: crate::reach::Reach) -> (A, B) {
+        (self.0.before_cut(reach), self.1)
+    }
+    fn after_cut(self, spot: crate::cut::Spot) -> (A, B) {
+        (self.0.after_cut(spot), self.1)
     }
 }
 
@@ -193,24 +278,32 @@ impl Fed {
 /// logging when it was fed, and `log` follows the core after it -- the
 /// bytes from the one after `?46 h` up to the end of `?46 l`, as xterm
 /// logs them. A part a delay holds is logged when it is fed.
-pub fn paced<'r>(
+///
+/// **And what was fed, read by read** (`took`): each read's tag, pushed
+/// once for every part of it fed in this call and cut to that part's bytes
+/// ([`Part`]), a held read's when its bytes go on, so the driver files the
+/// rows this call wrote under the reads that wrote them, none under a read
+/// still held, and a folder report's verdict with the part that fed it.
+#[allow(clippy::too_many_arguments)]
+pub fn paced<'r, T: Part>(
     term: &mut Term<'_>,
-    pace: &mut Pace,
+    pace: &mut Pace<T>,
     now: Instant,
-    reads: impl IntoIterator<Item = &'r [u8]>,
+    reads: impl IntoIterator<Item = (&'r [u8], T)>,
     mut sink: impl FnMut(&[u8]),
     mut after: impl FnMut(&mut Term<'_>),
     log: &mut impl crate::hostlog::Tee,
+    took: &mut Vec<T>,
 ) -> Fed {
     printer_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
     if pace.input == Input::Waits {
-        let waiting: usize = pace.held.iter().map(Vec::len).sum();
+        let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
         if term.regis_input() == RegisInput::OneShot {
             if waiting <= HELD_MAX {
-                for bytes in reads {
-                    pace.keep(bytes);
+                for (bytes, tag) in reads {
+                    pace.keep(bytes, tag);
                 }
                 return Fed::Nothing;
             }
@@ -220,10 +313,10 @@ pub fn paced<'r>(
         pace.input = Input::Free;
     }
     if let Some(t) = pace.until {
-        let waiting: usize = pace.held.iter().map(Vec::len).sum();
+        let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
         if now < t && waiting <= HELD_MAX {
-            for bytes in reads {
-                pace.keep(bytes);
+            for (bytes, tag) in reads {
+                pace.keep(bytes, tag);
             }
             return Fed::Nothing;
         }
@@ -234,11 +327,31 @@ pub fn paced<'r>(
     }
     let held = core::mem::take(&mut pace.held);
     let mut fed = Fed::Nothing;
-    for bytes in held.iter() {
-        fed = paced_one(term, pace, now, bytes, &mut sink, &mut after, log).or(fed);
+    for (bytes, tag) in held.iter() {
+        fed = paced_one(
+            term,
+            pace,
+            now,
+            (bytes, *tag),
+            &mut sink,
+            &mut after,
+            log,
+            took,
+        )
+        .or(fed);
     }
-    for bytes in reads {
-        fed = paced_one(term, pace, now, bytes, &mut sink, &mut after, log).or(fed);
+    for (bytes, tag) in reads {
+        fed = paced_one(
+            term,
+            pace,
+            now,
+            (bytes, tag),
+            &mut sink,
+            &mut after,
+            log,
+            took,
+        )
+        .or(fed);
     }
     fed
 }
@@ -246,11 +359,11 @@ pub fn paced<'r>(
 /// **A held DSR `?15`'s wait ends**: answered by the driver, or past
 /// [`PRINTER_WAIT`] or [`HELD_MAX`] answered here from the printer the core
 /// last had, so a driver whose look never lands holds nothing for long.
-fn printer_wait(term: &mut Term<'_>, pace: &mut Pace, now: Instant) {
+fn printer_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
     let Some(t) = pace.until.filter(|_| pace.why == Why::Printer) else {
         return;
     };
-    let waiting: usize = pace.held.iter().map(Vec::len).sum();
+    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
     if term.printer_asked() == PrinterAsked::Owed && (now >= t || waiting > HELD_MAX) {
         let last = term.printer();
         term.set_printer(last);
@@ -260,16 +373,19 @@ fn printer_wait(term: &mut Term<'_>, pace: &mut Pace, now: Instant) {
     }
 }
 
-/// One read for [`paced`]: held behind a delay this call met, or fed, and
-/// what is left of it held if it meets one.
-fn paced_one(
+/// One read for [`paced`]: held behind a delay this call met, or fed, its
+/// tag pushed to `took`, and what is left of it held, with its tag, if it
+/// meets one.
+#[allow(clippy::too_many_arguments)]
+fn paced_one<T: Part>(
     term: &mut Term<'_>,
-    pace: &mut Pace,
+    pace: &mut Pace<T>,
     now: Instant,
-    bytes: &[u8],
+    (bytes, tag): (&[u8], T),
     sink: &mut impl FnMut(&[u8]),
     after: &mut impl FnMut(&mut Term<'_>),
     log: &mut impl crate::hostlog::Tee,
+    took: &mut Vec<T>,
 ) -> Fed {
     if bytes.is_empty() {
         return Fed::Nothing;
@@ -277,22 +393,79 @@ fn paced_one(
     // A delay or a one-shot input met in this call holds the rest of the
     // batch behind it.
     if pace.until.is_some() || pace.input == Input::Waits {
-        pace.keep(bytes);
+        pace.keep(bytes, tag);
         return Fed::Nothing;
     }
     term.write_at(BytePos::ZERO, bytes);
+    // The tag of the part last fed: a stop that changes nothing of it, a
+    // reply hold's or a `?46` one's, pushes no tag of its own.
+    let mut last = None;
+    // The read's tag, the shell's from the cut on (`cut.rs`).
+    let mut tag = tag;
     let mut next = Some(Rest {
         at: BytePos::ZERO,
         len: ReadLen::from_index(bytes.len()),
     });
     while let Some(r) = next {
+        let end = r.at.index() + r.len.index();
+        // **The cut, where this part begins at it**: at zsh's run if it may
+        // take it there, read from the terminal now, else at the `D`.
+        if let Some(plan) = tag.plan() {
+            let eol = plan
+                .eol()
+                .is_some_and(|e| e.at() == r.at && crate::cut::eol_holds(term, e));
+            if eol || plan.d() == r.at {
+                tag = tag.after_cut(crate::cut::Spot::of(term));
+            }
+        }
+        // The part stops where the cut may come inside it.
+        let stop = tag
+            .plan()
+            .and_then(|p| {
+                [p.eol().map(crate::cut::Eol::at), Some(p.d())]
+                    .into_iter()
+                    .flatten()
+                    .map(BytePos::index)
+                    .filter(|&s| s > r.at.index() && s < end)
+                    .min()
+            })
+            .unwrap_or(end);
         let logging = term.log_mode();
-        term.feed(r.at, r.len);
+        let pen = crate::paths::Pen::of(term);
+        term.feed(r.at, ReadLen::from_index(stop - r.at.index()));
         owed(term, sink);
-        next = term.take_held();
+        let held = term.take_held();
+        let fed_to = held.map_or(stop, |n| n.at.index());
+        next = match (held, stop < end) {
+            // No hold stops the bytes before a cut, which hold nothing that
+            // asks or waits; were one to, the rest is the read's.
+            (Some(n), true) => Some(Rest {
+                at: n.at,
+                len: ReadLen::from_index(end - n.at.index()),
+            }),
+            (Some(n), false) => Some(n),
+            (None, true) => Some(Rest {
+                at: BytePos::from_index(stop),
+                len: ReadLen::from_index(end - stop),
+            }),
+            (None, false) => None,
+        };
+        let pens = crate::paths::Pens::of(pen, crate::paths::Pen::of(term));
+        // A part before the cut reaches what its own bytes reach, which
+        // only write forward (`cut::Forward`).
+        let piece = match tag.plan() {
+            Some(_) => {
+                tag.before_cut(crate::reach::Reads::default().read(&bytes[r.at.index()..fed_to]))
+            }
+            None => tag,
+        };
+        let fed = piece.part(r.at, BytePos::from_index(fed_to)).under(pens);
+        if last != Some(fed) {
+            took.push(fed);
+            last = Some(fed);
+        }
         if logging == baud_core::LogMode::Started {
-            let end = next.map_or(r.at.index() + r.len.index(), |n| n.at.index());
-            log.take(&bytes[r.at.index()..end]);
+            log.take(&bytes[r.at.index()..fed_to]);
         }
         log.follow(term);
         after(term);
@@ -300,7 +473,10 @@ fn paced_one(
             pace.until = Some(now + Duration::from_micros(w.micros()));
             pace.why = Why::Delay;
             if let Some(r) = next.take() {
-                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+                pace.keep(
+                    &bytes[r.at.index()..r.at.index() + r.len.index()],
+                    tag.rest(r.at),
+                );
             }
         }
         // `after` saw the question and asked the driver's printer list.
@@ -308,13 +484,19 @@ fn paced_one(
             pace.until = Some(now + PRINTER_WAIT);
             pace.why = Why::Printer;
             if let Some(r) = next.take() {
-                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+                pace.keep(
+                    &bytes[r.at.index()..r.at.index() + r.len.index()],
+                    tag.rest(r.at),
+                );
             }
         } else if pace.until.is_none() && term.regis_input() == RegisInput::OneShot {
             // A delay taken in this feed holds the reads first.
             pace.input = Input::Waits;
             if let Some(r) = next.take() {
-                pace.keep(&bytes[r.at.index()..r.at.index() + r.len.index()]);
+                pace.keep(
+                    &bytes[r.at.index()..r.at.index() + r.len.index()],
+                    tag.rest(r.at),
+                );
             }
         }
     }
@@ -415,6 +597,21 @@ mod tests {
     use super::*;
     use baud_core::{Owned, READ_CHUNK, REPLY, WinSize};
     use std::time::Duration;
+
+    /// [`super::paced`] with no tags, as most of these tests feed: what it
+    /// fed is not asked.
+    fn paced<'r>(
+        term: &mut Term<'_>,
+        pace: &mut Pace,
+        now: Instant,
+        reads: impl IntoIterator<Item = &'r [u8]>,
+        sink: impl FnMut(&[u8]),
+        after: impl FnMut(&mut Term<'_>),
+        log: &mut impl crate::hostlog::Tee,
+    ) -> Fed {
+        let tagged = reads.into_iter().map(|r| (r, ()));
+        super::paced(term, pace, now, tagged, sink, after, log, &mut Vec::new())
+    }
 
     /// A log that keeps each part it is handed, and the core's mode each
     /// time it was told to follow it.
@@ -568,6 +765,39 @@ mod tests {
         assert_eq!(lost, 0, "and none dropped");
         let (_, child, lost) = run(false);
         assert!(lost > 0 && child.len() < one.len() * n, "the control drops");
+    }
+
+    /// **A stop that changes nothing of a part's tag pushes none of its
+    /// own**: two reads of DECRQSS questions, each stopped by the reply
+    /// hold many times, push one tag each. Named break: push a tag at
+    /// every stop -- each read pushes one for every stop.
+    #[test]
+    fn a_stop_that_changes_nothing_pushes_no_tag() {
+        let rich = b"\x1b[1;2;3;4:3;5;7;8;9;53;58:2::1:2:3;38:2::100:200:255;48:2::10:20:30m";
+        let query = b"\x1bP$qm\x1b\\";
+        let stream = query.repeat(READ_CHUNK / query.len());
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        hold_replies(&mut t);
+        t.write_at(BytePos::ZERO, rich);
+        t.feed(BytePos::ZERO, ReadLen::from_index(rich.len()));
+        let mut child = Vec::new();
+        let took = feed_parts(
+            &mut t,
+            [
+                (stream.as_slice(), ((), 1u8)),
+                (stream.as_slice(), ((), 2u8)),
+            ],
+            |b| child.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert!(
+            child.len() > 4 * REPLY,
+            "the hold stopped each read: {} bytes answered",
+            child.len()
+        );
+        assert_eq!(took, [((), 1), ((), 2)], "one tag a read");
     }
 
     /// **What the core already owed goes ahead of a read's answers, and out

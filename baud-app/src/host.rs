@@ -2100,7 +2100,7 @@ mod tests {
                 "Linux",
                 &super::linux_driver_src(),
                 "cfg.window_ops);",
-                "    fn feed(&mut self, bytes: &[u8]) {",
+                "    fn feed(&mut self, bytes: &[u8], tag: Taken) -> Vec<Taken> {",
             ),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
@@ -2319,13 +2319,13 @@ mod tests {
                 "macOS",
                 include_str!("app.rs"),
                 "logging);",
-                "            hostlog,\n        );",
+                "            hostlog,\n            &mut took,\n        );",
             ),
             (
                 "Linux",
                 &super::linux_driver_src(),
                 "cfg.logging);",
-                "            &mut self.hostlog,\n        );",
+                "            &mut self.hostlog,\n            &mut took,\n        );",
             ),
         ] {
             assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");

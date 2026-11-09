@@ -62,12 +62,13 @@
 //!   `ssh host ls /etc` prints and exits before the batch, which then finds
 //!   the shell in front. So the foreground group is read at the read
 //!   ([`Sampler`]: `TIOCGPGRP` on the master, at most once each
-//!   [`GROUP_EVERY`]), each distinct group kept with the last line written
+//!   [`GROUP_EVERY`]), each distinct group kept with the lines written
 //!   under it ([`Probes::read_taken`]), and named by the worker at once,
-//!   while it may still run. A batch carries them; a path printed only on
-//!   rows up to a group named not local is not looked up, and those rows
-//!   keep no mark (`Paths::written_under`). A group gone before it was named
-//!   counts as not local.
+//!   while it may still run. A batch carries them; a path printed on a row
+//!   a group named not local wrote is not looked up, and that row keeps no
+//!   mark, nor does one a group gone before it was named wrote, whose
+//!   writer is not known: those rows only, and the rows around them keep
+//!   theirs (`Paths::written_under`).
 //! * **No cloud file fetched to answer a lookup.** On macOS the worker sets
 //!   `IOPOL_MATERIALIZE_DATALESS_FILES_OFF` on its own thread first
 //!   (`sys::no_dataless_fetch`), so an `lstat` inside a File Provider folder
@@ -141,8 +142,9 @@ pub const HANG: Duration = Duration::from_secs(5);
 /// in front for less than this, with every read inside it, is not.
 pub const GROUP_EVERY: Duration = Duration::from_millis(10);
 
-/// The distinct groups kept between two batches; past it, every line
-/// written after counts as not local until the next.
+/// The groups' spans kept between two batches, a group's rows that touch
+/// being one; past it, every line written after counts as not named until
+/// the next.
 pub const GROUPS: usize = 16;
 
 /// The groups the worker keeps named, ahead of the batches that ask.
@@ -228,7 +230,33 @@ pub struct Sampler {
     /// The shell's command marks, scanned at every read
     /// ([`crate::ran::Commands`]), and what the last read was taken as.
     commands: crate::ran::Commands,
-    marked: Watched,
+    marked: crate::ran::Ran,
+    /// The scan for what each read did to its cursor's line
+    /// ([`crate::reach::Reads`]), and the last read's, with whether it
+    /// carried a folder report.
+    reads: crate::reach::Reads,
+    reach: crate::reach::Reach,
+    folder: crate::ran::Folder,
+    reports: crate::ran::Reports,
+    /// Whether the stream stood at ground as each read began
+    /// ([`crate::cut::Stream`]), and where the last read is cut.
+    stream: crate::cut::Stream,
+    cut: crate::cut::Cut,
+    /// Whether the last read carried the shell's own `D`, which ends the
+    /// command the group before was taken under once that read's writers
+    /// are built ([`Sampler::writers`], [`Sampler::unasked`]).
+    ended: Ended,
+}
+
+/// **Whether the last read ended a command at the shell's `D`**, to be
+/// forgotten after its own writers are built: the `D` read keeps the group
+/// before and the watch's verdict for its own rows, and the reads after
+/// it are not that program's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Ended {
+    #[default]
+    No,
+    AtD,
 }
 
 /// **Whether the process watch named a program not on this machine** since
@@ -288,9 +316,87 @@ pub struct Writers {
     pub before: Option<Pid>,
     pub at: Option<Pid>,
     pub watched: Watched,
-    /// Whether the read was written while a command the shell named not
-    /// local ran ([`crate::ran`]).
-    pub marked: Watched,
+    /// What the shell's marks say of the read ([`crate::ran::Ran`]): a
+    /// command named not local, one named here, or the shell's own.
+    pub marked: crate::ran::Ran,
+    /// What the read did to the line its cursor ended on
+    /// ([`crate::reach::Reach`]): whether that line is its.
+    pub reach: crate::reach::Reach,
+    /// Whether the read carried a folder report ([`crate::ran::Folder`]):
+    /// the last one's verdict, or, once the read is cut to the part of it
+    /// fed (`reads::Part`), the last that part fed.
+    pub folder: crate::ran::Folder,
+    /// Each folder report the read ended, with where
+    /// ([`crate::ran::Reports`]).
+    pub reports: crate::ran::Reports,
+    /// The links the pen held as the part of it was fed
+    /// ([`crate::paths::Pens`]).
+    pub pens: crate::paths::Pens,
+    /// Where the read is cut at the shell's `D`, or, for a part after it,
+    /// where it was ([`crate::cut::Cut`]).
+    pub cut: crate::cut::Cut,
+}
+
+/// **A read's writers, cut to a part of its bytes**: the folder verdict the
+/// part fed, and the reports of a part held.
+impl crate::reads::Part for Writers {
+    fn part(self, from: baud_core::BytePos, to: baud_core::BytePos) -> Writers {
+        Writers {
+            folder: self.reports.part(from, to),
+            ..self
+        }
+    }
+    fn rest(self, from: baud_core::BytePos) -> Writers {
+        let cut = match self.cut {
+            crate::cut::Cut::Plan(p) => p
+                .rest(from)
+                .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan),
+            c => c,
+        };
+        Writers {
+            reports: self.reports.rest(from),
+            cut,
+            ..self
+        }
+    }
+    fn under(self, pens: crate::paths::Pens) -> Writers {
+        Writers { pens, ..self }
+    }
+    fn plan(&self) -> Option<crate::cut::Plan> {
+        match self.cut {
+            crate::cut::Cut::Plan(p) => Some(p),
+            crate::cut::Cut::None | crate::cut::Cut::After(_) => None,
+        }
+    }
+    fn before_cut(self, reach: crate::reach::Reach) -> Writers {
+        Writers {
+            reach,
+            cut: crate::cut::Cut::None,
+            ..self
+        }
+    }
+    /// The shell's from the cut on: what the bytes after the `D` say, no
+    /// group sampled before the read and no watch's verdict, the uncut
+    /// writers kept for a cut whose line cannot be numbered.
+    fn after_cut(self, spot: crate::cut::Spot) -> Writers {
+        let Some(plan) = self.plan() else {
+            return self;
+        };
+        Writers {
+            before: None,
+            watched: Watched::Nothing,
+            marked: plan.after(),
+            cut: crate::cut::Cut::After(crate::cut::Mark {
+                spot,
+                uncut: crate::cut::Uncut {
+                    marked: self.marked,
+                    before: self.before,
+                    watched: self.watched,
+                },
+            }),
+            ..self
+        }
+    }
 }
 
 impl Writers {
@@ -301,7 +407,12 @@ impl Writers {
             before: None,
             at: group,
             watched: Watched::Nothing,
-            marked: Watched::Nothing,
+            marked: crate::ran::Ran::Unmarked,
+            reach: crate::reach::Reach::Anywhere,
+            folder: crate::ran::Folder::Unreported,
+            reports: crate::ran::Reports::default(),
+            pens: crate::paths::Pens::default(),
+            cut: crate::cut::Cut::None,
         }
     }
 }
@@ -323,6 +434,15 @@ pub enum Asks {
 }
 
 impl Sampler {
+    /// **The sampler for a window whose shell baud handed `token`**: the
+    /// marks are read against that token alone ([`crate::ran::Commands::new`]).
+    pub fn for_shell(token: Option<&crate::ran::ShellToken>) -> Sampler {
+        Sampler {
+            commands: crate::ran::Commands::new(token),
+            ..Sampler::default()
+        }
+    }
+
     /// **The writers of a read that asked**, from `at`, the group sampled
     /// just after it, and `watched`, the process watch's verdict taken at
     /// it: the group before is the one the last read that asked was taken
@@ -335,12 +455,50 @@ impl Sampler {
             at,
             watched: watched.or(self.previous_watched),
             marked: self.marked,
+            reach: self.reach,
+            folder: self.folder,
+            reports: self.reports,
+            pens: crate::paths::Pens::default(),
+            cut: self.cut,
         };
+        self.forget_at_d();
         if at.is_some() {
             self.previous = at;
         }
         self.previous_watched = watched;
         w
+    }
+
+    /// **The writers of a read that did not ask**: the group the last read
+    /// that asked was taken with, as the one before it, which a read inside
+    /// the pace is taken to be until the next sample says otherwise, no
+    /// group after it and no watch's verdict, which wait for a read that
+    /// asks; and what the shell's marks say of it, what it did to its
+    /// cursor's line and whether it reported a folder, which are this
+    /// read's alone. So every read's rows are filed under some writer.
+    pub fn unasked(&mut self) -> Writers {
+        let w = Writers {
+            before: self.previous,
+            marked: self.marked,
+            reach: self.reach,
+            folder: self.folder,
+            reports: self.reports,
+            cut: self.cut,
+            ..Writers::default()
+        };
+        self.forget_at_d();
+        w
+    }
+
+    /// After a read that carried the shell's own `D` has its writers: the
+    /// group before and the watch's verdict are that command's, and no
+    /// read after the `D` is taken with them.
+    fn forget_at_d(&mut self) {
+        if self.ended == Ended::AtD {
+            self.previous = None;
+            self.previous_watched = Watched::Nothing;
+            self.ended = Ended::No;
+        }
     }
 
     /// Whether the read at `now` asks, by the pace alone.
@@ -360,6 +518,38 @@ impl Sampler {
     /// ended on.
     pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
         self.marked = self.commands.read(bytes);
+        let was = self.reads.encoding();
+        self.reach = self.reads.read(bytes);
+        // Under `ESC % @` an `OSC` can begin with 0x9D, which the marks
+        // scan does not read: a read any byte of which was scanned so and
+        // which holds one may report where no scan placed it, so every part
+        // of it that feeds a byte is refused.
+        let latin = self.reads.latin1_seen() == crate::reach::Latin1Seen::Yes;
+        self.reports = match latin && bytes.contains(&0x9d) {
+            true => crate::ran::Reports::unvouched(),
+            false => self.commands.reports(),
+        };
+        self.folder = self.reports.last();
+        // Where the read is cut at the shell's `D`: only from ground, and
+        // under UTF-8 as the read began.
+        let grounded = match was {
+            crate::reach::Encoding::Utf8 => self.stream.grounded(),
+            crate::reach::Encoding::Latin1 => crate::cut::Grounded::No,
+        };
+        self.stream.read(bytes);
+        self.cut = self
+            .commands
+            .cut()
+            .and_then(|(d, after)| crate::cut::Plan::of(bytes, d, after, grounded))
+            .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan);
+        // The shell's own `D` ends the command the group sampled before was
+        // taken under: what the reads after it wrote is not that program's,
+        // though what this read wrote before it may be, so it is forgotten
+        // once this read's writers are built.
+        self.ended = match self.commands.shells_d() {
+            crate::ran::ShellsD::Yes => Ended::AtD,
+            crate::ran::ShellsD::No => Ended::No,
+        };
         // The tail, then the read's last bytes: what the next read follows.
         let mut seam = [0u8; 2 * CARRY];
         let mut n = 0;
@@ -408,7 +598,7 @@ fn linked(tail: &[u8], bytes: &[u8]) -> bool {
 /// or a `file://` URI in any case**, in one pass over the bytes: a plain
 /// `file` URI is read as the text's links are ([`crate::link::scheme_at`]),
 /// and a click takes its line's origin as it does a marked one's
-/// ([`crate::paths::Paths::printed_origin`]). A `file://` is found by its
+/// ([`crate::paths::PathsAt::printed`]). A `file://` is found by its
 /// `:`, then the four bytes before and the two after, so `Makefile:12:`
 /// and `profile:` ask nothing. One after a `;` is a control string's
 /// parameter, `OSC 7`'s folder at every prompt, which no click reads, and
@@ -841,8 +1031,9 @@ pub struct Answer {
     /// What is in front now; none for a batch left for a newer one before
     /// it was taken, which names nothing.
     pub front: Option<Front>,
-    /// What each group seen since the last batch was, with the lines it wrote.
-    pub seen: Vec<(Front, LineSpan)>,
+    /// What each group seen since the last batch was, with the lines it
+    /// wrote: named, or gone before it could be named.
+    pub seen: Vec<(crate::paths::Seen, LineSpan)>,
     pub probes: Vec<(Vec<u8>, Probe)>,
     /// For [`Kind::Programs`]: what each was found to be; none for a batch
     /// left for a newer one.
@@ -1091,34 +1282,44 @@ fn answer(
             ..base
         };
     }
-    // A group the worker named when it was seen, else named now: one gone by
-    // then names nothing, which is not local. A name kept for a leader that
-    // started at another time than the group's leader now is another
-    // process's, the group number reused, and the group is named again; a
-    // leader gone, whose start no longer reads, keeps the name it was seen
-    // with.
-    let mut front_of_group = |g: Pid, calls: &mut u64| -> Front {
+    // A group the worker named when it was seen, else named now: its names,
+    // none for one gone by then. A name kept for a leader that started at
+    // another time than the group's leader now is another process's, the
+    // group number reused, and the group is named again; a leader gone,
+    // whose start no longer reads, keeps the name it was seen with.
+    let mut names_of_group = |g: Pid, calls: &mut u64| -> Vec<String> {
         let now = fs.started(g);
         *calls += 1;
         if let Some((then, n)) = named.get(&g) {
             let reused = matches!((then, now), (Some(a), Some(b)) if *a != b);
             if !reused {
-                return front_of(n);
+                return n.clone();
             }
         }
         let n = fs.program(g);
         *calls += 1;
         beat();
-        front_of(&n)
+        n
     };
-    let mut seen: Vec<(Front, LineSpan)> = ask
+    // A group seen at a read and gone before it was named is not known,
+    // and so are the lines written past the groups kept: their rows fail
+    // closed and touch no other row (`Paths::written_under`). The group in
+    // front with no name is not known to be local, as `front_of` says.
+    let mut seen: Vec<(crate::paths::Seen, LineSpan)> = ask
         .seen
         .iter()
-        .map(|&(g, l)| (front_of_group(g, &mut calls), l))
+        .map(|&(g, l)| {
+            let n = names_of_group(g, &mut calls);
+            let wrote = match n.is_empty() {
+                true => crate::paths::Seen::NotNamed,
+                false => crate::paths::Seen::Named(front_of(&n)),
+            };
+            (wrote, l)
+        })
         .collect();
-    seen.extend(ask.unnamed.map(|l| (Front::Elsewhere, l)));
+    seen.extend(ask.unnamed.map(|l| (crate::paths::Seen::NotNamed, l)));
     let front = match ask.group {
-        Some(g) => front_of_group(g, &mut calls),
+        Some(g) => front_of(&names_of_group(g, &mut calls)),
         None => Front::Elsewhere,
     };
     for (g, _) in &ask.seen {
@@ -1146,19 +1347,29 @@ fn answer(
         }
         _ => (None, None),
     };
-    let through = |f: Front| seen.iter().filter(|s| s.0 == f).map(|s| s.1.last()).max();
-    let (elsewhere, multiplexed) = (through(Front::Elsewhere), through(Front::Multiplexer));
+    // Whether this batch saw a writer `w` takes write the row `line`.
+    let wrote_on = |line, w: &dyn Fn(crate::paths::Seen) -> bool| {
+        seen.iter().any(|&(x, s)| w(x) && s.holds(line))
+    };
+    let not_local = |x: crate::paths::Seen| {
+        matches!(
+            x,
+            crate::paths::Seen::NotNamed | crate::paths::Seen::Named(Front::Elsewhere)
+        )
+    };
+    let muxer = |x: crate::paths::Seen| x == crate::paths::Seen::Named(Front::Multiplexer);
     let mut probes = Vec::new();
     if front != Front::Elsewhere && !ask.paths.is_empty() {
         let mounts = fs.mounts();
         calls += 1;
         beat();
         for c in ask.paths {
-            // Printed only on rows a program not on this machine wrote.
-            if elsewhere.is_some_and(|t| c.line <= t) {
+            // Printed on a row a program not on this machine, or not known,
+            // wrote: that row only.
+            if wrote_on(c.line, &not_local) {
                 continue;
             }
-            let muxed = front == Front::Multiplexer || multiplexed.is_some_and(|t| c.line <= t);
+            let muxed = front == Front::Multiplexer || wrote_on(c.line, &muxer);
             if muxed && c.form.relative() {
                 continue;
             }
@@ -1439,19 +1650,132 @@ impl<T: Moment> Probes<T> {
         self.started
     }
 
+    /// **A drain of reads was taken as one span**, the cursor on `began`
+    /// before the first and on `ended` after the last, as macOS feeds a
+    /// drain: the span leaves the cursor's line out only when no read could
+    /// have written on it ([`crate::reach::Reach::then`]), and every read
+    /// is filed under the most cautious verdict of the drain's
+    /// ([`crate::ran::Ran::or`]), so no read's verdict lowers rows another
+    /// read in the span wrote: a local command's read lifts nothing a read
+    /// naming nothing wrote, and the shell's own read drops no sample or
+    /// watch's verdict of a command's. Each read's groups are kept as
+    /// [`Probes::read_taken`] keeps them.
+    ///
+    /// **A drain a read was cut in at the shell's `D` is three spans**
+    /// (`cut.rs`): the parts before the cut, from `began` to the cut's line,
+    /// that line only if they could have written on it; the parts from the
+    /// cut on over the cut's line alone, under the most cautious verdict of
+    /// their own; and the lines below it to `ended`, which the shell's bytes
+    /// moved over, under every part's verdict as it would have been uncut --
+    /// a remote program can leave text below its cursor that no span filed,
+    /// and the shell's lines feeds pass over it without writing it. So a
+    /// prompt of two lines keeps its second line dark, failing closed. A
+    /// cut whose line `term` cannot number -- the surface switched, the grid
+    /// resized, lines taken back since, or the bytes after it ending above
+    /// it -- is no cut: the drain is filed as it would have been without it.
+    pub fn drain_taken(
+        &mut self,
+        paths: &mut Paths,
+        term: &Term<'_>,
+        began: AbsLine,
+        ended: AbsLine,
+        reads: impl Iterator<Item = (Writers, Linked)> + Clone,
+    ) {
+        let cut = reads
+            .clone()
+            .enumerate()
+            .find_map(|(k, (w, _))| match w.cut {
+                crate::cut::Cut::After(m) => Some((k, m)),
+                crate::cut::Cut::None | crate::cut::Cut::Plan(_) => None,
+            });
+        let line = cut.and_then(|(_, m)| {
+            m.spot
+                .line(term, ended)
+                .filter(|l| began <= *l && *l <= ended)
+        });
+        // Each part after the cut as it would have been filed without it.
+        let uncut = reads.clone().map(|(w, linked)| match w.cut {
+            crate::cut::Cut::After(m) => (
+                Writers {
+                    marked: m.uncut.marked,
+                    before: m.uncut.before,
+                    watched: m.uncut.watched,
+                    ..w
+                },
+                linked,
+            ),
+            crate::cut::Cut::None | crate::cut::Cut::Plan(_) => (w, linked),
+        });
+        // What a run of parts reached, drained one after another.
+        let reach = |parts: &mut dyn Iterator<Item = (Writers, Linked)>| {
+            let first = parts.next()?.0.reach;
+            Some(parts.fold(first, |r, (w, _)| r.then(w.reach)))
+        };
+        match (cut, line) {
+            (Some((k, _)), Some(line)) => {
+                if let Some(r) = reach(&mut reads.clone().take(k)) {
+                    self.drain_span(paths, LineSpan::read(began, line, r), reads.clone().take(k));
+                }
+                let Some(r) = reach(&mut reads.clone().skip(k)) else {
+                    return;
+                };
+                let after = LineSpan::read(line, ended, r);
+                self.drain_span(paths, LineSpan::of(line, line), reads.skip(k));
+                if after.last() > line {
+                    self.drain_span(paths, LineSpan::of(line.below(), after.last()), uncut);
+                }
+            }
+            _ => {
+                if let Some(r) = reach(&mut uncut.clone()) {
+                    self.drain_span(paths, LineSpan::read(began, ended, r), uncut);
+                }
+            }
+        }
+    }
+
+    /// Parts of a drain filed over `span`, under the most cautious verdict
+    /// of them ([`Probes::drain_taken`]).
+    fn drain_span(
+        &mut self,
+        paths: &mut Paths,
+        span: LineSpan,
+        reads: impl Iterator<Item = (Writers, Linked)> + Clone,
+    ) {
+        let Some(ran) = reads
+            .clone()
+            .map(|(w, _)| w.marked)
+            .reduce(crate::ran::Ran::or)
+        else {
+            return;
+        };
+        for (w, linked) in reads {
+            // Every read that opened a link or wrote under it is filed
+            // against its slot, whatever its rows are filed as.
+            for pen in w.pens.each() {
+                paths.slot_wrote(pen, span);
+            }
+            self.read_taken(paths, Writers { marked: ran, ..w }, span, linked);
+        }
+    }
+
     /// **A read was taken with `writers` in front, writing `span`**, from
     /// the line the cursor was on as it began to the line it ended on: each
     /// group sampled for it, before the read and just after it, kept with
     /// its lines, and a new one sent to be named at once, while it may still
-    /// run; a link on the lines of a read the process watch saw a program
-    /// not on this machine for takes a remote origin outright
-    /// ([`Paths::written_remote`]). So a read is local only when
-    /// both samples and the watch are, and a program that wrote and ended
-    /// before the sample after its read is named by the one before it.
-    /// `writers` is the [`Sampler`]'s: none for a read that did not ask, or
-    /// a group the kernel no longer names. With `[link] paths = "off"` only
-    /// a read that `linked` an `OSC 8` link is kept, since only a link's
-    /// click reads who printed it ([`Paths::origin`]).
+    /// run. So a read is local only when both samples are, and a program
+    /// that wrote and ended before the sample after its read is named by the
+    /// one before it -- unless the shell's marks say the read is the shell's
+    /// own ([`crate::ran::Ran::Shell`]), its prompt after a command, which
+    /// that program did not write. A read the process watch, or the shell's
+    /// marks, say a program not on this machine wrote is remote outright
+    /// ([`Paths::written_remote`]) -- the watch's verdict not on the
+    /// shell's own -- and one the shell, with its token, says a command
+    /// named here wrote lifts a writer gone before it was named
+    /// ([`Paths::written_here`]). Each of these touches the read's own rows
+    /// only. `writers` is the [`Sampler`]'s: none for a read that did not
+    /// ask, or a group the kernel no longer names. With `[link] paths =
+    /// "off"` only a read that `linked` an `OSC 8` link is kept, since only
+    /// a link's click reads who printed it ([`Paths::origin`]).
     pub fn read_taken(
         &mut self,
         paths: &mut Paths,
@@ -1459,6 +1783,14 @@ impl<T: Moment> Probes<T> {
         span: LineSpan,
         linked: Linked,
     ) {
+        use crate::ran::Ran;
+        // A folder report sent while a command named not local ran is that
+        // program's, which can name this machine as well as the shell can.
+        match writers.folder {
+            crate::ran::Folder::Unreported => {}
+            crate::ran::Folder::Reported => paths.folder_reported(crate::paths::Report::Taken),
+            crate::ran::Folder::FromRemote => paths.folder_reported(crate::paths::Report::Refused),
+        }
         if let Some(g) = writers.at {
             self.front_group = Some(g);
             // yazi handing straight to hx: the folder read for one is never
@@ -1467,12 +1799,24 @@ impl<T: Moment> Probes<T> {
                 self.dir_dropped = Owed::Yes;
             }
         }
-        let groups = match (writers.before, writers.at) {
+        let before = match writers.marked {
+            Ran::Shell => None,
+            Ran::Unmarked | Ran::Here | Ran::Elsewhere | Ran::Command => writers.before,
+        };
+        let groups = match (before, writers.at) {
             (Some(b), Some(a)) if b == a => [Some(a), None],
             (b, a) => [b, a],
         };
-        let raised = writers.watched.or(writers.marked);
-        if groups == [None, None] && raised == Watched::Nothing {
+        // The watch names a program, not its rows: what it saw is filed on
+        // the reads of the command it ran in, and not on the shell's own,
+        // its prompt after `git push` or `git pull`.
+        let watched = writers.watched == Watched::Elsewhere && writers.marked != Ran::Shell;
+        let remote = watched || writers.marked == Ran::Elsewhere;
+        let here = writers.marked == Ran::Here;
+        // The shell's own read with no group to name is filed as the
+        // shell's, which is on this machine.
+        let shell = writers.marked == Ran::Shell && groups == [None, None];
+        if groups == [None, None] && !remote && !here && !shell {
             return;
         }
         let kept = match paths.marks() {
@@ -1483,10 +1827,14 @@ impl<T: Moment> Probes<T> {
         if !kept || matches!(self.slot, Slot::Closed) {
             return;
         }
-        // A link's origin only: the printed paths' watermark goes by the
-        // groups in front, not by every job the watch names.
-        if raised == Watched::Elsewhere {
+        if remote {
             paths.written_remote(span);
+        }
+        if here {
+            paths.written_here(span);
+        }
+        if shell {
+            paths.written_by_shell(span);
         }
         for g in groups.into_iter().flatten() {
             self.group_wrote(paths, g, span);
@@ -1494,16 +1842,25 @@ impl<T: Moment> Probes<T> {
     }
 
     /// `g` wrote `span`: kept with its lines, and named now if it is new.
+    /// Its rows join its last span only where they touch it: a group seen at
+    /// two reads with another's rows between keeps two spans, so its verdict
+    /// covers its own rows and not the rows between, and it is named once.
     fn group_wrote(&mut self, paths: &mut Paths, g: Pid, span: LineSpan) {
-        if let Some(e) = self.seen.iter_mut().find(|e| e.0 == g) {
-            e.1 = e.1.joined(span);
-            return;
+        let known = self.seen.iter().any(|e| e.0 == g);
+        if let Some(e) = self.seen.iter_mut().rev().find(|e| e.0 == g) {
+            if e.1.touches(span) {
+                e.1 = e.1.joined(span);
+                return;
+            }
         }
         if self.seen.len() >= GROUPS {
             self.unnamed = joined(self.unnamed, Some(span));
             return;
         }
         self.seen.push((g, span));
+        if known {
+            return;
+        }
         if matches!(self.slot, Slot::Unstarted) {
             self.started.bump();
             match (self.start)() {
@@ -1756,10 +2113,12 @@ impl<T: Moment> Probes<T> {
             // Every row to the cursor is now this group's: what was seen
             // before it is covered, and was written while it was in front.
             for (_, span) in self.seen.drain(..) {
-                s.paths.written_under(Front::Elsewhere, span);
+                s.paths
+                    .written_under(crate::paths::Seen::Named(Front::Elsewhere), span);
             }
             if let Some(span) = self.unnamed.take() {
-                s.paths.written_under(Front::Elsewhere, span);
+                s.paths
+                    .written_under(crate::paths::Seen::Named(Front::Elsewhere), span);
             }
             return turn;
         }
@@ -2464,6 +2823,7 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(12));
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
+        paths.all_written_here();
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -2923,6 +3283,7 @@ mod tests {
             t.feed(BytePos::ZERO, ReadLen::from_index(12));
             let mut paths = Paths::new(None, Forms::DEFAULT);
             paths.set(Turned::On);
+            paths.all_written_here();
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
@@ -2986,6 +3347,7 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(12));
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
+        paths.all_written_here();
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -3074,15 +3436,16 @@ mod tests {
         );
     }
 
-    /// **A program named local owes a frame though nothing else moved**: a
-    /// naming may join two rows the writer ended, or part them
-    /// (`PathsAt::joins`), and the line at rest and the look under a still
-    /// pointer are read again only on a frame. The shell's group, read at a
-    /// line holding a link with printed paths off, named local: no answer,
-    /// no mark and no front moves, and the turn that brings the naming owes
-    /// the frame.
-    /// Perturbation: drop the provenance arm from `turn` -- that turn owes
-    /// nothing.
+    /// **A program named local owes a frame, and its rows are read again**:
+    /// a row nothing was filed over reads as not known, so a naming moves
+    /// what a link on it looks like, and may join two rows the writer ended
+    /// or part them (`PathsAt::joins`); the line at rest and the look under
+    /// a still pointer are read again only on a frame. The shell's group,
+    /// read at a line holding a link with printed paths off, named local: no
+    /// answer and no front moves, the rows are read again, and the turn that
+    /// brings the naming owes the frame. Named break: file a writer named
+    /// after its read without moving the generation -- the rows are not read
+    /// again.
     #[test]
     fn a_program_named_owes_a_frame() {
         let mut f = Fake::with(&[]);
@@ -3134,10 +3497,10 @@ mod tests {
             assert!(Instant::now() < deadline, "never named");
             std::thread::yield_now();
         };
-        assert_eq!(
+        assert_ne!(
             paths.generation(),
             generation,
-            "the control: no answer moved"
+            "the naming moves what the row reads"
         );
         assert_eq!(frame, Owed::Yes);
     }
@@ -3155,12 +3518,13 @@ mod tests {
         text: &[u8],
         front: impl Fn(u32) -> Pid,
     ) -> (usize, Vec<String>, Option<Vec<u8>>) {
-        on_screen_with(fs, alt, text, &front, &front, |_, _| {}, None)
+        on_screen_with(fs, alt, text, &front, &front, |_, _| Moved::No, None)
     }
 
     /// [`on_screen`] with the group a read samples (`read`) apart from the
     /// one a batch reads (`batch`), `step_on` run on the terminal before
-    /// each step's turn, and at the end, with `last` given, one more read
+    /// each step's turn -- what it prints read as the group sampled then
+    /// wrote it, as the reader files a read -- and at the end, with `last` given, one more read
     /// sampling that group and the worker's answers merged, with no batch.
     fn on_screen_with(
         fs: Fake,
@@ -3168,7 +3532,7 @@ mod tests {
         text: &[u8],
         batch: &dyn Fn(u32) -> Pid,
         read: &dyn Fn(u32) -> Pid,
-        step_on: impl Fn(u32, &mut Term<'_>),
+        step_on: impl Fn(u32, &mut Term<'_>) -> Moved,
         last: Option<Pid>,
     ) -> (usize, Vec<String>, Option<Vec<u8>>) {
         let log = fs.clone();
@@ -3203,10 +3567,12 @@ mod tests {
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let s = Scrolled::START;
         let line = s.line(Rows::ZERO, t.cursor().0);
+        // The program's first read wrote the screen from its top.
+        let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
         pr.read_taken(
             &mut paths,
             Writers::at(Some(read(0))),
-            LineSpan::of(line, line),
+            LineSpan::of(top, line),
             Linked::No,
         );
         let t0 = Instant::now();
@@ -3225,7 +3591,16 @@ mod tests {
                     Linked::No,
                 );
             }
-            step_on(step, &mut t);
+            if step_on(step, &mut t) == Moved::Yes {
+                let line = s.line(Rows::ZERO, t.cursor().0);
+                let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+                pr.read_taken(
+                    &mut paths,
+                    Writers::at(Some(read(step))),
+                    LineSpan::of(top, line),
+                    Linked::No,
+                );
+            }
             let before = pr.counts.batches;
             let seen = Seen {
                 term: &t,
@@ -3707,6 +4082,7 @@ mod tests {
             t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
             let mut paths = Paths::new(None, Forms::DEFAULT);
             paths.set(Turned::On);
+            paths.all_written_here();
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let row = |r: usize| s.line(Rows::ZERO, baud_domain::Row::from_index(r));
@@ -3851,7 +4227,7 @@ mod tests {
             let _ = sampler.writers(Some(1), Watched::Nothing);
             let (writers, linked) = match sampler.read(t0 + Duration::from_millis(1), bytes) {
                 Asks::Yes(l) => (sampler.writers(Some(g), Watched::Nothing), l),
-                Asks::No => (Writers::default(), Linked::No),
+                Asks::No => (sampler.unasked(), Linked::No),
             };
             pr.read_taken(&mut paths, writers, LineSpan::of(line, line), linked);
             for i in 0..1_000_000u32 {
@@ -3880,13 +4256,8 @@ mod tests {
                 panic!("read from the text: {under:?}");
             };
             let uri = bare.uri().expect("its URI").to_vec();
-            crate::link::admit_printed(
-                &uri,
-                Host(""),
-                uris.rules(),
-                paths.printed_origin(&under, line),
-            )
-            .map(|target| crate::link::click(&target, &paths))
+            let _ = uri;
+            crate::link::clicked(&under, &t, Host(""), uris.rules(), &paths)
         };
         assert_eq!(run(1), Ok(Click::Reveal), "the shell's");
         assert_eq!(run(9), Err(Refused::Remote), "ssh's");
@@ -3917,7 +4288,7 @@ mod tests {
             let now = t0 + Duration::from_millis(u64::try_from(k).expect("a count"));
             let (writers, linked) = match sampler.read(now, bytes) {
                 Asks::Yes(l) => (sampler.writers(Some(1), Watched::Nothing), l),
-                Asks::No => (Writers::default(), Linked::No),
+                Asks::No => (sampler.unasked(), Linked::No),
             };
             pr.read_taken(&mut paths, writers, LineSpan::of(began, ended), linked);
         }
@@ -3949,13 +4320,8 @@ mod tests {
             Under::Bare(b) => b.uri().expect("its URI").to_vec(),
             Under::Path(_) => panic!("a path, not a link"),
         };
-        crate::link::admit_printed(
-            &uri,
-            Host(""),
-            uris.rules(),
-            paths.printed_origin(&under, line),
-        )
-        .map(|target| crate::link::click(&target, &paths))
+        let _ = uri;
+        crate::link::clicked(&under, &t, Host(""), uris.rules(), &paths)
     }
 
     /// **The shell's mark that its command is `ssh` makes the link that
@@ -4009,7 +4375,7 @@ mod tests {
                 README,
                 &|_| 7,
                 &|_| 7,
-                |_, _| {},
+                |_, _| Moved::No,
                 Some(last),
             )
         };
@@ -4034,7 +4400,9 @@ mod tests {
                 let b = [b"\x1b[?1049l".as_slice(), README].concat();
                 t.write_at(BytePos::ZERO, &b);
                 t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+                return Moved::Yes;
             }
+            Moved::No
         };
         let (drawn, log, hovered) = on_screen_with(
             readme_tree(),
@@ -4082,7 +4450,9 @@ mod tests {
                     let b = b"\x1b[3;1Hdocs/guide/new.md";
                     t.write_at(BytePos::ZERO, b);
                     t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+                    return Moved::Yes;
                 }
+                Moved::No
             };
             on_screen_with(f, Screen::Alternate, README, &|_| 7, &|_| 7, prints, None)
         };
@@ -4336,5 +4706,1519 @@ mod tests {
             &mut named,
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One read for [`lit_reads`]: its bytes, the group the kernel names at
+    /// it, the process watch's verdict taken at it, and whether it is taken
+    /// with the read before it in one drain, as the macOS pump takes them.
+    #[derive(Clone, Copy)]
+    struct Read<'a> {
+        bytes: &'a [u8],
+        group: Pid,
+        watched: Watched,
+        drain: Drain,
+        sampled: Sampled,
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Drain {
+        New,
+        Same,
+    }
+
+    /// Whether a read asks for the group in front, or is one inside the
+    /// pace, which asks for none (`Sampler::unasked`).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Sampled {
+        Yes,
+        No,
+        /// Fed and filed under nothing: text on the screen whose writer no
+        /// span names, as a read before the paths were on.
+        Unfiled,
+    }
+
+    /// A read of its own, as the Linux loop takes each, with nothing from
+    /// the watch.
+    fn read(bytes: &[u8], group: Pid) -> Read<'_> {
+        Read {
+            bytes,
+            group,
+            watched: Watched::Nothing,
+            drain: Drain::New,
+            sampled: Sampled::Yes,
+        }
+    }
+
+    /// A read inside the pace: no group asked for.
+    fn quiet(bytes: &[u8]) -> Read<'_> {
+        Read {
+            sampled: Sampled::No,
+            ..read(bytes, 0)
+        }
+    }
+
+    /// **The rows that draw a line once `chunks` are taken and a batch is
+    /// answered with the shell (group 1) in front**: [`lit_reads`] with
+    /// each read alone, as the Linux loop takes reads.
+    fn lit_after(f: Fake, chunks: &[(&[u8], Pid)]) -> Vec<usize> {
+        let reads: Vec<Read<'_>> = chunks.iter().map(|&(b, g)| read(b, g)).collect();
+        lit_reads(f, &reads)
+    }
+
+    /// **The rows that draw a line once `reads` are taken and a batch is
+    /// answered with the shell (group 1) in front**: each fed to a terminal
+    /// through a [`Sampler`] -- its marks scan included -- with its group
+    /// and the watch's verdict, and each drain's reads given the drain's
+    /// lines, from where the cursor began to where it ended
+    /// (`LineSpan::read` of its last read), as the drivers give them. `f`
+    /// names the groups.
+    fn lit_reads(f: Fake, reads: &[Read<'_>]) -> Vec<usize> {
+        taken(f, reads).0
+    }
+
+    /// [`lit_reads`], and the origin of each of the first rows, to the
+    /// cursor's.
+    fn taken(f: Fake, reads: &[Read<'_>]) -> (Vec<usize>, Vec<Origin>) {
+        let (rows, origins, ()) = taken_then(f, reads, None, |_, _| ());
+        (rows, origins)
+    }
+
+    /// [`taken`], the spans of the lines above `trim` dropped once the reads
+    /// are filed and answered, as when they leave history, and then `look`
+    /// at the terminal and the paths as they stand.
+    fn taken_then<R>(
+        f: Fake,
+        reads: &[Read<'_>],
+        trim: Option<usize>,
+        look: impl FnOnce(&Term<'_>, &Paths) -> R,
+    ) -> (Vec<usize>, Vec<Origin>, R) {
+        taken_then_on(WS, f, reads, trim, look)
+    }
+
+    /// [`taken`] on a screen of `ws`.
+    fn taken_on(ws: WinSize, f: Fake, reads: &[Read<'_>]) -> (Vec<usize>, Vec<Origin>) {
+        let (rows, origins, ()) = taken_then_on(ws, f, reads, None, |_, _| ());
+        (rows, origins)
+    }
+
+    /// [`taken_then`] on a screen of `ws`.
+    fn taken_then_on<R>(
+        ws: WinSize,
+        f: Fake,
+        reads: &[Read<'_>],
+        trim: Option<usize>,
+        look: impl FnOnce(&Term<'_>, &Paths) -> R,
+    ) -> (Vec<usize>, Vec<Origin>, R) {
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        // The shell is handed [`TOKEN`] where the session's marks carry a
+        // token, as baud hands a window's shell its own at the spawn.
+        let marked = reads
+            .iter()
+            .any(|r| r.bytes.windows(11).any(|w| w == b"baud_token="));
+        let mut sampler = match marked {
+            true => shells_sampler(),
+            false => Sampler::default(),
+        };
+        let t0 = Instant::now();
+        // Fed as the macOS pump feeds a drain, ReGIS delays held
+        // (`reads::paced`): each call files the reads it fed, a held one's
+        // own verdict when its bytes go on.
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = crate::reads::Pace::new();
+        let mut i = 0;
+        while i < reads.len() {
+            let n = 1 + reads[i + 1..]
+                .iter()
+                .take_while(|r| r.drain == Drain::Same)
+                .count();
+            let drain = &reads[i..i + n];
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let mut taken = Vec::new();
+            let mut now = t0;
+            for (k, r) in drain.iter().enumerate() {
+                now = t0 + GROUP_EVERY * u32::try_from(i + k + 1).expect("a count");
+                let _ = sampler.read(now, r.bytes);
+                taken.push(match r.sampled {
+                    Sampled::Yes => sampler.writers(Some(r.group), r.watched),
+                    Sampled::No | Sampled::Unfiled => sampler.unasked(),
+                });
+            }
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                drain.iter().map(|r| r.bytes).zip(taken),
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            if drain.iter().any(|r| r.sampled == Sampled::Unfiled) {
+                i += n;
+                continue;
+            }
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            i += n;
+        }
+        let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
+            let _ = lines.scan(
+                &t,
+                s,
+                &mut Links {
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                },
+            );
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            pr.turn(now, seen, || Some(1))
+        };
+        // Batches a second apart, each answer taken, until the screen has
+        // been asked about as it stands: a row a later answer makes
+        // readable is walked by the batch after it.
+        let mut now = t0 + Duration::from_secs(60);
+        for _ in 0..4 {
+            now += Duration::from_secs(1);
+            let _ = turn(&mut pr, now);
+            while pr.flight.is_some() {
+                std::thread::yield_now();
+                let _ = turn(&mut pr, now);
+            }
+        }
+        if let Some(n) = trim {
+            paths.trim_spans(s.line(Rows::ZERO, baud_domain::Row::from_index(n)));
+            lines.forget();
+        }
+        let _ = lines.scan(
+            &t,
+            s,
+            &mut Links {
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            },
+        );
+        let mut rows: Vec<usize> = lines.lines().iter().map(|l| l.row.index()).collect();
+        rows.dedup();
+        let origins = (0..=t.cursor().0.index())
+            .map(|y| paths.origin(s.line(Rows::ZERO, baud_domain::Row::from_index(y))))
+            .collect();
+        let looked = look(&t, &paths);
+        (rows, origins, looked)
+    }
+
+    /// The groups the tests below name: the shell, a local `ls`, `ssh`, and
+    /// two groups gone before they were named, which name nothing.
+    fn named_groups() -> Fake {
+        let mut f = Fake::with(&[
+            ("/etc", Entry::Dir),
+            ("/etc/hosts", Entry::File),
+            ("/etc/passwd", Entry::File),
+        ]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        f.groups.insert(2, vec!["ls".into()]);
+        f.groups.insert(9, vec!["ssh".into()]);
+        f.groups.insert(7, Vec::new());
+        f.groups.insert(6, Vec::new());
+        f
+    }
+
+    /// **A short ssh's printed path gets no line, and the local row above
+    /// it keeps its own**: `ls` printed `/etc/hosts` on row 0 and `ssh`
+    /// printed `/etc/passwd` on row 1, each named. The control: both local,
+    /// both lit. Named break: the high-water mark (`elsewhere_through`) --
+    /// row 0, written before the ssh, goes dark with it.
+    #[test]
+    fn a_short_ssh_darkens_only_its_own_rows() {
+        let local = lit_after(
+            named_groups(),
+            &[(b"/etc/hosts\r\n", 2), (b"/etc/passwd\r\n", 2)],
+        );
+        assert_eq!(local, [0, 1], "the control: both printed here");
+        let ssh = lit_after(
+            named_groups(),
+            &[(b"/etc/hosts\r\n", 2), (b"/etc/passwd\r\n", 9)],
+        );
+        assert_eq!(ssh, [0], "ssh's row dark, the local row above lit");
+    }
+
+    /// **A program gone before it was named darkens only its own rows, and
+    /// those fail closed**: its `/etc/passwd` gets no line, as its writer is
+    /// not known, and `ls`'s `/etc/hosts` above keeps its line. Under a
+    /// command the shell, with its token, named a program on this machine,
+    /// the same gone writer is that command's, and its row lights. Named
+    /// breaks: the high-water mark -- row 0 goes dark too; a gone group
+    /// named not local -- the row under the shell's local command stays
+    /// dark.
+    #[test]
+    fn a_gone_writer_darkens_only_its_own_rows() {
+        let rows = lit_after(
+            named_groups(),
+            &[(b"/etc/hosts\r\n", 2), (b"/etc/passwd\r\n", 7)],
+        );
+        assert_eq!(rows, [0], "the gone writer's row dark, the row above lit");
+        let marked = lit_after(
+            named_groups(),
+            &[
+                (
+                    b"/etc/hosts\r\n\x1b]133;C;baud_token=0123456789abcdef;cmdline=cat\\ x\x07",
+                    2,
+                ),
+                (b"/etc/passwd\r\n", 7),
+            ],
+        );
+        assert_eq!(marked, [0, 1], "the shell named its command here");
+    }
+
+    /// **The prompt after a quick command is the shell's, whoever wrote the
+    /// command's output**: the shell's marks (`OSC 133`, with its token)
+    /// around a command whose line it did not send, as bash's with history
+    /// off; the child, gone before it was named, prints `/etc/passwd`; the
+    /// next prompt, sampled with the child before it, has `/etc/hosts`
+    /// typed on it, not run. The typed path lights and the child's does
+    /// not. The control: the same with the child named local lights both.
+    /// Named breaks: the output's span running onto the line the cursor
+    /// rests on; the prompt's read given to the group sampled before it.
+    #[test]
+    fn the_prompt_after_a_quick_command_keeps_its_lines() {
+        let run = |child: Pid| {
+            lit_after(
+                named_groups(),
+                &[
+                    (
+                        b"\x1b]133;A;aid=1\x07% /bin/echo\r\n\x1b]133;C;baud_token=0123456789abcdef\x07",
+                        1,
+                    ),
+                    (b"/etc/passwd\r\n", child),
+                    (
+                        b"\x1b]133;D;0;aid=1;baud_token=0123456789abcdef\x07\x1b]133;A;aid=1\x07% /etc/hosts",
+                        1,
+                    ),
+                ],
+            )
+        };
+        assert_eq!(run(2), [1, 2], "the control: a local child");
+        assert_eq!(run(7), [2], "the typed path lit, the gone child's dark");
+    }
+
+    /// The shell's token in the tests' marks.
+    const TOKEN: &str = "0123456789abcdef";
+
+    /// The sampler for a window whose shell baud handed [`TOKEN`].
+    fn shells_sampler() -> Sampler {
+        Sampler::for_shell(Some(&crate::ran::ShellToken::given(TOKEN)))
+    }
+
+    /// The shell's prompt with `line` typed and run, and its `C` with
+    /// `fields` after the token.
+    fn ran(line: &str, fields: &str) -> Vec<u8> {
+        format!("\x1b]133;A;aid=1\x07% {line}\r\n\x1b]133;C;baud_token={TOKEN}{fields}\x07")
+            .into_bytes()
+    }
+
+    /// The command's end and the next prompt, `typed` at it.
+    fn prompt_after(typed: &str) -> Vec<u8> {
+        format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07% {typed}")
+            .into_bytes()
+    }
+
+    /// **The process watch's verdict is filed on the reads of the command
+    /// it saw a program for, not on the prompt after it**: `git push`, a
+    /// command the shell named here, whose ssh the watch names at the
+    /// read that printed `/etc/passwd`; the verdict carries to the next
+    /// read, the shell's `D` and prompt, where `/etc/hosts` is typed. The
+    /// typed path lights and the command's row stays dark. The control: no
+    /// verdict, both lit. Named break: file the watch's verdict on the
+    /// shell's own read -- the prompt goes dark.
+    #[test]
+    fn the_watch_files_into_its_commands_rows_not_the_prompt() {
+        let (start, end) = (
+            ran("git push", ";cmdline=git\\ push"),
+            prompt_after("/etc/hosts"),
+        );
+        let run = |watched: Watched| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    Read {
+                        watched,
+                        ..read(b"/etc/passwd\r\n", 2)
+                    },
+                    read(&end, 1),
+                ],
+            )
+        };
+        assert_eq!(run(Watched::Nothing), [1, 2], "the control: no verdict");
+        assert_eq!(
+            run(Watched::Elsewhere),
+            [2],
+            "the prompt lit, the command dark"
+        );
+    }
+
+    /// **In one drain, as the macOS pump takes the reads, the prompt after
+    /// a gone child rests on the shell's marks**: the child's
+    /// `/etc/passwd`, its `D` and the next prompt with `/etc/hosts` typed
+    /// share the drain. Under a command the shell named here both light,
+    /// the gone child its command's; under a `C` naming nothing, as bash's
+    /// with history off, the child's row stays dark -- the residual,
+    /// failing closed -- and the prompt, cut from it at the shell's `D`
+    /// (`cut.rs`), lights. Named breaks: no lift for a command the shell
+    /// named here -- the first case's row 1 goes dark; no cut -- the second
+    /// case's prompt goes dark.
+    #[test]
+    fn in_one_drain_the_prompt_rests_on_the_shells_marks() {
+        let end = prompt_after("/etc/hosts");
+        let run = |start: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(start, 1),
+                    read(b"/etc/passwd\r\n", 7),
+                    Read {
+                        drain: Drain::Same,
+                        ..read(&end, 1)
+                    },
+                ],
+            )
+        };
+        assert_eq!(run(&ran("cat x", ";cmdline=cat\\ x")), [1, 2], "named here");
+        assert_eq!(
+            run(&ran("cat x", "")),
+            [2],
+            "named nothing: the prompt alone"
+        );
+    }
+    /// The shell's `D` for the command before, then its prompt with `line`
+    /// typed and run, and its `C` with `fields` after the token.
+    fn then_ran(line: &str, fields: &str) -> Vec<u8> {
+        let mut b = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        b.extend_from_slice(&ran(line, fields));
+        b
+    }
+
+    /// **A read inside the pace carries the shell's marks**: most reads ask
+    /// for no group, and each still carries what the marks say of it. After
+    /// `ssh h`'s `C`, its `/etc/passwd` on the second row of a read that
+    /// asked for nothing, a row no read before it reached, is remote; after `ls`'s, the same read is the group last sampled's, the
+    /// shell's, and lights. Named break: a read that asks for nothing gets
+    /// `Writers::default()` -- the remote row is not known, and the local
+    /// one is dark.
+    #[test]
+    fn a_read_inside_the_pace_carries_the_shells_marks() {
+        let run = |line: &str, fields: &str| {
+            let start = ran(line, fields);
+            taken(
+                named_groups(),
+                &[read(&start, 1), quiet(b"x\r\n/etc/passwd\r\n")],
+            )
+        };
+        let (lit, origins) = run("ssh h", ";cmdline=ssh\\ h");
+        assert_eq!(lit, Vec::<usize>::new(), "ssh's");
+        assert_eq!(origins[2], Origin::Remote, "ssh's row: {origins:?}");
+        let (lit, origins) = run("ls", ";cmdline=ls");
+        assert_eq!(lit, [2], "the control: ls's");
+        assert_eq!(origins[2], Origin::Local, "ls's row: {origins:?}");
+    }
+
+    /// **R1: a remote program's own `D` ends nothing**: after `ssh h`'s
+    /// `C`, the program prints a `D` without the shell's token in the
+    /// middle of a read, then `/etc/passwd`, and `/etc/hosts` in the next
+    /// read, both asking for no group: every row stays remote, none goes
+    /// local, the second read included. Named break: let a `D` with no
+    /// token end a command the shell named not local -- the second read is
+    /// the shell's, and `/etc/hosts` lights.
+    #[test]
+    fn a_remote_programs_own_d_ends_nothing() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let (lit, origins) = taken(
+            named_groups(),
+            &[
+                read(&start, 1),
+                quiet(b"x\x1b]133;D;0\x07/etc/passwd\r\n"),
+                quiet(b"/etc/hosts\r\n"),
+            ],
+        );
+        assert_eq!(lit, Vec::<usize>::new(), "no row lit");
+        assert_eq!(origins[1..3], [Origin::Remote; 2], "{origins:?}");
+    }
+
+    /// **C1: the line a remote read moved back to stays remote**: under
+    /// `git push`, a command the shell named here, the process watch names
+    /// the read that writes `aaa` on one line and `bbb /etc/passwd` on the
+    /// next, then `CR`, `CSI A` and `LF`, ending at the start of the second
+    /// line with its text still on it; the shell's `D` and prompt follow
+    /// there, the shell's own read. The line keeps the remote origin and its
+    /// path no line. The control: a plain `/etc/passwd` and a line feed,
+    /// after which the prompt's line is the shell's, its typed path lit.
+    /// Named break: leave the cursor's line out of any read ending in a line
+    /// feed -- the remote text's line goes local.
+    #[test]
+    fn the_line_a_remote_read_moved_back_to_stays_remote() {
+        let start = ran("git push", ";cmdline=git\\ push");
+        let run = |output: &[u8], end: &[u8]| {
+            taken(
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    Read {
+                        watched: Watched::Elsewhere,
+                        ..read(output, 2)
+                    },
+                    read(end, 1),
+                ],
+            )
+        };
+        let (lit, origins) = run(b"aaa\r\nbbb /etc/passwd\r\x1b[A\n", &prompt_after(""));
+        assert_eq!(origins[2], Origin::Remote, "{origins:?}");
+        assert_eq!(lit, Vec::<usize>::new(), "no line on the remote text");
+        let (lit, origins) = run(b"/etc/passwd\r\n", &prompt_after("/etc/hosts"));
+        assert_eq!(
+            origins[1..3],
+            [Origin::Remote, Origin::Local],
+            "the control"
+        );
+        assert_eq!(lit, [2], "the control: the prompt's typed path");
+    }
+
+    /// **C2: a drain is filed under its most cautious read, cut at the
+    /// shell's `D`**: as the macOS pump takes them, `ssh`'s output, the
+    /// shell's `D`, and its prompt in a read of its own, in one drain, make
+    /// `ssh`'s rows remote, and the prompt from the `D` on is the shell's
+    /// and the samples' (`cut.rs`); and a read under a command naming
+    /// nothing, then the shell's next command named here, in one drain,
+    /// lift none of the gone writer's rows. Named breaks: file every read
+    /// under the drain's last -- the shell's own, and the command named
+    /// here -- `ssh`'s row reads local; no cut -- the prompt stays dark.
+    #[test]
+    fn a_drain_is_filed_under_its_most_cautious_read() {
+        let (start, end) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after("/etc/hosts"));
+        let a = end
+            .windows(7)
+            .position(|w| w == b"\x1b]133;A")
+            .expect("the prompt's A");
+        let (ended, prompt) = end.split_at(a);
+        let (lit, origins) = taken(
+            named_groups(),
+            &[
+                read(&start, 1),
+                read(b"x\r\n/etc/passwd\r\n", 1),
+                Read {
+                    drain: Drain::Same,
+                    ..read(ended, 1)
+                },
+                Read {
+                    drain: Drain::Same,
+                    ..read(prompt, 1)
+                },
+            ],
+        );
+        assert_eq!(lit, [3], "the prompt, cut from ssh's drain");
+        assert_eq!(
+            origins[2..4],
+            [Origin::Remote, Origin::Local],
+            "{origins:?}"
+        );
+        let (first, next) = (ran("x", ""), then_ran("cat y", ";cmdline=cat\\ y"));
+        let lit = lit_reads(
+            named_groups(),
+            &[
+                read(&first, 1),
+                read(b"/etc/passwd\r\n", 7),
+                Read {
+                    drain: Drain::Same,
+                    ..read(&[next.as_slice(), b"/etc/hosts"].concat(), 7)
+                },
+            ],
+        );
+        assert_eq!(
+            lit,
+            Vec::<usize>::new(),
+            "a command naming nothing in the drain"
+        );
+    }
+
+    /// **R4: a command the shell named here lifts only its own rows**: a
+    /// command whose `C` named nothing, its child gone before it was named
+    /// printing `/etc/passwd`; then `cat y`, named here with the shell's
+    /// token, its child gone too printing `/etc/hosts`. `cat`'s row lights,
+    /// its writer that command's, and the row before stays dark. Named
+    /// break: lift every row a writer not named wrote -- the first row
+    /// lights too.
+    #[test]
+    fn a_command_named_here_lifts_only_its_own_rows() {
+        let (first, next) = (ran("x", ""), then_ran("cat y", ";cmdline=cat\\ y"));
+        let lit = lit_after(
+            named_groups(),
+            &[
+                (&first, 1),
+                (b"/etc/passwd\r\n", 7),
+                (&next, 1),
+                (b"/etc/hosts", 6),
+            ],
+        );
+        assert_eq!(lit, [3], "cat's row lit, the row before dark");
+    }
+
+    /// The click on the link at `row`, column 0, as `paths` judges it.
+    fn click_at(t: &Term<'_>, paths: &Paths, row: baud_domain::Row) -> bool {
+        let spot = crate::link::Spot {
+            scrolled: Scrolled::START,
+            back: Rows::ZERO,
+            row,
+            col: baud_domain::Col::ZERO,
+        };
+        let under = crate::link::hovered(t, spot).expect("the link");
+        crate::link::clicked(&under, t, crate::link::Host(""), paths.rules(), paths).is_ok()
+    }
+
+    /// Who opens the link [`left_open`]'s reads write under.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Opener {
+        Remote,
+        Shell,
+    }
+
+    /// The reads of a remote program that leaves an `OSC 8` link open as it
+    /// exits, writing no cell under it, and of the shell's prompt after it,
+    /// which writes `/etc/hosts` under the link on row 3; or, the control,
+    /// of the shell opening the link itself there.
+    fn left_open(opener: Opener) -> [Vec<u8>; 4] {
+        let remote = opener == Opener::Remote;
+        let open = b"\x1b]8;;file:///etc/passwd\x1b\\".as_slice();
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let exits = match remote {
+            true => [open, b"\r\n"].concat(),
+            false => b"\r\n".to_vec(),
+        };
+        let prompt = match remote {
+            true => [d.as_slice(), b"/etc/hosts"].concat(),
+            false => [d.as_slice(), open, b"/etc/hosts"].concat(),
+        };
+        [
+            ran("ssh h", ";cmdline=ssh\\ h"),
+            exits,
+            [d.as_slice(), b"\r\n"].concat(),
+            prompt,
+        ]
+    }
+
+    /// **B1: a link a remote program left open is its, whoever writes
+    /// under it later**: under `ssh h`, the remote program opens an `OSC 8`
+    /// link to `/etc/passwd` and exits writing no cell under it; the shell's
+    /// own read then writes `/etc/hosts` under it on row 3, a row filed as
+    /// this machine's. The row draws no line and its click is refused: the
+    /// read that opened the link is filed against its slot. The control:
+    /// the shell opens the same link there itself, lit and opened. Named
+    /// break: file no read against its slot -- row 3 lights and opens.
+    #[test]
+    fn a_link_a_remote_program_left_open_is_its() {
+        for opener in [Opener::Remote, Opener::Shell] {
+            let reads = left_open(opener);
+            let (lit, origins, click) = taken_then(
+                named_groups(),
+                &[
+                    read(&reads[0], 1),
+                    read(&reads[1], 9),
+                    read(&reads[2], 1),
+                    read(&reads[3], 1),
+                ],
+                None,
+                |t, paths| click_at(t, paths, baud_domain::Row::from_index(3)),
+            );
+            assert_eq!(
+                origins[3],
+                Origin::Local,
+                "row 3 is the shell's: {origins:?}"
+            );
+            let opens = opener == Opener::Shell;
+            assert_eq!((lit.contains(&3), click), (opens, opens), "{opener:?}");
+        }
+    }
+
+    /// **B1, D1: a link whose opening rows left history stays dark**: as
+    /// [`a_link_a_remote_program_left_open_is_its`], with the spans of the
+    /// rows above row 3 dropped as history drops them: the slot's record
+    /// names rows nothing is filed over now, which read as not known, so
+    /// row 3 draws no line and its click is refused. The cost, named: a
+    /// link a local program left open past history stays dark too. Named
+    /// break: skip the rows nothing is filed over -- row 3 lights and
+    /// opens.
+    #[test]
+    fn a_link_whose_opening_rows_left_history_stays_dark() {
+        let reads = left_open(Opener::Remote);
+        let (lit, _, click) = taken_then(
+            named_groups(),
+            &[
+                read(&reads[0], 1),
+                read(&reads[1], 9),
+                read(&reads[2], 1),
+                read(&reads[3], 1),
+            ],
+            Some(3),
+            |t, paths| click_at(t, paths, baud_domain::Row::from_index(3)),
+        );
+        assert_eq!((lit.contains(&3), click), (false, false));
+    }
+
+    /// **A link a remote program opened behind a ReGIS delay is its**: as
+    /// [`a_link_a_remote_program_left_open_is_its`], with an `S(T1)` delay
+    /// before the opener, so the opener is held and fed past the deadline,
+    /// a part of its own read, in a drain before the prompt's: row 3 draws
+    /// no line and its click is refused. Named break: the pen read only as each part begins
+    /// (`Pens::of(pen, pen)`) -- row 3 lights and opens.
+    #[test]
+    fn a_link_opened_behind_a_delay_is_its_openers() {
+        let reads = left_open(Opener::Remote);
+        let delayed = [b"\x1bPpS(T1)\x1b\\".as_slice(), &reads[1]].concat();
+        let (lit, _, click) = taken_then(
+            named_groups(),
+            &[
+                read(&reads[0], 1),
+                read(&delayed, 9),
+                read(&reads[2], 1),
+                read(b"", 1),
+                read(&reads[3], 1),
+            ],
+            None,
+            |t, paths| click_at(t, paths, baud_domain::Row::from_index(3)),
+        );
+        assert_eq!((lit.contains(&3), click), (false, false));
+    }
+
+    /// **A folder report in a read a remote command wrote is not taken**: a
+    /// program on the other end of `ssh h` can name this machine as well as
+    /// the shell can, so its `OSC 7` naming `/tmp` leaves the folder as the
+    /// shell last reported it; the shell's own report after the command's
+    /// `D` is taken, though it shares a read with that `D`. Named breaks: take
+    /// every report -- the folder is `/tmp` while `ssh` runs; judge a report
+    /// by its read's verdict -- the shell's after the `D` is refused.
+    #[test]
+    fn a_folder_report_from_a_remote_command_is_not_taken() {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut feed = |bytes: &[u8], k: u32| {
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let _ = sampler.read(t0 + GROUP_EVERY * k, bytes);
+            let w = sampler.unasked();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
+            let _ = paths.observe(&t, s);
+            paths.folder_now().map(<[u8]>::to_vec)
+        };
+        let home = Some(b"/home/u".to_vec());
+        let shells = b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ";
+        assert_eq!(feed(shells, 1), home, "the shell's");
+        assert_eq!(feed(&ran("ssh h", ";cmdline=ssh\\ h"), 2), home);
+        let forged = b"\x1b]7;file://here.example/tmp\x07remote$ ";
+        assert_eq!(feed(forged, 3), home, "the remote program's, not taken");
+        let after = [
+            prompt_after("").as_slice(),
+            b"\x1b]7;file://here.example/tmp\x07",
+        ]
+        .concat();
+        assert_eq!(feed(&after, 4), Some(b"/tmp".to_vec()), "the shell's again");
+    }
+
+    /// **A group seen at two reads apart keeps its two spans**: a writer
+    /// gone before it was named wrote row 0 and row 3, and `ls` wrote rows
+    /// 1 and 2 between, sampled twice; the gone writer's verdict darkens
+    /// its own rows and row 1, whose read it was sampled before, and `ls`'s
+    /// `/etc/hosts` on row 2 keeps its line. Named break: join every span
+    /// of a group into one -- row 2 goes dark under the gone writer.
+    #[test]
+    fn a_group_seen_at_two_reads_apart_keeps_two_spans() {
+        let lit = lit_after(
+            named_groups(),
+            &[
+                (b"x\r\n", 7),
+                (b"y\r\n", 2),
+                (b"/etc/hosts\r\n", 2),
+                (b"z", 7),
+            ],
+        );
+        assert_eq!(lit, [2], "ls's row between keeps its line");
+    }
+
+    /// **B4: a read a ReGIS delay held is filed under its own verdict when
+    /// it is fed**: under `ssh h`, a read that writes an `S(T1)` delay and
+    /// then `/etc/passwd` on a row of its own, and the shell's `D` in the
+    /// read after it, are held; the shell's prompt, in a read past the
+    /// deadline, releases them, and `/etc/passwd`'s row is remote, filed
+    /// under the reads that wrote it. The control: under `ls`, the same
+    /// row lights. Named break: file a call's own reads, held or not, and
+    /// no held read when it is fed -- the row is filed under the prompt's
+    /// read, the shell's, and lights.
+    #[test]
+    fn a_held_read_is_filed_under_its_own_verdict() {
+        let ended = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let delayed = b"\x1bPpS(T1)\x1b\\\r\n/etc/passwd";
+        let prompt = b"\r\n\x1b]133;A;aid=1\x07% ";
+        let run = |line: &str, fields: &str| {
+            let start = ran(line, fields);
+            taken(
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    read(delayed, 1),
+                    read(&ended, 1),
+                    read(prompt, 1),
+                ],
+            )
+        };
+        let (lit, origins) = run("ssh h", ";cmdline=ssh\\ h");
+        assert_eq!(lit, Vec::<usize>::new(), "ssh's row");
+        assert_eq!(origins[2], Origin::Remote, "{origins:?}");
+        let (lit, origins) = run("ls", ";cmdline=ls");
+        assert_eq!(lit, [2], "the control: ls's row: {origins:?}");
+    }
+
+    /// **B4: a forged folder report a ReGIS delay held is judged when it is
+    /// fed**: under `ssh h`, a read that delays, reports `/tmp` from the
+    /// other end and delays again is fed a part at a time; the shell's `D`,
+    /// prompt and own report of `/srv`, held behind it, are filed only once
+    /// their bytes go on, so when the forged report reaches the terminal,
+    /// at the first deadline, it is the remote program's and not taken, and
+    /// the shell's own is taken once fed. Named break: file a call's own
+    /// reads, held or not, and no held read when it is fed -- the shell's
+    /// report, filed as it arrived, lets the forged one in.
+    #[test]
+    fn a_forged_report_behind_a_delay_is_judged_when_fed() {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = crate::reads::Pace::new();
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut call = |reads: &[&[u8]], ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let tagged: Vec<(&[u8], Writers)> = reads
+                .iter()
+                .map(|b| {
+                    let _ = sampler.read(now, b);
+                    (*b, sampler.unasked())
+                })
+                .collect();
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                tagged,
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            let _ = paths.observe(&t, s);
+            paths.folder_now().map(<[u8]>::to_vec)
+        };
+        let home = Some(b"/home/u".to_vec());
+        let shells = b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ";
+        assert_eq!(call(&[shells], 0), home, "the shell's");
+        assert_eq!(call(&[&ran("ssh h", ";cmdline=ssh\\ h")], 10), home);
+        let forged =
+            b"\x1bPpS(T1)\x1b\\\x1b]7;file://here.example/tmp\x07\x1bPpS(T1)\x1b\\remote$ ";
+        assert_eq!(call(&[forged], 20), home, "fed to its first delay");
+        let own = [
+            prompt_after("").as_slice(),
+            b"\x1b]7;file://here.example/srv\x07",
+        ]
+        .concat();
+        assert_eq!(call(&[&own], 30), home, "held");
+        assert_eq!(call(&[], 40), home, "the forged report fed, not taken");
+        assert_eq!(call(&[], 60), Some(b"/srv".to_vec()), "the shell's, fed");
+    }
+
+    /// **B4: a folder verdict is filed with the part of its read that fed
+    /// the report**: under `ssh h`, one read holds the remote program's
+    /// forged report of `/tmp`, an `S(T1)` delay, and the shell's `D`, `A`
+    /// and own report of `/srv`. The part fed before the delay feeds only
+    /// the forged report, refused, and the shell's is taken once the rest
+    /// is fed past the deadline. Named break: file the read's last
+    /// verdict with its first part -- the forged `/tmp` is read against
+    /// until the deadline.
+    #[test]
+    fn a_report_is_filed_with_the_part_that_fed_it() {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = crate::reads::Pace::new();
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut call = |reads: &[&[u8]], ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let tagged: Vec<(&[u8], Writers)> = reads
+                .iter()
+                .map(|b| {
+                    let _ = sampler.read(now, b);
+                    (*b, sampler.unasked())
+                })
+                .collect();
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                tagged,
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            let _ = paths.observe(&t, s);
+            paths.folder_now().map(<[u8]>::to_vec)
+        };
+        let home = Some(b"/home/u".to_vec());
+        let shells = b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ";
+        assert_eq!(call(&[shells], 0), home, "the shell's");
+        assert_eq!(call(&[&ran("ssh h", ";cmdline=ssh\\ h")], 10), home);
+        let one = [
+            b"\x1b]7;file://here.example/tmp\x07\x1bPpS(T1)\x1b\\".as_slice(),
+            prompt_after("").as_slice(),
+            b"\x1b]7;file://here.example/srv\x07",
+        ]
+        .concat();
+        assert_eq!(call(&[&one], 20), home, "the forged report fed, not taken");
+        assert_eq!(call(&[], 30), home, "the rest held");
+        assert_eq!(call(&[], 60), Some(b"/srv".to_vec()), "the shell's, fed");
+    }
+
+    /// **B4: a read under `ESC % @` holding 0x9D refuses every part it
+    /// feeds**: an `OSC` begun with 0x9D is one no scan places, so the
+    /// remote program's forged 8-bit report of `/tmp`, fed before an `S(T1)`
+    /// delay, is refused, and so is the rest of that read once fed, the
+    /// shell's own report in it included. Named break: such a read files
+    /// only the reports the 7-bit scan placed -- the part fed before the
+    /// delay files nothing, and `/tmp` is read against.
+    #[test]
+    fn a_read_holding_an_8_bit_osc_refuses_every_part() {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_regis_hold(baud_core::RegisHold::On);
+        let mut pace = crate::reads::Pace::new();
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut call = |reads: &[&[u8]], ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let tagged: Vec<(&[u8], Writers)> = reads
+                .iter()
+                .map(|b| {
+                    let _ = sampler.read(now, b);
+                    (*b, sampler.unasked())
+                })
+                .collect();
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                tagged,
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            let _ = paths.observe(&t, s);
+            paths.folder_now().map(<[u8]>::to_vec)
+        };
+        let home = Some(b"/home/u".to_vec());
+        let shells = b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ";
+        assert_eq!(call(&[shells], 0), home, "the shell's");
+        assert_eq!(call(&[&ran("ssh h", ";cmdline=ssh\\ h")], 10), home);
+        let one = [
+            b"\x1b%@\x9d7;file://here.example/tmp\x9c\x1bPpS(T1)\x1b\\".as_slice(),
+            prompt_after("").as_slice(),
+            b"\x1b]7;file://here.example/srv\x07",
+        ]
+        .concat();
+        assert_eq!(call(&[&one], 20), home, "the forged report fed, refused");
+        assert_eq!(call(&[], 30), home, "the rest held");
+        assert_eq!(call(&[], 60), home, "the rest fed, refused");
+    }
+
+    /// **A read any byte of which ran under `ESC % @` and holding 0x9D is
+    /// refused, though it began and ended under UTF-8**: under `ssh h`, one
+    /// read selects ISO 8859-1, forges an 8-bit report of `/tmp`, selects
+    /// UTF-8 again, and carries the shell's `D` and prompt. The folder
+    /// stays the shell's. Named break: judge the encoding only as the read
+    /// began and ended -- `/tmp` is taken.
+    #[test]
+    fn a_read_that_ran_under_latin_1_between_is_refused() {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut pace = crate::reads::Pace::new();
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut call = |read: &[u8], ms: u64| {
+            let now = t0 + Duration::from_millis(ms);
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let _ = sampler.read(now, read);
+            let tagged = [(read, sampler.unasked())];
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                now,
+                tagged,
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            let _ = paths.observe(&t, s);
+            paths.folder_now().map(<[u8]>::to_vec)
+        };
+        let home = Some(b"/home/u".to_vec());
+        let shells = b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ";
+        assert_eq!(call(shells, 0), home, "the shell's");
+        assert_eq!(call(&ran("ssh h", ";cmdline=ssh\\ h"), 10), home);
+        let one = [
+            b"\x1b%@\x9d7;file://here.example/tmp\x9c\x1b%G".as_slice(),
+            prompt_after("").as_slice(),
+        ]
+        .concat();
+        assert_eq!(call(&one, 20), home, "the forged report refused");
+    }
+
+    /// A screen of 40 columns and 8 rows, and one of 80, the tour's width.
+    const TALL: WinSize = WinSize {
+        ws_col: 40,
+        ws_row: 8,
+    };
+    const WIDE: WinSize = WinSize {
+        ws_col: 80,
+        ws_row: 8,
+    };
+
+    /// zsh's default `PROMPT_SP` run with `blanks` blanks, as zsh writes it.
+    fn prompt_sp(blanks: ReadLen) -> Vec<u8> {
+        [
+            b"\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m".as_slice(),
+            &b" ".repeat(blanks.index()),
+            b"\r \r",
+        ]
+        .concat()
+    }
+
+    /// Whether the reads before a typed path are fed in drains of their
+    /// own, or the last two in one, as the macOS pump takes them.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Drains {
+        Each,
+        LastTwo,
+    }
+
+    /// **A frame at `now`**, as the app draws one each tick: the lines at
+    /// rest scanned, the worker's turn, and its answers taken; whether a
+    /// batch went.
+    fn frame(
+        pr: &mut Probes<Instant>,
+        t: &Term<'_>,
+        lines: &mut Lines,
+        uris: &mut Uris,
+        paths: &mut Paths,
+        now: Instant,
+    ) -> Owed {
+        let s = Scrolled::START;
+        let mut sent = Owed::No;
+        loop {
+            let _ = lines.scan(
+                t,
+                s,
+                &mut Links {
+                    uris,
+                    urls: Turned::On,
+                    paths,
+                },
+            );
+            let seen = Seen {
+                term: t,
+                scrolled: s,
+                lines,
+                uris,
+                urls: Turned::On,
+                paths,
+            };
+            if pr.turn(now, seen, || Some(1)).frame == Owed::Yes {
+                sent = Owed::Yes;
+            }
+            if pr.flight.is_none() {
+                return sent;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    /// **A path typed at the prompt after `ssh` exits**, as the app files
+    /// it: the shell's `C` for `ssh h`, ssh's output with ssh in front,
+    /// `exit`'s `logout` and the shell's tokened `D`, its folder report and
+    /// prompt arriving within the pace, then `./oct-commits.txt` typed and
+    /// echoed one key a read, 100 ms apart, the shell in front, a frame
+    /// after each drain as the app draws one; the rows lit by the first
+    /// batch the pace sends after the last key -- [`SETTLE`] after it, or
+    /// [`CEILING`] after the batch before -- and its answer.
+    fn typed_after_ssh(drains: Drains) -> Vec<usize> {
+        let mut f = Fake::with(&[
+            ("/home", Entry::Dir),
+            ("/home/u", Entry::Dir),
+            ("/home/u/oct-commits.txt", Entry::File),
+        ]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        f.groups.insert(9, vec!["ssh".into()]);
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(vec!["here.example".into()]);
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let mut sampler = shells_sampler();
+        let mut pace = crate::reads::Pace::new();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let prompt = [
+            prompt_after("").as_slice(),
+            b"\x1b]7;file://here.example/home/u\x07",
+        ]
+        .concat();
+        let mut batches: Vec<Vec<(u64, Vec<u8>, Pid)>> = vec![
+            vec![(0, ran("ssh h", ";cmdline=ssh\\ h"), 1)],
+            vec![(50, b"remote$ exit\r\n".to_vec(), 9)],
+        ];
+        match drains {
+            Drains::Each => {
+                batches.push(vec![(55, b"logout\r\n".to_vec(), 9)]);
+                batches.push(vec![(58, prompt, 1)]);
+            }
+            Drains::LastTwo => {
+                batches.push(vec![(55, b"logout\r\n".to_vec(), 9), (58, prompt, 1)]);
+            }
+        }
+        for (k, b) in b"./oct-commits.txt".iter().enumerate() {
+            let at = 200 + 100 * u64::try_from(k).expect("a key");
+            batches.push(vec![(at, vec![*b], 1)]);
+        }
+        let mut last = t0;
+        for batch in &batches {
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let mut tagged = Vec::new();
+            for (ms, bytes, front) in batch {
+                let now = t0 + Duration::from_millis(*ms);
+                last = now;
+                let w = match sampler.read(now, bytes) {
+                    Asks::Yes(_) => sampler.writers(Some(*front), Watched::Nothing),
+                    Asks::No => sampler.unasked(),
+                };
+                tagged.push((bytes.as_slice(), w));
+            }
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                last,
+                tagged,
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                began,
+                ended,
+                took.into_iter().map(|w| (w, Linked::No)),
+            );
+            let _ = paths.observe(&t, s);
+            let _ = frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, last);
+        }
+        // A frame each 10 ms after the last key, to the first batch the
+        // pace sends, and the frame after it, which takes its answer.
+        let mut k = 0u32;
+        loop {
+            k += 1;
+            let now = last + Duration::from_millis(10) * k;
+            if frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, now) == Owed::Yes {
+                let now = now + Duration::from_millis(10);
+                let _ = frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, now);
+                break;
+            }
+            assert!(k < 100, "no batch within a second of the last key");
+        }
+        let _ = lines.scan(
+            &t,
+            Scrolled::START,
+            &mut Links {
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            },
+        );
+        let mut rows: Vec<usize> = lines.lines().iter().map(|l| l.row.index()).collect();
+        rows.dedup();
+        rows
+    }
+
+    /// **The read that carries the shell's `D` keeps the group before and
+    /// the watch's verdict for its own rows**: a command wrapping ssh --
+    /// `make deploy`, named here, or one naming nothing, with ssh sampled
+    /// in front at the read before; or `make deploy` with the watch naming
+    /// ssh at that read -- whose last line, `/etc/passwd`, comes in one read
+    /// with the shell's `D` and its prompt. The line before the `D` stays
+    /// dark and the prompt's typed path lights. Named break: forget the
+    /// group before and the watch's verdict at the `D` as the read is
+    /// scanned, before its writers are built -- the line before the `D`
+    /// lights.
+    #[test]
+    fn the_d_reads_own_rows_keep_the_group_before() {
+        let tail = [b"/etc/passwd\r\n".as_slice(), &prompt_after("/etc/hosts")].concat();
+        let here = ran("make deploy", ";cmdline=make\\ deploy");
+        let unnamed = ran("x", "");
+        let ssh = |wrapper: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[read(wrapper, 1), read(b"out\r\n", 9), read(&tail, 1)],
+            )
+        };
+        assert_eq!(ssh(&here), [3], "a wrapper named here");
+        assert_eq!(ssh(&unnamed), [3], "a wrapper naming nothing");
+        let watched = lit_reads(
+            named_groups(),
+            &[
+                read(&here, 1),
+                Read {
+                    watched: Watched::Elsewhere,
+                    ..read(b"out\r\n", 2)
+                },
+                read(&tail, 1),
+            ],
+        );
+        assert_eq!(watched, [3], "the watch naming ssh");
+    }
+
+    /// **The cut's red 1: a path typed after `ssh` exits lights** by the
+    /// first batch after the last key and its answer ([`typed_after_ssh`]): the read carrying
+    /// the shell's `D` is cut there, and the prompt from it is the shell's,
+    /// whether `logout` came in a drain of its own or in the `D`'s; and the
+    /// shell's `D` ends the command the group sampled before was taken
+    /// under. Named breaks: no cut (`cut::Plan::of` none) -- the typed path
+    /// stays dark; the sample before kept across the shell's `D` -- the
+    /// first key's read is ssh's, and the path stays dark.
+    #[test]
+    fn a_path_typed_after_ssh_exits_lights() {
+        assert_eq!(typed_after_ssh(Drains::Each), [3], "a drain a read");
+        assert_eq!(
+            typed_after_ssh(Drains::LastTwo),
+            [3],
+            "logout and the D in one"
+        );
+    }
+
+    /// **The cut's red 2: a remote link below the shell's `D` stays dark**:
+    /// under `ssh h`, the remote program prints `/etc/passwd` a row down and
+    /// moves back up; then the shell's `D`, `A` and a prompt of two lines,
+    /// its line feeds passing over the link's row. In a read before the
+    /// `D`'s, the lines below the cut keep the uncut verdict, ssh's; in the
+    /// `D`'s own read, the move up refuses the cut. Named breaks: the lines
+    /// below the cut filed under the shell's verdict -- the earlier read's
+    /// link lights; that and the cut taken whatever the bytes before the
+    /// `D` -- the same read's link lights too.
+    #[test]
+    fn a_remote_link_below_the_shells_d_stays_dark() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let remote: &[u8] = b"x\r\n/etc/passwd\r\n\x1b[2A";
+        let prompt = [prompt_after("").as_slice(), b"\r\n\r\n> "].concat();
+        let (lit, origins) = taken_on(
+            TALL,
+            named_groups(),
+            &[read(&start, 1), read(remote, 9), read(&prompt, 1)],
+        );
+        assert!(!lit.contains(&2), "the earlier read's link: {lit:?}");
+        assert_ne!(origins[2], Origin::Local, "{origins:?}");
+        let one = [remote, prompt.as_slice()].concat();
+        let (lit, origins) = taken_on(TALL, named_groups(), &[read(&start, 1), read(&one, 9)]);
+        assert!(!lit.contains(&2), "the same read's link: {lit:?}");
+        assert_ne!(origins[2], Origin::Local, "{origins:?}");
+    }
+
+    /// The tour's exit, as run9 recorded it: the remote shell's tail --
+    /// `exit`, its own `C`, `logout`, an iTerm badge reset -- then the local
+    /// zsh's `PROMPT_SP` run of 79 blanks, its `D`, carrying the token as
+    /// the integration sends it now, and its prompt, `/etc/hosts` typed.
+    fn tour_exit() -> (Vec<u8>, Vec<u8>) {
+        let tail = b"exit\r\n\x1b]133;C\x07logout\r\n\x1b]1337;SetBadgeFormat=\x07".to_vec();
+        let prompt = format!(
+            "\x1b]133;D;0;aid=2688;baud_token={TOKEN}\x07\x1b]133;A;aid=2688\x07\r\x1b[0m\
+             \x1b[27m\x1b[24m\x1b[J\x1b]133;P;k=i\x07~/baud \x1b[33m25s\x1b[0m \
+             \x1b[38;2;244;163;44m\u{276f}\x1b[0m \x1b]133;B\x07/etc/hosts"
+        );
+        let local = [
+            prompt_sp(ReadLen::from_index(79)).as_slice(),
+            prompt.as_bytes(),
+        ]
+        .concat();
+        (tail, local)
+    }
+
+    /// **The cut's red 4: the tour's prompt after `ssh demo` exits lights**,
+    /// on run9's bytes: the remote tail and the local shell's read in one
+    /// drain, zsh's run beginning at the first column with the columns less
+    /// one of blanks, so the cut moves to it; and the same bytes in one
+    /// read, where the badge's `OSC 1337` refuses the cut, failing closed.
+    /// Named break: no `PROMPT_SP` exception -- the prompt stays dark.
+    #[test]
+    fn the_tours_prompt_after_ssh_exits_lights() {
+        let start = ran("ssh demo", ";cmdline=ssh\\ demo");
+        let (tail, local) = tour_exit();
+        let (lit, origins) = taken_on(
+            WIDE,
+            named_groups(),
+            &[
+                read(&start, 1),
+                read(&tail, 9),
+                Read {
+                    drain: Drain::Same,
+                    ..read(&local, 1)
+                },
+            ],
+        );
+        assert_eq!(lit, [3], "the prompt's typed path: {origins:?}");
+        let one = [tail, local].concat();
+        let (lit, _) = taken_on(WIDE, named_groups(), &[read(&start, 1), read(&one, 9)]);
+        assert_eq!(lit, Vec::<usize>::new(), "one read: the badge refuses");
+    }
+
+    /// **Text no read filed before zsh's run keeps its row dark**: under
+    /// `ssh h`, with autowrap off, `x /etc/passwd ` on the screen with no
+    /// span filed over it, the cursor after it; then zsh's run, mid-row,
+    /// its `D` and a prompt: the run moves nothing, and the row, the run's
+    /// bytes on it, stays ssh's. Named break: the run taken with the
+    /// cursor anywhere -- the text lights.
+    #[test]
+    fn text_before_a_run_begun_mid_row_stays_dark() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let local = [prompt_sp(ReadLen::from_index(39)), prompt_after("")].concat();
+        let (lit, origins) = taken_on(
+            TALL,
+            named_groups(),
+            &[
+                read(&start, 1),
+                Read {
+                    sampled: Sampled::Unfiled,
+                    ..read(b"\x1b[?7lx /etc/passwd ", 9)
+                },
+                read(&local, 1),
+            ],
+        );
+        assert_eq!(lit, Vec::<usize>::new(), "{origins:?}");
+    }
+
+    /// **A run short of the columns less one moves nothing**: under `ssh
+    /// h`, `/etc/passwd` at column 28 with no span filed over it and the
+    /// cursor back at the first column; zsh's run of 20 blanks leaves the
+    /// text, and the row stays ssh's; the control, a run of 39, blanks the
+    /// whole row and the prompt's typed path lights. Named break: the run
+    /// taken whatever its blanks -- the text lights.
+    #[test]
+    fn a_short_run_moves_nothing() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let text = [b" ".repeat(28).as_slice(), b"/etc/passwd\r"].concat();
+        let run = |blanks: usize| {
+            let local = [
+                prompt_sp(ReadLen::from_index(blanks)),
+                prompt_after("/etc/hosts"),
+            ]
+            .concat();
+            taken_on(
+                TALL,
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    Read {
+                        sampled: Sampled::Unfiled,
+                        ..read(&text, 9)
+                    },
+                    read(&local, 1),
+                ],
+            )
+        };
+        let (lit, origins) = run(20);
+        assert_eq!(lit, Vec::<usize>::new(), "short: {origins:?}");
+        let (lit, origins) = run(39);
+        assert_eq!(lit, [1], "the control: {origins:?}");
+    }
+
+    /// **The link layer's stages still to land, each clearing the pending
+    /// rows that name it**: the core's record of what each read wrote
+    /// (the core-record commit) closes [`LinkStage::CoreRecord`].
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum LinkStage {
+        CoreRecord,
+    }
+
+    /// The stages closed: the commit that closes one adds it here and turns
+    /// every row pending on it green, or the row goes red.
+    const CLOSED: &[LinkStage] = &[];
+
+    /// **A pending row's verdict**: while `stage` is open, `now` must fail
+    /// exactly as `recorded`; red if it is `fixed` early, fails another
+    /// way, or is still here once its stage has closed.
+    fn pending<T: PartialEq + core::fmt::Debug>(stage: LinkStage, now: T, recorded: T, fixed: T) {
+        verdict(CLOSED, stage, now, recorded, fixed);
+    }
+
+    /// [`pending`] with `closed` the stages closed.
+    fn verdict<T: PartialEq + core::fmt::Debug>(
+        closed: &[LinkStage],
+        stage: LinkStage,
+        now: T,
+        recorded: T,
+        fixed: T,
+    ) {
+        assert!(
+            !closed.contains(&stage),
+            "{stage:?} closed with this row pending: make it its green row"
+        );
+        assert_ne!(
+            now, fixed,
+            "fixed while {stage:?} is pending: make it a green row"
+        );
+        assert_eq!(now, recorded, "pending on {stage:?}, failing another way");
+    }
+
+    /// **Pending on the core record: a row a remote read wrote below its
+    /// span, coming back up after, is filed over by the prompt that lands
+    /// there, and lights.** Under `ssh h`, the remote read writes
+    /// `/etc/passwd` a row down and moves back up, so its span ends where it
+    /// began; then `logout`, the shell's `D` and a bash prompt in one read,
+    /// cut at the `D`, the prompt landing on that row. Today the row is
+    /// filed as the shell's and the path lights; once the core records the
+    /// lowest line each read reached, the row stays dark. Expected-red
+    /// ([`pending`]): red if it goes dark before the core record, lights
+    /// other rows, or outlives that stage.
+    #[test]
+    fn pending_core_record_a_row_written_below_a_remote_reads_span() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let remote = [
+            b"$ \r\n".as_slice(),
+            &b" ".repeat(20),
+            b"/etc/passwd\x1b[A\r",
+        ]
+        .concat();
+        let exit = [
+            b"logout\r\n".as_slice(),
+            format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07$ ").as_bytes(),
+        ]
+        .concat();
+        let lit = lit_reads(
+            named_groups(),
+            &[read(&start, 1), read(&remote, 9), read(&exit, 1)],
+        );
+        pending(LinkStage::CoreRecord, lit, vec![2], Vec::new());
+    }
+
+    /// **A pending row's verdict holds in each state**: failing as recorded
+    /// while its stage is open passes; fixed early, failing another way,
+    /// or still pending once its stage has closed is red.
+    #[test]
+    fn a_pending_rows_verdict_holds_in_each_state() {
+        let stage = LinkStage::CoreRecord;
+        verdict(&[], stage, 1, 1, 0);
+        for (closed, now, why) in [
+            (&[][..], 0, "fixed early"),
+            (&[][..], 2, "failing another way"),
+            (&[LinkStage::CoreRecord][..], 1, "its stage closed"),
+        ] {
+            let red = std::panic::catch_unwind(|| verdict(closed, stage, now, 1, 0));
+            assert!(red.is_err(), "{why} is red");
+        }
     }
 }

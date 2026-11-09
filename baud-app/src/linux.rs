@@ -177,6 +177,10 @@ enum Later {
     ),
 }
 
+/// What a read was taken with: the writers sampled for it and whether it
+/// carried a link (`probe::Probes::read_taken`).
+type Taken = (crate::probe::Writers, crate::probe::Linked);
+
 struct Driver {
     conn: Connection,
     window: Window,
@@ -215,8 +219,9 @@ struct Driver {
     /// window and says so once.
     widths: crate::width::Widths,
     /// The reads a ReGIS delay holds, fed on the first turn at or after its
-    /// deadline, which bounds the wait (`reads::paced`).
-    pace: crate::reads::Pace,
+    /// deadline, which bounds the wait (`reads::paced`), each with what its
+    /// read was taken with, so it is filed under its own verdict when fed.
+    pace: crate::reads::Pace<(crate::probe::Writers, crate::probe::Linked)>,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
     /// last frame, with the cells' margin filled with the default
@@ -608,6 +613,8 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
     )
     .expect("pty");
     startup_mark("pty");
+    // The scan of the shell's marks, against the token baud handed it.
+    let groups = crate::probe::Sampler::for_shell(pty.shell_token());
     let mut conn = match Connection::connect() {
         Ok(c) => c,
         Err(e) => {
@@ -786,7 +793,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         },
         probes,
         woken,
-        groups: crate::probe::Sampler::default(),
+        groups,
         link_config: cfg.link.clone(),
         path_click: None,
         session: crate::effects::Session::here(cfg.shell_program.as_deref()),
@@ -1002,16 +1009,20 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                                 .writers(crate::fg::group(master), crate::probe::Watched::Nothing),
                             l,
                         ),
-                        crate::probe::Asks::No => {
-                            (crate::probe::Writers::default(), crate::probe::Linked::No)
-                        }
+                        crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
                     };
                     let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
-                    d.feed(&bytes);
+                    let took = d.feed(&bytes, (writers, linked));
                     let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
-                    let span = crate::paths::LineSpan::of(began, ended);
-                    d.probes
-                        .read_taken(&mut d.seat.paths, writers, span, linked);
+                    // Filed under the reads this feed fed, a held one's own
+                    // when its bytes go on, and none still held.
+                    d.probes.drain_taken(
+                        &mut d.seat.paths,
+                        &d.term,
+                        began,
+                        ended,
+                        took.iter().copied(),
+                    );
                 }
             }
         }
@@ -1030,7 +1041,16 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // A ReGIS delay's held reads, at its deadline, read or not, and a
         // one-shot input's once it has ended.
         if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
-            d.feed(&[]);
+            let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+            let took = d.feed(&[], Default::default());
+            let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+            d.probes.drain_taken(
+                &mut d.seat.paths,
+                &d.term,
+                began,
+                ended,
+                took.iter().copied(),
+            );
         }
         // The config's files: what inotify said, when the wait says it is
         // readable, and the reading at the settle's end (`follow_config`).
@@ -1275,11 +1295,14 @@ impl Driver {
         crate::caret::blinks(self.term.cursor_style(), self.focus, shown.then_some(()))
     }
 
-    /// One read's worth of the child's output into the core.
-    fn feed(&mut self, bytes: &[u8]) {
+    /// **One read's worth of the child's output into the core**, `tag` what
+    /// it was taken with, and the reads fed -- held ones when their bytes go
+    /// on (`reads::paced`), each with its own tag, for the caller to file.
+    fn feed(&mut self, bytes: &[u8], tag: Taken) -> Vec<Taken> {
         if bytes.is_empty() && !self.pace.due(Instant::now()) && !self.pace.released(&self.term) {
-            return;
+            return Vec::new();
         }
+        let mut took = Vec::new();
         let refused = self.term.images().refusals;
         // The read's answers go to the outbox now, before a key queues behind
         // them in the reply buffer (`reads::feed`); the loop's
@@ -1315,7 +1338,7 @@ impl Driver {
             &mut self.term,
             pace,
             Instant::now(),
-            [bytes],
+            [(bytes, tag)],
             |b| {
                 if !b.is_empty() {
                     answered = Answered::Yes;
@@ -1356,6 +1379,7 @@ impl Driver {
                 t.clear_notices();
             },
             &mut self.hostlog,
+            &mut took,
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
@@ -1462,6 +1486,7 @@ impl Driver {
         // The read owes the derived title a check, made at the next frame.
         self.derive.owe();
         self.send_title();
+        took
     }
 
     /// The window's title, sent when it changed (`title::Shown`): the
@@ -1740,7 +1765,7 @@ impl Driver {
     /// opening could launch, is revealed by the file manager over the
     /// session bus, or refused where there is no bus.
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
-        use crate::link::{Host, Under};
+        use crate::link::{ClickOn, Host};
         let shown = |uri: &[u8]| {
             uri.iter()
                 .take(80)
@@ -1749,44 +1774,33 @@ impl Driver {
                 .escape_ascii()
                 .to_string()
         };
-        let uri = match link {
-            // Asked again off the frame, and revealed or said on a later turn.
-            Under::Path(p) => {
-                self.check_path(p);
-                return;
-            }
-            Under::Osc8(link) => match link.uri(&self.term) {
-                Some(uri) => uri,
-                None => {
-                    self.report.links.refused.bump();
-                    crate::warn!("link refused (gone)");
-                    return;
-                }
-            },
-            Under::Bare(bare) => match bare.uri() {
-                Ok(uri) => uri,
-                Err(why) => {
-                    self.report.links.refused.bump();
-                    crate::warn!("link refused ({why:?}): {}", shown(bare.text()));
-                    return;
-                }
-            },
-        };
         // Each activation counted for the five-second report: opened once
         // `xdg-open` has started, revealed once the reveal is sent over the
         // session bus, and refused otherwise, a failed start and a missing
         // bus included, as the macOS app counts a link the system did not
-        // take.
-        let said = shown(uri);
-        // The link takes its origin from its line, as the worker named who
-        // wrote it (`Paths::printed_origin`).
-        let origin = self.seat.paths.printed_origin(link, line);
-        match crate::link::admit_printed(uri, Host(&self.host), self.uris.rules(), origin) {
-            Err(why) => {
+        // take. The one decision both drivers make (`link::click_on`): the
+        // link takes its origin from the rows it covers, as the worker named
+        // who wrote them.
+        let decided = crate::link::click_on(
+            link,
+            &self.term,
+            Host(&self.host),
+            self.uris.rules(),
+            &self.seat.paths,
+        );
+        match decided {
+            // Asked again off the frame, and revealed or said on a later turn.
+            ClickOn::Path(p) => self.check_path(p),
+            ClickOn::Gone => {
                 self.report.links.refused.bump();
-                crate::warn!("link refused ({why:?}): {said}");
+                crate::warn!("link refused (gone)");
             }
-            Ok(t) => {
+            ClickOn::Refused(why, text) | ClickOn::Unreadable(why, text) => {
+                self.report.links.refused.bump();
+                crate::warn!("link refused ({why:?}): {}", shown(text));
+            }
+            ClickOn::Admitted(t, uri) => {
+                let said = shown(uri);
                 use crate::link::Click;
                 match crate::link::click(&t, &self.seat.paths) {
                     // A file the worker found gone, asked about again as a
@@ -2007,7 +2021,7 @@ impl Driver {
 
     /// **A click on a printed path**: asked again of the worker, off the
     /// frame, and answered on a later turn, or now with no worker to ask.
-    fn check_path(&mut self, p: &crate::link::Printed) {
+    fn check_path(&mut self, p: &crate::link::PrintedPath) {
         self.path_click = Some((
             p.path().to_vec(),
             crate::paths::Asked::Printed(p.line_col().clone()),
@@ -2092,7 +2106,7 @@ impl Driver {
                     return;
                 }
                 let uri = crate::paths::file_uri(&path);
-                match crate::link::admit_owned(uri, Host(&self.host)) {
+                match crate::link::admit_path_owned(uri, Host(&self.host)) {
                     Ok(t) if t.action() == Action::Reveal => {
                         self.later.push(Later::Reveal(crate::opener::local(
                             &t.into_uri().into_string(),
@@ -2759,7 +2773,19 @@ impl Driver {
             crate::held::Decided::Close => Quit::Yes,
             crate::held::Decided::Hold(line) => {
                 self.holding = crate::held::Holding::Yes(line);
-                self.feed(crate::held::written());
+                // The line goes in behind any reads a delay held, which go on
+                // with it and are filed under their own writers, as every
+                // feed's are; the line itself, baud's own, under none.
+                let began = self.seat.scrolled().line(Rows::ZERO, self.term.cursor().0);
+                let took = self.feed(crate::held::written(), Default::default());
+                let ended = self.seat.scrolled().line(Rows::ZERO, self.term.cursor().0);
+                self.probes.drain_taken(
+                    &mut self.seat.paths,
+                    &self.term,
+                    began,
+                    ended,
+                    took.iter().copied(),
+                );
                 self.pending = Pending::Dirty;
                 Quit::No
             }

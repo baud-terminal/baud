@@ -205,6 +205,8 @@ struct Session {
     /// Every byte the shell wrote, in order: what a failure shows.
     seen: Vec<u8>,
     stream: Stream,
+    /// The token baud handed the shell (`ran::ShellToken`).
+    token: Option<crate::ran::ShellToken>,
 }
 
 impl Session {
@@ -237,7 +239,7 @@ impl Session {
         start: &super::ShellStart,
         at: Option<&Path>,
     ) -> Session {
-        let (_, master) = Pty::fork_given(
+        let (_, master, token) = Pty::fork_given(
             text_area(ws, Px::of(8), Px::of(16)),
             None,
             env,
@@ -256,6 +258,7 @@ impl Session {
             outbox: Outbox::default(),
             seen: Vec::new(),
             stream: Stream::Open,
+            token,
         }
     }
 
@@ -1668,13 +1671,16 @@ fn mark_fields(seen: &[u8], letter: &[u8]) -> Vec<Vec<u8>> {
 /// token of its own on its `C` and its `D` that nothing it runs can
 /// read**: the command lines read back from the marks are the lines typed,
 /// quotes, a doubled blank and a `$` included; every `C` and `D` after the
-/// first prompt carries one token of sixteen hex digits, found nowhere but
-/// in the marks, so `env` does not show it; and the scan of the marks
-/// (`ran::Commands`) takes `ssh -V`'s output as remote and is closed again
-/// by its `D`. `ssh` is a function of the startup file's, so no ssh runs.
-/// fish 4 marks its own commands, with no token, and only the lines are
-/// held there. Named breaks: send `C` with no command line -- none reads
-/// back; leave the token off the `D` -- the scan stays open.
+/// first prompt carries the token baud handed the shell, sixteen hex
+/// digits, found nowhere but in the marks, so neither the user's startup
+/// file, which prints `BAUD_SHELL_TOKEN`, nor `env` shows it; and the scan
+/// of the marks, built with that token (`ran::Commands::new`), takes `ssh
+/// -V`'s output as remote and is closed again by its `D`. `ssh` is a
+/// function of the startup file's, so no ssh runs. fish 4 marks its own
+/// commands, with no token, and only the lines are held there. Named
+/// breaks: send `C` with no command line -- none reads back; leave the
+/// token off the `D` -- the scan stays open; unset `BAUD_SHELL_TOKEN` after
+/// the user's startup files -- the startup file prints it.
 fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
     let shell = match sh.find() {
         Ok(p) => p,
@@ -1684,11 +1690,17 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
     let home = dir.join("home");
     stock(sh, &home);
     let (rc, fake) = match sh {
-        Sh::Zsh => (".zshrc", "ssh() { print fake-ssh; }\n"),
-        Sh::Bash => (".bashrc", "ssh() { echo fake-ssh; }\n"),
+        Sh::Zsh => (
+            ".zshrc",
+            "ssh() { print fake-ssh; }\nprint \"rc-saw:${BAUD_SHELL_TOKEN-}\"\n",
+        ),
+        Sh::Bash => (
+            ".bashrc",
+            "ssh() { echo fake-ssh; }\necho \"rc-saw:${BAUD_SHELL_TOKEN-}\"\n",
+        ),
         Sh::Fish => (
             ".config/fish/config.fish",
-            "function ssh; echo fake-ssh; end\n",
+            "function ssh; echo fake-ssh; end\necho \"rc-saw:$BAUD_SHELL_TOKEN\"\n",
         ),
     };
     let mut text = std::fs::read_to_string(home.join(rc)).expect("the stock file");
@@ -1733,6 +1745,13 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
         let tokens: Vec<Option<Vec<u8>>> = cs.iter().chain(&ds).map(token).collect();
         let first = tokens.first().cloned().flatten().expect("a token");
         assert_eq!(first.len(), 16, "{}: {first:?}", sh.name());
+        let handed = s.token.as_ref().expect("baud made a token");
+        assert_eq!(
+            first,
+            handed.as_str().as_bytes(),
+            "{}: baud's token",
+            sh.name()
+        );
         assert!(first.iter().all(u8::is_ascii_hexdigit));
         assert!(
             tokens.iter().all(|t| t.as_ref() == Some(&first)),
@@ -1752,12 +1771,20 @@ fn the_command_line_and_a_token_reach_the_marks(sh: Sh) {
             "{}: not exported",
             sh.name()
         );
-        let mut scan = crate::ran::Commands::default();
-        assert_eq!(scan.read(&s.seen), crate::ran::Marked::Elsewhere, "ssh -V");
+        assert!(
+            s.seen
+                .windows(8)
+                .any(|w| w == b"rc-saw:\r" || w == b"rc-saw:\n"),
+            "{}: the startup file ran and saw no token: {}",
+            sh.name(),
+            s.tail()
+        );
+        let mut scan = crate::ran::Commands::new(s.token.as_ref());
+        assert_eq!(scan.read(&s.seen), crate::ran::Ran::Elsewhere, "ssh -V");
         assert_eq!(
-            scan.read(b""),
-            crate::ran::Marked::Nothing,
-            "closed by its D"
+            scan.read(b"x"),
+            crate::ran::Ran::Unmarked,
+            "closed by its D: the samples', not ssh's"
         );
     }
     s.finish();
@@ -2011,6 +2038,8 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
         let mut p = Paths::new(Some(bytes_of(&home)), Forms::DEFAULT);
         p.set(Turned::On);
         p.set_names(vec![host.clone()]);
+        // The shell's rows, as the reader files them: written here.
+        p.all_written_here();
         let at = Scrolled::START;
         let _ = p.observe(&s.term, at);
         let (mut l, mut u) = (Lines::default(), Uris::default());

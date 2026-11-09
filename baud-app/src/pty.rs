@@ -93,6 +93,10 @@ pub struct Pty {
     /// more ([`Pty::reap_owed`]).
     #[cfg(target_os = "linux")]
     again: Option<std::time::Instant>,
+    /// The token baud handed the shell, for the loop's scan of its marks
+    /// (`probe::Sampler::for_shell`).
+    #[cfg(target_os = "linux")]
+    token: Option<crate::ran::ShellToken>,
 }
 
 /// **How a window's child ends, for its window** (`held::decide`): the
@@ -532,6 +536,7 @@ const OUTER: &[&str] = &[
     crate::shell::HELPERS[1],
     crate::shell::HELPERS[2],
     crate::shell::HELPERS[3],
+    crate::shell::HELPERS[4],
     // A filmed take's journal (`take.rs`): the window filmed writes it, and
     // a baud inside it, or any program, is never handed it.
     "BAUD_TAKE",
@@ -811,6 +816,15 @@ fn shell_locale() -> Option<String> {
 fn shell_locale() -> Option<String> {
     None
 }
+
+/// **A child forked onto a pty**: its pid, the master, and the token baud
+/// handed its shell, which the window's marks are read against
+/// (`ran::Commands::new`); none for a shell the integration does not mark.
+type Forked = (
+    crate::sys::Pid,
+    crate::sys::Fd,
+    Option<crate::ran::ShellToken>,
+);
 
 /// **What `[shell]` says about the shell a window starts**: whether its
 /// prompts are marked (`integration`) and which program it is (`program`,
@@ -1702,7 +1716,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         at: Option<&std::path::Path>,
         shell: &ShellStart,
-    ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
+    ) -> Option<Forked> {
         let cmd = std::env::var("BAUD_CMD").ok();
         Pty::fork_given(
             ws,
@@ -1737,7 +1751,7 @@ impl Pty {
             at,
             &crate::shell::Integration::Off.into(),
         )
-        .map(|(_, master)| master)
+        .map(|(_, master, _)| master)
     }
 
     /// [`Pty::fork`] with every input given, `[shell]` too.
@@ -1749,7 +1763,7 @@ impl Pty {
         started_by: Parent,
         at: Option<&std::path::Path>,
         shell: &ShellStart,
-    ) -> Option<(crate::sys::Pid, crate::sys::Fd)> {
+    ) -> Option<Forked> {
         let start = match at
             .filter(|d| d.is_absolute())
             .and_then(|d| CString::new(d.as_os_str().as_bytes()).ok())
@@ -1759,7 +1773,9 @@ impl Pty {
         };
         let (exec, stay) = Pty::exec_and_env(cmd, parent, locale, shell)?;
         let home = with_pwd(stay.clone(), &start);
+        let token = exec.injection.as_ref().and_then(|i| i.token.clone());
         Pty::fork_in(ws, &exec, &home.into_envp(), &stay.into_envp(), &start)
+            .map(|(child, master)| (child, master, token))
     }
 
     /// What the child runs, and its environment when it stays where baud
@@ -1943,10 +1959,17 @@ impl Pty {
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master) = Pty::fork(told, at, shell)?;
+        let (child, master, token) = Pty::fork(told, at, shell)?;
         // A link's program holds its window as it ends; a shell does not.
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
-        Some(Pty::reading(master, Some(child), told, program, wake))
+        Some(Pty::reading(
+            master,
+            Some(child),
+            told,
+            program,
+            token,
+            wake,
+        ))
     }
 
     /// The pty over `master`, a child's manager the fork told `told`,
@@ -1957,6 +1980,7 @@ impl Pty {
         child: Option<crate::sys::Pid>,
         told: crate::sys::Winsize,
         program: Option<OsString>,
+        token: Option<crate::ran::ShellToken>,
         wake: impl Fn() + Send + 'static,
     ) -> Pty {
         // Before the reader starts, so it never sees the master block.
@@ -1967,7 +1991,7 @@ impl Pty {
         let (held, closing) = Reading::of(master);
         let watched = crate::probe::WatchCell::default();
         let taken = watched.clone();
-        std::thread::spawn(move || reader(held, tx, flag, &taken, wake));
+        std::thread::spawn(move || reader(held, tx, flag, &taken, token.as_ref(), wake));
         Pty {
             master,
             child,
@@ -2005,7 +2029,7 @@ impl Pty {
             started_by,
             None,
         )?;
-        Some(Pty::reading(master, None, told, None, wake))
+        Some(Pty::reading(master, None, told, None, None, wake))
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
@@ -2015,10 +2039,10 @@ impl Pty {
     #[cfg(target_os = "linux")]
     pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px, shell: &ShellStart) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master) = Pty::fork(told, None, shell)?;
+        let (child, master, token) = Pty::fork(told, None, shell)?;
         make_nonblocking(master);
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
-        Some(Pty::polled(master, child, told, program))
+        Some(Pty::polled(master, child, told, program, token))
     }
 
     /// The pty over `master` and its child `child`, polled by the caller:
@@ -2030,6 +2054,7 @@ impl Pty {
         child: crate::sys::Pid,
         told: crate::sys::Winsize,
         program: Option<OsString>,
+        token: Option<crate::ran::ShellToken>,
     ) -> Pty {
         let pidfd = match pidfd_open(child) {
             Ok(fd) => Some(fd),
@@ -2049,7 +2074,14 @@ impl Pty {
             pidfd,
             hung: crate::held::Stream::Open,
             again: None,
+            token,
         }
+    }
+
+    /// The token baud handed the shell, none for one it does not mark.
+    #[cfg(target_os = "linux")]
+    pub fn shell_token(&self) -> Option<&crate::ran::ShellToken> {
+        self.token.as_ref()
     }
 
     /// The master, to wait on.
@@ -2443,11 +2475,12 @@ fn reader(
     tx: Sender<Read>,
     signalled: Arc<AtomicBool>,
     watched: &crate::probe::WatchCell,
+    token: Option<&crate::ran::ShellToken>,
     wake: impl Fn(),
 ) {
     let fd = held.fd();
     let mut buf = vec![0u8; READ_CHUNK];
-    let mut sampler = crate::probe::Sampler::default();
+    let mut sampler = crate::probe::Sampler::for_shell(token);
     // Debug tee: with BAUD_PTYLOG set, every byte the child writes is appended
     // to that file, so a scrambled Sixel can be captured as the exact input
     // baud received and replayed through a decoder test.
@@ -4606,7 +4639,14 @@ mod tests {
         );
         let (ended, reader_ended) = channel();
         std::thread::spawn(move || {
-            reader(held, tx, flag, &crate::probe::WatchCell::default(), || {});
+            reader(
+                held,
+                tx,
+                flag,
+                &crate::probe::WatchCell::default(),
+                None,
+                || {},
+            );
             let _ = ended.send(());
         });
         let opened = fifo.clone();
@@ -4739,7 +4779,7 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let (_, master) = Pty::fork(
+        let (_, master, _) = Pty::fork(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
             &crate::shell::Integration::Off.into(),
@@ -4955,7 +4995,7 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let (pid, master) = Pty::fork_given(
+        let (pid, master, _) = Pty::fork_given(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
             parent,
@@ -5004,7 +5044,7 @@ mod tests {
             ws_col: 80,
             ws_row: 24,
         };
-        let (pid, master) = Pty::fork_given(
+        let (pid, master, _) = Pty::fork_given(
             text_area(&size, Px::of(8), Px::of(16)),
             None,
             env_of(&[("PATH", "/usr/bin:/bin"), ("LANG", "C")]),
@@ -5141,12 +5181,12 @@ mod tests {
         let end = "t.clear_notices();\n            },\n";
         next_after(
             include_str!("app.rs"),
-            &format!("{end}            hostlog,\n        );\n"),
+            &format!("{end}            hostlog,\n            &mut took,\n        );\n"),
             "self.app.pty.follow(self.app.term.input_encoding());",
         );
         next_after(
             include_str!("linux.rs"),
-            &format!("{end}            &mut self.hostlog,\n        );\n"),
+            &format!("{end}            &mut self.hostlog,\n            &mut took,\n        );\n"),
             "self.pty.follow(self.term.input_encoding());",
         );
     }
@@ -5714,7 +5754,7 @@ mod tests {
                 program,
                 run: None,
             };
-            let (_, master) = Pty::fork_given(
+            let (_, master, _) = Pty::fork_given(
                 text_area(&size, Px::of(8), Px::of(16)),
                 None,
                 parent,
@@ -5788,7 +5828,7 @@ mod tests {
         ) -> Window {
             let (woke, wakes) = channel();
             let woke_too = woke.clone();
-            let pty = Pty::reading(master, Some(pid), told, program, move || {
+            let pty = Pty::reading(master, Some(pid), told, program, None, move || {
                 let _ = woke.send(());
             });
             let watch = crate::fg::Watch::start(pty.reaps(), pty.watched(), move || {
@@ -5872,7 +5912,7 @@ mod tests {
         }
         .running(run.clone());
         let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
-        let (pid, master) =
+        let (pid, master, _) =
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
                 .expect("forkpty");
         let program = (kind == Runs::Link).then(|| run.program().to_os_string());
@@ -6254,7 +6294,7 @@ mod tests {
         ) -> Polled {
             make_nonblocking(master);
             Polled {
-                pty: Pty::polled(master, pid, told, program),
+                pty: Pty::polled(master, pid, told, program, None),
                 pid,
                 socket: std::os::unix::net::UnixStream::pair().expect("a pair"),
             }
@@ -6387,7 +6427,7 @@ mod tests {
             let asks = sampler.read(std::time::Instant::now(), &bytes);
             let writers = match asks {
                 Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
-                Asks::No => crate::probe::Writers::default(),
+                Asks::No => sampler.unasked(),
             };
             all.extend_from_slice(&bytes);
             if asks != Asks::Yes(Linked::Yes) {
@@ -6477,11 +6517,11 @@ mod tests {
             program: None,
             run: None,
         };
-        let (pid, master) =
+        let (pid, master, token) =
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
                 .expect("forkpty");
         let w = Polled::over(master, pid, told, None);
-        let mut sampler = Sampler::default();
+        let mut sampler = Sampler::for_shell(token.as_ref());
         let mut named = std::collections::HashMap::new();
         let elsewhere = Some(crate::paths::Front::Elsewhere);
         let (mut links, mut by_samples, mut left) = (0u32, 0u32, 0u32);
@@ -6518,7 +6558,7 @@ mod tests {
                 let asks = sampler.read(std::time::Instant::now(), &bytes);
                 let writers = match asks {
                     Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
-                    Asks::No => crate::probe::Writers::default(),
+                    Asks::No => sampler.unasked(),
                 };
                 all.extend_from_slice(&bytes);
                 if asks != Asks::Yes(Linked::Yes) {
@@ -6541,7 +6581,7 @@ mod tests {
                 links += here;
                 if local {
                     by_samples += here;
-                    if writers.marked != Watched::Elsewhere {
+                    if writers.marked != crate::ran::Ran::Elsewhere {
                         left += here;
                     }
                 }
@@ -6751,7 +6791,7 @@ mod tests {
                 (OsString::from("TERM_SESSION_ID"), OsString::from("outer")),
                 (OsString::from("x"), OsString::from("expanded")),
             ];
-            let (_, master) = Pty::fork_given(
+            let (_, master, _) = Pty::fork_given(
                 text_area(&size, Px::of(8), Px::of(16)),
                 Some("echo a shell ran".into()),
                 parent,
@@ -7053,7 +7093,7 @@ mod tests {
         unsafe {
             crate::sys::pthread_sigmask(crate::sys::SIG_SETMASK, &was, core::ptr::null_mut())
         };
-        let (pid, master) = forked.expect("forkpty");
+        let (pid, master, _) = forked.expect("forkpty");
         let out = String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n");
         // SAFETY: the master forkpty returned, owned here alone; `pid` is
         // this test's own child.

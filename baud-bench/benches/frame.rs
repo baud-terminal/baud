@@ -195,6 +195,9 @@ mod link;
 #[path = "../../baud-app/src/paths.rs"]
 mod paths;
 #[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/reach.rs"]
+mod reach;
+#[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/rules.rs"]
 mod rules;
 
