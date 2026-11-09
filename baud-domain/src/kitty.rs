@@ -724,8 +724,9 @@ pub const KITTY_CONTROL_MAX: usize = 256;
 /// kitty-vt-parser-c]]`). kitty measures it only when a read ends with the
 /// string still open, so where its parser resumes depends on its reads;
 /// here the chunk is dropped at the byte that passes it and the rest is
-/// ignored up to the terminator, wherever the reads fell -- the one stated
-/// difference from kitty.
+/// ignored up to the terminator, wherever the reads fell -- a stated
+/// difference from kitty. The other: a continuation past it that feeds an
+/// inflate (`o=z`) drops its upload, where kitty ignores that chunk alone.
 pub const KITTY_BODY_MAX: usize = 262_144;
 
 /// Decoded octets held for one inflate feed: a feed per quantum costs the
@@ -1014,6 +1015,33 @@ enum Chunk {
     Payload,
 }
 
+/// **Where the load stood when a chunk began**, for a chunk dropped past
+/// [`KITTY_BODY_MAX`]: kitty ignores that command whole, so the upload goes
+/// on as if the chunk had never come. Direct raw data and a PNG's bytes
+/// roll back to here; an inflate cannot, and goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ChunkMark {
+    /// No upload: the chunk began the command, which is dropped with it.
+    Fresh,
+    /// Raw pixels, as [`Load::Raw`] held them, and a continuation's `q`.
+    Raw {
+        image: ImageId,
+        at: usize,
+        carry: [u8; 4],
+        held: usize,
+        alpha: ImageAlpha,
+        quiet: KittyQuiet,
+    },
+    /// A PNG's bytes in the scratch, as [`Load::Png`] held them, and a
+    /// continuation's `q`: the bytes past `len` are written over by the
+    /// next chunk's, and its header is checked again when it passes 24.
+    Png { len: usize, quiet: KittyQuiet },
+    /// A refused upload, which a dropped chunk leaves refused.
+    Refused,
+    /// An inflate (`o=z`), whose state does not roll back.
+    Fixed,
+}
+
 /// A transmission in flight across chunks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Load {
@@ -1076,6 +1104,8 @@ pub struct KittyStream {
     b64: KittyBase64,
     /// The next ENODATA's numbers, taken by [`KittyStream::reply`].
     short: Shortfall,
+    /// Where the load stood when the open chunk began.
+    mark: ChunkMark,
     /// The open chunk's body so far, from its `G` on: what kitty measures
     /// against [`KITTY_BODY_MAX`].
     body: usize,
@@ -1159,6 +1189,7 @@ impl KittyStream {
         load: Load::Idle,
         b64: KittyBase64::NEW,
         short: Shortfall::Unsaid,
+        mark: ChunkMark::Fresh,
         body: 0,
         excess_at: 0,
         stage: [0; STAGE],
@@ -1273,13 +1304,42 @@ impl KittyStream {
         // The `G`.
         self.body = 1;
         self.excess_at = self.counts.excess;
+        self.mark = match self.load {
+            Load::Idle => ChunkMark::Fresh,
+            Load::Raw {
+                image,
+                at,
+                carry,
+                held,
+                alpha,
+            } => ChunkMark::Raw {
+                image,
+                at,
+                carry,
+                held,
+                alpha,
+                quiet: self.start.quiet,
+            },
+            Load::Png { len } => ChunkMark::Png {
+                len,
+                quiet: self.start.quiet,
+            },
+            Load::Refused(_) => ChunkMark::Refused,
+            Load::RawZ { .. } | Load::PngZ { .. } => ChunkMark::Fixed,
+        };
     }
 
     /// **`n` more body bytes, and whether they took the chunk past
-    /// [`KITTY_BODY_MAX`]**: then it is dropped, its upload with it, and
-    /// what follows up to the terminator is ignored, as kitty ignores the
-    /// string ("escape code too long ... ignoring it"). The terminator then
-    /// finds the chunk closed and runs nothing.
+    /// [`KITTY_BODY_MAX`]**: then the chunk is dropped and what follows up
+    /// to the terminator is ignored, as kitty ignores the string ("escape
+    /// code too long ... ignoring it"), and the terminator finds the chunk
+    /// closed and runs nothing. kitty never saw the command, so an upload
+    /// the chunk continued goes on from where it began ([`ChunkMark`]):
+    /// raw pixels or PNG bytes written since are rolled back, in place and at
+    /// no cost, and a PNG the chunk's bytes refused is a PNG again, since
+    /// kitty never read them. An inflate cannot roll back, and its upload is
+    /// dropped with the chunk, where kitty keeps it: the second stated
+    /// difference, beside where the reads leave kitty after the cap.
     fn too_long(&mut self, n: usize, store: &mut ImageStore, scratch: &mut [u8]) -> bool {
         if self.chunk == Chunk::Closed {
             return true;
@@ -1289,9 +1349,39 @@ impl KittyStream {
             return false;
         }
         self.counts.too_long += 1;
-        self.abort(store);
-        self.settle(store, scratch);
+        match (self.mark, self.load) {
+            (
+                ChunkMark::Raw {
+                    image,
+                    at,
+                    carry,
+                    held,
+                    alpha,
+                    quiet,
+                },
+                Load::Raw { image: now, .. },
+            ) if now == image => {
+                self.load = Load::Raw {
+                    image,
+                    at,
+                    carry,
+                    held,
+                    alpha,
+                };
+                self.start.quiet = quiet;
+            }
+            (ChunkMark::Png { len, quiet }, Load::Png { .. } | Load::Refused(_)) => {
+                self.load = Load::Png { len };
+                self.start.quiet = quiet;
+            }
+            (ChunkMark::Refused, Load::Refused(_)) => {}
+            _ => {
+                self.abort(store);
+                self.settle(store, scratch);
+            }
+        }
         self.counts.excess = self.excess_at;
+        self.b64 = KittyBase64::NEW;
         self.chunk = Chunk::Closed;
         true
     }

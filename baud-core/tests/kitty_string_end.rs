@@ -347,9 +347,15 @@ proptest::proptest! {
 /// after the `ST` is drawn where the cursor was. kitty returns to the
 /// ground there instead, and draws the rest of the command as text, and
 /// only when a read ends without a terminator; baud keeps ignoring it up to
-/// the terminator, at every split. A continuation chunk past the cap drops
-/// its upload whole, because its first 262,144 bytes are already decoded
-/// into it, where kitty ignores that chunk alone.
+/// the terminator, at every split. A raw continuation chunk past the cap
+/// is ignored and its upload goes on, kitty's result: a 2x1 picture's
+/// first chunk, a chunk of 262,144 `A`s, and a last chunk store the first
+/// and last chunks' pixels, as if the middle one had never come. So is a
+/// PNG's, whose bytes roll back too: a 1x1 PNG's first 12 bytes, the chunk
+/// of `A`s, whose zeros take it past 24 bytes to a header that is refused,
+/// and the rest, store the PNG's pixel. An `o=z` continuation drops its
+/// upload whole, the inflate's state not rolling back, where kitty ignores
+/// that chunk alone: a stated difference.
 #[test]
 fn a_kitty_command_past_its_cap_is_dropped_up_to_its_terminator() {
     use baud_domain::KITTY_BODY_MAX;
@@ -366,10 +372,46 @@ fn a_kitty_command_past_its_cap_is_dropped_up_to_its_terminator() {
         s.push(b'X');
         s
     };
-    let mut cont = AT.to_vec();
-    cont.extend_from_slice(b"\x1b_Ga=T,f=24,s=1,v=1,i=1,C=1,m=1;AAAA\x1b\\\x1b_Gm=1;");
-    cont.extend(std::iter::repeat_n(b'A', KITTY_BODY_MAX));
-    cont.extend_from_slice(b"\x1b\\\x1b_Gm=0;AAAA\x1b\\X");
+    let middle = |first: &[u8], last: &[u8]| {
+        let mut s = AT.to_vec();
+        s.extend_from_slice(first);
+        s.extend_from_slice(b"\x1b_Gm=1;");
+        s.extend(std::iter::repeat_n(b'A', KITTY_BODY_MAX));
+        s.extend_from_slice(b"\x1b\\");
+        s.extend_from_slice(last);
+        s.push(b'X');
+        s
+    };
+    // `AQID` and `BAUG` are 01 02 03 and 04 05 06.
+    let cont = middle(
+        b"\x1b_Ga=T,f=24,s=2,v=1,i=1,C=1,m=1;AQID\x1b\\",
+        b"\x1b_Gm=0;BAUG\x1b\\",
+    );
+    // A stored zlib block of 01 02 03 and its Adler-32, in two chunks.
+    let mut zlib = b"\x1b_Ga=T,f=24,o=z,s=1,v=1,i=1,C=1,m=1;".to_vec();
+    zlib.extend(b64(&[0x78, 0x01, 0x01, 0x03, 0x00, 0xfc, 0xff]));
+    zlib.extend_from_slice(b"\x1b\\");
+    let mut zlast = b"\x1b_Gm=0;".to_vec();
+    zlast.extend(b64(&[1, 2, 3, 0x00, 0x0d, 0x00, 0x07]));
+    zlast.extend_from_slice(b"\x1b\\");
+    let zcont = middle(&zlib, &zlast);
+    let png = {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, 1, 1);
+        e.set_color(png::ColorType::Rgb);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header()
+            .and_then(|mut w| w.write_image_data(&[1, 2, 3]))
+            .expect("a PNG");
+        out
+    };
+    let mut pfirst = b"\x1b_Ga=T,f=100,i=1,C=1,m=1;".to_vec();
+    pfirst.extend(b64(&png[..12]));
+    pfirst.extend_from_slice(b"\x1b\\");
+    let mut plast = b"\x1b_Gm=0;".to_vec();
+    plast.extend(b64(&png[12..]));
+    plast.extend_from_slice(b"\x1b\\");
+    let pcont = middle(&pfirst, &plast);
     let ok = "\x1b_Gi=1;OK\x1b\\";
     for (name, s, reply, images, dropped) in [
         ("at the cap, ST", single(0, b"\x1b\\"), ok, 1, 0),
@@ -383,13 +425,24 @@ fn a_kitty_command_past_its_cap_is_dropped_up_to_its_terminator() {
             0,
             1,
         ),
-        ("a continuation past it", cont, "", 0, 1),
+        ("a raw continuation past it", cont, ok, 1, 1),
+        ("a PNG continuation past it", pcont, ok, 1, 1),
+        ("an o=z continuation past it", zcont, "", 0, 1),
     ] {
         let whole = run(&s, &[]);
         assert_eq!(String::from_utf8_lossy(&whole.replies), reply, "{name}");
         assert_eq!(whole.images.len(), images, "{name}");
         assert_eq!(whole.counts.too_long, dropped, "{name}");
         assert_eq!(whole.rows[2], "    X", "{name}: the text after it");
+        let pixels = match name {
+            "a raw continuation past it" => vec![vec![0xff01_0203, 0xff04_0506]],
+            "a PNG continuation past it" => vec![vec![0xff01_0203]],
+            _ => whole.images.clone(),
+        };
+        assert_eq!(
+            whole.images, pixels,
+            "{name}: the first and last chunks' pixels"
+        );
         let n = s.len();
         for cut in [1, 40, n / 2, n - 4100, n - 6, n - 3, n - 2, n - 1] {
             assert_eq!(run(&s, &[cut]), whole, "{name}: cut at {cut}");
