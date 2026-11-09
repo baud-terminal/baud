@@ -721,41 +721,85 @@ mod tests {
     /// named at its exec, raises nothing; one run as `ssh` raises it, either
     /// way; and a child already listed is not named again. Named breaks:
     /// list no children at a fork -- the fork's case raises nothing; name
-    /// nothing at an exec -- the exec's case raises nothing. Lists this
-    /// process's children, so it holds only with one process a test, as
-    /// nextest runs it.
+    /// nothing at an exec -- the exec's case raises nothing. The fork's case
+    /// watches a parent of the test's own whose one child is the program, so
+    /// it holds in a process shared with other tests, as `cargo test` runs
+    /// them; three children of this process held beside it make that so on
+    /// every run. Break: watch this process's own fork, as it did -- they
+    /// are listed too.
     #[cfg(target_os = "macos")]
     #[test]
     fn a_fork_or_exec_raises_the_cell_only_for_a_remote_program() {
         use crate::sys::{NOTE_EXEC, NOTE_FORK};
         let dir = programs("names");
-        let me = Pid::try_from(std::process::id()).expect("a pid");
         // SAFETY: no arguments; a descriptor or -1.
         let raw = unsafe { crate::sys::kqueue() };
         assert!(raw >= 0, "a kqueue");
         // SAFETY: the descriptor `kqueue` just gave, closed once, here.
         let kq = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) };
         let fd = std::os::fd::AsRawFd::as_raw_fd(&kq);
+        // Other tests of this process run beside this one under `cargo
+        // test`, and their children are this process's too: three held
+        // here, so the interference is there on every run.
+        let mut others: Vec<_> = (0..3)
+            .map(|_| {
+                std::process::Command::new("/bin/sleep")
+                    .arg("30")
+                    .spawn()
+                    .expect("a sibling's child")
+            })
+            .collect();
+        // The fork's case watches a parent of the test's own, `sh`, whose one
+        // child is the program: its children are the program alone, whatever
+        // else this process has started. Its child is waited for to exist
+        // and to have exec'd, named the program, before the event is read.
         let run = |name: &str, fflags| {
-            let mut child = std::process::Command::new(dir.join(name))
-                .arg("5")
-                .spawn()
-                .expect("spawned");
-            let pid = Pid::try_from(child.id()).expect("a pid");
+            let program = dir.join(name);
+            let (mut parent, pid) = match fflags {
+                NOTE_FORK => {
+                    let parent = std::process::Command::new("/bin/sh")
+                        .args(["-c", "\"$0\" 5 & wait"])
+                        .arg(&program)
+                        .spawn()
+                        .expect("spawned");
+                    let sh = Pid::try_from(parent.id()).expect("a pid");
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                    loop {
+                        let kids: Vec<Pid> = children(sh).collect();
+                        if let [kid] = kids[..] {
+                            if super::name(kid).as_deref() == Some(name) {
+                                break;
+                            }
+                        }
+                        assert!(std::time::Instant::now() < deadline, "{name} never started");
+                        std::thread::yield_now();
+                    }
+                    (parent, sh)
+                }
+                _ => {
+                    let child = std::process::Command::new(&program)
+                        .arg("5")
+                        .spawn()
+                        .expect("spawned");
+                    let pid = Pid::try_from(child.id()).expect("a pid");
+                    (child, pid)
+                }
+            };
             let cell = crate::probe::WatchCell::default();
             let mut known = std::collections::HashSet::new();
-            let ident = match fflags {
-                NOTE_FORK => me,
-                _ => pid,
-            };
-            name_moves(fd, &[event(ident, fflags)], &mut known, &cell);
+            name_moves(fd, &[event(pid, fflags)], &mut known, &cell);
             let got = cell.take();
-            let listed = known.len();
-            name_moves(fd, &[event(ident, fflags)], &mut known, &cell);
+            let listed: Vec<Pid> = known.iter().copied().collect();
+            name_moves(fd, &[event(pid, fflags)], &mut known, &cell);
             let again = cell.take();
-            let _ = child.kill();
-            let _ = child.wait();
-            (got, listed, again)
+            for kid in &listed {
+                let _ = std::process::Command::new("/bin/kill")
+                    .args(["-9", &kid.to_string()])
+                    .status();
+            }
+            let _ = parent.kill();
+            let _ = parent.wait();
+            (got, listed.len(), again)
         };
         use crate::probe::Watched::{Elsewhere, Nothing};
         assert_eq!(
@@ -778,6 +822,10 @@ mod tests {
             (Elsewhere, 0, Elsewhere),
             "named at its exec"
         );
+        for o in &mut others {
+            let _ = o.kill();
+            let _ = o.wait();
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
