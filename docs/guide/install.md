@@ -99,6 +99,13 @@ cursor or window, see [Configuration](configuration.md).
   `BAUD_LOG=info` shows more; `BAUD_LOG=err` shows only errors.
 - **On a release before macOS 26** the app refuses to open, and the bare binary
   prints why and exits.
+- **A window that says it could not open a terminal** met the system's limit
+  on terminals, which every app's windows and tabs share: 511 on a Mac unless
+  it was raised. The window says how many are open, and stays until you close
+  it; your other windows go on as they were. Close terminals you no longer
+  need, or raise the limit, up to 999, with
+  `sudo sysctl kern.tty.ptmx_max=999`. That lasts until the Mac restarts; add
+  `kern.tty.ptmx_max=999` to `/etc/sysctl.conf` to keep it.
 
 ## Linux
 

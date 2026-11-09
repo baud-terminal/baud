@@ -308,7 +308,7 @@ mod tests {
         }
         for want in [
             "let words = d.line_lamps_wait(now);",
-            "crate::own_line::in_front(crate::fg::group(master), shell)",
+            "crate::own_line::in_front(master.and_then(crate::fg::group), shell)",
         ] {
             assert_eq!(LINUX.matches(want).count(), 1, "{want}");
         }

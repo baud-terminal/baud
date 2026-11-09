@@ -47,8 +47,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-/// The master's file descriptor, owned here.
-pub struct Pty {
+/// **A live terminal**: the master's file descriptor, owned here, and its
+/// child.
+pub struct Live {
     master: crate::sys::Fd,
     /// The process the pty was spawned with, the session's root: the
     /// shell, or what `BAUD_CMD` names. `None` for a test's pty over a
@@ -156,7 +157,7 @@ impl Slot {
 /// `SIGHUP` to the session's leader, the shell (`tty.c` 2041-2042,
 /// `[[source: xnu-tty]]`). On macOS the reader's copy is the other
 /// reference, and the pipe this `Pty` holds ends it after this.
-impl Drop for Pty {
+impl Drop for Live {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]
         if self.closing.is_none() {
@@ -165,6 +166,495 @@ impl Drop for Pty {
         // SAFETY: the descriptor is this `Pty`'s, open since the fork, and
         // closed only here: the reader holds a copy of its own.
         drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(self.master) });
+    }
+}
+
+/// **A window's terminal**: a pty with its child, or the refusal of the
+/// one the window asked for. A refused window opens all the same, over
+/// [`NoTerminal`]'s words ([`say_refused`]), and stays until it is closed:
+/// it has no child, so nothing is signalled, watched, reaped or polled.
+pub enum Pty {
+    Live(Live),
+    Refused(Refused),
+}
+
+/// **A terminal the system would not open**, and the size the window
+/// asked for, kept for a resize to change.
+pub struct Refused {
+    why: NoTerminal,
+    told: crate::sys::Winsize,
+}
+
+/// A count of ptys: in use on the machine, or the most it allows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PtyCount(pub usize);
+
+/// **Why a window has no terminal.** The system's limit on ptys, with the
+/// count in use and the most allowed as they were read when the open
+/// failed -- each left out when it could not be read, never guessed -- or
+/// another failure, with its `errno`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoTerminal {
+    Limit {
+        open: Option<PtyCount>,
+        most: Option<PtyCount>,
+    },
+    Failed(crate::sys::Errno),
+}
+
+/// The `errno` a manager's open answers at the system's limit on ptys:
+/// `ENXIO` on macOS, from `ptcopen` once `ptmx_get_ioctl` refuses
+/// (`[[source: xnu-tty-dev]]` 493-494, `[[source: xnu-tty-ptmx-c]]`
+/// 287-290), which it also does when the kernel could not allocate the
+/// pty's state (299, 335). `EAGAIN` is not it: macOS answers that for a
+/// subsidiary not yet unlocked (`[[source: xnu-tty-dev]]` 273).
+#[cfg(target_os = "macos")]
+const AT_THE_LIMIT: crate::sys::Errno = crate::sys::Errno(crate::sys::ENXIO);
+
+/// `ENOSPC` on Linux, from `devpts_new_index` once `kernel/pty/nr` reaches
+/// `kernel/pty/max` less the reserve (`[[source: linux-devpts-inode-c]]`
+/// 466-472), which `ptmx_open` returns (`[[source: linux-pty]]` 792-795).
+#[cfg(target_os = "linux")]
+const AT_THE_LIMIT: crate::sys::Errno = crate::sys::Errno(crate::sys::ENOSPC);
+
+impl NoTerminal {
+    /// What a manager's open that failed with `e` means: the limit, with
+    /// the counts `counts` reads, or `e`'s own failure.
+    fn of(
+        e: crate::sys::Errno,
+        counts: impl FnOnce() -> (Option<PtyCount>, Option<PtyCount>),
+    ) -> NoTerminal {
+        if e == AT_THE_LIMIT {
+            let (open, most) = counts();
+            NoTerminal::Limit { open, most }
+        } else {
+            NoTerminal::Failed(e)
+        }
+    }
+}
+
+/// **The sysctl that holds the most ptys macOS allows**: read here and
+/// named in the refused window's advice, which a test holds to it.
+#[cfg(target_os = "macos")]
+const PTMX_MAX: &core::ffi::CStr = c"kern.tty.ptmx_max";
+
+/// **The ptys in use and the most the system allows**, read when an open
+/// failed. On macOS, the `ttys` entries in `/dev`: each is made with its
+/// pty and removed when the pty is freed (`[[source: xnu-tty-ptmx-c]]`
+/// 379-382, 443); and `kern.tty.ptmx_max` (165-190).
+#[cfg(target_os = "macos")]
+fn pty_counts() -> (Option<PtyCount>, Option<PtyCount>) {
+    #[cfg(test)]
+    if let Some(counts) = COUNTED.with(core::cell::Cell::get) {
+        return counts;
+    }
+    let open = std::fs::read_dir("/dev").ok().map(|d| {
+        PtyCount(
+            d.filter_map(Result::ok)
+                .filter(|e| e.file_name().as_bytes().starts_with(b"ttys"))
+                .count(),
+        )
+    });
+    let mut most: core::ffi::c_int = 0;
+    let mut size = crate::sys::MapLen(core::mem::size_of::<core::ffi::c_int>());
+    // SAFETY: a NUL-terminated name, an int's buffer and its size, and no
+    // new value.
+    let read = unsafe {
+        crate::sys::sysctlbyname(
+            PTMX_MAX.as_ptr(),
+            (&raw mut most).cast(),
+            &raw mut size,
+            core::ptr::null_mut(),
+            crate::sys::MapLen(0),
+        )
+    };
+    let most = (read == 0)
+        .then(|| usize::try_from(most).ok())
+        .flatten()
+        .map(PtyCount);
+    (open, most)
+}
+
+/// **Where Linux keeps the pty sysctls**, `kernel.pty.*`: read here and
+/// named in the refused window's advice, which a test holds to it.
+#[cfg(target_os = "linux")]
+const PTY_SYSCTLS: &str = "/proc/sys/kernel/pty";
+
+/// On Linux, `kernel/pty/nr` and `kernel/pty/max`
+/// (`[[source: linux-devpts-inode-c]]` 43-70).
+#[cfg(target_os = "linux")]
+fn pty_counts() -> (Option<PtyCount>, Option<PtyCount>) {
+    #[cfg(test)]
+    if let Some(counts) = COUNTED.with(core::cell::Cell::get) {
+        return counts;
+    }
+    let read = |name: &str| {
+        std::fs::read_to_string(format!("{PTY_SYSCTLS}/{name}"))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
+            .map(PtyCount)
+    };
+    (read("nr"), read("max"))
+}
+
+impl core::fmt::Display for NoTerminal {
+    /// What the refused window says, each line within 80 columns: the
+    /// cause, with the counts read, and what the user can do about it. The
+    /// most a Mac allows is 999 (`PTMX_MAX_HARD`, `[[source: xnu-tty-ptmx-c]]`
+    /// 166, 178-182), and `/etc/sysctl.conf` "is read in when the system goes
+    /// into multi-user mode" (`[[source: macos-man-sysctl-conf-5]]`). Linux
+    /// refuses at `kernel/pty/max` less the reserve, or at the maximum where
+    /// the mount takes the reserve (`[[source: linux-devpts-inode-c]]`
+    /// 470-471), so its line names the setting and the counts rather than
+    /// a number it allows.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        const WHY: &str = "baud could not open a terminal:";
+        let (open, most) = match *self {
+            NoTerminal::Failed(e) => return write!(f, "{WHY} {e}."),
+            NoTerminal::Limit { open, most } => (open, most),
+        };
+        #[cfg(target_os = "macos")]
+        match (open, most) {
+            (Some(o), Some(m)) => writeln!(
+                f,
+                "{WHY} macOS allows {} at once, and {} are open.",
+                m.0, o.0
+            )?,
+            (None, Some(m)) => {
+                writeln!(f, "{WHY} macOS allows {} at once, and all are in use.", m.0)?
+            }
+            (Some(o), None) => writeln!(f, "{WHY} macOS's limit is reached, with {} open.", o.0)?,
+            (None, None) => writeln!(f, "{WHY} macOS's limit on terminals is reached.")?,
+        }
+        // Its own line for the counts: `kernel.pty.max` runs to seven
+        // digits.
+        #[cfg(target_os = "linux")]
+        {
+            writeln!(f, "{WHY} the system's limit on terminals is reached.")?;
+            match (open, most) {
+                (Some(o), Some(m)) => {
+                    writeln!(f, "kernel.pty.max is {}, and {} are open.", m.0, o.0)?
+                }
+                (None, Some(m)) => writeln!(f, "kernel.pty.max is {}.", m.0)?,
+                (Some(o), None) => writeln!(f, "{} are open.", o.0)?,
+                (None, None) => {}
+            }
+        }
+        writeln!(
+            f,
+            "Close terminal windows or tabs you no longer need, then open a new window."
+        )?;
+        #[cfg(target_os = "macos")]
+        {
+            writeln!(
+                f,
+                "Or raise the limit, up to 999: sudo sysctl kern.tty.ptmx_max=999"
+            )?;
+            write!(
+                f,
+                "To keep it after a restart, add kern.tty.ptmx_max=999 to /etc/sysctl.conf."
+            )
+        }
+        #[cfg(target_os = "linux")]
+        write!(
+            f,
+            "Or raise the limit: sudo sysctl kernel.pty.max=<a larger number>"
+        )
+    }
+}
+
+/// **A refused window says why**, written into its terminal as text when
+/// the window opens, each line from the left edge; nothing for a live one.
+pub fn say_refused(term: &mut baud_core::Term<'_>, pty: &Pty) {
+    let Pty::Refused(r) = pty else {
+        return;
+    };
+    let text = format!("{}\r\n", r.why)
+        .replace('\n', "\r\n")
+        .replace("\r\r\n", "\r\n");
+    let bytes = text.as_bytes();
+    term.write_at(baud_core::BytePos::ZERO, bytes);
+    term.feed(
+        baud_core::BytePos::ZERO,
+        baud_core::ReadLen::from_index(bytes.len()),
+    );
+    while term.decode_step(baud_domain::DecodeBudget::ALL) == baud_domain::DecodeProgress::More {}
+}
+
+// **A test's refusal of the next opens on its thread**: each open of a
+// manager fails with `REFUSING`'s `errno`, counted in `REFUSED_OPENS`, and
+// the counts read are `COUNTED`'s, so no test needs the machine's ptys used
+// up or its counts as they are.
+#[cfg(test)]
+thread_local! {
+    static REFUSING: core::cell::Cell<Option<crate::sys::Errno>> = const { core::cell::Cell::new(None) };
+    static REFUSED_OPENS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    static COUNTED: core::cell::Cell<Option<(Option<PtyCount>, Option<PtyCount>)>> = const { core::cell::Cell::new(None) };
+}
+
+/// Refuses this thread's opens with `e`, the counts read `counts`, or
+/// stops; and starts the count of refused opens again.
+#[cfg(test)]
+pub(crate) fn set_refusing(
+    e: Option<crate::sys::Errno>,
+    counts: Option<(Option<PtyCount>, Option<PtyCount>)>,
+) {
+    REFUSING.with(|r| r.set(e));
+    COUNTED.with(|c| c.set(counts));
+    REFUSED_OPENS.with(|n| n.set(0));
+}
+
+/// A count of opens tried.
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Tries(pub(crate) usize);
+
+/// How many opens this thread refused since [`set_refusing`].
+#[cfg(test)]
+pub(crate) fn refused_opens() -> Tries {
+    Tries(REFUSED_OPENS.with(core::cell::Cell::get))
+}
+
+/// A manager's open, or this thread's refusal of it ([`REFUSING`]): -1
+/// with `errno` set, as a failed `posix_openpt` leaves it.
+fn open_manager(flags: core::ffi::c_int) -> crate::sys::Fd {
+    #[cfg(test)]
+    if let Some(e) = REFUSING.with(core::cell::Cell::get) {
+        REFUSED_OPENS.with(|n| n.set(n.get() + 1));
+        e.set();
+        return -1;
+    }
+    // SAFETY: the call takes flags and returns a descriptor or -1.
+    unsafe { crate::sys::posix_openpt(flags) }
+}
+
+impl Pty {
+    /// Why the window has no terminal, if it has none.
+    #[cfg(test)]
+    pub(crate) fn refused(&self) -> Option<NoTerminal> {
+        match self {
+            Pty::Live(_) => None,
+            Pty::Refused(r) => Some(r.why),
+        }
+    }
+
+    /// The live terminal, for a test that reads its parts.
+    #[cfg(test)]
+    pub(crate) fn live(&self) -> &Live {
+        match self {
+            Pty::Live(l) => l,
+            Pty::Refused(r) => panic!("a refused terminal: {:?}", r.why),
+        }
+    }
+
+    /// The live terminal, for a test that changes its parts.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn live_mut(&mut self) -> &mut Live {
+        match self {
+            Pty::Live(l) => l,
+            Pty::Refused(r) => panic!("a refused terminal: {:?}", r.why),
+        }
+    }
+
+    /// The master, to wait on; a refused terminal has none.
+    #[cfg(all(test, target_os = "linux"))]
+    pub fn as_fd(&self) -> Option<BorrowedFd<'_>> {
+        match self {
+            Pty::Live(l) => Some(l.as_fd()),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// The terminal's special characters; the defaults for a refused one.
+    pub fn specials(&self) -> crate::paste::Specials {
+        match self {
+            Pty::Live(l) => l.specials(),
+            Pty::Refused(_) => crate::paste::Specials::default(),
+        }
+    }
+
+    /// The literal-next character; the default for a refused terminal.
+    pub fn literal_next(&self) -> crate::readline::Quote {
+        match self {
+            Pty::Live(l) => l.literal_next(),
+            Pty::Refused(_) => crate::readline::Quote::LNEXT,
+        }
+    }
+
+    /// One read of the master; nothing, and never an end, for a refused
+    /// terminal.
+    #[cfg(target_os = "linux")]
+    pub fn read_chunk(&self) -> Chunk {
+        match self {
+            Pty::Live(l) => l.read_chunk(),
+            Pty::Refused(_) => Chunk::Bytes(Vec::new()),
+        }
+    }
+
+    /// What the reader took; nothing, and the stream open, for a refused
+    /// terminal, whose window stays until it is closed.
+    #[cfg(target_os = "macos")]
+    pub fn drain(&self) -> Drained {
+        match self {
+            Pty::Live(l) => l.drain(),
+            Pty::Refused(_) => Drained {
+                chunks: Vec::new(),
+                stream: Stream::Open,
+            },
+        }
+    }
+
+    /// The bytes owed, written; a refused terminal has no child to take
+    /// them, and they are let go.
+    pub fn write(&self, out: &mut Outbox) -> Wrote {
+        match self {
+            Pty::Live(l) => l.write(out),
+            Pty::Refused(_) => {
+                out.bytes.clear();
+                Wrote::All
+            }
+        }
+    }
+
+    /// The window's new size, told to the kernel; kept for a refused
+    /// terminal.
+    pub fn resize(&mut self, size: &WinSize, cell_w: Px, cell_h: Px) {
+        match self {
+            Pty::Live(l) => l.resize(size, cell_w, cell_h),
+            Pty::Refused(r) => r.told = text_area(size, cell_w, cell_h),
+        }
+    }
+
+    /// The session's root process; none for a refused terminal.
+    pub fn child(&self) -> Option<crate::sys::Pid> {
+        match self {
+            Pty::Live(l) => l.child(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// Whether the window closes; never on its own for a refused terminal.
+    pub fn decide(&self, stream: crate::held::Stream) -> crate::held::Decided {
+        match self {
+            Pty::Live(l) => l.decide(stream),
+            Pty::Refused(_) => crate::held::Decided::Wait,
+        }
+    }
+
+    /// The child the window's watch reaps; none for a refused terminal.
+    #[cfg(all(test, target_os = "macos"))]
+    pub fn reaps(&self) -> Option<crate::fg::Child> {
+        match self {
+            Pty::Live(l) => l.reaps(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// **The process watch for the window**, or none for a refused
+    /// terminal, which has no process to watch.
+    #[cfg(target_os = "macos")]
+    pub fn watch(&self, wake: impl Fn() + Send + 'static) -> Option<crate::fg::Watch> {
+        match self {
+            Pty::Live(l) => crate::fg::Watch::start(l.reaps(), l.watched(), wake),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// The master to poll; none for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn polled_master(&self) -> Option<BorrowedFd<'_>> {
+        match self {
+            Pty::Live(l) => l.polled_master(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// The master hung up; a refused terminal never does.
+    #[cfg(target_os = "linux")]
+    pub fn hung_up(&mut self) {
+        if let Pty::Live(l) = self {
+            l.hung_up();
+        }
+    }
+
+    /// Whether the master is open; always for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn stream(&self) -> crate::held::Stream {
+        match self {
+            Pty::Live(l) => l.stream(),
+            Pty::Refused(_) => crate::held::Stream::Open,
+        }
+    }
+
+    /// The child's descriptor to poll; none for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn child_fd(&self) -> Option<BorrowedFd<'_>> {
+        match self {
+            Pty::Live(l) => l.child_fd(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// Reaps the child; nothing for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn reap(&mut self) {
+        if let Pty::Live(l) = self {
+            l.reap();
+        }
+    }
+
+    /// When the child is to be asked again; never for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn reap_owed(&self) -> Option<std::time::Instant> {
+        match self {
+            Pty::Live(l) => l.reap_owed(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// Gives the child up; nothing for a refused terminal.
+    #[cfg(target_os = "linux")]
+    pub fn give_up(&mut self) {
+        if let Pty::Live(l) = self {
+            l.give_up();
+        }
+    }
+
+    /// The token baud handed the shell; none for a refused terminal,
+    /// which started no shell.
+    #[cfg(target_os = "linux")]
+    pub fn shell_token(&self) -> Option<&crate::ran::ShellToken> {
+        match self {
+            Pty::Live(l) => l.shell_token(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// The subsidiary's path; none for a refused terminal.
+    pub fn tty(&self) -> Option<&std::path::Path> {
+        match self {
+            Pty::Live(l) => l.tty(),
+            Pty::Refused(_) => None,
+        }
+    }
+
+    /// What the window reads the foreground through; nothing for a
+    /// refused terminal.
+    pub fn reads(&self) -> crate::fg::Live {
+        match self {
+            Pty::Live(l) => l.reads(),
+            Pty::Refused(_) => crate::fg::Live { master: None },
+        }
+    }
+
+    /// The input encoding, followed on the line; nothing for a refused
+    /// terminal.
+    pub fn follow(&mut self, enc: InputEncoding) {
+        if let Pty::Live(l) = self {
+            l.follow(enc);
+        }
     }
 }
 
@@ -1565,29 +2055,34 @@ fn opened(master: crate::sys::Fd, replica: crate::sys::Fd) {
 /// leaked into an executed program if FD_CLOEXEC is not set atomically"
 /// (`[[source: posix-posix-openpt]]`). Two vim tests deadlocked on it,
 /// each child holding the other's master.
-fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+fn open_terminal(
+    ws: crate::sys::Winsize,
+) -> Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd), NoTerminal> {
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::OpenOptionsExt;
     let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
     #[cfg(test)]
     let opening = budget::opening();
-    // SAFETY: the call takes flags and returns a descriptor or -1.
-    let m = redriven(|| unsafe { crate::sys::posix_openpt(flags) });
+    let m = redriven(|| open_manager(flags));
     if m < 0 {
-        return None;
+        // Read at once: the limit's counts are of this moment, and no
+        // call between may change `errno`. Not tried again: a refusal is
+        // not a lost race, which `redriven` alone retries.
+        return Err(NoTerminal::of(crate::sys::Errno::last(), pty_counts));
     }
     // SAFETY: the descriptor just opened, owned here alone.
     let master = unsafe { std::os::fd::OwnedFd::from_raw_fd(m) };
     // SAFETY: an open manager descriptor.
     if unsafe { crate::sys::grantpt(m) } != 0 || unsafe { crate::sys::unlockpt(m) } != 0 {
-        return None;
+        return Err(NoTerminal::Failed(crate::sys::Errno::last()));
     }
+    let name = subsidiary_of(m).ok_or_else(|| NoTerminal::Failed(crate::sys::Errno::last()))?;
     let replica: std::os::fd::OwnedFd = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(crate::sys::O_NOCTTY)
-        .open(subsidiary_of(m)?)
-        .ok()?
+        .open(name)
+        .map_err(|e| NoTerminal::Failed(crate::sys::Errno(e.raw_os_error().unwrap_or(0))))?
         .into();
     // SAFETY: an open terminal, and the size live for the call.
     unsafe {
@@ -1598,7 +2093,7 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
         drop(opening);
         budget::opened();
     }
-    Some((master, replica))
+    Ok((master, replica))
 }
 
 /// **What a fork of a fresh terminal leaves in each process**: the child,
@@ -1611,8 +2106,8 @@ enum Fork {
 }
 
 /// **A child on a fresh pty of size `ws`** ([`open_terminal`]), as each
-/// process has it ([`Fork`]); `None` when the open or the fork failed,
-/// `errno` as the failed call left it. libnotify
+/// process has it ([`Fork`]), or why there is none: the open's refusal,
+/// or the fork's `errno`. libnotify
 /// is settled before the fork ([`settle_before_fork`]). The child does what
 /// `login_tty` does, a new session, the terminal taken as its controlling
 /// terminal and made its standard input, output and error, and, when it
@@ -1620,7 +2115,7 @@ enum Fork {
 /// back (`[[source: apple-libc-pty-c]]`, `[[source: apple-libc-login-tty-c]]`).
 /// Its copies of both ends close at its `exec`. The parent closes its
 /// replica, the fork failed or not.
-fn fork_terminal(ws: crate::sys::Winsize) -> Option<Fork> {
+fn fork_terminal(ws: crate::sys::Winsize) -> Result<Fork, NoTerminal> {
     let (master, replica) = open_terminal(ws)?;
     // The child's bound, when it cannot list its own descriptors, looked
     // up here, where looking may allocate (`inherited.rs`).
@@ -1701,13 +2196,14 @@ fn fork_terminal(ws: crate::sys::Winsize) -> Option<Fork> {
         // Closed at the `exec`, close-on-exec, and not here.
         core::mem::forget(replica);
         core::mem::forget(master);
-        return Some(Fork::Child);
+        return Ok(Fork::Child);
     }
+    let forked = crate::sys::Errno::last();
     drop(replica);
     if pid < 0 {
-        return None;
+        return Err(NoTerminal::Failed(forked));
     }
-    Some(Fork::Parent(pid, master))
+    Ok(Fork::Parent(pid, master))
 }
 
 impl Pty {
@@ -1731,7 +2227,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         at: Option<&std::path::Path>,
         shell: &ShellStart,
-    ) -> Option<Forked> {
+    ) -> Option<Result<Forked, NoTerminal>> {
         let cmd = std::env::var("BAUD_CMD").ok();
         Pty::fork_given(
             ws,
@@ -1766,6 +2262,7 @@ impl Pty {
             at,
             &crate::shell::Integration::Off.into(),
         )
+        .and_then(Result::ok)
         .map(|(_, master, _)| master)
     }
 
@@ -1778,7 +2275,7 @@ impl Pty {
         started_by: Parent,
         at: Option<&std::path::Path>,
         shell: &ShellStart,
-    ) -> Option<Forked> {
+    ) -> Option<Result<Forked, NoTerminal>> {
         let start = match at
             .filter(|d| d.is_absolute())
             .and_then(|d| CString::new(d.as_os_str().as_bytes()).ok())
@@ -1789,8 +2286,10 @@ impl Pty {
         let (exec, stay) = Pty::exec_and_env(cmd, parent, locale, shell)?;
         let home = with_pwd(stay.clone(), &start);
         let token = exec.injection.as_ref().and_then(|i| i.token.clone());
-        Pty::fork_in(ws, &exec, &home.into_envp(), &stay.into_envp(), &start)
-            .map(|(child, master)| (child, master, token))
+        Some(
+            Pty::fork_in(ws, &exec, &home.into_envp(), &stay.into_envp(), &start)
+                .map(|(child, master)| (child, master, token)),
+        )
     }
 
     /// What the child runs, and its environment when it stays where baud
@@ -1853,7 +2352,7 @@ impl Pty {
             crate::shell::SshEnv::Off,
             None,
         )?;
-        Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited)
+        Pty::fork_in(ws, &exec, &env, &env, &StartIn::Inherited).ok()
     }
 
     /// **baud's own start of a login shell, for a test**: `parent` as baud's
@@ -1880,7 +2379,7 @@ impl Pty {
             Pty::exec_and_env(None, parent, || None, &crate::shell::Integration::On.into())?;
         let env = env.into_envp();
         let start = StartIn::Dir(CString::new(dir.as_os_str().as_bytes()).ok()?);
-        Pty::fork_in(ws, &exec, &env, &env, &start)
+        Pty::fork_in(ws, &exec, &env, &env, &start).ok()
     }
 
     /// [`Pty::fork`] with what the child runs ([`Exec`]), the environments
@@ -1897,7 +2396,7 @@ impl Pty {
         home: &[CString],
         stay: &[CString],
         start: &StartIn,
-    ) -> Option<(core::ffi::c_int, std::os::fd::OwnedFd)> {
+    ) -> Result<(core::ffi::c_int, std::os::fd::OwnedFd), NoTerminal> {
         let path_c = exec.path.as_c();
         let argv: Vec<*const core::ffi::c_char> = exec
             .argv
@@ -1951,7 +2450,7 @@ impl Pty {
         // program this process starts -- the opener a link is handed to,
         // and what that opener starts -- never holds the terminal's other
         // end.
-        Some((pid, master))
+        Ok((pid, master))
     }
 
     /// The pty with a thread reading it: each chunk crosses a channel and
@@ -1970,7 +2469,11 @@ impl Pty {
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master, token) = Pty::fork(told, at, shell)?;
+        // A refused terminal still opens its window, over why (`Refused`).
+        let (child, master, token) = match Pty::fork(told, at, shell)? {
+            Ok(forked) => forked,
+            Err(why) => return Some(Pty::Refused(Refused { why, told })),
+        };
         // A link's program holds its window as it ends; a shell does not.
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
         Some(Pty::reading(
@@ -2003,7 +2506,7 @@ impl Pty {
         let watched = crate::probe::WatchCell::default();
         let taken = watched.clone();
         std::thread::spawn(move || reader(held, tx, flag, &taken, token.as_ref(), wake));
-        Pty {
+        Pty::Live(Live {
             master,
             child,
             told,
@@ -2013,7 +2516,7 @@ impl Pty {
             watched,
             closing,
             ending: ChildEnd::of(program),
-        }
+        })
     }
 
     /// **The app's pty over a child a test names**: [`Pty::spawn`] with the
@@ -2032,15 +2535,19 @@ impl Pty {
         wake: impl Fn() + Send + 'static,
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let master = Pty::fork_from(
+        let forked = Pty::fork_given(
             told,
             Some(cmd.into()),
             parent,
             shell_locale,
             started_by,
             None,
+            &crate::shell::Integration::Off.into(),
         )?;
-        Some(Pty::reading(master.into_raw_fd(), None, told, None, None, wake))
+        Some(match forked {
+            Ok((_, master, _)) => Pty::reading(master.into_raw_fd(), None, told, None, None, wake),
+            Err(why) => Pty::Refused(Refused { why, told }),
+        })
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
@@ -2050,7 +2557,10 @@ impl Pty {
     #[cfg(target_os = "linux")]
     pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px, shell: &ShellStart) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        let (child, master, token) = Pty::fork(told, None, shell)?;
+        let (child, master, token) = match Pty::fork(told, None, shell)? {
+            Ok(forked) => forked,
+            Err(why) => return Some(Pty::Refused(Refused { why, told })),
+        };
         let master = master.into_raw_fd();
         make_nonblocking(master);
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
@@ -2077,7 +2587,7 @@ impl Pty {
                 None
             }
         };
-        Pty {
+        Pty::Live(Live {
             master,
             child: Some(child),
             told,
@@ -2087,9 +2597,11 @@ impl Pty {
             hung: crate::held::Stream::Open,
             again: None,
             token,
-        }
+        })
     }
+}
 
+impl Live {
     /// The token baud handed the shell, none for one it does not mark.
     #[cfg(target_os = "linux")]
     pub fn shell_token(&self) -> Option<&crate::ran::ShellToken> {
@@ -2314,7 +2826,7 @@ impl Pty {
     /// What the derived title reads of the foreground (`fg.rs`).
     pub fn reads(&self) -> crate::fg::Live {
         crate::fg::Live {
-            master: self.master,
+            master: Some(self.master),
         }
     }
 
@@ -3352,7 +3864,7 @@ mod tests {
     }
 
     /// The 80x24 terminal of 8x16-pixel cells the spawn-race tests run on.
-    fn grid_80x24() -> crate::sys::Winsize {
+    pub(super) fn grid_80x24() -> crate::sys::Winsize {
         let size = WinSize {
             ws_col: 80,
             ws_row: 24,
@@ -3655,7 +4167,7 @@ mod tests {
     /// the control beside [`fork_terminal`], libc's own terminal and
     /// `login_tty`. Under [`LIBC_WINDOW`], its master set close-on-exec
     /// before the lock is let go.
-    fn libc_forkpty(ws: crate::sys::Winsize) -> Option<Fork> {
+    fn libc_forkpty(ws: crate::sys::Winsize) -> Result<Fork, NoTerminal> {
         let held = libc_window();
         let opening = budget::opening();
         // Darwin's `forkpty` takes the size by mutable pointer and
@@ -3684,7 +4196,7 @@ mod tests {
             // `execve` and `_exit` after this.
             core::mem::forget(held);
             core::mem::forget(opening);
-            return Some(Fork::Child);
+            return Ok(Fork::Child);
         } else if pid > 0 {
             // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
             unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) };
@@ -3692,10 +4204,10 @@ mod tests {
             budget::opened();
             drop(held);
         } else {
-            return None;
+            return Err(NoTerminal::Failed(crate::sys::Errno::last()));
         }
         // SAFETY: the manager `forkpty` opened, owned here alone.
-        Some(Fork::Parent(pid, unsafe {
+        Ok(Fork::Parent(pid, unsafe {
             <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master)
         }))
     }
@@ -3708,7 +4220,7 @@ mod tests {
 
     /// A spawn's fork, [`fork_terminal`] or [`libc_forkpty`], as each process
     /// has it ([`Fork`]).
-    type Forker = fn(crate::sys::Winsize) -> Option<Fork>;
+    type Forker = fn(crate::sys::Winsize) -> Result<Fork, NoTerminal>;
 
     /// A child of `fork`, [`fork_terminal`] or [`libc_forkpty`], that runs
     /// `/bin/sh -c cmd` and nothing before it.
@@ -3839,9 +4351,12 @@ mod tests {
                         start.wait();
                         let mut failed = Vec::new();
                         for _ in 0..ROUNDS {
-                            let Some(forked) = fork_terminal(ws) else {
-                                failed.push(std::io::Error::last_os_error().to_string());
-                                continue;
+                            let forked = match fork_terminal(ws) {
+                                Ok(forked) => forked,
+                                Err(why) => {
+                                    failed.push(why.to_string());
+                                    continue;
+                                }
                             };
                             let Fork::Parent(pid, master) = forked else {
                                 // SAFETY: the child calls only `_exit`.
@@ -4662,7 +5177,7 @@ mod tests {
         });
         let bound = std::time::Duration::from_secs(60);
         let master = master.into_raw_fd();
-        let pty = Pty {
+        let pty = Live {
             master,
             child: None,
             told,
@@ -4791,6 +5306,7 @@ mod tests {
             None,
             &crate::shell::Integration::Off.into(),
         )
+        .and_then(Result::ok)
         .expect("forkpty");
         for line in String::from_utf8_lossy(&read_all(master.as_raw_fd())).lines() {
             println!("CHILD[{}]", line.trim_end_matches('\r'));
@@ -5011,6 +5527,7 @@ mod tests {
             Some(&dir),
             &crate::shell::Integration::Off.into(),
         )
+        .and_then(Result::ok)
         .expect("forkpty");
         let typed = b"exit\n";
         // SAFETY: `typed` is a live buffer of the length passed.
@@ -5060,6 +5577,7 @@ mod tests {
             Some(&dir),
             &start,
         )
+        .and_then(Result::ok)
         .expect("forkpty");
         let said = String::from_utf8_lossy(&read_all(master.as_raw_fd())).to_string();
         let mut status: core::ffi::c_int = 0;
@@ -5867,6 +6385,7 @@ mod tests {
                 None,
                 &start,
             )
+            .and_then(Result::ok)
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master.as_raw_fd()))
                 .trim()
@@ -5935,10 +6454,11 @@ mod tests {
             let pty = Pty::reading(master, Some(pid), told, program, None, move || {
                 let _ = woke.send(());
             });
-            let watch = crate::fg::Watch::start(pty.reaps(), pty.watched(), move || {
-                let _ = woke_too.send(());
-            })
-            .expect("a kqueue");
+            let watch = pty
+                .watch(move || {
+                    let _ = woke_too.send(());
+                })
+                .expect("a kqueue");
             Window {
                 pty,
                 _watch: watch,
@@ -6018,6 +6538,7 @@ mod tests {
         let parent = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let (pid, master, _) =
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
+                .and_then(Result::ok)
                 .expect("forkpty");
         let program = (kind == Runs::Link).then(|| run.program().to_os_string());
         (pid, master.into_raw_fd(), told, program)
@@ -6336,7 +6857,7 @@ mod tests {
     #[test]
     fn a_window_closed_first_still_reaps_its_child() {
         let w = Window::of("read x", Runs::Shell);
-        let slot = w.pty.ending.slot.clone();
+        let slot = w.pty.live().ending.slot.clone();
         let pid = w.pid;
         assert!(w.alive(), "the control: the shell runs");
         let (tx, rx) = channel();
@@ -6530,7 +7051,9 @@ mod tests {
             };
             let asks = sampler.read(std::time::Instant::now(), &bytes);
             let writers = match asks {
-                Asks::Yes(_) => sampler.writers(crate::fg::group(master), Watched::Nothing),
+                Asks::Yes(_) => {
+                    sampler.writers(master.and_then(crate::fg::group), Watched::Nothing)
+                }
                 Asks::No => sampler.unasked(),
             };
             all.extend_from_slice(&bytes);
@@ -6623,6 +7146,7 @@ mod tests {
         };
         let (pid, master, token) =
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
+                .and_then(Result::ok)
                 .expect("forkpty");
         let master = master.into_raw_fd();
         let w = Polled::over(master, pid, told, None);
@@ -6797,7 +7321,7 @@ mod tests {
         use std::os::fd::AsFd;
         let mut w = Polled::of("exit 0", Runs::Shell);
         w.until(|w, _| w.pty.stream() == crate::held::Stream::Closed);
-        let master = w.pty.as_fd().as_raw_fd();
+        let master = w.pty.as_fd().expect("a master").as_raw_fd();
         let mut hup = [crate::sys::PollFd {
             fd: master,
             events: 0,
@@ -6840,7 +7364,7 @@ mod tests {
         let (dir, f) = fifo("linux-no-pidfd");
         let script = format!("exec 0<&- 1>&- 2>&-; read x < '{}'; exit 3", f.display());
         let mut w = Polled::of(&script, Runs::Link);
-        w.pty.pidfd = None;
+        w.pty.live_mut().pidfd = None;
         let before = std::time::Instant::now();
         let waiting = w.until(|w, _| w.pty.stream() == crate::held::Stream::Closed);
         assert_eq!(waiting, Decided::Wait);
@@ -6852,7 +7376,7 @@ mod tests {
         // Given up on while it runs, which its slot says, and not that
         // something else reaped it.
         assert_eq!(
-            w.pty.ending.slot.get().map(|r| r.ending),
+            w.pty.live().ending.slot.get().map(|r| r.ending),
             Some(crate::held::Ending::Abandoned)
         );
         assert!(alive(w.pid), "the child given up on still runs");
@@ -6905,6 +7429,7 @@ mod tests {
                 None,
                 &start,
             )
+            .and_then(Result::ok)
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace("\r\n", "\n")
         };
@@ -7198,7 +7723,7 @@ mod tests {
         unsafe {
             crate::sys::pthread_sigmask(crate::sys::SIG_SETMASK, &was, core::ptr::null_mut())
         };
-        let (pid, master, _) = forked.expect("forkpty");
+        let (pid, master, _) = forked.and_then(Result::ok).expect("forkpty");
         let out = String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace("\r\n", "\n");
         drop(master);
         // SAFETY: this test's own child, waited for once.
@@ -7347,7 +7872,7 @@ mod tests {
         assert_eq!(crate::fg::name(g).as_deref(), Some("sh"));
         assert_eq!(crate::fg::dir(g).as_deref(), Some(dir.as_path()));
         let reads = crate::fg::Live {
-            master: master.as_raw_fd(),
+            master: Some(master.as_raw_fd()),
         };
         let (mut heard, mut deaf) = (crate::title::Derive::new(), crate::title::Derive::new());
         heard.check(&reads);
@@ -7671,5 +8196,293 @@ mod tests {
         );
 
         drop(master);
+    }
+}
+#[cfg(test)]
+mod refused_tests {
+    use super::tests::grid_80x24;
+    use super::*;
+    use crate::sys::{EMFILE, ENOSPC, ENXIO, Errno};
+
+    /// macOS's `EAGAIN`, a subsidiary's open before it is unlocked.
+    #[cfg(target_os = "macos")]
+    const EAGAIN: core::ffi::c_int = 35;
+
+    const AT_511: (Option<PtyCount>, Option<PtyCount>) = (Some(PtyCount(511)), Some(PtyCount(511)));
+
+    /// Refuses this thread's opens until dropped.
+    struct Refusing;
+
+    impl Refusing {
+        fn with(e: core::ffi::c_int) -> Refusing {
+            set_refusing(Some(Errno(e)), Some(AT_511));
+            Refusing
+        }
+    }
+
+    impl Drop for Refusing {
+        fn drop(&mut self) {
+            set_refusing(None, None);
+        }
+    }
+
+    /// **The limit is the errno the kernel answers at it, and nothing
+    /// else**: macOS's `ENXIO` from `ptcopen`, Linux's `ENOSPC` from
+    /// `devpts_new_index`. macOS's `EAGAIN` is a subsidiary not yet
+    /// unlocked, and `EMFILE` this process's descriptors: each its own
+    /// failure, no count read for it.
+    #[test]
+    fn the_limit_is_the_kernels_answer_at_it_alone() {
+        let counted = |e| NoTerminal::of(Errno(e), || AT_511);
+        let limit = NoTerminal::Limit {
+            open: Some(PtyCount(511)),
+            most: Some(PtyCount(511)),
+        };
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(counted(ENXIO), limit);
+            assert_eq!(counted(ENOSPC), NoTerminal::Failed(Errno(ENOSPC)));
+            assert_eq!(counted(EAGAIN), NoTerminal::Failed(Errno(EAGAIN)));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(counted(ENOSPC), limit);
+            assert_eq!(counted(ENXIO), NoTerminal::Failed(Errno(ENXIO)));
+        }
+        assert_eq!(counted(EMFILE), NoTerminal::Failed(Errno(EMFILE)));
+    }
+
+    /// **A refused open is tried once, and says why.** `redriven` asks
+    /// again only for a lost race; the limit answers the same in
+    /// microseconds, and is the window's to say.
+    #[test]
+    fn a_refused_open_is_tried_once_and_says_why() {
+        let _refusing = Refusing::with(AT_THE_LIMIT.0);
+        let refused = open_terminal(grid_80x24()).map(|_| ());
+        assert_eq!(refused_opens(), Tries(1), "one open, no retry");
+        assert_eq!(
+            refused,
+            Err(NoTerminal::Limit {
+                open: Some(PtyCount(511)),
+                most: Some(PtyCount(511)),
+            })
+        );
+        drop(_refusing);
+        let _other = Refusing::with(EMFILE);
+        assert_eq!(
+            open_terminal(grid_80x24()).map(|_| ()),
+            Err(NoTerminal::Failed(Errno(EMFILE)))
+        );
+        assert_eq!(refused_opens(), Tries(1));
+    }
+
+    /// A refused window's terminal, at 80 by 24.
+    fn refused() -> Pty {
+        Pty::Refused(Refused {
+            why: NoTerminal::Limit {
+                open: Some(PtyCount(511)),
+                most: Some(PtyCount(511)),
+            },
+            told: grid_80x24(),
+        })
+    }
+
+    /// **A refused terminal has no child, so nothing is signalled,
+    /// watched, reaped or polled, and its window stays.** Every answer a
+    /// driver asks of the window's terminal, as the refused state gives it:
+    /// no process, no descriptor to poll, the stream open and the window
+    /// waiting, the bytes typed let go.
+    #[test]
+    fn a_refused_terminal_has_no_child_and_its_window_stays() {
+        let mut pty = refused();
+        assert_eq!(pty.child(), None, "no child to signal");
+        assert_eq!(pty.reads().master, None, "no foreground to read");
+        assert_eq!(pty.tty(), None);
+        assert!(matches!(
+            pty.decide(crate::held::Stream::Open),
+            crate::held::Decided::Wait
+        ));
+        let mut out = Outbox::default();
+        out.push(b"typed");
+        assert_eq!(pty.write(&mut out), Wrote::All, "the bytes are let go");
+        assert!(out.is_empty());
+        pty.follow(InputEncoding::Latin1);
+        pty.resize(
+            &WinSize {
+                ws_col: 100,
+                ws_row: 30,
+            },
+            Px::of(8),
+            Px::of(16),
+        );
+        #[cfg(target_os = "macos")]
+        {
+            assert!(pty.reaps().is_none(), "no child to reap");
+            assert!(pty.watch(|| {}).is_none(), "no process watch");
+            let drained = pty.drain();
+            assert!(drained.chunks.is_empty());
+            assert_eq!(drained.stream, Stream::Open, "the window stays");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(pty.polled_master().is_none(), "nothing polled");
+            assert!(pty.child_fd().is_none(), "no child's descriptor polled");
+            assert!(pty.as_fd().is_none());
+            pty.hung_up();
+            pty.reap();
+            pty.give_up();
+            assert_eq!(pty.stream(), crate::held::Stream::Open, "the window stays");
+            assert_eq!(pty.reap_owed(), None);
+            assert!(matches!(pty.read_chunk(), Chunk::Bytes(b) if b.is_empty()));
+        }
+        assert!(pty.refused().is_some());
+    }
+
+    /// **What the refused window says, line for line, each within 80
+    /// columns**, for each count that could be read.
+    #[test]
+    fn the_refused_window_says_the_limit_and_what_to_do() {
+        let say = |open, most| NoTerminal::Limit { open, most }.to_string();
+        let (o, m) = (Some(PtyCount(509)), Some(PtyCount(511)));
+        #[cfg(target_os = "macos")]
+        {
+            let after = "\nClose terminal windows or tabs you no longer need, then open a new window.\
+                \nOr raise the limit, up to 999: sudo sysctl kern.tty.ptmx_max=999\
+                \nTo keep it after a restart, add kern.tty.ptmx_max=999 to /etc/sysctl.conf.";
+            let first = "baud could not open a terminal:";
+            assert_eq!(
+                say(o, m),
+                format!("{first} macOS allows 511 at once, and 509 are open.{after}")
+            );
+            assert_eq!(
+                say(None, m),
+                format!("{first} macOS allows 511 at once, and all are in use.{after}")
+            );
+            assert_eq!(
+                say(o, None),
+                format!("{first} macOS's limit is reached, with 509 open.{after}")
+            );
+            assert_eq!(
+                say(None, None),
+                format!("{first} macOS's limit on terminals is reached.{after}")
+            );
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let after = "\nClose terminal windows or tabs you no longer need, then open a new window.\
+                \nOr raise the limit: sudo sysctl kernel.pty.max=<a larger number>";
+            let first =
+                "baud could not open a terminal: the system's limit on terminals is reached.";
+            assert_eq!(
+                say(o, m),
+                format!("{first}\nkernel.pty.max is 511, and 509 are open.{after}")
+            );
+            assert_eq!(
+                say(None, m),
+                format!("{first}\nkernel.pty.max is 511.{after}")
+            );
+            assert_eq!(say(o, None), format!("{first}\n509 are open.{after}"));
+            assert_eq!(say(None, None), format!("{first}{after}"));
+        }
+        let failed = NoTerminal::Failed(Errno(EMFILE)).to_string();
+        assert!(
+            failed.starts_with("baud could not open a terminal: "),
+            "{failed}"
+        );
+        assert!(
+            failed.contains(&std::io::Error::from_raw_os_error(EMFILE).to_string()),
+            "{failed}"
+        );
+        // The most each system's count can be: macOS's `PTMX_MAX_HARD`, and
+        // Linux's `NR_UNIX98_PTY_MAX`, 1 << 20.
+        #[cfg(target_os = "macos")]
+        let big = Some(PtyCount(999));
+        #[cfg(target_os = "linux")]
+        let big = Some(PtyCount(1 << 20));
+        for open in [None, o, big] {
+            for most in [None, m, big] {
+                for line in say(open, most).lines() {
+                    assert!(
+                        line.chars().count() <= 80,
+                        "{line:?} is {} columns",
+                        line.chars().count()
+                    );
+                }
+            }
+        }
+    }
+
+    /// **The advice names the setting the counts read**: each `name=value`
+    /// the refused window tells the user to set is the sysctl
+    /// [`pty_counts`] reads, [`PTMX_MAX`] through `sysctlbyname` on macOS,
+    /// on both its lines, and `max` under [`PTY_SYSCTLS`] on Linux, whose
+    /// count line names it too.
+    #[test]
+    fn the_advice_names_the_setting_the_counts_read() {
+        let said = NoTerminal::Limit {
+            open: Some(PtyCount(509)),
+            most: Some(PtyCount(511)),
+        }
+        .to_string();
+        let set: Vec<&str> = said
+            .split_whitespace()
+            .filter_map(|word| word.split_once('=').map(|(name, _)| name))
+            .collect();
+        #[cfg(target_os = "macos")]
+        let (read, lines) = (PTMX_MAX.to_str().expect("an ASCII name"), 2);
+        #[cfg(target_os = "linux")]
+        let read = PTY_SYSCTLS
+            .strip_prefix("/proc/sys/")
+            .expect("under /proc/sys")
+            .replace('/', ".")
+            + ".max";
+        #[cfg(target_os = "linux")]
+        let (read, lines) = (read.as_str(), 1);
+        assert_eq!(set, vec![read; lines], "{said}");
+        #[cfg(target_os = "linux")]
+        assert!(
+            said.lines()
+                .any(|l| l.starts_with(&format!("{read} is 511"))),
+            "{said}"
+        );
+    }
+
+    /// **The refused window's terminal holds its words from the left edge,
+    /// a line each**; a live one is left as it is.
+    #[test]
+    fn a_refused_window_writes_its_words_into_its_terminal() {
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut term = baud_core::Term::new(owned.storage(), &ws);
+        let pty = refused();
+        say_refused(&mut term, &pty);
+        let rows: Vec<String> = (0..5)
+            .map(|y| {
+                term.view(baud_domain::Rows::ZERO)
+                    .row(baud_domain::Row::from_index(y))
+                    .iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|p| char::from_u32(p.value()))
+                            .unwrap_or(' ')
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        let said: Vec<String> = pty
+            .refused()
+            .expect("refused")
+            .to_string()
+            .lines()
+            .map(str::to_string)
+            .chain([String::new()])
+            .collect();
+        assert_eq!(rows, said);
     }
 }

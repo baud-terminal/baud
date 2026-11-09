@@ -249,6 +249,7 @@ impl Session {
             at,
             start,
         )
+        .and_then(Result::ok)
         .expect("forkpty");
         make_nonblocking(master.as_raw_fd());
         let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(ws)));

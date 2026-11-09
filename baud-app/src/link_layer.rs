@@ -88,9 +88,9 @@ pub(crate) fn tick<T: Moment>(
     probes: &mut Probes<T>,
     layer: &mut Layer<'_, '_>,
     now: T,
-    master: crate::sys::Fd,
+    master: Option<crate::sys::Fd>,
 ) -> Turn {
-    probes.tick(now, layer.seen(), || crate::fg::group(master))
+    probes.tick(now, layer.seen(), || master.and_then(crate::fg::group))
 }
 
 /// **The worker's answers, merged** on its wake (`Probes::answers`).

@@ -120,6 +120,9 @@ impl Session {
             },
         )
         .expect("forkpty");
+        // As each driver does when it opens the window (`say_refused`).
+        let mut term = term;
+        crate::pty::say_refused(&mut term, &pty);
         Session {
             renderer,
             term,
@@ -1473,3 +1476,60 @@ fn the_launch_path_names_no_appkit() {
 /// **The reaches allowed**: the module, the code on the line, and why it
 /// opens nothing.
 pub(crate) const ALLOWED: [(&[&str], &str, &str); 1] = [crate::no_appkit::LINK_WORKER];
+
+/// Refuses this thread's pty opens with `ENXIO`, macOS's answer at its
+/// limit, over counts of 511 in use of 511, until dropped.
+struct Refusing;
+
+impl Refusing {
+    fn at_the_limit() -> Refusing {
+        use crate::pty::PtyCount;
+        crate::pty::set_refusing(
+            Some(crate::sys::Errno(crate::sys::ENXIO)),
+            Some((Some(PtyCount(511)), Some(PtyCount(511)))),
+        );
+        Refusing
+    }
+}
+
+impl Drop for Refusing {
+    fn drop(&mut self) {
+        crate::pty::set_refusing(None, None);
+    }
+}
+
+/// **A window the system gives no terminal opens over why, and stays.**
+/// At macOS's limit on ptys the open fails with `ENXIO`; the window opens
+/// all the same, its terminal says the limit, the count, and how to close
+/// terminals or raise `kern.tty.ptmx_max`, and it is still open after many
+/// pumps: nothing ends it but the user. The open is tried once: a refusal
+/// is not raced, and retrying it would fail again in microseconds.
+#[test]
+fn a_window_refused_its_terminal_opens_over_why_and_stays() {
+    let ws = WinSize {
+        ws_col: 80,
+        ws_row: 24,
+    };
+    let refusing = Refusing::at_the_limit();
+    let mut s = Session::start(&ws, "exit 0", launchd_environment(), Parent::Launchd);
+    let tried = crate::pty::refused_opens();
+    drop(refusing);
+    assert_eq!(tried, crate::pty::Tries(1), "one open, no retry");
+    for _ in 0..64 {
+        s.pump();
+    }
+    assert_eq!(s.closed, Stream::Open, "the window stays");
+    assert_eq!(
+        s.screen_text()[..5],
+        [
+            "baud could not open a terminal: macOS allows 511 at once, and 511 are open.",
+            "Close terminal windows or tabs you no longer need, then open a new window.",
+            "Or raise the limit, up to 999: sudo sysctl kern.tty.ptmx_max=999",
+            "To keep it after a restart, add kern.tty.ptmx_max=999 to /etc/sysctl.conf.",
+            "",
+        ]
+    );
+    assert_eq!(s.pty.child(), None, "no child to signal");
+    assert!(s.pty.reaps().is_none(), "no child to reap");
+    assert!(s.pty.watch(|| {}).is_none(), "no process watch");
+}

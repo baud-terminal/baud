@@ -344,7 +344,12 @@ impl Tap {
         if self.watch.as_ref().map(crate::fg::Watch::take) == Some(crate::fg::Moved::Moved) {
             crate::link_layer::moved(&mut self.probes, layer.paths);
         }
-        let _ = crate::link_layer::tick(&mut self.probes, &mut layer, Instant::now(), self.master);
+        let _ = crate::link_layer::tick(
+            &mut self.probes,
+            &mut layer,
+            Instant::now(),
+            Some(self.master),
+        );
         let _ = crate::link_layer::frame(&mut layer);
         self.frame = FrameNo(self.frame.0 + 1);
         if answered.frame == crate::paths::Owed::Yes {

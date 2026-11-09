@@ -250,12 +250,12 @@ fn stat_started(stat: &[u8]) -> Option<StartTime> {
 
 /// The live reads, for [`crate::title::Derive::check`].
 pub struct Live {
-    pub master: Fd,
+    pub master: Option<Fd>,
 }
 
 impl crate::title::Reads for Live {
     fn group(&self) -> Option<Pid> {
-        group(self.master)
+        self.master.and_then(group)
     }
 
     fn name(&self, pid: Pid) -> Option<String> {

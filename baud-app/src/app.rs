@@ -1524,6 +1524,8 @@ impl App {
             _ => None,
         };
         term.set_notice_support(notice_support(center.as_deref(), notifications));
+        // A window the system gave no terminal says why (`pty::Refused`).
+        crate::pty::say_refused(&mut term, &pty);
         let notes = crate::notify::Delivery::new(notifications, &term, images);
         let fireworks = crate::fireworks::Fireworks::new();
         let last_prompts = term.prompts_opened();
@@ -8454,7 +8456,7 @@ mod drag_tests {
             "crate::held::Holding::Yes(line);"
         )));
         assert!(rest.contains(concat!("crate::held::", "written()")));
-        assert!(SRC.contains(concat!("crate::fg::Watch::start(", "pty.reaps(),")));
+        assert!(SRC.contains(concat!("let watch = ", "pty.watch(move || {")));
         for want in [
             concat!("crate::held::", "on_view("),
             concat!("crate::held::", "with_line("),
@@ -13824,7 +13826,7 @@ impl Shell {
         // waking the main thread as the pty's reader does.
         let wake_watch = Arc::clone(&late);
         // And the window's child, which it reaps (`held.rs`).
-        let watch = crate::fg::Watch::start(pty.reaps(), pty.watched(), move || {
+        let watch = pty.watch(move || {
             if let Some(w) = wake_watch.get() {
                 w.wake();
             }
@@ -14807,7 +14809,7 @@ impl Driver {
         };
         if let Some(done) = app
             .probes
-            .click(host_now(), seen, crate::fg::group(master), c)
+            .click(host_now(), seen, master.and_then(crate::fg::group), c)
         {
             self.path_checked(done);
         }
@@ -22202,7 +22204,7 @@ mod mark_tests {
         assert!(
             layer_tick.contains(concat!(
                 "probes.tick(",
-                "now, layer.seen(), || crate::fg::group(master))"
+                "now, layer.seen(), || master.and_then(crate::fg::group))"
             )),
             "{layer_tick}"
         );

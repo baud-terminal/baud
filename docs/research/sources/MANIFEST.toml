@@ -35456,6 +35456,41 @@ group  = "E"
 # Why a redriven open asks for a fresh terminal. `devfs_dntovn` calls the clone
 # function for a new minor on every vnode it makes (1275), and "A cloned vnode
 # is not hooked into the devnode; every lookup gets a new vnode" (1324-1325).
+[sources.linux-devpts-inode-c]
+key    = "linux-devpts-inode-c"
+title  = "Linux cf72cbb, fs/devpts/inode.c -- devpts_new_index: ENOSPC once kernel/pty/nr reaches kernel/pty/max less the reserve"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/fs/devpts/inode.c"
+file   = ""
+sha256 = "e1492ab16d289b4ecface213e014091c8c2a1a32ee32f5770be3927e6af9f1ec"
+bytes  = 14229
+status = "external"
+group  = "E"
+# Read: 43-70, `kernel/pty`'s `max`, `reserve` and `nr` (`pty_limit`,
+# `pty_reserve`, `pty_count`); 466-480, `devpts_new_index`, which answers
+# `-ENOSPC` once `pty_count` reaches `pty_limit`, less `pty_reserve` unless
+# the mount was given `reserve`. `ptmx_open` returns that index as its error
+# (linux-pty, 792-795).
+
+[sources.macos-man-sysctl-conf-5]
+key    = "macos-man-sysctl-conf-5"
+title  = "sysctl.conf(5) -- 'The /etc/sysctl.conf file is read in when the system goes into multi-user mode to set default settings for the kernel'"
+author = "Apple Inc. (from FreeBSD 4.0)"
+year   = 2007
+venue  = "macOS 27.3 manual page, dated August 3, 2007"
+url    = "/usr/share/man/man5/sysctl.conf.5"
+file   = ""
+sha256 = "c7bd0d8f41fe339db180389d4018264b8bc18ce7d6558fe9542018895719b322"
+bytes  = 2507
+status = "external"
+group  = "O"
+# The roff source as macOS 27.3 installs it. Read: DESCRIPTION, the file's
+# format (`sysctl_mib=value`) and when it is read; BUGS, that it may be read
+# too early for a sysctl a loadable module adds, which `kern.tty.ptmx_max`,
+# compiled into the kernel (xnu-tty-ptmx-c, 188-190), is not.
+
 [sources.xnu-devfs-tree-c]
 key    = "xnu-devfs-tree-c"
 title  = "XNU xnu-12377.121.6, bsd/miscfs/devfs/devfs_tree.c -- devfs_dntovn, a new minor per lookup of a cloning device"

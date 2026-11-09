@@ -497,6 +497,27 @@ impl Errno {
     pub fn last() -> Errno {
         Errno(std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
     }
+
+    /// Sets the calling thread's `errno` to this, as a call that failed
+    /// with it would: a test's stand-in for a failing call.
+    #[cfg(test)]
+    pub fn set(self) {
+        // SAFETY: the thread's own `errno`, which the call names for it
+        // alone, written as an int.
+        unsafe { *errno_location() = self.0 };
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+unsafe extern "C" {
+    #[link_name = "__error"]
+    fn errno_location() -> *mut c_int;
+}
+
+#[cfg(all(test, target_os = "linux"))]
+unsafe extern "C" {
+    #[link_name = "__errno_location"]
+    fn errno_location() -> *mut c_int;
 }
 
 impl core::fmt::Display for Errno {
@@ -509,6 +530,27 @@ impl core::fmt::Display for Errno {
 /// child of the caller's to wait for -- one something else reaped. The
 /// same value on both platforms; the probe holds it.
 pub const ECHILD: c_int = 10;
+
+/// "Device not configured": what macOS's `posix_openpt` answers once
+/// the ptys in use reach `kern.tty.ptmx_max` -- `ptmx_get_ioctl` returns
+/// none (`[[source: xnu-tty-ptmx-c]]` 287-290, 314-319) and `ptcopen`
+/// turns that into `ENXIO` (`[[source: xnu-tty-dev]]` 493-494). The same
+/// value on both platforms.
+#[cfg(any(target_os = "macos", test))]
+pub const ENXIO: c_int = 6;
+
+/// "No space left on device": what Linux's `posix_openpt` answers once
+/// `kernel/pty/nr` reaches `kernel/pty/max` less the reserve --
+/// `devpts_new_index` (`[[source: linux-devpts-inode-c]]` 466-472), which
+/// `ptmx_open` returns as its error (`[[source: linux-pty]]` 792-795). The
+/// same value on both platforms.
+#[cfg(any(target_os = "linux", test))]
+pub const ENOSPC: c_int = 28;
+
+/// "Too many open files": this process's descriptor limit, which no
+/// count of ptys explains. The same value on both platforms.
+#[cfg(test)]
+pub const EMFILE: c_int = 24;
 
 /// "Invalid argument": what `waitpid` answers for an options value it
 /// does not take, the one other failure POSIX gives it for a pid above 0
@@ -1603,6 +1645,13 @@ unsafe extern "C" {
         newp: *mut c_void,
         newlen: MapLen,
     ) -> c_int;
+    pub fn sysctlbyname(
+        name: *const c_char,
+        oldp: *mut c_void,
+        oldlenp: *mut MapLen,
+        newp: *mut c_void,
+        newlen: MapLen,
+    ) -> c_int;
     pub fn kqueue() -> Fd;
     pub fn kevent(
         kq: Fd,
@@ -2018,6 +2067,9 @@ int main(void) {
     printf("SIGKILL=%lld\n", (long long)SIGKILL);
     printf("ESRCH=%lld\n", (long long)ESRCH);
     printf("ECHILD=%lld\n", (long long)ECHILD);
+    printf("ENXIO=%lld\n", (long long)ENXIO);
+    printf("ENOSPC=%lld\n", (long long)ENOSPC);
+    printf("EMFILE=%lld\n", (long long)EMFILE);
     printf("EINVAL=%lld\n", (long long)EINVAL);
     printf("EINTR=%lld\n", (long long)EINTR);
     printf("P_PID=%lld\n", (long long)P_PID);
@@ -2445,6 +2497,9 @@ int main(void) {
         assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
         assert_eq!(h["ESRCH"], i128::from(ESRCH));
         assert_eq!(h["ECHILD"], i128::from(ECHILD));
+        assert_eq!(h["ENXIO"], i128::from(ENXIO));
+        assert_eq!(h["ENOSPC"], i128::from(ENOSPC));
+        assert_eq!(h["EMFILE"], i128::from(EMFILE));
         assert_eq!(h["EINVAL"], i128::from(EINVAL));
         assert_eq!(h["EINTR"], i128::from(EINTR));
         assert_eq!(h["P_PID"], i128::from(P_PID));

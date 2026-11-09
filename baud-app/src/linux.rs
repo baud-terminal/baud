@@ -612,6 +612,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         },
     )
     .expect("pty");
+    // A window the system gave no terminal says why (`pty::Refused`).
+    let mut term = term;
+    crate::pty::say_refused(&mut term, &pty);
     startup_mark("pty");
     // The scan of the shell's marks, against the token baud handed it.
     let groups = crate::probe::Sampler::for_shell(pty.shell_token());
@@ -1005,8 +1008,10 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                     // (`probe::Writers`).
                     let (writers, linked) = match d.groups.read(Instant::now(), &bytes) {
                         crate::probe::Asks::Yes(l) => (
-                            d.groups
-                                .writers(crate::fg::group(master), crate::probe::Watched::Nothing),
+                            d.groups.writers(
+                                master.and_then(crate::fg::group),
+                                crate::probe::Watched::Nothing,
+                            ),
                             l,
                         ),
                         crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
@@ -2009,7 +2014,7 @@ impl Driver {
         };
         let turn = self
             .probes
-            .turn(Instant::now(), seen, || crate::fg::group(master));
+            .turn(Instant::now(), seen, || master.and_then(crate::fg::group));
         self.report.links.checks = self.probes.counts;
         if turn.frame == crate::paths::Owed::Yes {
             self.pending = Pending::Dirty;
@@ -2045,9 +2050,9 @@ impl Driver {
             urls: self.link_config.urls_read(),
             paths: &mut self.seat.paths,
         };
-        if let Some(done) = self
-            .probes
-            .click(Instant::now(), seen, crate::fg::group(master), c)
+        if let Some(done) =
+            self.probes
+                .click(Instant::now(), seen, master.and_then(crate::fg::group), c)
         {
             self.path_checked(done);
         }
@@ -3200,7 +3205,7 @@ impl Driver {
     fn in_front(&mut self, now: baud_domain::HostTime) -> crate::own_line::InFront {
         let (master, shell) = (self.pty.reads().master, self.pty.child());
         self.front.at(now, || {
-            crate::own_line::in_front(crate::fg::group(master), shell)
+            crate::own_line::in_front(master.and_then(crate::fg::group), shell)
         })
     }
 
