@@ -7375,12 +7375,16 @@ year   = 2026
 venue  = "developer.apple.com documentation (JSON endpoint)"
 url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/displaylink(target:selector:).json"
 file   = ""
-sha256 = "137eb3056e289ccd0c0fe695d7c4e9dba5bbe085a0fe9724ab87471bd5bd4f3c"
-bytes  = 9957
+sha256 = "e3d2d76edb407064d072cadc96b8bb8a9352927a0f77d667415ea6f48dc9a4fb"
+bytes  = 9949
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-11-09: a fetch no longer gives the first pin's bytes (137eb305,
+# 9,957 bytes), and whether the page changed or only what is served to this client
+# is not known. The fresh fetch was read for its Discussion: "If the view is
+# hidden, or not on any display, the callback will not be invoked."
 
 [sources.ms-dxgi-flip-model]
 key    = "ms-dxgi-flip-model"
