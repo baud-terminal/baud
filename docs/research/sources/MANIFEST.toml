@@ -39910,3 +39910,102 @@ sha256 = "f4a2d560a2523e4aa7acd2570283e16b4b479239b2b3059f8eb8e09fe52c1854"
 bytes  = 20132
 status = "external"
 group  = "E"
+
+[sources.posix-posix-openpt]
+key    = "posix-posix-openpt"
+title  = "posix_openpt -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: O_CLOEXEC and O_CLOFORK, 'necessary to avoid a data race in multi-threaded applications'"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/posix_openpt.html"
+file   = ""
+sha256 = "992336357bf190c80401e3ca0bc5389e3cadb29ebd626c8119d6a47c9c757182"
+bytes  = 10570
+status = "external"
+group  = "E"
+# Retrieved 2026-11-08. Read: the DESCRIPTION's oflag list (O_RDWR, O_CLOEXEC, O_CLOFORK,
+# O_NOCTTY), the APPLICATION USAGE on the race a non-atomic close-on-exec leaves, and
+# CHANGE HISTORY Issue 8, Austin Group Defects 411 and 1318.
+
+[sources.apple-libc-grantpt-c]
+key    = "apple-libc-grantpt-c"
+title  = "Apple Libc-1752.120.2 (4e34d05), stdlib/grantpt.c -- posix_openpt is open(\"/dev/ptmx\", flags)"
+author = "Apple"
+year   = 2025
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libc/4e34d0559e3a1b081afeb8604d9e204a1f31321d/stdlib/grantpt.c"
+file   = ""
+sha256 = "2dfa27d03494014baced478c7803c3fbbda8e751d96105aa4f04d753c4ec5b9e"
+bytes  = 3245
+status = "external"
+group  = "E"
+# Retrieved 2026-11-08. Read: posix_openpt hands its flags to open unchanged; grantpt is
+# the TIOCPTYGRANT ioctl.
+
+[sources.glibc-2-42-getpt-c]
+key    = "glibc-2-42-getpt-c"
+title  = "glibc 2.42 (d209765), sysdeps/unix/sysv/linux/getpt.c -- posix_openpt is __open(_PATH_DEVPTMX, oflag)"
+author = "The GNU C Library contributors"
+year   = 2025
+venue  = "glibc (GitHub mirror bminor/glibc)"
+url    = "https://raw.githubusercontent.com/bminor/glibc/d2097651cc57834dbfcaa102ddfacae0d86cfb66/sysdeps/unix/sysv/linux/getpt.c"
+file   = ""
+sha256 = "3d3e9dd4b26acf7a0a784bebf90b4485ab04b5e9c579d05110dc4c5a2c3a4420"
+bytes  = 1266
+status = "external"
+group  = "E"
+# Retrieved 2026-11-08. Read: __posix_openpt passes oflag to __open unchanged.
+
+[sources.xnu-vfs-syscalls-c]
+key    = "xnu-vfs-syscalls-c"
+title  = "XNU xnu-12377.121.6, bsd/vfs/vfs_syscalls.c -- open1 sets FP_CLOEXEC from O_CLOEXEC; a session leader's first terminal open without O_NOCTTY takes it as the controlling terminal"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/vfs/vfs_syscalls.c"
+sha256 = "67cfe165523ac4375504241a418d3cebbb46a4a10b77b22c5d590a31ebd0235d"
+bytes  = 390984
+group  = "E"
+# Retrieved 2026-11-08. Read: open1's `if (flags & O_CLOEXEC) fp->fp_flags |= FP_CLOEXEC`,
+# set on the descriptor before it is returned, for any vnode, /dev/ptmx included; and its
+# "The first terminal open (without a O_NOCTTY) by a session leader results in it being set
+# as the controlling terminal", the TIOCSCTTY it issues.
+
+[sources.apple-libc-login-tty-c]
+key    = "apple-libc-login-tty-c"
+title  = "Apple Libc-1752.120.2 (4e34d05), util/login_tty.c -- setsid, TIOCSCTTY, dup2 onto 0, 1 and 2"
+author = "Apple"
+year   = 2025
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libc/4e34d0559e3a1b081afeb8604d9e204a1f31321d/util/login_tty.c"
+file   = ""
+sha256 = "3644a7d7ed1ca08eac7ca46e21fac9821a3c61e57b188434366afe55687b2cdb"
+bytes  = 2234
+status = "external"
+group  = "E"
+# Retrieved 2026-11-08. Read: login_tty, the calls forkpty's child makes.
+
+[sources.glibc-2-42-login-tty-c]
+key    = "glibc-2-42-login-tty-c"
+title  = "glibc 2.42 (d209765), login/login_tty.c -- setsid, TIOCSCTTY, dup2 onto 0, 1 and 2"
+author = "The GNU C Library contributors"
+year   = 2025
+venue  = "glibc (GitHub mirror bminor/glibc)"
+url    = "https://raw.githubusercontent.com/bminor/glibc/d2097651cc57834dbfcaa102ddfacae0d86cfb66/login/login_tty.c"
+file   = ""
+sha256 = "ea3ea7aa7dad5752d17588a0b163cc232ee78d5554f75cfc589e8ccf45c5f239"
+bytes  = 2716
+status = "external"
+group  = "E"
+# Retrieved 2026-11-08. Read: __login_tty, glibc's twin of Apple's.
+
+[sources.xnu-tty-dev-c]
+key    = "xnu-tty-dev-c"
+title  = "XNU xnu-12377.121.6, bsd/kern/tty_dev.c -- ptcopen returns EREDRIVEOPEN when the manager's open is raced"
+author = "Apple"
+venue  = "XNU, apple-oss-distributions, APSL 2.0"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/tty_dev.c"
+sha256 = "a9bd50db11211d42f368654b26212d04d93ae2affceee0d7abc6e4eb7e06fd9e"
+bytes  = 30096
+group  = "E"
+# Retrieved 2026-11-08. Read: ptcopen, the manager's open, and its `return EREDRIVEOPEN`
+# for the `(struct ptmx_ioctl*)-1` ptmx_get_ioctl hands back when raced.

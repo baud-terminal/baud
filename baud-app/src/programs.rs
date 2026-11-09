@@ -470,10 +470,29 @@ impl Drop for Under<'_, '_> {
         // And the child is waited for, so the test ends with no program of
         // its own still running: the hangup ends it. Its pid and no other:
         // a wait for any child would take one another test in this process
-        // started, and that test's wait would fail.
-        let mut status = 0;
-        // SAFETY: a live out-pointer and the pid this harness forked.
-        unsafe { crate::sys::waitpid(self.pid, &mut status, 0) };
+        // started, and that test's wait would fail. **To the deadline**: a
+        // child that did not hear the hangup -- another process holds its
+        // terminal's master -- is killed and the test fails, where an
+        // unbounded wait held the test for as long as the other ran.
+        let pid = self.pid;
+        let (ended, heard) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let mut status = 0;
+            // SAFETY: a live out-pointer and the pid this harness forked.
+            unsafe { crate::sys::waitpid(pid, &mut status, 0) };
+            let _ = ended.send(());
+        });
+        let hung_up = heard.recv_timeout(DEADLINE).is_ok();
+        if !hung_up {
+            // SAFETY: the pid this harness forked, not yet reaped: the
+            // waiter above has not returned.
+            unsafe { crate::sys::kill(pid, crate::sys::SIGKILL) };
+        }
+        let _ = waiter.join();
+        assert!(
+            hung_up || std::thread::panicking(),
+            "the child did not end on its terminal's hangup by the deadline"
+        );
     }
 }
 
@@ -527,6 +546,54 @@ fn the_screen_text_holds_a_cluster_whole() {
 }
 
 const NONE: Modifiers = Modifiers::NONE;
+
+/// A child spawned beside a harness, its master closed and the child
+/// killed and reaped on drop, the test passing or not.
+struct Beside(core::ffi::c_int, crate::sys::Fd);
+
+impl Drop for Beside {
+    fn drop(&mut self) {
+        // SAFETY: the master and the child this test spawned, each closed,
+        // killed and reaped once, here.
+        unsafe {
+            drop(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(self.1));
+            crate::sys::kill(self.0, crate::sys::SIGKILL);
+            crate::sys::waitpid(self.0, std::ptr::null_mut(), 0);
+        }
+    }
+}
+
+/// **A harness's drop ends beside a terminal opened in its spawn's
+/// window**: the vim tests' deadlock, at the harness. While A's terminal
+/// is open (`pty::set_opened`), B spawns `cat`; A's drop closes A's
+/// master and A's `cat` ends on the hangup, B's still running. When B's
+/// child held A's master, the drop waited on A for as long as B ran, and
+/// with no deadline: two tests hung 18 minutes and two vim tests 29. The
+/// drop now fails the test at the deadline.
+#[test]
+fn a_harness_drop_ends_beside_a_terminal_opened_in_its_spawn() {
+    let dir = Scratch::new("ub");
+    let env = dir.env(&[]);
+    let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, crate::sys::Fd)>>> =
+        std::rc::Rc::default();
+    let into = std::rc::Rc::clone(&b);
+    let b_env = crate::pty::child_env(env.clone(), None);
+    crate::pty::set_opened(Some(Box::new(move |_, _| {
+        let ws = crate::pty::text_area(&WS, Px::of(10), Px::of(10));
+        into.set(crate::pty::Pty::fork_child(
+            ws,
+            Some("exec cat".into()),
+            b_env.clone(),
+        ));
+    })));
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let u = Under::start(&mut t, "exec cat", env);
+    crate::pty::set_opened(None);
+    let (b_pid, b_master) = b.take().expect("B, spawned in A's window");
+    let _b = Beside(b_pid, b_master);
+    drop(u);
+}
 
 /// **The harness waits for its own child and for no other**: libtest runs
 /// the tests as threads of one process, so a harness that waited for any

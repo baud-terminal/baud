@@ -1,8 +1,11 @@
 //! The pty: a login shell on the slave, the master read on a thread on
 //! macOS and polled beside the compositor's socket on Linux.
 //!
-//! The one place this binary calls libc: `forkpty`, `tcgetattr` and
-//! `tcsetattr` in the child and on the subsidiary `ptsname` names,
+//! The one place this binary calls libc: `posix_openpt`, `grantpt`,
+//! `unlockpt` and `fork` in place of `forkpty`, and `setsid`, `dup2` and
+//! the `TIOCSCTTY` ioctl in the child as `login_tty` makes them,
+//! `tcgetattr` and `tcsetattr` in the child and on the subsidiary
+//! `ptsname` names,
 //! `execve`, `read`, `write`, `poll`, `fcntl`, the `TIOCSWINSZ` ioctl,
 //! `mmap` for the font files, CoreGraphics for the display's scale before
 //! AppKit exists, and
@@ -1336,15 +1339,15 @@ fn settle_before_fork() {
 /// waits out the kernel's sleeps, about 0.4 s.
 const REDRIVES: usize = 16;
 
-/// `open` -- a `forkpty` or a `posix_openpt` -- made again, at once, while
+/// `open` -- the manager's `posix_openpt` -- made again, at once, while
 /// it fails with [`crate::sys::EREDRIVEOPEN`]: the kernel's redrive
 /// continued past its own ten, as its comment has the value mean, "we've
 /// been raced" (`[[source: xnu-tty-ptmx-c]]`). The race is system-wide: four
 /// processes of eight threads each lost it where one alone never did. No
 /// wait of baud's own: the kernel sleeps inside the call before its sixth
-/// redo. A `forkpty` that fails this way has not forked, since Darwin's
-/// opens the pty before it forks (`[[source: apple-libc-pty-c]]`), and any
-/// other failure stands.
+/// redo. It is `ptcopen`, the manager's open, that returns it
+/// (`[[source: xnu-tty-dev-c]]`), and any other failure stands. Never
+/// around a fork, which would fork again.
 fn redriven(mut open: impl FnMut() -> core::ffi::c_int) -> core::ffi::c_int {
     let mut calls = 1;
     loop {
@@ -1368,32 +1371,134 @@ fn raced() -> bool {
     false
 }
 
-/// `forkpty` on a fresh pty of size `ws`, made again while it loses the
-/// kernel's race ([`redriven`]): its pid, zero in the child and negative
-/// when it failed, and the master in the parent. libnotify is settled
-/// before it forks ([`settle_before_fork`]).
+/// What a test runs on its own thread in the moment a spawn's terminal is
+/// open in this process and its child is not yet forked: the master and
+/// the replica. Taken out while it runs, so a spawn the hook makes runs
+/// none.
+#[cfg(test)]
+pub(crate) type Opened = Box<dyn FnMut(crate::sys::Fd, crate::sys::Fd)>;
+
+#[cfg(test)]
+thread_local! {
+    static OPENED: core::cell::RefCell<Option<Opened>> = const { core::cell::RefCell::new(None) };
+}
+
+/// Sets this thread's [`OPENED`] hook, or clears it.
+#[cfg(test)]
+pub(crate) fn set_opened(hook: Option<Opened>) {
+    OPENED.with(|h| *h.borrow_mut() = hook);
+}
+
+/// Runs this thread's [`OPENED`] hook, if a test set one.
+#[cfg(test)]
+fn opened(master: crate::sys::Fd, replica: crate::sys::Fd) {
+    let hook = OPENED.with(|h| h.borrow_mut().take());
+    if let Some(mut hook) = hook {
+        hook(master, replica);
+        OPENED.with(|h| *h.borrow_mut() = Some(hook));
+    }
+}
+
+/// **A fresh pty of size `ws`, both ends close-on-exec from the calls that
+/// open them**: the manager by `posix_openpt` with `O_CLOEXEC`, made again
+/// while it loses the kernel's race ([`redriven`]), then `grantpt`,
+/// `unlockpt` and the subsidiary opened by its name through
+/// [`std::fs::OpenOptions`], which opens close-on-exec, with `O_NOCTTY`,
+/// and given the size, as `openpty` gives it
+/// (`[[source: apple-libc-pty-c]]`, `[[source: glibc-2-42-openpty-c]]`).
+///
+/// **Not libc's `openpty`**: it opens both ends without close-on-exec, and
+/// `forkpty` closes the parent's replica only after it forks, so a child
+/// another thread of this process forks in between holds the ends after
+/// its `exec`, a pty's master and replica held by an unrelated program.
+/// Then closing a master hangs nothing up, and a replica's master never
+/// reads its end. POSIX names the race on `posix_openpt`: "a file
+/// descriptor intentionally inherited by child processes is similarly
+/// leaked into an executed program if FD_CLOEXEC is not set atomically"
+/// (`[[source: posix-posix-openpt]]`). Two vim tests deadlocked on it,
+/// each child holding the other's master.
+fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    use std::os::fd::FromRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
+    // SAFETY: the call takes flags and returns a descriptor or -1.
+    let m = redriven(|| unsafe { crate::sys::posix_openpt(flags) });
+    if m < 0 {
+        return None;
+    }
+    // SAFETY: the descriptor just opened, owned here alone.
+    let master = unsafe { std::os::fd::OwnedFd::from_raw_fd(m) };
+    // SAFETY: an open manager descriptor.
+    if unsafe { crate::sys::grantpt(m) } != 0 || unsafe { crate::sys::unlockpt(m) } != 0 {
+        return None;
+    }
+    let replica: std::os::fd::OwnedFd = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(crate::sys::O_NOCTTY)
+        .open(subsidiary_of(m)?)
+        .ok()?
+        .into();
+    // SAFETY: an open terminal, and the size live for the call.
+    unsafe {
+        crate::sys::ioctl(replica.as_raw_fd(), crate::sys::TIOCSWINSZ, &raw const ws);
+    }
+    Some((master, replica))
+}
+
+/// **A child on a fresh pty of size `ws`** ([`open_terminal`]): its pid,
+/// zero in the child and negative when it failed, and the master. libnotify
+/// is settled before the fork ([`settle_before_fork`]). The child does what
+/// `login_tty` does, a new session, the terminal taken as its controlling
+/// terminal and made its standard input, output and error, and, when it
+/// cannot take the terminal, the copies alone, as Apple's `forkpty` falls
+/// back (`[[source: apple-libc-pty-c]]`, `[[source: apple-libc-login-tty-c]]`).
+/// Its copies of both ends close at its `exec`. The parent closes its
+/// replica, the fork failed or not.
 fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) {
-    // Darwin's `forkpty` takes the size by mutable pointer and
-    // glibc's by const, so the binding is only mutated on one.
-    #[cfg_attr(target_os = "linux", allow(unused_mut))]
-    let mut ws = ws;
-    let mut master: crate::sys::Fd = -1;
-    #[cfg(target_os = "linux")]
-    let ws_arg: *const crate::sys::Winsize = &raw const ws;
-    #[cfg(not(target_os = "linux"))]
-    let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
+    use std::os::fd::IntoRawFd;
+    let Some((master, replica)) = open_terminal(ws) else {
+        return (-1, -1);
+    };
+    #[cfg(test)]
+    opened(master.as_raw_fd(), replica.as_raw_fd());
     settle_before_fork();
-    // SAFETY: forkpty is given a valid out-pointer and window size, both
-    // live for the call. The caller decides what the child runs.
-    let pid = redriven(|| unsafe {
-        crate::sys::forkpty(
-            &mut master,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            ws_arg,
-        )
-    });
-    (pid, master)
+    // SAFETY: no preconditions; the child below calls only what POSIX
+    // allows a child of a multi-threaded process before its `exec`.
+    let pid = unsafe { crate::sys::fork() };
+    if pid == 0 {
+        let r = replica.as_raw_fd();
+        // SAFETY: in the child, `setsid`, `ioctl`, `dup2` and `fcntl` on
+        // descriptors it holds, and nothing that allocates. POSIX has "the
+        // child process only executes async-signal-safe operations until
+        // such time as one of the exec functions is successful"
+        // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists `setsid`,
+        // `dup2` and `fcntl` (`[[source: posix-xsh-chap02]]`). `ioctl` is
+        // not on it; `TIOCSCTTY` is the call `login_tty` makes in
+        // `forkpty`'s child on both platforms, which every spawn made before.
+        unsafe {
+            crate::sys::setsid();
+            crate::sys::ioctl(
+                r,
+                crate::sys::TIOCSCTTY,
+                core::ptr::null::<core::ffi::c_void>(),
+            );
+            for fd in 0..3 {
+                crate::sys::dup2(r, fd);
+                // A replica numbered 0, 1 or 2 is not copied onto itself
+                // and keeps its close-on-exec; the others never have it.
+                crate::sys::fcntl(fd, crate::sys::F_SETFD, 0);
+            }
+        }
+        // Closed at the `exec`, close-on-exec, and not here.
+        core::mem::forget(replica);
+        return (0, master.into_raw_fd());
+    }
+    drop(replica);
+    if pid < 0 {
+        return (pid, -1);
+    }
+    (pid, master.into_raw_fd())
 }
 
 impl Pty {
@@ -1596,8 +1701,8 @@ impl Pty {
         };
         let envp_home = envp_of(home);
         let envp_stay = envp_of(stay);
-        // `fork_terminal` returns in the child having called nothing but
-        // `forkpty`: a pid of zero ends the redrive before it reads errno.
+        // `fork_terminal` returns in the child having called only `fork`
+        // and what `login_tty` calls; the redrive wraps the open alone.
         let (pid, master) = fork_terminal(ws);
         if pid < 0 {
             return None;
@@ -1629,17 +1734,10 @@ impl Pty {
                 crate::sys::_exit(127);
             }
         }
-        // **The master closes on exec**: a program this process starts --
-        // the opener a link is handed to, and what that opener starts --
-        // never holds the terminal's other end. The child closed its copy
-        // in `forkpty`.
-        // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
-        if unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) } < 0 {
-            crate::warn!(
-                "pty: the master stays open across exec: {}",
-                std::io::Error::last_os_error()
-            );
-        }
+        // **The master closes on exec**, opened so ([`open_terminal`]): a
+        // program this process starts -- the opener a link is handed to,
+        // and what that opener starts -- never holds the terminal's other
+        // end.
         Some((pid, master))
     }
 
@@ -2959,7 +3057,7 @@ mod tests {
     }
 
     /// **The master closes on exec**, so a program the app starts never
-    /// holds it. Perturbation: drop the `F_SETFD` -- this fails.
+    /// holds it. Perturbation: drop `O_CLOEXEC` from the open -- this fails.
     #[test]
     fn the_master_closes_on_exec() {
         let size = WinSize {
@@ -2977,6 +3075,253 @@ mod tests {
         let _ = read_all(master);
         assert!(flags >= 0);
         assert_eq!(flags & crate::sys::FD_CLOEXEC, crate::sys::FD_CLOEXEC);
+    }
+
+    /// The 80x24 terminal of 8x16-pixel cells the spawn-race tests run on.
+    fn grid_80x24() -> crate::sys::Winsize {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        text_area(&size, Px::of(8), Px::of(16))
+    }
+
+    /// Closes a descriptor the test owns.
+    fn close(fd: crate::sys::Fd) {
+        // SAFETY: a descriptor the caller opened and owns, closed once.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) });
+    }
+
+    /// A `/bin/sh` loop that prints `held N` for each descriptor of `list`
+    /// the shell holds as a terminal after its `exec`, a pty's master or
+    /// replica: `-t`, so a file another part of this process opened
+    /// without close-on-exec and left at that number is not counted. Then
+    /// it prints `control` once it has copied its own terminal to
+    /// descriptor 7, so a run with no `held` line is one in which the probe
+    /// could have fired.
+    const HOLDS: &str = "for n in $list; do [ -t $n ] && echo held $n; done; \
+        exec 7<&0; [ -t 7 ] && echo control";
+
+    /// [`HOLDS`] over `fds`, the negative ones dropped.
+    fn holding(fds: &[crate::sys::Fd]) -> String {
+        let list: Vec<String> = fds
+            .iter()
+            .filter(|f| **f >= 0)
+            .map(ToString::to_string)
+            .collect();
+        format!("list='{}'; {HOLDS}", list.join(" "))
+    }
+
+    /// What a probe's child reported, beside the master and the replica it
+    /// was asked about.
+    type Report = (crate::sys::Fd, crate::sys::Fd, String);
+
+    /// **A child forked while a terminal opens holds neither of its
+    /// ends.** In the moment a spawn's terminal is open in this process
+    /// ([`OPENED`]), a second spawn's child reports, after its `exec`,
+    /// which of the first's master and replica it holds: neither. Under
+    /// `forkpty` with the close-on-exec set after it returned, the child
+    /// held the master.
+    #[test]
+    fn a_child_forked_while_a_terminal_opens_holds_neither_end() {
+        let _window = libc_window();
+        let env = child_env(outer_parent(), None);
+        let seen: std::rc::Rc<std::cell::RefCell<Option<Report>>> = std::rc::Rc::default();
+        let into = std::rc::Rc::clone(&seen);
+        let probe_env = env.clone();
+        set_opened(Some(Box::new(move |master, replica| {
+            let m = Pty::fork_with(
+                grid_80x24(),
+                Some(holding(&[master, replica])),
+                probe_env.clone(),
+            )
+            .expect("the probe's spawn");
+            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
+            close(m);
+            *into.borrow_mut() = Some((master, replica, out));
+        })));
+        let master = Pty::fork_with(grid_80x24(), Some("exit 0".into()), env).expect("forkpty");
+        set_opened(None);
+        let _ = read_all(master);
+        close(master);
+        let (m, r, out) = seen.take().expect("the hook ran");
+        assert!(out.contains("control"), "the probe can fire: {out:?}");
+        assert!(
+            !out.contains("held"),
+            "the child holds the master {m} or the replica {r}: {out:?}"
+        );
+    }
+
+    /// What a descriptor of this process names, or `None` when it is not
+    /// open.
+    fn named_by(fd: crate::sys::Fd) -> Option<std::fs::Metadata> {
+        std::fs::metadata(format!("/dev/fd/{fd}")).ok()
+    }
+
+    /// A descriptor, and what it named while a spawn's terminal was open.
+    type Named = (crate::sys::Fd, Option<std::fs::Metadata>);
+
+    /// **A spawn leaves the parent no replica**: the descriptor the
+    /// replica had while the terminal was open ([`OPENED`]) no longer
+    /// names that terminal once the spawn returns. A number another
+    /// thread reused names another file, so only the same device fails.
+    #[test]
+    fn a_spawn_leaves_the_parent_no_replica() {
+        use std::os::unix::fs::MetadataExt;
+        let env = child_env(outer_parent(), None);
+        let seen: std::rc::Rc<std::cell::RefCell<Option<Named>>> = std::rc::Rc::default();
+        let into = std::rc::Rc::clone(&seen);
+        set_opened(Some(Box::new(move |_, replica| {
+            *into.borrow_mut() = Some((replica, named_by(replica)));
+        })));
+        let (pid, master) =
+            Pty::fork_child(grid_80x24(), Some("exit 0".into()), env).expect("a spawn");
+        set_opened(None);
+        let (replica, during) = seen.take().expect("the hook ran");
+        let after = named_by(replica);
+        let _ = read_all(master);
+        close(master);
+        // SAFETY: this test's own child, waited for once.
+        unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
+        let during = during.expect("the control: the replica was open in the window");
+        let held = after.is_some_and(|a| a.rdev() == during.rdev());
+        assert!(!held, "the parent still holds the replica {replica}");
+    }
+
+    /// **A terminal opened beside another never keeps it from hanging
+    /// up**: the vim tests' deadlock (`programs.rs`, `Under`'s drop), on
+    /// purpose. A spawns `cat`, and in A's window ([`OPENED`]) B spawns
+    /// `cat` too. A's master closed, A's `cat` hears the hangup and ends
+    /// while B's runs. When B's child held A's master, A's `cat` heard
+    /// nothing until B's ended, and a drop that waits for A before it
+    /// closes B waited for ever. The wait here has a deadline; past it
+    /// both children are killed, since each may hold the other's master,
+    /// and then the assertion fails.
+    #[test]
+    fn a_terminal_opened_beside_another_never_keeps_it_from_hanging_up() {
+        let _window = libc_window();
+        let env = child_env(outer_parent(), None);
+        let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, crate::sys::Fd)>>> =
+            std::rc::Rc::default();
+        let into = std::rc::Rc::clone(&b);
+        let b_env = env.clone();
+        set_opened(Some(Box::new(move |_, _| {
+            into.set(Pty::fork_child(
+                grid_80x24(),
+                Some("exec cat".into()),
+                b_env.clone(),
+            ));
+        })));
+        let (a_pid, a_master) =
+            Pty::fork_child(grid_80x24(), Some("exec cat".into()), env).expect("A's spawn");
+        set_opened(None);
+        let (b_pid, b_master) = b.take().expect("B, spawned in A's window");
+        let (ended, a_ended) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            // SAFETY: A's pid, this test's own child, waited for once.
+            unsafe { crate::sys::waitpid(a_pid, std::ptr::null_mut(), 0) };
+            let _ = ended.send(());
+        });
+        close(a_master);
+        let alone = a_ended
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .is_ok();
+        if !alone {
+            // Each child may hold the other's master, as the vim tests'
+            // did, and then neither hangs up: both are ended here.
+            // SAFETY: this test's own children, not yet reaped.
+            unsafe {
+                crate::sys::kill(a_pid, crate::sys::SIGKILL);
+                crate::sys::kill(b_pid, crate::sys::SIGKILL);
+            }
+        }
+        close(b_master);
+        // SAFETY: B's pid, this test's own child, waited for once.
+        unsafe { crate::sys::waitpid(b_pid, std::ptr::null_mut(), 0) };
+        waiter.join().expect("A's waiter");
+        assert!(
+            alone,
+            "A's child did not end on its hangup while B's ran: B's child held A's master"
+        );
+    }
+
+    /// **Terminals spawned at once hold none of each other's ends.**
+    /// Sixteen threads spawn four children each, all at once, every
+    /// thread recording the ends of its spawns ([`OPENED`]). Each child
+    /// then reads the whole list and reports which of them it holds after
+    /// its `exec` ([`HOLDS`]): none, and every report carries its control.
+    #[test]
+    fn terminals_spawned_at_once_hold_none_of_each_others_ends() {
+        let _window = libc_window();
+        const THREADS: usize = 16;
+        const ROUNDS: usize = 4;
+        let env = child_env(outer_parent(), None);
+        let start = std::sync::Barrier::new(THREADS);
+        let ends: std::sync::Mutex<Vec<crate::sys::Fd>> = std::sync::Mutex::default();
+        let script = format!("read list; {HOLDS}");
+        let spawned: Vec<(core::ffi::c_int, crate::sys::Fd)> = std::thread::scope(|s| {
+            let threads: Vec<_> = (0..THREADS)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mine: std::rc::Rc<std::cell::RefCell<Vec<crate::sys::Fd>>> =
+                            std::rc::Rc::default();
+                        let into = std::rc::Rc::clone(&mine);
+                        set_opened(Some(Box::new(move |m, r| {
+                            into.borrow_mut().extend([m, r]);
+                        })));
+                        start.wait();
+                        let kids: Vec<_> = (0..ROUNDS)
+                            .map(|_| {
+                                Pty::fork_child(grid_80x24(), Some(script.clone()), env.clone())
+                                    .expect("a spawn")
+                            })
+                            .collect();
+                        set_opened(None);
+                        ends.lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .extend(mine.borrow().iter().copied().filter(|f| *f >= 0));
+                        kids
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .flat_map(|t| t.join().expect("a thread"))
+                .collect()
+        });
+        let mut list = ends
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        list.sort_unstable();
+        list.dedup();
+        let line: Vec<String> = list.iter().map(ToString::to_string).collect();
+        let line = format!("{}\n", line.join(" "));
+        for (_, master) in &spawned {
+            let mut b = line.as_bytes();
+            while !b.is_empty() {
+                // SAFETY: an open descriptor and a buffer valid for its length.
+                let n = unsafe { crate::sys::write(*master, b.as_ptr().cast(), b.len()) };
+                b = &b[usize::try_from(n).expect("the list's write")..];
+            }
+        }
+        let mut leaks = Vec::new();
+        for (pid, master) in spawned {
+            let out = String::from_utf8_lossy(&read_all(master)).into_owned();
+            close(master);
+            // SAFETY: this test's own child, waited for once.
+            unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
+            assert!(out.contains("control"), "the probe can fire: {out:?}");
+            leaks.extend(
+                out.lines()
+                    .filter(|l| l.starts_with("held"))
+                    .map(str::to_string),
+            );
+        }
+        assert!(
+            leaks.is_empty(),
+            "of the {} ends, children held {leaks:?}",
+            list.len()
+        );
     }
 
     /// **And the child a pty forks actually sees it**: the same parent
@@ -3023,10 +3368,90 @@ mod tests {
         }
     }
 
+    /// **Held over libc's `forkpty` and over every test that counts what a
+    /// child holds.** libc opens the master without close-on-exec, the race
+    /// [`open_terminal`] closes, and a child another test forks in that
+    /// window holds it: so the window and those forks never overlap.
+    static LIBC_WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// [`LIBC_WINDOW`], held.
+    fn libc_window() -> std::sync::MutexGuard<'static, ()> {
+        LIBC_WINDOW
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// **libc's `forkpty`**, made again while it loses the kernel's race:
+    /// the control beside [`fork_terminal`], libc's own terminal and
+    /// `login_tty`. Under [`LIBC_WINDOW`], its master set close-on-exec
+    /// before the lock is let go.
+    fn libc_forkpty(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) {
+        let held = libc_window();
+        // Darwin's `forkpty` takes the size by mutable pointer and
+        // glibc's by const, so the binding is only mutated on one.
+        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        let mut ws = ws;
+        let mut master: crate::sys::Fd = -1;
+        #[cfg(target_os = "linux")]
+        let ws_arg: *const crate::sys::Winsize = &raw const ws;
+        #[cfg(not(target_os = "linux"))]
+        let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
+        settle_before_fork();
+        // SAFETY: forkpty is given a valid out-pointer and window size,
+        // both live for the call. Darwin's opens the pty before it forks
+        // (`[[source: apple-libc-pty-c]]`), so a lost race has not forked.
+        let pid = redriven(|| unsafe {
+            crate::sys::forkpty(
+                &mut master,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                ws_arg,
+            )
+        });
+        if pid == 0 {
+            // The child's copy of the lock is never let go: it runs only
+            // `execve` and `_exit` after this.
+            core::mem::forget(held);
+            return (pid, master);
+        }
+        if pid > 0 {
+            // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
+            unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) };
+        }
+        drop(held);
+        (pid, master)
+    }
+
     /// A child of a bare `forkpty` that runs only `execve`, as every spawn
-    /// did before 2026-10-13: the kernel's own terminal, for a control.
+    /// did before 2026-10-13: libc's terminal, for a control.
     fn bare_fork(ws: crate::sys::Winsize, cmd: &str, env: &[CString]) -> crate::sys::Fd {
-        let path = CString::new("/bin/sh").expect("a path");
+        bare_fork_by(libc_forkpty, ws, cmd, env)
+    }
+
+    /// A spawn's fork, [`fork_terminal`] or [`libc_forkpty`]: the pid and
+    /// the master.
+    type Forker = fn(crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd);
+
+    /// A child of `fork`, [`fork_terminal`] or [`libc_forkpty`], that runs
+    /// `/bin/sh -c cmd` and nothing before it.
+    fn bare_fork_by(
+        fork: Forker,
+        ws: crate::sys::Winsize,
+        cmd: &str,
+        env: &[CString],
+    ) -> crate::sys::Fd {
+        bare_fork_in(fork, "/bin/sh", ws, cmd, env)
+    }
+
+    /// [`bare_fork_by`] with the shell at `shell` in place of `/bin/sh`.
+    fn bare_fork_in(
+        fork: Forker,
+        shell: &str,
+        ws: crate::sys::Winsize,
+        cmd: &str,
+        env: &[CString],
+    ) -> crate::sys::Fd {
+        let path = CString::new(shell).expect("a path");
         let argv0 = CString::new("sh").expect("argv0");
         let dash = CString::new("-c").expect("-c");
         let cmd = CString::new(cmd).expect("a command");
@@ -3041,7 +3466,7 @@ mod tests {
             .map(|e| e.as_ptr())
             .chain(std::iter::once(std::ptr::null()))
             .collect();
-        let (pid, master) = fork_terminal(ws);
+        let (pid, master) = fork(ws);
         assert!(pid >= 0, "forkpty");
         if pid == 0 {
             // SAFETY: as in `fork_with`; the child runs only `execve` and
@@ -3052,6 +3477,66 @@ mod tests {
             }
         }
         master
+    }
+
+    /// **The spawned child's terminal is its controlling terminal and its
+    /// standard input, output and error**, as `login_tty` leaves
+    /// `forkpty`'s: `/dev/tty` opens in it, and descriptors 0, 1 and 2 are
+    /// the terminal. libc's `forkpty` is the control, the same probe and
+    /// the same answer. Without the child's `TIOCSCTTY` it fails on Linux.
+    /// On macOS it passes even then: `/bin/sh` runs bash, which opens the
+    /// terminal itself before the probe, and the session leader's first
+    /// open of a terminal without `O_NOCTTY` takes it as the controlling
+    /// terminal (`[[source: xnu-vfs-syscalls-c]]`).
+    /// [`a_spawned_child_opens_its_controlling_terminal_by_dev_tty`] is the
+    /// probe that fails on macOS too.
+    #[test]
+    fn a_spawned_child_holds_its_terminal_as_login_tty_leaves_it() {
+        let env = child_env(outer_parent(), None);
+        let probe = "if : </dev/tty; then echo ctty; else echo none; fi; \
+            for n in 0 1 2; do [ -t $n ] && echo tty $n; done";
+        let forks: [(&str, Forker); 2] = [
+            ("libc's forkpty", libc_forkpty),
+            ("baud's spawn", fork_terminal),
+        ];
+        for (name, fork) in forks {
+            let m = bare_fork_by(fork, grid_80x24(), probe, &env);
+            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
+            close(m);
+            let lines: Vec<&str> = out.lines().map(|l| l.trim_end_matches('\r')).collect();
+            assert_eq!(
+                lines,
+                ["ctty", "tty 0", "tty 1", "tty 2"],
+                "{name}: {out:?}"
+            );
+        }
+    }
+
+    /// **The spawned child's controlling terminal is the one it was given,
+    /// with no open of a terminal of its own**: the child's first open is of
+    /// `/dev/tty`, which names the controlling terminal and fails with
+    /// `ENXIO` when there is none, and is not a pty device, so the session
+    /// leader's take of a terminal on its first open (`[[source:
+    /// xnu-vfs-syscalls-c]]`) cannot stand in for the child's `TIOCSCTTY`.
+    /// The shell is dash, which opens no terminal before its command:
+    /// macOS's `/bin/sh` runs bash, and measured here, through bash the
+    /// probe reads `ctty` with no `TIOCSCTTY` in the child, and through
+    /// dash it fails with `ENXIO`. libc's `forkpty` is the control.
+    #[test]
+    fn a_spawned_child_opens_its_controlling_terminal_by_dev_tty() {
+        let env = child_env(outer_parent(), None);
+        let forks: [(&str, Forker); 2] = [
+            ("libc's forkpty", libc_forkpty),
+            ("baud's spawn", fork_terminal),
+        ];
+        for (name, fork) in forks {
+            let probe = "exec 3</dev/tty && echo ctty";
+            let m = bare_fork_in(fork, "/bin/dash", grid_80x24(), probe, &env);
+            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
+            close(m);
+            let lines: Vec<&str> = out.lines().map(|l| l.trim_end_matches('\r')).collect();
+            assert_eq!(lines, ["ctty"], "{name}: {out:?}");
+        }
     }
 
     /// **Terminals opened at once all open.** Darwin's `/dev/ptmx` can hand
@@ -4216,12 +4701,13 @@ mod tests {
 
     /// A pseudo-terminal no session has held: its manager, which the
     /// caller closes. `posix_openpt` with `O_NOCTTY`, so this process does
-    /// not take it either.
+    /// not take it either, and `O_CLOEXEC`, so no child another test forks
+    /// holds it ([`HOLDS`]).
     fn unheld_pty() -> crate::sys::Fd {
+        let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
         // SAFETY: plain calls on the descriptor the first returns.
         unsafe {
-            let m =
-                redriven(|| crate::sys::posix_openpt(crate::sys::O_RDWR | crate::sys::O_NOCTTY));
+            let m = redriven(|| crate::sys::posix_openpt(flags));
             assert!(m >= 0, "posix_openpt");
             assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
             assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");

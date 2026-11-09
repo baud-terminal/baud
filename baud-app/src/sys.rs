@@ -71,6 +71,16 @@ pub const TIOCSWINSZ: c_ulong = 0x8008_7467;
 #[cfg(not(target_os = "macos"))]
 pub const TIOCSWINSZ: c_ulong = 0x5414;
 
+/// **Take the terminal as the session's controlling terminal**: the
+/// spawned child's second call, after `setsid`, as Apple's and glibc's
+/// `login_tty` make it (`[[source: apple-libc-login-tty-c]]`,
+/// `[[source: glibc-2-42-login-tty-c]]`). Darwin's `_IO('t', 97)`, glibc's
+/// flat number.
+#[cfg(target_os = "macos")]
+pub const TIOCSCTTY: c_ulong = 0x2000_7461;
+#[cfg(not(target_os = "macos"))]
+pub const TIOCSCTTY: c_ulong = 0x540e;
+
 /// Read the terminal's window size back. Only a test asks: it forks a pty and
 /// reads what the kernel holds, which is the one reading of "the child was
 /// told" that does not trust baud's own bookkeeping.
@@ -110,12 +120,14 @@ pub const F_SETFL: c_int = 4;
 #[cfg(target_os = "macos")]
 pub const EREDRIVEOPEN: c_int = -6;
 
-/// `fcntl`'s commands and flag for a descriptor's own flags: the pty's
-/// master is set to close on exec, and a test reads that what `openat`
-/// opened for a kitty file does. The same values on both platforms.
+/// `fcntl`'s commands and flag for a descriptor's own flags: the spawned
+/// child clears close-on-exec on its standard descriptors, and the tests
+/// read that the pty's master and what `openat` opened for a kitty file
+/// close on exec. The same values on both platforms.
 #[cfg(test)]
 pub const F_GETFD: c_int = 1;
 pub const F_SETFD: c_int = 2;
+#[cfg(test)]
 pub const FD_CLOEXEC: c_int = 1;
 #[cfg(target_os = "macos")]
 pub const O_NONBLOCK: c_int = 0x4;
@@ -159,9 +171,13 @@ unsafe extern "C" {
 }
 
 // `forkpty` is in libutil on glibc and in libSystem on Darwin.
+#[cfg(test)]
 #[cfg_attr(not(target_os = "macos"), link(name = "util"))]
 unsafe extern "C" {
-    /// Fork with a fresh pty; the parent gets the master in `amaster`.
+    /// Fork with a fresh pty; the parent gets the master in `amaster`. Only a
+    /// test calls it, as the control beside baud's own spawn: libc opens
+    /// both ends without close-on-exec and forks after, so a child another
+    /// thread forks between the two holds them (`pty.rs`, `open_terminal`).
     ///
     /// The window size is `const` on glibc and mutable on Darwin. The
     /// struct is the same either way, which is why only the pointer
@@ -241,21 +257,37 @@ unsafe extern "C" {
     /// past `audit_all.sh`'s budget for this crate.
     pub fn ptsname(fd: Fd) -> *mut c_char;
 
-    /// A new session with no controlling terminal, for the test that holds
-    /// [`O_NOCTTY`] to its job: only such a process could take one. A
-    /// `pid_t` is an `int` on both platforms.
-    #[cfg(test)]
+    /// A new session with no controlling terminal: the spawned child's
+    /// first call, before it takes its terminal, as `login_tty` makes it
+    /// (`pty.rs`, `fork_terminal`), and the test that holds [`O_NOCTTY`]
+    /// to its job, since only such a process could take one. A `pid_t` is
+    /// an `int` on both platforms.
     pub fn setsid() -> c_int;
 
-    /// A pseudo-terminal no session has held, for the same test:
-    /// `forkpty`'s child takes its subsidiary as its terminal at once, and
-    /// on Darwin the hold outlives the child.
-    #[cfg(test)]
+    /// **A new pty's manager, close-on-exec from the call that opens it**,
+    /// with `O_RDWR | O_NOCTTY | O_CLOEXEC`: POSIX Issue 8 adds
+    /// `O_CLOEXEC`, "necessary to avoid a data race in multi-threaded
+    /// applications" (`[[source: posix-posix-openpt]]`). Apple's and glibc's
+    /// hand the flags to `open("/dev/ptmx")` unchanged
+    /// (`[[source: apple-libc-grantpt-c]]`, `[[source: glibc-2-42-getpt-c]]`),
+    /// and xnu sets the descriptor's close-on-exec in `open1`
+    /// (`[[source: xnu-vfs-syscalls-c]]`). Then `grantpt` and `unlockpt`
+    /// before the subsidiary is opened.
     pub fn posix_openpt(flags: c_int) -> Fd;
-    #[cfg(test)]
     pub fn grantpt(fd: Fd) -> c_int;
-    #[cfg(test)]
     pub fn unlockpt(fd: Fd) -> c_int;
+
+    /// A child of this process, `0` in the child and its pid in the parent:
+    /// the spawn's own fork, once both ends of its terminal are open
+    /// close-on-exec (`pty.rs`, `fork_terminal`). A `pid_t` is an `int` on
+    /// both platforms.
+    pub fn fork() -> c_int;
+
+    /// `fd` copied onto `to`, the copy without close-on-exec: the child's
+    /// terminal made its standard input, output and error, as `login_tty`
+    /// does. On XSH 2.4.3's list of async-signal-safe functions
+    /// (`[[source: posix-xsh-chap02]]`).
+    pub fn dup2(fd: Fd, to: Fd) -> c_int;
 
     /// Reaps the child `pid`: with [`WNOHANG`] a window's watch, once its
     /// child's end is an event (`pty::reap_now`), and with no options the
@@ -267,7 +299,8 @@ unsafe extern "C" {
 
     /// Sends `sig` to `pid`; the tests send 0, which checks only whether a
     /// process of that number exists -- a zombie still does -- and answer
-    /// [`ESRCH`] once it was reaped.
+    /// [`ESRCH`] once it was reaped, and [`SIGKILL`] to end children a
+    /// failed test would otherwise leave waiting on each other.
     #[cfg(test)]
     pub fn kill(pid: c_int, sig: c_int) -> c_int;
 
@@ -311,6 +344,11 @@ pub const WNOWAIT: c_int = 0x0100_0000;
 /// `SIGCHLD`, the signal a parent is sent once its child is a zombie, and
 /// so the event a window's watch reaps on (`fg::Watch`). The number
 /// differs per platform.
+/// The signal that cannot be caught: a test ends with it the children
+/// its failure left deadlocked. The same number on both platforms.
+#[cfg(test)]
+pub const SIGKILL: c_int = 9;
+
 #[cfg(target_os = "macos")]
 pub const SIGCHLD: c_int = 20;
 
@@ -333,7 +371,6 @@ unsafe extern "C" {
 
 /// `open`'s read-and-write access mode, which `posix_openpt` takes; the
 /// same value on both platforms.
-#[cfg(test)]
 pub const O_RDWR: c_int = 2;
 
 /// `open`'s flag that keeps a terminal from becoming the caller's
@@ -1613,6 +1650,7 @@ int main(void) {
     printf("_POSIX_VDISABLE=%lld\n", (long long)_POSIX_VDISABLE);
     printf("tcflag.size=%zu\n", sizeof(tcflag_t));
     printf("TIOCSWINSZ=%llu\n", (unsigned long long)TIOCSWINSZ);
+    printf("TIOCSCTTY=%llu\n", (unsigned long long)TIOCSCTTY);
     printf("TIOCGWINSZ=%llu\n", (unsigned long long)TIOCGWINSZ);
     printf("POLLIN=%lld\n", (long long)POLLIN);
     printf("POLLOUT=%lld\n", (long long)POLLOUT);
@@ -1663,6 +1701,7 @@ int main(void) {
     printf("TIOCGPGRP=%llu\n", (unsigned long long)TIOCGPGRP);
     printf("pid_t.size=%zu\n", sizeof(pid_t));
     printf("WNOHANG=%lld\n", (long long)WNOHANG);
+    printf("SIGKILL=%lld\n", (long long)SIGKILL);
     printf("ESRCH=%lld\n", (long long)ESRCH);
     printf("P_PID=%lld\n", (long long)P_PID);
     printf("WEXITED=%lld\n", (long long)WEXITED);
@@ -2020,6 +2059,7 @@ int main(void) {
     fn the_constants_are_the_platform_headers_own() {
         let h = ask_the_headers();
         assert_eq!(h["TIOCSWINSZ"], i128::from(TIOCSWINSZ));
+        assert_eq!(h["TIOCSCTTY"], i128::from(TIOCSCTTY));
         assert_eq!(h["TIOCGWINSZ"], i128::from(TIOCGWINSZ));
         assert_eq!(h["POLLIN"], i128::from(POLLIN));
         assert_eq!(h["POLLOUT"], i128::from(POLLOUT));
@@ -2058,6 +2098,7 @@ int main(void) {
         assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
         assert_eq!(h["TIOCGPGRP"], i128::from(TIOCGPGRP));
         assert_eq!(h["WNOHANG"], i128::from(WNOHANG));
+        assert_eq!(h["SIGKILL"], i128::from(SIGKILL));
         assert_eq!(h["ESRCH"], i128::from(ESRCH));
         assert_eq!(h["P_PID"], i128::from(P_PID));
         assert_eq!(h["WEXITED"], i128::from(WEXITED));
