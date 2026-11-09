@@ -344,13 +344,13 @@ pub const WNOWAIT: c_int = 0x0100_0000;
 /// `SIGCHLD`, the signal a parent is sent once its child is a zombie, and
 /// so the event a window's watch reaps on (`fg::Watch`). The number
 /// differs per platform.
+#[cfg(target_os = "macos")]
+pub const SIGCHLD: c_int = 20;
+
 /// The signal that cannot be caught: a test ends with it the children
 /// its failure left deadlocked. The same number on both platforms.
 #[cfg(test)]
 pub const SIGKILL: c_int = 9;
-
-#[cfg(target_os = "macos")]
-pub const SIGCHLD: c_int = 20;
 
 // **POSIX shared memory, for the kitty `t=s` medium**
 // (`kitty_files.rs`): open an object read-only, and unlink its name once
