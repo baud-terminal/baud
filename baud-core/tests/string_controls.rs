@@ -47,7 +47,7 @@ const STRINGS: [(&str, &[u8], &[u8]); 7] = [
     ("DECRQSS", b"\x1bP$q", b"m\x1b\\"),
     ("another DCS", b"\x1bP0;1|", b"17/31\x1b\\"),
     ("a Sixel", b"\x1bPq#1;2;100;0;0", b"~\x1b\\"),
-    ("APC", b"\x1b_G", b"a=q\x1b\\"),
+    ("APC", b"\x1b_H", b"x\x1b\\"),
     ("PM and SOS", b"\x1b^", b"x\x1b\\\x1bXy\x1b\\"),
 ];
 
@@ -113,6 +113,37 @@ fn a_shift_inside_a_control_string_shifts_the_text_after_it() {
                     );
                 });
             }
+        }
+    }
+}
+/// **A shift inside a kitty graphics command is its payload and shifts
+/// nothing**: kitty keeps every byte but `BEL` and `ESC \\` in the command
+/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), and an `APC G`
+/// is read as kitty reads it, so the `q` after it stays a `q` under `SO` and
+/// becomes the line under `SI`, where the `SO` before the command still
+/// holds. The `SO` lands in the keys and the command is refused, as kitty
+/// refuses it. Every read size.
+#[test]
+fn a_shift_inside_a_kitty_command_is_payload_and_shifts_nothing() {
+    for (shift, before, want) in [
+        (0x0e, &b""[..], u32::from(b'q')),
+        (0x0f, &b"\x0e"[..], HORIZONTAL),
+    ] {
+        let mut bytes = G1_GRAPHICS.to_vec();
+        bytes.extend_from_slice(before);
+        bytes.extend_from_slice(b"\x1b_G");
+        bytes.push(shift);
+        bytes.extend_from_slice(b"a=q,i=1\x1b\\q");
+        for size in 1..=bytes.len() {
+            fed(&bytes, size, |t| {
+                assert_eq!(t.cursor().1.index(), 1, "{shift:#04x}, read size {size}");
+                assert_eq!(
+                    at(t, 0),
+                    Some(want),
+                    "{shift:#04x}, read size {size}: the q"
+                );
+                assert_eq!(t.kitty().refused, 1, "{shift:#04x}, read size {size}");
+            });
         }
     }
 }

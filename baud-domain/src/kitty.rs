@@ -117,6 +117,7 @@
 //! ([`ImageStore::kitty_animation`], [`ImageStore::animate`]), answered
 //! only with an error, as kitty answers it.
 
+use crate::KittyBase64;
 use crate::image::{
     FrameBlend, FrameCompose, FrameControl, FrameDeleted, FrameDepth, FrameLoad, FrameRefusal,
 };
@@ -130,7 +131,6 @@ use crate::pos::LineIdx;
 use crate::quantity::{Col, Cols, Rows};
 use crate::style::Chan;
 use crate::zlib::Inflate;
-use crate::{Base64, Base64Step};
 use zerocopy::IntoBytes;
 
 /// The overall action, the `a` key.
@@ -246,6 +246,21 @@ pub struct KittyError {
     text: &'static str,
 }
 
+/// **What a short transmission had**, in bytes: kitty's ENODATA names both,
+/// "Insufficient image data: <have> < <need>" (`ABRT_INSUFFICIENT_DATA`,
+/// `[[source: kitty-graphics-c]]`). Kept on the stream for the one reply
+/// that says it, not in [`KittyError`]: carried there it widened every
+/// load and command the stream copies, and a raw `f=32` upload of a
+/// 776x488 picture read 0.90 ms [0.90-0.92] against the base's 0.85
+/// [0.84-0.86], and 0.85 [0.85-0.87] kept here (`kitty_image`, medians of
+/// five runs of three rounds of twenty, the arms rotated, the first run
+/// dropped; the stored pixels' FNV-1a equal on all three).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shortfall {
+    Unsaid,
+    Bytes { have: usize, need: usize },
+}
+
 impl KittyError {
     const fn new(code: &'static str, text: &'static str) -> KittyError {
         KittyError { code, text }
@@ -270,7 +285,6 @@ impl KittyError {
         KittyError::new("ENOENT", "Image deleted before its decode completed");
     pub const BAD_PNG: KittyError = KittyError::new("EBADPNG", "Failed to decode PNG data");
     pub const INFLATE: KittyError = KittyError::new("EINVAL", "Failed to inflate image data");
-    pub const BASE64: KittyError = KittyError::new("EINVAL", "Payload is not valid base64");
     pub const CONTROL: KittyError = KittyError::new("EINVAL", "Malformed graphics control data");
     pub const ACTION: KittyError = KittyError::new("EINVAL", "Unknown graphics command action");
     pub const FORMAT: KittyError = KittyError::new("EINVAL", "Unknown image format");
@@ -703,6 +717,17 @@ const OUTBOX: usize = 2 * REPLY_MAX;
 /// The control data kept, past which a command is malformed.
 pub const KITTY_CONTROL_MAX: usize = 256;
 
+/// **The longest body a chunk may reach with no terminator yet**, from its
+/// `G` on, keys and payload: kitty's `MAX_ESCAPE_CODE_LENGTH`, a quarter of
+/// its 1 MiB read buffer, past which "escape code too long ... ignoring it"
+/// drops the string (its accumulate_st_terminated_esc_code, `[[source:
+/// kitty-vt-parser-c]]`). kitty measures it only when a read ends with the
+/// string still open, so where its parser resumes depends on its reads;
+/// here the chunk is dropped at the byte that passes it and the rest is
+/// ignored up to the terminator, wherever the reads fell -- the one stated
+/// difference from kitty.
+pub const KITTY_BODY_MAX: usize = 262_144;
+
 /// Decoded octets held for one inflate feed: a feed per quantum costs the
 /// inflate's setup three bytes at a time.
 const STAGE: usize = 512;
@@ -900,8 +925,11 @@ pub struct KittyCounts {
     /// Commands no handler takes: none the text names reaches here since
     /// animation was built, so a count here is a defect to find.
     pub ignored: usize,
-    /// Chunks a `CAN`, `SUB` or `ESC` cancelled before their terminator,
-    /// which abort the upload they belonged to.
+    /// Uploads abandoned before their last chunk: a PNG loading across
+    /// chunks when another stream takes the scratch
+    /// ([`KittyStream::yield_scratch`]), and a chunk still open when another
+    /// `APC G` begins. No byte inside a command leaves it open since it is
+    /// read as kitty reads it, where only `BEL` and `ESC \` end it.
     pub cancelled: usize,
     /// Images stored whole.
     pub images: usize,
@@ -919,6 +947,9 @@ pub struct KittyCounts {
     /// stream's table held one ([`KITTY_VIRTUALS`]), answered ENOSPC, or
     /// because their image has no id a placeholder could name.
     pub virtuals_refused: usize,
+    /// Chunks dropped for a body past [`KITTY_BODY_MAX`] with no
+    /// terminator yet, kitty's "escape code too long ... ignoring it".
+    pub too_long: usize,
 }
 
 /// **How many virtual placements a stream holds**: `kitten icat` makes one
@@ -1042,7 +1073,16 @@ pub struct KittyStream {
     /// The command whose transmission is in flight, or just ended.
     start: KittyCommand,
     load: Load,
-    b64: Base64,
+    b64: KittyBase64,
+    /// The next ENODATA's numbers, taken by [`KittyStream::reply`].
+    short: Shortfall,
+    /// The open chunk's body so far, from its `G` on: what kitty measures
+    /// against [`KITTY_BODY_MAX`].
+    body: usize,
+    /// The excess count when the open chunk began: a chunk dropped past
+    /// [`KITTY_BODY_MAX`] takes back what its bytes added, kitty never having
+    /// read the command.
+    excess_at: usize,
     stage: [u8; STAGE],
     stage_len: usize,
     z: Inflate,
@@ -1117,7 +1157,10 @@ impl KittyStream {
         continues: Continues::No,
         start: KittyCommand::DEFAULT,
         load: Load::Idle,
-        b64: Base64::NEW,
+        b64: KittyBase64::NEW,
+        short: Shortfall::Unsaid,
+        body: 0,
+        excess_at: 0,
         stage: [0; STAGE],
         stage_len: 0,
         z: Inflate::NEW,
@@ -1144,6 +1187,7 @@ impl KittyStream {
             excess: 0,
             replies_dropped: 0,
             virtuals_refused: 0,
+            too_long: 0,
         },
     };
 
@@ -1214,10 +1258,10 @@ impl KittyStream {
         }
     }
 
-    /// **An `APC G` began.** A chunk still open was cancelled -- `CAN`,
-    /// `SUB` or an `ESC` that did not make `ST` ended it with no terminator
-    /// -- and its upload goes with it: half a chunk is not data the client
-    /// sent.
+    /// **An `APC G` began.** A chunk still open was abandoned with no
+    /// terminator, and its upload goes with it: half a chunk is not data the
+    /// client sent. Inside a command every byte but its terminator is its
+    /// payload, as kitty reads it, so none leaves a chunk open.
     pub fn begin(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
         if self.chunk != Chunk::Closed {
             self.counts.cancelled += 1;
@@ -1226,6 +1270,30 @@ impl KittyStream {
         }
         self.chunk = Chunk::Control;
         self.ctrl_len = 0;
+        // The `G`.
+        self.body = 1;
+        self.excess_at = self.counts.excess;
+    }
+
+    /// **`n` more body bytes, and whether they took the chunk past
+    /// [`KITTY_BODY_MAX`]**: then it is dropped, its upload with it, and
+    /// what follows up to the terminator is ignored, as kitty ignores the
+    /// string ("escape code too long ... ignoring it"). The terminator then
+    /// finds the chunk closed and runs nothing.
+    fn too_long(&mut self, n: usize, store: &mut ImageStore, scratch: &mut [u8]) -> bool {
+        if self.chunk == Chunk::Closed {
+            return true;
+        }
+        self.body = self.body.saturating_add(n);
+        if self.body <= KITTY_BODY_MAX {
+            return false;
+        }
+        self.counts.too_long += 1;
+        self.abort(store);
+        self.settle(store, scratch);
+        self.counts.excess = self.excess_at;
+        self.chunk = Chunk::Closed;
+        true
     }
 
     /// One body byte after the `G`. The `;` that ends the control data
@@ -1233,12 +1301,15 @@ impl KittyStream {
     #[inline]
     pub fn put(&mut self, b: u8, store: &mut ImageStore, scratch: &mut [u8]) -> KittyByte {
         self.feed.runs += 1;
+        if self.too_long(1, store, scratch) {
+            return KittyByte::Taken;
+        }
         self.take(b, store, scratch)
     }
 
     /// **A run of body bytes, as [`KittyStream::put`] on each would take
     /// them**: the control data a byte at a time up to its `;`, then the
-    /// payload through [`Base64::feed`] in one call per [`RUN_OCTETS`] of
+    /// payload through [`KittyBase64::feed`] in one call per [`RUN_OCTETS`] of
     /// output. Returns [`KittyByte::Separator`] if the run held the `;`;
     /// whatever it decided is in [`KittyStream::replies`] after it, and the
     /// payload past it queues none.
@@ -1248,6 +1319,9 @@ impl KittyStream {
     /// that end, cancel or are ignored in it.
     pub fn put_run(&mut self, run: &[u8], store: &mut ImageStore, scratch: &mut [u8]) -> KittyByte {
         self.feed.runs += 1;
+        if self.too_long(run.len(), store, scratch) {
+            return KittyByte::Taken;
+        }
         let mut said = KittyByte::Taken;
         let mut at = 0;
         while let (Chunk::Control, Some(&b)) = (self.chunk, run.get(at)) {
@@ -1262,48 +1336,20 @@ impl KittyStream {
         said
     }
 
-    /// **Payload bytes in bulk**, the octets of each [`Base64::feed`] to
-    /// [`KittyStream::decoded`] as the byte path hands it each quantum's:
-    /// the data, or a file medium's path.
-    ///
-    /// Two places where the bulk order could differ from the byte path's,
-    /// and each is made the byte path's:
-    ///
-    /// * **A byte that is no base64.** `feed` stops on it without saying
-    ///   how much it wrote, and the octets before it may refuse the load
-    ///   first, as a PNG's header does at its 24th octet. So the decoder's
-    ///   state is put back and the rest of the run goes through
-    ///   [`KittyStream::payload`] a byte at a time, which is the byte path;
-    ///   it is a run that ends the data, once a transmission.
-    /// * **A refusal by the octets.** Past it the byte path decodes nothing,
-    ///   so its decoder is left at the quantum that refused, whole, which
-    ///   [`Base64::finish`] ends with no octets and no error. `feed` has
-    ///   gone on to the end of its window by then, perhaps into a partial
-    ///   quantum or a byte that is no base64, which `finish` would refuse
-    ///   as base64 over the refusal already made. So the decoder starts
-    ///   afresh, which `finish` also ends with nothing.
+    /// **Payload bytes in bulk**, the octets of each [`KittyBase64::feed`]
+    /// to [`KittyStream::decoded`] as the byte path hands it each quantum's:
+    /// the data, or a file medium's path. A byte that is no base64 stops the
+    /// chunk's data there, in bulk as a byte at a time, and the rest of the
+    /// run is read and dropped; past a refusal by the octets nothing more is
+    /// decoded, as on the byte path.
     fn payload_run(&mut self, mut run: &[u8], store: &mut ImageStore, scratch: &mut [u8]) {
         let mut out = [0u8; RUN_OCTETS];
         while !run.is_empty() {
             if matches!(self.load, Load::Idle | Load::Refused(_)) {
                 return;
             }
-            let before = self.b64;
-            let fed = match self.b64.feed(run, &mut out) {
-                Ok(fed) => fed,
-                Err(_) => {
-                    self.b64 = before;
-                    for &b in run {
-                        self.payload(b, store, scratch);
-                    }
-                    return;
-                }
-            };
+            let fed = self.b64.feed(run, &mut out);
             self.decoded(&out[..fed.wrote], store, scratch);
-            if matches!(self.load, Load::Refused(_)) {
-                self.b64 = Base64::NEW;
-                return;
-            }
             run = &run[fed.read..];
         }
     }
@@ -1377,6 +1423,13 @@ impl KittyStream {
             return None;
         }
         self.chunk = Chunk::Closed;
+        // Each chunk's data decodes on its own, as kitty decodes each
+        // command's payload (`KittyBase64`): a short final quantum's octets
+        // now, and the next chunk begins afresh.
+        let tail = self.b64.end();
+        if !matches!(self.load, Load::Idle | Load::Refused(_)) {
+            self.decoded(tail.as_slice(), store, scratch);
+        }
         let this = self.this_chunk();
         if self.continues == Continues::Yes {
             if this.act() == KittyAction::Delete && this.action.is_some() {
@@ -1446,7 +1499,7 @@ impl KittyStream {
 
     /// Begin a transmission: check what it declares, and reserve.
     fn transmit(&mut self, mut cmd: KittyCommand, store: &mut ImageStore, scratch: &mut [u8]) {
-        self.b64 = Base64::NEW;
+        self.b64 = KittyBase64::NEW;
         self.stage_len = 0;
         self.z = Inflate::NEW;
         let query = cmd.act() == KittyAction::Query;
@@ -1503,7 +1556,7 @@ impl KittyStream {
         store: &mut ImageStore,
         scratch: &mut [u8],
     ) {
-        self.b64 = Base64::NEW;
+        self.b64 = KittyBase64::NEW;
         self.stage_len = 0;
         self.z = Inflate::NEW;
         self.path_len = 0;
@@ -1674,11 +1727,8 @@ impl KittyStream {
         if matches!(self.load, Load::Idle | Load::Refused(_)) {
             return;
         }
-        match self.b64.push(b) {
-            Base64Step::Need => {}
-            Base64Step::Octets(o) => self.decoded(o.as_slice(), store, scratch),
-            Base64Step::Invalid => self.refuse_load(KittyError::BASE64, store),
-        }
+        let o = self.b64.push(b);
+        self.decoded(o.as_slice(), store, scratch);
     }
 
     /// Decoded payload octets: the data, or a file medium's path, a byte
@@ -1895,11 +1945,6 @@ impl KittyStream {
         scratch: &mut [u8],
     ) -> Option<KittyMove> {
         let mut cmd = self.start;
-        let b64 = core::mem::replace(&mut self.b64, Base64::NEW);
-        match b64.finish() {
-            Ok(tail) => self.decoded(tail.as_slice(), store, scratch),
-            Err(_) => self.refuse_load(KittyError::BASE64, store),
-        }
         // Marked on the copy every later reply is made from -- `done`,
         // `png_ready`, and the owed command a deferred decode answers.
         if cmd.medium != KittyMedium::Direct && !matches!(self.load, Load::Idle | Load::Refused(_))
@@ -1927,6 +1972,7 @@ impl KittyStream {
             Load::Raw {
                 image,
                 at: n,
+                held,
                 alpha,
                 ..
             } => {
@@ -1935,8 +1981,15 @@ impl KittyStream {
                     .map_or(0, |(w, h)| w.index() * h.index());
                 if n < total {
                     // A file "smaller than the client claimed" is the
-                    // single error, which `reply` makes of this.
+                    // single error, which `reply` makes of this; a direct
+                    // one is kitty's ENODATA with the bytes it came to,
+                    // the pixel in progress included.
                     store.free(image);
+                    let bpp = cmd.format.bytes_per_pixel();
+                    self.short = Shortfall::Bytes {
+                        have: n * bpp + held,
+                        need: total * bpp,
+                    };
                     self.reply(&cmd, Err(KittyError::NO_DATA));
                     return None;
                 }
@@ -3032,6 +3085,7 @@ impl KittyStream {
     /// Owe the reply to `cmd`: `OK`, or the error. Sent only for a command
     /// that named an image, and as its `q` allows.
     fn reply(&mut self, cmd: &KittyCommand, result: Result<(), KittyError>) {
+        let short = core::mem::replace(&mut self.short, Shortfall::Unsaid);
         let result = match cmd.read {
             KittyFileRead::Unasked => result,
             KittyFileRead::Asked => result.map_err(|_| KittyError::FILE),
@@ -3084,6 +3138,12 @@ impl KittyStream {
                 r.put(e.code.as_bytes());
                 r.put(b":");
                 r.put(e.text.as_bytes());
+                if let (KittyError::NO_DATA, Shortfall::Bytes { have, need }) = (e, short) {
+                    r.put(b": ");
+                    r.num(u32::try_from(have).unwrap_or(u32::MAX));
+                    r.put(b" < ");
+                    r.num(u32::try_from(need).unwrap_or(u32::MAX));
+                }
             }
         }
         r.put(b"\x1b\\");

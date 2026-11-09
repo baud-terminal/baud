@@ -982,9 +982,17 @@ pub(crate) fn act(
         // the sequence that begins is a new one, so it starts with nothing
         // collected, as `EscStart` starts one. A DCS prefix's `$` is kept as
         // its intermediate, and `DCS $ ESC D` was read as `ESC $ D`.
+        //
+        // **Into `KittyBody`, from its `ESC` before a byte that is not `\`**:
+        // kitty keeps that `ESC` in the command (`Node::KittyEsc`), so it is
+        // put first, and the byte is read again in the body.
         Act::Again => {
-            if *node == Node::Escape {
-                csi.reset();
+            match *node {
+                Node::Escape => csi.reset(),
+                Node::KittyBody if p.cold.str_kind == StrKind::Kitty => {
+                    p.kitty_put(StreamByte::ESC)
+                }
+                _ => {}
             }
             ReadLen::ZERO
         }

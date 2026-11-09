@@ -413,13 +413,16 @@ fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
         }
     }
 
-    // An `APC G` ignores the `BEL` the same way, and is a kitty graphics
-    // command, malformed here and refused, not a string ignored.
+    // **An `APC G` is a kitty graphics command, which a `BEL` ends** as an
+    // `ESC \` does (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`,
+    // kitty's handling of its own protocol): `a` is malformed and refused,
+    // and the `X` after the `BEL` is text, the `ST` after it a bare `ST`.
+    // Until then it ignored the `BEL` as the other three do.
     let bytes: &[u8] = b"\x1b_Ga\x07X\x1b\\AFTER";
     for size in 1..=bytes.len() {
         assert_eq!(
             left(bytes, size).screen,
-            left(b"AFTER", 5).screen,
+            left(b"XAFTER", 6).screen,
             "APC G: screen"
         );
         fed(bytes, size, |t| {

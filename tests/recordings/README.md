@@ -173,10 +173,12 @@ with `--log-file` too. mpv fitted each frame to the window, 138x96, and
 sent eleven of its thirteen whole: `CUP` to row 1, column 10, then
 `a=T,f=24,s=138,v=96,C=1,q=2` and the RGB in base64 chunks, no image
 id and no delete between frames. Twice its status thread wrote
-`ESC [ 1 K CR` and the status line inside a chunk, where the `ESC`
-cancels the upload, so the rest of that chunk prints as text. On quit
-it sends `ESC _ G a=d ;` with no `ST`, cut by the `ESC` of the
-`ESC [ ? 25 h` after it.
+`ESC [ 1 K CR` and the status line inside a chunk, which kitty, and
+baud since 2026-11-08, read as the chunk's payload, so that upload is
+refused short and nothing prints; before then the `ESC` cancelled the
+upload and the rest of the chunk printed as text. On quit it sends
+`ESC _ G a=d ;` with no `ST`, so the `?1003l` and `?1049l` after it
+are that command's payload too.
 
 `kitty/logo-dark-8fps.mp4` (8,348 bytes, sha256
 `0a66aa1dd93f432231058a8e479f2bee22ebf319d2c71570e894eea547d65d86`) is
@@ -201,6 +203,26 @@ none. `mpvs_kitty_video_draws_what_mpv_sent` (`baud-app/src/film/mpv.rs`)
 and `mpvs_kitty_video_draws_alike_on_every_arm`
 (`baud-present-macos/tests/cells.rs`) replay it, held to the RGB in its
 own chunks.
+
+## `kitty/mpv-status-in-chunk.raw`
+
+One `APC G` chunk in the framing mpv 0.41.0 `--vo=kitty` wrote it,
+4,176 bytes (md5 `e309f710ae63fcacefcf36f3858010ec`, sha256
+`7733f38960ba1163ae8a8865ca85e26bd8b5aa5853aa9fd7ee1f0d78710a99b1`):
+`ESC _ G m=1 ;`, 3,332 base64 characters, then at byte 3,339 its status
+thread's `ESC [ 1 K CR ESC [ 0 m`, the status line and `ESC [ 0 m`,
+then 764 base64 characters and the chunk's `ESC \`. **The framing is
+the original chunk's, byte for byte; the pixels are generated**: each
+base64 run is replaced by one of the same length, the base64 of byte
+`i` = `(37 i + seed) mod 251` (seed 0, then 11), so every escape, the
+status line and every length are where mpv put them and no frame of
+the video it played is in the tree. The original chunk, md5
+`f00c8fe6dafea96515eaa8b74a98be48`, was cut from a capture of
+`mpv --vo=kitty --ao=null` playing a video stream into a pty; where the
+status thread writes falls by its clock, so the capture does not
+regenerate. `mpvs_status_line_inside_a_chunk_is_payload_and_the_frame_comes_up_short`
+(`baud-core/tests/kitty_string_end.rs`) frames it in a first and a last
+chunk of its own and holds it to kitty's reading.
 
 ## Provenance
 

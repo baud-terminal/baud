@@ -66,15 +66,14 @@ impl Paint<'_, '_> {
     /// printable-ASCII run is found as the text path finds one
     /// (`run_of_text`, the same vector scan) and handed to the stream
     /// whole. **The run is a subset of what the byte path would put, edge
-    /// for edge**: `20-7E` in `Node::SosStr` is `StrPut` back to `SosStr`
-    /// under both encodings
+    /// for edge**: `20-7E` in `Node::KittyBody` is `StrPut` back to
+    /// `KittyBody` under both encodings
     /// (`graph::classes::a_kitty_run_is_bytes_the_string_body_puts`), and
-    /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that
-    /// may begin `ST` (`[[source: ctlseqs]]` 201) or cancel the string
-    /// (`[[source: williams]]`), `CAN`, `SUB`, the C0 the body ignores,
-    /// `DEL`, a GR byte, `9C` under ISO 8859-1 -- ends the run where it
-    /// stands and takes its own edge, so the run is bounded by the read
-    /// and by the first byte the graph treats otherwise.
+    /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that may
+    /// begin `ST`, the `BEL` that ends the command, and the payload bytes
+    /// the scan refuses, a C0, `DEL`, a GR byte, `9C` -- ends the run where
+    /// it stands and takes its own edge, so the run is bounded by the read
+    /// and by the first byte the scan does not take.
     #[cold]
     #[inline(never)]
     pub(crate) fn str_run(&mut self, from: BytePos, left: ReadLen) -> ReadLen {

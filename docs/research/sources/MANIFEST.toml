@@ -10927,6 +10927,76 @@ group  = "C"
 # (`RawStdEncoding`) and chunked at 128 KiB, against `[[source:
 # kitty-graphics]]`'s "no larger than 4096 bytes".
 
+[sources.kitty-vt-parser-c]
+key    = "kitty-vt-parser-c"
+title  = "kitty v0.50.0, kitty/vt-parser.c -- where an APC, DCS, OSC, PM or SOS string ends, and the cap on its length"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.50.0/kitty/vt-parser.c"
+file   = ""
+sha256 = "013e26af75562807204754c92efec9d1759f7ecb596211a57afced0c0bc3c984"
+bytes  = 71933
+status = "external"
+group  = "C"
+# Read 2026-11-08 for how kitty ends a graphics command. `find_st_terminator`
+# ends a string at its first `BEL` or at a `\` whose byte before it is `ESC`,
+# and at nothing else, so an `ESC` that is not `ST`, `CAN`, `SUB`, a C0 and
+# `9C` stay in the string. `accumulate_st_terminated_esc_code` (459-487)
+# drops a string that has passed `MAX_ESCAPE_CODE_LENGTH`, `BUF_SZ / 4`,
+# 262,144 bytes (18, 21), "escape code too long (%zu bytes), ignoring it",
+# when a read ends with no terminator in it, and `consume_input` (1533-1536)
+# returns to the normal state after either.
+
+[sources.kitty-base64-h]
+key    = "kitty-base64-h"
+title  = "kitty v0.50.0, kitty/base64.h -- base64_decode8, the graphics payload decoder"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.50.0/kitty/base64.h"
+file   = ""
+sha256 = "d68bd509659b29962758f1d9f17be8341e38643348a939716c45d67e4418eb91"
+bytes  = 2647
+status = "external"
+group  = "C"
+# Read 2026-11-08: `base64_decode8` hands the payload to libbase64's
+# `base64_decode` and returns its result, which the graphics command's
+# parser does not look at (`[[source: kitty-parse-graphics-command-h]]`).
+
+[sources.kitty-parse-graphics-command-h]
+key    = "kitty-parse-graphics-command-h"
+title  = "kitty v0.50.0, kitty/parse-graphics-command.h -- the graphics command parser, generated: keys, then the payload"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.50.0/kitty/parse-graphics-command.h"
+file   = ""
+sha256 = "520ab91be5cd47313ceef8861f9abe727d7a04dbf62646c380f4a76528108ed6"
+bytes  = 10702
+status = "external"
+group  = "C"
+# Read 2026-11-08: the `PAYLOAD` state decodes the rest of the command with
+# `base64_decode8` and keeps `payload_sz` as it set it, whatever it returned,
+# so a payload that stops being base64 is the octets before it.
+
+[sources.libbase64-dec-tail-c]
+key    = "libbase64-dec-tail-c"
+title  = "kitty v0.50.0, 3rdparty/base64/lib/arch/generic/dec_tail.c -- libbase64 (Alfred Klomp), the decoder kitty bundles: its byte-at-a-time tail"
+author = "Alfred Klomp"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.50.0/3rdparty/base64/lib/arch/generic/dec_tail.c"
+file   = ""
+sha256 = "9784172e7ddb2586213c9cd3cf61e2d4eb884b0d2cbc902c80b90c9654c25fab"
+bytes  = 1774
+status = "external"
+group  = "C"
+# Read 2026-11-08: each character adds its six bits and an octet is written
+# as soon as one is whole; a byte outside the table, `=` included, stops the
+# decode with what was written kept, and a `=` ends it. BSD 2-clause, Alfred
+# Klomp, bundled in kitty.
+
 [sources.kitty-rowcolumn-diacritics]
 key    = "kitty-rowcolumn-diacritics"
 title  = "kitty v0.49.2, gen/rowcolumn-diacritics.txt -- the 297 combining marks a Unicode placeholder's row, column and image-id byte are written with"

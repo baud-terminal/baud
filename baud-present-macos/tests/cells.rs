@@ -10110,12 +10110,12 @@ fn kitty_animation_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// decoded from the capture's chunks by `mpv_capture`, which shares
 /// nothing with the decoder: so the three agree on mpv's picture and not
 /// on a blank. The controls before any comparison: nothing was refused but
-/// the chunks after each cut, a command with no size; the frames pile up,
-/// one placement an upload, every one at the cell mpv put them in and
-/// drawn; and a frame unlike the first is drawn over it. At a cut upload
-/// the frame before stays on top, until the second cut's text scrolls
-/// every frame off the alternate screen. The cell arm reads the window's
-/// copy, as the app's does on the alternate screen.
+/// each cut upload, short, and nothing cancelled -- the status line inside
+/// the chunk is its payload, kitty's reading; the frames pile up, one
+/// placement an upload, every one at the cell mpv put them in and drawn;
+/// and a frame unlike the first is drawn over it. At a cut upload the
+/// frame before stays on top. The cell arm reads the window's copy, as the
+/// app's does on the alternate screen.
 ///
 /// The budget holds every frame and the one a cut upload reserves, as the
 /// app's does at this size, so the quota deletes none;
@@ -10151,7 +10151,8 @@ fn mpvs_kitty_video_draws_alike_on_every_arm() {
     )
     .unwrap();
     let frames = ups.iter().filter(|u| u.rgb.is_some()).count();
-    // Every frame, and the one a cut upload reserves before it is cancelled.
+    // Every frame, and the one a cut upload reserves before it comes up
+    // short.
     arms!(renderer => arms, t, ImageBudget::of((frames + 1) * s * v + 64));
     // The glyph map in use before the first frame, whose screen is blank;
     // and the cell arm reading the window's copy, as the app's does on the
@@ -10180,9 +10181,9 @@ fn mpvs_kitty_video_draws_alike_on_every_arm() {
         }
         cuts += usize::from(up.cut.is_some());
         assert_eq!(
-            (t.images().images_refused, t.images().refusals.empty),
-            (cuts, cuts),
-            "upload {k}: refused but the chunks after a cut, a command with no size"
+            (t.kitty().refused, t.kitty().cancelled),
+            (cuts, 0),
+            "upload {k}: refused but each cut upload, short, and nothing cancelled"
         );
         if let Some(rgb) = &up.rgb {
             complete += 1;
@@ -10346,7 +10347,9 @@ fn under_a_two_frame_quota_mpvs_video_draws_alike_on_every_arm() {
         "the premise: the quota deleted frames, {} of them",
         t.images().images_evicted
     );
-    assert_eq!(drawn, 12, "the premise: every upload but the last drawn");
+    // Every upload: the last one's status line no longer prints and
+    // scrolls the frames away, kitty's reading of a chunk it cuts.
+    assert_eq!(drawn, 13, "the premise: every upload drawn");
     assert_eq!(
         repeats,
         vec![1],

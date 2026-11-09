@@ -88,8 +88,13 @@ fn apc(ctrl: &str, payload: &[u8]) -> Vec<u8> {
 
 /// A payload cut into chunks of `n` encoded bytes: the first carries
 /// `first`, the rest `rest`, each `m=1` but the last.
+///
+/// **`n` is rounded up to a multiple of 4**: "chunks, except the last, must
+/// have a size that is a multiple of 4" (`[[source: kitty-graphics-rst]]`),
+/// and kitty decodes each chunk on its own (`KittyBase64`), so a chunk cut
+/// inside a quantum loses that quantum's bits, as kitty loses them.
 fn chunked(first: &str, rest: &str, encoded: &[u8], n: usize) -> Vec<u8> {
-    let pieces: Vec<&[u8]> = encoded.chunks(n).collect();
+    let pieces: Vec<&[u8]> = encoded.chunks(n.div_ceil(4) * 4).collect();
     let mut v = Vec::new();
     for (k, piece) in pieces.iter().enumerate() {
         let more = if k + 1 == pieces.len() { "m=0" } else { "m=1" };
@@ -603,7 +608,7 @@ fn quiet_ids_and_numbers_shape_the_reply() {
         ("a=t,f=24,s=1,v=1,I=13", b"\x1b_Gi=1,I=13;OK\x1b\\"),
         (
             "a=t,f=24,s=2,v=1,i=4,q=1",
-            b"\x1b_Gi=4;ENODATA:Insufficient image data\x1b\\",
+            b"\x1b_Gi=4;ENODATA:Insufficient image data: 3 < 6\x1b\\",
         ),
         ("a=t,f=24,s=2,v=1,i=4,q=2", b""),
     ];
@@ -747,20 +752,33 @@ fn a_delete_aborts_an_upload_in_flight() {
     });
 }
 
+/// **A `CAN` at the end of a kitty chunk is its payload, and so is the
+/// command after it, up to that command's `ST`**: kitty ends a command only
+/// at `BEL` or `ESC \` (`find_st_terminator`, `[[source:
+/// kitty-vt-parser-c]]`), so the second chunk runs on through `ESC _ G` and
+/// ends at the next command's `ST`, its data ending at the `CAN` with the
+/// first chunk's six octets and its own three: nine of twelve, refused
+/// short. The command after it never runs, and nothing is cancelled. Under
+/// Williams' rule the `CAN` cancelled the chunk and aborted its upload, and
+/// was counted.
 #[test]
-fn a_cancelled_chunk_aborts_its_upload_and_is_counted() {
+fn a_can_ending_a_kitty_chunk_is_payload_up_to_the_next_st() {
     let data = b64(&[7u8; 12]);
     let mut s = apc("a=T,f=24,s=2,v=2,i=1,m=1", &data[..8]);
     s.extend_from_slice(b"\x1b_Gm=0;");
     s.extend_from_slice(&data[8..12]);
     s.push(0x18);
     s.extend(apc("a=T,f=24,s=1,v=1,i=2", &b64(&[1, 2, 3])));
+    invariant(64, &s, Splits::Every);
     with(64, |t| {
         let mut r = Vec::new();
         feed(t, &s, &mut r);
-        assert_eq!(t.kitty().cancelled, 1);
-        assert_eq!(r, b"\x1b_Gi=2;OK\x1b\\", "the next command is its own");
-        assert_eq!(t.images().placements().count(), 1);
+        assert_eq!(t.kitty().cancelled, 0);
+        assert_eq!(
+            String::from_utf8_lossy(&r),
+            "\x1b_Gi=1;ENODATA:Insufficient image data: 9 < 12\x1b\\"
+        );
+        assert_eq!(t.images().placements().count(), 0);
     });
 }
 
@@ -2159,66 +2177,81 @@ fn spliced(at: usize, extra: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (apc("a=T,f=32,s=3,v=2,i=7", &enc), data)
 }
 
-/// **A C0 inside the payload is ignored and the run goes on past it**:
-/// `[[source: williams]]`'s `sos/pm/apc string` ignores `00-17`, `19` and
-/// `1C-1F` (426), so the quantum it splits is completed by the bytes after
-/// it, at every read size and every two-read split. `DEL` is put (`20-7F`)
-/// and is no base64, so the data is refused (`[[source: rfc4648-base64]]`
-/// 3.3), as a `=` before the end and a `*` are.
+/// **A byte inside the payload that is no base64 ends the data there, the
+/// bulk path as the byte path**: kitty keeps a C0, `DEL`, `=`, `*` and `;`
+/// in the command (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`)
+/// and its decode stops at the first of them, keeping the octets before it
+/// (`KittyBase64`), so the 24 bytes come up short by what follows and the
+/// reply is ENODATA with what there was: `at` characters' whole octets. A
+/// `BEL` ends the command there as well, and what followed it is text. At
+/// every read size and every two-read split. These were Williams' rule
+/// until kitty's handling of its own protocol: a C0 ignored and the run
+/// going on past it, and the rest refused as base64.
 #[test]
 fn what_interrupts_a_payload_run_is_what_it_was_byte_by_byte() {
     for at in [1, 2, 3, 4, 13, 30] {
-        for c0 in [&b"\n"[..], b"\0", b"\x07", b"\x08\r", b"\x1f"] {
-            let (s, data) = spliced(at, c0);
+        let short = format!(
+            "\x1b_Gi=7;ENODATA:Insufficient image data: {} < 24\x1b\\",
+            at * 3 / 4
+        );
+        for stop in [
+            &b"\n"[..],
+            b"\0",
+            b"\x07",
+            b"\x08\r",
+            b"\x1f",
+            b"\x7f",
+            b"=",
+            b"*",
+            b";",
+        ] {
+            let (s, _) = spliced(at, stop);
             invariant(64, &s, Splits::Every);
             with(64, |t| {
                 let mut r = Vec::new();
                 feed(t, &s, &mut r);
-                assert_eq!(placed_pixels(t), rgba_pixels(&data), "{at} {c0:?}");
-                assert_eq!(r, b"\x1b_Gi=7;OK\x1b\\");
-            });
-        }
-        for bad in [&b"\x7f"[..], b"=", b"*", b";"] {
-            let (s, _) = spliced(at, bad);
-            invariant(64, &s, Splits::Every);
-            with(64, |t| {
-                let mut r = Vec::new();
-                feed(t, &s, &mut r);
-                assert_eq!(t.images().placements().count(), 0, "{at} {bad:?}");
-                assert!(r.starts_with(b"\x1b_Gi=7;E"), "{at} {bad:?} {r:?}");
+                assert_eq!(t.images().placements().count(), 0, "{at} {stop:?}");
+                assert_eq!(String::from_utf8_lossy(&r), short, "{at} {stop:?}");
             });
         }
     }
 }
 
-/// **`CAN`, `SUB` and a bare `ESC` cancel the chunk mid-run**:
-/// `[[source: williams]]` makes `18` and `1A` leave any state for ground,
-/// and an `ESC` not followed by `\` begins an escape sequence, so the
-/// string ends with no terminator (`[[source: ctlseqs]]` 201: only `\`
-/// after `ESC` makes `ST`). The upload goes, and the next command is its
-/// own, at every split.
+/// **`CAN`, `SUB` and an `ESC` that is not `ST` are payload of a kitty
+/// command, mid-run as anywhere**: kitty ends the command only at `BEL` or
+/// `ESC \` (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), so each
+/// stays in the payload, the data ends at it with nine characters' six
+/// octets (`KittyBase64`), and the command it would have cancelled is
+/// refused short at its own `ST`; the next command is its own. Nothing is
+/// cancelled. At every split. Under Williams' rule each cancelled the chunk;
+/// this was the test a cancel inside a payload run ends it where it stands.
 #[test]
-fn a_cancel_inside_a_payload_run_ends_it_where_it_stands() {
+fn a_cancel_inside_a_payload_run_is_payload_and_ends_the_data() {
     for cancel in [&b"\x18"[..], b"\x1a", b"\x1bX", b"\x1b7", b"\x1b_G"] {
         let (mut s, _) = spliced(9, cancel);
-        // The rest of the payload and its `ST` arrive after the cancel, as
-        // text or as a string of their own; then a whole command.
         s.extend(apc("a=T,f=24,s=1,v=1,i=2", &b64(&[1, 2, 3])));
         invariant(64, &s, Splits::Every);
         with(64, |t| {
             let mut r = Vec::new();
             feed(t, &s, &mut r);
-            assert_eq!(t.kitty().cancelled, 1, "{cancel:?}");
-            assert!(r.ends_with(b"\x1b_Gi=2;OK\x1b\\"), "{cancel:?} {r:?}");
+            assert_eq!(t.kitty().cancelled, 0, "{cancel:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&r),
+                "\x1b_Gi=7;ENODATA:Insufficient image data: 6 < 24\x1b\\\x1b_Gi=2;OK\x1b\\",
+                "{cancel:?}"
+            );
         });
     }
 }
 
-/// **Under ISO 8859-1 a GR byte of the body is its 7-bit byte, and `9C`
-/// is `ST`**: `[[source: dec-std-070]]` 3.5.4.5 for the first, and `9C` is
-/// the 8-bit `ST` there. Under UTF-8 `9C` is a continuation byte, payload,
-/// and no base64. The run the bulk path takes is GL only, so these bytes
-/// take the byte path, at every split.
+/// **Under ISO 8859-1 a GR byte of the body is its 7-bit byte, and `9C` is
+/// payload in both encodings**: `[[source: dec-std-070]]` 3.5.4.5 for the
+/// first; for the second kitty ends a command only at `BEL` or `ESC \`
+/// (`find_st_terminator`, `[[source: kitty-vt-parser-c]]`), so `9C` is no
+/// `ST` inside one, and no base64, so the data ends at it: ten characters'
+/// seven octets of the 24. The run the bulk path takes is GL only, so these
+/// bytes take the byte path, at every split. Under ISO 8859-1 `9C` was the
+/// 8-bit `ST` here until kitty's handling of its own protocol.
 #[test]
 fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
     let data = bytes(3 * 2 * 4, 41);
@@ -2228,7 +2261,7 @@ fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
         0 => b | 0x80,
         _ => b,
     }));
-    gr.push(0x9c);
+    gr.extend_from_slice(b"\x1b\\");
     invariant(64, &gr, Splits::Every);
     with(64, |t| {
         let mut r = Vec::new();
@@ -2236,18 +2269,25 @@ fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
         assert_eq!(placed_pixels(t), rgba_pixels(&data));
         assert_eq!(r, b"\x1b_Gi=8;OK\x1b\\");
     });
-    let mut utf8 = b"\x1b_Ga=T,f=32,s=3,v=2,i=8;".to_vec();
-    utf8.extend_from_slice(&enc[..10]);
-    utf8.push(0x9c);
-    utf8.extend_from_slice(&enc[10..]);
-    utf8.extend_from_slice(b"\x1b\\");
-    invariant(64, &utf8, Splits::Every);
-    with(64, |t| {
-        let mut r = Vec::new();
-        feed(t, &utf8, &mut r);
-        assert_eq!(t.images().placements().count(), 0);
-        assert!(r.starts_with(b"\x1b_Gi=8;E"), "{r:?}");
-    });
+    for head in [&b""[..], b"\x1b%@"] {
+        let mut c1 = head.to_vec();
+        c1.extend_from_slice(b"\x1b_Ga=T,f=32,s=3,v=2,i=8;");
+        c1.extend_from_slice(&enc[..10]);
+        c1.push(0x9c);
+        c1.extend_from_slice(&enc[10..]);
+        c1.extend_from_slice(b"\x1b\\");
+        invariant(64, &c1, Splits::Every);
+        with(64, |t| {
+            let mut r = Vec::new();
+            feed(t, &c1, &mut r);
+            assert_eq!(t.images().placements().count(), 0, "{head:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&r),
+                "\x1b_Gi=8;ENODATA:Insufficient image data: 7 < 24\x1b\\",
+                "{head:?}"
+            );
+        });
+    }
 }
 
 /// **A refusal mid-run is the one the byte path made**: a PNG whose

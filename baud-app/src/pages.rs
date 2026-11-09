@@ -134,13 +134,26 @@ pub(crate) mod tests {
         out
     }
 
-    /// One graphics command.
+    /// **One graphics command, its base64 in kitten's chunks** of 131,072
+    /// (`WriteWithPayloadTo`, `[[source: kitty-graphics-command]]`), `m=1`
+    /// on each but the last: one chunk past 262,144 bytes is dropped, as
+    /// kitty drops it (`[[source: kitty-vt-parser-c]]`). A payload that
+    /// fits one chunk is sent as one, with no `m`.
     fn apc(ctrl: &str, payload: &[u8]) -> Vec<u8> {
         let mut v = b"\x1b_G".to_vec();
         v.extend_from_slice(ctrl.as_bytes());
         if !payload.is_empty() {
-            v.push(b';');
-            v.extend(b64(payload));
+            let enc = b64(payload);
+            let pieces: Vec<&[u8]> = enc.chunks(131_072).collect();
+            for (k, piece) in pieces.iter().enumerate() {
+                let more = u8::from(k + 1 < pieces.len());
+                match (k, pieces.len()) {
+                    (0, 1) => v.push(b';'),
+                    (0, _) => v.extend_from_slice(format!(",m={more};").as_bytes()),
+                    _ => v.extend_from_slice(format!("\x1b\\\x1b_Gm={more};").as_bytes()),
+                }
+                v.extend_from_slice(piece);
+            }
         }
         v.extend_from_slice(b"\x1b\\");
         v

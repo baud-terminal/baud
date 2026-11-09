@@ -295,11 +295,13 @@ fn every_frame_refusal_is_answered_in_kittys_shape() {
         // After the image is found, every error carries the frame's number.
         (
             rgba("a=f,f=32,s=2,v=2,i=1", &three),
-            "\x1b_Gi=1,r=2;ENODATA:Insufficient image data\x1b\\",
+            "\x1b_Gi=1,r=2;ENODATA:Insufficient image data: 12 < 16\x1b\\",
         ),
+        // A byte that is no base64 ends the data, as kitty's decode ends
+        // it (`KittyBase64`), and the frame comes up short.
         (
             apc("a=f,f=32,s=1,v=1,r=7,i=1", b"A!!A"),
-            "\x1b_Gi=1,r=2;EINVAL:Payload is not valid base64\x1b\\",
+            "\x1b_Gi=1,r=2;ENODATA:Insufficient image data: 0 < 4\x1b\\",
         ),
         (
             apc("a=f,f=100,i=1", &b64(b"not a png at all")),

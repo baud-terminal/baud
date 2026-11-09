@@ -332,6 +332,151 @@ impl Base64 {
     }
 }
 
+/// **A kitty graphics payload's base64, decoded as kitty decodes it**: one
+/// chunk at a time, non-strict, and never an error.
+///
+/// kitty hands each command's payload to `base64_decode8` and ignores what
+/// it returns (`[[source: kitty-base64-h]]`; `[[source:
+/// kitty-parse-graphics-command-h]]`, `PAYLOAD`), and libbase64's tail
+/// decoder writes an octet as soon as a character completes it and stops at
+/// the first byte outside its table, `=` included, keeping what it wrote
+/// (`[[source: libbase64-dec-tail-c]]`). So a chunk's octets are those of the
+/// characters before its first byte that is no base64, a short final
+/// quantum's whole octets among them, and the rest of the chunk is dropped:
+/// mpv's status line written into a chunk, which kitty's parser keeps as
+/// payload (`[[source: kitty-vt-parser-c]]`), ends that chunk's data where it
+/// begins. `[[source: rfc4648-base64]]` 3.3 lets a decoder ignore such bytes
+/// only where "the specification referring to this document explicitly
+/// states otherwise", and kitty's graphics protocol is defined by kitty's
+/// behaviour, so this is kitty's error handling for kitty's own protocol.
+/// Every other user of base64 here keeps [`Base64`], which rejects.
+///
+/// The octets come out a quantum at a time and a short quantum's at the
+/// stop or the chunk's end, the order kitty writes them in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KittyBase64 {
+    acc: u32,
+    held: Held,
+    chunk: ChunkData,
+}
+
+/// Whether a chunk's data is still being read, or ended at a byte that is no
+/// base64.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ChunkData {
+    Open,
+    Stopped,
+}
+
+impl KittyBase64 {
+    /// A chunk not begun.
+    pub const NEW: KittyBase64 = KittyBase64 {
+        acc: 0,
+        held: Held::Zero,
+        chunk: ChunkData::Open,
+    };
+
+    /// One payload byte: the octets it completes, or a stop's short quantum.
+    #[inline(always)]
+    pub fn push(&mut self, b: u8) -> Octets {
+        if self.chunk == ChunkData::Stopped {
+            return Octets::NONE;
+        }
+        let v = VALUE[usize::from(b)];
+        if v == NOT_BASE64 {
+            self.chunk = ChunkData::Stopped;
+            return self.short();
+        }
+        let acc = (self.acc << 6) | u32::from(v);
+        self.held = match self.held {
+            Held::Zero => Held::One,
+            Held::One => Held::Two,
+            Held::Two => Held::Three,
+            Held::Three => {
+                self.acc = 0;
+                self.held = Held::Zero;
+                return octets(acc, OctetCount::Three);
+            }
+        };
+        self.acc = acc;
+        Octets::NONE
+    }
+
+    /// **Payload bytes in bulk**, as [`KittyBase64::push`] on each: whole
+    /// quanta four characters at a time, the rest a byte at a time. Reads
+    /// the whole of `input` once the chunk has stopped, since kitty drops
+    /// the rest of it, and returns early only when `out` is full.
+    pub fn feed(&mut self, input: &[u8], out: &mut [u8]) -> Fed {
+        let mut fed = Fed { read: 0, wrote: 0 };
+        loop {
+            if self.chunk == ChunkData::Stopped {
+                fed.read = input.len();
+                return fed;
+            }
+            if self.held == Held::Zero {
+                while let (Some(&[c0, c1, c2, c3]), Some([d0, d1, d2])) = (
+                    input.get(fed.read..fed.read + 4),
+                    out.get_mut(fed.wrote..fed.wrote + 3),
+                ) {
+                    let v = [
+                        VALUE[usize::from(c0)],
+                        VALUE[usize::from(c1)],
+                        VALUE[usize::from(c2)],
+                        VALUE[usize::from(c3)],
+                    ];
+                    if v.contains(&NOT_BASE64) {
+                        break;
+                    }
+                    let word = v.iter().fold(0u32, |w, &x| (w << 6) | u32::from(x));
+                    [_, *d0, *d1, *d2] = word.to_be_bytes();
+                    fed.read += 4;
+                    fed.wrote += 3;
+                }
+            }
+            let Some(&b) = input.get(fed.read) else {
+                return fed;
+            };
+            let mut next = *self;
+            let o = next.push(b);
+            let o = o.as_slice();
+            let Some(dst) = out.get_mut(fed.wrote..fed.wrote + o.len()) else {
+                return fed;
+            };
+            for (d, &s) in dst.iter_mut().zip(o) {
+                *d = s;
+            }
+            fed.wrote += o.len();
+            *self = next;
+            fed.read += 1;
+        }
+    }
+
+    /// **The chunk has ended**: a short final quantum's whole octets, unless
+    /// a stop already gave them, and the decoder ready for the next chunk,
+    /// which kitty decodes on its own.
+    pub fn end(&mut self) -> Octets {
+        let o = match self.chunk {
+            ChunkData::Open => self.short(),
+            ChunkData::Stopped => Octets::NONE,
+        };
+        *self = KittyBase64::NEW;
+        o
+    }
+
+    /// The held sextets' whole octets: none of one, one of two, two of
+    /// three, as libbase64 has written them by then.
+    fn short(&mut self) -> Octets {
+        let (word, count) = match self.held {
+            Held::Zero | Held::One => (0, OctetCount::Zero),
+            Held::Two => (self.acc << 12, OctetCount::One),
+            Held::Three => (self.acc << 6, OctetCount::Two),
+        };
+        self.acc = 0;
+        self.held = Held::Zero;
+        octets(word, count)
+    }
+}
+
 /// The top `count` octets of a 24-bit word.
 fn octets(word: u32, count: OctetCount) -> Octets {
     Octets {

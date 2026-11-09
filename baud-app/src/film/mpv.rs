@@ -9,7 +9,7 @@
 //! by [`capture`] with nothing of baud's.
 
 use super::*;
-use baud_domain::{Cols, ImageId, Rows};
+use baud_domain::{Cols, ImageId};
 use capture::{At, Pixels};
 
 pub(super) mod capture;
@@ -74,29 +74,6 @@ fn status_row(statuses: &[capture::Status], before: At, cols: Cols) -> String {
         }
     }
     row.into_iter().collect()
-}
-
-/// **Where a cut's text lands**: written from row 0, column 0 -- the
-/// status's `CR` -- wrapping at the last column and scrolling at the last
-/// row. Returns the rows it fills whole, as `(row, text)`, and for text
-/// that fits, how much of the screen read row after row it is the start
-/// of.
-fn landed(text: &str, cols: Cols, rows: Rows) -> (Vec<(usize, String)>, Option<String>) {
-    let (cols, rows) = (cols.index(), rows.index());
-    let chars: Vec<char> = text.chars().collect();
-    let lines: Vec<String> = chars.chunks(cols).map(|c| c.iter().collect()).collect();
-    match lines.len() <= rows {
-        true => (Vec::new(), Some(text.to_string())),
-        false => {
-            let last = &lines[lines.len() - rows..];
-            let full = last
-                .iter()
-                .enumerate()
-                .map(|(r, l)| (r, format!("{l:<cols$}")))
-                .collect();
-            (full, None)
-        }
-    }
 }
 
 /// How many pixels of the `w` by `h` region at `(x0, y0)` of a frame
@@ -188,10 +165,7 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
         period: Duration::from_millis(40),
         limit: Duration::from_secs(10),
     };
-    let (cols, nrows) = (
-        Cols::of_index(usize::from(f.grid.ws_col)),
-        Rows::of_index(usize::from(f.grid.ws_row)),
-    );
+    let cols = Cols::of_index(usize::from(f.grid.ws_col));
     let mut stage = Stage::new(&f);
     let m = stage.renderer.metrics();
     assert_eq!(
@@ -206,9 +180,24 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
     let fw = slots(gw);
     let mut frame = vec![0u32; fw * slots(gh)];
     let fw = Pixels(fw);
-    let first_cut = ups.iter().find_map(|u| u.cut.as_ref()).expect("a cut").at;
-    let statuses = capture::statuses(&bytes, first_cut);
+    // The status lines mpv wrote inside a chunk are its payload, kitty's
+    // reading (`find_st_terminator`), and draw nothing: row 0 is what the
+    // ones outside a chunk leave, at every upload.
+    let inside: Vec<At> = ups
+        .iter()
+        .filter_map(|u| u.cut.as_ref().map(|c| c.at))
+        .collect();
+    let statuses: Vec<capture::Status> = capture::statuses(&bytes, At(bytes.len()))
+        .into_iter()
+        .filter(|s| !inside.iter().any(|c| s.at.0 == c.0 + b"\x1b[1K\r".len()))
+        .collect();
+    assert_eq!(
+        capture::statuses(&bytes, At(bytes.len())).len() - statuses.len(),
+        inside.len(),
+        "the premise: each cut's status line is one the capture holds"
+    );
     let (mut fed, mut replies) = (At(0), Vec::new());
+    let mut before: Option<Vec<String>> = None;
     let (mut complete, mut cuts, mut tails, mut over_first) = (0usize, 0usize, 0usize, 0usize);
     let mut bright = 0usize;
     let mut shown: Option<&[u8]> = None;
@@ -248,43 +237,44 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
                 first.get_or_insert(rgb.as_slice());
                 shown = Some(rgb.as_slice());
             }
+            // **A cut upload is refused short, as kitty refuses it**: the
+            // status line and the base64 after it are the chunk's payload,
+            // its data ends at the status's `ESC`, and the upload comes up
+            // short at its `m=0`, "ENODATA", unsaid under `q=2`. Nothing is
+            // cancelled, nothing is printed, and no frame is made.
             (None, Some(c)) => {
                 cuts += 1;
                 assert_eq!(
                     counts.images, complete,
                     "upload {k}: a cut upload stored nothing"
                 );
-                assert_eq!(counts.cancelled, cuts, "upload {k}: the cancel is counted");
-                assert_eq!(
-                    (counts.refused, store.images_refused, store.refusals.empty),
-                    (cuts, cuts, cuts),
-                    "upload {k}: the chunks after the cut, refused as a command with no size"
-                );
+                assert_eq!(counts.cancelled, 0, "upload {k}: nothing cancelled");
+                assert_eq!(counts.refused, cuts, "upload {k}: refused short, once");
                 assert_eq!(
                     store.placements().count() + store.placements_expired,
                     complete,
                     "upload {k}: no placement made or deleted but by the scroll"
                 );
-                let text = format!("{}{}", c.status, c.rest);
-                match landed(&text, cols, nrows) {
-                    (_, Some(text)) => {
-                        let joined: String = screen.concat();
-                        assert_eq!(
-                            &joined[..text.len()],
-                            text,
-                            "upload {k}: the status and the chunk's rest, as text from row 0"
-                        );
-                    }
-                    (full, None) => {
-                        for (r, line) in full {
-                            assert_eq!(screen[r], line, "upload {k}: row {r} of the cut's text");
-                        }
-                    }
+                let rows_after = before.as_ref().map(|b| b[1..].to_vec());
+                assert_eq!(
+                    Some(screen[1..].to_vec()),
+                    rows_after,
+                    "upload {k}: the cut {:?} drew text",
+                    c.status
+                );
+                let joined: String = screen.concat();
+                for (what, text) in [("status", &c.status), ("base64", &c.rest)] {
+                    let head: String = text.chars().take(cols.index()).collect();
+                    assert!(
+                        head.len() > 8 && !joined.contains(&head),
+                        "upload {k}: the cut's {what} {head:?} drawn"
+                    );
                 }
             }
             _ => unreachable!("an upload has its RGB or its cut"),
         }
-        if up.end < first_cut {
+        before = Some(screen.clone());
+        {
             let want = status_row(&statuses, up.end, cols);
             let last = statuses.iter().rev().find(|s| s.at < up.end);
             if last.is_some_and(|s| want.trim_end().len() > s.text.len()) {
@@ -334,33 +324,31 @@ fn mpvs_kitty_video_draws_what_mpv_sent() {
         tails > 0,
         "the premise: a status line's tail survives an EL 1"
     );
+    // **The end of the stream is where kitty leaves it.** mpv's last write
+    // is `ESC _ G a = d ;` with no terminator, so the `?1003l` and
+    // `?1049l` after it are that command's payload, as kitty reads them
+    // (`mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does`): the
+    // alternate screen stays up and the `a=d` deletes nothing.
     feed_to(&mut term, &bytes, &mut fed, At(bytes.len()), &mut replies);
+    assert_eq!(
+        term.screen(),
+        baud_core::Screen::Alternate,
+        "the exit's ?1049l is payload"
+    );
     let store = term.images();
+    assert_eq!(
+        store.placements().count() + store.placements_expired,
+        complete,
+        "the open a=d deleted nothing"
+    );
     assert_eq!(
         term.kitty().images,
         complete,
         "a frame stored after the last"
     );
-    assert_eq!(
-        store.placements().count(),
-        0,
-        "a placement outlived the stream"
-    );
-    assert_eq!(
-        (
-            store.placements_expired,
-            store.images_dropped,
-            store.images_evicted
-        ),
-        (complete, ups.len(), 0),
-        "every frame expired with its rows, every reserve freed"
-    );
     stored.sort();
     stored.dedup();
     assert_eq!(stored.len(), complete, "one image a frame");
-    for id in stored {
-        assert!(store.image(id).is_none(), "image {id:?} is still live");
-    }
     assert!(
         replies.is_empty(),
         "answered {replies:?}: q=2, and no id to name"
@@ -444,7 +432,9 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
         "the premise: the quota deleted frames, {} of them",
         term.images().images_evicted
     );
-    assert_eq!(drawn, 12, "the premise: every upload but the last drawn");
+    // Every upload: the last one's status line no longer prints and
+    // scrolls the frames away, kitty's reading of a chunk it cuts.
+    assert_eq!(drawn, 13, "the premise: every upload drawn");
     assert_eq!(
         repeats,
         vec![1],
@@ -456,13 +446,23 @@ fn under_a_two_frame_quota_every_upload_shows_its_own_frame() {
 /// BEL-ended `OSC 133 ; A`, after the `OSC 133 ; D` of the command before
 /// it -- zsh's, baud's integration's, `ESC ] 133 ; A ; aid=PID BEL`
 /// (`baud-app/src/shell/zshenv.zsh`), and the container's bash's,
-/// `ESC ] 133 ; A ; BEL` (`nix/demo-container/profile`) -- and after the
-/// capture's quit, whose `a=d` the `ESC` of `ESC [ ? 25 h` cuts, either
-/// one, fed whole, finds the primary screen up, `?1049` off, and opens a
-/// prompt there. Then the case with no `ESC` after the quit's `a=d`, the
-/// capture cut there: the prompt's own first byte ends the open string, so
-/// the mark that follows is read as one, here on the alternate screen
-/// nothing has left. The control: a prompt with no mark opens none.
+/// `ESC ] 133 ; A ; BEL` (`nix/demo-container/profile`).
+///
+/// **After the capture's quit, mpv 0.41.0's, the terminal is where kitty
+/// leaves it**: its `ESC _ G a = d ;` has no terminator, and a kitty
+/// command ends only at `BEL` or `ESC \`, so `?25h`, `?1003l` and
+/// `?1049l` are its payload (`mpvs_unterminated_exit_leaves_the_modes_set_as_kitty_does`,
+/// `baud-core/tests/kitty_string_end.rs`), and so is the prompt's first
+/// mark up to its `BEL`, which ends it. The mark after it opens a prompt
+/// on the alternate screen, which nothing has left, and the primary opens
+/// none, whole and with the capture cut straight after the `a=d`. A moved
+/// pin: until kitty's reading, the `ESC` of `ESC [ ? 25 h` cancelled the
+/// `a=d`, so the primary came back and the first mark opened a prompt there.
+///
+/// **After the pinned mpv's quit**, 8e566099cb, which ends that `a=d`
+/// with `ESC \` (the stream below, the capture with that `ST` after its
+/// `a=d`), the restores run: the primary is up, `?1049` off, and either
+/// prompt opens there. The control: a prompt with no mark opens none.
 /// Perturbation: feed the shell's prompt as plain text and no prompt
 /// opens.
 #[test]
@@ -512,21 +512,28 @@ fn the_demos_prompts_after_mpvs_exit_are_bel_ended_osc_133_marks() {
         }
         (term.screen(), term.prompts_opened() != before, term.zone())
     };
+    let ended: &[&[u8]] = &[&bytes[..cut], b"\x1b\\", &bytes[cut..]];
     for prompt in [zsh, bash] {
+        for (what, exit) in [("whole", &bytes[..]), ("cut after its a=d", &bytes[..cut])] {
+            assert_eq!(
+                fed(&[exit, prompt]),
+                (baud_core::Screen::Alternate, false, baud_core::Zone::Prompt),
+                "after mpv 0.41.0's exit, {what}: {}",
+                String::from_utf8_lossy(prompt)
+            );
+        }
+        let mut parts = ended.to_vec();
+        parts.push(prompt);
         assert_eq!(
-            fed(&[&bytes, prompt]),
+            fed(&parts),
             (baud_core::Screen::Normal, true, baud_core::Zone::Prompt),
-            "after mpv's whole exit: {}",
-            String::from_utf8_lossy(prompt)
-        );
-        let (screen, _, zone) = fed(&[&bytes[..cut], prompt]);
-        assert_eq!(
-            (screen, zone),
-            (baud_core::Screen::Alternate, baud_core::Zone::Prompt),
-            "the string left open, then the prompt: {}",
+            "after the pinned mpv's exit: {}",
             String::from_utf8_lossy(prompt)
         );
     }
-    let (_, opened, _) = fed(&[&bytes, b"~/baud \xe2\x9d\xaf "]);
+    let mut plain = ended.to_vec();
+    plain.push(b"~/baud \xe2\x9d\xaf ");
+    let (screen, opened, _) = fed(&plain);
+    assert_eq!(screen, baud_core::Screen::Normal, "the control's premise");
     assert!(!opened, "the control: a prompt with no mark opens none");
 }

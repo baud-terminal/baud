@@ -97,7 +97,11 @@ fn logo() -> gif::Gif {
 }
 
 /// kitten's first four commands, each payload made from the GIF and held
-/// to the digest of the one kitten sent.
+/// to the digest of the one kitten sent, its base64 cut into chunks of
+/// 131,072 as kitten cuts it (`WriteWithPayloadTo`, `[[source:
+/// kitty-graphics-command]]`): the stored blocks make it about 1.9 MB,
+/// which as one chunk passes the 262,144-byte cap kitty drops a command
+/// at (`[[source: kitty-vt-parser-c]]`), and baud with it.
 fn first_four(g: &gif::Gif) -> Vec<u8> {
     let mut out = b"\r\x1b[15C".to_vec();
     let lines = STREAM.lines().filter(|l| !l.starts_with('#')).take(4);
@@ -121,8 +125,19 @@ fn first_four(g: &gif::Gif) -> Vec<u8> {
                 "{}",
                 w[0]
             );
-            out.push(b';');
-            out.extend_from_slice(&b64(&zlib_stored(&data)));
+            let enc = b64(&zlib_stored(&data));
+            let pieces: Vec<&[u8]> = enc.chunks(131_072).collect();
+            for (j, piece) in pieces.iter().enumerate() {
+                let more = u8::from(j + 1 < pieces.len());
+                match j {
+                    0 => out.extend_from_slice(format!(",m={more};").as_bytes()),
+                    _ => out.extend_from_slice(format!("\x1b_Gm={more};").as_bytes()),
+                }
+                out.extend_from_slice(piece);
+                if j + 1 < pieces.len() {
+                    out.extend_from_slice(b"\x1b\\");
+                }
+            }
         }
         out.extend_from_slice(b"\x1b\\");
     }
