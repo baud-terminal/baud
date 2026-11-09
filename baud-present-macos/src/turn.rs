@@ -32,7 +32,22 @@ use crate::unwind::{SiteName, guard};
 /// **Proof of a main-queue turn of its own.** Zero-sized, and made only
 /// here, by a turn [`soon`] or [`later`] scheduled; every desktop effect
 /// takes one.
-pub struct Turn<'t>(PhantomData<&'t mut ()>);
+///
+/// **Neither `Send` nor `Sync`**: the raw pointer in its marker keeps it on
+/// the main thread, so a thread started inside a turn -- a scoped one
+/// included, which could borrow it -- cannot take it there and make an
+/// effect off the main queue.
+///
+/// ```compile_fail,E0277
+/// fn sent<T: Send>() {}
+/// sent::<baud_present_macos::turn::Turn<'static>>();
+/// ```
+///
+/// ```compile_fail,E0277
+/// fn shared<T: Sync>() {}
+/// shared::<baud_present_macos::turn::Turn<'static>>();
+/// ```
+pub struct Turn<'t>(PhantomData<(&'t mut (), *const ())>);
 
 thread_local! {
     /// What [`soon`]'s turn runs, set once by [`install`].
