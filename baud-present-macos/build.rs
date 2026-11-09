@@ -16,6 +16,9 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=build");
     println!("cargo::rerun-if-changed=src/shaders.metal");
+    // A new SDK relinks the crate's tests, which make windows: Cargo does
+    // not fingerprint SDKROOT, which the linker reads (`baud-app/build.rs`).
+    println!("cargo::rerun-if-env-changed=SDKROOT");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let Some(render) = std::env::var_os("DEP_BAUD_RENDER_STRESS_OUT_DIR") else {
         println!("cargo::error=baud-render's build handed over no OUT_DIR");

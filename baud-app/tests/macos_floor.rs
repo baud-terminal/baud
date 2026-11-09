@@ -118,28 +118,36 @@ fn the_bundle_the_binary_and_the_shaders_name_one_floor() {
     );
 }
 
-/// **The installed app links an SDK of 26 or later**, as `cargo install`
-/// links Xcode's: AppKit lays the title bar out by the linked SDK, so an
-/// app linked against nixpkgs' default, 14.4, would draw the bar from
-/// before macOS 26 beside a clone's build that draws the new one. The
-/// flake gives its macOS build `darwinSdk`, and every SDK that names is 26
-/// or later; `checks.<darwin>.sdk` reads the built binary's
-/// `LC_BUILD_VERSION` back. Named break: leave `buildInputs` out, or name
+/// **The installed app and the dev shell link an SDK of 26 or later**, as
+/// `cargo install` links Xcode's: AppKit lays the title bar out by the
+/// linked SDK, so an app linked against nixpkgs' default, 14.4, would draw
+/// the bar from before macOS 26 beside a clone's build that draws the new
+/// one. The flake's macOS build and devenv's `apple.sdk` both take
+/// `nix/darwin-sdk.nix`, and every SDK it names is 26 or later;
+/// `checks.<darwin>.sdk` reads the built app's `LC_BUILD_VERSION` back, and
+/// [`this_binary_was_linked_against_an_sdk_of_26_or_later`] this test's.
+/// Named break: leave `buildInputs` or `apple.sdk` out, or name
 /// `apple-sdk_15`.
 #[test]
 fn the_installed_app_links_an_sdk_of_26_or_later() {
     let flake = read("flake.nix");
+    assert!(
+        flake.contains("darwinSdk = import ./nix/darwin-sdk.nix;"),
+        "the flake's darwinSdk is nix/darwin-sdk.nix"
+    );
     assert!(
         flake.contains(
             "buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (darwinSdk pkgs) ];"
         ),
         "the flake's macOS build takes darwinSdk"
     );
-    let def = flake
-        .find("darwinSdk =")
-        .expect("the flake defines darwinSdk");
-    let body = &flake[def..];
-    let body = &body[..body.find(';').expect("darwinSdk ends")];
+    assert!(
+        read("devenv.nix")
+            .contains("apple.sdk = if isDarwin then import ./nix/darwin-sdk.nix pkgs else null;"),
+        "the dev shell's apple.sdk is nix/darwin-sdk.nix"
+    );
+    let file = read("nix/darwin-sdk.nix");
+    let body = &file[file.find("pkgs:").expect("the file is a function of pkgs")..];
     let sdks: Vec<u32> = body
         .match_indices("apple-sdk_")
         .map(|(at, m)| {
@@ -151,17 +159,20 @@ fn the_installed_app_links_an_sdk_of_26_or_later() {
         })
         .collect();
     // The control: a definition naming no SDK would pass "every one" vacuously.
-    assert!(!sdks.is_empty(), "darwinSdk names an apple-sdk: {body}");
+    assert!(
+        !sdks.is_empty(),
+        "nix/darwin-sdk.nix names an apple-sdk: {body}"
+    );
     assert!(
         sdks.iter().all(|&major| major >= 26),
-        "darwinSdk names {sdks:?}, every one 26 or later"
+        "nix/darwin-sdk.nix names {sdks:?}, every one 26 or later"
     );
 }
 
-/// `LC_BUILD_VERSION`'s `minos`, packed `xxxx.yy.zz` in nibbles, from a thin
-/// 64-bit Mach-O.
+/// `LC_BUILD_VERSION`'s `minos` and `sdk`, each packed `xxxx.yy.zz` in
+/// nibbles, from a thin 64-bit Mach-O.
 #[cfg(target_os = "macos")]
-fn minos(bin: &[u8]) -> (u32, u32, u32) {
+fn build_version(bin: &[u8]) -> ((u32, u32, u32), (u32, u32, u32)) {
     const MH_MAGIC_64: u32 = 0xfeed_facf;
     const LC_BUILD_VERSION: u32 = 0x32;
     let word = |at: usize| u32::from_le_bytes(bin[at..at + 4].try_into().expect("four bytes"));
@@ -173,8 +184,8 @@ fn minos(bin: &[u8]) -> (u32, u32, u32) {
         let (cmd, size) = (word(at), word(at + 4) as usize);
         if cmd == LC_BUILD_VERSION {
             // build_version_command: cmd, cmdsize, platform, minos, sdk, ...
-            let v = word(at + 12);
-            return (v >> 16, (v >> 8) & 0xff, v & 0xff);
+            let unpack = |v: u32| (v >> 16, (v >> 8) & 0xff, v & 0xff);
+            return (unpack(word(at + 12)), unpack(word(at + 16)));
         }
         at += size;
     }
@@ -186,11 +197,30 @@ fn minos(bin: &[u8]) -> (u32, u32, u32) {
 fn this_binary_was_linked_for_the_floor() {
     let exe = std::env::current_exe().expect("this test's path");
     let bin = std::fs::read(&exe).expect("this test's bytes");
-    let (major, minor, patch) = minos(&bin);
+    let ((major, minor, patch), _) = build_version(&bin);
     assert_eq!(
         format!("{major}.{minor}"),
         FLOOR,
         "{} links at minos {major}.{minor}.{patch}",
+        exe.display()
+    );
+}
+
+/// **This binary was linked against an SDK of 26 or later**, as the
+/// installed app and a `cargo install` are: the dev shell's SDKROOT is the
+/// flake's `nix/darwin-sdk.nix`, and AppKit lays the title bar out by the
+/// linked SDK, so a build under nixpkgs' default 14.4 draws the bar from
+/// before macOS 26 and the window tests measure a layout no release has.
+/// Red in a shell whose SDKROOT is 14.4.
+#[cfg(target_os = "macos")]
+#[test]
+fn this_binary_was_linked_against_an_sdk_of_26_or_later() {
+    let exe = std::env::current_exe().expect("this test's path");
+    let bin = std::fs::read(&exe).expect("this test's bytes");
+    let (_, (major, minor, patch)) = build_version(&bin);
+    assert!(
+        major >= 26,
+        "{} was linked against SDK {major}.{minor}.{patch}",
         exe.display()
     );
 }

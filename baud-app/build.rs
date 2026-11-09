@@ -108,6 +108,13 @@ fn example() {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    // **A new SDK relinks the package.** The linker reads SDKROOT, and
+    // AppKit lays a window out by the SDK a binary was linked against, but
+    // Cargo fingerprints neither: a target built under one shell's SDK
+    // kept its binaries after the shell moved to another. Naming it here
+    // rebuilds this package, its tests included, when it changes;
+    // `tests/macos_floor.rs` reads the linked SDK back.
+    println!("cargo:rerun-if-env-changed=SDKROOT");
     example();
     let package = std::env::var("CARGO_PKG_VERSION").expect("cargo sets it");
     let (id, time) = identifier();

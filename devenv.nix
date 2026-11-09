@@ -64,6 +64,12 @@ in
     ./nix/rust.nix
   ];
 
+  # **The SDK the shell links against, 26 or later**: the flake's package's
+  # (`nix/darwin-sdk.nix`), in place of nixpkgs' default 14.4, so a build
+  # here draws the title bar the installed app and a `cargo install` draw.
+  # devenv sets SDKROOT and DEVELOPER_DIR from it.
+  apple.sdk = if isDarwin then import ./nix/darwin-sdk.nix pkgs else null;
+
   # Additional packages for development
   packages = [
     pkgs.git

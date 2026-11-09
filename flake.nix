@@ -68,12 +68,9 @@
 
       cargoToml = lib.importTOML ./Cargo.toml;
 
-      # The SDK baud links on macOS, 26 or later (see `buildInputs` below);
-      # a nixpkgs with none is refused rather than built against an older one.
-      darwinSdk =
-        pkgs:
-          pkgs.apple-sdk_27 or pkgs.apple-sdk_26
-            or (throw "baud links an apple-sdk of 26 or later, and this nixpkgs has none");
+      # The SDK baud links on macOS, 26 or later (see `buildInputs` below),
+      # the dev shell's too (`nix/darwin-sdk.nix`).
+      darwinSdk = import ./nix/darwin-sdk.nix;
 
       baud =
         pkgs:
