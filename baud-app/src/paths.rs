@@ -3875,17 +3875,28 @@ mod tests {
     /// row, and neither reaches a reveal or a window from a line `ssh`
     /// wrote. Named break: give a link read from the text no origin in
     /// `printed_origin` -- a plain link from `ssh` reveals, or opens its
-    /// window.
+    /// window. The rule is read under a `PATH` holding a stand-in `hx`, so
+    /// the test holds whether or not helix is installed.
     #[test]
     fn a_plain_file_uri_takes_its_origin_as_a_marked_one_does() {
         use crate::link::{Click, Refused};
+        use std::os::unix::fs::PermissionsExt as _;
+        let bin = std::env::temp_dir().join(format!("baud-paths-hx-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).expect("a folder");
+        let hx = bin.join("hx");
+        std::fs::write(&hx, "#!/bin/sh\n").expect("a program");
+        std::fs::set_permissions(&hx, std::fs::Permissions::from_mode(0o755)).expect("its mode");
+        let env = crate::config::ConfigEnv {
+            home: None,
+            path: Some(bin.clone().into_os_string()),
+        };
         let mut window = crate::config::Config::defaults();
-        assert!(
-            window
-                .apply("[link.file]\naction = \"window\"\ncommand = [\"hx\", \"{url}\"]\n")
-                .is_empty(),
-            "the rule reads"
+        let said = window.apply_in(
+            "[link.file]\naction = \"window\"\ncommand = [\"hx\", \"{url}\"]\n",
+            &env,
         );
+        let _ = std::fs::remove_dir_all(&bin);
+        assert_eq!(said, Vec::<String>::new(), "the rule reads");
         let hosts = ["", "localhost", HERE, "other.example"];
         let fronts = [Front::Local, Front::Elsewhere, Front::Multiplexer];
         for rules in [None, Some(window.link.rules.clone())] {
