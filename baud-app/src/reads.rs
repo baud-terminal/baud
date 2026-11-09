@@ -1073,4 +1073,97 @@ mod tests {
         assert_eq!(out, b"\x1b_Gi=7;OK\x1b\\");
         assert_eq!(decode_wait(DecodeProgress::Idle), None, "idle waits");
     }
+
+    /// **A kitty query is answered in the read that ends it**, never a
+    /// decode step or a read later: Chawan's `a=q` (RGBA, implied), kitten's
+    /// direct one (RGB) and a PNG one, each fed whole and then split at every
+    /// byte into two reads through [`paced`], as both drivers feed. Its `OK`
+    /// is in the sink of the call that carried the query's last byte, and in
+    /// no earlier one; the core's reply buffer and its decode are empty
+    /// after it, so nothing waits for [`decode_step`], which the macOS loop
+    /// takes only on the display link's tick. The control: a transmit of the
+    /// same PNG, `a=T`, owes its `OK` only after its decode steps, so the
+    /// check tells a reply that waits from one that does not.
+    #[test]
+    fn a_kitty_query_is_answered_in_the_read_that_ends_it() {
+        const PNG: &[u8] = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/png/rgba16-33x17-n.png"
+        ));
+        let with = |head: &str, payload: &[u8]| {
+            let mut c = head.as_bytes().to_vec();
+            c.extend(b64(payload));
+            c.extend_from_slice(b"\x1b\\");
+            c
+        };
+        let cases = [
+            ("Chawan's", with("\x1b_Gi=1,s=1,v=1,a=q;", &[0; 4]), "1"),
+            (
+                "kitten's",
+                with("\x1b_Ga=q,f=24,s=1,v=1,S=3,i=2;", b"123"),
+                "2",
+            ),
+            ("a PNG", with("\x1b_Ga=q,f=100,i=3;", PNG), "3"),
+        ];
+        let budget = baud_domain::ImageBudget::of(1 << 12);
+        // Each call's answers, one entry a call.
+        let calls = |t: &mut Term<'_>, reads: &[&[u8]]| -> Vec<Vec<u8>> {
+            let mut pace = Pace::new();
+            reads
+                .iter()
+                .map(|r| {
+                    let mut out = Vec::new();
+                    let _ = paced(
+                        t,
+                        &mut pace,
+                        Instant::now(),
+                        [*r],
+                        |b| out.extend_from_slice(b),
+                        |_| {},
+                        &mut crate::hostlog::NoLog,
+                    );
+                    out
+                })
+                .collect()
+        };
+        for (whose, q, id) in &cases {
+            let ok = format!("\x1b_Gi={id};OK\x1b\\").into_bytes();
+            for cut in 0..q.len() {
+                let mut owned = Owned::new(&WS).with_images(budget);
+                let mut t = Term::new(owned.storage(), &WS);
+                let (a, b) = q.split_at(cut);
+                let got = calls(&mut t, &[a, b]);
+                assert_eq!(got[0], b"", "{whose}, cut at {cut}: nothing before its end");
+                assert_eq!(
+                    got[1], ok,
+                    "{whose}, cut at {cut}: answered in the read ending it"
+                );
+                assert!(t.reply().is_empty(), "{whose}, cut at {cut}: nothing left");
+                assert_eq!(
+                    t.decode_step(baud_domain::DecodeBudget::ALL),
+                    DecodeProgress::Idle,
+                    "{whose}, cut at {cut}: no decode left to answer later"
+                );
+                assert!(
+                    t.reply().is_empty(),
+                    "{whose}, cut at {cut}: nor a step's reply"
+                );
+            }
+        }
+        // The control: a transmit's `OK` waits for its decode.
+        let mut owned = Owned::new(&WS).with_images(budget);
+        let mut t = Term::new(owned.storage(), &WS);
+        let sent = with("\x1b_Ga=T,f=100,i=4;", PNG);
+        let got = calls(&mut t, &[&sent]);
+        assert_eq!(
+            got[0], b"",
+            "the control: a transmit owes nothing at its read"
+        );
+        while decode_step(&mut t).0 == DecodeProgress::More {}
+        assert_eq!(
+            t.reply(),
+            b"\x1b_Gi=4;OK\x1b\\",
+            "the control: after its steps"
+        );
+    }
 }
