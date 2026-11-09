@@ -524,22 +524,27 @@ impl RowWatch {
     /// Screen row `y` now, the primary's top line at `top`, in the watch's
     /// numbering: the arm's row `y + r` with `r` lines retired since, and
     /// `y - b` with `b` taken back, as [`RowWatch::touched`] numbers it.
-    fn now(self, y: Row, top: LineIdx) -> Rows {
-        let at = self.base.index() + y.index();
-        Rows::of_count(match self.net(top) {
-            Moved::Retired(r) => at + r.index(),
-            Moved::Restored(b) => at.saturating_sub(b.index()),
-        })
+    /// `None` where the lines taken back put the row below the numbering's
+    /// zero, which [`RowWatch::lift`] keeps from happening: a caller answers
+    /// that the watch was reached, never another row. Held at zero, it
+    /// once put a selection on a blank row.
+    fn now(self, y: Row, top: LineIdx) -> Option<Rows> {
+        let at = Rows::of_count(self.base.index() + y.index());
+        match self.net(top) {
+            Moved::Retired(r) => Some(Rows::of_count(at.index() + r.index())),
+            Moved::Restored(b) => at.minus(b),
+        }
     }
 
     /// The watch's number `n` as a line of the live surface now: a screen
-    /// row, or a line of the history above it.
-    fn surface(self, n: Rows, top: LineIdx) -> SurfaceLine {
-        let row0 = self.now(Row::ZERO, top);
-        match n.index().checked_sub(row0.index()) {
-            Some(y) => SurfaceLine::At(Row::from_index(y)),
+    /// row, or a line of the history above it; `None` where row 0 has no
+    /// number ([`RowWatch::now`]).
+    fn surface(self, n: Rows, top: LineIdx) -> Option<SurfaceLine> {
+        let row0 = self.now(Row::ZERO, top)?;
+        Some(match n.minus(row0) {
+            Some(y) => SurfaceLine::At(Row::from_index(y.index())),
             None => SurfaceLine::Above(Rows::of_count(row0.index() - n.index())),
-        }
+        })
     }
 
     /// **Every number of the watch moved up `d`**, which moves no line: a
@@ -560,18 +565,21 @@ impl RowWatch {
         );
     }
 
-    /// The watched lines carried `k` rows `way` with their text.
-    fn carry(&mut self, k: Rows, way: crate::ops::Scroll) {
+    /// The watched lines carried `k` rows `way` with their text; `None`,
+    /// and nothing carried, where a number would go below zero, which the
+    /// lift before a carry up keeps from happening ([`RowWatch::now`]).
+    fn carry(&mut self, k: Rows, way: crate::ops::Scroll) -> Option<()> {
         let low = self.first.min(self.carried);
         if matches!(way, crate::ops::Scroll::Up) && low < k {
             self.lift(Rows::of_count(k.index() - low.index()));
         }
         let step = |n: Rows| match way {
-            crate::ops::Scroll::Up => Rows::of_count(n.index().saturating_sub(k.index())),
-            crate::ops::Scroll::Down => Rows::of_count(n.index() + k.index()),
+            crate::ops::Scroll::Up => n.minus(k),
+            crate::ops::Scroll::Down => Some(Rows::of_count(n.index() + k.index())),
         };
         (self.first, self.last, self.carried) =
-            (step(self.first), step(self.last), step(self.carried));
+            (step(self.first)?, step(self.last)?, step(self.carried)?);
+        Some(())
     }
 
     /// **Rows `from` to `to`, full width, moved `k` rows `way` in place**,
@@ -589,14 +597,18 @@ impl RowWatch {
         way: crate::ops::Scroll,
         top: LineIdx,
     ) -> Stays {
-        let (a, b) = (self.now(from, top), self.now(to, top));
+        let (Some(a), Some(b)) = (self.now(from, top), self.now(to, top)) else {
+            return Stays::Nothing;
+        };
         if self.last < a || self.first > b {
             return Stays::Whole;
         }
         let was = (self.first, self.last);
         (self.first, self.last) = (self.first.max(a), self.last.min(b));
         let straddled = (self.first, self.last) != was;
-        self.carry(k, way);
+        if self.carry(k, way).is_none() {
+            return Stays::Nothing;
+        }
         match way {
             crate::ops::Scroll::Up if self.last < a => Stays::Nothing,
             crate::ops::Scroll::Down if self.first > b => Stays::Nothing,
@@ -623,11 +635,14 @@ impl RowWatch {
     }
 
     /// `line` in the watch's numbering, before the movement since the arm.
+    /// A line of the history further above row 0 than the numbering reaches
+    /// is numbered as the oldest it does, zero: [`Term::watch_lines`]
+    /// numbers a line above the live ring's length so.
     fn number(self, line: SurfaceLine) -> Rows {
-        Rows::of_count(match line {
-            SurfaceLine::At(y) => self.base.index() + y.index(),
-            SurfaceLine::Above(n) => self.base.index().saturating_sub(n.index()),
-        })
+        match line {
+            SurfaceLine::At(y) => Rows::of_count(self.base.index() + y.index()),
+            SurfaceLine::Above(n) => self.base.minus(n).unwrap_or(Rows::ZERO),
+        }
     }
 
     /// Whether the lines `from` to `to` of the live surface, the primary's
@@ -1941,7 +1956,10 @@ impl Cold {
             return;
         }
         let w = &mut self.row_watch;
-        let row = w.now(at, top);
+        let Some(row) = w.now(at, top) else {
+            self.watched = Watched::Changed;
+            return;
+        };
         let reached = w.first <= row && row <= w.last;
         if reached || w.band(at, bot, k, crate::ops::Scroll::Down, top) == Stays::Nothing {
             self.watched = Watched::Changed;
@@ -1959,7 +1977,10 @@ impl Cold {
         }
         let w = &mut self.row_watch;
         let gone = Row::from_index(at.index() + k.index().saturating_sub(1));
-        let (a, b) = (w.now(at, top), w.now(gone, top));
+        let (Some(a), Some(b)) = (w.now(at, top), w.now(gone, top)) else {
+            self.watched = Watched::Changed;
+            return;
+        };
         let reached = w.first <= b && a <= w.last;
         if reached || w.band(at, bot, k, crate::ops::Scroll::Up, top) == Stays::Nothing {
             self.watched = Watched::Changed;
@@ -1978,9 +1999,14 @@ impl Cold {
         }
         let disowns = self.disowns_on_trim();
         let w = &mut self.row_watch;
-        let edge = w.now(bot, top);
+        let Some(edge) = w.now(bot, top) else {
+            self.watched = Watched::Changed;
+            return;
+        };
         if w.first > edge {
-            w.carry(k, crate::ops::Scroll::Down);
+            if w.carry(k, crate::ops::Scroll::Down).is_none() {
+                self.watched = Watched::Changed;
+            }
         } else if w.last > edge {
             match disowns {
                 true => self.watched = Watched::Changed,
@@ -2000,7 +2026,10 @@ impl Cold {
         }
         let disowns = self.disowns_on_trim();
         let w = &mut self.row_watch;
-        let u = w.now(under, top);
+        let Some(u) = w.now(under, top) else {
+            self.watched = Watched::Changed;
+            return;
+        };
         match u.index().checked_sub(1) {
             Some(_) if w.last < u => {}
             Some(above) if w.first < u && !disowns => w.last = Rows::of_count(above),
@@ -2060,7 +2089,10 @@ impl Cold {
         match way {
             crate::ops::Scroll::Up => {
                 w.ahead = Rows::of_count(w.ahead.index() + 1);
-                let row0 = w.now(Row::ZERO, top);
+                let Some(row0) = w.now(Row::ZERO, top) else {
+                    self.watched = Watched::Changed;
+                    return;
+                };
                 match (w.last < row0, w.first < row0 && disowns) {
                     (true, _) | (_, true) => self.watched = Watched::Changed,
                     _ => w.first = w.first.max(row0),
@@ -5626,14 +5658,16 @@ impl<'b> Term<'b> {
     /// screen. `None` when the watch was armed on none, or a line it names
     /// has been reached ([`Term::watched_rows_changed`]). A line of the
     /// selection that no trim reached is now `moved` from where the count
-    /// alone puts it; one outside `first` to `last` is gone.
+    /// alone puts it; one outside `first` to `last` is gone. `None` too
+    /// where the watch's numbering cannot place its lines, which its lift
+    /// keeps from happening: no answer rather than another row.
     pub fn watched_lines(&self) -> Option<WatchedLines> {
         match self.cold.watched {
             Watched::Rows => {
                 let (w, top) = (self.cold.row_watch, self.store.book.top);
                 Some(WatchedLines {
-                    first: w.surface(w.first, top),
-                    last: w.surface(w.last, top),
+                    first: w.surface(w.first, top)?,
+                    last: w.surface(w.last, top)?,
                     moved: match w.carried.index().checked_sub(w.base.index()) {
                         Some(d) => TextMoved::Down(Rows::of_count(d)),
                         None => TextMoved::Up(Rows::of_count(w.base.index() - w.carried.index())),
@@ -7298,5 +7332,35 @@ impl Term<'_> {
     /// so an embedder owes a frame after a key, not after the next read.
     pub fn local_echo(&self) -> bool {
         !self.cold.modes.is_set(ModeBit::SendReceive)
+    }
+}
+
+#[cfg(test)]
+mod row_watch_numbers {
+    use super::*;
+
+    /// **A row below the watch's numbering has no number, and says so**:
+    /// armed with row 0 numbered two, two lines taken back put row 0 at
+    /// zero, and a third has no number for it -- where a minus held at zero
+    /// answered zero, and put a selection on another row -- while row 1 is
+    /// at zero. A line of the watch is then nowhere, not a row. Red against
+    /// a `now` that holds the row at zero.
+    #[test]
+    fn a_row_below_the_numberings_zero_has_no_number() {
+        let top = LineIdx::FIRST.plus(Rows::of_count(3));
+        let w = RowWatch {
+            base: Rows::of_count(2),
+            top,
+            ..RowWatch::IDLE
+        };
+        let back = |b: usize| top.minus(Rows::of_count(b)).expect("a line");
+        assert_eq!(w.now(Row::ZERO, back(2)), Some(Rows::ZERO));
+        assert_eq!(w.now(Row::ZERO, back(3)), None);
+        assert_eq!(w.now(Row::from_index(1), back(3)), Some(Rows::ZERO));
+        assert_eq!(w.surface(Rows::of_count(2), back(3)), None);
+        assert_eq!(
+            w.surface(Rows::of_count(2), back(2)),
+            Some(SurfaceLine::At(Row::from_index(2)))
+        );
     }
 }

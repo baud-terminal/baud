@@ -682,6 +682,12 @@ impl Rows {
     pub fn clamp(self, max: usize) -> Rows {
         Rows(self.0.min(max).max(1))
     }
+    /// `n` rows fewer, or `None` below none: the caller says what a count
+    /// that would go below zero means, where a saturating minus answers
+    /// zero for it.
+    pub fn minus(self, n: Rows) -> Option<Rows> {
+        self.0.checked_sub(n.0).map(Rows)
+    }
 }
 
 impl Col {
