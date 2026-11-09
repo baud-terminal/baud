@@ -73,7 +73,7 @@ emoji, scrolling, the screen transition, the exit-status marks, the glass's
 dim, tint and shadow, `[text] ambiguous_width` and `join_spacing_marks`,
 and what programs may do
 (`[window]`, `[font]`, `[clipboard] osc52` and `copy_on_select`,
-`[message]` and `[message.copy]`, `[link]`,
+`[message]`, `[message.copy]` and `[message.held]`, `[link]`,
 `[launch] splash` turned off while the logo shows,
 `[screen]`'s logging, checksum, substitute mark, notifications and print
 choices, `[pointer]`), and `[images] animation`.
@@ -256,6 +256,15 @@ What baud says when something is copied: "Copied 42 characters", or "A program c
 | `enable` | `"on"`, `"off"` | `"on"` | Whether a copy is said at all. `"off"` stops the words, the pulse and VoiceOver's announcement. |
 | `place` | `"tip"`, `"bar"` | `"tip"` | Where a copy of your selection is said: `"tip"` on the row under the selection, above it on the last row, and `"bar"` at the bottom of the window, where a link's address shows. A program's copy has no selection, and always goes at the bottom. |
 | `pulse` | `"off"`, `"on"` | `"off"` | Whether your selection takes the box's colours for 150 ms when it is copied. It does not run under Reduce Motion or Dim Flashing Lights, with both colours `"none"`, or more often than the bell's limit on flashes allows; the words show either way. |
+
+## [message.held]
+
+The line a link's window shows when the program it opened fails at once, such as "hx stopped with error 1. Press any key to close.", which keeps the window open until a key closes it. Either look is drawn over the window, never written into it, so a copy of the window's text is the program's alone.
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `look` | `"box"`, `"plain"` | `"box"` | How the line is drawn: `"box"` in `[message]`'s `box_color` and `text_color`, like every message of baud's; `"plain"` like the program's own text, in the window's colours, from the left edge. |
+| `place` | `"tip"`, `"bar"` | `"tip"` | Where it goes: `"tip"` on the row below the blank one under what the program printed, moving with it as you scroll back; `"bar"` at the bottom of the window, where a link's address shows. While Cmd (Ctrl on Linux) shows a link's address there, the address keeps its place and the line comes back after. |
 
 ## [link]
 

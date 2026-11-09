@@ -2375,6 +2375,8 @@ impl App {
                 self.term.window_back(),
                 cols,
                 rows,
+                self.copied.message().held,
+                preview,
             ),
         };
         match (signal.look, held) {
@@ -8557,6 +8559,11 @@ mod drag_tests {
         for want in [
             concat!("crate::held::", "on_view("),
             concat!("crate::held::", "with_line("),
+            concat!("self.copied.message()", ".held,"),
+            concat!(
+                "self.copied.message().held,\n",
+                "                preview,\n"
+            ),
         ] {
             assert!(SRC.contains(want), "macOS: {want}");
             assert!(LINUX.contains(want), "Linux: {want}");

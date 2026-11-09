@@ -597,6 +597,17 @@
 # Never under Reduce Motion or Dim Flashing Lights, or with both colours "none".
 # pulse = "off"
 
+# [message.held]
+#
+# How the line a link's window shows when its program fails at once is drawn:
+# "box", in [message]'s box_color and text_color like every message of baud's;
+# or "plain", like the program's text.
+# look = "box"
+#
+# Where it goes: "tip", the row below the blank one under what the program
+# printed; or "bar", the bottom of the window, where a link's address shows.
+# place = "tip"
+
 # How links show. A web, mail or file link is underlined as it appears, whether
 # a program marks it or prints the address as plain text. Cmd-click (Ctrl-click
 # on Linux) opens it and a plain click selects, whatever these say.

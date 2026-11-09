@@ -25,6 +25,14 @@
 //! functions: [`written`] moves the cursor to the line's row, and [`look`]
 //! draws the box there. Writing the line into the cells instead is
 //! [`written`] carrying the text and [`look`] giving none.
+//!
+//! **`[message.held]` changes both** ([`crate::config::MessageHeld`]): its
+//! `look` draws the line as the program's own text instead, in the colours
+//! of the cells under it and from the left edge, still never in a cell; its
+//! `place` puts it on the window's bottom line, where `[message.copy] place
+//! = "bar"` puts a copy's words -- and, as a copy's words do, it gives that
+//! line to a link's address while the preview shows one, since the tip slot
+//! is drawn over the preview's bar and would cover where the link goes.
 #![forbid(unsafe_code)]
 
 use baud_domain::{Cols, Row, Rows};
@@ -215,25 +223,106 @@ pub fn written() -> &'static [u8] {
     b"\x1b[!p\x1b[?25l\r\n"
 }
 
-/// **A held window's line as the frame draws it**: in baud's message box,
-/// from the left edge of `row`, the cursor's row once [`written`] has
-/// moved it, on a main display `cols` by `rows`.
-pub fn look(line: &str, row: Row, cols: Cols, rows: Rows) -> Option<baud_render::TipLook> {
-    baud_render::message_look(line, cols, rows, baud_render::MessageAt::Row(row))
+/// **A held window's line as the frame draws it**, on a main display `cols`
+/// by `rows`, as `held` says: from the left edge of `row`, the cursor's row
+/// once [`written`] has moved it, or on the bottom line; in baud's message
+/// box, or as the program's own text ([`plain`]).
+pub fn look(
+    line: &str,
+    row: Row,
+    cols: Cols,
+    rows: Rows,
+    held: crate::config::MessageHeld,
+) -> Option<baud_render::TipLook> {
+    use crate::config::{HeldLook, HeldPlace};
+    use baud_render::MessageAt;
+    let at = match held.place {
+        HeldPlace::Tip => MessageAt::Row(row),
+        HeldPlace::Bar => MessageAt::Bar,
+    };
+    match held.look {
+        HeldLook::Box => baud_render::message_look(line, cols, rows, at),
+        HeldLook::Plain => plain(line, at, cols, rows),
+    }
 }
 
-/// **[`look`] on the view as it is scrolled**: the live screen's `row`
-/// shown `back` rows down while the window looks back through the history,
-/// and no line once that row is below the view.
+/// **The line as the program's own text**: wrapped at the window's width as
+/// the terminal wraps a line written to it, from the left edge, each
+/// character in the rendition of the cell under it -- no hints, so neither
+/// the message pair nor the selection's colours -- and no space either
+/// side. Placed as [`baud_render::message_look`] places a message: on `at`'s
+/// row moved up as far as its lines need, or on the last rows for the bar;
+/// with too few rows the first lines that fit, and none with no room.
+fn plain(
+    line: &str,
+    at: baud_render::MessageAt,
+    cols: Cols,
+    rows: Rows,
+) -> Option<baud_render::TipLook> {
+    use baud_domain::{Codepoint, Col};
+    let (cols, rows) = (cols.index(), rows.index());
+    if cols == 0 || rows == 0 {
+        return None;
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let lines: Vec<&[char]> = chars.chunks(cols).collect();
+    let n = lines.len();
+    if n == 0 {
+        return None;
+    }
+    let top = match at {
+        baud_render::MessageAt::Row(r) => r.index(),
+        _ => rows.saturating_sub(n),
+    }
+    .min(rows.saturating_sub(n));
+    let shown = n.min(rows - top);
+    let width = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    let fields = lines[..shown]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| baud_render::Field {
+            row: Row::from_index(top + i),
+            col: Col::ZERO,
+            text: l.iter().map(|&c| Codepoint::from_char(c)).collect(),
+            hints: vec![baud_render::Hints::NONE; l.len()],
+            caret: Col::at_index(l.len()),
+        })
+        .collect();
+    Some(baud_render::TipLook {
+        lines: fields,
+        area: baud_render::TipArea {
+            top: Row::from_index(top),
+            bottom: Row::from_index(top + shown),
+            left: Col::ZERO,
+            right: Col::at_index(width),
+        },
+    })
+}
+
+/// **[`look`] on the view as it is scrolled**: at its tip, the live
+/// screen's `row` shown `back` rows down while the window looks back
+/// through the history, and no line once that row is below the view; in the
+/// bar, the bottom line however the view is scrolled, and none while the
+/// link preview is up (`preview`), which keeps that line for the address.
 pub fn on_view(
     line: &str,
     row: Row,
     back: Rows,
     cols: Cols,
     rows: Rows,
+    held: crate::config::MessageHeld,
+    preview: crate::copied::Preview,
 ) -> Option<baud_render::TipLook> {
     let at = row.index() + back.index();
-    (at < rows.index()).then(|| look(line, Row::from_index(at), cols, rows))?
+    match held.place {
+        crate::config::HeldPlace::Bar => match preview {
+            crate::copied::Preview::Up => None,
+            crate::copied::Preview::None => look(line, row, cols, rows, held),
+        },
+        crate::config::HeldPlace::Tip => {
+            (at < rows.index()).then(|| look(line, Row::from_index(at), cols, rows, held))?
+        }
+    }
 }
 
 /// **Whether a key closes a held window**: any key but a modifier's own,
@@ -293,6 +382,13 @@ mod tests {
     }
     /// `SIGSEGV`: 11 on Darwin and on Linux, the two this test runs on.
     const SIGSEGV: i32 = 11;
+    /// No link preview on screen.
+    const NO_PREVIEW: crate::copied::Preview = crate::copied::Preview::None;
+    /// `[message.held]` at its defaults: the box, at the tip.
+    const BOX_TIP: crate::config::MessageHeld = crate::config::MessageHeld {
+        look: crate::config::HeldLook::Box,
+        place: crate::config::HeldPlace::Tip,
+    };
 
     /// **Status 0 closes the window, however soon.** Named break: hold on
     /// 0 -- a program that did its job leaves its window open.
@@ -491,7 +587,7 @@ mod tests {
         assert!(!t.cursor_visible(), "the cursor is hidden");
         let line = "hx stopped with error 1. Press any key to close.";
         let (cols, n) = t.geometry();
-        let shown = look(line, row, cols, n).expect("room");
+        let shown = look(line, row, cols, n, BOX_TIP).expect("room");
         assert_eq!(shown.lines.len(), 1);
         let field = &shown.lines[0];
         assert_eq!((field.row, field.col), (row, Col::ZERO));
@@ -523,7 +619,16 @@ mod tests {
                 0 => Rows::ZERO,
                 n => Rows::of_index(n),
             };
-            on_view("x", Row::from_index(4), back, cols, rows).map(|l| l.lines[0].row.index())
+            on_view(
+                "x",
+                Row::from_index(4),
+                back,
+                cols,
+                rows,
+                BOX_TIP,
+                NO_PREVIEW,
+            )
+            .map(|l| l.lines[0].row.index())
         };
         assert_eq!(at(0), Some(4));
         assert_eq!(at(3), Some(7));
@@ -586,7 +691,16 @@ mod tests {
             );
             feed(&mut t, written());
             let (cols, rows) = t.geometry();
-            let look = on_view(line, t.cursor().0, t.window_back(), cols, rows).expect("room");
+            let look = on_view(
+                line,
+                t.cursor().0,
+                t.window_back(),
+                cols,
+                rows,
+                BOX_TIP,
+                NO_PREVIEW,
+            )
+            .expect("room");
             let mut r = Renderer::new(
                 Stack::new(&faces).expect("a stack"),
                 PxSize::of(14.0).expect("a size"),
@@ -672,12 +786,222 @@ mod tests {
             rows,
             baud_render::MessageAt::Bar,
         );
-        let line = look("x", Row::from_index(4), cols, rows);
+        let line = look("x", Row::from_index(4), cols, rows, BOX_TIP);
         let both = with_line(words.clone(), line.clone()).expect("both");
         assert_eq!(both.lines.len(), 2);
         assert_eq!(both.lines[0], words.clone().expect("words").lines[0]);
         assert_eq!(both.lines[1], line.clone().expect("line").lines[0]);
         assert_eq!(with_line(None, line.clone()), line);
         assert_eq!(with_line(words.clone(), None), words);
+    }
+
+    /// **The line takes `[message.held]`'s look and place**: `"box"` in
+    /// the message pair with a space either side, `"plain"` the line alone
+    /// with no hints, so the cells' own colours; `"tip"` on the row below
+    /// the blank one, following the view back through the history and gone
+    /// once its row is below the view, and `"bar"` on the bottom line
+    /// however far the view is scrolled, and gone while a link's preview
+    /// shows its address there, as a copy's words go, the tip staying; and a
+    /// plain line wraps at the width as a written line does, moved up from
+    /// the last row as far as its lines need. Named breaks: draw `"plain"`
+    /// in the box; put `"bar"` at the tip's row; take the bar off the view
+    /// with the tip's row; draw the bar over the preview's address.
+    #[test]
+    fn the_held_line_takes_its_look_and_its_place() {
+        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use baud_domain::Col;
+        let (cols, rows) = (Cols::of_index(80), Rows::of_index(24));
+        let line = "hx stopped with error 1. Press any key to close.";
+        let text = |f: &baud_render::Field| -> String {
+            f.text
+                .iter()
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect()
+        };
+        let held = |look, place| MessageHeld { look, place };
+        let row = Row::from_index(4);
+        for (look_is, hints, shown) in [
+            (
+                HeldLook::Box,
+                baud_render::Hints::MESSAGE,
+                format!(" {line} "),
+            ),
+            (HeldLook::Plain, baud_render::Hints::NONE, line.to_string()),
+        ] {
+            for (place, at) in [(HeldPlace::Tip, 4), (HeldPlace::Bar, 23)] {
+                let l = look(line, row, cols, rows, held(look_is, place)).expect("room");
+                assert_eq!(l.lines.len(), 1, "{look_is:?} {place:?}");
+                let f = &l.lines[0];
+                assert_eq!(
+                    (f.row.index(), f.col),
+                    (at, Col::ZERO),
+                    "{look_is:?} {place:?}"
+                );
+                assert!(
+                    f.hints.iter().all(|h| *h == hints),
+                    "{look_is:?} {place:?}: {:?}",
+                    f.hints
+                );
+                assert_eq!(text(f), shown, "{look_is:?} {place:?}");
+                let back = on_view(
+                    line,
+                    row,
+                    Rows::of_index(3),
+                    cols,
+                    rows,
+                    held(look_is, place),
+                    NO_PREVIEW,
+                )
+                .expect("on the view");
+                let want = match place {
+                    HeldPlace::Tip => 7,
+                    HeldPlace::Bar => 23,
+                };
+                assert_eq!(back.lines[0].row.index(), want, "{look_is:?} {place:?}");
+                let far = on_view(
+                    line,
+                    row,
+                    Rows::of_index(20),
+                    cols,
+                    rows,
+                    held(look_is, place),
+                    NO_PREVIEW,
+                )
+                .map(|l| l.lines[0].row.index());
+                let want = match place {
+                    HeldPlace::Tip => None,
+                    HeldPlace::Bar => Some(23),
+                };
+                assert_eq!(far, want, "{look_is:?} {place:?}: scrolled back 20");
+                let under = on_view(
+                    line,
+                    row,
+                    Rows::ZERO,
+                    cols,
+                    rows,
+                    held(look_is, place),
+                    crate::copied::Preview::Up,
+                )
+                .map(|l| l.lines[0].row.index());
+                let want = match place {
+                    HeldPlace::Tip => Some(4),
+                    HeldPlace::Bar => None,
+                };
+                assert_eq!(under, want, "{look_is:?} {place:?}: under a link's preview");
+            }
+        }
+        let narrow = Cols::of_index(20);
+        let wrapped = look(
+            line,
+            Row::from_index(23),
+            narrow,
+            rows,
+            held(HeldLook::Plain, HeldPlace::Tip),
+        )
+        .expect("room");
+        let chars: Vec<char> = line.chars().collect();
+        let want: Vec<(usize, String)> = chars
+            .chunks(20)
+            .enumerate()
+            .map(|(i, c)| (24 - chars.len().div_ceil(20) + i, c.iter().collect()))
+            .collect();
+        let got: Vec<(usize, String)> = wrapped
+            .lines
+            .iter()
+            .map(|f| (f.row.index(), text(f)))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    /// **`"plain"` draws exactly what the line written into the cells
+    /// drew**, as the hold first wrote it: on the CPU path, on the dark page
+    /// and the light one, the line's row of a window holding the plain line
+    /// over its blank cells is, pixel for pixel, that row of one where the
+    /// line was written into the cells after [`written`]'s DECSTR -- and the
+    /// first window's cells on that row stay blank, so a copy of its text is
+    /// the program's alone. Named breaks: build the plain line in the
+    /// message pair, or in the selection's colours.
+    #[test]
+    fn a_plain_held_line_draws_as_the_line_written_into_the_cells() {
+        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use baud_core::{BytePos, Owned, ReadLen, Term};
+        use baud_domain::WinSize;
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+        let ws = WinSize {
+            ws_col: 64,
+            ws_row: 8,
+        };
+        let line = "hx stopped with error 1. Press any key to close.";
+        let plain = MessageHeld {
+            look: HeldLook::Plain,
+            place: HeldPlace::Tip,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        };
+        for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+            let draw = |into_cells: bool| -> (Vec<u32>, usize, usize, usize) {
+                let mut store = Owned::new(&ws);
+                let mut t = Term::new(store.storage(), &ws);
+                feed(
+                    &mut t,
+                    b" missing.md\r\n\x1b[7mhx: missing.md: No such file\r\n",
+                );
+                feed(&mut t, written());
+                let (row, _) = t.cursor();
+                let (cols, rows) = t.geometry();
+                let tip = match into_cells {
+                    true => {
+                        feed(&mut t, line.as_bytes());
+                        None
+                    }
+                    false => on_view(line, row, t.window_back(), cols, rows, plain, NO_PREVIEW),
+                };
+                if !into_cells {
+                    let screen = crate::programs::screen(&t);
+                    assert_eq!(screen[row.index()], "", "{name}: nothing in a cell");
+                }
+                let mut r = Renderer::new(
+                    Stack::new(&faces).expect("a stack"),
+                    PxSize::of(14.0).expect("a size"),
+                    theme.clone(),
+                    Blend::Native,
+                    cols,
+                    rows,
+                )
+                .expect("cell metrics");
+                r.fit(&t);
+                r.set_tip(tip);
+                let (w, h) = r.pixel_size();
+                let wu = usize::try_from(w.value()).expect("a width");
+                let hu = usize::try_from(h.value()).expect("a height");
+                let mut px = vec![0u32; wu * hu];
+                {
+                    let mut target = Target::new(&mut px, w, w, h).expect("a target");
+                    r.render(&mut t, &mut target, Damage::Full);
+                }
+                let ch = usize::try_from(r.metrics().cell_h.value()).expect("a cell");
+                (px, wu, ch, row.index())
+            };
+            let (overlay, wu, ch, row) = draw(false);
+            let (cells, _, _, _) = draw(true);
+            let band = row * ch * wu..(row + 1) * ch * wu;
+            let differ = overlay[band.clone()]
+                .iter()
+                .zip(&cells[band.clone()])
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                differ, 0,
+                "{name}: {differ} pixels differ on the line's row"
+            );
+            let page = cells[band.start];
+            assert!(
+                cells[band].iter().any(|&p| p != page),
+                "{name}: the control, the written line draws ink"
+            );
+        }
     }
 }

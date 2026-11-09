@@ -3623,6 +3623,8 @@ impl Driver {
                 self.term.window_back(),
                 cols,
                 rows,
+                self.copied.message().held,
+                preview,
             ),
         };
         match (signal.look, held) {

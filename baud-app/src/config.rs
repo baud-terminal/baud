@@ -538,7 +538,7 @@ pub struct Config {
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
     pub clipboard: Clipboard,
-    /// `[message]` and `[message.copy]`.
+    /// `[message]`, `[message.copy]` and `[message.held]`.
     pub message: Message,
     /// `[link]`.
     pub link: Link,
@@ -625,12 +625,41 @@ pub struct MessageCopy {
     pub pulse: CopyPulse,
 }
 
-/// `[message]` and `[message.copy]`: baud's short messages, drawn in a pair
-/// a program cannot change (`baud_render::message`).
+/// `[message.held] look`: how a held window's line is drawn (`held.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HeldLook {
+    /// In `[message]`'s box, as every message of baud's is.
+    #[default]
+    Box,
+    /// As the program's own text: the cells' colours, from the left edge.
+    Plain,
+}
+
+/// `[message.held] place`: where a held window's line goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HeldPlace {
+    /// The row below the blank one under what the program printed.
+    #[default]
+    Tip,
+    /// The window's bottom line, as `[message.copy] place = "bar"`.
+    Bar,
+}
+
+/// `[message.held]`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct MessageHeld {
+    pub look: HeldLook,
+    pub place: HeldPlace,
+}
+
+/// `[message]`, `[message.copy]` and `[message.held]`: baud's short
+/// messages, drawn in a pair a program cannot change
+/// (`baud_render::message`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Message {
     pub colours: baud_render::MessageColours,
     pub copy: MessageCopy,
+    pub held: MessageHeld,
 }
 
 /// `[link] urls`: whether a link is shown with no modifier. Off skips the scan
@@ -2611,6 +2640,37 @@ impl Config {
                 ("message.copy", other) => {
                     said.push(format!(
                         "config: [message.copy] has no key {other:?}; it is ignored"
+                    ));
+                }
+                ("message.held", "look") => {
+                    self.message.held.look = match value.trim().trim_matches('"') {
+                        "box" => HeldLook::Box,
+                        "plain" => HeldLook::Plain,
+                        other => {
+                            said.push(format!(
+                                "config: [message.held] look {other:?} is not box or plain; \
+                                 using the default, box"
+                            ));
+                            HeldLook::Box
+                        }
+                    };
+                }
+                ("message.held", "place") => {
+                    self.message.held.place = match value.trim().trim_matches('"') {
+                        "tip" => HeldPlace::Tip,
+                        "bar" => HeldPlace::Bar,
+                        other => {
+                            said.push(format!(
+                                "config: [message.held] place {other:?} is not tip or bar; \
+                                 using the default, tip"
+                            ));
+                            HeldPlace::Tip
+                        }
+                    };
+                }
+                ("message.held", other) => {
+                    said.push(format!(
+                        "config: [message.held] has no key {other:?}; it is ignored"
                     ));
                 }
                 ("link", "urls") => {
@@ -6261,8 +6321,8 @@ mod reader {
         }
     }
 
-    /// **`[message]` and `[message.copy]` read as they document**: the
-    /// defaults, each value, what a bad value says, and two fixed colours under
+    /// **`[message]`, `[message.copy]` and `[message.held]` read as they
+    /// document**: the defaults, each value, what a bad value says, and two fixed colours under
     /// 4.5:1 refused and said, baud's staying, where a `"none"` is left to the
     /// frame. Perturbations: drop the refusal after the keys; read `"none"` as
     /// baud's; read a dotted section's key under `[message]`.
@@ -6280,6 +6340,65 @@ mod reader {
         assert_eq!(d.copy.enable, CopySignal::On);
         assert_eq!(d.copy.place, CopyPlace::Tip);
         assert_eq!(d.copy.pulse, CopyPulse::Off);
+        assert_eq!(d.held.look, HeldLook::Box);
+        assert_eq!(d.held.place, HeldPlace::Tip);
+        for (text, look, place) in [
+            (
+                "look = \"box\"\nplace = \"tip\"\n",
+                HeldLook::Box,
+                HeldPlace::Tip,
+            ),
+            ("look = \"plain\"\n", HeldLook::Plain, HeldPlace::Tip),
+            ("place = \"bar\"\n", HeldLook::Box, HeldPlace::Bar),
+            (
+                "look = \"plain\"\nplace = \"bar\"\n",
+                HeldLook::Plain,
+                HeldPlace::Bar,
+            ),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(&format!("[message.held]\n{text}"));
+            assert!(said.is_empty(), "{text}: {said:?}");
+            assert_eq!(
+                (c.message.held.look, c.message.held.place),
+                (look, place),
+                "{text}"
+            );
+            assert_eq!(
+                (c.message.colours, c.message.copy),
+                (d.colours, d.copy),
+                "{text}"
+            );
+        }
+        for (bad, default) in [
+            (
+                "[message.held]\nplace = \"bar\"\nlook = \"Plain\"\n",
+                "using the default, box",
+            ),
+            (
+                "[message.held]\nlook = \"plain\"\nplace = \"top\"\n",
+                "using the default, tip",
+            ),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(bad);
+            assert!(
+                said.iter()
+                    .any(|s| s.contains("[message.held]") && s.contains(default)),
+                "{bad}: {said:?}"
+            );
+            assert_ne!(c.message.held, d.held, "{bad}: the good key kept");
+        }
+        let mut c = Config::defaults();
+        c.apply("[message.held]\nplace = \"bar\"\nlook = \"Plain\"\n");
+        assert_eq!(c.message.held.look, HeldLook::Box, "a bad look is the box");
+        let mut c = Config::defaults();
+        c.apply("[message.held]\nlook = \"plain\"\nplace = \"top\"\n");
+        assert_eq!(
+            c.message.held.place,
+            HeldPlace::Tip,
+            "a bad place is the tip"
+        );
         let mut c = Config::defaults();
         let said = c.apply(
             "[message]\nbox_color = \"none\"\ntext_color = \"#ffffff\"\n\
@@ -6302,6 +6421,9 @@ mod reader {
             ("[message.copy]\nplace = \"top\"\n", "place"),
             ("[message.copy]\npulse = \"yes\"\n", "pulse"),
             ("[message.copy]\nother = 1\n", "other"),
+            ("[message.held]\nlook = \"boxed\"\n", "look"),
+            ("[message.held]\nplace = \"bottom\"\n", "place"),
+            ("[message.held]\nother = 1\n", "other"),
         ] {
             let mut c = Config::defaults();
             let said = c.apply(bad);
