@@ -34,9 +34,9 @@ use baud_domain::HostTime;
 use baud_domain::{InputEncoding, WinSize};
 use baud_font::Px;
 use std::ffi::{CString, OsStr, OsString};
-use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
+use std::os::fd::{AsRawFd, IntoRawFd};
 use std::os::unix::ffi::OsStrExt;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
@@ -822,7 +822,7 @@ fn shell_locale() -> Option<String> {
 /// (`ran::Commands::new`); none for a shell the integration does not mark.
 type Forked = (
     crate::sys::Pid,
-    crate::sys::Fd,
+    std::os::fd::OwnedFd,
     Option<crate::ran::ShellToken>,
 );
 
@@ -1596,8 +1596,18 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
     Some((master, replica))
 }
 
-/// **A child on a fresh pty of size `ws`** ([`open_terminal`]): its pid,
-/// zero in the child and negative when it failed, and the master. libnotify
+/// **What a fork of a fresh terminal leaves in each process**: the child,
+/// which holds the terminal as its standard input, output and error and
+/// has no master to hand back, or the parent, with the child's pid and the
+/// master, owned, so a caller that fails lets the pty go.
+enum Fork {
+    Child,
+    Parent(core::ffi::c_int, std::os::fd::OwnedFd),
+}
+
+/// **A child on a fresh pty of size `ws`** ([`open_terminal`]), as each
+/// process has it ([`Fork`]); `None` when the open or the fork failed,
+/// `errno` as the failed call left it. libnotify
 /// is settled before the fork ([`settle_before_fork`]). The child does what
 /// `login_tty` does, a new session, the terminal taken as its controlling
 /// terminal and made its standard input, output and error, and, when it
@@ -1605,11 +1615,8 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
 /// back (`[[source: apple-libc-pty-c]]`, `[[source: apple-libc-login-tty-c]]`).
 /// Its copies of both ends close at its `exec`. The parent closes its
 /// replica, the fork failed or not.
-fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) {
-    use std::os::fd::IntoRawFd;
-    let Some((master, replica)) = open_terminal(ws) else {
-        return (-1, -1);
-    };
+fn fork_terminal(ws: crate::sys::Winsize) -> Option<Fork> {
+    let (master, replica) = open_terminal(ws)?;
     // The child's bound, when it cannot list its own descriptors, looked
     // up here, where looking may allocate (`inherited.rs`).
     let highest = crate::inherited::Highest::scanned();
@@ -1688,13 +1695,14 @@ fn fork_terminal(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) 
         }
         // Closed at the `exec`, close-on-exec, and not here.
         core::mem::forget(replica);
-        return (0, master.into_raw_fd());
+        core::mem::forget(master);
+        return Some(Fork::Child);
     }
     drop(replica);
     if pid < 0 {
-        return (pid, -1);
+        return None;
     }
-    (pid, master.into_raw_fd())
+    Some(Fork::Parent(pid, master))
 }
 
 impl Pty {
@@ -1743,7 +1751,7 @@ impl Pty {
         locale: impl FnOnce() -> Option<String>,
         started_by: Parent,
         at: Option<&std::path::Path>,
-    ) -> Option<crate::sys::Fd> {
+    ) -> Option<std::os::fd::OwnedFd> {
         Pty::fork_given(
             ws,
             cmd,
@@ -1816,7 +1824,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         env: Vec<CString>,
-    ) -> Option<crate::sys::Fd> {
+    ) -> Option<std::os::fd::OwnedFd> {
         Pty::fork_child(ws, cmd, env).map(|(_, master)| master)
     }
 
@@ -1831,7 +1839,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         env: Vec<CString>,
-    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
+    ) -> Option<(core::ffi::c_int, std::os::fd::OwnedFd)> {
         let parent: Vec<(OsString, OsString)> = std::env::vars_os().collect();
         let exec = Exec::of(
             cmd,
@@ -1861,7 +1869,7 @@ impl Pty {
         ws: crate::sys::Winsize,
         mut parent: Vec<(OsString, OsString)>,
         dir: &std::path::Path,
-    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
+    ) -> Option<(core::ffi::c_int, std::os::fd::OwnedFd)> {
         parent.retain(|(k, _)| k != "PWD");
         let (exec, env) =
             Pty::exec_and_env(None, parent, || None, &crate::shell::Integration::On.into())?;
@@ -1884,7 +1892,7 @@ impl Pty {
         home: &[CString],
         stay: &[CString],
         start: &StartIn,
-    ) -> Option<(core::ffi::c_int, crate::sys::Fd)> {
+    ) -> Option<(core::ffi::c_int, std::os::fd::OwnedFd)> {
         let path_c = exec.path.as_c();
         let argv: Vec<*const core::ffi::c_char> = exec
             .argv
@@ -1902,11 +1910,7 @@ impl Pty {
         let envp_stay = envp_of(stay);
         // `fork_terminal` returns in the child having called only `fork`
         // and what `login_tty` calls; the redrive wraps the open alone.
-        let (pid, master) = fork_terminal(ws);
-        if pid < 0 {
-            return None;
-        }
-        if pid == 0 {
+        let Fork::Parent(pid, master) = fork_terminal(ws)? else {
             // SAFETY: in the child only `tcgetattr`, `tcsetattr`, `chdir`,
             // `execve` and `_exit` run, and a branch on `chdir`'s result,
             // over the child's stack and pointers into memory built before
@@ -1937,7 +1941,7 @@ impl Pty {
                 }
                 crate::sys::_exit(127);
             }
-        }
+        };
         // **The master closes on exec**, opened so ([`open_terminal`]): a
         // program this process starts -- the opener a link is handed to,
         // and what that opener starts -- never holds the terminal's other
@@ -1965,7 +1969,7 @@ impl Pty {
         // A link's program holds its window as it ends; a shell does not.
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
         Some(Pty::reading(
-            master,
+            master.into_raw_fd(),
             Some(child),
             told,
             program,
@@ -2031,7 +2035,7 @@ impl Pty {
             started_by,
             None,
         )?;
-        Some(Pty::reading(master, None, told, None, None, wake))
+        Some(Pty::reading(master.into_raw_fd(), None, told, None, None, wake))
     }
 
     /// The pty with no thread: the caller waits on `as_fd` beside whatever
@@ -2042,6 +2046,7 @@ impl Pty {
     pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px, shell: &ShellStart) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
         let (child, master, token) = Pty::fork(told, None, shell)?;
+        let master = master.into_raw_fd();
         make_nonblocking(master);
         let program = shell.run.as_ref().map(|r| r.program().to_os_string());
         Some(Pty::polled(master, child, told, program, token))
@@ -3335,8 +3340,8 @@ mod tests {
         )
         .expect("forkpty");
         // SAFETY: an open descriptor; `F_GETFD` takes no argument.
-        let flags = unsafe { crate::sys::fcntl(master, crate::sys::F_GETFD) };
-        let _ = read_all(master);
+        let flags = unsafe { crate::sys::fcntl(master.as_raw_fd(), crate::sys::F_GETFD) };
+        let _ = read_all(master.as_raw_fd());
         assert!(flags >= 0);
         assert_eq!(flags & crate::sys::FD_CLOEXEC, crate::sys::FD_CLOEXEC);
     }
@@ -3348,12 +3353,6 @@ mod tests {
             ws_row: 24,
         };
         text_area(&size, Px::of(8), Px::of(16))
-    }
-
-    /// Closes a descriptor the test owns.
-    fn close(fd: crate::sys::Fd) {
-        // SAFETY: a descriptor the caller opened and owns, closed once.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) });
     }
 
     /// A `/bin/sh` loop that prints `held N` for each descriptor of `list`
@@ -3400,14 +3399,14 @@ mod tests {
                 probe_env.clone(),
             )
             .expect("the probe's spawn");
-            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
-            close(m);
+            let out = String::from_utf8_lossy(&read_all(m.as_raw_fd())).into_owned();
+            drop(m);
             *into.borrow_mut() = Some((master, replica, out));
         })));
         let master = Pty::fork_with(grid_80x24(), Some("exit 0".into()), env).expect("forkpty");
         set_opened(None);
-        let _ = read_all(master);
-        close(master);
+        let _ = read_all(master.as_raw_fd());
+        drop(master);
         let (m, r, out) = seen.take().expect("the hook ran");
         assert!(out.contains("control"), "the probe can fire: {out:?}");
         assert!(
@@ -3443,8 +3442,8 @@ mod tests {
         set_opened(None);
         let (replica, during) = seen.take().expect("the hook ran");
         let after = named_by(replica);
-        let _ = read_all(master);
-        close(master);
+        let _ = read_all(master.as_raw_fd());
+        drop(master);
         // SAFETY: this test's own child, waited for once.
         unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
         let during = during.expect("the control: the replica was open in the window");
@@ -3465,7 +3464,7 @@ mod tests {
     fn a_terminal_opened_beside_another_never_keeps_it_from_hanging_up() {
         let _window = libc_window();
         let env = child_env(outer_parent(), None);
-        let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, crate::sys::Fd)>>> =
+        let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, std::os::fd::OwnedFd)>>> =
             std::rc::Rc::default();
         let into = std::rc::Rc::clone(&b);
         let b_env = env.clone();
@@ -3486,7 +3485,7 @@ mod tests {
             unsafe { crate::sys::waitpid(a_pid, std::ptr::null_mut(), 0) };
             let _ = ended.send(());
         });
-        close(a_master);
+        drop(a_master);
         let alone = a_ended
             .recv_timeout(std::time::Duration::from_secs(10))
             .is_ok();
@@ -3499,7 +3498,7 @@ mod tests {
                 crate::sys::kill(b_pid, crate::sys::SIGKILL);
             }
         }
-        close(b_master);
+        drop(b_master);
         // SAFETY: B's pid, this test's own child, waited for once.
         unsafe { crate::sys::waitpid(b_pid, std::ptr::null_mut(), 0) };
         waiter.join().expect("A's waiter");
@@ -3523,7 +3522,7 @@ mod tests {
         let start = std::sync::Barrier::new(THREADS);
         let ends: std::sync::Mutex<Vec<crate::sys::Fd>> = std::sync::Mutex::default();
         let script = format!("read list; {HOLDS}");
-        let spawned: Vec<(core::ffi::c_int, crate::sys::Fd)> = std::thread::scope(|s| {
+        let spawned: Vec<(core::ffi::c_int, std::os::fd::OwnedFd)> = std::thread::scope(|s| {
             let threads: Vec<_> = (0..THREADS)
                 .map(|_| {
                     s.spawn(|| {
@@ -3564,14 +3563,15 @@ mod tests {
             let mut b = line.as_bytes();
             while !b.is_empty() {
                 // SAFETY: an open descriptor and a buffer valid for its length.
-                let n = unsafe { crate::sys::write(*master, b.as_ptr().cast(), b.len()) };
+                let n =
+                    unsafe { crate::sys::write(master.as_raw_fd(), b.as_ptr().cast(), b.len()) };
                 b = &b[usize::try_from(n).expect("the list's write")..];
             }
         }
         let mut leaks = Vec::new();
         for (pid, master) in spawned {
-            let out = String::from_utf8_lossy(&read_all(master)).into_owned();
-            close(master);
+            let out = String::from_utf8_lossy(&read_all(master.as_raw_fd())).into_owned();
+            drop(master);
             // SAFETY: this test's own child, waited for once.
             unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
             assert!(out.contains("control"), "the probe can fire: {out:?}");
@@ -3605,7 +3605,7 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        let out = read_all(master);
+        let out = read_all(master.as_raw_fd());
         let text = String::from_utf8_lossy(&out);
         let lines: Vec<&str> = text.lines().map(|l| l.trim_end_matches('\r')).collect();
         assert!(
@@ -3649,7 +3649,7 @@ mod tests {
     /// the control beside [`fork_terminal`], libc's own terminal and
     /// `login_tty`. Under [`LIBC_WINDOW`], its master set close-on-exec
     /// before the lock is let go.
-    fn libc_forkpty(ws: crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd) {
+    fn libc_forkpty(ws: crate::sys::Winsize) -> Option<Fork> {
         let held = libc_window();
         // Darwin's `forkpty` takes the size by mutable pointer and
         // glibc's by const, so the binding is only mutated on one.
@@ -3676,26 +3676,30 @@ mod tests {
             // The child's copy of the lock is never let go: it runs only
             // `execve` and `_exit` after this.
             core::mem::forget(held);
-            return (pid, master);
-        }
-        if pid > 0 {
+            return Some(Fork::Child);
+        } else if pid > 0 {
             // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
             unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) };
             budget::opened();
+            drop(held);
+        } else {
+            return None;
         }
-        drop(held);
-        (pid, master)
+        // SAFETY: the manager `forkpty` opened, owned here alone.
+        Some(Fork::Parent(pid, unsafe {
+            <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master)
+        }))
     }
 
     /// A child of a bare `forkpty` that runs only `execve`, as every spawn
     /// did before 2026-10-13: libc's terminal, for a control.
-    fn bare_fork(ws: crate::sys::Winsize, cmd: &str, env: &[CString]) -> crate::sys::Fd {
+    fn bare_fork(ws: crate::sys::Winsize, cmd: &str, env: &[CString]) -> std::os::fd::OwnedFd {
         bare_fork_by(libc_forkpty, ws, cmd, env)
     }
 
-    /// A spawn's fork, [`fork_terminal`] or [`libc_forkpty`]: the pid and
-    /// the master.
-    type Forker = fn(crate::sys::Winsize) -> (core::ffi::c_int, crate::sys::Fd);
+    /// A spawn's fork, [`fork_terminal`] or [`libc_forkpty`], as each process
+    /// has it ([`Fork`]).
+    type Forker = fn(crate::sys::Winsize) -> Option<Fork>;
 
     /// A child of `fork`, [`fork_terminal`] or [`libc_forkpty`], that runs
     /// `/bin/sh -c cmd` and nothing before it.
@@ -3704,7 +3708,7 @@ mod tests {
         ws: crate::sys::Winsize,
         cmd: &str,
         env: &[CString],
-    ) -> crate::sys::Fd {
+    ) -> std::os::fd::OwnedFd {
         bare_fork_in(fork, "/bin/sh", ws, cmd, env)
     }
 
@@ -3715,7 +3719,7 @@ mod tests {
         ws: crate::sys::Winsize,
         cmd: &str,
         env: &[CString],
-    ) -> crate::sys::Fd {
+    ) -> std::os::fd::OwnedFd {
         let path = CString::new(shell).expect("a path");
         let argv0 = CString::new("sh").expect("argv0");
         let dash = CString::new("-c").expect("-c");
@@ -3731,16 +3735,14 @@ mod tests {
             .map(|e| e.as_ptr())
             .chain(std::iter::once(std::ptr::null()))
             .collect();
-        let (pid, master) = fork(ws);
-        assert!(pid >= 0, "forkpty");
-        if pid == 0 {
+        let Fork::Parent(_, master) = fork(ws).expect("forkpty") else {
             // SAFETY: as in `fork_with`; the child runs only `execve` and
             // `_exit`.
             unsafe {
                 crate::sys::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 crate::sys::_exit(127);
             }
-        }
+        };
         master
     }
 
@@ -3766,8 +3768,8 @@ mod tests {
         ];
         for (name, fork) in forks {
             let m = bare_fork_by(fork, grid_80x24(), probe, &env);
-            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
-            close(m);
+            let out = String::from_utf8_lossy(&read_all(m.as_raw_fd())).into_owned();
+            drop(m);
             let lines: Vec<&str> = out.lines().map(|l| l.trim_end_matches('\r')).collect();
             assert_eq!(
                 lines,
@@ -3797,8 +3799,8 @@ mod tests {
         for (name, fork) in forks {
             let probe = "exec 3</dev/tty && echo ctty";
             let m = bare_fork_in(fork, "/bin/dash", grid_80x24(), probe, &env);
-            let out = String::from_utf8_lossy(&read_all(m)).into_owned();
-            close(m);
+            let out = String::from_utf8_lossy(&read_all(m.as_raw_fd())).into_owned();
+            drop(m);
             let lines: Vec<&str> = out.lines().map(|l| l.trim_end_matches('\r')).collect();
             assert_eq!(lines, ["ctty"], "{name}: {out:?}");
         }
@@ -3821,37 +3823,29 @@ mod tests {
         let ws = text_area(&size, Px::of(8), Px::of(16));
         let start = std::sync::Barrier::new(THREADS);
         let failed: Vec<String> = std::thread::scope(|s| {
-            let opened: Vec<_> =
-                (0..THREADS)
-                    .map(|_| {
-                        s.spawn(|| {
+            let opened: Vec<_> = (0..THREADS)
+                .map(|_| {
+                    s.spawn(|| {
                         start.wait();
                         let mut failed = Vec::new();
                         for _ in 0..ROUNDS {
-                            let (pid, master) = fork_terminal(ws);
-                            if pid < 0 {
+                            let Some(forked) = fork_terminal(ws) else {
                                 failed.push(std::io::Error::last_os_error().to_string());
                                 continue;
-                            }
-                            if pid == 0 {
+                            };
+                            let Fork::Parent(pid, master) = forked else {
                                 // SAFETY: the child calls only `_exit`.
                                 unsafe { crate::sys::_exit(0) }
-                            }
-                            read_all(master);
-                            // SAFETY: `master` is the descriptor forkpty
-                            // returned and nothing else owns it; `pid` is
-                            // this thread's own child.
-                            unsafe {
-                                drop(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(
-                                    master,
-                                ));
-                                crate::sys::waitpid(pid, std::ptr::null_mut(), 0);
-                            }
+                            };
+                            read_all(master.as_raw_fd());
+                            drop(master);
+                            // SAFETY: this thread's own child, waited for once.
+                            unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
                         }
                         failed
                     })
-                    })
-                    .collect();
+                })
+                .collect();
             opened
                 .into_iter()
                 .flat_map(|t| t.join().expect("a thread"))
@@ -3867,11 +3861,9 @@ mod tests {
 
     /// What `/bin/stty -a` printed on `master`, word by word, once the child
     /// has gone; the descriptor is closed after.
-    fn stty_words(master: crate::sys::Fd) -> Vec<String> {
-        let out = read_all(master);
-        // SAFETY: `master` is the descriptor forkpty returned and nothing
-        // else owns it.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    fn stty_words(master: std::os::fd::OwnedFd) -> Vec<String> {
+        let out = read_all(master.as_raw_fd());
+        drop(master);
         String::from_utf8_lossy(&out)
             .split_whitespace()
             .map(str::to_string)
@@ -3928,17 +3920,17 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        read_until(master, "ready\r\n");
+        read_until(master.as_raw_fd(), "ready\r\n");
         // SAFETY: `typed` is a live buffer of the length passed.
-        let n = unsafe { crate::sys::write(master, typed.as_ptr().cast(), typed.len()) };
+        let n =
+            unsafe { crate::sys::write(master.as_raw_fd(), typed.as_ptr().cast(), typed.len()) };
         assert_eq!(
             usize::try_from(n).ok(),
             Some(typed.len()),
             "the pty took it"
         );
-        let out = read_all(master);
-        // SAFETY: as in `stty_words`.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        let out = read_all(master.as_raw_fd());
+        drop(master);
         let text = String::from_utf8_lossy(&out).into_owned();
         text.split_once("GOT[")
             .and_then(|(_, rest)| rest.split_once(']'))
@@ -3979,11 +3971,10 @@ mod tests {
                 r#"stty -echo {stty}; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | od -An -tx1 | tr -d ' \n')"; stty -a | tr ' ' '\n' | grep -E '^-?iutf8$'"#
             );
             let master = bare_fork(ws, &script, &env);
-            read_until(master, "ready\r\n");
-            send(master, typed);
-            let out = read_all(master);
-            // SAFETY: as in `stty_words`.
-            drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+            read_until(master.as_raw_fd(), "ready\r\n");
+            send(master.as_raw_fd(), typed);
+            let out = read_all(master.as_raw_fd());
+            drop(master);
             let text = String::from_utf8_lossy(&out).into_owned();
             let (line, flag) = text
                 .split_once("GOT[")
@@ -4102,12 +4093,12 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        let mut line = LineDiscipline::of(master);
+        let mut line = LineDiscipline::of(master.as_raw_fd());
         let mut s = baud_core::Owned::new(&size);
         let mut t = baud_core::Term::new(s.storage(), &size);
         let mut out = Vec::new();
         for ((_, keys), (_, marker)) in steps.iter().zip(&markers) {
-            let read = read_until(master, &format!("{marker}\r\n"));
+            let read = read_until(master.as_raw_fd(), &format!("{marker}\r\n"));
             out.extend_from_slice(&read);
             feed(&mut t, &read);
             if follow == Follow::Encoding {
@@ -4116,11 +4107,10 @@ mod tests {
                 }
             }
             let bytes = typed(&mut t, keys);
-            send(master, &bytes);
+            send(master.as_raw_fd(), &bytes);
         }
-        out.extend_from_slice(&read_all(master));
-        // SAFETY: as in `stty_words`.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        out.extend_from_slice(&read_all(master.as_raw_fd()));
+        drop(master);
         let text = String::from_utf8_lossy(&out).into_owned();
         let got: Vec<String> = text
             .split("GOT[")
@@ -4196,7 +4186,7 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        let mut line = LineDiscipline::of(master);
+        let mut line = LineDiscipline::of(master.as_raw_fd());
         let told = |f: Followed| match f {
             Followed::Same => false,
             Followed::Told => true,
@@ -4207,10 +4197,9 @@ mod tests {
         assert!(!told(line.follow(InputEncoding::Latin1)));
         assert!(told(line.follow(InputEncoding::Utf8)));
         assert!(!told(line.follow(InputEncoding::Utf8)));
-        send(master, b"\r");
-        drop(read_all(master));
-        // SAFETY: as in `stty_words`.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        send(master.as_raw_fd(), b"\r");
+        drop(read_all(master.as_raw_fd()));
+        drop(master);
     }
 
     /// What `stty -a < /dev/tty` printed after the child switched the core
@@ -4233,17 +4222,17 @@ mod tests {
         .expect("forkpty");
         let mut s = baud_core::Owned::new(&size);
         let mut t = baud_core::Term::new(s.storage(), &size);
-        feed(&mut t, &read_until(master, "ready\r\n"));
+        feed(&mut t, &read_until(master.as_raw_fd(), "ready\r\n"));
         assert_eq!(
             t.input_encoding(),
             InputEncoding::Latin1,
             "the core switched"
         );
         if follow == Follow::Encoding {
-            let mut line = LineDiscipline::of(master);
+            let mut line = LineDiscipline::of(master.as_raw_fd());
             assert!(matches!(line.follow(t.input_encoding()), Followed::Told));
         }
-        send(master, b"\r");
+        send(master.as_raw_fd(), b"\r");
         stty_words(master)
     }
 
@@ -4290,7 +4279,7 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        let mut line = LineDiscipline::of(master);
+        let mut line = LineDiscipline::of(master.as_raw_fd());
         let mut s = baud_core::Owned::new(&size);
         let mut t = baud_core::Term::new(s.storage(), &size);
         let told = |f: Followed| match f {
@@ -4298,21 +4287,21 @@ mod tests {
             Followed::Told => true,
             Followed::Failed(e) => panic!("{e}"),
         };
-        feed(&mut t, &read_until(master, "latin\r\n"));
+        feed(&mut t, &read_until(master.as_raw_fd(), "latin\r\n"));
         assert_eq!(t.input_encoding(), InputEncoding::Latin1);
         assert!(told(line.follow(t.input_encoding())), "cleared");
-        send(master, b"\r");
-        let cleared = read_until(master, "cleared\r\n");
+        send(master.as_raw_fd(), b"\r");
+        let cleared = read_until(master.as_raw_fd(), "cleared\r\n");
         let words = String::from_utf8_lossy(&cleared).into_owned();
         assert!(
             words.split_whitespace().any(|w| w == "-iutf8"),
             "the control: the bit is clear under ISO 8859-1: {words:?}"
         );
-        send(master, b"\r");
-        feed(&mut t, &read_until(master, "reset\r\n"));
+        send(master.as_raw_fd(), b"\r");
+        feed(&mut t, &read_until(master.as_raw_fd(), "reset\r\n"));
         assert_eq!(t.input_encoding(), InputEncoding::Utf8, "RIS");
         assert!(told(line.follow(t.input_encoding())), "set again");
-        send(master, b"\r");
+        send(master.as_raw_fd(), b"\r");
         let after = stty_words(master);
         assert!(
             after.iter().any(|w| w == "iutf8"),
@@ -4356,10 +4345,10 @@ mod tests {
             .expect("forkpty")
         };
         let master = spawn();
-        let mut line = LineDiscipline::of(master);
+        let mut line = LineDiscipline::of(master.as_raw_fd());
         let mut s = baud_core::Owned::new(&size);
         let mut t = baud_core::Term::new(s.storage(), &size);
-        feed(&mut t, &read_all(master));
+        feed(&mut t, &read_all(master.as_raw_fd()));
         assert_eq!(
             t.input_encoding(),
             InputEncoding::Latin1,
@@ -4370,21 +4359,22 @@ mod tests {
             matches!(followed, Followed::Told),
             "the subsidiary opens after the child has gone: {followed:?}"
         );
-        assert!(hung_up(master), "the manager reads as hung up");
-        // SAFETY: as in `stty_words`.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        assert!(hung_up(master.as_raw_fd()), "the manager reads as hung up");
+        drop(master);
 
         let master = spawn();
-        drop(read_all(master));
+        drop(read_all(master.as_raw_fd()));
         let held = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags_noctty()
-            .open(subsidiary_of(master).expect("a subsidiary"))
+            .open(subsidiary_of(master.as_raw_fd()).expect("a subsidiary"))
             .expect("the subsidiary opens");
-        assert!(!hung_up(master), "the control: held open, it waits");
+        assert!(
+            !hung_up(master.as_raw_fd()),
+            "the control: held open, it waits"
+        );
         drop(held);
-        // SAFETY: as in `stty_words`.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
     }
 
     /// `O_NOCTTY` on an `OpenOptions`, for the controls that open the
@@ -4523,7 +4513,7 @@ mod tests {
                 None,
             )
             .expect("forkpty");
-            String::from_utf8_lossy(&read_all(master))
+            String::from_utf8_lossy(&read_all(master.as_raw_fd()))
                 .lines()
                 .map(|l| l.trim_end_matches('\r').to_string())
                 .collect()
@@ -4580,7 +4570,7 @@ mod tests {
                 Some(at),
             )
             .expect("forkpty");
-            String::from_utf8_lossy(&read_all(master))
+            String::from_utf8_lossy(&read_all(master.as_raw_fd()))
                 .lines()
                 .map(|l| l.trim_end_matches('\r').to_string())
                 .collect()
@@ -4633,12 +4623,12 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        read_until(master, "ready\r\n");
-        make_nonblocking(master);
+        read_until(master.as_raw_fd(), "ready\r\n");
+        make_nonblocking(master.as_raw_fd());
         let (tx, rx) = channel();
         let signalled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&signalled);
-        let (held, closing) = Reading::of(master);
+        let (held, closing) = Reading::of(master.as_raw_fd());
         assert!(
             closing.is_some(),
             "the control: the reader has its own copy"
@@ -4661,6 +4651,7 @@ mod tests {
             let _ = trapped.send(std::fs::read_to_string(&opened));
         });
         let bound = std::time::Duration::from_secs(60);
+        let master = master.into_raw_fd();
         let pty = Pty {
             master,
             child: None,
@@ -4736,7 +4727,7 @@ mod tests {
             None,
         )
         .expect("forkpty");
-        let lines: Vec<String> = String::from_utf8_lossy(&read_all(master))
+        let lines: Vec<String> = String::from_utf8_lossy(&read_all(master.as_raw_fd()))
             .lines()
             .map(|l| l.trim_end_matches('\r').to_string())
             .collect();
@@ -4791,7 +4782,7 @@ mod tests {
             &crate::shell::Integration::Off.into(),
         )
         .expect("forkpty");
-        for line in String::from_utf8_lossy(&read_all(master)).lines() {
+        for line in String::from_utf8_lossy(&read_all(master.as_raw_fd())).lines() {
             println!("CHILD[{}]", line.trim_end_matches('\r'));
         }
     }
@@ -4831,7 +4822,7 @@ mod tests {
         };
         let (_, master) = Pty::fork_shell(text_area(&size, Px::of(8), Px::of(16)), parent, &link)
             .expect("forkpty");
-        let said = String::from_utf8_lossy(&read_all(master)).into_owned();
+        let said = String::from_utf8_lossy(&read_all(master.as_raw_fd())).into_owned();
         let lines: Vec<&str> = said.lines().map(|l| l.trim_end_matches('\r')).collect();
         assert!(
             lines.contains(&format!("PWD={}", real.display()).as_str()),
@@ -5013,8 +5004,8 @@ mod tests {
         .expect("forkpty");
         let typed = b"exit\n";
         // SAFETY: `typed` is a live buffer of the length passed.
-        unsafe { crate::sys::write(master, typed.as_ptr().cast(), typed.len()) };
-        let said = String::from_utf8_lossy(&read_all(master)).to_string();
+        unsafe { crate::sys::write(master.as_raw_fd(), typed.as_ptr().cast(), typed.len()) };
+        let said = String::from_utf8_lossy(&read_all(master.as_raw_fd())).to_string();
         // SAFETY: `pid` is this test's own child.
         unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
         assert!(!said.contains("STAND-IN"), "the stand-in ran: {said:?}");
@@ -5060,7 +5051,7 @@ mod tests {
             &start,
         )
         .expect("forkpty");
-        let said = String::from_utf8_lossy(&read_all(master)).to_string();
+        let said = String::from_utf8_lossy(&read_all(master.as_raw_fd())).to_string();
         let mut status: core::ffi::c_int = 0;
         // SAFETY: `pid` is this test's own child, `status` a live int.
         unsafe { crate::sys::waitpid(pid, &raw mut status, 0) };
@@ -5197,11 +5188,10 @@ mod tests {
         );
     }
 
-    /// A pseudo-terminal no session has held: its manager, which the
-    /// caller closes. `posix_openpt` with `O_NOCTTY`, so this process does
+    /// A pseudo-terminal no session has held: its manager, owned. `posix_openpt` with `O_NOCTTY`, so this process does
     /// not take it either, and `O_CLOEXEC`, so no child another test forks
     /// holds it ([`HOLDS`]).
-    fn unheld_pty() -> crate::sys::Fd {
+    fn unheld_pty() -> std::os::fd::OwnedFd {
         let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
         // SAFETY: plain calls on the descriptor the first returns.
         unsafe {
@@ -5210,7 +5200,93 @@ mod tests {
             assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
             assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");
             budget::opened();
-            m
+            <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(m)
+        }
+    }
+
+    /// Whether a descriptor of this process is the manager of the pty whose
+    /// subsidiary is `name`: `ptsname` answers only for a manager.
+    fn holds_manager_of(name: &std::path::Path) -> bool {
+        crate::inherited::open_from_three()
+            .into_iter()
+            .any(|fd| subsidiary_of(fd).as_deref() == Some(name))
+    }
+
+    /// **A test that fails while it holds a pty lets the pty go.** Under
+    /// `cargo test` every test is a thread of one process, so a manager a
+    /// failed test leaves open stays open for the rest of the run, and
+    /// counts against the machine's ptys (`kern.tty.ptmx_max`, 511 on a
+    /// stock Mac) and the suite's budget (`pty/budget.rs`). Each helper
+    /// that opens one hands it back owned, closed when it drops, and an
+    /// unwinding test drops it. Run in a process of its own
+    /// ([`lets_go_helper`]): a pty another test opens beside it can take
+    /// the name of the one this one let go.
+    #[test]
+    fn a_test_that_fails_holding_a_pty_lets_it_go() {
+        let out = std::process::Command::new(std::env::current_exe().expect("this test"))
+            .args(["--exact", "pty::tests::lets_go_helper", "--nocapture"])
+            .env(LETS_GO_HELPER, "1")
+            .output()
+            .expect("the helper runs");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let errors = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(out.status.success(), "the helper passed: {text}{errors}");
+        for what in LETS_GO_OPENERS {
+            assert!(
+                text.contains(&format!("LET GO[{what}]")),
+                "{what} was checked: {text}"
+            );
+        }
+    }
+
+    const LETS_GO_HELPER: &str = "BAUD_TEST_LETS_GO_HELPER";
+    const LETS_GO_OPENERS: [&str; 3] = ["a pty no child holds", "libc's forkpty", "baud's spawn"];
+
+    /// **Run only by [`a_test_that_fails_holding_a_pty_lets_it_go`]**, as a
+    /// process of its own; a no-op otherwise. Each helper opens a pty in a
+    /// test that then fails, and after it no descriptor of this process is
+    /// that pty's manager.
+    #[test]
+    fn lets_go_helper() {
+        if std::env::var_os(LETS_GO_HELPER).is_none() {
+            return;
+        }
+        let env = child_env(outer_parent(), None);
+        let child = std::sync::Mutex::new(None);
+        let openers: [&dyn Fn() -> std::os::fd::OwnedFd; 3] = [
+            &unheld_pty,
+            &|| bare_fork(grid_80x24(), "exit 0", &env),
+            &|| {
+                let (pid, master) =
+                    Pty::fork_child(grid_80x24(), Some("exit 0".into()), env.clone())
+                        .expect("a spawn");
+                *child.lock().expect("the child") = Some(pid);
+                master
+            },
+        ];
+        for (what, open) in LETS_GO_OPENERS.into_iter().zip(openers) {
+            let named = std::sync::Mutex::new(None);
+            let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let master = open();
+                *named.lock().expect("the name") = subsidiary_of(master.as_raw_fd());
+                assert!(
+                    !holds_manager_of(std::path::Path::new("/")),
+                    "the probe can say no"
+                );
+                panic!("a test failing while it holds its pty");
+            }));
+            if let Some(pid) = child.lock().expect("the child").take() {
+                // SAFETY: this test's own child, waited for once.
+                unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
+            }
+            assert!(unwound.is_err(), "{what}: the test failed");
+            let name = named.into_inner().expect("the name").expect("a subsidiary");
+            assert!(
+                !holds_manager_of(&name),
+                "{what}: the manager of {} is still open after the test that held it failed",
+                name.display()
+            );
+            println!("LET GO[{what}]");
         }
     }
 
@@ -5232,7 +5308,7 @@ mod tests {
     fn the_parent_never_takes_the_subsidiary_as_its_terminal() {
         let took = |how: &str| {
             let master = unheld_pty();
-            let path = subsidiary_of(master).expect("a subsidiary");
+            let path = subsidiary_of(master.as_raw_fd()).expect("a subsidiary");
             let held = std::fs::OpenOptions::new()
                 .read(true)
                 .custom_flags_noctty()
@@ -5244,9 +5320,7 @@ mod tests {
                 .output()
                 .expect("the helper runs");
             drop(held);
-            // SAFETY: `master` is the descriptor `posix_openpt` returned
-            // and nothing else owns it.
-            drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+            drop(master);
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
             assert!(out.status.success(), "the helper passed: {text}");
             match (text.contains("CTTY[true]"), text.contains("CTTY[false]")) {
@@ -5586,7 +5660,7 @@ mod tests {
                 None,
             )
             .expect("forkpty");
-            String::from_utf8_lossy(&read_all(master)).replace(char::is_whitespace, "")
+            String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace(char::is_whitespace, "")
         };
         assert_eq!(run(Some("he_IL.UTF-8")), "he_IL.UTF-8|1");
         assert_eq!(
@@ -5771,7 +5845,7 @@ mod tests {
                 &start,
             )
             .expect("forkpty");
-            String::from_utf8_lossy(&read_all(master))
+            String::from_utf8_lossy(&read_all(master.as_raw_fd()))
                 .trim()
                 .to_string()
         };
@@ -5923,7 +5997,7 @@ mod tests {
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
                 .expect("forkpty");
         let program = (kind == Runs::Link).then(|| run.program().to_os_string());
-        (pid, master, told, program)
+        (pid, master.into_raw_fd(), told, program)
     }
 
     /// **A slot is written only where a wait answered**: [`Slot`] is this
@@ -6527,6 +6601,7 @@ mod tests {
         let (pid, master, token) =
             Pty::fork_given(told, None, parent, || None, Parent::Other, None, &start)
                 .expect("forkpty");
+        let master = master.into_raw_fd();
         let w = Polled::over(master, pid, told, None);
         let mut sampler = Sampler::for_shell(token.as_ref());
         let mut named = std::collections::HashMap::new();
@@ -6808,7 +6883,7 @@ mod tests {
                 &start,
             )
             .expect("forkpty");
-            String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n")
+            String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace("\r\n", "\n")
         };
         let out = run(&["printf", "%s|", "a b", "--", "$x;`y`", "{url}"]);
         assert_eq!(out, "a b|--|$x;`y`|{url}|");
@@ -6874,7 +6949,7 @@ mod tests {
             None,
         )
         .expect("forkpty");
-        let said: Vec<String> = String::from_utf8_lossy(&read_all(master))
+        let said: Vec<String> = String::from_utf8_lossy(&read_all(master.as_raw_fd()))
             .lines()
             .map(|l| l.trim_end_matches('\r').to_string())
             .collect();
@@ -6959,7 +7034,7 @@ mod tests {
             None,
         )
         .expect("forkpty");
-        String::from_utf8_lossy(&read_all(master))
+        String::from_utf8_lossy(&read_all(master.as_raw_fd()))
             .lines()
             .map(|l| l.trim_end_matches('\r').to_string())
             .collect()
@@ -7101,13 +7176,10 @@ mod tests {
             crate::sys::pthread_sigmask(crate::sys::SIG_SETMASK, &was, core::ptr::null_mut())
         };
         let (pid, master, _) = forked.expect("forkpty");
-        let out = String::from_utf8_lossy(&read_all(master)).replace("\r\n", "\n");
-        // SAFETY: the master forkpty returned, owned here alone; `pid` is
-        // this test's own child.
-        unsafe {
-            drop(<std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master));
-            crate::sys::waitpid(pid, std::ptr::null_mut(), 0);
-        }
+        let out = String::from_utf8_lossy(&read_all(master.as_raw_fd())).replace("\r\n", "\n");
+        drop(master);
+        // SAFETY: this test's own child, waited for once.
+        unsafe { crate::sys::waitpid(pid, std::ptr::null_mut(), 0) };
         let survived: Vec<&str> = out.lines().filter(|l| l.ends_with(" survived")).collect();
         assert_eq!(
             survived,
@@ -7147,12 +7219,17 @@ mod tests {
                 None,
             )
             .expect("forkpty");
+            // The reader owns the master and closes it when the shell ends;
+            // the typing borrows its number until then.
+            let raw = master.as_raw_fd();
             let (tx, rx) = channel::<Vec<u8>>();
             let reader = std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
                 loop {
                     // SAFETY: `buf` is a live, writable buffer of the length passed.
-                    let n = unsafe { crate::sys::read(master, buf.as_mut_ptr().cast(), buf.len()) };
+                    let n = unsafe {
+                        crate::sys::read(master.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len())
+                    };
                     let Ok(n) = usize::try_from(n) else { break };
                     if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
                         break;
@@ -7176,7 +7253,7 @@ mod tests {
             };
             let typed = |bytes: &[u8]| {
                 // SAFETY: `bytes` is a live buffer of the length passed.
-                let n = unsafe { crate::sys::write(master, bytes.as_ptr().cast(), bytes.len()) };
+                let n = unsafe { crate::sys::write(raw, bytes.as_ptr().cast(), bytes.len()) };
                 assert_eq!(
                     usize::try_from(n).ok(),
                     Some(bytes.len()),
@@ -7242,11 +7319,13 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        read_until(master, "ready\r\n");
-        let g = crate::fg::group(master).expect("the child's group");
+        read_until(master.as_raw_fd(), "ready\r\n");
+        let g = crate::fg::group(master.as_raw_fd()).expect("the child's group");
         assert_eq!(crate::fg::name(g).as_deref(), Some("sh"));
         assert_eq!(crate::fg::dir(g).as_deref(), Some(dir.as_path()));
-        let reads = crate::fg::Live { master };
+        let reads = crate::fg::Live {
+            master: master.as_raw_fd(),
+        };
         let (mut heard, mut deaf) = (crate::title::Derive::new(), crate::title::Derive::new());
         heard.check(&reads);
         deaf.check(&reads);
@@ -7267,11 +7346,15 @@ mod tests {
             })
             .expect("a kqueue");
             w.add(g);
-            send(master, b"\n");
+            send(master.as_raw_fd(), b"\n");
             rx.recv_timeout(std::time::Duration::from_secs(10))
                 .expect("the exec is an event");
             assert_eq!(w.take(), crate::fg::Moved::Moved);
-            assert_eq!(crate::fg::group(master), Some(g), "the same group");
+            assert_eq!(
+                crate::fg::group(master.as_raw_fd()),
+                Some(g),
+                "the same group"
+            );
             assert_eq!(crate::fg::name(g).as_deref(), Some("sleep"));
             heard.moved();
             deaf.owe();
@@ -7287,9 +7370,7 @@ mod tests {
                 "the control: no event, no new name"
             );
         }
-        // SAFETY: `master` is the descriptor forkpty returned and nothing
-        // else owns it; closing it hangs the child up.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
         let _ = std::fs::remove_dir(&made);
     }
 
@@ -7331,28 +7412,26 @@ mod tests {
         )
         .expect("forkpty");
         // Parked in `read`, with nothing behind its `ready`.
-        read_until(master, "ready\r\n");
-        nonblocking(master).expect("O_NONBLOCK");
+        read_until(master.as_raw_fd(), "ready\r\n");
+        nonblocking(master.as_raw_fd()).expect("O_NONBLOCK");
         let mut buf = [0u8; READ_CHUNK];
         assert!(
-            matches!(read_master(master, &mut buf), Got::Nothing),
+            matches!(read_master(master.as_raw_fd(), &mut buf), Got::Nothing),
             "an idle child's empty master read as the end of the stream"
         );
         let mut out = Outbox::default();
         out.push(b"go\n");
-        assert_eq!(write_some(master, &mut out), Wrote::All);
+        assert_eq!(write_some(master.as_raw_fd(), &mut out), Wrote::All);
         let mut seen = Vec::new();
         loop {
-            match read_master(master, &mut buf) {
+            match read_master(master.as_raw_fd(), &mut buf) {
                 Got::Bytes(b) => seen.extend_from_slice(b),
-                Got::Nothing => assert_eq!(readable(master), Waited::Ready),
+                Got::Nothing => assert_eq!(readable(master.as_raw_fd()), Waited::Ready),
                 Got::Closed => break,
             }
         }
         assert_eq!(String::from_utf8_lossy(&seen), "hi\r\n");
-        // SAFETY: `master` is the descriptor forkpty returned and nothing
-        // else owns it.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
     }
 
     /// **A descriptor `poll` cannot watch is reported, not waited on again.**
@@ -7384,18 +7463,16 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        read_until(master, "ready\n");
-        nonblocking(master).expect("O_NONBLOCK");
+        read_until(master.as_raw_fd(), "ready\n");
+        nonblocking(master.as_raw_fd()).expect("O_NONBLOCK");
         let mut out = Outbox::default();
         out.push(&[b'x'; 8192]);
-        assert_eq!(write_some(master, &mut out), Wrote::Part);
+        assert_eq!(write_some(master.as_raw_fd(), &mut out), Wrote::Part);
         let owed = out.bytes.len();
         assert!(owed > 0 && owed < 8192, "{owed} owed");
-        assert_eq!(write_some(master, &mut out), Wrote::Nothing);
+        assert_eq!(write_some(master.as_raw_fd(), &mut out), Wrote::Nothing);
         assert_eq!(out.bytes.len(), owed, "nothing taken, nothing lost");
-        // SAFETY: `master` is the descriptor forkpty returned and nothing
-        // else owns it; closing it hangs the sleeping child up.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
     }
 
     /// **A write the queue cannot hold returns, and what it could not take
@@ -7420,14 +7497,14 @@ mod tests {
         )
         .expect("forkpty");
         // Raw: no output processing, so no carriage return.
-        read_until(master, "ready\n");
-        nonblocking(master).expect("O_NONBLOCK");
+        read_until(master.as_raw_fd(), "ready\n");
+        nonblocking(master.as_raw_fd()).expect("O_NONBLOCK");
         // Printable, so no line discipline setting can read a byte as a
         // control.
         let payload: Vec<u8> = (b' '..=b'~').cycle().take(8192).collect();
         let mut out = Outbox::default();
         out.push(&payload);
-        let first = write_some(master, &mut out);
+        let first = write_some(master.as_raw_fd(), &mut out);
         #[cfg(target_os = "macos")]
         assert_eq!(
             first,
@@ -7440,7 +7517,7 @@ mod tests {
         let mut buf = [0u8; READ_CHUNK];
         loop {
             let mut p = crate::sys::PollFd {
-                fd: master,
+                fd: master.as_raw_fd(),
                 events: match out.is_empty() {
                     true => crate::sys::POLLIN,
                     false => crate::sys::POLLIN | crate::sys::POLLOUT,
@@ -7457,9 +7534,9 @@ mod tests {
                 out.bytes.len()
             );
             if p.revents & crate::sys::POLLOUT != 0 {
-                let _ = write_some(master, &mut out);
+                let _ = write_some(master.as_raw_fd(), &mut out);
             }
-            match read_master(master, &mut buf) {
+            match read_master(master.as_raw_fd(), &mut buf) {
                 Got::Bytes(b) => echoed.extend_from_slice(b),
                 Got::Nothing => {}
                 Got::Closed => break,
@@ -7468,8 +7545,7 @@ mod tests {
         assert!(out.is_empty(), "{} bytes still owed", out.bytes.len());
         assert_eq!(echoed.len(), payload.len());
         assert!(echoed == payload, "every byte, once, in order");
-        // SAFETY: as above.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
     }
 
     /// What the kernel holds for the pty behind `master` -- read back rather
@@ -7539,14 +7615,18 @@ mod tests {
             child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        assert_eq!(ask(master), first, "the fork did not carry the pixels");
+        assert_eq!(
+            ask(master.as_raw_fd()),
+            first,
+            "the fork did not carry the pixels"
+        );
 
         // A zoom: the same grid, a bigger cell. Told.
         let mut told = first;
         let zoomed = text_area(&size, Px::of(20), Px::of(40));
-        tell(master, &mut told, zoomed);
+        tell(master.as_raw_fd(), &mut told, zoomed);
         assert_eq!(
-            ask(master),
+            ask(master.as_raw_fd()),
             zoomed,
             "a zoom that kept the grid was not sent"
         );
@@ -7558,13 +7638,15 @@ mod tests {
         let elsewhere = text_area(&size, Px::of(1), Px::of(1));
         // SAFETY: TIOCSWINSZ takes a pointer to a winsize.
         unsafe {
-            crate::sys::ioctl(master, crate::sys::TIOCSWINSZ, &elsewhere);
+            crate::sys::ioctl(master.as_raw_fd(), crate::sys::TIOCSWINSZ, &elsewhere);
         }
-        tell(master, &mut told, zoomed);
-        assert_eq!(ask(master), elsewhere, "an unchanged size was sent again");
+        tell(master.as_raw_fd(), &mut told, zoomed);
+        assert_eq!(
+            ask(master.as_raw_fd()),
+            elsewhere,
+            "an unchanged size was sent again"
+        );
 
-        // SAFETY: `master` is the descriptor forkpty returned and nothing
-        // else owns it; closing it hangs up the child.
-        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        drop(master);
     }
 }

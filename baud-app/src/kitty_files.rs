@@ -548,6 +548,7 @@ mod tests {
     use super::*;
     use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
     use baud_domain::{ImageBudget, ImagePx, KittyPastLimit};
+    use std::os::fd::AsRawFd;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     const WS: WinSize = WinSize {
@@ -1188,6 +1189,9 @@ mod tests {
                 image.display()
             );
             let (pid, master) = crate::pty::Pty::fork_child(ws, Some(cmd), env).expect("forkpty");
+            // The reader owns the master and closes it when the child ends;
+            // the replies borrow its number until then.
+            let raw = master.as_raw_fd();
             let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
             std::thread::spawn(move || {
                 let mut b = vec![0u8; 65536];
@@ -1195,7 +1199,9 @@ mod tests {
                     // SAFETY: `b` is a live, writable buffer of the length
                     // passed. A read of a child's terminal that has closed
                     // answers 0 or `EIO`, and both end this.
-                    let n = unsafe { crate::sys::read(master, b.as_mut_ptr().cast(), b.len()) };
+                    let n = unsafe {
+                        crate::sys::read(master.as_raw_fd(), b.as_mut_ptr().cast(), b.len())
+                    };
                     let n = usize::try_from(n).unwrap_or(0);
                     if n == 0 || tx.send(b[..n].to_vec()).is_err() {
                         break;
@@ -1222,7 +1228,7 @@ mod tests {
                 if !t.reply().is_empty() {
                     // SAFETY: the reply is a live buffer of the length passed.
                     let _ = unsafe {
-                        crate::sys::write(master, t.reply().as_ptr().cast(), t.reply().len())
+                        crate::sys::write(raw, t.reply().as_ptr().cast(), t.reply().len())
                     };
                     t.clear_reply();
                 }

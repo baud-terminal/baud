@@ -20,6 +20,7 @@ use baud_domain::{BytePos, ExitCode, ExitStatus, PackedCell, ReadLen, Row, Rows,
 use baud_font::Px;
 use baud_render::{Reorder, WordWrap};
 use std::ffi::OsString;
+use std::os::fd::{AsRawFd, IntoRawFd};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -249,11 +250,11 @@ impl Session {
             start,
         )
         .expect("forkpty");
-        make_nonblocking(master);
+        make_nonblocking(master.as_raw_fd());
         let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(ws)));
         let term = Term::new(owned.storage(), ws);
         Session {
-            master,
+            master: master.into_raw_fd(),
             term,
             outbox: Outbox::default(),
             seen: Vec::new(),

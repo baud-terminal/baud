@@ -28,6 +28,7 @@ use baud_domain::EventMillis as Ms;
 use baud_domain::{Col, Row, WinSize};
 use baud_font::Px;
 use std::ffi::OsString;
+use std::os::fd::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -249,7 +250,7 @@ impl<'t, 's> Under<'t, 's> {
             term,
             seat: Seat::new(),
             pid,
-            master,
+            master: master.into_raw_fd(),
             sent: Vec::new(),
             wrote: Vec::new(),
             shorts: Shorts::NONE,
@@ -275,7 +276,7 @@ impl<'t, 's> Under<'t, 's> {
             term,
             seat: Seat::new(),
             pid,
-            master,
+            master: master.into_raw_fd(),
             sent: Vec::new(),
             wrote: Vec::new(),
             shorts: Shorts::NONE,
@@ -592,7 +593,7 @@ impl Drop for Beside {
 fn a_harness_drop_ends_beside_a_terminal_opened_in_its_spawn() {
     let dir = Scratch::new("ub");
     let env = dir.env(&[]);
-    let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, crate::sys::Fd)>>> =
+    let b: std::rc::Rc<std::cell::Cell<Option<(core::ffi::c_int, std::os::fd::OwnedFd)>>> =
         std::rc::Rc::default();
     let into = std::rc::Rc::clone(&b);
     let b_env = crate::pty::child_env(env.clone(), None);
@@ -609,7 +610,7 @@ fn a_harness_drop_ends_beside_a_terminal_opened_in_its_spawn() {
     let u = Under::start(&mut t, "exec cat", env);
     crate::pty::set_opened(None);
     let (b_pid, b_master) = b.take().expect("B, spawned in A's window");
-    let _b = Beside(b_pid, b_master);
+    let _b = Beside(b_pid, b_master.into_raw_fd());
     drop(u);
 }
 
