@@ -1192,10 +1192,10 @@ shipped = ["B1-01"]
 id = "key-repeat"
 area = "input"
 name = "Held keys repeat"
-does = "A held key repeats, and a program can switch repeat off."
+does = "A held key repeats, and a program can switch repeat off. On macOS a held letter repeats rather than opening the accent picker; `defaults write dev.baud.terminal ApplePressAndHoldEnabled -bool YES` brings the picker back."
 status = "built"
 platform = "both"
-tests = ["baud-present-wayland/tests/handshake.rs::no_repeat_before_its_rate_and_no_burst_after_a_stall"]
+tests = ["baud-present-wayland/tests/handshake.rs::no_repeat_before_its_rate_and_no_burst_after_a_stall", "baud-present-macos/tests/press_and_hold.rs::press_and_hold_is_registered_off_before_any_window"]
 rows = ["vt:`?8`"]
 
 [[feature]]

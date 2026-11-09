@@ -80,6 +80,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
+mod key_repeat;
+#[cfg(test)]
 mod launch_tests;
 /// The event rig's child (`tests/event_rig.rs`), in the probe build only.
 #[cfg(feature = "effect-probe")]
@@ -13377,6 +13379,10 @@ pub fn run() {
     // and the app opts out of automatic tabbing as a whole before the
     // first is made.
     NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
+    // **A held key repeats, before any window can take one**: press-and-hold
+    // switched off in the registration domain, where a user's own setting
+    // still wins (`launch::register_defaults`).
+    baud_present_macos::launch::register_defaults();
     startup_mark("nsapp");
     // Which AppKit these numbers were taken against -- and the reference
     // that keeps AppKit linked under the dead-strip `build.rs` asks for.

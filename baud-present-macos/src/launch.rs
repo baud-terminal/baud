@@ -12,7 +12,10 @@
 //! so a window shown before `run()` stood on screen through it with no
 //! logo.
 //!
-//! `unsafe` is allowed here for the registration, which the bindings mark
+//! **Before the first window**, the defaults the app registers
+//! ([`register_defaults`]).
+//!
+//! `unsafe` is allowed here for the registrations, which the bindings mark
 //! so, and for the framework constant it names.
 #![allow(unsafe_code)]
 
@@ -20,8 +23,37 @@ use std::cell::RefCell;
 use std::ptr::NonNull;
 
 use block2::RcBlock;
+use macos_liquid_glass::objc2::runtime::AnyObject;
 use macos_liquid_glass::objc2_app_kit::NSApplicationDidFinishLaunchingNotification;
-use macos_liquid_glass::objc2_foundation::{NSNotification, NSNotificationCenter};
+use macos_liquid_glass::objc2_foundation::{
+    NSDictionary, NSNotification, NSNotificationCenter, NSNumber, NSString, NSUserDefaults,
+};
+
+/// The key AppKit reads for press-and-hold: on, holding a letter opens the
+/// accent picker; off, the key repeats.
+pub const PRESS_AND_HOLD: &str = "ApplePressAndHoldEnabled";
+
+/// **A held key repeats**: registers `ApplePressAndHoldEnabled = NO`, so
+/// holding a letter sends its repeats to the program rather than opening
+/// the system's accent picker over the terminal, as kitty, iTerm2 and
+/// ghostty register it at launch. Call before the first window can take a
+/// key.
+///
+/// It goes in the registration domain, the process's own volatile
+/// defaults, which every domain a user writes is searched before: nothing
+/// is written to disk, and a user who wants the picker back sets
+/// `defaults write dev.baud.terminal ApplePressAndHoldEnabled -bool YES`,
+/// which wins over this.
+pub fn register_defaults() {
+    let key = NSString::from_str(PRESS_AND_HOLD);
+    let off = NSNumber::new_bool(false);
+    let value: &AnyObject = &off;
+    let defaults = NSDictionary::<NSString, AnyObject>::from_slices(&[&*key], &[value]);
+    // SAFETY: the one key is an NSString and the one value an NSNumber,
+    // property-list types, as `registerDefaults:` requires of its
+    // dictionary.
+    unsafe { NSUserDefaults::standardUserDefaults().registerDefaults(&defaults) };
+}
 
 /// **Calls `then` once, when the app has finished launching**: register
 /// before `-[NSApplication run]`. The observer is never removed: it fires
