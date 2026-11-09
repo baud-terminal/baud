@@ -8,7 +8,7 @@
 //! arrives as the report it asked for.
 
 use baud_core::*;
-use baud_domain::{ItermKey, Messages};
+use baud_domain::{ItermKey, Messages, NOTICE_ID_MAX, NOTICE_LIVE};
 
 mod support;
 
@@ -643,6 +643,45 @@ fn alive_lists_the_live_ids() {
             assert_eq!(t.reply(), b"\x1b]99;i=m:p=alive;b\x1b\\");
         },
     );
+}
+
+/// **`p=alive` with every slot live and every id at its longest is answered
+/// whole**: 32 notifications with 128-byte ids, and the answer names all
+/// 32 and ends in `ST`. It was cut at the 4096 bytes it was composed in,
+/// with no `ST`, which leaves the client's parser inside a string. The
+/// control: one id is answered as before.
+#[test]
+fn alive_with_every_id_at_its_longest_is_answered_whole() {
+    let id = |k: usize| format!("{k:02}{}", "x".repeat(NOTICE_ID_MAX - 2));
+    with(Some(all()), b"", Reads(4096), |t| {
+        // Each taken by the embedder as it comes: a read publishes at most
+        // `NOTICE_QUEUE` before the log is drained.
+        for k in 0..NOTICE_LIVE {
+            support::feed(t, format!("\x1b]99;i={};n{k}\x1b\\", id(k)).as_bytes());
+            t.clear_notices();
+        }
+        assert_eq!(
+            t.notice_refusals(),
+            NoticeRefusals::NONE,
+            "the premise: all live"
+        );
+        t.clear_reply();
+        support::feed(t, b"\x1b]99;i=m:p=alive;\x1b\\");
+        let r = t.reply().to_vec();
+        assert!(
+            r.starts_with(b"\x1b]99;i=m:p=alive;") && r.ends_with(b"\x1b\\"),
+            "{} bytes, ending {:?}",
+            r.len(),
+            String::from_utf8_lossy(&r[r.len().saturating_sub(8)..])
+        );
+        let list = &r[b"\x1b]99;i=m:p=alive;".len()..r.len() - 2];
+        let ids: Vec<String> = (0..NOTICE_LIVE).map(id).collect();
+        let got: Vec<String> = list
+            .split(|&b| b == b',')
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        assert_eq!(got, ids, "every id, whole");
+    });
 }
 
 /// A click reports only with `a=report`: `OSC 99 ; i=id ; ST`, a button's

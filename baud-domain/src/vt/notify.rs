@@ -52,6 +52,30 @@ pub const NOTICE_CHUNK_MAX: usize = 4096;
 /// How many notifications are remembered as alive, for updates, closes,
 /// `p=alive` and the reports. kitty keeps 128.
 pub const NOTICE_LIVE: usize = 32;
+/// **The longest `p=?` answer's body**, from `99 ;`: the longest id, and
+/// every key the answer can carry at its longest. Composed in a chunk's
+/// room, which holds it.
+pub const NOTICE_QUERY_REPLY_MAX: usize = b"99;i=".len()
+    + NOTICE_ID_MAX
+    + b":p=?;".len()
+    + b"a=focus,report".len()
+    + b":c=1".len()
+    + b":o=always,unfocused,invisible".len()
+    + b":p=title,body,close,icon,?,alive".len()
+    + b",buttons".len()
+    + b":s=system,silent,error,warn,warning,info,question".len()
+    + b":u=0,1,2".len()
+    + b":w=1".len();
+const _: () = assert!(NOTICE_QUERY_REPLY_MAX <= NOTICE_CHUNK_MAX);
+/// **The longest `p=alive` answer's body**, from `99 ;`: the longest id,
+/// and every live notification's id at its longest, a comma between each.
+/// Not composed anywhere: the caller writes it part by part
+/// ([`Owing::parts`]) into a reply buffer that holds it whole.
+pub const NOTICE_ALIVE_REPLY_MAX: usize = b"99;i=".len()
+    + NOTICE_ID_MAX
+    + b":p=alive;".len()
+    + NOTICE_LIVE * NOTICE_ID_MAX
+    + (NOTICE_LIVE - 1);
 /// How many notifications one read may publish before the embedder takes
 /// them; the rest are dropped and counted.
 pub const NOTICE_QUEUE: usize = 8;
@@ -1118,12 +1142,41 @@ pub enum ChunkEnd {
     Refused(NoticeRefusal),
 }
 
-/// A reply a [`NoticeDesk`] composes, written by [`NoticeDesk::reply`].
+/// A reply a [`NoticeDesk`] owes, taken by [`NoticeDesk::take_reply`]: a
+/// query's answer composed in the chunk's room, or an alive list's head
+/// there, its ids read from the live slots as it is written.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Owed {
     Nothing,
     Query(Span),
     Alive(Span),
+}
+
+/// **The reply a chunk's end owes**, borrowed from the desk and its area:
+/// the body of an `OSC 99`, from `99 ;`, in parts ([`Owing::parts`]), which
+/// the caller frames as `OSC` ... `ST` and writes whole or not at all.
+pub struct Owing<'a> {
+    head: &'a [u8],
+    /// For `p=alive`: the live slots and the area's ids beside them.
+    ids: Option<(&'a [Slot; NOTICE_LIVE], &'a [u8])>,
+}
+
+impl<'a> Owing<'a> {
+    /// The body's parts in order: the head, then for `p=alive` each live
+    /// id that was sent, a comma before each but the first.
+    pub fn parts(&self) -> impl Iterator<Item = &'a [u8]> + 'a {
+        let ids = self.ids.into_iter().flat_map(|(live, area)| {
+            live.iter()
+                .enumerate()
+                .filter_map(move |(i, e)| match e {
+                    Slot::Held(x) if x.id != 0 => Some(&area[i * NOTICE_ID_MAX..][..x.id]),
+                    _ => None,
+                })
+                .enumerate()
+                .flat_map(|(k, id)| [if k == 0 { &b""[..] } else { b"," }, id])
+        });
+        core::iter::once(self.head).chain(ids)
+    }
 }
 
 /// **The notifications' state**: the chunk in flight, the notification
@@ -1732,6 +1785,7 @@ impl NoticeDesk {
         let mut w = Writer {
             buf: &mut area[l.chunk..l.chunk + NOTICE_CHUNK_MAX],
             n: 0,
+            fit: Fits::Whole,
         };
         w.put(b"99;i=");
         w.put(if id.is_empty() { b"0" } else { id });
@@ -1787,49 +1841,58 @@ impl NoticeDesk {
         if s.expiry == ExpirySupport::Expires {
             key(&mut w, b"w=1");
         }
-        let len = w.n;
-        self.owed = Owed::Query(Span { at: l.chunk, len });
+        // Whole within `NOTICE_QUERY_REPLY_MAX`, which the room holds; a
+        // reply that did not fit would be refused, never sent short.
+        let Some(len) = w.done() else {
+            return self.refuse(NoticeRefusal::TooLong);
+        };
+        self.owed = Owed::Query(Span {
+            at: l.chunk,
+            len: len.index(),
+        });
         ChunkEnd::Replied
     }
 
     /// `p=alive`: "The terminal will reply with ... a comma separated list
     /// of ids that are still alive". Only notifications sent with an id can
-    /// be named.
+    /// be named. **The head is composed here and the ids read as the reply
+    /// is written** ([`Owing::parts`]): every slot live with an id at its
+    /// longest is [`NOTICE_ALIVE_REPLY_MAX`] bytes, past a chunk's room, and
+    /// composed there it was cut with no terminator.
     fn owe_alive(&mut self, area: &mut [u8], l: Layout, id: &[u8]) -> ChunkEnd {
-        let (head, rest) = area.split_at_mut(l.live);
         let mut w = Writer {
-            buf: &mut head[l.chunk..l.chunk + NOTICE_CHUNK_MAX],
+            buf: &mut area[l.chunk..l.chunk + NOTICE_CHUNK_MAX],
             n: 0,
+            fit: Fits::Whole,
         };
         w.put(b"99;i=");
         w.put(id);
         w.put(b":p=alive;");
-        let mut first = true;
-        for (i, e) in self.live.iter().enumerate() {
-            if let Slot::Held(x) = e {
-                if x.id == 0 {
-                    continue;
-                }
-                if !first {
-                    w.put(b",");
-                }
-                first = false;
-                w.put(&rest[i * NOTICE_ID_MAX..][..x.id]);
-            }
-        }
-        let len = w.n;
-        self.owed = Owed::Alive(Span { at: l.chunk, len });
+        let Some(len) = w.done() else {
+            return self.refuse(NoticeRefusal::TooLong);
+        };
+        self.owed = Owed::Alive(Span {
+            at: l.chunk,
+            len: len.index(),
+        });
         ChunkEnd::Replied
     }
 
-    /// The reply a chunk's end composed, once: the body of an `OSC 99`,
-    /// from `99 ;`, which the caller frames.
-    pub fn take_reply<'a>(&mut self, area: &'a [u8]) -> Option<&'a [u8]> {
-        let s = match core::mem::replace(&mut self.owed, Owed::Nothing) {
-            Owed::Nothing => return None,
-            Owed::Query(s) | Owed::Alive(s) => s,
-        };
-        Some(s.of(area))
+    /// The reply a chunk's end owes, once ([`Owing`]).
+    pub fn take_reply<'a>(&'a mut self, area: &'a [u8]) -> Option<Owing<'a>> {
+        let owed = core::mem::replace(&mut self.owed, Owed::Nothing);
+        let l = Layout::of(area.len())?;
+        match owed {
+            Owed::Nothing => None,
+            Owed::Query(s) => Some(Owing {
+                head: s.of(area),
+                ids: None,
+            }),
+            Owed::Alive(s) => Some(Owing {
+                head: s.of(area),
+                ids: Some((&self.live, &area[l.live..])),
+            }),
+        }
     }
 
     /// The program's report of a click, if it asked for one (`a=report`):
@@ -1980,18 +2043,39 @@ impl NoticeButton {
 const BUTTON_DIGITS: [&[u8]; NOTICE_BUTTONS + 1] =
     [b"", b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8"];
 
-/// A bounded writer; what does not fit is dropped, and a reply that cannot
-/// fit is not composed (a chunk's room exceeds every answer).
+/// **A whole-or-nothing writer**: once a part does not fit nothing more
+/// is written, and [`Writer::done`] answers `None`, so a reply that cannot
+/// fit is never composed short.
 struct Writer<'a> {
     buf: &'a mut [u8],
     n: usize,
+    fit: Fits,
+}
+
+/// Whether every part a [`Writer`] was given went in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fits {
+    Whole,
+    Short,
 }
 
 impl Writer<'_> {
     fn put(&mut self, s: &[u8]) {
-        let take = s.len().min(self.buf.len() - self.n);
-        self.buf[self.n..self.n + take].copy_from_slice(&s[..take]);
-        self.n += take;
+        match self.buf.get_mut(self.n..self.n + s.len()) {
+            Some(dst) if self.fit == Fits::Whole => {
+                dst.copy_from_slice(s);
+                self.n += s.len();
+            }
+            _ => self.fit = Fits::Short,
+        }
+    }
+
+    /// How much was written, or `None` if any part did not fit.
+    fn done(self) -> Option<ByteLen> {
+        match self.fit {
+            Fits::Whole => Some(ByteLen::from_index(self.n)),
+            Fits::Short => None,
+        }
     }
 }
 

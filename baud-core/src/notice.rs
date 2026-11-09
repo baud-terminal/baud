@@ -22,6 +22,13 @@ use crate::osc::StrKind;
 use crate::paint::Paint;
 use baud_domain::*;
 
+// **The longest notification answer, framed in seven bits, fits the room a
+// hold leaves** (`REPLY_MOST`), so an alive list behind no other reply is
+// always answered whole.
+const _: () = assert!(
+    b"\x1b]".len() + NOTICE_ALIVE_REPLY_MAX + b"\x1b\\".len() <= crate::storage::REPLY_MOST
+);
+
 impl Paint<'_, '_> {
     /// The body is `99;` and its metadata just ended: what follows is the
     /// payload, which goes to the desk's chunk.
@@ -65,14 +72,18 @@ impl Paint<'_, '_> {
         match end {
             ChunkEnd::Kept | ChunkEnd::Published => {}
             ChunkEnd::Replied => {
+                // **Written part by part, whole or not at all**: an alive
+                // list is longer than any room the desk composes in, and one
+                // that does not fit behind replies already owed is dropped
+                // and counted, so the program gets no answer rather than one
+                // with no terminator.
                 if let Some(r) = self.strs.notices.take_reply(self.strs.notice_area) {
-                    // Copied out first: the reply lives in the area, and the
-                    // reply buffer is written through `self`.
-                    let mut buf = [0u8; NOTICE_CHUNK_MAX];
-                    let len = r.len();
-                    buf[..len].copy_from_slice(r);
                     let frame = StringReply::osc(StringTerm::St);
-                    self.reply.lend(self.cold).string(frame, &[&buf[..len]]);
+                    let mut b = self.reply.lend(self.cold).body(frame);
+                    for part in r.parts() {
+                        b.put(part);
+                    }
+                    b.finish();
                 }
             }
             // Metadata that is not the text's form is a string this core
