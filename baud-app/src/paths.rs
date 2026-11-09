@@ -1258,6 +1258,21 @@ impl Paths {
         }
     }
 
+    /// **A program not on this machine may have written `span`**, as the
+    /// job watch says of a read (`probe::Watched`): an `OSC 8` link on it
+    /// takes a remote origin ([`Paths::origin`]), and nothing else changes.
+    /// The printed paths' watermark is not raised: the watch names any job
+    /// the shell's started, `git pull`'s ssh among them, and the paths above
+    /// what it wrote keep their marks.
+    pub fn written_remote(&mut self, span: LineSpan) {
+        match self.spans.last_mut() {
+            Some((Origin::Remote, s)) if span.first <= s.last.below() && s.first <= span.last => {
+                *s = s.joined(span);
+            }
+            _ => self.spans.push((Origin::Remote, span)),
+        }
+    }
+
     /// **Where the program that printed `line` runs**: remote if any program
     /// not known to be local wrote to it, local if only local ones did,
     /// unknown if none was named for it.

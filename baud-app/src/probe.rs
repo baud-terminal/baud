@@ -1367,8 +1367,9 @@ impl<T: Moment> Probes<T> {
     /// the line the cursor was on as it began to the line it ended on: each
     /// group sampled for it, before the read and just after it, kept with
     /// its lines, and a new one sent to be named at once, while it may still
-    /// run; the lines of a read the process watch saw a program not on this
-    /// machine for count as not local outright. So a read is local only when
+    /// run; a link on the lines of a read the process watch saw a program
+    /// not on this machine for takes a remote origin outright
+    /// ([`Paths::written_remote`]). So a read is local only when
     /// both samples and the watch are, and a program that wrote and ended
     /// before the sample after its read is named by the one before it.
     /// `writers` is the [`Sampler`]'s: none for a read that did not ask, or
@@ -1400,9 +1401,10 @@ impl<T: Moment> Probes<T> {
         if !kept || matches!(self.slot, Slot::Closed) {
             return;
         }
-        // Counted with the lines written past `GROUPS`: not local.
+        // A link's origin only: the printed paths' watermark goes by the
+        // groups in front, not by every job the watch names.
         if writers.watched == Watched::Elsewhere {
-            self.unnamed = joined(self.unnamed, Some(span));
+            paths.written_remote(span);
         }
         for g in groups.into_iter().flatten() {
             self.group_wrote(paths, g, span);
@@ -3423,5 +3425,93 @@ mod tests {
         assert_eq!(s.writers(Some(9), Watched::Nothing).before, Some(1));
         assert_eq!(s.writers(None, Watched::Nothing).before, Some(9));
         assert_eq!(s.writers(Some(1), Watched::Nothing).before, Some(9));
+    }
+
+    /// **The watch's verdict makes a link's line remote and leaves the
+    /// printed paths above it marked**: a job the watch named not local --
+    /// `git pull`'s ssh, a child of the shell's job -- wrote row 2, and
+    /// `/etc/hosts` on row 0, which the shell wrote, is still looked up and
+    /// marked, while row 2 takes a remote origin. With the shell alone at
+    /// row 2, the control, row 0 is marked too and row 2 is local. Named
+    /// break: file the verdict with the lines written past `GROUPS`
+    /// (`unnamed`), which the worker names not local and the printed
+    /// paths' watermark goes by -- row 0 loses its mark.
+    #[test]
+    fn the_watchs_verdict_leaves_the_paths_above_it_marked() {
+        let run = |watched: Watched| {
+            let mut f = Fake::with(&[("/etc", Entry::Dir), ("/etc/hosts", Entry::File)]);
+            f.groups.insert(1, vec!["zsh".into()]);
+            let log = Arc::clone(&f.log);
+            let (mut pr, _) = probes(f);
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let bytes = b"/etc/hosts\r\n\r\nx";
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            paths.set(Turned::On);
+            let (mut lines, mut uris) = (Lines::default(), Uris::default());
+            let s = Scrolled::START;
+            let row = |r: usize| s.line(Rows::ZERO, baud_domain::Row::from_index(r));
+            pr.read_taken(
+                &mut paths,
+                Writers::at(Some(1)),
+                LineSpan::of(row(0), row(0)),
+                Linked::No,
+            );
+            let later = Writers {
+                before: Some(1),
+                at: Some(1),
+                watched,
+            };
+            pr.read_taken(&mut paths, later, LineSpan::of(row(2), row(2)), Linked::No);
+            let t0 = Instant::now();
+            let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
+                let _ = lines.scan(
+                    &t,
+                    s,
+                    &mut Links {
+                        uris: &mut uris,
+                        urls: Turned::On,
+                        paths: &mut paths,
+                    },
+                );
+                let seen = Seen {
+                    term: &t,
+                    scrolled: s,
+                    lines: &mut lines,
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                };
+                pr.turn(now, seen, || Some(1))
+            };
+            let _ = turn(&mut pr, t0);
+            let _ = turn(&mut pr, t0 + Duration::from_millis(200));
+            while turn(&mut pr, t0 + Duration::from_millis(300)).frame != Owed::Yes {
+                std::thread::yield_now();
+            }
+            let _ = lines.scan(
+                &t,
+                s,
+                &mut Links {
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                },
+            );
+            let walked = log.lock().unwrap().iter().any(|p| p == b"/etc/hosts");
+            (walked, lines.lines().len(), paths.origin(row(2)))
+        };
+        assert_eq!(
+            run(Watched::Nothing),
+            (true, 1, Origin::Local),
+            "the control: the shell at row 2"
+        );
+        assert_eq!(
+            run(Watched::Elsewhere),
+            (true, 1, Origin::Remote),
+            "the watch's verdict at row 2"
+        );
     }
 }
