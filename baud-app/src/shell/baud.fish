@@ -1,6 +1,7 @@
 # baud's shell integration for fish: marks for each prompt and where a
 # command's output begins and ends (OSC 133), so baud can tell finished
-# output from the prompt you are at.
+# output from the prompt you are at; and the folder the shell is in
+# (OSC 7), which a `./` path is read against.
 #
 # baud starts fish with `-C 'source <this file>'`, which fish runs once
 # its own startup and the user's configuration are done, before the
@@ -60,6 +61,22 @@ if set -q BAUD_SHELL_INTEGRATION
         printf '\e]133;D;%s;aid=%s;baud_token=%s\a' $status $fish_pid "$__baud_token"
         set -g __baud_prompted 2
     end
+end
+
+# The folder the shell is in, for baud to read a `./` path against (OSC
+# 7), at the first prompt and at every change: a file: URI naming this
+# machine as $hostname names it (RFC 8089), the path escaped as fish's own
+# report escapes it. Where baud's marks are, and in fish 4, which marks
+# itself; not from a command substitution, whose output is captured.
+if status is-interactive; and begin
+        set -q BAUD_SHELL_INTEGRATION
+        or test (string split -m 1 . -- $version)[1] -ge 4 2>/dev/null
+    end
+    function __baud_cwd --on-variable PWD
+        status is-command-substitution; and return
+        printf '\e]7;file://%s%s\a' $hostname (string escape --style=url -- $PWD)
+    end
+    __baud_cwd
 end
 
 # [shell] ssh_env = "on" in baud's config, set by baud's -C before this

@@ -1,6 +1,7 @@
 # baud's shell integration for bash: marks for each prompt, where the
 # input begins and where a command's output begins and ends (OSC 133), so
-# baud can tell finished output from the prompt you are at.
+# baud can tell finished output from the prompt you are at; and the
+# folder the shell is in (OSC 7), which a `./` path is read against.
 #
 # baud starts bash with --posix and ENV naming this file, the one way
 # into a login shell's startup: in POSIX mode bash reads this file and no
@@ -133,6 +134,30 @@ __baud_marks() {
     builtin printf '%sC;baud_token=%s;cmdline=%q%s' "$__baud_osc" "$__baud_token" "$line" "$__baud_bel"
   }
 
+  # The folder the shell is in, for baud to read a `./` path against
+  # (OSC 7): a file: URI naming this machine as $HOSTNAME names it (RFC
+  # 8089), every byte of the path but RFC 3986's unreserved ones and `/`
+  # percent-encoded, a byte at a time. printf pads a byte past 0x7F with
+  # FFs, so the last two digits are taken.
+  __baud_cwd() {
+    local - LC_ALL=C i c h u=$PWD
+    set +u
+    if [[ $PWD == *[!A-Za-z0-9/._~-]* ]]; then
+      u=
+      for ((i = 0; i < ${#PWD}; i++)); do
+        c=${PWD:i:1}
+        case $c in
+        [A-Za-z0-9/._~-]) u+=$c ;;
+        *)
+          builtin printf -v h '%02X' "'$c"
+          u+=%${h: -2}
+          ;;
+        esac
+      done
+    fi
+    builtin printf '\e]7;file://%s%s\a' "$HOSTNAME" "$u" >&2
+  }
+
   # The command's D, once baud's entry has kept its status. The marks go
   # to stderr, where bash draws the prompt.
   __baud_before() {
@@ -160,6 +185,7 @@ __baud_marks() {
     fi
     __baud_unmark
     builtin printf '%sA;aid=%s%s' "$__baud_osc" "$$" "$__baud_bel" >&2
+    __baud_cwd
     __baud_prompted=1
     __baud_hist=${HISTCMD-}
     __baud_ps0=${PS0+set}
@@ -266,7 +292,7 @@ __baud_marks() {
         ;;
       esac
     fi
-    unset -f __baud_unmark __baud_command __baud_before __baud_after __baud_last_entry \
+    unset -f __baud_unmark __baud_command __baud_cwd __baud_before __baud_after __baud_last_entry \
       __baud_set_trap __baud_debug __baud_stand_down
     unset __baud_prompted __baud_status __baud_mark __baud_osc __baud_bel __baud_p \
       __baud_s __baud_b __baud_c __baud_c0 __baud_ps0 __baud_arm __baud_trap __baud_user_debug \

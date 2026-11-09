@@ -213,14 +213,26 @@ impl Session {
 
     /// [`Session::start`] at `ws`.
     fn start_at(ws: &WinSize, env: Vec<(OsString, OsString)>, integration: Integration) -> Session {
-        Session::start_as(ws, env, &integration.into())
+        Session::start_as(ws, env, &integration.into(), None)
     }
 
-    /// [`Session::start_at`], the shell started as `start` says.
+    /// [`Session::start_at`] in the folder `at`.
+    fn start_in(
+        ws: &WinSize,
+        env: Vec<(OsString, OsString)>,
+        integration: Integration,
+        at: &Path,
+    ) -> Session {
+        Session::start_as(ws, env, &integration.into(), Some(at))
+    }
+
+    /// [`Session::start_at`], the shell started as `start` says, in `at`,
+    /// else in this process's folder.
     fn start_as(
         ws: &WinSize,
         env: Vec<(OsString, OsString)>,
         start: &super::ShellStart,
+        at: Option<&Path>,
     ) -> Session {
         let (_, master) = Pty::fork_given(
             text_area(ws, Px::of(8), Px::of(16)),
@@ -228,7 +240,7 @@ impl Session {
             env,
             || None,
             Parent::Other,
-            None,
+            at,
             start,
         )
         .expect("forkpty");
@@ -1531,7 +1543,7 @@ fn ssh_argv_after(
         ssh_env,
         ..Integration::On.into()
     };
-    let mut s = Session::start_as(&WS, env, &start);
+    let mut s = Session::start_as(&WS, env, &start, None);
     s.reading(Times::ONCE);
     // Where `ssh` is on PATH, functions passed over, nothing run.
     s.run(match sh {
@@ -1920,5 +1932,203 @@ fn zsh_names_no_command_when_preexec_gets_no_line() {
         String::from_utf8_lossy(&cs[1])
     );
     assert!(tokened, "every C carries the token: {}", s.tail());
+    s.finish();
+}
+
+/// The folder the shell last reported (`OSC 7`), as the core keeps it:
+/// the host it named, none for no host or `localhost`, and the path.
+fn reported(s: &Session) -> Option<(Option<Vec<u8>>, Vec<u8>)> {
+    s.term.working_directory().map(|d| {
+        let host = match d.host {
+            baud_core::FileHost::Local => None,
+            baud_core::FileHost::Named(h) => Some(h.to_vec()),
+        };
+        (host, d.path.to_vec())
+    })
+}
+
+/// A path's bytes.
+fn bytes_of(p: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    p.as_os_str().as_bytes().to_vec()
+}
+
+/// A hundred columns: the typed line below fits on one row.
+const WIDE: WinSize = WinSize {
+    ws_col: 100,
+    ws_row: 12,
+};
+
+/// The line typed, and not run, at the prompt: the same `./` path twice
+/// with words between.
+const TYPED: &str = "./oct-commits.txt jskdj salkdj asjdlasj ./oct-commits.txt";
+
+/// **The shell reports its folder at its first prompt and after a `cd`,
+/// and a `./` path typed at the next prompt is read against it**, with
+/// integration on: a file: URI naming this machine as `gethostname` names
+/// it, its path -- a blank, a `%` and a letter outside ASCII among it, the
+/// `cd` reaching the last by a glob so that no locale bears on what is
+/// typed -- decoding back to the folder byte for byte, so `Paths` asks about the
+/// file in that folder and both of [`TYPED`]'s paths get a line. With
+/// integration off the shell reports nothing and neither path is asked
+/// about or drawn (zsh and bash; fish 4 may report its folder itself).
+/// Named breaks: no report at the prompt -- none at start (zsh still reports
+/// the `cd` from its hook); the path sent unencoded -- the core refuses a
+/// blank in a URI, and there is no report after the `cd`.
+fn the_folder_is_reported_and_read_against(sh: Sh) {
+    use crate::lined::{Lines, Uris};
+    use crate::paths::{Forms, Links, Moved, Paths, Probe, Turned};
+    use baud_render::Scrolled;
+    let shell = match sh.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let host = crate::hostlog::machine_name().expect("this machine's name");
+    for integration in [Integration::On, Integration::Off] {
+        let dir = scratch(&format!("cwd-{}-{integration:?}", sh.name()));
+        let home = dir.join("home");
+        stock(sh, &home);
+        let odd = home.join("a b%c").join("\u{e9}~x");
+        put(&odd, "oct-commits.txt", "a file\n");
+        let mut s = Session::start_in(&WIDE, parent(&dir, &shell, &[]), integration, &home);
+        s.reading(Times::ONCE);
+        let at_start = reported(&s);
+        s.run("cd 'a b%c'/*x");
+        let after_cd = reported(&s);
+        s.outbox.push(TYPED.as_bytes());
+        let _ = write_some(s.master, &mut s.outbox);
+        s.until("the line is typed", |s| {
+            s.screen().iter().any(|r| r.ends_with(TYPED))
+        });
+        let row = s
+            .screen()
+            .iter()
+            .position(|r| r.ends_with(TYPED))
+            .expect("the typed row");
+        let mut p = Paths::new(Some(bytes_of(&home)), Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![host.clone()]);
+        let at = Scrolled::START;
+        let _ = p.observe(&s.term, at);
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        p.begin_collect();
+        let _ = l.scan(
+            &s.term,
+            at,
+            &mut Links {
+                uris: &mut u,
+                urls: Turned::On,
+                paths: &mut p,
+            },
+        );
+        let asked: Vec<Vec<u8>> = p.end_collect().into_iter().map(|c| c.path).collect();
+        let file = bytes_of(&odd.join("oct-commits.txt"));
+        let answers = asked.iter().map(|a| {
+            let there = *a == file;
+            (
+                a.clone(),
+                if there { Probe::Exists } else { Probe::Missing },
+            )
+        });
+        if p.merge(answers) == Moved::Yes {
+            l.forget();
+        }
+        let _ = l.scan(
+            &s.term,
+            at,
+            &mut Links {
+                uris: &mut u,
+                urls: Turned::On,
+                paths: &mut p,
+            },
+        );
+        let lit = l.lines().iter().filter(|r| r.row.index() == row).count();
+        let theirs = sh == Sh::Fish && integration == Integration::Off;
+        match integration {
+            Integration::On => {
+                let name = Some(host.clone().into_bytes());
+                assert_eq!(
+                    at_start,
+                    Some((name.clone(), bytes_of(&home))),
+                    "{}: at the first prompt: {}",
+                    sh.name(),
+                    s.tail()
+                );
+                assert_eq!(
+                    after_cd,
+                    Some((name, bytes_of(&odd))),
+                    "{}: after the cd: {}",
+                    sh.name(),
+                    s.tail()
+                );
+                assert!(asked.contains(&file), "{}: asked {asked:?}", sh.name());
+                assert_eq!(lit, 2, "{}: both paths: {:?}", sh.name(), s.screen());
+            }
+            Integration::Off if !theirs => {
+                assert_eq!(after_cd, None, "{}: no report: {}", sh.name(), s.tail());
+                assert!(!asked.contains(&file), "{}: asked {asked:?}", sh.name());
+                assert_eq!(lit, 0, "{}: no line: {:?}", sh.name(), s.screen());
+            }
+            Integration::Off => {}
+        }
+        s.outbox.push(b"\x15");
+        let _ = write_some(s.master, &mut s.outbox);
+        s.finish();
+    }
+}
+
+#[test]
+fn zsh_reports_its_folder_and_a_typed_path_is_read_against_it() {
+    the_folder_is_reported_and_read_against(Sh::Zsh);
+}
+
+#[test]
+fn bash_reports_its_folder_and_a_typed_path_is_read_against_it() {
+    the_folder_is_reported_and_read_against(Sh::Bash);
+}
+
+#[test]
+fn fish_reports_its_folder_and_a_typed_path_is_read_against_it() {
+    the_folder_is_reported_and_read_against(Sh::Fish);
+}
+
+/// **zsh reports a `cd` inside a command line as it happens, and never
+/// into captured output**: `cd` then a `print` in one line, the folder's
+/// report comes after the command's `C` and before what the `print`
+/// wrote, so that output is read against the new folder; a `cd` in a
+/// command substitution reports nothing into what it captures, and the
+/// `[/]` it prints is whole. Named breaks: no `chpwd` hook -- the report
+/// comes at the next prompt, after the output; report from the hook
+/// whatever its output is -- the substitution captures the report.
+#[test]
+fn zsh_reports_a_cd_as_it_happens_and_never_into_captured_output() {
+    let shell = match Sh::Zsh.find() {
+        Ok(p) => p,
+        Err(why) => return eprintln!("skipped: {why}"),
+    };
+    let dir = scratch("chpwd");
+    let home = dir.join("home");
+    stock(Sh::Zsh, &home);
+    std::fs::create_dir_all(home.join("sub")).expect("a folder");
+    let mut s = Session::start_in(&WIDE, parent(&dir, &shell, &[]), Integration::On, &home);
+    s.reading(Times::ONCE);
+    let from = s.seen.len();
+    s.run("cd sub && print -r -- after-$((1+1))");
+    let seen = &s.seen[from..];
+    let find = |needle: &[u8]| seen.windows(needle.len()).position(|w| w == needle);
+    let c = find(b"\x1b]133;C;").expect("the command's C");
+    let out = find(b"after-2").expect("the output");
+    let report = find(b"\x1b]7;file://").expect("a report");
+    assert!(
+        c < report && report < out,
+        "C {c}, report {report}, output {out}: {}",
+        s.tail()
+    );
+    s.run("print -r -- \"[$(cd /; pwd)]\"");
+    assert!(
+        s.seen.windows(3).any(|w| w == b"[/]"),
+        "the capture is the folder alone: {}",
+        s.tail()
+    );
     s.finish();
 }

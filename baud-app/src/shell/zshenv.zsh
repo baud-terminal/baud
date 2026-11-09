@@ -1,6 +1,7 @@
 # baud's shell integration for zsh: marks for each prompt, where the
 # input begins and where a command's output begins and ends (OSC 133), so
-# baud can tell finished output from the prompt you are at.
+# baud can tell finished output from the prompt you are at; and the
+# folder the shell is in (OSC 7), which a `./` path is read against.
 #
 # baud starts zsh with ZDOTDIR naming the directory this file is written
 # to, so zsh reads it where it would read $ZDOTDIR/.zshenv. Everything
@@ -52,6 +53,26 @@ if [[ -o interactive ]]; then
     PS2=${PS2//$__baud_b/}
   }
 
+  # The folder the shell is in, for baud to read a `./` path against
+  # (OSC 7): a file: URI naming this machine as $HOST names it (RFC 8089),
+  # every byte of the path but RFC 3986's unreserved ones and `/`
+  # percent-encoded, a byte at a time.
+  __baud_cwd() {
+    builtin emulate -L zsh -o extendedglob +o multibyte
+    builtin local LC_ALL=C
+    builtin print -rn -- $'\e]7;file://'"$HOST${PWD//(#m)[^A-Za-z0-9\/._~-]/%${(l:2::0:)$(( [##16] #MATCH ))}}"$'\a'
+  }
+
+  # A `cd` inside a command line, reported as it happens, so what the
+  # command prints after it is read against the folder it moved to. Not
+  # from a subshell, whose output may be captured, nor while the output
+  # goes anywhere but the terminal.
+  __baud_chpwd() {
+    if (( ! ZSH_SUBSHELL )) && [[ -t 1 ]]; then
+      __baud_cwd
+    fi
+  }
+
   __baud_precmd() {
     builtin local -i st=$?
     builtin local percent=off
@@ -68,7 +89,8 @@ if [[ -o interactive ]]; then
       $PS1$PS2$RPS1 == *$__baud_mark* || ${(j: :)${(v)functions}} == *$__baud_mark* ]]; then
       precmd_functions=(${precmd_functions:#__baud_precmd})
       preexec_functions=(${preexec_functions:#__baud_preexec})
-      builtin unfunction __baud_precmd __baud_preexec __baud_unmark
+      chpwd_functions=(${chpwd_functions:#__baud_chpwd})
+      builtin unfunction __baud_precmd __baud_preexec __baud_unmark __baud_cwd __baud_chpwd
       builtin unset __baud_prompted __baud_mark __baud_osc __baud_bel __baud_p __baud_s \
         __baud_b __baud_token BAUD_SHELL_INTEGRATION
       return st
@@ -79,6 +101,7 @@ if [[ -o interactive ]]; then
       (( __baud_prompted )) &&
         builtin print -rn -- "${__baud_osc}D;$st;aid=$$;baud_token=$__baud_token${__baud_bel}"
       builtin print -rn -- "${__baud_osc}A;aid=$$${__baud_bel}"
+      __baud_cwd
       __baud_prompted=1
     fi
     if [[ $percent == on ]]; then
@@ -101,9 +124,10 @@ if [[ -o interactive ]]; then
     fi
   }
 
-  builtin typeset -ga precmd_functions preexec_functions
+  builtin typeset -ga precmd_functions preexec_functions chpwd_functions
   precmd_functions+=(__baud_precmd)
   preexec_functions+=(__baud_preexec)
+  chpwd_functions+=(__baud_chpwd)
 
   # [shell] ssh_env = "on": ssh asks to send COLORTERM and TERM_PROGRAM
   # (SendEnv, ssh_config(5)), which a server keeps only where its
