@@ -362,8 +362,10 @@ fn raw_rgba_and_rgb_are_stored_placed_and_move_the_cursor() {
         );
         assert_eq!(p.col.index(), 6, "the cursor's column");
         // 3x2 pixels in 10x20 cells: one column and one row, so the cursor
-        // goes right one and down one (`[[source: kitty-graphics]]`).
-        assert_eq!(t.cursor(), (Row::from_index(5), Col::at_index(7)));
+        // goes right one and down none, the rows less one, as kitty moves it
+        // (`[[source: kitty-graphics-c]]`, `handle_put_command`); it went down
+        // one, to (5, 7), by the text's "down by the number of rows".
+        assert_eq!(t.cursor(), (Row::from_index(4), Col::at_index(7)));
     });
     with(256, |t| {
         let mut r = Vec::new();
@@ -493,9 +495,11 @@ fn a_png_is_placed_at_once_and_shown_when_its_steps_complete() {
         let imgs = t.images();
         let (_, pl) = imgs.placements().next().expect("placed at once");
         assert!(imgs.image(pl.image).is_none(), "not shown while decoding");
+        // Two rows, so down one, as kitty moves it; down two, to (2, 3),
+        // by the text's "down by the number of rows".
         assert_eq!(
             t.cursor(),
-            (Row::from_index(2), Col::at_index(3)),
+            (Row::from_index(1), Col::at_index(3)),
             "moved at once: three columns, two rows"
         );
         let mut steps = 0;

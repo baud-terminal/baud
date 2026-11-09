@@ -1031,7 +1031,11 @@ fn a_sixel_on_a_double_line_starts_at_the_cursor_s_displayed_place() {
 
 /// A kitty placement likewise, and the cursor moves past it to the column
 /// right of the image on the row it lands on: three display columns from
-/// display column 17, so column 20 of the single-width row below.
+/// display column 17, and one row of image moves it down none, as kitty
+/// moves it (the rows less one), so the double line's character position
+/// 11, the first whose field starts right of the image. By the text's
+/// "down by the number of rows" it went to column 20 of the single-width row
+/// below.
 #[test]
 fn a_kitty_placement_on_a_double_line_starts_at_the_cursor_s_displayed_place() {
     // A 24x16 RGBA image, all red, base64 of 24 * 16 * 4 bytes.
@@ -1044,7 +1048,7 @@ fn a_kitty_placement_on_a_double_line_starts_at_the_cursor_s_displayed_place() {
             format!("\x1b_Ga=T,f=32,s=24,v=16,i=5,c=3,r=1,q=2;{b64}\x1b\\").as_bytes(),
         );
         assert_eq!(placed_cols(t), vec![16]);
-        assert_eq!(cursor(t), (3, 19), "right of the image, a row down");
+        assert_eq!(cursor(t), (2, 10), "right of the image, on its row");
     });
 }
 

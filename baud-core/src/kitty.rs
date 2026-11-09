@@ -141,17 +141,23 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// **Move the cursor past a placement**: "to the right by the number of
-    /// cols in the image placement rectangle and down by the number of rows"
-    /// (`[[source: kitty-graphics]]`, "Controlling displayed image layout").
-    /// Down is `index`, so a placement at the bottom scrolls. Kitty moves
-    /// down by the rows less one (`[[source: kitty-graphics-c]]`
-    /// `handle_put_command`), its practice and not followed, since the text
-    /// says otherwise. Past the right margin the cursor goes to the left
-    /// margin of the next row, the Sixel `?8452` rule, where "the exact
-    /// positioning of the cursor is undefined, and up to implementations". A
-    /// move longer than the ring scrolls no further than the ring, which it
-    /// has blanked by then.
+    /// **Move the cursor past a placement, as kitty moves it**: right by
+    /// the columns the placement covers and down by its rows less one, so it
+    /// ends on the placement's last row (`handle_put_command`, `[[source:
+    /// kitty-graphics-c]]`: `c->x += ref->effective_num_cols;` and, for rows,
+    /// `c->y += ref->effective_num_rows - 1;`), then to the next row's start
+    /// past the right edge and scrolling past the bottom (`[[source:
+    /// kitty-screen-c]]`, its screen_handle_graphics_command). The text says
+    /// "to the right by the number of cols in the image placement rectangle
+    /// and down by the number of rows" (`[[source: kitty-graphics]]`,
+    /// "Controlling displayed image layout"); kitty's graphics protocol is
+    /// defined by kitty's behaviour, and every client is written against
+    /// kitty's, so baud moves as kitty does and the text's wording is a row
+    /// more than either. Down is `index`, so a placement at the bottom
+    /// scrolls. Past the right margin the cursor goes to the left margin of
+    /// the next row, the Sixel `?8452` rule; with no margins set that is
+    /// kitty's column 0. A move longer than the ring scrolls no further than
+    /// the ring, which it has blanked by then.
     ///
     /// **Right of the image on the row it lands on**: its right edge on the
     /// display, from the column it began at, as a column of that row, so a
@@ -162,7 +168,12 @@ impl Paint<'_, '_> {
                 .index()
                 .saturating_add(m.cols.index()),
         );
-        for _ in 0..m.rows.index().min(self.view.ring().index()) {
+        for _ in 0..m
+            .rows
+            .index()
+            .saturating_sub(1)
+            .min(self.view.ring().index())
+        {
             self.index_bringing_in();
         }
         if m.cols.index() == 0 {
