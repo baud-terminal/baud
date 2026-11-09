@@ -2437,9 +2437,11 @@ mod tests {
     /// this repository, points at a session's logs, a stills folder or the
     /// link layer's dumps**: those stay on the machine that made them, and
     /// what is published is the film and the frames chosen from it. The
-    /// site is kept outside this repository and is not read here. The
-    /// controls: the README's own references are read, and a reference to a
-    /// still or a dump is caught. Named break: an empty list.
+    /// site lives outside this repository: this lint does not read it, and
+    /// it is covered by the rule that no session log is ever tracked
+    /// ([`no_session_output_is_tracked`]). The controls: the README's own
+    /// references are read, and a reference to a still or a dump is caught.
+    /// Named break: an empty list.
     #[test]
     fn the_readme_points_at_no_session_log() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -2475,5 +2477,68 @@ mod tests {
             "the control: the README leads to its documents"
         );
         assert_eq!(found, Vec::<String>::new());
+    }
+
+    /// What a session leaves that is never tracked: a heard or pty log in
+    /// any form, the link layer's dumps (a `links` folder), a stills folder,
+    /// and the film with its lists.
+    fn session_output(path: &str) -> bool {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let log = |stem: &str| name.starts_with(stem) && name.ends_with(".log");
+        let folder = |dir: &str| path.split('/').rev().skip(1).any(|s| s == dir);
+        log("heard")
+            || log("pty")
+            || folder("links")
+            || folder("stills")
+            || ["session.mkv", "session.mkv.shots", "session.mkv.steps"].contains(&name)
+    }
+
+    /// The tracked paths of `listing`, `git ls-files -z`'s, that are a
+    /// session's output.
+    fn tracked_outputs(listing: &[u8]) -> Vec<String> {
+        listing
+            .split(|&b| b == 0)
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .filter(|p| session_output(p))
+            .collect()
+    }
+
+    /// **No session's output is ever tracked**: no heard or pty log, no
+    /// link layer dump and no stills folder or film is in the repository's
+    /// index, so nothing that reads the repository -- the README, the site,
+    /// any other consumer -- can publish one. Raw logs only ever go to
+    /// cargo's gitignored target directory and to scratch folders. The
+    /// controls: a listing holding each kind is caught, and the repository's
+    /// own listing is read. Named break: match nothing.
+    #[test]
+    fn no_session_output_is_tracked() {
+        let fixture: &[u8] = b"README.md\0demo/heard.log\0x/heard.raw.log\0run/pty.shown.log\0\
+            run11/links/05-step.txt\0run11/stills/02-launch.png\0run11/session.mkv.steps\0\
+            tests/completion/zsh.steps\0baud-app/examples/demo/links.toml\0";
+        assert_eq!(
+            tracked_outputs(fixture),
+            [
+                "demo/heard.log",
+                "x/heard.raw.log",
+                "run/pty.shown.log",
+                "run11/links/05-step.txt",
+                "run11/stills/02-launch.png",
+                "run11/session.mkv.steps",
+            ],
+            "the control: each kind is caught, and the rest is not"
+        );
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["ls-files", "-z"])
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git ls-files");
+        assert!(
+            out.stdout.split(|&b| b == 0).count() > 100,
+            "the control: the repository's files are listed"
+        );
+        assert_eq!(tracked_outputs(&out.stdout), Vec::<String>::new());
     }
 }
