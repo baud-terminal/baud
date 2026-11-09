@@ -1581,6 +1581,37 @@ pub struct Timespec {
     pub tv_nsec: core::ffi::c_long,
 }
 
+/// **Compiles a test's C probe** from `src` to `bin` with `CC`, else `cc`,
+/// `args` before `-o`. No compiler that runs, or one that cannot compile
+/// the probe, fails the test naming what it needs, the compiler it tried
+/// and what the compiler said: `holds` is what the probe holds to the
+/// system headers.
+#[cfg(test)]
+pub(crate) fn compile_probe(
+    args: &[&str],
+    src: &std::path::Path,
+    bin: &std::path::Path,
+    holds: &str,
+) {
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let needs = format!(
+        "the C header probe needs a C compiler, clang or cc on PATH or one CC names, \
+         to hold {holds} to the system headers"
+    );
+    let out = std::process::Command::new(&cc)
+        .args(args)
+        .arg("-o")
+        .arg(bin)
+        .arg(src)
+        .output()
+        .unwrap_or_else(|e| panic!("{needs}; `{cc}` did not run: {e}"));
+    assert!(
+        out.status.success(),
+        "{needs}; `{cc}` did not compile it:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **The declarations above, checked against the platform's own headers.**
 ///
 /// A fixture generated once on one machine could not do this: `TIOCSWINSZ`
@@ -1902,18 +1933,7 @@ int main(void) {
         let src = dir.join("probe.c");
         let bin = dir.join("probe");
         std::fs::write(&src, PROBE).expect("write the probe");
-        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-        let out = std::process::Command::new(&cc)
-            .arg("-o")
-            .arg(&bin)
-            .arg(&src)
-            .output()
-            .unwrap_or_else(|e| panic!("{cc} did not run: {e}"));
-        assert!(
-            out.status.success(),
-            "the probe did not compile:\n{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        compile_probe(&[], &src, &bin, "sys.rs's constants and layouts");
         let run = std::process::Command::new(&bin).output().expect("run it");
         assert!(run.status.success(), "the probe did not run");
         let text = String::from_utf8_lossy(&run.stdout).into_owned();

@@ -18751,17 +18751,11 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let (src, bin) = (dir.join("probe.m"), dir.join("probe"));
         std::fs::write(&src, PROBE).expect("write the probe");
-        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-        let out = std::process::Command::new(&cc)
-            .args(["-fobjc-arc", "-framework", "AppKit", "-o"])
-            .arg(&bin)
-            .arg(&src)
-            .output()
-            .unwrap_or_else(|e| panic!("{cc} did not run: {e}"));
-        assert!(
-            out.status.success(),
-            "the probe did not compile:\n{}",
-            String::from_utf8_lossy(&out.stderr)
+        crate::sys::compile_probe(
+            &["-fobjc-arc", "-framework", "AppKit"],
+            &src,
+            &bin,
+            "the caps lock flag's mask",
         );
         let run = std::process::Command::new(&bin).output().expect("run it");
         let _ = std::fs::remove_dir_all(&dir);
