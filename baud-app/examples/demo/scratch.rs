@@ -252,7 +252,7 @@ pub const PRESET: &str = include_str!("../../../assets/starship/baud.toml");
 /// links to. The take itself shows the README at its commit, `HEAD`.
 pub const README: &str = include_str!("../../../README.md");
 
-/// **baud's config**: 29 lines, `trail = "plasma"` the last, and the word
+/// **baud's config**: 27 lines, `trail = "plasma"` the last, and the word
 /// nowhere else, so the finale's `sed` changes that line alone.
 ///
 /// - `font_size` first, which `BAUD_SESSION_POINTS` replaces, then the
@@ -260,10 +260,9 @@ pub const README: &str = include_str!("../../../README.md");
 ///   and `Symbols Nerd Font Mono`, then the pinned open
 ///   faces one a line, by paths beside this file, `fonts/<file>`, so no
 ///   path of the machine is on screen.
-/// - `[images] advertise_sixel = true`, so `kitten icat` runs with no
-///   option: kitten's detection asks the terminal what it is, gives up on
-///   baud's default answer after ten seconds, and passes once baud says it
-///   draws Sixel, which it does (`docs/guide/configuration.md`).
+/// - No `[images]` table: baud's default answer to kitten's detection,
+///   the Primary DA `?1;2c`, is one it takes, so `kitten icat` runs with no
+///   option on baud's defaults.
 /// - `[screen] transition = "on"`: a full-screen program slides in and
 ///   out, as btop does.
 /// - The window solid, each by its own key
@@ -307,10 +306,9 @@ pub fn config(faces: &[&str]) -> String {
 }
 
 /// [`config`]'s tables: the transition, the window solid and its size and
-/// font fixed, and Sixel said.
+/// font fixed.
 const TABLES: &str = "[screen]\ntransition = \"on\"\n[glass]\ndim_dark = 1.0\ndim_light = 1.0\n\
-                      [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n\
-                      [images]\nadvertise_sixel = true\n";
+                      [font]\nchanges = \"off\"\n[window]\noperations = \"off\"\n";
 
 /// **The config's link rules**, `links.toml` beside this file, which
 /// baud's own test of the demo reads through baud's config reader
@@ -463,13 +461,13 @@ mod tests {
 
     /// **The config lists baud's own faces by name and the pinned ones by
     /// paths beside it**, at 14 points, the transition on, the window solid,
-    /// Sixel said, the links in their windows, and the cursor blinking with
-    /// its plasma trail last, in 29 lines, with "plasma" on the last alone,
+    /// the links in their windows, and the cursor blinking with
+    /// its plasma trail last, in 27 lines, with "plasma" on the last alone,
     /// the line the finale's `sed` changes; the zsh file sets the `PATH`,
     /// comments at the prompt, starship's prompt from the preset in the
     /// scratch home, and ssh's config; and baud's environment is its list,
     /// no `XDG_*` among it. Perturbation: a blank line after the
-    /// fonts makes 30 lines, and a `trail_scroll` after the trail ends the
+    /// fonts makes 28 lines, and a `trail_scroll` after the trail ends the
     /// file on another line.
     #[test]
     fn the_config_and_the_shell_say_what_the_session_needs() {
@@ -488,7 +486,11 @@ mod tests {
             ),
             "{c}"
         );
-        assert_eq!(c.lines().count(), 29, "{c}");
+        assert_eq!(c.lines().count(), 27, "{c}");
+        assert!(
+            !c.contains("[images]"),
+            "baud's defaults, no [images] table: {c}"
+        );
         assert_eq!(c.lines().last(), Some("trail = \"plasma\""));
         assert_eq!(c.matches("plasma").count(), 1, "the word once");
         // The finale's `sed`, its one substitution, changes the last line
@@ -515,7 +517,6 @@ mod tests {
             "[glass]\ndim_dark = 1.0\ndim_light = 1.0\n",
             "[font]\nchanges = \"off\"\n",
             "[window]\noperations = \"off\"\n",
-            "[images]\nadvertise_sixel = true\n",
             "[link.path]\nforms = [\"/\", \"~/\", \"./\", \"relative\"]\n\
              action = \"window\"\ncommand = [\"~/bin/demo-open\", \"{path}\"]\n",
             "[link.https]\naction = \"window\"\n\
