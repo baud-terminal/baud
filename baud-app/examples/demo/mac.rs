@@ -165,6 +165,64 @@ extern "C" {
     fn proc_name(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
 }
 
+/// `uid_t`, 32 bits; the probe holds it.
+type Uid = u32;
+
+/// `struct passwd` as far as its first member, `char *pw_name`, the one
+/// read; the probe holds it at offset 0. Never made, only read through the
+/// pointer `getpwuid` returns.
+#[repr(C)]
+struct Passwd {
+    pw_name: *const std::ffi::c_char,
+}
+
+extern "C" {
+    /// `uid_t getuid(void)` (`<unistd.h>`).
+    fn getuid() -> Uid;
+    /// `struct passwd *getpwuid(uid_t)` (`<pwd.h>`): the entry, in storage
+    /// the next call may overwrite, or null.
+    fn getpwuid(uid: Uid) -> *const Passwd;
+}
+
+/// **The account's name**, `getpwuid(getuid())`'s `pw_name`: what
+/// `LOGNAME` and `USER` hold in a baud the Dock starts, which launchd gives
+/// them. Without them the session's zsh sets `LOGNAME` from `getlogin()`,
+/// which in a process started under another login session reads that
+/// session's name; starship then prints the account's name on a line of its
+/// own, as a user other than the one logged in. Copied out at once, before
+/// anything can call `getpwuid` again.
+pub fn account() -> Result<String, String> {
+    // SAFETY: `getuid` takes nothing and cannot fail; `getpwuid` takes any
+    // uid and returns null or an entry that stays valid until the next call,
+    // and nothing else in the demo calls it.
+    let entry = unsafe { getpwuid(getuid()) };
+    if entry.is_null() {
+        return Err("getpwuid: no entry for this process's uid".to_string());
+    }
+    // SAFETY: `entry` is non-null and points at a `struct passwd`, whose
+    // first member is `pw_name` (the probe holds the offset).
+    let name = unsafe { (*entry).pw_name };
+    if name.is_null() {
+        return Err("getpwuid: an entry with no name".to_string());
+    }
+    // SAFETY: `pw_name` is a NUL-terminated string in the entry's storage,
+    // read before any other call can overwrite it.
+    let name = unsafe { std::ffi::CStr::from_ptr(name) };
+    name.to_str()
+        .map(str::to_string)
+        .map_err(|_| "getpwuid: a name that is not UTF-8".to_string())
+}
+
+/// **baud's environment with who the shell runs as, as launchd tells a
+/// Dock-started baud**: `env` ([`crate::scratch::env`]), then `LOGNAME` and
+/// `USER`, each `name`. Given to baud's process alone and never written into
+/// the scratch root's `env` file or any other file.
+pub fn with_account(env: &[(String, String)], name: &str) -> Vec<(String, String)> {
+    let mut all = env.to_vec();
+    all.extend(["LOGNAME", "USER"].map(|k| (k.to_string(), name.to_string())));
+    all
+}
+
 /// The registry property the kernel keeps the lock in, on the root. In no SDK
 /// header; `ioreg -n Root -d1` shows it.
 const IO_CONSOLE_LOCKED: &str = "IOConsoleLocked";
@@ -966,8 +1024,9 @@ mod tests {
     /// **The session's calls and the one key the crate has no constant for
     /// are the SDK headers' own**: a C probe refuses to compile unless each
     /// call has the type `mac.rs` declares, and prints
-    /// `kCGSessionOnConsoleKey`'s spelling, `kIOMainPortDefault`'s size and
-    /// `proc_name`'s longest name. The control: the probe printed one value
+    /// `kCGSessionOnConsoleKey`'s spelling, `kIOMainPortDefault`'s size,
+    /// `proc_name`'s longest name, `uid_t`'s size and where `pw_name` sits
+    /// in `struct passwd`, first, and its size. The control: the probe printed one value
     /// a line it was given. Perturbation: spell [`ON_CONSOLE`] without its
     /// second `S`, and it fails here rather than reading as unread.
     #[test]
@@ -978,6 +1037,9 @@ mod tests {
 #include <Carbon/Carbon.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <IOKit/IOKitLib.h>
+#include <pwd.h>
+#include <stddef.h>
+#include <unistd.h>
 #define SAME(f, t) _Static_assert(__builtin_types_compatible_p(__typeof__(f), t), #f)
 SAME(IsSecureEventInputEnabled, Boolean (void));
 SAME(EnableSecureEventInput, OSStatus (void));
@@ -988,6 +1050,8 @@ SAME(IORegistryEntryCreateCFProperty,
 SAME(IOObjectRelease, kern_return_t (io_object_t));
 SAME(proc_listallpids, int (void *, int));
 SAME(proc_name, int (int, void *, uint32_t));
+SAME(getuid, uid_t (void));
+SAME(getpwuid, struct passwd *(uid_t));
 int main(void) {
   char on[64];
   CFStringGetCString(kCGSessionOnConsoleKey, on, sizeof on, kCFStringEncodingUTF8);
@@ -996,6 +1060,9 @@ int main(void) {
   printf("port=%d\n", (int)sizeof(kIOMainPortDefault));
   printf("options=%d\n", (int)sizeof(IOOptionBits));
   printf("name=%d\n", 2 * MAXCOMLEN + 1);
+  printf("uid=%d\n", (int)sizeof(uid_t));
+  printf("pw_name.at=%d\n", (int)offsetof(struct passwd, pw_name));
+  printf("pw_name.size=%d\n", (int)sizeof(((struct passwd *)0)->pw_name));
   return 0;
 }
 "#;
@@ -1022,12 +1089,70 @@ int main(void) {
         let text = String::from_utf8_lossy(&run.stdout).into_owned();
         let h: std::collections::HashMap<&str, &str> =
             text.lines().filter_map(|l| l.split_once('=')).collect();
-        assert_eq!(h.len(), 5, "one value a line: {text}");
+        assert_eq!(h.len(), 8, "one value a line: {text}");
         assert_eq!(h["on_console"], ON_CONSOLE);
         assert_eq!(h["entry"], "4");
         assert_eq!(h["port"], "4");
         assert_eq!(h["options"], "4");
         assert_eq!(h["name"], "33");
+        assert_eq!(h["uid"], std::mem::size_of::<Uid>().to_string());
+        assert_eq!(
+            h["pw_name.at"], "0",
+            "pw_name is struct passwd's first member"
+        );
+        assert_eq!(h["pw_name.size"], std::mem::size_of::<Passwd>().to_string());
+    }
+
+    /// **The session's shell runs as the account, whatever login session
+    /// started the demo**: [`account`] is the name `id -un -r` prints for
+    /// this process's uid, and a zsh given [`with_account`]'s environment,
+    /// the scratch env as the session gives it, reads `LOGNAME` and `USER`
+    /// as that name. starship prints its user line when `LOGNAME` names
+    /// another user than the one it runs as, which a zsh without the keys
+    /// makes happen: it sets `LOGNAME` from `getlogin()`, and a demo started
+    /// under another login session (an agent's, which reads `root`) put
+    /// the account's name on every prompt of headless run 7. The control:
+    /// a zsh told `LOGNAME=nobody` reads `nobody`, so the probe reads what
+    /// the shell was given. Perturbation: return `env.to_vec()` from
+    /// [`with_account`], and the keys are missing from the list, and under
+    /// such a login session zsh reads its name instead.
+    #[test]
+    fn the_sessions_shell_runs_as_the_account() {
+        let name = account().expect("this process's account");
+        let id = Command::new("/usr/bin/id")
+            .args(["-u", "-n", "-r"])
+            .env_clear()
+            .output()
+            .expect("id");
+        assert_eq!(String::from_utf8_lossy(&id.stdout).trim(), name);
+        let at = crate::scratch::Layout {
+            root: std::path::PathBuf::from("/t/r"),
+        };
+        let env = with_account(&crate::scratch::env(&at, "/usr/bin:/bin"), &name);
+        for k in ["LOGNAME", "USER"] {
+            assert!(
+                env.iter().any(|(key, v)| key == k && *v == name),
+                "{k} in {env:?}"
+            );
+        }
+        let zsh = |env: &[(String, String)]| {
+            let out = Command::new("/bin/zsh")
+                .args(["-f", "-c", "print -r -- \"$LOGNAME|$USER\""])
+                .env_clear()
+                .envs(env.iter().map(|(k, v)| (k, v)))
+                .output()
+                .expect("zsh");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert_eq!(zsh(&env), format!("{name}|{name}"));
+        let told: Vec<(String, String)> = env
+            .iter()
+            .map(|(k, v)| match k.as_str() {
+                "LOGNAME" => (k.clone(), "nobody".to_string()),
+                _ => (k.clone(), v.clone()),
+            })
+            .collect();
+        assert_eq!(zsh(&told), format!("nobody|{name}"), "the control");
     }
 
     /// **A desktop whose session can change between two events**, and the

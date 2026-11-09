@@ -935,7 +935,8 @@ fn a_windowless_session_skips_the_links_window() {
 /// scratch directory `BAUD_SESSION_ROOT` names, starts the container and
 /// runs this: the session's steps (`SESSION`), the link's window taken out
 /// ([`windowless`]), typed into baud's own login shell started as baud
-/// starts it, with that directory's `env` as baud's environment, the
+/// starts it, with that directory's `env` as baud's environment and
+/// `LOGNAME` and `USER` the account `BAUD_SESSION_ACCOUNT` names, the
 /// config where baud finds it with that environment -- read again when the
 /// finale's `sed` changes it, as baud reads it -- and its 80x24 grid.
 /// Each light's first lit moment is printed with the step it came in, and
@@ -973,7 +974,14 @@ fn the_readme_session_lights_every_light() {
     let read = |name: &str| {
         std::fs::read_to_string(root.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
     };
-    let env = env_of(&read("env"));
+    let mut env = env_of(&read("env"));
+    // Who the shell runs as, as launchd tells a Dock-started baud: the demo
+    // gives the account's name to this test alone and writes it nowhere, so
+    // the shell's zsh does not set `LOGNAME` from `getlogin()`, which in a
+    // test started under another login session reads that session's name,
+    // and starship prints no user line.
+    let account = var("BAUD_SESSION_ACCOUNT");
+    env.extend(["LOGNAME", "USER"].map(|k| (k.into(), account.clone().into())));
     let get = |k: &str| {
         env.iter()
             .find(|(key, _)| key == k)

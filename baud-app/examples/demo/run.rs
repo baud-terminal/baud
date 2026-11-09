@@ -519,6 +519,9 @@ fn headless(
         .env("BAUD_FILM_FFMPEG", &ffmpeg)
         .env("BAUD_SESSION_FILM", &film)
         .env("BAUD_SESSION_PERIOD_MS", CENSUS_PERIOD_MS.to_string())
+        // The account the shell runs as, given to the test and written
+        // nowhere (`mac::with_account`).
+        .env("BAUD_SESSION_ACCOUNT", mac::account()?)
         .envs(
             ["BAUD_SESSION_POINTS", "BAUD_SESSION_WITHOUT"]
                 .into_iter()
@@ -1588,10 +1591,13 @@ fn live(
     if kit.is_some_and(|k| k.form == record::Form::Mp4) {
         armed.push((TAKE_ENV, journal.as_path()));
     }
+    // Who the shell runs as, as launchd tells a Dock-started baud, given
+    // here and written nowhere (`mac::with_account`).
+    let account = mac::account()?;
     let launch = Instant::now();
     let spawned = Command::new(baud)
         .env_clear()
-        .envs(prep.env.iter().map(|(k, v)| (k, v)))
+        .envs(mac::with_account(&prep.env, &account))
         .envs(armed.iter().copied())
         .current_dir(at.work())
         .stdin(Stdio::null())
