@@ -36,9 +36,10 @@ baud-wayland = { path = "../baud-wayland" }
 baud-present-wayland = { path = "../baud-present-wayland" }
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
-# nothing elsewhere and the bin says so.
+# nothing elsewhere and the bin says so. Its pipelines come from the
+# suite's binary archive (`suite-archive`), as every test's do.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
-baud-present-macos = { path = "../baud-present-macos", default-features = false }
+baud-present-macos = { path = "../baud-present-macos", default-features = false, features = ["suite-archive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `drag` implements the presenter's `Wake`, whose surface type is the

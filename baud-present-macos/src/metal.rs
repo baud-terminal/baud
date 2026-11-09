@@ -40,6 +40,36 @@
 //! `.metallib` needs Xcode's toolchain at build time and the source is
 //! two hundred lines.
 //!
+//! **Metal's shader cache can fault, and where each build meets it.** A
+//! pipeline compiled at run time goes through Metal's compiler file cache,
+//! one directory per bundle id. When a cache data file a process has open
+//! shrinks under it and the cache cannot reopen its files,
+//! `newRenderPipelineStateWithDescriptor` reads a `FILE` through a null
+//! pointer and the process dies of `SIGSEGV`; `tests/shader_cache_fault.rs`
+//! makes it on demand in a cache of its own.
+//!
+//! * **Tests and benches** never go through that cache: their pipelines
+//!   come from the suite's binary archive, a miss refused (`suite-archive`,
+//!   `metal/suite.rs`). Every test binary is unbundled and shares one cache
+//!   directory with every unbundled process on the machine, and a test
+//!   suite under load is where the fault was met; which process shrank the
+//!   files there is inferred, not found. The archive is written once for
+//!   each OS build, GPU, library and set of descriptors, by the one process
+//!   that holds its lock, and that write is the suite's one pass through
+//!   the cache.
+//! * **The app** compiles through the cache as it always has, in the
+//!   directory of its own bundle id, which only processes with that id
+//!   share. A second process with that id is started by `open -n` ("Open
+//!   a new instance of the application(s) even if one is already
+//!   running", `[[source: macos-man-open-1]]`), or by the bundle's binary
+//!   run while baud is open; `baud -e` refuses on macOS rather than start one
+//!   (`main.rs`). The fault then needs that process to shrink the cache's
+//!   files under the other at that moment, which has been shown only with
+//!   a process truncating them on purpose. The app never reads the suite's
+//!   archive and never refuses a miss: on a GPU an archive was not made for,
+//!   a refused pipeline would draw nothing (`tests/suite_archive.rs` holds
+//!   this).
+//!
 //! **This is the one module in the crate that needs `unsafe`.** Every
 //! `objc2-metal` call that takes a pointer or an index the framework does
 //! not bounds-check is `unsafe fn`, the shared-memory slices are made from
@@ -227,29 +257,18 @@ enum LatePipe {
 }
 
 impl LatePipe {
-    /// The pipeline, built now if it never was: `glyph_vertex` over the
-    /// records and `fragment` over them.
+    /// The pipeline `pipe`, built now if it never was.
     fn get(
         &mut self,
         device: &ProtocolObject<dyn MTLDevice>,
         library: &ProtocolObject<dyn MTLLibrary>,
-        fragment: &str,
-    ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
-        self.get_as(device, library, ("glyph_vertex", fragment), Blend::Over)
-    }
-
-    /// [`LatePipe::get`], over another vertex function and blend.
-    fn get_as(
-        &mut self,
-        device: &ProtocolObject<dyn MTLDevice>,
-        library: &ProtocolObject<dyn MTLLibrary>,
-        (vertex, fragment): (&str, &str),
-        blend: Blend,
+        pipe: Pipe,
     ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
         if let LatePipe::Unbuilt = self {
-            *self = match pipeline(device, library, vertex, fragment, blend) {
+            *self = match pipeline(device, library, pipe) {
                 Some(p) => LatePipe::Built(p),
                 None => {
+                    let (_, fragment) = pipe.functions();
                     eprintln!("baud-present-macos: the {fragment} pipeline would not build");
                     LatePipe::Failed
                 }
@@ -294,19 +313,10 @@ impl EffectBuild {
     /// would build on its first frame, from the precompiled library about
     /// 0.05 ms each.
     pub fn build(self) -> EffectPipes {
-        let effect = pipeline(
-            &self.device,
-            &self.library,
-            "glyph_vertex",
-            self.effect.fragment(),
-            Blend::Over,
-        );
+        let effect = pipeline(&self.device, &self.library, Pipe::effect(self.effect));
         let mixed = match self.effect {
-            Effect::Plasma => [
-                ("plasma_fragment", Blend::Screen),
-                ("plasma_multiply_fragment", Blend::Multiply),
-            ]
-            .map(|(f, b)| pipeline(&self.device, &self.library, "glyph_vertex", f, b)),
+            Effect::Plasma => [Pipe::PlasmaScreen, Pipe::PlasmaMultiply]
+                .map(|p| pipeline(&self.device, &self.library, p)),
             _ => [None, None],
         };
         EffectPipes {
@@ -870,6 +880,7 @@ struct CellLast {
 /// (1 - as + cs)` by `OneMinusDestinationAlpha` and the second source,
 /// `plasma_multiply_fragment`'s `1 - as + cs`; the alpha `as + ab (1 - as)`
 /// under all three, which is W3C Compositing's `ao`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Blend {
     Over,
     Replace,
@@ -877,13 +888,179 @@ enum Blend {
     Multiply,
 }
 
+/// **Every pipeline baud builds**, one variant each: its vertex and fragment
+/// functions and its blend. [`pipeline`] takes one of these and nothing
+/// else, so no pipeline is built that this list does not name, and the
+/// suite's binary archive (`suite-archive`, `suite_misses`) holds the
+/// compiled code of every variant in [`Pipe::ALL`].
+///
+/// Five are built with the [`Gpu`] ([`Gpu::new`]); an effect's, and the
+/// plasma's two in front of the text, when its trail is asked for
+/// ([`EffectBuild::build`]); and the rest the first frame that draws them
+/// ([`LatePipe`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pipe {
+    /// The background pass.
+    Bg,
+    /// The instanced glyph pass.
+    Glyph,
+    /// The cell path's backgrounds, and over an image below them.
+    CellBg,
+    CellBgOver,
+    /// The cell path's glyphs.
+    CellGlyph,
+    /// The cell path's shapes.
+    CellShape,
+    /// Each effect's trail over the records ([`Pipe::effect`]).
+    Fire,
+    Plasma,
+    Lightning,
+    Ice,
+    Ufo,
+    Orb,
+    Liquid,
+    /// The plasma in front of the text, by `screen` and by `multiply`.
+    PlasmaScreen,
+    PlasmaMultiply,
+    /// An image placement, over and replacing.
+    Image,
+    ImageReplace,
+    /// The fireworks.
+    Fireworks,
+    /// The cursor trail's quad.
+    Quad,
+    /// The window's ground and the set behind the text.
+    BgGround,
+    BgSet,
+    /// The hollow cursor's ring.
+    CellRing,
+}
+
+impl Pipe {
+    /// Every variant, the order the suite's archive is written in.
+    pub const ALL: [Pipe; 22] = [
+        Pipe::Bg,
+        Pipe::Glyph,
+        Pipe::CellBg,
+        Pipe::CellBgOver,
+        Pipe::CellGlyph,
+        Pipe::CellShape,
+        Pipe::Fire,
+        Pipe::Plasma,
+        Pipe::Lightning,
+        Pipe::Ice,
+        Pipe::Ufo,
+        Pipe::Orb,
+        Pipe::Liquid,
+        Pipe::PlasmaScreen,
+        Pipe::PlasmaMultiply,
+        Pipe::Image,
+        Pipe::ImageReplace,
+        Pipe::Fireworks,
+        Pipe::Quad,
+        Pipe::BgGround,
+        Pipe::BgSet,
+        Pipe::CellRing,
+    ];
+
+    /// The trail pipeline of `effect`.
+    pub const fn effect(effect: Effect) -> Pipe {
+        match effect {
+            Effect::Fire => Pipe::Fire,
+            Effect::Plasma => Pipe::Plasma,
+            Effect::Lightning => Pipe::Lightning,
+            Effect::Ice => Pipe::Ice,
+            Effect::Ufo => Pipe::Ufo,
+            Effect::Orb => Pipe::Orb,
+            Effect::Liquid => Pipe::Liquid,
+        }
+    }
+
+    /// Its vertex and fragment functions, as `shaders.metal` names them.
+    pub const fn functions(self) -> (&'static str, &'static str) {
+        match self {
+            Pipe::Bg => ("bg_vertex", "bg_fragment"),
+            Pipe::Glyph => ("glyph_vertex", "glyph_fragment"),
+            Pipe::CellBg | Pipe::CellBgOver => ("cell_bg_vertex", "flat_fragment"),
+            Pipe::CellGlyph => ("cell_glyph_vertex", "glyph_fragment"),
+            Pipe::CellShape => ("cell_shape_vertex", "glyph_fragment"),
+            Pipe::Fire => ("glyph_vertex", Effect::Fire.fragment()),
+            Pipe::Plasma => ("glyph_vertex", Effect::Plasma.fragment()),
+            Pipe::Lightning => ("glyph_vertex", Effect::Lightning.fragment()),
+            Pipe::Ice => ("glyph_vertex", Effect::Ice.fragment()),
+            Pipe::Ufo => ("glyph_vertex", Effect::Ufo.fragment()),
+            Pipe::Orb => ("glyph_vertex", Effect::Orb.fragment()),
+            Pipe::Liquid => ("glyph_vertex", Effect::Liquid.fragment()),
+            Pipe::PlasmaScreen => ("glyph_vertex", "plasma_fragment"),
+            Pipe::PlasmaMultiply => ("glyph_vertex", "plasma_multiply_fragment"),
+            Pipe::Image => ("glyph_vertex", "image_fragment"),
+            Pipe::ImageReplace => ("glyph_vertex", "image_replace_fragment"),
+            Pipe::Fireworks => ("fireworks_vertex", "fireworks_fragment"),
+            Pipe::Quad => ("glyph_vertex", "quad_fragment"),
+            Pipe::BgGround => ("bg_vertex", "bg_ground_fragment"),
+            Pipe::BgSet => ("bg_vertex", "bg_set_fragment"),
+            Pipe::CellRing => ("cell_ring_vertex", "glyph_fragment"),
+        }
+    }
+
+    /// How it blends over what is under it.
+    const fn blend(self) -> Blend {
+        match self {
+            Pipe::Bg | Pipe::CellBg | Pipe::ImageReplace | Pipe::BgGround => Blend::Replace,
+            Pipe::PlasmaScreen => Blend::Screen,
+            Pipe::PlasmaMultiply => Blend::Multiply,
+            Pipe::Glyph
+            | Pipe::CellGlyph
+            | Pipe::CellShape
+            | Pipe::Fire
+            | Pipe::Plasma
+            | Pipe::Lightning
+            | Pipe::Ice
+            | Pipe::Ufo
+            | Pipe::Orb
+            | Pipe::Liquid
+            | Pipe::Image
+            | Pipe::Fireworks
+            | Pipe::Quad
+            | Pipe::BgSet
+            | Pipe::CellBgOver
+            | Pipe::CellRing => Blend::Over,
+        }
+    }
+}
+
+/// **The pipeline `pipe`.** In a test's or a bench's build
+/// (`suite-archive`) its compiled code comes from the suite's binary
+/// archive and a miss is refused (`suite.rs`); otherwise it is compiled, or
+/// served from the system's shader cache, as the app has always done.
 fn pipeline(
     device: &ProtocolObject<dyn MTLDevice>,
     library: &ProtocolObject<dyn MTLLibrary>,
-    vertex: &str,
-    fragment: &str,
-    blend: Blend,
+    pipe: Pipe,
 ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
+    let desc = descriptor(library, pipe)?;
+    #[cfg(feature = "suite-archive")]
+    let built = suite::build(device, library, &desc);
+    #[cfg(not(feature = "suite-archive"))]
+    let built = device.newRenderPipelineStateWithDescriptor_error(&desc);
+    match built {
+        Ok(p) => Some(p),
+        Err(e) => {
+            let (vertex, fragment) = pipe.functions();
+            eprintln!("baud-present-macos: pipeline {vertex}/{fragment}: {e:?}");
+            None
+        }
+    }
+}
+
+/// **`pipe`'s descriptor**, the one thing both the app's builds and the
+/// suite's archive are made from; `None` when the library lacks a function.
+fn descriptor(
+    library: &ProtocolObject<dyn MTLLibrary>,
+    pipe: Pipe,
+) -> Option<Retained<MTLRenderPipelineDescriptor>> {
+    let (vertex, fragment) = pipe.functions();
+    let blend = pipe.blend();
     let vf = library.newFunctionWithName(&NSString::from_str(vertex))?;
     let ff = library.newFunctionWithName(&NSString::from_str(fragment))?;
     let desc = MTLRenderPipelineDescriptor::new();
@@ -909,14 +1086,80 @@ fn pipeline(
     att.setDestinationRGBBlendFactor(destination);
     att.setSourceAlphaBlendFactor(MTLBlendFactor::One);
     att.setDestinationAlphaBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
-    match device.newRenderPipelineStateWithDescriptor_error(&desc) {
-        Ok(p) => Some(p),
-        Err(e) => {
-            eprintln!("baud-present-macos: pipeline {vertex}/{fragment}: {e:?}");
-            None
-        }
+    Some(desc)
+}
+
+/// **The pipelines the suite's archive cannot give** (`suite-archive`):
+/// each [`Pipe`] built from it with a miss refused, and the ones refused.
+/// Empty when the archive holds every pipeline baud builds.
+#[cfg(feature = "suite-archive")]
+pub fn suite_misses() -> Vec<Pipe> {
+    let builds = SuiteBuilds::new();
+    Pipe::ALL
+        .into_iter()
+        .filter(|&p| builds.build(p, CodeFrom::Archive).is_err())
+        .collect()
+}
+
+/// Where a test's pipeline takes its compiled code from (`suite-archive`).
+#[cfg(feature = "suite-archive")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodeFrom {
+    /// The suite's archive, a miss refused: what every test's build does.
+    Archive,
+    /// The compiler, through the system's shader cache: what the app does,
+    /// for a test that shows what the archive spares.
+    Compiler,
+}
+
+/// **The app's own pipelines, built one at a time for a test**
+/// (`suite-archive`): the device and `baud.metallib`, and each [`Pipe`]
+/// from the descriptor the app builds it from, its code from where the test
+/// says.
+#[cfg(feature = "suite-archive")]
+pub struct SuiteBuilds {
+    device: Retained<ProtocolObject<dyn MTLDevice>>,
+    library: Retained<ProtocolObject<dyn MTLLibrary>>,
+}
+
+#[cfg(feature = "suite-archive")]
+impl SuiteBuilds {
+    /// The system's device and the committed library.
+    pub fn new() -> SuiteBuilds {
+        let device = MTLCreateSystemDefaultDevice().expect("a Metal device");
+        let library = device
+            .newLibraryWithData_error(&DispatchData::from_static_bytes(METALLIB))
+            .expect("baud.metallib loads");
+        SuiteBuilds { device, library }
+    }
+
+    /// Where this machine's archive for these descriptors is kept.
+    pub fn archive_path(&self) -> std::path::PathBuf {
+        suite::path(&self.device, &self.library)
+    }
+
+    /// `pipe`, its code from `from`; the error's text when it is refused.
+    pub fn build(&self, pipe: Pipe, from: CodeFrom) -> Result<(), String> {
+        let desc = descriptor(&self.library, pipe).ok_or("a function the library lacks")?;
+        let built = match from {
+            CodeFrom::Archive => suite::build(&self.device, &self.library, &desc),
+            CodeFrom::Compiler => self
+                .device
+                .newRenderPipelineStateWithDescriptor_error(&desc),
+        };
+        built.map(drop).map_err(|e| format!("{e:?}"))
     }
 }
+
+#[cfg(feature = "suite-archive")]
+impl Default for SuiteBuilds {
+    fn default() -> SuiteBuilds {
+        SuiteBuilds::new()
+    }
+}
+
+#[cfg(feature = "suite-archive")]
+mod suite;
 
 /// A 2D texture of `format`, `w` by `h`.
 fn texture(
@@ -1155,49 +1398,19 @@ impl Gpu {
         // Timed one at a time; see `Build::each`.
         let mut each = [Duration::ZERO; 5];
         let p0 = Instant::now();
-        let bg_pipe = pipeline(
-            &device,
-            &library,
-            "bg_vertex",
-            "bg_fragment",
-            Blend::Replace,
-        )?;
+        let bg_pipe = pipeline(&device, &library, Pipe::Bg)?;
         each[0] = p0.elapsed();
         let p1 = Instant::now();
-        let glyph_pipe = pipeline(
-            &device,
-            &library,
-            "glyph_vertex",
-            "glyph_fragment",
-            Blend::Over,
-        )?;
+        let glyph_pipe = pipeline(&device, &library, Pipe::Glyph)?;
         each[1] = p1.elapsed();
         let p2 = Instant::now();
-        let cell_bg_pipe = pipeline(
-            &device,
-            &library,
-            "cell_bg_vertex",
-            "flat_fragment",
-            Blend::Replace,
-        )?;
+        let cell_bg_pipe = pipeline(&device, &library, Pipe::CellBg)?;
         each[2] = p2.elapsed();
         let p3 = Instant::now();
-        let cell_glyph_pipe = pipeline(
-            &device,
-            &library,
-            "cell_glyph_vertex",
-            "glyph_fragment",
-            Blend::Over,
-        )?;
+        let cell_glyph_pipe = pipeline(&device, &library, Pipe::CellGlyph)?;
         each[3] = p3.elapsed();
         let p4 = Instant::now();
-        let cell_shape_pipe = pipeline(
-            &device,
-            &library,
-            "cell_shape_vertex",
-            "glyph_fragment",
-            Blend::Over,
-        )?;
+        let cell_shape_pipe = pipeline(&device, &library, Pipe::CellShape)?;
         each[4] = p4.elapsed();
         let build = Build {
             device: device_made,
@@ -1697,17 +1910,16 @@ impl Gpu {
         }
         let pipe = self
             .image_pipe
-            .get(&self.device, &self.library, "image_fragment")?;
+            .get(&self.device, &self.library, Pipe::Image)?;
         // A replacing placement's pipeline, built only on a frame with one.
         let replace = match draws
             .iter()
             .any(|d| d.layer == layer && d.composite == ImageComposite::Replace)
         {
-            true => Some(self.image_replace_pipe.get_as(
+            true => Some(self.image_replace_pipe.get(
                 &self.device,
                 &self.library,
-                ("glyph_vertex", "image_replace_fragment"),
-                Blend::Replace,
+                Pipe::ImageReplace,
             )?),
             false => None,
         };
@@ -1817,17 +2029,12 @@ impl Gpu {
         &mut self,
         mix: Mix,
     ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
-        let (at, fragment, blend) = match mix {
+        let (at, pipe) = match mix {
             Mix::Normal => return None,
-            Mix::Screen => (0, "plasma_fragment", Blend::Screen),
-            Mix::Multiply => (1, "plasma_multiply_fragment", Blend::Multiply),
+            Mix::Screen => (0, Pipe::PlasmaScreen),
+            Mix::Multiply => (1, Pipe::PlasmaMultiply),
         };
-        self.plasma_mixed[at].get_as(
-            &self.device,
-            &self.library,
-            ("glyph_vertex", fragment),
-            blend,
-        )
+        self.plasma_mixed[at].get(&self.device, &self.library, pipe)
     }
 
     /// The trail's draw for this frame, if the renderer has one and its
@@ -1840,12 +2047,9 @@ impl Gpu {
         // vertex function, which hands the fragment function each star's
         // turn and side from the record.
         if let Some(u) = renderer.fireworks_uniform(pad) {
-            let pipe = self.fireworks_pipe.get_as(
-                &self.device,
-                &self.library,
-                ("fireworks_vertex", "fireworks_fragment"),
-                Blend::Over,
-            )?;
+            let pipe = self
+                .fireworks_pipe
+                .get(&self.device, &self.library, Pipe::Fireworks)?;
             return Some(TrailDraw {
                 pipe,
                 uniform: TrailUniform::Fireworks(u),
@@ -1854,7 +2058,7 @@ impl Gpu {
         if let Some(smear) = renderer.smear() {
             let pipe = self
                 .quad_pipe
-                .get(&self.device, &self.library, "quad_fragment")?;
+                .get(&self.device, &self.library, Pipe::Quad)?;
             return Some(TrailDraw {
                 pipe,
                 uniform: TrailUniform::Quad(smear.uniform(pad)),
@@ -1867,7 +2071,7 @@ impl Gpu {
         let at = Effect::ALL.iter().position(|&e| e == vfx.effect)?;
         let pipe = match renderer.trail_mix() {
             Mix::Normal => {
-                self.effect_pipes[at].get(&self.device, &self.library, vfx.effect.fragment())?
+                self.effect_pipes[at].get(&self.device, &self.library, Pipe::effect(vfx.effect))?
             }
             mix => self.plasma_mixed(mix)?,
         };
@@ -2389,18 +2593,10 @@ impl Gpu {
         let below = match images.iter().any(|d| d.layer == ImageLayer::Below) {
             true => Some((
                 self.ground_for(renderer)?,
-                self.bg_ground_pipe.get_as(
-                    &self.device,
-                    &self.library,
-                    ("bg_vertex", "bg_ground_fragment"),
-                    Blend::Replace,
-                )?,
-                self.bg_set_pipe.get_as(
-                    &self.device,
-                    &self.library,
-                    ("bg_vertex", "bg_set_fragment"),
-                    Blend::Over,
-                )?,
+                self.bg_ground_pipe
+                    .get(&self.device, &self.library, Pipe::BgGround)?,
+                self.bg_set_pipe
+                    .get(&self.device, &self.library, Pipe::BgSet)?,
             )),
             false => None,
         };
@@ -2664,11 +2860,10 @@ impl Gpu {
         // An image below the backgrounds: the pipeline that blends the
         // non-default backgrounds over it.
         let below = match images.iter().any(|d| d.layer == ImageLayer::Below) {
-            true => Some(self.cell_bg_over_pipe.get_as(
+            true => Some(self.cell_bg_over_pipe.get(
                 &self.device,
                 &self.library,
-                ("cell_bg_vertex", "flat_fragment"),
-                Blend::Over,
+                Pipe::CellBgOver,
             )?),
             false => None,
         };
@@ -2687,11 +2882,10 @@ impl Gpu {
         };
         // The hollow box's pipeline, built the first frame one is drawn.
         let hollow = match kind {
-            CursorKind::Hollow => Some(self.cell_ring_pipe.get_as(
+            CursorKind::Hollow => Some(self.cell_ring_pipe.get(
                 &self.device,
                 &self.library,
-                ("cell_ring_vertex", "glyph_fragment"),
-                Blend::Over,
+                Pipe::CellRing,
             )?),
             _ => None,
         };

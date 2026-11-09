@@ -106,6 +106,11 @@ cursor or window, see [Configuration](configuration.md).
   need, or raise the limit, up to 999, with
   `sudo sysctl kern.tty.ptmx_max=999`. That lasts until the Mac restarts; add
   `kern.tty.ptmx_max=999` to `/etc/sysctl.conf` to keep it.
+- **baud can crash at launch, rarely, when a second copy starts at the same
+  moment.** Opening another copy with `open -n`, or running the app's binary
+  while baud is already open, starts a second baud beside the first, and the
+  two can collide in macOS's Metal shader cache while they start. Quit the
+  extra copy and open baud again.
 
 ## Linux
 

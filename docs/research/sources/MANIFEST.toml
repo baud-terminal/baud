@@ -35517,6 +35517,21 @@ group  = "O"
 # too early for a sysctl a loadable module adds, which `kern.tty.ptmx_max`,
 # compiled into the kernel (xnu-tty-ptmx-c, 188-190), is not.
 
+[sources.macos-man-open-1]
+key    = "macos-man-open-1"
+title  = "open(1) -- '-n Open a new instance of the application(s) even if one is already running'"
+author = "Apple Inc."
+year   = 2017
+venue  = "macOS 27.3 manual page, dated April 14, 2017"
+url    = "/usr/share/man/man1/open.1"
+file   = ""
+sha256 = "f101b198baed0b661adeb0d4df860a7143fe0c18275ba7f41b6f06932dc77bf2"
+bytes  = 5457
+status = "external"
+group  = "O"
+# The roff source as macOS 27.3 installs it. Read: the `-n` option, line 74,
+# which starts a second process of an application already running.
+
 [sources.xnu-devfs-tree-c]
 key    = "xnu-devfs-tree-c"
 title  = "XNU xnu-12377.121.6, bsd/miscfs/devfs/devfs_tree.c -- devfs_dntovn, a new minor per lookup of a cloning device"

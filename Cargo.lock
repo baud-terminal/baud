@@ -190,6 +190,7 @@ dependencies = [
  "baud-core",
  "baud-domain",
  "baud-font",
+ "baud-present-macos",
  "baud-render",
  "block2",
  "dispatch2",

@@ -55,6 +55,10 @@ block2 = "0.6"
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-quartz-core = "0.3.2"
 objc2-core-foundation = "0.3"
+# This crate's own tests build their pipelines from the suite's binary
+# archive (`suite-archive`, `src/metal/suite.rs`): a dev-dependency's
+# feature, so the crate as built and published leaves it out.
+baud-present-macos = { path = ".", features = ["suite-archive"] }
 
 # AppKit's views are main-thread-only and libtest runs each test on a thread
 # of its own: this test's `main` is the process's main thread.
@@ -90,3 +94,10 @@ neon-scan = ["baud-core/neon-scan"]
 # reveal crash's nested call is made in its place. For `baud`'s event rig
 # (`baud-app/tests/event_rig.rs`); never in a build that ships.
 effect-probe = []
+# **Pipelines from the suite's binary archive, test-only**
+# (`src/metal/suite.rs`): every pipeline's compiled code read from one
+# archive built per machine, a miss refused, so no test or bench process
+# compiles a pipeline through the system's shader cache, which faults when
+# its files shrink under a process. Enabled only by dev-dependencies; never
+# in a build that ships.
+suite-archive = []
