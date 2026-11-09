@@ -1569,6 +1569,8 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
     use std::os::fd::FromRawFd;
     use std::os::unix::fs::OpenOptionsExt;
     let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
+    #[cfg(test)]
+    let opening = budget::opening();
     // SAFETY: the call takes flags and returns a descriptor or -1.
     let m = redriven(|| unsafe { crate::sys::posix_openpt(flags) });
     if m < 0 {
@@ -1592,7 +1594,10 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
         crate::sys::ioctl(replica.as_raw_fd(), crate::sys::TIOCSWINSZ, &raw const ws);
     }
     #[cfg(test)]
-    budget::opened();
+    {
+        drop(opening);
+        budget::opened();
+    }
     Some((master, replica))
 }
 
@@ -3515,6 +3520,7 @@ mod tests {
     /// its `exec` ([`HOLDS`]): none, and every report carries its control.
     #[test]
     fn terminals_spawned_at_once_hold_none_of_each_others_ends() {
+        let _heavy = budget::heavy();
         let _window = libc_window();
         const THREADS: usize = 16;
         const ROUNDS: usize = 4;
@@ -3651,6 +3657,7 @@ mod tests {
     /// before the lock is let go.
     fn libc_forkpty(ws: crate::sys::Winsize) -> Option<Fork> {
         let held = libc_window();
+        let opening = budget::opening();
         // Darwin's `forkpty` takes the size by mutable pointer and
         // glibc's by const, so the binding is only mutated on one.
         #[cfg_attr(target_os = "linux", allow(unused_mut))]
@@ -3676,10 +3683,12 @@ mod tests {
             // The child's copy of the lock is never let go: it runs only
             // `execve` and `_exit` after this.
             core::mem::forget(held);
+            core::mem::forget(opening);
             return Some(Fork::Child);
         } else if pid > 0 {
             // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
             unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) };
+            drop(opening);
             budget::opened();
             drop(held);
         } else {
@@ -3814,6 +3823,7 @@ mod tests {
     /// that exits at once, reads its master to the end and reaps it.
     #[test]
     fn terminals_opened_at_once_all_open() {
+        let _heavy = budget::heavy();
         const THREADS: usize = 48;
         const ROUNDS: usize = 10;
         let size = WinSize {
@@ -5193,12 +5203,14 @@ mod tests {
     /// holds it ([`HOLDS`]).
     fn unheld_pty() -> std::os::fd::OwnedFd {
         let flags = crate::sys::O_RDWR | crate::sys::O_NOCTTY | crate::sys::O_CLOEXEC;
+        let opening = budget::opening();
         // SAFETY: plain calls on the descriptor the first returns.
         unsafe {
             let m = redriven(|| crate::sys::posix_openpt(flags));
             assert!(m >= 0, "posix_openpt");
             assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
             assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");
+            drop(opening);
             budget::opened();
             <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(m)
         }
@@ -5265,14 +5277,19 @@ mod tests {
             },
         ];
         for (what, open) in LETS_GO_OPENERS.into_iter().zip(openers) {
+            // What the probe answered while the master was held, read out of
+            // the failing test: an assertion inside it would fail as the
+            // test is meant to, and pass here unseen.
             let named = std::sync::Mutex::new(None);
+            let probed = std::sync::Mutex::new((false, true));
             let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let master = open();
-                *named.lock().expect("the name") = subsidiary_of(master.as_raw_fd());
-                assert!(
-                    !holds_manager_of(std::path::Path::new("/")),
-                    "the probe can say no"
+                let name = subsidiary_of(master.as_raw_fd());
+                *probed.lock().expect("the probe") = (
+                    name.as_deref().is_some_and(holds_manager_of),
+                    holds_manager_of(std::path::Path::new("/")),
                 );
+                *named.lock().expect("the name") = name;
                 panic!("a test failing while it holds its pty");
             }));
             if let Some(pid) = child.lock().expect("the child").take() {
@@ -5281,6 +5298,12 @@ mod tests {
             }
             assert!(unwound.is_err(), "{what}: the test failed");
             let name = named.into_inner().expect("the name").expect("a subsidiary");
+            let (found, stray) = probed.into_inner().expect("the probe");
+            assert!(
+                found,
+                "{what}: the probe finds the manager while it is held"
+            );
+            assert!(!stray, "{what}: the probe can say no");
             assert!(
                 !holds_manager_of(&name),
                 "{what}: the manager of {} is still open after the test that held it failed",
