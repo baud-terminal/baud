@@ -320,7 +320,7 @@ pub trait Reader {
 ///
 /// **This machine's name is given to it and never read by it.** The call that
 /// answers may wait on a lookup, so the driver reads it at startup, on macOS
-/// on a thread of its own (`Hosts`), and hands it over with [`Uris::set_host`].
+/// on a thread of its own (`Hosts`), and hands them over with [`crate::link::hand_names`].
 /// Until then a `file://` link naming a host is what `admit` makes of an
 /// unknown host: refused, with no line, and `file:///` and `localhost` open.
 ///
@@ -335,10 +335,10 @@ pub struct Uris {
 }
 
 impl Uris {
-    /// This machine's name, once known: a line it changes is read again by
-    /// the caller's [`Lines::forget`].
-    pub fn set_host(&mut self, host: String) {
-        self.host = Some(crate::link::MachineNames::one(&host));
+    /// This machine's names, once known: a line they change is read again
+    /// by the caller's [`Lines::forget`].
+    pub fn set_names(&mut self, names: crate::link::MachineNames) {
+        self.host = Some(names);
     }
 
     /// Whether this machine's name has been handed over yet.
@@ -1785,7 +1785,7 @@ mod tests {
             [(1, 0, 8), (2, 0, 17)],
             "unknown: named hosts refused"
         );
-        u.set_host("here.example".to_string());
+        u.set_names(crate::link::MachineNames::one("here.example"));
         assert!(u.host_known());
         let s = l.scan(&t, at(), &mut u);
         assert_eq!(s, Scan::default(), "nothing changed, so nothing is read");
@@ -1824,7 +1824,7 @@ mod tests {
             at_tick.contains(concat!(".hosts", ".names()")),
             "the thread's read"
         );
-        assert!(at_tick.contains(concat!("uris.", "set_host(")));
+        assert!(at_tick.contains(concat!("link::", "hand_names(")));
         assert!(at_tick.contains(concat!("lines.", "forget()")));
         // A click takes the answer the line took: the driver it runs in needs
         // a window, so the seam here is its source and `admit` on the same name.

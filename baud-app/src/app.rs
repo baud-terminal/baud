@@ -14659,17 +14659,14 @@ impl Driver {
         if self.app.uris.host_known() {
             return;
         }
-        let Some(name) = self.hosts.names().and_then(link_host) else {
+        // Every name this machine has: a `./`'s `OSC 7` must name one, and a
+        // `file://` link naming either is this machine's, to the policy and
+        // the paths alike.
+        let Some(names) = self.hosts.names() else {
             return;
         };
-        self.app.uris.set_host(name.to_string());
-        // Every name this machine has, which a `./`'s `OSC 7` must name.
-        let names = self
-            .hosts
-            .names()
-            .map(<[String]>::to_vec)
-            .unwrap_or_default();
-        self.app.paths.set_names(names);
+        let names = crate::link::MachineNames::of(names.to_vec());
+        crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
         self.app.lines.forget();
         self.app.pending = Pending::Dirty;
     }
@@ -21315,31 +21312,10 @@ fn machine_names() -> Vec<String> {
     names
 }
 
-/// **The name a `file://` link is local to**: `hostName`, which a line and a
-/// click both admit against, so a line promises what a click does. It is the last of
-/// [`machine_names`], which adds it where it differs from `gethostname`'s; a
-/// thread that ended in a panic leaves `gethostname`'s alone.
-fn link_host(names: &[String]) -> Option<&str> {
-    names.last().map(String::as_str)
-}
-
 #[cfg(test)]
 mod host_tests {
-    use super::{Hosts, judged_by, link_host, machine_names};
+    use super::{Hosts, judged_by, machine_names};
 
-    /// **The links' name is `hostName`**, and none when none was read.
-    /// Perturbation: `names.first()` in `link_host`; the pair below fails on
-    /// any Mac.
-    #[test]
-    fn the_links_name_is_the_process_infos() {
-        assert_eq!(link_host(&[]), None);
-        let pair = ["gethostname".to_string(), "hostname.local".to_string()];
-        assert_eq!(link_host(&pair), Some("hostname.local"));
-        let names = machine_names();
-        let name = link_host(&names).expect("the control: this machine has a name");
-        let process = baud_present_macos::link::host_name();
-        assert!(process.is_empty() || name.eq_ignore_ascii_case(&process));
-    }
     use baud_core::{FileHost, WorkingDirectory};
 
     /// **The names are never waited for** (note AJ section 18): the first

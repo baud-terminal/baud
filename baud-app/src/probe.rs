@@ -4622,7 +4622,9 @@ mod tests {
             };
             let mut p = Paths::new(None, names);
             p.set(Turned::On);
-            p.set_names(vec!["bench.example".to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![
+                "bench.example".to_string(),
+            ]));
             let scrolled = Scrolled::START.advanced(Rows::of_count(1 << 40));
             let _ = p.observe(&t, scrolled);
             let (mut l, mut u) = (Lines::default(), Uris::default());
@@ -5441,7 +5443,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -5541,7 +5543,7 @@ mod tests {
         let mut pace = crate::reads::Pace::new();
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -5611,7 +5613,7 @@ mod tests {
         let mut pace = crate::reads::Pace::new();
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -5678,7 +5680,7 @@ mod tests {
         let mut pace = crate::reads::Pace::new();
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -5743,7 +5745,7 @@ mod tests {
         let mut pace = crate::reads::Pace::new();
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
         let t0 = Instant::now();
@@ -5876,7 +5878,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
-        paths.set_names(vec!["here.example".into()]);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let mut sampler = shells_sampler();
         let mut pace = crate::reads::Pace::new();

@@ -234,12 +234,10 @@ impl Tap {
         // the process info's `hostName` where it differs, which is the
         // presenter's to read, and no film reads the presenter.
         let names: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
-        paths.set_names(names.clone());
         let mut uris = crate::lined::Uris::default();
         uris.set_rules(link.rules.clone());
-        if let Some(host) = names.last() {
-            uris.set_host(host.clone());
-        }
+        let machine = crate::link::MachineNames::of(names.clone());
+        crate::link::hand_names(machine, &mut uris, &mut paths);
         let session = env.to_vec();
         let mut probes = crate::probe::Probes::new(Box::new(move || {
             crate::probe::Worker::start(Box::new(session_fs(&session)), Box::new(|| {}))

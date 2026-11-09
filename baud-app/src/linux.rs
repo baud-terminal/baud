@@ -746,7 +746,6 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             seat.paths.set(cfg.link.paths_read());
             let _ = seat.paths.set_missing(cfg.link.missing_read());
             let _ = seat.paths.set_join(cfg.link.join_read());
-            seat.paths.set_names(vec![crate::opener::host_name()]);
             seat
         },
         shape: None,
@@ -787,7 +786,6 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         lines: crate::lined::Lines::default(),
         uris: {
             let mut u = crate::lined::Uris::default();
-            u.set_host(crate::opener::host_name());
             u.set_rules(cfg.link.rules.clone());
             for told in cfg.link.rules.told() {
                 crate::info!("{told}");
@@ -814,6 +812,9 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         holding: crate::held::Holding::No,
         quit: Quit::No,
     };
+    // This machine's name, one value for the links and the paths.
+    let names = crate::link::MachineNames::one(&d.host);
+    crate::link::hand_names(names, &mut d.uris, &mut d.seat.paths);
     d.timed.set_image_animation(cfg.image_animation);
     if let crate::access::MotionSource::Fixed(m) = motion_source {
         d.set_motion(m);

@@ -534,7 +534,7 @@ fn main() {
             let osc = format!("\x1b]7;file://frame.example{folder}\x07");
             t.write_at(BytePos::ZERO, osc.as_bytes());
             t.feed(BytePos::ZERO, ReadLen::from_index(osc.len()));
-            printed.set_names(vec!["frame.example".to_string()]);
+            printed.set_names(link::MachineNames::one("frame.example"));
             let _ = printed.observe(
                 &t,
                 baud_render::Scrolled::START.advanced(Rows::of_count(1 << 40)),

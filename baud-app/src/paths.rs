@@ -1411,11 +1411,18 @@ impl Paths {
         }
     }
 
-    /// This machine's names, once read: what an `OSC 7` report must name.
-    pub fn set_names(&mut self, names: Vec<String>) {
-        self.names = crate::link::MachineNames::of(names);
+    /// This machine's names, once read: what an `OSC 7` report must name,
+    /// and a `file://` link's host to be this machine's.
+    pub fn set_names(&mut self, names: crate::link::MachineNames) {
+        self.names = names;
         self.dir.local = self.local_of_kept();
         self.generation = self.generation.next();
+    }
+
+    /// The names [`Paths::set_names`] gave.
+    #[cfg(test)]
+    pub fn names(&self) -> &crate::link::MachineNames {
+        &self.names
     }
 
     fn local_of_kept(&self) -> Option<Vec<u8>> {
@@ -3225,7 +3232,9 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert!(ask(&mut p, &t).is_empty(), "no names: the host is unknown");
-        p.set_names(vec!["here.example".to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![
+            "here.example".to_string(),
+        ]));
         assert_eq!(
             ask(&mut p, &t),
             [b"/w/late".to_vec()],
@@ -3254,7 +3263,9 @@ mod tests {
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
             p.all_written_here();
-            p.set_names(vec!["here.example".to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![
+                "here.example".to_string(),
+            ]));
             p
         };
         let mut p = fresh();
@@ -3680,10 +3691,10 @@ mod tests {
         let mut p = Paths::new(Some(b"/home/user".to_vec()), Forms::DEFAULT);
         p.set(Turned::On);
         p.all_written_here();
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         set(&mut p);
         let mut u = Uris::default();
-        u.set_host(HERE.to_string());
+        u.set_names(crate::link::MachineNames::one(HERE));
         let mut l = Lines::default();
         let _ = p.observe(&t, at());
         p.begin_collect();
@@ -4127,9 +4138,9 @@ mod tests {
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
         p.all_written_here();
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let mut u = Uris::default();
-        u.set_host(HERE.to_string());
+        u.set_names(crate::link::MachineNames::one(HERE));
         let mut l = Lines::default();
         let mut scan = |p: &mut Paths, l: &mut Lines| {
             l.forget();
@@ -4307,9 +4318,9 @@ mod tests {
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
         p.all_written_here();
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let mut u = Uris::default();
-        u.set_host(HERE.to_string());
+        u.set_names(crate::link::MachineNames::one(HERE));
         let mut l = Lines::default();
         p.begin_collect();
         let mut scan = |p: &mut Paths, l: &mut Lines| {
@@ -4638,9 +4649,9 @@ mod tests {
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
         p.all_written_here();
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let mut u = Uris::default();
-        u.set_host(HERE.to_string());
+        u.set_names(crate::link::MachineNames::one(HERE));
         let mut l = Lines::default();
         let scan = |p: &mut Paths, l: &mut Lines, u: &mut Uris| {
             l.forget();
@@ -4813,7 +4824,7 @@ mod tests {
                 let mut t = Term::new(owned.storage(), &WS);
                 let mut p = Paths::new(None, Forms::DEFAULT);
                 p.set(Turned::On);
-                p.set_names(vec![HERE.to_string()]);
+                p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
                 let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
                 let uri = format!("file://{h}/etc/hosts");
                 feed(&mut t, marked(&uri, "hosts").as_bytes());
@@ -4874,9 +4885,9 @@ mod tests {
                     let mut t = Term::new(owned.storage(), &WS);
                     let mut p = Paths::new(None, Forms::DEFAULT);
                     p.set(Turned::On);
-                    p.set_names(vec![HERE.to_string()]);
+                    p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
                     let mut uris = crate::lined::Uris::default();
-                    uris.set_host(HERE.to_string());
+                    uris.set_names(crate::link::MachineNames::one(HERE));
                     let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
                     let uri = format!("file://{h}/etc/hosts");
                     let text = match osc8 {
@@ -4965,9 +4976,9 @@ mod tests {
                 let mut t = Term::new(owned.storage(), &WS);
                 let mut p = Paths::new(None, Forms::DEFAULT);
                 p.set(Turned::On);
-                p.set_names(vec![HERE.to_string()]);
+                p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
                 let mut uris = crate::lined::Uris::default();
-                uris.set_host(HERE.to_string());
+                uris.set_names(crate::link::MachineNames::one(HERE));
                 let text = match osc8 {
                     true => format!(
                         "{}{}",
@@ -5104,9 +5115,9 @@ mod tests {
             let mut t = Term::new(owned.storage(), &WS);
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_names(vec![HERE.to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
             let mut uris = crate::lined::Uris::default();
-            uris.set_host(HERE.to_string());
+            uris.set_names(crate::link::MachineNames::one(HERE));
             let uri = "file:///etc/hosts";
             let text = format!("{}\r\nplain\r\n{}", marked(uri, "aaa"), marked(uri, "bbb"));
             feed(&mut t, text.as_bytes());
@@ -5192,9 +5203,9 @@ mod tests {
             let owned = Owned::new(&WS);
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_names(vec![HERE.to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
             let mut uris = crate::lined::Uris::default();
-            uris.set_host(HERE.to_string());
+            uris.set_names(crate::link::MachineNames::one(HERE));
             (owned, p, uris, Lines::default())
         };
         // A remote row joins the slot.
@@ -5257,9 +5268,9 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let mut uris = crate::lined::Uris::default();
-        uris.set_host(HERE.to_string());
+        uris.set_names(crate::link::MachineNames::one(HERE));
         let text = format!("{} file:///etc/hosts", "r".repeat(59));
         feed(&mut t, text.as_bytes());
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, first));
@@ -5288,7 +5299,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
@@ -5366,7 +5377,7 @@ mod tests {
             let mut t = Term::new(owned.storage(), &WS);
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_names(vec![HERE.to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
             let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
             feed(&mut t, b"file://localhost/etc/passwd\r\n");
             p.written_under(Seen::Named(front), LineSpan::of(line, line));
@@ -5435,7 +5446,7 @@ mod tests {
                     let mut t = Term::new(owned.storage(), &WS);
                     let mut p = Paths::new(None, Forms::DEFAULT);
                     p.set(Turned::On);
-                    p.set_names(vec![HERE.to_string()]);
+                    p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
                     if let Some(r) = &rules {
                         p.set_rules(r.clone());
                     }
@@ -5516,7 +5527,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
@@ -5553,7 +5564,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set(Turned::On);
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let (l0, l1) = (
             at().line(Rows::ZERO, baud_domain::Row::ZERO),
             at().line(Rows::ZERO, baud_domain::Row::from_index(1)),
@@ -5591,7 +5602,7 @@ mod tests {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         feed(&mut t, marked("file:///etc/hosts", "hosts").as_bytes());
         let read = link_at(&t, baud_domain::Row::ZERO);
@@ -5602,7 +5613,7 @@ mod tests {
             "not named yet"
         );
         let mut remote = Paths::new(None, Forms::DEFAULT);
-        remote.set_names(vec![HERE.to_string()]);
+        remote.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         p.written_under(Seen::Named(Front::Local), LineSpan::of(line, line));
         assert_eq!(
             clicked_at(&read, &p, line),
@@ -5635,7 +5646,7 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         let mut p = Paths::new(None, Forms::DEFAULT);
         p.set_rules(c.link.rules.clone());
-        p.set_names(vec![HERE.to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
         assert_eq!(p.marks(), Marks::Off, "paths off");
         let (l0, l1) = (
             at().line(Rows::ZERO, baud_domain::Row::ZERO),
@@ -5682,12 +5693,12 @@ mod tests {
             );
             let mut p = Paths::new(None, Forms::DEFAULT);
             p.set(Turned::On);
-            p.set_names(vec![HERE.to_string()]);
+            p.set_names(crate::link::MachineNames::of(vec![HERE.to_string()]));
             if filed {
                 p.all_written_here();
             }
             let mut u = crate::lined::Uris::default();
-            u.set_host(HERE.to_string());
+            u.set_names(crate::link::MachineNames::one(HERE));
             let mut l = Lines::default();
             let _ = p.observe(&t, at());
             p.begin_collect();
@@ -5898,7 +5909,9 @@ mod tests {
         feed(t, b"\x1b]7;file://here.example/w\x07");
         let mut p = Paths::new(None, forms);
         p.set(Turned::On);
-        p.set_names(vec!["here.example".to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![
+            "here.example".to_string(),
+        ]));
         p.all_written_here();
         let _ = p.observe(t, at());
         feed(t, bytes);
@@ -6234,7 +6247,9 @@ mod tests {
         fed(&mut t, &mut at, b"\x1b]7;file://here.example/w\x07");
         let mut p = Paths::new(None, NAMES);
         p.set(Turned::On);
-        p.set_names(vec!["here.example".to_string()]);
+        p.set_names(crate::link::MachineNames::of(vec![
+            "here.example".to_string(),
+        ]));
         p.all_written_here();
         let _ = p.observe(&t, at);
         for n in 0..6 {

@@ -359,6 +359,8 @@ impl MachineNames {
     }
 
     /// The one name `name`, or none if it is empty.
+    /// Linux's, which reads one name; the tests'.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn one(name: &str) -> MachineNames {
         MachineNames::of([name.to_owned()])
     }
@@ -369,6 +371,20 @@ impl MachineNames {
             .iter()
             .any(|n| host.eq_ignore_ascii_case(n.as_bytes()))
     }
+}
+
+/// **This machine's names, handed to the links and the paths as one
+/// value**: the policy a click and a line's look admit by, and the paths a
+/// struck file link and a folder report are read by, so a line never
+/// promises a link its click refuses. Every driver hands its names over
+/// here.
+pub fn hand_names(
+    names: MachineNames,
+    uris: &mut crate::lined::Uris,
+    paths: &mut crate::paths::Paths,
+) {
+    uris.set_names(names.clone());
+    paths.set_names(names);
 }
 
 /// The longest URI the policy admits: the core's own cap, so a URI the
@@ -2660,6 +2676,31 @@ mod tests {
         assert!(!names.is_this(b""), "the empty name left out");
         assert!(!NONE.is_this(b"mac.local"));
         assert_eq!(MachineNames::one(""), MachineNames::NONE);
+    }
+
+    /// **One set of this machine's names answers the policy and the
+    /// paths**: with `gethostname`'s name and the process info's
+    /// `hostName` differing, as on a Mac, a `file://` link naming either is
+    /// admitted by the policy a click and a line's look go by, and taken as
+    /// this machine's by `file_path`, which the struck look reads. The
+    /// names are given, not read from this machine. Named break: hand the
+    /// policy `hostName` alone (`hand_names`) -- the link naming
+    /// `gethostname`'s name is refused by the policy while the paths take
+    /// it.
+    #[test]
+    fn the_policy_and_the_paths_take_the_same_names() {
+        let mut uris = crate::lined::Uris::default();
+        let mut paths = crate::paths::Paths::new(None, crate::paths::Forms::DEFAULT);
+        let names = MachineNames::of(["mac".to_owned(), "mac.local".to_owned()]);
+        hand_names(names, &mut uris, &mut paths);
+        for uri in ["file://mac/etc/hosts", "file://mac.local/etc/hosts"] {
+            assert!(admit(uri.as_bytes(), uris.names()).is_ok(), "{uri}: policy");
+            assert!(
+                crate::paths::file_path(uri.as_bytes(), paths.names()).is_some(),
+                "{uri}: paths"
+            );
+        }
+        assert!(admit(b"file://other/etc/hosts", uris.names()).is_err());
     }
 
     /// **DT-L3: a `file:` URI is RFC 8089's, read once**: `file:///etc/x?q#f`,

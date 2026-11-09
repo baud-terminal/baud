@@ -2039,7 +2039,7 @@ fn the_folder_is_reported_and_read_against(sh: Sh) {
             .expect("the typed row");
         let mut p = Paths::new(Some(bytes_of(&home)), Forms::DEFAULT);
         p.set(Turned::On);
-        p.set_names(vec![host.clone()]);
+        p.set_names(crate::link::MachineNames::of(vec![host.clone()]));
         // The shell's rows, as the reader files them: written here.
         p.all_written_here();
         let at = Scrolled::START;
