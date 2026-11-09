@@ -369,14 +369,15 @@ pub fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Ta
     })
 }
 
-/// **[`admit_with`], for a link a click reads off the cells**: an `OSC 8`
-/// link is printed by some program, and a `file://` one names a file on
-/// that program's machine. One `admit_with` lets through names this machine
-/// -- the empty host, `localhost` or one of its names -- so it is refused
-/// unless the program that printed it was this machine's: `origin` is the
-/// link's line's, as the worker named it when the line was written, never
-/// what is in front at the click. A link read from the text (`origin`
-/// none) has no printer to ask about.
+/// **[`admit_with`], for a link a click reads off the cells**: a link,
+/// marked with `OSC 8` or written as plain text, is printed by some
+/// program, and a `file://` one names a file on that program's machine.
+/// One `admit_with` lets through names this machine -- the empty host,
+/// `localhost` or one of its names -- so it is refused unless the program
+/// that printed it was this machine's: `origin` is the link's line's, as
+/// the worker named it when the line was written, never what is in front
+/// at the click ([`crate::paths::Paths::printed_origin`]). `origin` none
+/// asks nothing, for a caller with no line to ask about.
 pub fn admit_printed<'a>(
     uri: &'a [u8],
     host: Host<'_>,

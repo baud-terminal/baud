@@ -51,3 +51,27 @@ feeds it as the bytes a window read while `ssh` was in front and requires
 every link that names this machine to be refused on a click, while `ssh` is
 in front and after it ends, and the remote's own host refused as any other
 host is.
+
+## The same names as plain text
+
+`remote-plain-file-uris.raw` is a second session of the same setup, 109
+bytes, sha256
+`345f00867a9ea080eb6477b7690850f20e0d7e101afd038540e37bf8fb83e04d`.
+The program on the other end printed the same four `file://` URIs as
+plain text, marked with nothing, one a line. The remote's pty wrote each
+newline as `\r\n`. It was captured with the commands above, `remote.sh`
+being:
+
+```sh
+printf 'file:///etc/passwd\n'
+printf 'file://localhost/etc/passwd\n'
+printf 'file://here.example/etc/passwd\n'
+printf 'file://remotebox/etc/hosts\n'
+```
+
+and its output written to `remote-plain-file-uris.raw`.
+
+`baud-app/src/paths.rs`, `a_real_ssh_sessions_plain_file_uris_are_its_machines`,
+feeds it as the bytes a window read while `ssh` was in front, reads each URI
+back from the text of the cells, and requires the same answers as the
+marked links get.

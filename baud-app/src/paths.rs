@@ -1289,6 +1289,20 @@ impl Paths {
         found
     }
 
+    /// **Where the program that printed `link` at `line` ran, for its
+    /// click** ([`crate::link::admit_printed`]): its line's
+    /// ([`Paths::origin`]), for a link marked with `OSC 8` and for one read
+    /// from the text alike, since a `file://` URI a remote program prints
+    /// as plain text names its machine's file just as a marked one does. A
+    /// printed path is asked about by its own check, and has none.
+    pub fn printed_origin(&self, link: &crate::link::Under, line: AbsLine) -> Option<Origin> {
+        use crate::link::Under;
+        match link {
+            Under::Osc8(_) | Under::Bare(_) => Some(self.origin(line)),
+            Under::Path(_) => None,
+        }
+    }
+
     /// **The spans that have left history dropped**: those ending above
     /// `oldest`, the oldest line kept, so the set is bounded by history.
     pub fn trim_spans(&mut self, oldest: AbsLine) {
@@ -3721,6 +3735,211 @@ mod tests {
                     Err(why),
                     "{uri}, ssh ended: {ended}"
                 );
+            }
+        }
+    }
+
+    /// The click both drivers make on the link under `row`'s second cell,
+    /// marked or read from the text: its URI read back from the cells, then
+    /// `link::admit_printed` with [`Paths::printed_origin`], then
+    /// `link::click`.
+    fn clicked_under(
+        t: &Term<'_>,
+        p: &Paths,
+        row: baud_domain::Row,
+    ) -> (Vec<u8>, Result<crate::link::Click, crate::link::Refused>) {
+        use crate::link::{Spot, Under, hovered};
+        let spot = Spot {
+            scrolled: at(),
+            back: Rows::ZERO,
+            row,
+            col: baud_domain::Col::at_index(1),
+        };
+        let under = hovered(t, spot).expect("a link under the cell");
+        let uri = match &under {
+            Under::Osc8(l) => l.uri(t).expect("its URI").to_vec(),
+            Under::Bare(b) => b.uri().expect("its URI").to_vec(),
+            Under::Path(_) => panic!("{row:?}: a path, not a link"),
+        };
+        let line = at().line(Rows::ZERO, row);
+        let clicked =
+            crate::link::admit_printed(&uri, Host(HERE), p.rules(), p.printed_origin(&under, line))
+                .map(|target| crate::link::click(&target, p));
+        (uri, clicked)
+    }
+
+    /// **A `file://` URI a remote program printed as plain text is refused
+    /// here, as a marked one is**: `file://localhost/etc/passwd` on a line
+    /// `ssh` wrote, read from the text of the cells, is refused while `ssh`
+    /// is in front and after it ends; on a line the shell wrote it is
+    /// revealed, the control. Named break: give a link read from the text
+    /// no origin in `printed_origin` -- the remote line's is revealed.
+    #[test]
+    fn a_plain_file_uri_printed_under_ssh_is_refused_here() {
+        use crate::link::{Click, Refused};
+        let run = |front: Front| {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.set_names(vec![HERE.to_string()]);
+            let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+            feed(&mut t, b"file://localhost/etc/passwd\r\n");
+            p.written_under(front, LineSpan::of(line, line));
+            p.set_front(front, line);
+            let (uri, in_front) = clicked_under(&t, &p, baud_domain::Row::ZERO);
+            assert_eq!(uri, b"file://localhost/etc/passwd", "read from the text");
+            p.written_under(Front::Local, LineSpan::of(line.below(), line.below()));
+            p.set_front(Front::Local, line.below());
+            let (_, after) = clicked_under(&t, &p, baud_domain::Row::ZERO);
+            (in_front, after)
+        };
+        assert_eq!(
+            run(Front::Elsewhere),
+            (Err(Refused::Remote), Err(Refused::Remote)),
+            "printed under ssh"
+        );
+        assert_eq!(
+            run(Front::Local),
+            (Ok(Click::Reveal), Ok(Click::Reveal)),
+            "the control: printed by the shell"
+        );
+    }
+
+    /// **A link read from the text takes its origin as a marked one does,
+    /// whatever host it names and whichever program printed it**, revealed,
+    /// opened in a window by a rule, or refused: the grid is hosts {empty,
+    /// localhost, this machine, another} x the front that printed it {Local,
+    /// Elsewhere, Multiplexer} x the link marked with `OSC 8` or printed as
+    /// plain text x `[link.file]` left alone or set to `action = "window"`,
+    /// each clicked while that front is in front and again after the shell
+    /// is back. A plain one answers exactly as the marked one on the same
+    /// row, and neither reaches a reveal or a window from a line `ssh`
+    /// wrote. Named break: give a link read from the text no origin in
+    /// `printed_origin` -- a plain link from `ssh` reveals, or opens its
+    /// window.
+    #[test]
+    fn a_plain_file_uri_takes_its_origin_as_a_marked_one_does() {
+        use crate::link::{Click, Refused};
+        let mut window = crate::config::Config::defaults();
+        assert!(
+            window
+                .apply("[link.file]\naction = \"window\"\ncommand = [\"hx\", \"{url}\"]\n")
+                .is_empty(),
+            "the rule reads"
+        );
+        let hosts = ["", "localhost", HERE, "other.example"];
+        let fronts = [Front::Local, Front::Elsewhere, Front::Multiplexer];
+        for rules in [None, Some(window.link.rules.clone())] {
+            for h in hosts {
+                for front in fronts {
+                    let mut owned = Owned::new(&WS);
+                    let mut t = Term::new(owned.storage(), &WS);
+                    let mut p = Paths::new(None, Forms::DEFAULT);
+                    p.set(Turned::On);
+                    p.set_names(vec![HERE.to_string()]);
+                    if let Some(r) = &rules {
+                        p.set_rules(r.clone());
+                    }
+                    let uri = format!("file://{h}/etc/hosts");
+                    // Row 0 marked, row 1 the same URI as plain text.
+                    feed(
+                        &mut t,
+                        format!("{}\r\n{uri}\r\n", marked(&uri, "hosts")).as_bytes(),
+                    );
+                    let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+                    let second = first.below();
+                    p.written_under(front, LineSpan::of(first, second));
+                    p.set_front(front, second);
+                    let click = |p: &Paths| {
+                        let (m, marked) = clicked_under(&t, p, baud_domain::Row::ZERO);
+                        let (b, plain) = clicked_under(&t, p, baud_domain::Row::from_index(1));
+                        assert_eq!(
+                            (&m, &b),
+                            (&uri.as_bytes().to_vec(), &uri.as_bytes().to_vec())
+                        );
+                        (marked, plain)
+                    };
+                    let in_front = click(&p);
+                    let back = second.below();
+                    p.written_under(Front::Local, LineSpan::of(back, back));
+                    p.set_front(Front::Local, back);
+                    let after = click(&p);
+                    let opened = match rules {
+                        None => Click::Reveal,
+                        Some(_) => Click::Window,
+                    };
+                    let want = match (h, front) {
+                        ("other.example", _) => Err(Refused::Host),
+                        (_, Front::Elsewhere) => Err(Refused::Remote),
+                        _ => Ok(opened),
+                    };
+                    let what = format!("{h:?} under {front:?}, window rule: {}", rules.is_some());
+                    assert_eq!(in_front, (want.clone(), want.clone()), "{what}, in front");
+                    assert_eq!(after, (want.clone(), want), "{what}, after");
+                }
+            }
+        }
+    }
+
+    /// **A `file://` URI printed as plain text on a line no program has been
+    /// named for yet is refused until it is, then revealed**, as a marked
+    /// one is. Named break: give a link read from the text no origin in
+    /// `printed_origin` -- it is revealed before its line is named.
+    #[test]
+    fn a_plain_file_uri_on_an_unnamed_line_waits_for_its_name() {
+        use crate::link::{Click, Refused};
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        feed(&mut t, b"file:///etc/hosts\r\n");
+        let (_, unnamed) = clicked_under(&t, &p, baud_domain::Row::ZERO);
+        assert_eq!(unnamed, Err(Refused::Unnamed), "no program named yet");
+        let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        p.written_under(Front::Local, LineSpan::of(line, line));
+        let (_, named) = clicked_under(&t, &p, baud_domain::Row::ZERO);
+        assert_eq!(named, Ok(Click::Reveal), "named the shell's");
+    }
+
+    /// **A real `ssh` session's plain `file://` URIs are its machine's, as
+    /// its marked links are**: the bytes OpenSSH 10.0p2 wrote
+    /// (`tests/ssh-link/remote-plain-file-uris.raw`), read while `ssh` was
+    /// in front, hold four URIs as plain text, read back from the cells; the
+    /// three naming this machine are refused on a click, with `ssh` in front
+    /// and after it ends, and the remote's own host is refused as any other
+    /// host is. Named break: give a link read from the text no origin in
+    /// `printed_origin` -- the three are revealed.
+    #[test]
+    fn a_real_ssh_sessions_plain_file_uris_are_its_machines() {
+        use crate::link::Refused;
+        const CAPTURE: &[u8] = include_bytes!("../../tests/ssh-link/remote-plain-file-uris.raw");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(vec![HERE.to_string()]);
+        let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
+        feed(&mut t, CAPTURE);
+        let last = at().line(Rows::ZERO, t.cursor().0);
+        p.written_under(Front::Elsewhere, LineSpan::of(first, last));
+        p.set_front(Front::Elsewhere, last);
+        let want = [
+            ("file:///etc/passwd", Refused::Remote),
+            ("file://localhost/etc/passwd", Refused::Remote),
+            ("file://here.example/etc/passwd", Refused::Remote),
+            ("file://remotebox/etc/hosts", Refused::Host),
+        ];
+        let after = last.below();
+        for ended in [false, true] {
+            if ended {
+                p.written_under(Front::Local, LineSpan::of(after, after));
+                p.set_front(Front::Local, after);
+            }
+            for (row, (uri, why)) in want.into_iter().enumerate() {
+                let (read, clicked) = clicked_under(&t, &p, baud_domain::Row::from_index(row));
+                assert_eq!(read, uri.as_bytes(), "row {row}");
+                assert_eq!(clicked, Err(why), "{uri}, ssh ended: {ended}");
             }
         }
     }

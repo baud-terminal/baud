@@ -16061,9 +16061,9 @@ impl Driver {
             },
         };
         let shown = crate::os_effect::ShownLink(show(uri));
-        // An `OSC 8` link takes its origin from its line, as the worker named
-        // who wrote it (`link::admit_printed`).
-        let origin = matches!(link, Under::Osc8(_)).then(|| self.app.paths.origin(line));
+        // The link takes its origin from its line, as the worker named who
+        // wrote it (`Paths::printed_origin`).
+        let origin = self.app.paths.printed_origin(link, line);
         let admitted = crate::link::admit_printed(
             uri,
             Host(self.app.uris.host()),

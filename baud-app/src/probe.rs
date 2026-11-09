@@ -199,16 +199,16 @@ pub trait Fs: Send {
 
 /// **When the thread taking the reads asks for the foreground group**:
 /// at a read [`GROUP_EVERY`] or more after it last did, and at every read
-/// carrying an `OSC 8` link's introducer, whatever the pace says: a link
-/// takes its origin from who printed it ([`crate::paths::Origin`]), asked
-/// at the read because the program may be gone by the time the bytes are
-/// parsed.
+/// carrying an `OSC 8` link's introducer or a `file://` URI in its text,
+/// whatever the pace says: a file link takes its origin from who printed
+/// it ([`crate::paths::Origin`]), asked at the read because the program may
+/// be gone by the time the bytes are parsed.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sampler {
     last: Option<std::time::Instant>,
-    /// The last bytes of the reads so far, at most three: an introducer
-    /// split across two reads is still seen.
-    tail: [Option<u8>; 3],
+    /// The last bytes of the reads so far, at most [`CARRY`]: an
+    /// introducer or a `file://` split across two reads is still seen.
+    tail: [Option<u8>; CARRY],
     /// The group the last read that asked was taken with, and what the
     /// process watch had named by then: the next read's "before"
     /// ([`Sampler::writers`]).
@@ -287,7 +287,7 @@ impl Writers {
     }
 }
 
-/// Whether a read carried an `OSC 8` link's introducer.
+/// Whether a read carried an `OSC 8` link's introducer or a plain `file://` URI.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Linked {
     #[default]
@@ -336,26 +336,27 @@ impl Sampler {
 
     /// **Whether the read of `bytes` at `now` asks**: when [`Sampler::due`]
     /// says so, or when the bytes carry `ESC ] 8 ;` or its 8-bit form `9D 8
-    /// ;`, with the bytes the reads before them ended on.
+    /// ;`, or `file://` in any case, with the bytes the reads before them
+    /// ended on.
     pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
         // The tail, then the read's last bytes: what the next read follows.
-        let mut seam = [0u8; 6];
+        let mut seam = [0u8; 2 * CARRY];
         let mut n = 0;
         for &b in self.tail.iter().flatten() {
             seam[n] = b;
             n += 1;
         }
-        let linked = match introduced(&seam[..n], bytes) {
+        let linked = match linked(&seam[..n], bytes) {
             true => Linked::Yes,
             false => Linked::No,
         };
-        for &b in &bytes[bytes.len() - bytes.len().min(3)..] {
+        for &b in &bytes[bytes.len() - bytes.len().min(CARRY)..] {
             seam[n] = b;
             n += 1;
         }
-        self.tail = [None; 3];
-        let kept = n.min(3);
-        for (slot, &b) in self.tail[3 - kept..].iter_mut().zip(&seam[n - kept..n]) {
+        self.tail = [None; CARRY];
+        let kept = n.min(CARRY);
+        for (slot, &b) in self.tail[CARRY - kept..].iter_mut().zip(&seam[n - kept..n]) {
             *slot = Some(b);
         }
         match (self.due(now), linked) {
@@ -366,24 +367,50 @@ impl Sampler {
     }
 }
 
-/// Whether `bytes`, after `tail`, hold an `OSC 8` introducer.
-fn introduced(tail: &[u8], bytes: &[u8]) -> bool {
-    let head = &bytes[..bytes.len().min(3)];
-    let mut seam = [0u8; 6];
+/// The bytes a read's scan carries to the next: one fewer than `;file://`,
+/// the longest thing it looks at.
+const CARRY: usize = 7;
+
+/// Whether `bytes`, after `tail`, hold an `OSC 8` introducer or a
+/// `file://` URI: what one read holds, or what crosses from the tail into
+/// its first bytes.
+fn linked(tail: &[u8], bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(CARRY)];
+    let mut seam = [0u8; 2 * CARRY];
     seam[..tail.len()].copy_from_slice(tail);
     seam[tail.len()..tail.len() + head.len()].copy_from_slice(head);
-    holds_introducer(&seam[..tail.len() + head.len()]) || holds_introducer(bytes)
+    let seam = &seam[..tail.len() + head.len()];
+    holds_link(seam) || holds_link(bytes)
 }
 
-/// Whether `b` holds `ESC ] 8 ;` or `9D 8 ;`.
-fn holds_introducer(b: &[u8]) -> bool {
+/// **Whether `b` holds an `OSC 8` introducer -- `ESC ] 8 ;` or `9D 8 ;` --
+/// or a `file://` URI in any case**, in one pass over the bytes: a plain
+/// `file` URI is read as the text's links are ([`crate::link::scheme_at`]),
+/// and a click takes its line's origin as it does a marked one's
+/// ([`crate::paths::Paths::printed_origin`]). A `file://` is found by its
+/// `:`, then the four bytes before and the two after, so `Makefile:12:`
+/// and `profile:` ask nothing. One after a `;` is a control string's
+/// parameter, `OSC 7`'s folder at every prompt, which no click reads, and
+/// asks nothing either: `OSC 8`'s is asked for by its introducer.
+fn holds_link(b: &[u8]) -> bool {
     let mut from = 0;
-    while let Some(p) = b[from..].iter().position(|&c| c == 0x1b || c == 0x9d) {
+    while let Some(p) = b[from..]
+        .iter()
+        .position(|&c| c == 0x1b || c == 0x9d || c == b':')
+    {
         let at = from + p;
         let rest = &b[at + 1..];
         let hit = match b[at] {
             0x1b => rest.starts_with(b"]8;"),
-            _ => rest.starts_with(b"8;"),
+            0x9d => rest.starts_with(b"8;"),
+            _ => {
+                let name = at
+                    .checked_sub(4)
+                    .map(|s| (&b[s..at], s.checked_sub(1).map(|q| b[q])));
+                name.is_some_and(|(name, before)| {
+                    name.eq_ignore_ascii_case(b"file") && before != Some(b';')
+                }) && rest.starts_with(b"//")
+            }
         };
         if hit {
             return true;
@@ -3513,5 +3540,124 @@ mod tests {
             (true, 1, Origin::Remote),
             "the watch's verdict at row 2"
         );
+    }
+
+    /// **A read carrying `file://` as plain text asks for the group even
+    /// inside the pace**, in any case and split across two reads at every
+    /// cut; `Makefile:12:`, `profile:` and the folder `OSC 7` reports at a
+    /// prompt (`ESC ] 7 ; file://...`) ask nothing. Named break: look for
+    /// the `OSC 8` introducer alone -- the plain URI's read asks nothing.
+    #[test]
+    fn a_plain_file_uris_read_always_asks_who_wrote_it() {
+        let t0 = Instant::now();
+        let soon = t0 + Duration::from_millis(1);
+        let fresh = || {
+            let mut s = Sampler::default();
+            assert_eq!(
+                s.read(t0, b"$ "),
+                Asks::Yes(Linked::No),
+                "the pace's first read"
+            );
+            s
+        };
+        for text in [
+            &b"see file:///etc/hosts\r\n"[..],
+            b"FILE://localhost/x",
+            b"(File://h/x)",
+        ] {
+            assert_eq!(fresh().read(soon, text), Asks::Yes(Linked::Yes), "{text:?}");
+        }
+        let uri = b"x file://localhost/etc/hosts";
+        for cut in 1..uri.len() {
+            let mut s = fresh();
+            let (a, b) = uri.split_at(cut);
+            let first = s.read(soon, a);
+            let second = s.read(soon, b);
+            assert!(
+                first == Asks::Yes(Linked::Yes) || second == Asks::Yes(Linked::Yes),
+                "split after {cut}: {first:?} {second:?}"
+            );
+        }
+        for text in [
+            &b"Makefile:12: recipe for target\r\n"[..],
+            b"profile: ok",
+            b"\x1b]7;file://h/home/x\x07$ ",
+            b"\x9d7;file://h/home/x\x9c$ ",
+        ] {
+            assert_eq!(fresh().read(soon, text), Asks::No, "{text:?}");
+        }
+    }
+
+    /// **With `[link] paths = "off"`, a `file://` URI printed as plain text
+    /// is named as a marked link is, and its click goes by who printed
+    /// it**: the shell's is revealed, ssh's is refused. The read goes
+    /// through the [`Sampler`] as the reader takes it, then the worker, and
+    /// the link is read back from the cells and clicked as both drivers
+    /// click it. Named break: look for the `OSC 8` introducer alone in the
+    /// [`Sampler`] -- the read is not kept, the line's origin stays
+    /// unknown, and the shell's link is refused too.
+    #[test]
+    fn with_paths_off_a_plain_file_uri_is_named_and_clicked_by_its_origin() {
+        use crate::link::{Click, Host, Refused, Spot, Under, hovered};
+        let run = |g: Pid| -> Result<Click, Refused> {
+            let mut f = Fake::with(&[]);
+            f.groups.insert(9, vec!["ssh".into()]);
+            f.groups.insert(1, vec!["zsh".into()]);
+            let (mut pr, starts) = probes(f);
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let bytes = b"file://localhost/etc/hosts\r\n";
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            assert_eq!(paths.marks(), Marks::Off);
+            let (mut lines, mut uris) = (Lines::default(), Uris::default());
+            let s = Scrolled::START;
+            let line = s.line(Rows::ZERO, baud_domain::Row::ZERO);
+            let t0 = Instant::now();
+            let mut sampler = Sampler::default();
+            let _ = sampler.read(t0, b"$ ");
+            let _ = sampler.writers(Some(1), Watched::Nothing);
+            let (writers, linked) = match sampler.read(t0 + Duration::from_millis(1), bytes) {
+                Asks::Yes(l) => (sampler.writers(Some(g), Watched::Nothing), l),
+                Asks::No => (Writers::default(), Linked::No),
+            };
+            pr.read_taken(&mut paths, writers, LineSpan::of(line, line), linked);
+            for i in 0..1_000_000u32 {
+                let seen = Seen {
+                    term: &t,
+                    scrolled: s,
+                    lines: &mut lines,
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths: &mut paths,
+                };
+                let _ = pr.turn(t0 + Duration::from_millis(u64::from(i)), seen, || Some(1));
+                if paths.origin(line) != Origin::Unknown || *starts.lock().unwrap() == 0 {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+            let spot = Spot {
+                scrolled: s,
+                back: Rows::ZERO,
+                row: baud_domain::Row::ZERO,
+                col: baud_domain::Col::at_index(1),
+            };
+            let under = hovered(&t, spot).expect("a link under the cell");
+            let Under::Bare(bare) = &under else {
+                panic!("read from the text: {under:?}");
+            };
+            let uri = bare.uri().expect("its URI").to_vec();
+            crate::link::admit_printed(
+                &uri,
+                Host(""),
+                uris.rules(),
+                paths.printed_origin(&under, line),
+            )
+            .map(|target| crate::link::click(&target, &paths))
+        };
+        assert_eq!(run(1), Ok(Click::Reveal), "the shell's");
+        assert_eq!(run(9), Err(Refused::Remote), "ssh's");
     }
 }

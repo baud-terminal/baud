@@ -158,8 +158,8 @@ pub struct Read {
     /// for the printed paths and a link's origin, read here because the
     /// program may be gone by the time anything else asks.
     pub writers: crate::probe::Writers,
-    /// Whether the bytes carried an `OSC 8` link's introducer, which always
-    /// asks for the group (`probe::Sampler::read`).
+    /// Whether the bytes carried an `OSC 8` link's introducer or a plain
+    /// `file://` URI, which always asks for the group (`probe::Sampler::read`).
     pub linked: crate::probe::Linked,
 }
 

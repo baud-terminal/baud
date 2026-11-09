@@ -1,0 +1,4 @@
+file:///etc/passwd
+file://localhost/etc/passwd
+file://here.example/etc/passwd
+file://remotebox/etc/hosts

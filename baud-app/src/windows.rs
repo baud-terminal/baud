@@ -451,6 +451,27 @@ pub fn running_window(
     cmd
 }
 
+/// **The grid of the window a link was clicked in**, `term`'s: what a
+/// Linux link's window opens at ([`link_window`]).
+#[cfg(any(target_os = "linux", test))]
+pub fn grid_of(term: &baud_core::Term<'_>) -> crate::run_arg::Grid {
+    let (cols, rows) = term.geometry();
+    crate::run_arg::Grid::of(cols, rows)
+}
+
+/// **What the Linux driver's `Later::Window` starts**: [`running_window`]
+/// at `grid`, the clicked window's ([`grid_of`]), always given, so the new
+/// window opens at the grid the link was clicked in and not the default.
+#[cfg(any(target_os = "linux", test))]
+pub fn link_window(
+    exe: &std::path::Path,
+    run: crate::rules::Run,
+    dir: Option<&std::path::Path>,
+    grid: crate::run_arg::Grid,
+) -> std::process::Command {
+    running_window(exe, run, Some(grid), dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -761,6 +782,36 @@ mod tests {
         let gone =
             super::running_window(Path::new("/b"), run, None, Some(Path::new("/no/such/dir")));
         assert_eq!(gone.get_current_dir(), None, "a folder that is gone");
+    }
+
+    /// **A Linux link's window opens at the grid of the window clicked in**:
+    /// a terminal of 132x43 gives `--grid 132x43` ahead of `-e` in what
+    /// `Later::Window` starts, and the new process reads that grid back. A
+    /// grid of 80x24, the control, gives `80x24`. Named break: leave the
+    /// grid out of `link_window` -- no `--grid`, and the new window opens at
+    /// the default grid.
+    #[test]
+    fn a_linux_links_window_carries_the_clicked_windows_grid() {
+        use std::ffi::{OsStr, OsString};
+        let argv: Vec<OsString> = ["hx", "/tmp/x.rs"].iter().map(OsString::from).collect();
+        let run = crate::rules::Run::given(argv).expect("a program");
+        for (cols, rows, want) in [(132, 43, "132x43"), (80, 24, "80x24")] {
+            let ws = WinSize {
+                ws_col: cols,
+                ws_row: rows,
+            };
+            let mut owned = Owned::new(&ws);
+            let t = Term::new(owned.storage(), &ws);
+            let grid = super::grid_of(&t);
+            let cmd = super::link_window(Path::new("/opt/baud/bin/baud"), run.clone(), None, grid);
+            let args: Vec<&OsStr> = cmd.get_args().collect();
+            assert_eq!(args, ["--grid", want, "-e", "hx", "/tmp/x.rs"], "{want}");
+            assert_eq!(
+                crate::run_arg::asked(args.iter().map(OsString::from)),
+                crate::run_arg::Asked::Run(run.clone(), Some(grid)),
+                "the new process reads the grid back"
+            );
+        }
     }
 
     /// **A link's window takes the clicked window's frame exactly**, over

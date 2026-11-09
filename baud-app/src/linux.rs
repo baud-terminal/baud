@@ -1730,8 +1730,7 @@ impl Driver {
 
     /// The grid the terminal has: what a link's window opens at.
     fn grid(&self) -> crate::run_arg::Grid {
-        let (cols, rows) = self.term.geometry();
-        crate::run_arg::Grid::of(cols, rows)
+        crate::windows::grid_of(&self.term)
     }
 
     /// **A link to the desktop, or refused and said why**, the macOS
@@ -1778,9 +1777,9 @@ impl Driver {
         // bus included, as the macOS app counts a link the system did not
         // take.
         let said = shown(uri);
-        // An `OSC 8` link takes its origin from its line, as the worker named
-        // who wrote it (`link::admit_printed`).
-        let origin = matches!(link, Under::Osc8(_)).then(|| self.seat.paths.origin(line));
+        // The link takes its origin from its line, as the worker named who
+        // wrote it (`Paths::printed_origin`).
+        let origin = self.seat.paths.printed_origin(link, line);
         match crate::link::admit_printed(uri, Host(&self.host), self.uris.rules(), origin) {
             Err(why) => {
                 self.report.links.refused.bump();
@@ -2164,11 +2163,11 @@ impl Driver {
                         continue;
                     }
                     let started = std::env::current_exe().and_then(|exe| {
-                        self.opener.start(crate::windows::running_window(
+                        self.opener.start(crate::windows::link_window(
                             &exe,
                             run,
-                            Some(grid),
                             dir.as_deref(),
+                            grid,
                         ))
                     });
                     match started {
