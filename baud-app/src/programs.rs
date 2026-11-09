@@ -151,6 +151,44 @@ pub(crate) struct Under<'t, 's> {
     clock: Duration,
     /// What a point is mapped through.
     geometry: Geometry,
+    /// Which of the core's answers never reach the child: none, but
+    /// where a test asks for a terminal that answers no kitty query.
+    pub(crate) withheld: Withheld,
+}
+
+/// **Which of the core's answers a test keeps from the child.**
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Withheld {
+    /// Every answer goes, as the app sends it.
+    Nothing,
+    /// Every kitty graphics answer, `APC G ... ST`, is dropped: a terminal
+    /// that answers no kitty query.
+    KittyAnswers,
+}
+
+impl Withheld {
+    /// `b` with what is withheld taken out.
+    fn strip(self, b: Vec<u8>) -> Vec<u8> {
+        if self == Withheld::Nothing {
+            return b;
+        }
+        let mut out = Vec::with_capacity(b.len());
+        let mut i = 0;
+        while i < b.len() {
+            if b[i..].starts_with(b"\x1b_G") {
+                match b[i..].windows(2).position(|w| w == b"\x1b\\") {
+                    Some(end) => {
+                        i += end + 2;
+                        continue;
+                    }
+                    None => break,
+                }
+            }
+            out.push(b[i]);
+            i += 1;
+        }
+        out
+    }
 }
 
 /// **How many writes the kernel took only part of at once**, counted up
@@ -217,6 +255,7 @@ impl<'t, 's> Under<'t, 's> {
             shorts: Shorts::NONE,
             clock: Duration::from_secs(1),
             geometry,
+            withheld: Withheld::Nothing,
         }
     }
 
@@ -242,6 +281,7 @@ impl<'t, 's> Under<'t, 's> {
             shorts: Shorts::NONE,
             clock: Duration::from_secs(1),
             geometry,
+            withheld: Withheld::Nothing,
         }
     }
 
@@ -267,7 +307,7 @@ impl<'t, 's> Under<'t, 's> {
 
     /// The answers the core owes, to the child: whether there were any.
     fn answer(&mut self) -> Answered {
-        let reply = self.term.reply().to_vec();
+        let reply = self.withheld.strip(self.term.reply().to_vec());
         self.term.clear_reply();
         self.send(&reply);
         match reply.is_empty() {
@@ -330,6 +370,7 @@ impl<'t, 's> Under<'t, 's> {
             &mut crate::hostlog::NoLog,
         );
         self.seat.after_read(self.term, before);
+        let out = self.withheld.strip(out);
         self.send(&out);
         match (out.is_empty(), self.answer()) {
             (true, Answered::Nothing) => Answered::Nothing,
@@ -1262,4 +1303,104 @@ fn the_legacy_gutter_keeps_a_press_from_a_tracking_vim() {
         Took::No,
         "off the gutter, the cells'"
     );
+}
+
+/// **Chawan draws a page's picture by kitty's protocol in baud, on baud's
+/// defaults**: the tour's pinned `cha`, which `BAUD_CHA` names, opens a
+/// local page holding a 40x40 PNG, its config the tour's -- a page's
+/// pictures on, `display.image-mode = "auto"`, Chawan's own detection --
+/// on a pty whose answers are baud's, the terminal provisioned with the
+/// image memory of baud's default config. Chawan 0.4.4 asks `APC
+/// Gi=1,s=1,v=1,a=q;AAAAAA ST` and then DA1 (`src/local/term.nim`,
+/// `queryAttrs`); any `APC G` answer sets its image mode to kitty's
+/// (`parseAPCG`), and only DA1's attribute 4 would set Sixel's, while the
+/// mode is still none. So the query is answered `OK`, and the picture
+/// arrives as a kitty image, stored and placed. The control, a terminal
+/// that answers no kitty query (`Withheld::KittyAnswers`): the query
+/// reaches the core and its answer never reaches Chawan, which then draws
+/// no picture by either protocol, no image stored and none placed.
+#[test]
+#[ignore = "a tool: `cargo run --example demo -- --headless DIR` runs it with BAUD_CHA"]
+fn chawan_draws_a_pages_picture_by_kittys_protocol() {
+    let cha = std::env::var("BAUD_CHA").expect("BAUD_CHA, the tour's pinned cha");
+    let dir = Scratch::new("cha");
+    let conf = dir.path().join("h/chawan");
+    std::fs::create_dir_all(&conf).expect("Chawan's folder");
+    std::fs::write(
+        conf.join("config.toml"),
+        "[buffer]\nimages = true\n[display]\nimage-mode = \"auto\"\n",
+    )
+    .expect("Chawan's config");
+    let side = baud_domain::ImagePx::of(40);
+    let red: Vec<u8> = [0xcc, 0x22, 0x22].repeat(40 * 40);
+    std::fs::write(
+        dir.path().join("d/pic.png"),
+        crate::pages::tests::png(side, side, &red),
+    )
+    .expect("the picture");
+    let page = dir.path().join("d/page.html");
+    std::fs::write(
+        &page,
+        "<!DOCTYPE html><title>p</title><p>a picture:</p>\
+         <img src=\"pic.png\" width=\"40\" height=\"40\">\n",
+    )
+    .expect("the page");
+    let cmd = format!("exec {cha} {}", page.display());
+    let conf = conf.display().to_string();
+    let budget = crate::config::Config::defaults().images;
+    for withheld in [Withheld::Nothing, Withheld::KittyAnswers] {
+        let mut owned = Owned::new(&WS).with_images(budget);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut u = Under::start(&mut t, &cmd, dir.env(&[("CHA_DIR", &conf)]));
+        u.withheld = withheld;
+        // A read, then every kitty decode it owes, as the app takes a turn.
+        let turn = |u: &mut Under<'_, '_>, wait: Duration| {
+            let heard = u.pump(wait);
+            while u.decode() == baud_domain::DecodeProgress::More {}
+            heard
+        };
+        let until = |u: &mut Under<'_, '_>, what: &str, done: &dyn Fn(&Term<'_>) -> bool| {
+            let end = Instant::now() + DEADLINE;
+            while !done(u.term) {
+                assert!(
+                    Instant::now() < end,
+                    "{what}: not by the deadline, {:?}; the screen:\n{}",
+                    u.term.kitty(),
+                    screen(u.term).join("\n")
+                );
+                turn(u, MS * 50);
+            }
+        };
+        match withheld {
+            Withheld::Nothing => {
+                until(&mut u, "Chawan's picture", &|t| {
+                    t.kitty().images > 0 && t.images().placements().count() > 0
+                });
+                let ok = b"\x1b_Gi=1;OK\x1b\\";
+                assert!(
+                    u.wrote.windows(ok.len()).any(|w| w == ok),
+                    "the query is answered OK: {:?}",
+                    String::from_utf8_lossy(&u.wrote)
+                );
+            }
+            Withheld::KittyAnswers => {
+                until(&mut u, "Chawan's page", &|t| {
+                    screen(t).iter().any(|r| r.contains("a picture:"))
+                });
+                while turn(&mut u, MS * 1500) {}
+                let k = u.term.kitty();
+                assert!(k.commands >= 1, "the query reached the core: {k:?}");
+                assert_eq!(k.images, 0, "the control: no kitty image, {k:?}");
+                assert_eq!(
+                    u.term.images().placements().count(),
+                    0,
+                    "the control: no picture placed"
+                );
+                assert!(
+                    !u.wrote.windows(3).any(|w| w == b"\x1b_G"),
+                    "and its answer never reached Chawan"
+                );
+            }
+        }
+    }
 }

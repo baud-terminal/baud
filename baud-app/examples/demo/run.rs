@@ -491,7 +491,11 @@ fn full_screen_name(gif: &str) -> String {
 /// PNG. Every frame, drawn [`CENSUS_PERIOD_MS`] apart, goes into a
 /// lossless film beside them, `session.mkv`, whose trails', fireworks' and
 /// clear's shots baud-bench's flash census counts
-/// (`baud-bench/tests/session_flashes.rs`). What the programs printed is
+/// (`baud-bench/tests/session_flashes.rs`). The tour's pinned `cha`, whose
+/// window the session cannot open, must then draw a page's picture by
+/// kitty's protocol on a pty whose answers are baud's
+/// (`programs::chawan_draws_a_pages_picture_by_kittys_protocol`). What the
+/// programs printed is
 /// then checked for a character no face draws, and searched as a film's
 /// is, and kept beside the stills as `heard.log`: every byte the session
 /// read from the shell, ssh's session among them, for a replay through
@@ -557,6 +561,36 @@ fn headless(
         .map_err(|e| format!("cargo: {e}"))?;
     if !census.success() {
         return Err("the flash census of the session failed".to_string());
+    }
+    // Chawan's pictures, which the session cannot show: its link window is
+    // taken out. The pinned `cha` on the session's `PATH`, on a pty whose
+    // answers are baud's.
+    let path = prep
+        .env
+        .iter()
+        .find(|(k, _)| k == "PATH")
+        .map_or("", |(_, v)| v.as_str());
+    let cha = std::env::split_paths(path)
+        .map(|d| d.join("cha"))
+        .find(|p| p.is_file())
+        .ok_or("cha is not on the session's PATH")?;
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let chawan = Command::new(cargo)
+        .args(["test", "-p", "baud", "--bin", "baud", "--manifest-path"])
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&p.target)
+        .args(p.flags())
+        .args([
+            "--",
+            "programs::chawan_draws_a_pages_picture_by_kittys_protocol",
+        ])
+        .args(["--ignored", "--exact", "--nocapture"])
+        .env("BAUD_CHA", &cha)
+        .status()
+        .map_err(|e| format!("cargo: {e}"))?;
+    if !chawan.success() {
+        return Err("Chawan drew no picture by kitty's protocol".to_string());
     }
     let heard = prep.at.root.join("heard.log");
     check_printed(&prep.faces, &heard)?;

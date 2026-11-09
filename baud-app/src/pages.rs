@@ -97,7 +97,7 @@ fn give_back(pages: &mut [u8]) -> PagesBack {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
     use baud_domain::{Chan, DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyId};
@@ -275,7 +275,7 @@ mod tests {
     /// A stored-deflate PNG of 8-bit RGB `rgb`, `w` x `h`, every row filter
     /// 0: a valid file the core decodes, written here because the picture
     /// is not the thing under test.
-    fn png(w: ImagePx, h: ImagePx, rgb: &[u8]) -> Vec<u8> {
+    pub(crate) fn png(w: ImagePx, h: ImagePx, rgb: &[u8]) -> Vec<u8> {
         let crc = |bytes: &[u8]| {
             let mut c = !0u32;
             for &b in bytes {
