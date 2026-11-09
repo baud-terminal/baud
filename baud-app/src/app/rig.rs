@@ -430,15 +430,6 @@ fn run(
     }
 }
 
-/// **The frame rig** (`rig_call::FrameRig`): the window made as the event
-/// rig makes it and never shown; `setup` typed and read to its sign, the
-/// clear of the pasteboard it ends with; the display link left to settle;
-/// then `act` typed, if any, and the rig's ticks offered `attempts`
-/// times, each delivered only while the door's state is `Run`
-/// (`probe::Ticker`). Printed: the link's state at the end, the ticks
-/// delivered and the door's sends over the offered ticks, the links made
-/// in all, and the polls the last settle found still the tick's, and the
-/// palettes applied over them.
 /// **The window given the appearance it does not have**: dark for light,
 /// light for dark, as a light/dark flip gives it. AppKit tells the view,
 /// which tells its responder (`Responder::appearance`).
@@ -452,6 +443,15 @@ fn restyle(window: &NSWindow) {
     window.setAppearance(named.as_deref());
 }
 
+/// **The frame rig** (`rig_call::FrameRig`): the window made as the event
+/// rig makes it and never shown; `setup` typed and read to its sign, the
+/// clear of the pasteboard it ends with; the display link left to settle;
+/// then `act` sent, if any, as `keys` says, the window told what `window`
+/// says, and the rig's ticks offered `attempts` times, each delivered
+/// only while the door's state is `Run` (`probe::Ticker`). Printed: the link's state at the end, the ticks
+/// delivered and the door's sends over the offered ticks, the links made
+/// in all, the polls the last settle found still the tick's, what it
+/// found owed, and the palettes applied over the ticks.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     use probe_call::{RigFocus, RigHolders, RigKeys, RigWindow};
     let Some(mtm) = MainThreadMarker::new() else {
