@@ -6174,35 +6174,86 @@ mod tests {
         assert_eq!(now, recorded, "pending on {stage:?}, failing another way");
     }
 
-    /// **Pending on the core record: a row a remote read wrote below its
-    /// span, coming back up after, is filed over by the prompt that lands
-    /// there, and lights.** Under `ssh h`, the remote read writes
-    /// `/etc/passwd` a row down and moves back up, so its span ends where it
-    /// began; then `logout`, the shell's `D` and a bash prompt in one read,
-    /// cut at the `D`, the prompt landing on that row. Today the row is
-    /// filed as the shell's and the path lights; once the core records the
-    /// lowest line each read reached, the row stays dark. Expected-red
-    /// ([`pending`]): red if it goes dark before the core record, lights
-    /// other rows, or outlives that stage.
+    /// Under `ssh h`, a remote read that writes `/etc/passwd` a row down and
+    /// moves back up, so its span ends where it began; `logout` and its
+    /// line feed; and the shell's `D` and a bash prompt.
+    fn below_and_back() -> [Vec<u8>; 4] {
+        [
+            ran("ssh h", ";cmdline=ssh\\ h"),
+            [
+                b"$ \r\n".as_slice(),
+                &b" ".repeat(20),
+                b"/etc/passwd\x1b[A\r",
+            ]
+            .concat(),
+            b"logout\r\n".to_vec(),
+            format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07$ ").into_bytes(),
+        ]
+    }
+
+    /// **Pending on the core record (F5): a row a remote read wrote below
+    /// its span, coming back up after, is filed over by the prompt that
+    /// lands there, and lights.** [`below_and_back`]'s reads, in two
+    /// shapes: `logout` in ssh's read and the prompt in a read of its own,
+    /// filed as the shell's; and `logout`, the `D` and the prompt in one
+    /// read, which the cut reaches the row through. Today the row lights in
+    /// both; once the core records the lowest line each read reached, it
+    /// stays dark. Expected-red ([`pending`]): red if either goes dark
+    /// before the core record, lights another row, or outlives that stage.
     #[test]
     fn pending_core_record_a_row_written_below_a_remote_reads_span() {
-        let start = ran("ssh h", ";cmdline=ssh\\ h");
-        let remote = [
-            b"$ \r\n".as_slice(),
-            &b" ".repeat(20),
-            b"/etc/passwd\x1b[A\r",
-        ]
-        .concat();
-        let exit = [
-            b"logout\r\n".as_slice(),
-            format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07$ ").as_bytes(),
-        ]
-        .concat();
-        let lit = lit_reads(
-            named_groups(),
-            &[read(&start, 1), read(&remote, 9), read(&exit, 1)],
+        let [start, remote, logout, prompt] = below_and_back();
+        let exit = [logout.as_slice(), &prompt].concat();
+        let shapes = [
+            lit_reads(
+                named_groups(),
+                &[
+                    read(&start, 1),
+                    read(&remote, 9),
+                    read(&logout, 9),
+                    read(&prompt, 1),
+                ],
+            ),
+            lit_reads(
+                named_groups(),
+                &[read(&start, 1), read(&remote, 9), read(&exit, 1)],
+            ),
+        ];
+        pending(
+            LinkStage::CoreRecord,
+            shapes,
+            [vec![2], vec![2]],
+            [Vec::new(), Vec::new()],
         );
-        pending(LinkStage::CoreRecord, lit, vec![2], Vec::new());
+    }
+
+    /// **Where F5 does not reach, the row written below stays dark**:
+    /// [`below_and_back`]'s bytes all in one read, whose move up refuses
+    /// the cut, and its reads taken in one drain, whose span reaches the
+    /// prompt's row under the remote read. Named breaks: let any escape
+    /// before the `D` through (`Forward::of`) and file the part before the
+    /// cut by the plan's reach, not its own bytes' (`reads::paced_one`) --
+    /// the one read lights; neither alone does, each holding it; a drain's
+    /// reach the last read's alone (`Reach::then`) -- the drain lights.
+    #[test]
+    fn a_row_written_below_stays_dark_in_one_read_or_one_drain() {
+        let [start, remote, logout, prompt] = below_and_back();
+        let exit = [logout.as_slice(), &prompt].concat();
+        let all = [remote.as_slice(), &exit].concat();
+        let one_read = lit_reads(named_groups(), &[read(&start, 1), read(&all, 1)]);
+        assert_eq!(one_read, Vec::<usize>::new(), "one read");
+        let one_drain = lit_reads(
+            named_groups(),
+            &[
+                read(&start, 1),
+                read(&remote, 9),
+                Read {
+                    drain: Drain::Same,
+                    ..read(&exit, 1)
+                },
+            ],
+        );
+        assert_eq!(one_drain, Vec::<usize>::new(), "one drain");
     }
 
     /// **A pending row's verdict holds in each state**: failing as recorded
