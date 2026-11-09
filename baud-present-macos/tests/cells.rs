@@ -17247,7 +17247,11 @@ fn a_syllable_draws_alike_on_every_arm() {
 /// variable file with its narrower instances. The block a word's syllable
 /// takes is the records', the cell shader drawing none
 /// (`Overlay::cursor_drawn`); the premises: the words went to the records,
-/// and the block on two syllables draws two frames.
+/// and the block on two syllables draws two frames. Each stack drawn
+/// compares 47 frames, the three counts' blocks and selections; the floor
+/// is a stack's, since the Noto stack is drawn only where the cache holds
+/// its file, and a floor of both stacks' made the test red wherever it does
+/// not.
 #[test]
 fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
     const SHA: &str = "9f82923465ef82fb86c6b99cbdd4947ba832fe3335948de815b18adfd75947c7";
@@ -17296,8 +17300,8 @@ fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
         stacks.push((faces, roles));
     }
     let line = "टर्मिनल हर अक्षर को ग्रिड में रखता है।";
-    let mut drawn = 0usize;
     for (faces, roles) in &stacks {
+        let mut drawn = 0usize;
         let renderer = Renderer::new(
             Stack::with_roles(faces, roles).unwrap(),
             PxSize::of(14.0).unwrap(),
@@ -17358,8 +17362,12 @@ fn a_devanagari_word_and_its_lights_draw_alike_on_every_arm() {
                 "{setup:?} {marks:?}: the block moved nothing"
             );
         }
+        assert!(
+            drawn >= 47,
+            "{drawn} frames compared, {} faces",
+            faces.len()
+        );
     }
-    assert!(drawn >= 60, "{drawn} frames compared");
 }
 
 /// **Bold and italic Hindi draw alike on every arm**, in the faces the
