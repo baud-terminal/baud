@@ -1308,6 +1308,10 @@ pub struct Paths {
     /// Moved by every span named, which may join or part two rows
     /// ([`PathsAt::origins`]).
     origins: Generation,
+    /// **The lines a read's own filing moved the facts of**, as one span
+    /// until the next scan takes it ([`Reader::refiled`]): a fact moves
+    /// what a link on a row reads, with no change to the row's cells.
+    refiled: Option<LineSpan>,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -1731,7 +1735,7 @@ impl Paths {
     /// its rows keep no mark, and a `file://` link on them takes a remote
     /// origin ([`Paths::origin`]). Only those rows, as for any writer.
     pub fn written_remote(&mut self, span: LineSpan) {
-        let _ = self.file(Fact::Writer(Writer::Remote), span);
+        self.file_read(Fact::Writer(Writer::Remote), span);
     }
 
     /// **The shell named the command that wrote `span` a program on this
@@ -1740,7 +1744,7 @@ impl Paths {
     /// writer named not local, or a multiplexer, keeps what it made of them,
     /// and rows no writer was named for stay not known.
     pub fn written_here(&mut self, span: LineSpan) {
-        let _ = self.file(Fact::Here, span);
+        self.file_read(Fact::Here, span);
     }
 
     /// **The shell itself wrote `span`**, after its `D` with its token and
@@ -1748,7 +1752,17 @@ impl Paths {
     /// prompt after a command, which a read that sampled no group leaves to
     /// this, the shell being on this machine.
     pub fn written_by_shell(&mut self, span: LineSpan) {
-        let _ = self.file(Fact::Writer(Writer::Local), span);
+        self.file_read(Fact::Writer(Writer::Local), span);
+    }
+
+    /// [`Paths::file`], of the rows a read just wrote: those whose facts it
+    /// moved are read again at the next scan ([`Reader::refiled`]), as a
+    /// read may write a row's facts and none of its cells -- a remote read
+    /// of renditions alone over a row holding a `file://` link.
+    fn file_read(&mut self, fact: Fact, span: LineSpan) {
+        if self.file(fact, span) == Moved::Yes {
+            self.refiled = Some(self.refiled.map_or(span, |r| r.joined(span)));
+        }
     }
 
     /// **`fact` filed over `span`**: each run of rows it covers gets it
@@ -1820,8 +1834,7 @@ impl Paths {
 
     /// [`Paths::file`], of rows written before now: every row is read
     /// again, as an answer moves them, since the fact may change what a
-    /// row reads. Rows a read just wrote are read again for their cells,
-    /// and need no more.
+    /// row reads.
     fn file_since(&mut self, fact: Fact, span: LineSpan) {
         if self.file(fact, span) == Moved::Yes {
             self.generation = self.generation.next();
@@ -2813,6 +2826,10 @@ impl Reader for Links<'_> {
 
     fn changed(&mut self) {
         self.paths.changed();
+    }
+
+    fn refiled(&mut self) -> Option<LineSpan> {
+        self.paths.refiled.take()
     }
 }
 
@@ -6795,6 +6812,70 @@ mod joined_rows {
         let o = PathsAt::origins(&p);
         p.written_remote(LineSpan::of(line(Row::ZERO), line(Row::ZERO)));
         assert_ne!(PathsAt::origins(&p), o, "written_remote moves it");
+    }
+
+    /// **A read that files facts over a row and writes none of its cells
+    /// moves the row's look at rest**: a `file://` link shown on rows 0 and
+    /// 1, both written here, is drawn on both; a remote read of renditions
+    /// alone over row 0 leaves every cell as it was, and the next scan,
+    /// with nothing forgotten, draws the link on neither row -- its slot is
+    /// judged over every row showing it, and a remote row's file is not
+    /// this machine's. A read here that moves no fact reads no row. Named
+    /// break: discard what `Paths::file` moved in `written_remote` (no
+    /// `refiled`) -- both rows keep the line.
+    #[test]
+    fn a_read_that_moves_only_facts_reads_its_rows_again() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let link = "\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\";
+        feed(&mut t, format!("{link}\r\n{link}\r\n").as_bytes());
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.all_written_here();
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let mut scan = |t: &Term<'_>, p: &mut Paths, l: &mut Lines| {
+            let _ = l.scan(
+                t,
+                at(),
+                &mut Links {
+                    uris: &mut u,
+                    urls: Turned::On,
+                    paths: p,
+                },
+            );
+            l.lines()
+                .iter()
+                .map(|s| (s.row.index(), s.from.index(), s.to.index()))
+                .collect::<Runs>()
+        };
+        assert_eq!(
+            scan(&t, &mut p, &mut l),
+            [(0, 0, 4), (1, 0, 4)],
+            "the control: written here, drawn on both rows"
+        );
+        // Filed local again: no fact moves, and no row is read.
+        p.written_by_shell(LineSpan::of(line(Row::ZERO), line(Row::ZERO)));
+        assert_eq!(p.refiled, None, "a read that moves no fact reads no row");
+        feed(&mut t, b"\x1b[1m\x1b[0m");
+        p.written_remote(LineSpan::of(line(Row::ZERO), line(Row::ZERO)));
+        assert_eq!(
+            p.origin(line(Row::ZERO)),
+            Origin::Remote,
+            "the control: the read filed row 0 remote"
+        );
+        assert_eq!(
+            p.origin(line(Row::from_index(1))),
+            Origin::Local,
+            "and row 1 not"
+        );
+        assert_eq!(
+            scan(&t, &mut p, &mut l),
+            [],
+            "a remote row's file is not this machine's, on either row"
+        );
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

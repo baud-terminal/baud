@@ -313,6 +313,13 @@ pub trait Reader {
     fn drawn(&self, _key: &[u8]) -> Drawn {
         Drawn::No
     }
+
+    /// **The lines whose facts a read's filing moved since the last scan**,
+    /// taken: what a link on them reads may have moved with no change to
+    /// their cells (`Paths::written_remote`). None with nothing to go by.
+    fn refiled(&mut self) -> Option<crate::paths::LineSpan> {
+        None
+    }
 }
 
 /// **URIs, by `crate::link`'s rules**: `find`'s for what one is and `admit`'s
@@ -926,6 +933,19 @@ impl Lines {
             if row_of(term, scrolled, head).is_none() {
                 self.again[0] = Read::Again;
                 any = true;
+            }
+        }
+        // A read filed facts over rows whose cells it left as they were: a
+        // remote read of renditions alone over a row holding a `file://`
+        // link. Those rows are read again, and with them, below, the rows
+        // their joins and slots reach.
+        if let Some(span) = reader.refiled() {
+            for (y, again) in self.again.iter_mut().enumerate() {
+                let line = scrolled.line(back, Row::from_index(y));
+                if *again == Read::Kept && span.holds(line) {
+                    *again = Read::Again;
+                    any = true;
+                }
             }
         }
         // A row that joined the next and changed takes the join with it: the
