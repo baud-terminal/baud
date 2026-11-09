@@ -13,10 +13,38 @@ slow-timeout = { period = "60s", terminate-after = 20 }
 # and each is capped at 3 GiB.
 [test-groups]
 bounded-hogs = { max-threads = 1 }
+# **The tests that open ptys share 32 slots of 4 ptys, 128 ptys at once.**
+# A stock Mac allows 511 ptys in all (`kern.tty.ptmx_max`), the windows
+# open on it and every other suite included, so three suites at once fit
+# beside 127 terminals: 3 * 128 = 384. A test takes a slot for each 4 ptys
+# it holds at its peak, `threads-required` past one. The peaks, counted at
+# every open as the managers this process holds: 64 and 48 for the two
+# below, 3 or fewer for every other test in the group, which takes one
+# slot. A test that opens a pty outside the group fails
+# (`baud-app/src/pty/budget.rs`).
+pty = { max-threads = 32 }
 
 [[profile.default.overrides]]
 filter = 'package(xtask) & binary(bounded)'
 test-group = 'bounded-hogs'
+
+# 16 threads holding 4 spawned terminals each, all at once.
+[[profile.default.overrides]]
+filter = 'package(baud) & test(=pty::tests::terminals_spawned_at_once_hold_none_of_each_others_ends)'
+test-group = 'pty'
+threads-required = 16
+
+# 48 threads opening and closing at once.
+[[profile.default.overrides]]
+filter = 'package(baud) & test(=pty::tests::terminals_opened_at_once_all_open)'
+test-group = 'pty'
+threads-required = 12
+
+# Every other module whose tests open ptys, the app's children in the
+# event rig, and baud-bench's two suites over a pty.
+[[profile.default.overrides]]
+filter = '(package(baud) & (test(/^pty::/) | test(/^programs::/) | test(/^app::launch_tests::/) | test(/^film::/) | binary(event_rig))) | (package(baud-bench) & (binary(host) | binary(capture)))'
+test-group = 'pty'
 
 # The tests that run real programs in a pty (baud-app/src/programs.rs)
 # were marked leaky, passing, at nextest's default leak timeout of 100 ms

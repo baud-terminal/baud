@@ -1591,6 +1591,8 @@ fn open_terminal(ws: crate::sys::Winsize) -> Option<(std::os::fd::OwnedFd, std::
     unsafe {
         crate::sys::ioctl(replica.as_raw_fd(), crate::sys::TIOCSWINSZ, &raw const ws);
     }
+    #[cfg(test)]
+    budget::opened();
     Some((master, replica))
 }
 
@@ -3094,6 +3096,9 @@ pub fn host_now() -> HostTime {
 }
 
 #[cfg(test)]
+mod budget;
+
+#[cfg(test)]
 mod shell_tests;
 
 #[cfg(test)]
@@ -3676,6 +3681,7 @@ mod tests {
         if pid > 0 {
             // SAFETY: an open descriptor; `F_SETFD` takes the flags as an int.
             unsafe { crate::sys::fcntl(master, crate::sys::F_SETFD, crate::sys::FD_CLOEXEC) };
+            budget::opened();
         }
         drop(held);
         (pid, master)
@@ -5203,6 +5209,7 @@ mod tests {
             assert!(m >= 0, "posix_openpt");
             assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
             assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");
+            budget::opened();
             m
         }
     }
