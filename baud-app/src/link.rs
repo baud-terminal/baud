@@ -296,7 +296,7 @@ impl Admitted {
 /// the URI moved into the answer rather than borrowed, so it can cross to
 /// a later turn with no copy. Reached only through a door named for where
 /// the URI came from ([`admit_path_owned`], [`admit_about`]).
-fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
+fn admit_owned(uri: String, host: &MachineNames) -> Result<Admitted, Refused> {
     let (scheme, action) = {
         let t = admit_with(uri.as_bytes(), host, &NO_RULES)?;
         (t.scheme(), t.action())
@@ -310,7 +310,7 @@ fn admit_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
 
 /// **[`admit_path`], owned**: the `file://` URI baud built for a printed
 /// path a click asked about again and the worker found on this machine.
-pub fn admit_path_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused> {
+pub fn admit_path_owned(uri: String, host: &MachineNames) -> Result<Admitted, Refused> {
     admit_owned(uri, host)
 }
 
@@ -320,7 +320,7 @@ pub fn admit_path_owned(uri: String, host: Host<'_>) -> Result<Admitted, Refused
 /// name, so none is passed.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn admit_about(url: String) -> Result<Admitted, Refused> {
-    admit_owned(url, Host(""))
+    admit_owned(url, &crate::link::MachineNames::NONE)
 }
 
 impl Target<'_> {
@@ -333,11 +333,43 @@ impl Target<'_> {
     }
 }
 
-/// This machine's name, for a `file://host/path` link -- the form
-/// `ls --hyperlink` emits -- to be recognised as local. Empty when unknown,
-/// which admits only the empty and `localhost` hosts.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Host<'a>(pub &'a str);
+/// **This machine's names**, for a `file://host/path` link -- the form
+/// `ls --hyperlink` emits -- or a shell's `OSC 7` to be recognised as
+/// local: "a fully qualified domain name that resolves to the machine from
+/// which the URI is being interpreted" (`[[source: rfc8089]]` § 3), which
+/// only the machine can say. Each name is one the system gave, none empty,
+/// and a host matches one without case. None known admits only the empty
+/// and `localhost` hosts, which name no machine. The one type every reader
+/// of a `file:` host is handed, so none compares against a string of its
+/// own.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct MachineNames {
+    names: Vec<String>,
+}
+
+impl MachineNames {
+    /// No name known.
+    pub const NONE: MachineNames = MachineNames { names: Vec::new() };
+
+    /// `names`, the empty ones left out.
+    pub fn of(names: impl IntoIterator<Item = String>) -> MachineNames {
+        MachineNames {
+            names: names.into_iter().filter(|n| !n.is_empty()).collect(),
+        }
+    }
+
+    /// The one name `name`, or none if it is empty.
+    pub fn one(name: &str) -> MachineNames {
+        MachineNames::of([name.to_owned()])
+    }
+
+    /// Whether `host` is one of the names, without case.
+    pub fn is_this(&self, host: &[u8]) -> bool {
+        self.names
+            .iter()
+            .any(|n| host.eq_ignore_ascii_case(n.as_bytes()))
+    }
+}
 
 /// The longest URI the policy admits: the core's own cap, so a URI the
 /// core stored whole is never refused for length here.
@@ -347,7 +379,7 @@ pub const MAX: usize = LINK_MAX;
 /// list alone: the policy's own tests. Code reads through a door named for
 /// where its URI came from ([`admit_link`], [`admit_path`], [`admit_about`]).
 #[cfg(test)]
-pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
+pub fn admit<'a>(uri: &'a [u8], host: &MachineNames) -> Result<Target<'a>, Refused> {
     admit_with(uri, host, &NO_RULES)
 }
 
@@ -358,7 +390,11 @@ pub fn admit<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
 /// takes it -- `file` names this machine or none, `mailto` carries only
 /// `subject` and `body`; and a link a rule routes has no part that starts
 /// with `-` ([`crate::rules::dashless`]).
-fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
+fn admit_with<'a>(
+    uri: &'a [u8],
+    host: &MachineNames,
+    rules: &Rules,
+) -> Result<Target<'a>, Refused> {
     if uri.is_empty() || uri.len() > MAX {
         return Err(Refused::Length);
     }
@@ -438,8 +474,7 @@ fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target
             };
             match f.host {
                 FileHost::Local => {}
-                FileHost::Named(h)
-                    if !host.0.is_empty() && h.eq_ignore_ascii_case(host.0.as_bytes()) => {}
+                FileHost::Named(h) if host.is_this(h) => {}
                 FileHost::Named(_) => return Err(Refused::Host),
             }
             file = Some(LocalFile(f));
@@ -478,7 +513,7 @@ pub enum Printed {
 /// this, so none of them says a click opens what it refuses.
 pub fn admit_link<'a>(
     uri: &'a [u8],
-    host: Host<'_>,
+    host: &MachineNames,
     rules: &Rules,
     origin: crate::paths::LinkOrigin,
 ) -> Result<Target<'a>, Refused> {
@@ -494,7 +529,7 @@ pub fn admit_link<'a>(
 /// **The `file://` URI baud built for a printed path**, which the worker
 /// found on this machine: the path's own check stands for its origin
 /// (`paths::Paths::readable_on`), and the policy judges the rest.
-pub fn admit_path<'a>(uri: &'a [u8], host: Host<'_>) -> Result<Target<'a>, Refused> {
+pub fn admit_path<'a>(uri: &'a [u8], host: &MachineNames) -> Result<Target<'a>, Refused> {
     admit_with(uri, host, &NO_RULES)
 }
 
@@ -1348,7 +1383,9 @@ fn printed_in(term: &Term<'_>, w: &Window, paths: &dyn PathsAt) -> Option<Printe
     let to = *w.cells.get(at.span.end.checked_sub(1)?)?;
     let uri = crate::paths::file_uri(&at.path);
     let verdict = match at.probe {
-        crate::paths::Probe::Exists => admit_path(uri.as_bytes(), Host("")).map(|_| ()),
+        crate::paths::Probe::Exists => {
+            admit_path(uri.as_bytes(), &crate::link::MachineNames::NONE).map(|_| ())
+        }
         crate::paths::Probe::Missing | crate::paths::Probe::Unknown => Err(Refused::NotFound),
     };
     Some(PrintedPath {
@@ -1694,7 +1731,12 @@ pub fn shortened(address: &str, room: Cols) -> String {
 /// for the room is cut to "Won't open". The drivers read through
 /// [`preview_text_with`], so only tests call it.
 #[cfg(test)]
-pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -> Option<String> {
+pub fn preview_text(
+    link: &Under,
+    term: &Term<'_>,
+    host: &MachineNames,
+    room: Cols,
+) -> Option<String> {
     let printed = NoPaths.printed(term, link);
     preview_text_with(link, term, host, room, &NoPaths, printed)
 }
@@ -1707,7 +1749,7 @@ pub fn preview_text(link: &Under, term: &Term<'_>, host: Host<'_>, room: Cols) -
 pub fn preview_text_with(
     link: &Under,
     term: &Term<'_>,
-    host: Host<'_>,
+    host: &MachineNames,
     room: Cols,
     paths: &dyn PathsAt,
     printed: Printed,
@@ -1753,7 +1795,7 @@ pub fn preview_text_with(
 fn verdict<'a>(
     link: &'a Under,
     term: &'a Term<'_>,
-    host: Host<'_>,
+    host: &MachineNames,
     paths: &dyn PathsAt,
     printed: Printed,
 ) -> Option<(&'a [u8], Result<(), Refused>)> {
@@ -1789,7 +1831,7 @@ fn gone_refusal(g: &Gone) -> Refused {
 pub fn gone_of(
     link: &Under,
     term: &Term<'_>,
-    host: Host<'_>,
+    host: &MachineNames,
     paths: &dyn PathsAt,
     printed: Printed,
 ) -> Option<Gone> {
@@ -1838,7 +1880,7 @@ pub enum ClickOn<'l, 'a> {
 pub fn click_on<'l: 'a, 'a>(
     link: &'l Under,
     term: &'a Term<'_>,
-    host: Host<'_>,
+    host: &MachineNames,
     rules: &Rules,
     paths: &dyn PathsAt,
 ) -> ClickOn<'l, 'a> {
@@ -1866,7 +1908,7 @@ pub fn click_on<'l: 'a, 'a>(
 pub fn clicked(
     link: &Under,
     term: &Term<'_>,
-    host: Host<'_>,
+    host: &MachineNames,
     rules: &Rules,
     paths: &dyn PathsAt,
 ) -> Result<Click, Refused> {
@@ -2094,7 +2136,7 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
 /// shows only while the chord is held. The drivers read through
 /// [`preview_with`], so only tests call it.
 #[cfg(test)]
-pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: Host<'_>) -> Option<LinkLook> {
+pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: &MachineNames) -> Option<LinkLook> {
     preview_with(term, spot, link, host, &NoPaths)
 }
 
@@ -2106,7 +2148,7 @@ pub fn preview_with(
     term: &Term<'_>,
     spot: Spot,
     link: &Under,
-    host: Host<'_>,
+    host: &MachineNames,
     paths: &dyn PathsAt,
 ) -> Option<LinkLook> {
     let view = term.view(spot.back);
@@ -2188,7 +2230,7 @@ struct ReadOf {
     focus: Focus,
     bytes: Taken,
     epoch: LinkEpoch,
-    host: String,
+    host: MachineNames,
     /// The printed paths' answers, and the lines' provenance, which move
     /// with no byte.
     paths: (crate::paths::Generation, crate::paths::Generation),
@@ -2199,7 +2241,7 @@ impl ReadOf {
         &self,
         term: &Term<'_>,
         (at, scrolled, chord, focus): (Option<(Row, Col)>, Scrolled, Chord, Focus),
-        host: Host<'_>,
+        host: &MachineNames,
         paths: (crate::paths::Generation, crate::paths::Generation),
     ) -> bool {
         self.at == at
@@ -2210,7 +2252,7 @@ impl ReadOf {
             && self.geometry == term.geometry()
             && self.bytes == Taken(term.amplification().0)
             && self.epoch == term.link_epoch()
-            && self.host == host.0
+            && self.host == *host
             && self.paths == paths
     }
 }
@@ -2293,7 +2335,7 @@ impl Hover {
         scrolled: Scrolled,
         chord: Chord,
         focus: Focus,
-        host: Host<'_>,
+        host: &MachineNames,
     ) -> bool {
         self.update_with(term, at, scrolled, chord, focus, host, &NoPaths)
     }
@@ -2308,7 +2350,7 @@ impl Hover {
         scrolled: Scrolled,
         chord: Chord,
         focus: Focus,
-        host: Host<'_>,
+        host: &MachineNames,
         paths: &dyn PathsAt,
     ) -> bool {
         self.at = at;
@@ -2321,9 +2363,11 @@ impl Hover {
         {
             return false;
         }
-        let mut kept = self.read.take().map_or_else(String::new, |r| r.host);
-        kept.clear();
-        kept.push_str(host.0);
+        let mut kept = self
+            .read
+            .take()
+            .map_or_else(MachineNames::default, |r| r.host);
+        kept.clone_from(host);
         self.read = Some(ReadOf {
             at,
             scrolled,
@@ -2455,7 +2499,7 @@ impl Hover {
         scrolled: Scrolled,
         chord: Chord,
         focus: Focus,
-        host: Host<'_>,
+        host: &MachineNames,
     ) -> bool {
         self.refresh_with(term, scrolled, chord, focus, host, &NoPaths)
     }
@@ -2467,7 +2511,7 @@ impl Hover {
         scrolled: Scrolled,
         chord: Chord,
         focus: Focus,
-        host: Host<'_>,
+        host: &MachineNames,
         paths: &dyn PathsAt,
     ) -> bool {
         match self.at {
@@ -2603,7 +2647,20 @@ fn spot_now(term: &Term<'_>, scrolled: Scrolled, row: Row, col: Col) -> Option<S
 mod tests {
     use super::*;
 
-    const NONE: Host<'static> = Host("");
+    const NONE: &MachineNames = &MachineNames::NONE;
+
+    /// **This machine's names match a host without case, and an empty name
+    /// is none**: `Mac.local` matches `mac.LOCAL`; an empty name given is
+    /// left out, so it matches nothing; none known matches no name.
+    /// Named break: compare with case -- `mac.LOCAL` is another machine.
+    #[test]
+    fn machine_names_match_without_case_and_hold_no_empty_name() {
+        let names = MachineNames::of(["".to_owned(), "Mac.local".to_owned()]);
+        assert!(names.is_this(b"mac.LOCAL"));
+        assert!(!names.is_this(b""), "the empty name left out");
+        assert!(!NONE.is_this(b"mac.local"));
+        assert_eq!(MachineNames::one(""), MachineNames::NONE);
+    }
 
     /// **DT-L3: a `file:` URI is RFC 8089's, read once**: `file:///etc/x?q#f`,
     /// a query or a fragment alone, `file:///a%ZZ` and `file:////srv/x` (a
@@ -2632,7 +2689,11 @@ mod tests {
             );
         }
         assert_eq!(
-            admit(b"file://elsewhere/x", Host("here")).err(),
+            admit(
+                b"file://elsewhere/x",
+                &crate::link::MachineNames::one("here")
+            )
+            .err(),
             Some(Refused::Host)
         );
     }
@@ -2645,7 +2706,7 @@ mod tests {
     /// reveal keeps the host.
     #[test]
     fn a_file_link_carries_its_file_and_reveals_it_with_no_host() {
-        let here = Host("thishost.local");
+        let here = &crate::link::MachineNames::one("thishost.local");
         let t = admit(b"file://thishost.local/tmp/a%20b", here).expect("admitted");
         assert_eq!(
             t.local_file().and_then(|f| f.path()),
@@ -2740,11 +2801,19 @@ mod tests {
     }
 
     fn ok(uri: &str) -> Target<'_> {
-        admit(uri.as_bytes(), Host("thishost.local")).unwrap_or_else(|r| panic!("{uri}: {r:?}"))
+        admit(
+            uri.as_bytes(),
+            &crate::link::MachineNames::one("thishost.local"),
+        )
+        .unwrap_or_else(|r| panic!("{uri}: {r:?}"))
     }
 
     fn no(uri: &str) -> Refused {
-        admit(uri.as_bytes(), Host("thishost.local")).expect_err(uri)
+        admit(
+            uri.as_bytes(),
+            &crate::link::MachineNames::one("thishost.local"),
+        )
+        .expect_err(uri)
     }
 
     /// Perturbation: add `ftp` to the allowlist -- the ftp case fails here,
@@ -2799,9 +2868,18 @@ mod tests {
     fn a_file_link_is_local_or_refused() {
         assert!(admit(b"file:///p", NONE).is_ok());
         assert!(admit(b"file://localhost/p", NONE).is_ok());
-        assert!(admit(b"file://THISHOST.local/p", Host("thishost.local")).is_ok());
+        assert!(
+            admit(
+                b"file://THISHOST.local/p",
+                &crate::link::MachineNames::one("thishost.local")
+            )
+            .is_ok()
+        );
         assert_eq!(
-            admit(b"file://other/p", Host("thishost.local")),
+            admit(
+                b"file://other/p",
+                &crate::link::MachineNames::one("thishost.local")
+            ),
             Err(Refused::Host)
         );
         assert_eq!(admit(b"file://thishost.local/p", NONE), Err(Refused::Host));
@@ -3409,7 +3487,7 @@ mod tests {
         let Gesture::Open(Under::Bare(b)) = g else {
             unreachable!()
         };
-        let target = admit(b.uri().unwrap(), Host("")).expect("admitted");
+        let target = admit(b.uri().unwrap(), &crate::link::MachineNames::NONE).expect("admitted");
         assert_eq!(target.as_str(), url);
         assert_eq!(target.action(), Action::Open);
     }
@@ -3936,8 +4014,15 @@ mod tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"\x1b]8;;ftp://f.example/x\x1b\\ftp\x1b]8;;\x1b\\ \x1b]8;;https://h.example/\x1b\\web\x1b]8;;\x1b\\");
         let link = |col| hovered(&t, spot(Scrolled::START, Row::ZERO, Col::at_index(col))).unwrap();
-        let text =
-            |col, room| preview_text(&link(col), &t, Host(""), Cols::of_index(room)).unwrap();
+        let text = |col, room| {
+            preview_text(
+                &link(col),
+                &t,
+                &crate::link::MachineNames::NONE,
+                Cols::of_index(room),
+            )
+            .unwrap()
+        };
         assert_eq!(
             text(0, 80),
             "Won't open, not a web, mail or file link  ftp://f.example/x"

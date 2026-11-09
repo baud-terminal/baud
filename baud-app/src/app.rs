@@ -1909,7 +1909,7 @@ impl App {
             self.scrolled,
             chord,
             self.focus,
-            crate::link::Host(self.uris.host()),
+            self.uris.names(),
             &self.paths,
         );
         if changed {
@@ -14822,7 +14822,7 @@ impl Driver {
     /// the bar says so and nothing is opened. No path is logged.
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
-        use crate::link::{Action, Host};
+        use crate::link::Action;
         use crate::paths::Found;
         use baud_present_macos::link as opener;
         let clicked = self.app.path_click.take();
@@ -14875,7 +14875,7 @@ impl Driver {
                     return;
                 }
                 let uri = crate::paths::file_uri(&path);
-                match crate::link::admit_path_owned(uri, Host(self.app.uris.host())) {
+                match crate::link::admit_path_owned(uri, self.app.uris.names()) {
                     Ok(t) if t.action() == Action::Reveal => {
                         let uri = t.into_uri();
                         match opener::checks(uri.as_str()) {
@@ -16012,7 +16012,7 @@ impl Driver {
     /// (`poll_hover`).
     /// The pointer's cell is kept whatever the modifiers, for that read.
     fn hover_mouse(&mut self, event: &Mouse) {
-        use crate::link::{Chord, Host};
+        use crate::link::Chord;
         let chord = if event.modifiers.command && !event.modifiers.shift {
             Chord::Cmd
         } else {
@@ -16047,7 +16047,7 @@ impl Driver {
             app.scrolled,
             chord,
             app.focus,
-            Host(app.uris.host()),
+            app.uris.names(),
             &app.paths,
         );
         if hovered || pressed {
@@ -21778,7 +21778,7 @@ mod link_pointer_tests {
     /// arrow -- the source assertion fails.
     #[test]
     fn a_link_a_click_opens_shows_appkits_pointing_hand() {
-        use crate::link::{Chord, Host, Hover};
+        use crate::link::{Chord, Hover};
         use crate::pointer::{SystemPointer, system_pointer};
         const SRC: &str = include_str!("app.rs");
         let cursor = body(
@@ -21810,10 +21810,24 @@ mod link_pointer_tests {
         let mut h = Hover::default();
         let at = Some((Row::ZERO, Col::ZERO));
         let s = Scrolled::START;
-        let _ = h.update(&t, at, s, Chord::Cmd, baud_core::Focus::Gained, Host(""));
+        let _ = h.update(
+            &t,
+            at,
+            s,
+            Chord::Cmd,
+            baud_core::Focus::Gained,
+            &crate::link::MachineNames::NONE,
+        );
         let want = h.pointer(t.pointer_shape()).map(system_pointer);
         assert_eq!(want, Some(SystemPointer::PointingHand));
-        let _ = h.update(&t, at, s, Chord::Other, baud_core::Focus::Gained, Host(""));
+        let _ = h.update(
+            &t,
+            at,
+            s,
+            Chord::Other,
+            baud_core::Focus::Gained,
+            &crate::link::MachineNames::NONE,
+        );
         let want = h.pointer(t.pointer_shape()).map(system_pointer);
         assert_eq!(want, Some(SystemPointer::Crosshair), "the chord let go");
     }

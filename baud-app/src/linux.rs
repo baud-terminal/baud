@@ -1656,7 +1656,7 @@ impl Driver {
         let f = bar_frame(&self.renderer, g.scale);
         let left = self.timed.bar.left_press(&self.term, f, now);
         let pressed = self.seat.hover_press(left);
-        let host = crate::link::Host(&self.host);
+        let host = self.uris.names();
         let hovered = self.seat.hover(&self.term, mods, g, host);
         if hovered {
             self.pending = Pending::Dirty;
@@ -1752,7 +1752,7 @@ impl Driver {
     /// or takes away its preview, the pointer resting.
     fn modifiers(&mut self, mods: baud_domain::Modifiers) {
         let g = self.seat_geometry();
-        let host = crate::link::Host(&self.host);
+        let host = self.uris.names();
         if self.seat.hover(&self.term, mods, g, host) {
             self.pending = Pending::Dirty;
             self.show_pointer();
@@ -1770,7 +1770,7 @@ impl Driver {
     /// opening could launch, is revealed by the file manager over the
     /// session bus, or refused where there is no bus.
     fn open_link(&mut self, link: &crate::link::Under, line: baud_render::AbsLine) {
-        use crate::link::{ClickOn, Host};
+        use crate::link::ClickOn;
         let shown = |uri: &[u8]| {
             uri.iter()
                 .take(80)
@@ -1789,7 +1789,7 @@ impl Driver {
         let decided = crate::link::click_on(
             link,
             &self.term,
-            Host(&self.host),
+            self.uris.names(),
             self.uris.rules(),
             &self.seat.paths,
         );
@@ -2064,14 +2064,14 @@ impl Driver {
     /// the bar says so. No path is logged.
     fn path_checked(&mut self, done: crate::probe::Clicked) {
         use crate::copied::PathNote;
-        use crate::link::{Action, Host};
+        use crate::link::Action;
         use crate::paths::Found;
         let clicked = self.path_click.take();
         let note = match done {
             crate::probe::Clicked::Exists(path) => {
                 let asked = crate::paths::asked_for(clicked, &path);
                 let does =
-                    crate::paths::on_found(&asked, &path, Host(&self.host), self.uris.rules());
+                    crate::paths::on_found(&asked, &path, self.uris.names(), self.uris.rules());
                 // Each of the three on the loop's next turn (`Later`).
                 if let Found::Copy = does {
                     // The worker's bytes moved, copied only when they are
@@ -2111,7 +2111,7 @@ impl Driver {
                     return;
                 }
                 let uri = crate::paths::file_uri(&path);
-                match crate::link::admit_path_owned(uri, Host(&self.host)) {
+                match crate::link::admit_path_owned(uri, self.uris.names()) {
                     Ok(t) if t.action() == Action::Reveal => {
                         // `paths::file_uri` built it with no host, the form
                         // a file manager is handed.
@@ -3550,7 +3550,7 @@ impl Driver {
         self.renderer.set_find(&self.term, look);
         // The link preview, read again where the pointer is while Ctrl is
         // held: a read may have changed what is under it.
-        let host = crate::link::Host(&self.host);
+        let host = self.uris.names();
         let mods = self.window.modifiers();
         if self.seat.hover_refresh(&self.term, mods, host) {
             self.show_pointer();

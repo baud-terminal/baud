@@ -61,7 +61,7 @@ use baud_domain::{
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
 use crate::link::{
-    Class, Edge, Host, Joins, MAX, Target, Unit, admit_link, class, found_in, may_be_cut, runs_on,
+    Class, Edge, Joins, MAX, Target, Unit, admit_link, class, found_in, may_be_cut, runs_on,
     scheme_at, scheme_ends, unit,
 };
 use crate::rules::{Rules, Tail};
@@ -329,7 +329,7 @@ pub trait Reader {
 /// the same gate a click goes through.
 #[derive(Debug, Default)]
 pub struct Uris {
-    host: Option<String>,
+    host: Option<crate::link::MachineNames>,
     bytes: Vec<u8>,
     rules: Rules,
 }
@@ -338,7 +338,7 @@ impl Uris {
     /// This machine's name, once known: a line it changes is read again by
     /// the caller's [`Lines::forget`].
     pub fn set_host(&mut self, host: String) {
-        self.host = Some(host);
+        self.host = Some(crate::link::MachineNames::one(&host));
     }
 
     /// Whether this machine's name has been handed over yet.
@@ -347,9 +347,11 @@ impl Uris {
         self.host.is_some()
     }
 
-    /// What `admit` reads a `file://` host against.
-    pub fn host(&self) -> &str {
-        self.host.as_deref().unwrap_or("")
+    /// What `admit` reads a `file://` host against: none before the name
+    /// is known.
+    pub fn names(&self) -> &crate::link::MachineNames {
+        static NONE: crate::link::MachineNames = crate::link::MachineNames::NONE;
+        self.host.as_ref().unwrap_or(&NONE)
     }
 
     /// Your `[link.*]` rules, as a load read them: a line they change is
@@ -381,7 +383,7 @@ impl Reader for Uris {
 
     fn marked(&mut self, uri: &[u8], _: At<'_>) -> Option<Mark> {
         let local = crate::paths::LinkOrigin::given(crate::paths::Origin::Local);
-        admit_link(uri, Host(self.host()), &self.rules, local)
+        admit_link(uri, self.names(), &self.rules, local)
             .is_ok()
             .then_some(Mark::Line)
     }
@@ -459,8 +461,7 @@ impl Uris {
                         }));
                     let bytes = core::mem::take(&mut self.bytes);
                     let lines = text.lines_of(&span);
-                    let admitted =
-                        admit_link(&bytes, Host(self.host()), &self.rules, origin(lines));
+                    let admitted = admit_link(&bytes, self.names(), &self.rules, origin(lines));
                     if let Some(m) = admitted.ok().and_then(|t| mark(&t)) {
                         found.push(Run {
                             units: span,
@@ -1845,18 +1846,18 @@ mod tests {
                 "crate::link_layer::decide(link, &self.app.term, ",
                 "&self.app.paths, &self.app.uris);"
             )) && decide.contains(concat!(
-                "click_on(link, term, Host(uris.",
-                "host()), uris.rules(), paths)"
+                "click_on(link, term, uris.",
+                "names(), uris.rules(), paths)"
             )),
             "a click admits against the name the lines do"
         );
         let unknown = Uris::default();
         assert_eq!(
-            admit(b"file://here.example/x", Host(unknown.host())),
+            admit(b"file://here.example/x", unknown.names()),
             Err(crate::link::Refused::Host),
             "unknown: a click refuses what has no line"
         );
-        assert!(admit(b"file:///y", Host(unknown.host())).is_ok());
+        assert!(admit(b"file:///y", unknown.names()).is_ok());
     }
 
     /// **A frame that moved only the cursor reads nothing**: exactly 0 rows
@@ -2015,7 +2016,10 @@ mod tests {
                 let (_, verdict) = f.parts();
                 assert_eq!(verdict, Ok(()), "column {x}");
                 let bare = w.bare().expect("its bytes");
-                assert!(admit(bare.uri().unwrap(), Host("")).is_ok(), "column {x}");
+                assert!(
+                    admit(bare.uri().unwrap(), &crate::link::MachineNames::NONE).is_ok(),
+                    "column {x}"
+                );
             }
         }
     }
@@ -2274,7 +2278,7 @@ mod tests {
             &mut t,
             b"https://a.example ftp://b.example \x1b]8;;ftp://c.example\x1b\\marked\x1b]8;;\x1b\\",
         );
-        let (s, key, none) = (at(), Focus::Gained, Host(""));
+        let (s, key, none) = (at(), Focus::Gained, &crate::link::MachineNames::NONE);
         let web = Some((Row::ZERO, Col::ZERO));
         let ftp = Some((Row::ZERO, Col::at_index(20)));
         let marked = Some((Row::ZERO, Col::at_index(35)));
@@ -2340,7 +2344,10 @@ mod tests {
             "mailto:me@a.example",
             "file:///x",
         ] {
-            assert!(admit(uri.as_bytes(), Host("")).is_ok(), "{uri}");
+            assert!(
+                admit(uri.as_bytes(), &crate::link::MachineNames::NONE).is_ok(),
+                "{uri}"
+            );
             let units: Vec<Unit> = uri.chars().map(Unit::Char).collect();
             assert!(scheme_at(&units, &Rules::NONE).is_some(), "{uri}");
         }

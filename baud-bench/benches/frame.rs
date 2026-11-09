@@ -640,7 +640,7 @@ fn main() {
                             scrolled,
                             link::Chord::Other,
                             baud_core::Focus::Gained,
-                            link::Host(""),
+                            &link::MachineNames::NONE,
                         );
                         r.set_link_hover(hover.over());
                         rep.reads = hover.reads();

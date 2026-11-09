@@ -20,7 +20,7 @@ use baud_render::{AbsLine, LineStyle, Scrolled};
 
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
-use crate::link::{Click, ClickOn, Host, Refused, Target, Under};
+use crate::link::{Click, ClickOn, Refused, Target, Under};
 use crate::paths::{Links, Moved, Paths};
 use crate::probe::{Asks, Linked, Probes, Sampler, Seen, Turn, WatchCell, Writers};
 use crate::rules::Run;
@@ -177,7 +177,7 @@ pub(crate) fn decide<'l: 'a, 'a>(
     paths: &Paths,
     uris: &Uris,
 ) -> Decision<'l, 'a> {
-    let (t, uri) = match crate::link::click_on(link, term, Host(uris.host()), uris.rules(), paths) {
+    let (t, uri) = match crate::link::click_on(link, term, uris.names(), uris.rules(), paths) {
         ClickOn::Path(p) => return Decision::Path(p),
         ClickOn::Gone => return Decision::Gone,
         ClickOn::Unreadable(why, text) => return Decision::Unreadable(why, text),
@@ -210,7 +210,7 @@ pub(crate) fn decide_found(
     path: &[u8],
     uris: &Uris,
 ) -> crate::paths::Found {
-    crate::paths::on_found(asked, path, Host(uris.host()), uris.rules())
+    crate::paths::on_found(asked, path, uris.names(), uris.rules())
 }
 
 #[cfg(test)]

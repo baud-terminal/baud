@@ -107,7 +107,7 @@ use baud_domain::{Cols, LinkEpoch, LinkId, Rows};
 use baud_render::{AbsLine, Scrolled, Tally, row_of};
 
 use crate::lined::{At, Drawn, Key, Lines, Mark, Reader, Run, Text, Uris};
-use crate::link::{Edge, Host, Ix, Joins, MAX, Scheme, Target, Unit, admit_link};
+use crate::link::{Edge, Ix, Joins, MAX, Scheme, Target, Unit, admit_link};
 use crate::rules::{NO_RULES, Rules};
 
 /// What the bar calls this machine.
@@ -337,19 +337,13 @@ pub enum Named {
 /// path that decodes to a NUL or to bytes that are not UTF-8, or a control
 /// or bidirectional control in the name: none of which is looked up, so
 /// none is struck.
-pub fn file_path(uri: &[u8], names: &[String]) -> Option<(Named, Vec<u8>)> {
+pub fn file_path(uri: &[u8], names: &crate::link::MachineNames) -> Option<(Named, Vec<u8>)> {
     let baud_domain::DirectoryReport::File(f) = baud_domain::DirectoryReport::parse(uri) else {
         return None;
     };
     let named = match f.host {
         baud_domain::FileHost::Local => Named::NoMachine,
-        baud_domain::FileHost::Named(h)
-            if names
-                .iter()
-                .any(|n| !n.is_empty() && h.eq_ignore_ascii_case(n.as_bytes())) =>
-        {
-            Named::ThisMachine
-        }
+        baud_domain::FileHost::Named(h) if names.is_this(h) => Named::ThisMachine,
         baud_domain::FileHost::Named(_) => return None,
     };
     let mut out = vec![0; f.encoded_path().len()];
@@ -1275,7 +1269,7 @@ pub struct Paths {
     marks: Marks,
     forms: Forms,
     home: Option<Vec<u8>>,
-    names: Vec<String>,
+    names: crate::link::MachineNames,
     dir: Dir,
     /// Whether the last folder report may be read against ([`Report`]).
     report: Report,
@@ -1419,7 +1413,7 @@ impl Paths {
 
     /// This machine's names, once read: what an `OSC 7` report must name.
     pub fn set_names(&mut self, names: Vec<String>) {
-        self.names = names;
+        self.names = crate::link::MachineNames::of(names);
         self.dir.local = self.local_of_kept();
         self.generation = self.generation.next();
     }
@@ -1428,10 +1422,7 @@ impl Paths {
         let (Some(h), path) = self.dir.kept.as_ref()? else {
             return None;
         };
-        let named = self
-            .names
-            .iter()
-            .any(|n| !n.is_empty() && h.eq_ignore_ascii_case(n.as_bytes()));
+        let named = self.names.is_this(h);
         (named && path.first() == Some(&b'/')).then(|| path.clone())
     }
 
@@ -2490,7 +2481,12 @@ pub enum Found {
 /// by the system), and never `[link.path]`'s, which is for printed paths.
 /// No found file is opened by the system. `host` is what `admit` reads a
 /// `file://` host against.
-pub fn on_found(asked: &Asked, path: &[u8], host: crate::link::Host<'_>, rules: &Rules) -> Found {
+pub fn on_found(
+    asked: &Asked,
+    path: &[u8],
+    host: &crate::link::MachineNames,
+    rules: &Rules,
+) -> Found {
     let Asked::Printed(lc) = asked else {
         return Found::Reveal;
     };
@@ -2801,7 +2797,7 @@ impl Reader for Links<'_> {
         // row its slot is shown on, or a read that opened it wrote, names its
         // machine's file: unmarked, as its click refuses it.
         let origin = self.paths.link_origin(at.id(), uri, at.rows());
-        let t = admit_link(uri, Host(self.uris.host()), self.uris.rules(), origin).ok()?;
+        let t = admit_link(uri, self.uris.names(), self.uris.rules(), origin).ok()?;
         Some(match t.scheme() {
             Scheme::File => self.paths.file_link(uri, at),
             _ => self.paths.target_mark(&t),
@@ -2817,7 +2813,7 @@ impl Reader for Links<'_> {
 mod tests {
     use super::*;
     use crate::lined::Lines;
-    use crate::link::{Host, admit};
+    use crate::link::admit;
     use baud_core::Owned;
     use baud_domain::{BytePos, ReadLen, WinSize};
 
@@ -3091,7 +3087,7 @@ mod tests {
         assert_eq!(file_uri(b"/a?b#c%d"), "file:///a%3Fb%23c%25d");
         assert_eq!(file_uri(b"/x-y_z.~"), "file:///x-y_z.~");
         let uri = file_uri(b"/tmp/a b");
-        let t = admit(uri.as_bytes(), Host("")).expect("admitted");
+        let t = admit(uri.as_bytes(), &crate::link::MachineNames::NONE).expect("admitted");
         assert_eq!(t.action(), crate::link::Action::Reveal);
         let long = format!("/{}", "\u{e9}".repeat(60));
         assert!(!opens_as_uri(long.as_bytes()), "past LINK_MAX once encoded");
@@ -3481,11 +3477,23 @@ mod tests {
             panic!("a printed path: {found:?}");
         };
         assert_eq!(printed.uri(), "file:///etc/hosts");
-        let bar = preview_text(&found, &t, Host(""), Cols::of_index(58)).expect("a bar");
+        let bar = preview_text(
+            &found,
+            &t,
+            &crate::link::MachineNames::NONE,
+            Cols::of_index(58),
+        )
+        .expect("a bar");
         assert!(bar.starts_with(&format!("On {MACHINE}")), "{bar}");
         assert!(bar.ends_with("file:///etc/hosts"), "{bar}");
         let gone = read(15).expect("a refused link");
-        let bar = preview_text(&gone, &t, Host(""), Cols::of_index(58)).expect("a bar");
+        let bar = preview_text(
+            &gone,
+            &t,
+            &crate::link::MachineNames::NONE,
+            Cols::of_index(58),
+        )
+        .expect("a bar");
         assert!(bar.contains("no such file on"), "{bar}");
         assert_eq!(
             under_with(
@@ -3542,7 +3550,7 @@ mod tests {
                 at(),
                 Chord::Other,
                 Focus::Gained,
-                Host(""),
+                &crate::link::MachineNames::NONE,
                 &p,
             );
             h.over().is_some()
@@ -3852,7 +3860,12 @@ mod tests {
             Click::Open => Came::Open,
             Click::Reveal => Came::Reveal,
             Click::Again(path) => match again {
-                Probe::Exists => match on_found(&Asked::Link, &path, Host(HERE), rules) {
+                Probe::Exists => match on_found(
+                    &Asked::Link,
+                    &path,
+                    &crate::link::MachineNames::one(HERE),
+                    rules,
+                ) {
                     Found::Copy => Came::PathCopy,
                     Found::Command(_) => Came::PathCommand,
                     Found::Window(_) => Came::PathWindow,
@@ -3891,9 +3904,13 @@ mod tests {
         let none = rule("");
         let mut came = Vec::new();
         for (name, rules) in [("copy", &copy), ("command", &command)] {
-            let t =
-                crate::link::admit_link(uri, Host(HERE), rules, LinkOrigin::given(Origin::Local))
-                    .expect("the rule's");
+            let t = crate::link::admit_link(
+                uri,
+                &crate::link::MachineNames::one(HERE),
+                rules,
+                LinkOrigin::given(Origin::Local),
+            )
+            .expect("the rule's");
             for (state, again) in [("missing", Probe::Missing), ("back", Probe::Exists)] {
                 came.push((name, state, click_came(&t, &p, again, rules)));
             }
@@ -3908,9 +3925,13 @@ mod tests {
             ],
             "each case runs its rule"
         );
-        let plain =
-            crate::link::admit_link(uri, Host(HERE), &none, LinkOrigin::given(Origin::Local))
-                .expect("admitted");
+        let plain = crate::link::admit_link(
+            uri,
+            &crate::link::MachineNames::one(HERE),
+            &none,
+            LinkOrigin::given(Origin::Local),
+        )
+        .expect("admitted");
         assert_eq!(
             click_came(&plain, &p, Probe::Missing, &none),
             Came::SaidGone
@@ -3956,14 +3977,15 @@ mod tests {
     #[test]
     fn no_path_opens_a_found_file() {
         use crate::link::{Click, click};
-        let opens = admit(b"https://a.example/", Host("")).expect("admitted");
+        let opens =
+            admit(b"https://a.example/", &crate::link::MachineNames::NONE).expect("admitted");
         assert_eq!(opens.action(), crate::link::Action::Open);
         assert_eq!(
             click(&opens, &AllGone),
             Click::Open,
             "an open is never asked again"
         );
-        let reveals = admit(b"file:///gone", Host("")).expect("admitted");
+        let reveals = admit(b"file:///gone", &crate::link::MachineNames::NONE).expect("admitted");
         assert_eq!(
             click(&reveals, &AllGone),
             Click::Again(b"/gone".to_vec()),
@@ -3971,7 +3993,12 @@ mod tests {
         );
         let rules = &Rules::NONE;
         for asked in [Asked::Link, Asked::Printed(LineCol::default())] {
-            let found = on_found(&asked, b"/etc/hosts", Host(""), rules);
+            let found = on_found(
+                &asked,
+                b"/etc/hosts",
+                &crate::link::MachineNames::NONE,
+                rules,
+            );
             assert!(matches!(found, Found::Reveal), "{asked:?}: {found:?}");
         }
     }
@@ -4024,14 +4051,19 @@ mod tests {
         let printed = on_found(
             &Asked::Printed(LineCol::default()),
             b"/etc/hosts",
-            Host(""),
+            &crate::link::MachineNames::NONE,
             rules,
         );
         assert!(
             matches!(printed, Found::Command(Ok(_))),
             "the control: a printed path runs [link.path]'s command: {printed:?}"
         );
-        let link = on_found(&Asked::Link, b"/etc/hosts", Host(""), rules);
+        let link = on_found(
+            &Asked::Link,
+            b"/etc/hosts",
+            &crate::link::MachineNames::NONE,
+            rules,
+        );
         assert!(matches!(link, Found::Reveal), "a link reveals: {link:?}");
     }
 
@@ -4053,12 +4085,22 @@ mod tests {
             line: "7".into(),
             col: String::new(),
         };
-        let printed = on_found(&Asked::Printed(lc), b"/etc/hosts", Host(""), rules);
+        let printed = on_found(
+            &Asked::Printed(lc),
+            b"/etc/hosts",
+            &crate::link::MachineNames::NONE,
+            rules,
+        );
         let Found::Window(Ok(run)) = printed else {
             panic!("a window: {printed:?}");
         };
         assert_eq!(run.argv(), ["/bin/echo", "/etc/hosts:7"]);
-        let link = on_found(&Asked::Link, b"/etc/hosts", Host(""), rules);
+        let link = on_found(
+            &Asked::Link,
+            b"/etc/hosts",
+            &crate::link::MachineNames::NONE,
+            rules,
+        );
         assert!(matches!(link, Found::Reveal), "a link reveals: {link:?}");
     }
 
@@ -4162,7 +4204,7 @@ mod tests {
         assert_eq!(
             file_path(
                 b"file://remote.example/home/user/notes.txt",
-                &[HERE.to_string()]
+                &crate::link::MachineNames::one(HERE)
             ),
             None
         );
@@ -4202,11 +4244,19 @@ mod tests {
                 at(),
                 Chord::Other,
                 Focus::Gained,
-                Host(HERE),
+                &crate::link::MachineNames::one(HERE),
                 &p,
             );
             assert!(h.struck().is_empty(), "{uri}: no chord, no strike");
-            let _ = h.update_with(&t, at_cell, at(), Chord::Cmd, Focus::Gained, Host(HERE), &p);
+            let _ = h.update_with(
+                &t,
+                at_cell,
+                at(),
+                Chord::Cmd,
+                Focus::Gained,
+                &crate::link::MachineNames::one(HERE),
+                &p,
+            );
             assert_eq!(h.struck().len(), 1, "{uri}: struck under the chord");
             assert_eq!(h.take_entered(), Some(Gone::File(b"/gone".to_vec())));
             let spot = Spot {
@@ -4217,8 +4267,15 @@ mod tests {
             };
             let link = hovered(&t, spot).expect("the link");
             let printed = p.printed(&t, &link);
-            let bar = preview_text_with(&link, &t, Host(HERE), Cols::of_index(58), &p, printed)
-                .expect("a bar");
+            let bar = preview_text_with(
+                &link,
+                &t,
+                &crate::link::MachineNames::one(HERE),
+                Cols::of_index(58),
+                &p,
+                printed,
+            )
+            .expect("a bar");
             assert!(bar.contains(&format!("no such file on {MACHINE}")), "{bar}");
             assert!(
                 h.look().is_some_and(|l| l.spans.is_empty()),
@@ -4313,7 +4370,7 @@ mod tests {
             [(0, 19, 35)],
             "http: an app, underlined; tel: refused, nothing"
         );
-        let t = admit(b"https://a.example/", Host("")).unwrap();
+        let t = admit(b"https://a.example/", &crate::link::MachineNames::NONE).unwrap();
         assert_eq!(PathsAt::gone(&p, &t), Some(Gone::NoApp(Scheme::Https)));
         assert_eq!(
             crate::link::refusal_words(crate::link::Refused::NoApp(Scheme::Https)),
@@ -4353,10 +4410,26 @@ mod tests {
         feed(&mut t, b"x /nope");
         let over = Some((Row::ZERO, Col::at_index(4)));
         let mut h = Hover::default();
-        let _ = h.update_with(&t, over, at(), Chord::Cmd, Focus::Gained, Host(""), &p);
+        let _ = h.update_with(
+            &t,
+            over,
+            at(),
+            Chord::Cmd,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            &p,
+        );
         assert_eq!(h.struck().len(), 1, "on: struck under the chord");
         let _ = p.set_missing(Turned::Off);
-        let _ = h.update_with(&t, over, at(), Chord::Cmd, Focus::Gained, Host(""), &p);
+        let _ = h.update_with(
+            &t,
+            over,
+            at(),
+            Chord::Cmd,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            &p,
+        );
         assert!(h.struck().is_empty(), "off: not struck");
         assert!(h.look().is_some(), "and the bar still says why");
     }
@@ -4485,7 +4558,7 @@ mod tests {
         p.set_rules(c.link.rules.clone());
         let _ = p.set_programs(vec![(Program::Scheme(Scheme::Https), Handler::Missing)]);
         let uri = b"https://a.example/";
-        let plain = admit(uri, Host("")).expect("admitted");
+        let plain = admit(uri, &crate::link::MachineNames::NONE).expect("admitted");
         assert_eq!(
             p.target_mark(&plain),
             Mark::Struck,
@@ -4493,7 +4566,7 @@ mod tests {
         );
         let copied = crate::link::admit_link(
             uri,
-            Host(""),
+            &crate::link::MachineNames::NONE,
             &c.link.rules,
             LinkOrigin::given(Origin::Local),
         )
@@ -4531,7 +4604,7 @@ mod tests {
             let gone = Program::Command("/no/such/dialer".to_owned());
             let t = crate::link::admit_link(
                 b"tel:+15550100",
-                Host(""),
+                &crate::link::MachineNames::NONE,
                 &c.link.rules,
                 LinkOrigin::given(Origin::Local),
             )
@@ -4626,7 +4699,7 @@ mod tests {
     /// control or bidirectional control in it. Perturbation: keep `%00`.
     #[test]
     fn a_file_name_is_decoded_and_refused_with_a_control() {
-        let here = [HERE.to_string()];
+        let here = crate::link::MachineNames::one(HERE);
         let ok = |u: &str| file_path(u.as_bytes(), &here);
         assert_eq!(
             ok("file:///a%20b"),
@@ -4676,7 +4749,11 @@ mod tests {
             encoded.as_str(),
             over.as_str(),
         ] {
-            let want = admit(file_uri(p.as_bytes()).as_bytes(), Host("")).is_ok();
+            let want = admit(
+                file_uri(p.as_bytes()).as_bytes(),
+                &crate::link::MachineNames::NONE,
+            )
+            .is_ok();
             assert_eq!(opens_as_uri(p.as_bytes()), want, "{p:?}");
         }
         assert!(opens_as_uri(long.as_bytes()), "the control: at the cap");
@@ -4692,7 +4769,7 @@ mod tests {
     ) -> Result<crate::link::Click, crate::link::Refused> {
         crate::link::admit_link(
             uri,
-            Host(HERE),
+            &crate::link::MachineNames::one(HERE),
             p.rules(),
             LinkOrigin::given(p.origin(line)),
         )
@@ -4817,7 +4894,13 @@ mod tests {
                         col: baud_domain::Col::at_index(1),
                     };
                     let under = crate::link::hovered(&t, spot).expect("the link");
-                    let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+                    let click = crate::link::clicked(
+                        &under,
+                        &t,
+                        &crate::link::MachineNames::one(HERE),
+                        p.rules(),
+                        &p,
+                    );
                     // The look at rest, as the scan draws it, for either form.
                     let mark = {
                         let mut l = Lines::default();
@@ -4835,7 +4918,7 @@ mod tests {
                     let preview = crate::link::preview_text_with(
                         &under,
                         &t,
-                        Host(HERE),
+                        &crate::link::MachineNames::one(HERE),
                         baud_domain::Cols::of_index(120),
                         &p,
                         p.printed(&t, &under),
@@ -4917,11 +5000,17 @@ mod tests {
                         col: baud_domain::Col::at_index(col),
                     };
                     let under = crate::link::hovered(&t, spot).expect("the link");
-                    let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+                    let click = crate::link::clicked(
+                        &under,
+                        &t,
+                        &crate::link::MachineNames::one(HERE),
+                        p.rules(),
+                        &p,
+                    );
                     let preview = crate::link::preview_text_with(
                         &under,
                         &t,
-                        Host(HERE),
+                        &crate::link::MachineNames::one(HERE),
                         baud_domain::Cols::of_index(120),
                         &p,
                         p.printed(&t, &under),
@@ -4970,11 +5059,17 @@ mod tests {
             col: baud_domain::Col::at_index(col),
         };
         let under = crate::link::hovered(t, spot).expect("the link");
-        let click = crate::link::clicked(&under, t, Host(HERE), p.rules(), &*p);
+        let click = crate::link::clicked(
+            &under,
+            t,
+            &crate::link::MachineNames::one(HERE),
+            p.rules(),
+            &*p,
+        );
         let preview = crate::link::preview_text_with(
             &under,
             t,
-            Host(HERE),
+            &crate::link::MachineNames::one(HERE),
             baud_domain::Cols::of_index(120),
             &*p,
             p.printed(t, &under),
@@ -5066,7 +5161,13 @@ mod tests {
             col: baud_domain::Col::at_index(col),
         };
         let under = crate::link::hovered(t, spot).expect("the link");
-        let click = crate::link::clicked(&under, t, Host(HERE), p.rules(), &*p);
+        let click = crate::link::clicked(
+            &under,
+            t,
+            &crate::link::MachineNames::one(HERE),
+            p.rules(),
+            &*p,
+        );
         (runs(l).iter().any(|r| r.0 == row), click.is_ok())
     }
 
@@ -5241,7 +5342,13 @@ mod tests {
             Under::Bare(b) => b.uri().expect("its URI").to_vec(),
             Under::Path(_) => panic!("{row:?}: a path, not a link"),
         };
-        let clicked = crate::link::clicked(&under, t, Host(HERE), p.rules(), p);
+        let clicked = crate::link::clicked(
+            &under,
+            t,
+            &crate::link::MachineNames::one(HERE),
+            p.rules(),
+            p,
+        );
         (uri, clicked)
     }
 
@@ -5601,7 +5708,13 @@ mod tests {
                 col: baud_domain::Col::at_index(10),
             };
             let under = crate::link::hovered(&t, spot).expect("the link");
-            let click = crate::link::clicked(&under, &t, Host(HERE), p.rules(), &p);
+            let click = crate::link::clicked(
+                &under,
+                &t,
+                &crate::link::MachineNames::one(HERE),
+                p.rules(),
+                &p,
+            );
             let path = b"/home/u/a.txt".to_vec();
             match filed {
                 false => {
@@ -6023,7 +6136,7 @@ mod tests {
                 at(),
                 Chord::Other,
                 Focus::Gained,
-                Host(""),
+                &crate::link::MachineNames::NONE,
                 &p,
             );
             assert!(
@@ -6261,10 +6374,26 @@ mod joined_rows {
         let cell = Some((row, col));
         let mut h = Hover::default();
         h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
-        let _ = h.update_with(t, cell, at(), Chord::Other, Focus::Gained, Host(""), p);
+        let _ = h.update_with(
+            t,
+            cell,
+            at(),
+            Chord::Other,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            p,
+        );
         let over = h.over().map(|o| spans(&o.spans)).unwrap_or_default();
         let mut h = Hover::default();
-        let _ = h.update_with(t, cell, at(), Chord::Cmd, Focus::Gained, Host(""), p);
+        let _ = h.update_with(
+            t,
+            cell,
+            at(),
+            Chord::Cmd,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            p,
+        );
         let chord = h.look().map(|o| spans(&o.spans)).unwrap_or_default();
         let spot = Spot {
             scrolled: at(),
@@ -6617,7 +6746,15 @@ mod joined_rows {
         let mut h = Hover::default();
         h.set_at_rest(AtRest::Look(baud_render::HoverPaint::Box));
         let at_cell = Some((Row::from_index(1), Col::at_index(5)));
-        let _ = h.update_with(&t, at_cell, at(), Chord::Other, Focus::Gained, Host(""), &p);
+        let _ = h.update_with(
+            &t,
+            at_cell,
+            at(),
+            Chord::Other,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            &p,
+        );
         let over = h.over().map(|o| spans(&o.spans));
         assert_eq!(
             over,
@@ -6629,7 +6766,14 @@ mod joined_rows {
             Seen::Named(Front::Local),
             LineSpan::of(line(Row::from_index(1)), line(Row::from_index(1))),
         );
-        let moved = h.refresh_with(&t, at(), Chord::Other, Focus::Gained, Host(""), &p);
+        let moved = h.refresh_with(
+            &t,
+            at(),
+            Chord::Other,
+            Focus::Gained,
+            &crate::link::MachineNames::NONE,
+            &p,
+        );
         assert!(moved, "read again");
         assert_eq!(h.over(), None, "parted: the cut address has no look");
         // The job watch's remote naming moves the provenance too.

@@ -1567,10 +1567,14 @@ fn path_rule(s: &Section, home: Option<&Path>) -> Result<(Forms, PathAct), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::link::{Host, Target, admit};
+    use crate::link::{MachineNames, Target, admit};
 
     /// A link read off a local program's line, judged with `rules`.
-    fn admit_with<'a>(uri: &'a [u8], host: Host<'_>, rules: &Rules) -> Result<Target<'a>, Refused> {
+    fn admit_with<'a>(
+        uri: &'a [u8],
+        host: &MachineNames,
+        rules: &Rules,
+    ) -> Result<Target<'a>, Refused> {
         crate::link::admit_link(
             uri,
             host,
@@ -1603,7 +1607,7 @@ mod tests {
             .collect()
     }
 
-    const NONE: Host<'static> = Host("");
+    const NONE: &MachineNames = &MachineNames::NONE;
 
     /// **E1: a rule with a key baud does not know is refused whole, and its
     /// command never runs**: `confirm = "always"`, a key a later baud might
@@ -2143,10 +2147,21 @@ mod tests {
         );
         assert!(admit_with(b"mailto:a@b?subject=x", NONE, &r).is_ok());
         assert_eq!(
-            admit_with(b"file://elsewhere/x", Host("here"), &r),
+            admit_with(
+                b"file://elsewhere/x",
+                &crate::link::MachineNames::one("here"),
+                &r
+            ),
             Err(Refused::Host)
         );
-        assert!(admit_with(b"file://here/x", Host("here"), &r).is_ok());
+        assert!(
+            admit_with(
+                b"file://here/x",
+                &crate::link::MachineNames::one("here"),
+                &r
+            )
+            .is_ok()
+        );
         let t = admit_with(b"file:///x", NONE, &r).unwrap();
         assert_eq!(t.action(), crate::link::Action::Command);
         let (open, said) = rules(&[section("file", &[("action", "\"open\"")])]);

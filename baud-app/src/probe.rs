@@ -4205,7 +4205,7 @@ mod tests {
     /// unknown, and the shell's link is refused too.
     #[test]
     fn with_paths_off_a_plain_file_uri_is_named_and_clicked_by_its_origin() {
-        use crate::link::{Click, Host, Refused, Spot, Under, hovered};
+        use crate::link::{Click, Refused, Spot, Under, hovered};
         let run = |g: Pid| -> Result<Click, Refused> {
             let mut f = Fake::with(&[]);
             f.groups.insert(9, vec!["ssh".into()]);
@@ -4257,7 +4257,13 @@ mod tests {
             };
             let uri = bare.uri().expect("its URI").to_vec();
             let _ = uri;
-            crate::link::clicked(&under, &t, Host(""), uris.rules(), &paths)
+            crate::link::clicked(
+                &under,
+                &t,
+                &crate::link::MachineNames::NONE,
+                uris.rules(),
+                &paths,
+            )
         };
         assert_eq!(run(1), Ok(Click::Reveal), "the shell's");
         assert_eq!(run(9), Err(Refused::Remote), "ssh's");
@@ -4269,7 +4275,7 @@ mod tests {
     /// every sample -- a short job that came and went between them -- then
     /// named by the worker.
     fn clicked_after_reads(reads: &[&[u8]]) -> Result<crate::link::Click, crate::link::Refused> {
-        use crate::link::{Host, Spot, Under, hovered};
+        use crate::link::{Spot, Under, hovered};
         let mut f = Fake::with(&[]);
         f.groups.insert(1, vec!["zsh".into()]);
         let (mut pr, starts) = probes(f);
@@ -4321,7 +4327,13 @@ mod tests {
             Under::Path(_) => panic!("a path, not a link"),
         };
         let _ = uri;
-        crate::link::clicked(&under, &t, Host(""), uris.rules(), &paths)
+        crate::link::clicked(
+            &under,
+            &t,
+            &crate::link::MachineNames::NONE,
+            uris.rules(),
+            &paths,
+        )
     }
 
     /// **The shell's mark that its command is `ssh` makes the link that
@@ -5291,7 +5303,14 @@ mod tests {
             col: baud_domain::Col::ZERO,
         };
         let under = crate::link::hovered(t, spot).expect("the link");
-        crate::link::clicked(&under, t, crate::link::Host(""), paths.rules(), paths).is_ok()
+        crate::link::clicked(
+            &under,
+            t,
+            &crate::link::MachineNames::NONE,
+            paths.rules(),
+            paths,
+        )
+        .is_ok()
     }
 
     /// Who opens the link [`left_open`]'s reads write under.

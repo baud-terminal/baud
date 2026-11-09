@@ -300,7 +300,7 @@ impl Seat {
         term: &Term<'_>,
         mods: Modifiers,
         g: Geometry,
-        host: crate::link::Host<'_>,
+        host: &crate::link::MachineNames,
     ) -> bool {
         use crate::link::Chord;
         self.hover
@@ -334,7 +334,7 @@ impl Seat {
         &mut self,
         term: &Term<'_>,
         mods: Modifiers,
-        host: crate::link::Host<'_>,
+        host: &crate::link::MachineNames,
     ) -> bool {
         use crate::link::Chord;
         let chord = match mods.has(Modifiers::CTRL) && !mods.has(Modifiers::SHIFT) {
@@ -2574,7 +2574,6 @@ mod tests {
     /// keep the preview without the keyboard -- the first assertion fails.
     #[test]
     fn ctrl_held_over_a_link_previews_it() {
-        use crate::link::Host;
         use baud_render::LinkSpan;
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
@@ -2584,7 +2583,7 @@ mod tests {
         );
         let mut seat = Seat::new();
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
-        let host = Host("");
+        let host = &crate::link::MachineNames::NONE;
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
         assert!(!seat.hover(&t, ctrl, G, host), "no keyboard, no preview");
         seat.focused(Focus::Gained);
@@ -2659,7 +2658,6 @@ mod tests {
     /// refresh with the `back` of the last pointer event -- this fails.
     #[test]
     fn a_held_preview_follows_the_window_over_the_history() {
-        use crate::link::Host;
         let mut owned = Owned::with_history(
             &WS,
             &baud_core::CacheGeometry::UNKNOWN,
@@ -2677,7 +2675,7 @@ mod tests {
         let mut seat = Seat::new();
         seat.focused(Focus::Gained);
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
-        let host = Host("");
+        let host = &crate::link::MachineNames::NONE;
         put(&mut seat, &mut t, Input::Moved(5.0, 5.0), NONE);
         assert!(seat.hover(&t, ctrl, G, host));
         let bar = |seat: &Seat| -> String {
@@ -2824,7 +2822,6 @@ mod tests {
     /// the program's shape alone -- the first assertion fails.
     #[test]
     fn ctrl_over_a_link_names_the_hand() {
-        use crate::link::Host;
         use baud_core::PointerShape;
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
@@ -2837,11 +2834,11 @@ mod tests {
         seat.focused(Focus::Gained);
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);
-        assert!(seat.hover(&t, ctrl, G, Host("")));
+        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE));
         assert_eq!(seat.pointer_shape(asked), Some(PointerShape::Hand2));
-        assert!(seat.hover(&t, NONE, G, Host("")));
+        assert!(seat.hover(&t, NONE, G, &crate::link::MachineNames::NONE));
         assert_eq!(seat.pointer_shape(asked), asked, "Ctrl let go");
-        assert!(seat.hover(&t, ctrl, G, Host("")));
+        assert!(seat.hover(&t, ctrl, G, &crate::link::MachineNames::NONE));
         seat.focused(Focus::Lost);
         assert_eq!(seat.pointer_shape(asked), asked, "the keyboard gone");
     }
@@ -2864,7 +2861,6 @@ mod tests {
     #[test]
     fn over_the_scrollbar_a_link_keeps_the_programs_pointer() {
         use crate::bar::{Bar, Event, Frame, Held, Took};
-        use crate::link::Host;
         use baud_core::PointerShape;
         use core::time::Duration;
         let mut owned = Owned::with_history(
@@ -2897,7 +2893,10 @@ mod tests {
                 .expect("a time")
                 .plus(Duration::from_millis(ms))
         };
-        let (ctrl, host) = (Modifiers::NONE.with(Modifiers::CTRL), Host(""));
+        let (ctrl, host) = (
+            Modifiers::NONE.with(Modifiers::CTRL),
+            &crate::link::MachineNames::NONE,
+        );
         let mut seat = Seat::new();
         seat.focused(Focus::Gained);
         let mut b = Bar::new();
