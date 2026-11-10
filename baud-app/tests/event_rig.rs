@@ -1290,6 +1290,11 @@ enum Settles {
     /// **The followed settings heard with no tick**: the ticks withheld,
     /// nothing delivered, and each of the three settings' changes taken.
     Followed,
+    /// **A link under the resting pointer previewed with no tick**, judged
+    /// on the lifted arm alone (as [`Settles::OneLink`] is): the preview a
+    /// link and the link paused there. A miss is recorded as
+    /// [`Failure::Held`], a poll the tick makes still holding it.
+    PreviewedUnticked,
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
@@ -1317,7 +1322,9 @@ impl Settles {
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
             Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
             Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
-            Settles::Previewed => c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause,
+            Settles::Previewed | Settles::PreviewedUnticked => {
+                c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause
+            }
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
@@ -1371,7 +1378,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 21] = [
+const FRAME_SITES: [FrameSite; 22] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1802,6 +1809,30 @@ const FRAME_SITES: [FrameSite; 21] = [
         expect: Settles::Handed,
         state: RowState::Green,
     },
+    // **A file link under a resting pointer previews with no tick**: a
+    // `file:///tmp` link, which names no host, under the pointer the window
+    // is told of, with the link paused. Pending, and judged on the lifted
+    // arm, where it fails today: the preview waits on the printed paths'
+    // worker's answer to a batch only the tick sends (FS-A14's
+    // `paths_turn`), which the kept arm's running link delivers. It goes
+    // green when that producer has a wake of its own.
+    FrameSite {
+        name: SiteName("a file link under a resting pointer previews with no tick"),
+        setup: r"printf '\033[2J\033[Hfile:///tmp\033]52;c;!\007'",
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::PreviewedUnticked,
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
     // **One link, paused and resumed, never made again per restart**: red
     // while the door's backend starts a new link each run, until
     // macos-liquid-glass's pause in place is published and baud
@@ -1901,10 +1932,11 @@ fn every_frame_row_comes_to_its_state() {
         if lifted.holders != holders_of(site) {
             red.push((site.name, format!("the lift hid {:?}", lifted.holders)));
         }
-        if site.expect == Settles::OneLink {
-            let observed = match site.expect.holds(&lifted) {
-                true => Observed::Passed,
-                false => Observed::Failed(Failure::Remade),
+        if matches!(site.expect, Settles::OneLink | Settles::PreviewedUnticked) {
+            let observed = match (site.expect.holds(&lifted), site.expect) {
+                (true, _) => Observed::Passed,
+                (false, Settles::OneLink) => Observed::Failed(Failure::Remade),
+                (false, _) => Observed::Failed(Failure::Held),
             };
             let v = verdict(site.state, observed, CURRENT);
             println!("{:?}: {observed:?} -> {v:?}", site.name);
