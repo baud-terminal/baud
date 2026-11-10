@@ -1641,8 +1641,10 @@ fn check(
         );
     }
     // The mark's 168-unit cell at the points per unit the mark alone had:
-    // its 300-unit box across a square 1.4 lights tall.
-    let side = (z.size.height * 1.4).min(inset - 4.0).max(16.0);
+    // its 300-unit box across a 22.4-point square, whatever the buttons'
+    // size, or the bar less two points above and below where that is
+    // shorter.
+    let side = 22.4_f64.min(inset - 4.0).max(16.0);
     let cell = m.size.height * 168.0 / art.height;
     assert!(
         (cell - side * 168.0 / 300.0).abs() < EPS,

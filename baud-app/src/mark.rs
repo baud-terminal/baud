@@ -103,6 +103,22 @@ const FALLBACK_X: CGFloat = 74.0;
 /// sets the points per unit the lockup is drawn at.
 const MARK_BOX: CGFloat = 300.0;
 
+/// **The side of that square, in points**: 22.4, so the lockup is drawn at
+/// 22.4 points per 300 units, 51.37 across with the mark's cell 12.544
+/// tall, whatever size AppKit gives its window buttons. It was once read
+/// as 1.4 times the zoom button's height, which made 22.4 from a 16-point
+/// button frame; linked against the macOS 27 SDK AppKit's
+/// `standardWindowButton:forStyleMask:` gives a 14-point one, and the
+/// lockup came out at 19.6, 86% of its size.
+const MARK_SIDE: CGFloat = 22.4;
+
+/// **The square's side in a title bar `inset` points tall**: [`MARK_SIDE`],
+/// unless the bar is too short to hold it with two points above and
+/// below; then the bar less those, but never under 16 points.
+fn side_in(inset: CGFloat) -> CGFloat {
+    MARK_SIDE.min(inset - 4.0).max(16.0)
+}
+
 /// **Which lockup the strip shows**: the light word on what is dark, the
 /// dark word on what is light.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -207,7 +223,7 @@ impl Place {
     /// **Beside the traffic lights**, from their frames once the window
     /// has laid them out: the lights' own gap past the zoom button, and
     /// the lockup `art` units in size at the points per unit the mark
-    /// alone had, its box across a square a little larger than a button.
+    /// alone had ([`side_in`]), which the buttons' size does not change.
     /// `None` while they are not laid out, which a zero height says. The
     /// x is shared with the container: the titlebar view spans the
     /// window's width from its left edge.
@@ -222,17 +238,17 @@ impl Place {
             return None;
         }
         let gap = (mini.origin.x - (close.origin.x + close.size.width)).max(0.0);
-        let side = (zoom.size.height * 1.4).min(inset - 4.0).max(16.0);
         Some(Place::sized(
             zoom.origin.x + zoom.size.width + gap,
-            side,
+            side_in(inset),
             art,
         ))
     }
 
-    /// Where the lockup goes when the lights are not laid out.
+    /// Where the lockup goes when the lights are not laid out, at the same
+    /// size as beside them.
     pub(crate) fn fallback(inset: CGFloat, art: NSSize) -> Place {
-        Place::sized(FALLBACK_X, (inset - 2.0).clamp(18.0, 28.0), art)
+        Place::sized(FALLBACK_X, side_in(inset), art)
     }
 
     /// The lockup at `x`, at the points per unit of the mark alone in a
@@ -587,13 +603,21 @@ mod tests {
         NSRect::new(NSPoint::new(x, y), NSSize::new(w, h))
     }
 
-    /// AppKit's traffic lights on macOS 27 in a titled window, each in the
-    /// titlebar view's own coordinates: 14x16 at x 9, 29 and 49.
+    /// AppKit's traffic lights in a titled window linked against the macOS
+    /// 14.4 SDK, each in the titlebar view's own coordinates: 14x16 at x 9,
+    /// 29 and 49.
     fn lights() -> (NSRect, NSRect, NSRect) {
+        lights_of(16.0)
+    }
+
+    /// The same buttons `height` points tall: 16 from
+    /// `standardWindowButton:forStyleMask:` linked against the macOS 14.4
+    /// SDK, 14 linked against 27.
+    fn lights_of(height: CGFloat) -> (NSRect, NSRect, NSRect) {
         (
-            rect(9.0, 6.0, 14.0, 16.0),
-            rect(29.0, 6.0, 14.0, 16.0),
-            rect(49.0, 6.0, 14.0, 16.0),
+            rect(9.0, 6.0, 14.0, height),
+            rect(29.0, 6.0, 14.0, height),
+            rect(49.0, 6.0, 14.0, height),
         )
     }
 
@@ -747,6 +771,37 @@ mod tests {
         assert!((p.end() - (p.x + p.width)).abs() < 1e-9);
     }
 
+    /// **The lockup is one size whatever the window buttons are**: 51.37
+    /// points across and 12.544 tall beside 16-point buttons and beside
+    /// 14-point ones, in a 28-point title bar and a 32-point one, and the
+    /// same where the buttons are not laid out. The SDK an app links sizes
+    /// the buttons: AppKit's `standardWindowButton:forStyleMask:` gives a
+    /// 14x16 frame linked against the macOS 14.4 SDK and a 14x14 one linked
+    /// against 27, and Apple says standard controls adopt "changes to shapes
+    /// and sizes automatically when you rebuild your app with the latest
+    /// version of Xcode" ([[source: apple-adopting-liquid-glass-2026-11-09]]).
+    /// Break: the side from the zoom button's height,
+    /// `zoom.size.height * 1.4`, and the 14-point rows read 44.95 across;
+    /// the fallback's old `(inset - 2.0).clamp(18.0, 28.0)` reads 59.62 in a
+    /// 28-point bar.
+    #[test]
+    fn the_lockup_is_one_size_whatever_the_window_buttons_are() {
+        let a = art();
+        let want = NSSize::new(a.width * 22.4 / MARK_BOX, a.height * 22.4 / MARK_BOX);
+        assert!((want.width - 51.366).abs() < 0.01, "{want:?}");
+        assert!((want.height - 12.544).abs() < 1e-9, "{want:?}");
+        for button in [16.0, 14.0] {
+            let (c, m, z) = lights_of(button);
+            for inset in [28.0, 32.0] {
+                let p = Place::beside(c, m, z, inset, a).expect("laid out");
+                assert_eq!(p.size(), want, "{button}-point buttons, {inset}-point bar");
+            }
+        }
+        for inset in [28.0, 32.0] {
+            assert_eq!(Place::fallback(inset, a).size(), want, "{inset}-point bar");
+        }
+    }
+
     /// **The build's name gives way before a light and never takes one's
     /// room**: beside the plate only with every light placed and a light's
     /// gap past its end; with no plate only if it fits past the lockup.
@@ -769,10 +824,10 @@ mod tests {
         assert!(!version_shows(240.0, 9.0, 120.0, 100.0));
     }
 
-    /// **Lights not laid out fall back to the strip's own size**, and a
-    /// strip too short for a light-sized square keeps the 16-point floor
-    /// rather than panicking: `clamp` panics when its floor passes its
-    /// ceiling, which a 19-point strip would make it.
+    /// **Lights not laid out put the lockup at its x past where the buttons
+    /// would be**, and a strip too short for the square keeps the 16-point
+    /// floor rather than panicking: `clamp` panics when its floor passes
+    /// its ceiling, which a 19-point strip would make it.
     #[test]
     fn unlaid_lights_and_a_short_strip_still_place_the_lockup() {
         let (c, m, _) = lights();
@@ -783,7 +838,9 @@ mod tests {
         );
         let f = Place::fallback(28.0, a);
         assert_eq!(f.x, 74.0);
-        assert!((f.width - a.width * 26.0 / MARK_BOX).abs() < 1e-9, "{f:?}");
+        assert!((f.width - a.width * 22.4 / MARK_BOX).abs() < 1e-9, "{f:?}");
+        let low = Place::fallback(19.0, a);
+        assert!((low.height - a.height * 16.0 / MARK_BOX).abs() < 1e-9);
         let (c, m, z) = lights();
         let short = Place::beside(c, m, z, 19.0, a).expect("laid out");
         assert!((short.height - a.height * 16.0 / MARK_BOX).abs() < 1e-9);

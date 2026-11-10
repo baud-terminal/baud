@@ -40230,3 +40230,17 @@ bytes  = 147581
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-adopting-liquid-glass-2026-11-09]
+key    = "apple-adopting-liquid-glass-2026-11-09"
+title  = "Adopting Liquid Glass -- standard controls adopt the new shapes and sizes on a rebuild with the latest Xcode; windows adopt rounder corners; the page as re-fetched, whose bytes differ from apple-adopting-liquid-glass's (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/technologyoverviews/adopting-liquid-glass.json"
+file   = ""
+sha256 = "a41d1485f9815b51d040d2f723e7372e066eacbbda02b81493f21f6fee52ad47"
+bytes  = 152124
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
