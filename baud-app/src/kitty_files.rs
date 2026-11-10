@@ -1092,6 +1092,58 @@ mod tests {
         }
     }
 
+    /// **mpv's `t=s` command, as each mpv writes it**: mpv names the object
+    /// it creates `/mpv-kitty-%p`, and 0.41.0 sent the name without its
+    /// slash, which the text forbids ("On POSIX SHM names must start with a
+    /// /", `[[source: kitty-graphics-rst]]`) and Darwin's `shm_open` does
+    /// not take: refused unopened, nothing placed, the object left for mpv
+    /// to unlink. The same command with the slash, as mpv writes it since
+    /// its upstream fix, is read, placed and unlinked. mpv's keys exactly:
+    /// `a=T,t=s,f=24,s=,v=,C=1,q=2,m=1`, no id and `q=2`, so no reply
+    /// either way, as kitty sends none; the same refusal for a command with
+    /// an id is answered `EBADF:Failed to read image file`, kitty's answer.
+    #[test]
+    fn mpvs_shared_memory_name_needs_its_slash() {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let name = format!(
+            "/mpv-kitty-0x{:x}",
+            u64::from(std::process::id()) << 8
+                | u64::try_from(N.fetch_add(1, Ordering::Relaxed)).unwrap()
+        );
+        let rgb: Vec<u8> = (0..4 * 2 * 3)
+            .map(|i| u8::try_from(i * 7).unwrap())
+            .collect();
+        let keys = "a=T,t=s,f=24,s=4,v=2,C=1,q=2,m=1";
+        let d = Dir::new();
+        make_shm(&name, &rgb);
+        let stripped = run(Some(d.files()), &apc(keys, &name.as_bytes()[1..]));
+        assert_eq!(
+            stripped,
+            (Vec::new(), None),
+            "0.41.0's name: refused, silent"
+        );
+        assert!(shm_exists(&name), "not opened, so not unlinked");
+        // A command that names an id and does not silence errors is told,
+        // in kitty's one file error, as kitty answers a name its
+        // `shm_open` cannot open (`IMAGE_FILE_ERROR_CODE`,
+        // `[[source: kitty-graphics-c]]`).
+        let told = run(
+            Some(d.files()),
+            &apc("a=T,t=s,f=24,s=4,v=2,i=1", &name.as_bytes()[1..]),
+        );
+        assert_eq!(
+            told,
+            (FILE_ERR.to_vec(), None),
+            "an id's refusal is answered"
+        );
+        assert!(shm_exists(&name), "and not opened");
+        let whole = run(Some(d.files()), &apc(keys, name.as_bytes()));
+        let direct = run(None, &apc("a=T,f=24,s=4,v=2,C=1,q=2", &rgb));
+        assert!(whole.1.is_some(), "the slash's name: placed");
+        assert_eq!(whole, direct, "read as the direct payload would be");
+        assert!(!shm_exists(&name), "unlinked once read");
+    }
+
     /// **A FIFO planted under `/dev/shm` is refused, not waited on**:
     /// glibc's `shm_open` opens it as a file, so without `O_NONBLOCK` the
     /// open blocks until a writer comes, and without the regular-file check
