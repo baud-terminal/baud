@@ -1165,6 +1165,8 @@ struct Counters {
     display: u32,
     preview: PreviewSeen,
     reads: u32,
+    /// The turns that fed the core after the settle.
+    fed: u32,
     /// The window's title at the end, from its own line.
     title: String,
 }
@@ -1208,6 +1210,7 @@ impl Counters {
                 _ => return None,
             },
             reads: count("reads")?,
+            fed: count("fed")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1251,14 +1254,21 @@ enum Settles {
     /// motion preference and the display settings each taken, and the link
     /// paused at the end.
     Accessed,
-    /// **A link moved under a resting pointer, read with no tick**: the
-    /// ticks withheld, the last read found the link's preview.
+    /// **A link moved under a resting pointer, read by the frame the read
+    /// owes**: that frame's read found the link's preview, and the link
+    /// paused at the end, so the preview rode the one frame the output owed
+    /// and nothing held the link after it.
     Previewed,
     /// **Output on rows away from a resting pointer, and no read of it**:
     /// the link under the pointer previewed by the pointer's own event, at
     /// least `drawn` frames of the output drawn, and not one read of the
     /// link under the pointer after the settle.
     Unread { drawn: u64 },
+    /// **Scrolling output under a resting pointer, read for the frames**:
+    /// the hover read at least once, no more often than a frame was drawn,
+    /// and fewer times than a turn fed the core -- which a read per feed
+    /// would equal, whatever the machine's pace.
+    ReadByFrame,
     /// **A job started with no tick, in the window's title**: the ticks
     /// withheld, nothing delivered, and the derived title names the job.
     Titled(&'static str),
@@ -1286,8 +1296,11 @@ impl Settles {
             Settles::Restyled => c.link == LinkSeen::Pause && c.styled >= 1 && c.drawn >= 1,
             Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
             Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
-            Settles::Previewed => c.delivered == 0 && c.preview == PreviewSeen::Link,
+            Settles::Previewed => c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause,
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
+            Settles::ReadByFrame => {
+                c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
+            }
             Settles::Unread { drawn } => {
                 c.reads == 0 && c.preview == PreviewSeen::Link && c.drawn >= drawn
             }
@@ -1334,7 +1347,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 16] = [
+const FRAME_SITES: [FrameSite; 17] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1585,15 +1598,20 @@ const FRAME_SITES: [FrameSite; 16] = [
             recorded: Failure::Held,
         },
     },
-    // **FS-A3**: a link printed under a resting pointer is previewed, the
-    // ticks withheld: the hover is read on the read's own turn, after its
-    // feed, and no tick polls for it.
+    // **FS-A3**: a link printed under a resting pointer is previewed by the
+    // frame its read owes: the read runs the link for that frame, whose
+    // compare finds the line under the pointer written and reads it. The
+    // link pauses after it, the caret steady, so the preview rode that one
+    // frame. The pointer moves before the link's bytes arrive, so only that
+    // compare can find it; no tick polls for it (the frame rows above and
+    // below hold that output elsewhere reads nothing, the source check that
+    // no tick reads it).
     FrameSite {
-        name: SiteName("a link printed under a resting pointer is previewed with no tick"),
+        name: SiteName("a link printed under a resting pointer is previewed by the frame it owes"),
         setup: STILL,
         act: r"printf '\033[H\033]8;;https://example.com/\033\\LINK\033]8;;\033\\'",
         keys: RigKeys::Line,
-        ticks: RigFrameTicks::Withheld,
+        ticks: RigFrameTicks::Offered,
         window: RigWindow::PointerOver,
         env: &[],
         config: concat!(
@@ -1603,9 +1621,12 @@ const FRAME_SITES: [FrameSite; 16] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Previewed,
-        // Green on both arms: with no tick, the polls still the tick's
-        // hold nothing that could read it.
-        state: RowState::Green,
+        // The kept arm's holders keep the link running, so it pauses only
+        // on the lifted arm until stage 3 takes them out.
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
     },
     // **FS-A3, the other side**: output on rows away from a resting pointer
     // reads nothing under it. The pointer rests on a URI on the first row;
@@ -1629,6 +1650,31 @@ const FRAME_SITES: [FrameSite; 16] = [
         focus: RigFocus::Believed,
         attempts: Iterations(200),
         expect: Settles::Unread { drawn: 10 },
+        state: RowState::Green,
+    },
+    // **FS-A3's M1**: scrolling output under a resting pointer moves the
+    // line under it on every read, and the hover is read for the frames
+    // that draw it, not for every read: the frame compares what the last
+    // read covered and reads, and the pump reads only what an event marked.
+    // `seq` scrolls the screen over many reads, the ticks offered, longer
+    // than the run on either arm. The guard is free of the machine's pace:
+    // fewer reads than turns that fed the core, which a read per feed
+    // equals, at least one, and no more than the frames drawn.
+    FrameSite {
+        name: SiteName("scrolling output under a resting pointer is read once a frame"),
+        setup: STILL,
+        act: "seq 1 200000",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: concat!(
+            "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(200),
+        expect: Settles::ReadByFrame,
         state: RowState::Green,
     },
     // **FS-A12**: a job started at the prompt is in the derived title, the

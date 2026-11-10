@@ -66,7 +66,7 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEventModifierFlags, NSImage, NSScreen,
+    NSAutoresizingMaskOptions, NSColor, NSCursor, NSEvent, NSEventModifierFlags, NSImage, NSScreen,
     NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowAnimationBehavior,
     NSWindowOcclusionState, NSWindowStyleMask,
 };
@@ -1948,9 +1948,10 @@ impl App {
 
     /// **The hover owed a read, if what the last read went over moved**
     /// (`link::Hover::under_moved`): a few rows of cells compared with
-    /// their copy, no text read. Asked where output or the window may have
-    /// moved it -- after a turn's feed, and before a frame, which follows a
-    /// wheel, a scrollbar drag, a find or a resize.
+    /// their copy, no text read. Asked before each frame, which follows
+    /// whatever may have moved it -- a read, which owes a frame, a wheel, a
+    /// scrollbar drag, a find or a resize -- so scrolling output reads the
+    /// hover once a frame, not once a read.
     fn owe_hover_if_moved(&mut self) {
         let moved =
             self.hover
@@ -7183,22 +7184,23 @@ mod alt_window_tests {
         }
     }
 
-    /// **The hover is read only on a turn that owes it, after its feed**
-    /// (`link::HoverOwed`): the pump compares what the last read went over
-    /// after a turn that fed bytes, and the frame before it draws, and
-    /// reads only where that or an event marked the turn; the read goes by
-    /// the modifiers the last event reported, not by AppKit's state asked
-    /// on each turn. The pump is AppKit-bound, so this holds the source:
-    /// the compare inside the feed's branch, after the feed and before the
-    /// poll; the poll out of the tick, after the focus is read (a focus lost
-    /// clears the preview first); the poll and the frame read through the
-    /// one reader that takes the mark, which is the only caller of the read;
-    /// and the read goes by `link_chord`. `link.rs`'s
-    /// `output_owes_the_hover_a_read_only_where_its_last_read_went` holds the
-    /// compare, and the frame rig's two FS-A3 rows what the turns do.
+    /// **The hover is read only on a turn that owes it** (`link::HoverOwed`):
+    /// the pump reads only what an event marked, and the frame, before it
+    /// draws, compares what the last read went over and reads where it
+    /// moved or a mark is set, so output under a resting pointer is read once
+    /// a frame, not once a read. The read goes by the modifiers the last
+    /// event reported, and the one ask of AppKit's modifiers is the focus
+    /// gain's, which no event reported. The pump is AppKit-bound, so this
+    /// holds the source: the poll out of the tick, after the feed and after
+    /// the focus is read (a focus lost clears the preview first); no compare
+    /// in the pump, and the frame's compare before its read; the poll and
+    /// the frame reading through the one reader that takes the mark, which
+    /// is the only caller of the read; the read going by `link_chord`; and
+    /// `NSEvent.modifierFlags` asked once, in `set_focus`'s gain.
+    /// `link.rs`'s `output_owes_the_hover_a_read_only_where_its_last_read_went`
+    /// holds the compare, and the frame rig's FS-A3 rows what the turns do.
     /// Perturbations: the poll or the frame reading every time, the compare
-    /// before the feed or on every turn, or the read asking AppKit again --
-    /// each fails here.
+    /// back in the pump, or the read asking AppKit again -- each fails here.
     #[test]
     fn the_hover_is_read_only_on_a_turn_that_owes_it() {
         const SRC: &str = include_str!("app.rs");
@@ -7207,15 +7209,14 @@ mod alt_window_tests {
         const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
         const FOCUS: &str = concat!("self.poll_", "focus();");
         const CALL: &str = concat!("self.poll_", "hover();");
-        const MOVED: &str = concat!("self.app.owe_hover_", "if_moved();");
-        const FED: &str = concat!(
-            "if !drained.chunks.is_empty() || fed == crate::reads::",
-            "Fed::Some {\n            self.app.owe_hover_if_moved();"
-        );
+        const MOVED: &str = concat!("owe_hover_", "if_moved();");
         const POLL: &str = concat!("    fn poll_", "hover(&mut self) {");
         const OWED: &str = concat!("    fn read_owed_", "hover(&mut self) -> bool {");
         const READ: &str = concat!("    fn read_", "hover(&mut self) -> bool {");
         const READS: &str = concat!("self.read_", "hover()");
+        const FLAGS: &str = concat!("NSEvent::modifier", "Flags_class()");
+        const SET_FOCUS: &str = concat!("    fn set_", "focus(&mut self, f: baud_core::Focus) {");
+        const GAINED: &str = concat!("if f == baud_core::Focus::", "Gained {");
         let body = |head: &str| {
             assert_eq!(SRC.matches(head).count(), 1, "one {head}");
             let b = SRC.split(head).nth(1).expect(head);
@@ -7233,12 +7234,16 @@ mod alt_window_tests {
         assert!(focus < call, "the hover is polled before the focus");
         assert!(call > Some(fed), "the hover is polled before the feed");
         assert_eq!(SRC.matches(CALL).count(), 1, "and nowhere else");
-        assert_eq!(pump.matches(MOVED).count(), 1, "one compare in the pump");
-        let moved = pump.find(FED).expect("the compare is not the fed turn's");
+        assert!(!pump.contains(MOVED), "the pump compares on every read");
         assert!(
-            fed < moved && Some(moved) < call,
-            "the compare is out of order"
+            SRC.contains(concat!(
+                "self.owe_hover_",
+                "if_moved();\n        if self.read_owed_",
+                "hover() {"
+            )),
+            "the frame reads the hover with no compare or no mark"
         );
+        assert_eq!(SRC.matches(MOVED).count(), 1, "a compare elsewhere");
         let poll = body(POLL);
         assert!(
             poll.contains(concat!("self.app.read_owed_", "hover()"))
@@ -7257,17 +7262,19 @@ mod alt_window_tests {
             "the one caller is not the mark's reader"
         );
         assert!(
-            SRC.contains(concat!(
-                "self.owe_hover_if_moved();\n        if self.read_owed_",
-                "hover() {"
-            )),
-            "the frame reads the hover with no mark"
+            body(READ).contains(concat!("self.read_hover_as(self.", "link_chord)")),
+            "the read does not go by the chord the events reported"
         );
-        let read = body(READ);
+        assert_eq!(
+            SRC.matches(FLAGS).count(),
+            1,
+            "AppKit's modifiers asked again"
+        );
+        let gained = body(SET_FOCUS).split(GAINED).nth(1).expect("the gain");
+        let gained = &gained[..gained.find("\n        }").expect("the gain ends")];
         assert!(
-            read.contains(concat!("self.read_hover_as(self.", "link_chord)"))
-                && !SRC.contains(concat!("NSEvent::modifier", "Flags_class()")),
-            "the read asks AppKit for the modifiers"
+            gained.contains(FLAGS),
+            "the gain does not ask the modifiers"
         );
     }
 
@@ -12599,6 +12606,12 @@ impl Driver {
         {
             self.ring_bell(volume);
         }
+        // Every turn that fed the core, counted for the frame rig: what a
+        // read of the hover per feed would equal.
+        #[cfg(feature = "effect-probe")]
+        if fed == crate::reads::Fed::Some {
+            baud_present_macos::probe::fed_turn();
+        }
         // Which program wrote each part of each read this call fed -- a read
         // a ReGIS delay held, when its bytes went on, and none still held --
         // and the lines they wrote, for the printed paths and a link's origin
@@ -12831,17 +12844,14 @@ impl Driver {
                 self.app.owe_frame();
             }
         }
-        // The link under a resting pointer, after the feed: a read that
-        // wrote what the last read of it went over, or moved the window
-        // under it, owes it a read (`App::owe_hover_if_moved`), which the
-        // copy of those rows tells with no text read; output elsewhere owes
-        // none. Then read on a turn that owes it, so a link written under
-        // the pointer is drawn by the frame it owes, and no tick polls for
-        // it. Modifier keys alone are read as they happen
+        // The link under a resting pointer, on a turn an event marked -- the
+        // focus, a worker's answer, this machine's names, the config -- so
+        // no tick polls for it. What a read wrote under the pointer is the
+        // frame's: the read owes a frame, which compares what the last read
+        // of the hover went over and reads where it moved
+        // (`App::owe_hover_if_moved`), once a frame however many reads came
+        // between. Modifier keys alone are read as they happen
         // (`modifiers_changed`).
-        if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
-            self.app.owe_hover_if_moved();
-        }
         self.poll_hover();
         // The derived title, on a turn that owes it a check -- a read, a
         // key, a process event this turn took -- after the feed, so the
@@ -16335,6 +16345,16 @@ impl Driver {
         // Settings while baud was in the background lands here -- and is
         // input, so the cursor comes back shown and the stop starts over.
         if f == baud_core::Focus::Gained {
+            // The modifiers held as the keyboard comes back, which no event
+            // reported to this window while another had it: read once, here,
+            // so Command held through the switch shows the preview.
+            let flags = NSEvent::modifierFlags_class();
+            self.app.link_chord = match flags.contains(NSEventModifierFlags::Command)
+                && !flags.contains(NSEventModifierFlags::Shift)
+            {
+                true => crate::link::Chord::Cmd,
+                false => crate::link::Chord::Other,
+            };
             // Back from another app, which may have made a file or
             // installed an app: what is struck is asked again.
             self.app.paths.recheck();

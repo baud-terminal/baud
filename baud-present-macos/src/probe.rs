@@ -264,6 +264,8 @@ thread_local! {
     static PREVIEWED: Cell<Previewed> = const { Cell::new(Previewed::Unset) };
     /// The reads of the link under the pointer (`HoverReads`).
     static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
+    /// The turns that fed the core (`FedTurns`).
+    static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
     /// What baud reads of the display options (`Access`).
     static ACCESS: Cell<Access> = const { Cell::new(Access::System) };
     /// The changes of the motion preference and the display settings taken.
@@ -472,6 +474,22 @@ pub fn hover_read() {
 /// The reads of the link under the pointer.
 pub fn hover_reads() -> HoverReads {
     HOVER_READS.with(Cell::get)
+}
+
+/// How many of baud-app's turns fed the core.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FedTurns(pub u32);
+
+/// **A turn that fed the core** (baud-app's pump), counted for the frame
+/// rig: what reads of the hover made per feed, rather than per frame,
+/// would equal.
+pub fn fed_turn() {
+    FED_TURNS.with(|r| r.set(FedTurns(r.get().0.saturating_add(1))));
+}
+
+/// The turns that fed the core.
+pub fn fed_turns() -> FedTurns {
+    FED_TURNS.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.
