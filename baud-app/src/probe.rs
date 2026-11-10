@@ -8957,6 +8957,9 @@ mod tests {
     /// within the pace too, unasked, with no group sampled; then
     /// `/etc/passwd` typed and echoed one key a read, the shell in front,
     /// and the batch after the last key answered -- the typed path lit.
+    /// Named break: a read inside the pace with no group taken before it
+    /// asks nothing (`Sampler::read`) -- the redraw is filed under no
+    /// writer, and the path stays dark.
     #[test]
     fn a_prompt_redrawn_inside_the_pace_keeps_its_typed_path_lit() {
         let mut f = Fake::with(&[("/etc", Entry::Dir), ("/etc/passwd", Entry::File)]);
@@ -9240,7 +9243,9 @@ mod tests {
 
     /// **A moved line whose covering span names no group is held all the
     /// same** (F3's guard): with no group found, under the lines past the
-    /// groups kept, which the next batch's answer files not known.
+    /// groups kept, which the next batch's answer files not known. The
+    /// control: a group found is the group held under. Named break:
+    /// `holders` returning what it found -- no group, no hold.
     #[test]
     fn a_covering_span_with_no_group_still_holds() {
         assert_eq!(holders(Vec::new()), [None]);
@@ -9325,9 +9330,10 @@ mod tests {
     /// moved up a row since they were asked (rows 2 and 5, now 1 and 4).
     /// `ls`'s answer names it twice; its verdict is filed on both copies at
     /// the first, and the rows they were asked on, which hold other text
-    /// now, stay not known. Red before: the second, finding its copies
-    /// filed, filed the verdict on the lines the worker was asked -- row 5
-    /// read local.
+    /// now, stay not known. The answer carries no lines (`Answer::seen`),
+    /// so the second naming has none of the worker's to file on. Named
+    /// break: a verdict filed only on the spans of batches before its own
+    /// (`mine` taking `i < id`) -- rows 1 and 4 are not known.
     #[test]
     fn a_group_named_twice_is_filed_where_its_text_is() {
         let (mut pr, _) = probes(named_groups());
@@ -9362,9 +9368,11 @@ mod tests {
     /// with were kept to send, and a batch sent while it was out took them,
     /// carried with the text since -- asked on row 1, on row 2 now. Row 1,
     /// holding nothing filed, stays not known when the click's local
-    /// verdict comes, and row 2 waits for its batch's answer. Red before:
-    /// with the group's lines no longer kept, the verdict was filed on the
-    /// lines as the click asked them -- row 1 read local.
+    /// verdict comes, and row 2 waits for its batch's answer. The answer
+    /// carries no lines (`Answer::seen`), so none as the click asked them
+    /// are filed. Named break: a click's answer taken as a batch's and
+    /// filed on every span of its group, whatever batch kept it -- row 2
+    /// reads local.
     #[test]
     fn a_clicks_answer_files_nothing_where_its_lines_were() {
         let (mut pr, _) = probes(named_groups());
@@ -9411,6 +9419,60 @@ mod tests {
         pr.close(&mut paths, &mut lines, &mut turn);
         let origins: Vec<Origin> = (0..3).map(|n| paths.origin(line(n))).collect();
         assert_eq!(origins, [Origin::Local, Origin::Unknown, Origin::Unknown]);
+    }
+
+    /// **A read nothing names leaves the line it ended on out, where its
+    /// record vouches it wrote nothing there** (W3, `vouch::Below`): a read
+    /// with no group sampled and no marks prints `/etc/hosts` and a line
+    /// feed, and is filed not known over its own line only -- the next
+    /// line, where the cursor ended and the next read begins, takes the
+    /// shell's local fact filed after. The control: the line it printed
+    /// on stays not known, the same fact filed over it after included.
+    /// Named break: the end line kept whatever the record vouches
+    /// (`part_spans` taking nothing as clean) -- line 1 stays not known.
+    #[test]
+    fn a_read_nothing_names_leaves_its_clean_end_line_out() {
+        use crate::reads::Part;
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        let bytes = b"/etc/hosts\r\n";
+        let _ = t.take_record();
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let w = Writers::default()
+            .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
+            .recorded(Some(crate::reads::Taken {
+                record: t.take_record(),
+                top: t.history_mark().line(),
+                end_row: crate::vouch::EndRow::of(&t),
+                drew: crate::vouch::Drew::Nothing,
+            }));
+        assert_eq!(w.before.or(w.at), None, "the control: no group");
+        let rec = w.record;
+        let _ = counts.numbered(&t, rec.as_ref());
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let on = paths.line_on(t.screen(), line(0));
+        let end = paths.line_on(t.screen(), line(1));
+        pr.drain_taken(
+            &mut paths,
+            &t,
+            (on, end),
+            counts.core_lines(&t),
+            [(w, Linked::No)].into_iter(),
+        );
+        for n in [0, 1] {
+            paths.written_by_shell(LineSpan::of(line(n), line(n)));
+        }
+        assert_eq!(
+            paths.origin(line(0)),
+            Origin::Unknown,
+            "the line it printed on"
+        );
+        assert_eq!(paths.origin(line(1)), Origin::Local, "the line it ended on");
     }
 
     /// The folder `paths` reads `./` against after each of `reads` is fed
@@ -9474,20 +9536,77 @@ mod tests {
         assert_eq!(got, [home.clone(), home.clone(), home, None]);
     }
 
+    /// **A printed path reaches the system only through `lstat` and
+    /// `readlink`**, as SECURITY.md says: of the worker's seam (`Fs`), the
+    /// only methods that take a path are those two, and the real one
+    /// (`System`) answers them with `std::fs::symlink_metadata` and
+    /// `std::fs::read_link` -- neither opens the file nor follows a link --
+    /// and calls no other `std::fs` function but the read of Linux's mount
+    /// table. The worker is a thread no test drives against the real file
+    /// system, so the source is what can fail. Named breaks: a method
+    /// taking a path added to `Fs`; `lstat` answered by
+    /// `std::fs::metadata`, which follows a link.
+    #[test]
+    fn a_printed_path_reaches_the_system_only_through_lstat_and_readlink() {
+        let src = include_str!("probe.rs");
+        let body = |open: &str| {
+            let rest = src.split_once(open).expect(open).1;
+            &rest[..rest.find("\n}\n").expect("its end")]
+        };
+        let path_fns = |b: &str| -> Vec<String> {
+            b.split(concat!("\n    fn ", ""))
+                .skip(1)
+                .filter(|f| {
+                    f.split_once(')')
+                        .is_some_and(|(sig, _)| sig.contains(": &[u8]"))
+                })
+                .map(|f| f.split('(').next().unwrap_or_default().to_string())
+                .collect()
+        };
+        let seam = body(concat!("pub trait ", "Fs: Send {"));
+        assert_eq!(
+            path_fns(seam),
+            ["lstat", "readlink"],
+            "the seam's path methods"
+        );
+        let real = body(concat!("impl Fs ", "for System {"));
+        assert_eq!(path_fns(real), ["lstat", "readlink"], "the real one's");
+        let calls: Vec<&str> = real
+            .match_indices(concat!("std::", "fs::"))
+            .map(|(at, _)| {
+                let call = &real[at..];
+                &call[..call.find('(').unwrap_or(call.len())]
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            [
+                concat!("std::", "fs::symlink_metadata"),
+                concat!("std::", "fs::read_link"),
+                concat!("std::", "fs::read"),
+            ],
+            "the calls the real one makes"
+        );
+        assert!(
+            real.contains(concat!("std::", "fs::read(\"/proc/self/mountinfo\")")),
+            "the one read: the mount table"
+        );
+    }
+
     /// **iTerm2's `CurrentDir` is a folder report like `OSC 7`**, taken from
     /// the shell and refused from a remote command, which the scan of `OSC
     /// 7` alone never saw: the core records it (`ReadRecord::folders`). The
-    /// shell's `CurrentDir=/home/u`, on the host its `RemoteHost` names, is
+    /// shell's `CurrentDir=/srv/w`, on the host its `RemoteHost` names, is
     /// taken; under `ssh h` a remote program's `CurrentDir=/tmp` is not. Named break: judge every report
     /// as the shell's (`folder_of` ignoring what was open) -- the remote
     /// one is taken.
     #[test]
     fn an_iterm_current_dir_is_judged_as_osc_7_is() {
-        let home = Some(b"/home/u".to_vec());
+        let home = Some(b"/srv/w".to_vec());
         let got = folders_after(&[
-            b"\x1b]133;A;aid=1\x07\x1b]1337;RemoteHost=u@here.example\x07\x1b]1337;CurrentDir=/home/u\x07% ",
+            b"\x1b]133;A;aid=1\x07\x1b]1337;RemoteHost=here.example\x07\x1b]1337;CurrentDir=/srv/w\x07% ",
             &ran("ssh h", ";cmdline=ssh\\ h"),
-            b"\x1b]1337;RemoteHost=u@here.example\x07\x1b]1337;CurrentDir=/tmp\x07remote$ ",
+            b"\x1b]1337;RemoteHost=here.example\x07\x1b]1337;CurrentDir=/tmp\x07remote$ ",
         ]);
         assert_eq!(got, [home.clone(), home.clone(), home]);
     }

@@ -768,6 +768,17 @@ fn a_reset_writes_the_start_line() {
     }
 }
 
+/// **A read's record says whether it wrote the line it began on**
+/// (`ReadRecord::start_row`), the cursor on a prompt holding `/etc/hosts`:
+/// text there, an erase or edit reaching it, a rectangle over it and a
+/// switch to the alternate screen each write it; a return, a line feed, a
+/// move, a rendition and output on the lines below leave it untouched, the
+/// control. A rectangle written on another row is not the read's text, so
+/// text on the line after it still writes it; and a climb back to the line
+/// after leaving it is recorded off the path, the line itself untouched.
+/// Break: a rectangle no longer leaves the window as it found it
+/// (`Recording::reopened` doing nothing) -- the text after it reads
+/// untouched.
 #[test]
 fn a_read_says_whether_it_wrote_the_line_it_began_on() {
     let prompt = b"$ /etc/hosts\r\nx\r\n\x1b[A";
