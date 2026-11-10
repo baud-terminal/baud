@@ -128,9 +128,15 @@ pub enum RigWindow {
     /// so what the act does next comes on the pty's own read and after no
     /// wait.
     Released,
+    /// That it is shown, as [`RigWindow::Shown`] tells it, before anything
+    /// is typed and before its first frame: the frame rig then waits for
+    /// that frame, the shell's prompt, and for the splash to start, with
+    /// nothing sent, counts the start (`first=`) and plays a started
+    /// splash to its end on offered ticks. After the act, nothing.
+    ShownFirst,
 }
 
-const WINDOW: [(RigWindow, &str); 12] = [
+const WINDOW: [(RigWindow, &str); 13] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -143,6 +149,7 @@ const WINDOW: [(RigWindow, &str); 12] = [
     (RigWindow::HostNamed, "host-named"),
     (RigWindow::Shown, "shown"),
     (RigWindow::Released, "released"),
+    (RigWindow::ShownFirst, "shown-first"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

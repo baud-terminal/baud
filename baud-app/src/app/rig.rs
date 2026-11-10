@@ -877,6 +877,45 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::pass(0.01);
         }
     };
+    // **Shown before its first frame** (`RigWindow::ShownFirst`): the door
+    // set on screen and the occlusion change posted before anything is
+    // typed, then the first frame, the shell's prompt, waited for, and
+    // then the splash's start, with nothing sent: only what that frame
+    // wakes can start it, and then the splash played out. Each within the
+    // bound.
+    let first = match rig.window {
+        RigWindow::ShownFirst => {
+            probe::set_shown(probe::Shown::Yes);
+            baud_present_macos::closing::rig_post(window.ns_window(), RigWindow::Shown);
+            let start = Instant::now();
+            while probe::frames().value() == 0 && start.elapsed() < BOUND {
+                probe::pass(0.01);
+            }
+            if probe::frames().value() == 0 {
+                println!("the first frame was never drawn");
+                return std::process::ExitCode::from(1);
+            }
+            let start = Instant::now();
+            while probe::greetings().0 == 0 && start.elapsed() < BOUND {
+                probe::pass(0.01);
+            }
+            let first = probe::greetings().0;
+            // A splash started is played to its end on offered ticks, as
+            // the setup's settle offers them, so the row ends with no motion
+            // owed: the lifted arm's link pauses and the held polls run the
+            // kept arm's. One never started owes nothing.
+            let start = Instant::now();
+            while probe::splash() == probe::Splash::Moving && start.elapsed() < BOUND {
+                offer(1);
+            }
+            if probe::splash() == probe::Splash::Moving {
+                println!("the splash never ended");
+                return std::process::ExitCode::from(1);
+            }
+            first
+        }
+        _ => 0,
+    };
     TYPED.with(|c| *c.borrow_mut() = Some([rig.setup.as_bytes(), b"\n"].concat()));
     post(view.waker());
     let start = Instant::now();
@@ -977,6 +1016,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::CommandExits => drop(command_input.take()),
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
         RigWindow::Shown => probe::set_shown(probe::Shown::Yes),
+        RigWindow::ShownFirst => {}
         // The stalled lookup answered with a name `gethostname` does not
         // give, so the read adds one and its names are owed to the links.
         RigWindow::HostNamed => {
@@ -1105,7 +1145,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={} first={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1159,6 +1199,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         probe::greetings().0.saturating_sub(greetings.0),
         probe::paths_asked().0.saturating_sub(asked.0),
         probe::flips().0.saturating_sub(flips.0),
+        first,
     );
     let _ = probe::take();
     let w = window.ns_window();

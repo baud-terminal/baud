@@ -264,6 +264,8 @@ thread_local! {
     static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether a frame is owed and not yet drawn (`FrameOwed`).
     static FRAME_OWED: Cell<FrameOwed> = const { Cell::new(FrameOwed::No) };
+    /// Whether the launch splash owes frames (`Splash`).
+    static SPLASH: Cell<Splash> = const { Cell::new(Splash::Still) };
     /// Whether baud believes its window is on screen (`Shown`).
     static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
     /// The launch splash's starts (`greeted`).
@@ -389,6 +391,26 @@ pub fn set_frame_owed(owed: FrameOwed) {
 /// waits for none.
 pub fn frame_owed() -> FrameOwed {
     FRAME_OWED.with(Cell::get)
+}
+
+/// **Whether the launch splash owes frames**, as the window's last settle
+/// found it: playing or fading, or waiting, held or gone (baud-app's
+/// `Splash::owes`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Splash {
+    Still,
+    Moving,
+}
+
+/// Set whether the splash owes frames, at a settle.
+pub fn set_splash(splash: Splash) {
+    SPLASH.with(|s| s.set(splash));
+}
+
+/// Whether the last settle found the splash owing frames: the frame rig
+/// plays a started splash to its end before it types.
+pub fn splash() -> Splash {
+    SPLASH.with(Cell::get)
 }
 
 /// Set the printed paths asked about so far, the worker's own count.

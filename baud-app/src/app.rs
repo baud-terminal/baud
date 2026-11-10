@@ -2315,6 +2315,18 @@ impl App {
         }
     }
 
+    /// **A frame on the layer**: the GPU's completion (`Driver::presented`),
+    /// or a frame drawn now with none to follow, the CPU's and the first
+    /// drawn at once. A splash waiting for its window reads it on the turn
+    /// the wake runs (`splash_check`): one wake on the event, only while a
+    /// splash waits.
+    fn layer_presented(&mut self) {
+        self.layer_shown = Done::Yes;
+        if self.splash.waiting() {
+            self.waker.wake();
+        }
+    }
+
     /// **What a copy said, to VoiceOver** (`copied.rs`), once.
     fn say_copied(&mut self) {
         let Some(words) = self.copied.take_saying() else {
@@ -3382,7 +3394,7 @@ impl App {
                             // the tick's splash gate (`frame`).
                             if show == Show::Now {
                                 self.take.shown(host_now);
-                                self.layer_shown = Done::Yes;
+                                self.layer_presented();
                                 startup_first("first present", &FIRST_PRESENT);
                             }
                             if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -3425,7 +3437,7 @@ impl App {
                             // the tick's splash gate (`frame`).
                             if show == Show::Now {
                                 self.take.shown(host_now);
-                                self.layer_shown = Done::Yes;
+                                self.layer_presented();
                                 startup_first("first present", &FIRST_PRESENT);
                             }
                             if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -3508,8 +3520,9 @@ impl App {
                     if p.present_changed(screen, frame, w, clear, changed) == Presented::Yes {
                         shown = Presented::Yes;
                         // On the layer now, as the first frame drawn on
-                        // the GPU is; no completion follows a CPU frame.
-                        self.layer_shown = Done::Yes;
+                        // the GPU is; no completion follows a CPU frame, so
+                        // the splash it lets start is woken here.
+                        self.layer_presented();
                         self.latency.shown_cpu(host_now);
                         self.take_committed();
                         self.take.shown(host_now);
@@ -8403,7 +8416,7 @@ mod drag_tests {
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("present's body");
-        let mark = concat!("self.layer_", "shown = Done::Yes;");
+        let mark = concat!("self.layer_", "presented();");
         let calls = [
             "p.draw_cells(",
             "p.draw_cells_now(",
@@ -8443,7 +8456,7 @@ mod drag_tests {
             .map(|(_, rest)| rest)
             .expect("the completion");
         assert!(
-            presented.starts_with("layer_shown = Done::Yes;"),
+            presented.starts_with("layer_presented();"),
             "the completion leaves the splash waiting"
         );
     }
@@ -8512,19 +8525,25 @@ mod drag_tests {
         ] {
             assert!(gate.contains(read), "{read} in the gate: {gate}");
         }
-        // What it waits for wakes the window: the frame's presentation, and
-        // the occlusion change (the plasma's thread, below).
-        let presented = SRC
-            .split_once(concat!(
+        // What it waits for wakes the window: a frame on the layer, the
+        // GPU's completion and a frame drawn now alike (`layer_presented`),
+        // and the occlusion change (the plasma's thread, below).
+        assert!(
+            SRC.contains(concat!(
                 "fn presented(&mut ",
-                "self) {\n        self.app.layer_shown = Done::Yes;"
-            ))
+                "self) {\n        self.app.layer_presented();"
+            )),
+            "the completion"
+        );
+        let presented = SRC
+            .split_once(concat!("fn layer_", "presented(&mut self) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
-            .expect("presented");
+            .expect("layer_presented");
         assert!(
-            presented.contains(concat!("if self.app.splash.", "waiting() {"))
-                && presented.contains(concat!("self.app.waker.", "wake();")),
+            presented.contains(concat!("self.layer_", "shown = Done::Yes;"))
+                && presented.contains(concat!("if self.splash.", "waiting() {"))
+                && presented.contains(concat!("self.waker.", "wake();")),
             "{presented}"
         );
         assert!(
@@ -13983,12 +14002,7 @@ impl Responder for Driver {
     }
 
     fn presented(&mut self) {
-        self.app.layer_shown = Done::Yes;
-        // A splash waiting for its window reads this on the turn the wake
-        // runs (`splash_check`).
-        if self.app.splash.waiting() {
-            self.app.waker.wake();
-        }
+        self.app.layer_presented();
         self.app.presented();
     }
 
@@ -15037,6 +15051,17 @@ impl baud_present_macos::unwind::Settles for Driver {
             Pending::Dirty => baud_present_macos::probe::FrameOwed::Yes,
             Pending::Clean => baud_present_macos::probe::FrameOwed::No,
         });
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::set_splash(
+            match self
+                .app
+                .splash
+                .owes(now.since(HostTime::ZERO).map_or(0.0, |d| d.as_secs_f64()))
+            {
+                crate::splash::Owes::Frame => baud_present_macos::probe::Splash::Moving,
+                crate::splash::Owes::Nothing => baud_present_macos::probe::Splash::Still,
+            },
+        );
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::drawn(self.app.frames);
         match crate::frames::act(owes) {

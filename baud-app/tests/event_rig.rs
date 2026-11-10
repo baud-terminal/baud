@@ -1455,6 +1455,9 @@ struct Counters {
     asked: u32,
     /// The caret's flips after the settle, on its own clock.
     flips: u32,
+    /// The splash's starts on a window shown before its first frame, before
+    /// anything was typed.
+    first: u32,
 }
 
 impl Counters {
@@ -1507,6 +1510,7 @@ impl Counters {
             greeted: count("greeted")?,
             asked: count("asked")?,
             flips: count("flips")?,
+            first: count("first")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1587,6 +1591,9 @@ enum Settles {
     /// **The launch splash started with no tick**: the ticks withheld,
     /// nothing delivered, and the splash started once.
     Greeted,
+    /// **The splash started on the first frame of a window shown before
+    /// it**, with nothing typed: once.
+    GreetedFirst,
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
@@ -1632,6 +1639,7 @@ impl Settles {
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
             Settles::Filed => c.delivered == 0 && c.asked >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
+            Settles::GreetedFirst => c.first == 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
             }
@@ -1691,7 +1699,7 @@ const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 25] = [
+const FRAME_SITES: [FrameSite; 26] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1871,6 +1879,33 @@ const FRAME_SITES: [FrameSite; 25] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Greeted,
+        state: RowState::Green,
+    },
+    // **The splash starts on the first CPU frame of a window shown before
+    // it, with no tick**: the window told it is shown before anything is
+    // typed or drawn (`RigWindow::ShownFirst`), so the splash waits for a
+    // frame on the layer; the first, the shell's prompt, is drawn on the
+    // CPU path, whose present has no completion, and the present itself
+    // wakes the window while the splash waits (`layer_presented`), whose
+    // turn starts it. Nothing is typed until then, the ticks are
+    // withheld, and the printed paths and links are off, so no batch's
+    // answer wakes the window instead.
+    FrameSite {
+        name: SiteName("the splash starts on the first CPU frame of a window shown before it"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::ShownFirst,
+        env: &[("BAUD_GPU", "cpu")],
+        config: concat!(
+            "[cursor]\nblink = false\ntrail = \"off\"\n",
+            "[link]\nurls = \"off\"\npaths = \"off\"\n",
+            "[screen]\nprinting = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::GreetedFirst,
         state: RowState::Green,
     },
     // **FS-A2**: the window made key is heard with the link paused, from
