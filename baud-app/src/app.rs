@@ -13868,6 +13868,14 @@ impl Responder for Driver {
             if self.app.caret.tick(now, blinks, update) == Owes::Frame {
                 self.app.owe_frame();
             }
+            // The half the caret is in, for the frame rig to count its
+            // flips by, on its own clock and not by the frames drawn.
+            #[cfg(feature = "effect-probe")]
+            baud_present_macos::probe::caret_half(match self.app.caret.half(now, blinks) {
+                crate::caret::CaretHalf::Shown => baud_present_macos::probe::CaretHalf::Shown,
+                crate::caret::CaretHalf::Hidden => baud_present_macos::probe::CaretHalf::Hidden,
+                crate::caret::CaretHalf::Steady => baud_present_macos::probe::CaretHalf::Steady,
+            });
         }
         // A flash on screen ends on this clock: the tick whose target
         // reaches its deadline owes the frame that takes it down, and the

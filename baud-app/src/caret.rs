@@ -398,6 +398,20 @@ pub fn look(focus: Focus, unfocused: CursorLook) -> CursorLook {
     }
 }
 
+/// Which half of its blink a caret is in, as [`Caret::half`] reads it
+/// for the event rig: the window maps it onto the probe's own, so this
+/// file names nothing of the presenter.
+#[cfg(all(feature = "effect-probe", target_os = "macos"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CaretHalf {
+    /// The blink's shown half.
+    Shown,
+    /// The blink's hidden half.
+    Hidden,
+    /// No blink at all.
+    Steady,
+}
+
 /// Whether the blink owes a frame: what a frame drawn now would show is
 /// not what the last drawn one showed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -543,6 +557,22 @@ impl<M: Moment> Caret<M> {
         match (self.gate, self.cycle, stopped) {
             (Gate::Free, Cycle::Blinks { .. }, false) => blinks,
             _ => Blinks::No,
+        }
+    }
+
+    /// **Which half of its blink the caret is in at `now`**, on its own
+    /// clock, for the event rig to count its flips by: the shown half,
+    /// the hidden one, or no blink at all.
+    #[cfg(all(feature = "effect-probe", target_os = "macos"))]
+    pub fn half(&self, now: M, blinks: Blinks) -> CaretHalf {
+        match (self.blinking(now, blinks), self.cycle) {
+            (Blinks::Yes, Cycle::Blinks { on, off }) => {
+                match cycle_offset(now.elapsed_since(self.epoch), on.get(), off.get()) < on.get() {
+                    true => CaretHalf::Shown,
+                    false => CaretHalf::Hidden,
+                }
+            }
+            _ => CaretHalf::Steady,
         }
     }
 

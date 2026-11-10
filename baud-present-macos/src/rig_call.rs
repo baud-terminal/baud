@@ -44,7 +44,8 @@ pub struct FrameRig {
     pub setup: String,
     /// What is sent once the link has settled; empty for none.
     pub act: String,
-    /// How many ticks are offered.
+    /// How many ticks are offered; under [`RigFrameTicks::UntilFlips`],
+    /// how many times the caret flips before the offers stop.
     pub attempts: Iterations,
     /// Whether baud believes the window is key (`probe::Key`).
     pub focus: RigFocus,
@@ -157,16 +158,25 @@ const KEYS: [(RigKeys, &str); 2] = [(RigKeys::Line, "line"), (RigKeys::Pressed, 
 
 /// **Whether the frame rig's ticks reach the view after the act**: offered,
 /// each delivered while the link runs, or withheld, the run loop run with
-/// no tick at all -- what drives the state is then the act's own turns.
+/// no tick at all -- what drives the state is then the act's own turns --
+/// or offered until a count of frames is drawn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RigFrameTicks {
     Offered,
     Withheld,
+    /// Offered until the caret has flipped `attempts` times since the act,
+    /// on its own clock (`probe::flips`), for a row about a clock's frames:
+    /// the run ends on the flips it is about -- not on a count of passes
+    /// whose length the run loop decides, nor on the frames drawn, which a
+    /// link that drew every tick would reach before any flip -- and
+    /// [`SENTINEL_BACKSTOP`] is a backstop that, reached, says so.
+    UntilFlips,
 }
 
-const FRAME_TICKS: [(RigFrameTicks, &str); 2] = [
+const FRAME_TICKS: [(RigFrameTicks, &str); 3] = [
     (RigFrameTicks::Offered, "offered"),
     (RigFrameTicks::Withheld, "withheld"),
+    (RigFrameTicks::UntilFlips, "until-flips"),
 ];
 
 /// The event rig's call.

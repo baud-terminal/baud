@@ -1453,6 +1453,8 @@ struct Counters {
     greeted: u32,
     /// The printed paths' asked about after the settle.
     asked: u32,
+    /// The caret's flips after the settle, on its own clock.
+    flips: u32,
 }
 
 impl Counters {
@@ -1504,6 +1506,7 @@ impl Counters {
             hands: count("hands")?,
             greeted: count("greeted")?,
             asked: count("asked")?,
+            flips: count("flips")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1525,10 +1528,14 @@ enum Settles {
     /// end. A frame owed on a wake may draw on that wake, with no tick.
     Restarts { drawn: u64, delivered: u32 },
     /// A clock that keeps restarting it, a blinking caret's: at least
-    /// `drawn` frames drawn, at most `delivered` ticks taken for them, and
-    /// at least a send for each frame, the link run and paused between
-    /// them; the state at the end is the clock's.
-    Blinks { drawn: u64, delivered: u32 },
+    /// `flips` flips of the caret, a frame drawn for each but the last at
+    /// least and for one more at most, at most `per_flip` ticks taken for
+    /// each flip ([`TICKS_A_FLIP`]), and at least a send for each frame,
+    /// the link run and paused between them; the state at the end is the
+    /// clock's. Counted against the flips, on the caret's own clock, and
+    /// not against the frames: a link drawing every tick has drawn four
+    /// frames in four ticks, before any flip.
+    Blinks { flips: u32, per_flip: u64 },
     /// Every run resumes the one link: at most one made in all.
     OneLink,
     /// **Run by a frame no one who runs the link owes, until it is paid**:
@@ -1601,8 +1608,13 @@ impl Settles {
                     && c.delivered <= delivered
                     && c.sends >= 2
             }
-            Settles::Blinks { drawn, delivered } => {
-                c.drawn >= drawn && c.delivered <= delivered && u64::from(c.sends) >= drawn
+            Settles::Blinks { flips, per_flip } => {
+                let flipped = u64::from(c.flips);
+                c.flips >= flips
+                    && c.drawn.saturating_add(1) >= flipped
+                    && c.drawn <= flipped.saturating_add(1)
+                    && u64::from(c.delivered) <= per_flip.saturating_mul(flipped)
+                    && u64::from(c.sends) >= c.drawn
             }
             Settles::OneLink => c.made <= 1,
             Settles::Expires => {
@@ -1669,6 +1681,16 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
+/// **The ticks a blinking caret's link takes for each flip**, at
+/// most. The flip's deadline runs the link a frame early: a deadline less
+/// than a frame away is a frame owed (`frames::owes`), so the tick that
+/// restarts it draws the flip or finds it a frame ahead, the next draws
+/// it, and the link pauses on the deadline after, a quarter of a second
+/// out -- two at most, and one more for a tick that lands across the
+/// deadline itself. A link that never paused takes one every period, some
+/// thirty a flip at 250 ms.
+const TICKS_A_FLIP: u64 = 3;
+
 const FRAME_SITES: [FrameSite; 25] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
@@ -1691,13 +1713,21 @@ const FRAME_SITES: [FrameSite; 25] = [
         },
     },
     // **R2**: a blinking caret runs the link at each flip, scheduled a
-    // frame before it, and pauses between.
+    // frame before it, and pauses between. Its flips come on wall time, so
+    // its run is the caret's flips (`RigFrameTicks::UntilFlips`), four: a
+    // fixed count of offered ticks ran out before the fourth flip when the
+    // run loop's passes returned early, and a count of frames would end a
+    // link drawing every tick after four ticks. Breaks: each offer's pass
+    // at zero with the fixed count, and the lifted arm draws none (red);
+    // the caret's blink off, and the run times out at the backstop; a
+    // frame owed every tick, and more frames are drawn than flips (red);
+    // the link never paused, and more ticks are taken than flips allow.
     FrameSite {
         name: SiteName("a blinking caret runs the link at each flip"),
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
-        ticks: RigFrameTicks::Offered,
+        ticks: RigFrameTicks::UntilFlips,
         window: RigWindow::Untold,
         env: &[],
         config: concat!(
@@ -1705,10 +1735,10 @@ const FRAME_SITES: [FrameSite; 25] = [
             "[launch]\nsplash = \"off\"\n"
         ),
         focus: RigFocus::Believed,
-        attempts: Iterations(150),
+        attempts: Iterations(4),
         expect: Settles::Blinks {
-            drawn: 4,
-            delivered: 40,
+            flips: 4,
+            per_flip: TICKS_A_FLIP,
         },
         state: RowState::Pending {
             stage: Stage::Three,

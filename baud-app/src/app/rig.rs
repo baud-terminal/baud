@@ -770,17 +770,24 @@ fn restyle(window: &NSWindow) {
     window.setAppearance(named.as_deref());
 }
 
+/// **The display link's period the frame rig's ticks claim**: each offered
+/// tick's target is this far ahead (`probe::set_target`), and an
+/// [`RigFrameTicks::UntilFlips`](probe_call::RigFrameTicks::UntilFlips) run
+/// offers no tick before the last one's target has come.
+const FRAME_PERIOD: Duration = Duration::from_micros(8333);
+
 /// **The frame rig** (`rig_call::FrameRig`): the window made as the event
 /// rig makes it and never shown; `setup` typed and read to its sign, the
 /// clear of the pasteboard it ends with; the display link left to settle;
 /// then `act` sent, if any, as `keys` says, the window told what `window`
-/// says, and the rig's ticks offered `attempts` times, each delivered
-/// only while the door's state is `Run` (`probe::Ticker`). Printed: the link's state at the end, the ticks
-/// delivered and the door's sends over the offered ticks, the links made
-/// in all, the polls the last settle found still the tick's, what it
-/// found owed, the palettes applied over the ticks, the focus baud last
-/// set, the display options' changes taken, and what the last read found
-/// under the pointer.
+/// says, and the rig's ticks offered `attempts` times, or until the caret
+/// flips `attempts` times (`RigFrameTicks::UntilFlips`), each delivered only
+/// while the door's state is `Run` (`probe::Ticker`). Printed: the link's
+/// state at the end, the ticks delivered and the door's sends over the
+/// offered ticks, the links made in all, the polls the last settle found
+/// still the tick's, what it found owed, the palettes applied over the
+/// ticks, the focus baud last set, the display options' changes taken, and
+/// what the last read found under the pointer.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     use probe_call::{RigFocus, RigFrameTicks, RigHolders, RigKeys, RigWindow};
     let Some(mtm) = MainThreadMarker::new() else {
@@ -865,7 +872,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let offer = |n: u16| {
         for _ in 0..n {
             let now = host_now().since(HostTime::ZERO).unwrap_or_default();
-            probe::set_target((now + Duration::from_micros(8333)).as_secs_f64());
+            probe::set_target((now + FRAME_PERIOD).as_secs_f64());
             ticker.tick();
             probe::pass(0.01);
         }
@@ -901,6 +908,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (_, sends) = probe::link();
     let delivered = probe::delivered();
     let drawn = probe::frames();
+    let flips = probe::flips();
     let styled = probe::styled();
     let reads = probe::hover_reads();
     let fed = probe::fed_turns();
@@ -934,7 +942,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The run: `attempts` ticks offered, or the run loop run as long with
     // no tick, the act's own turns.
     let run = |n: u16| match rig.ticks {
-        RigFrameTicks::Offered => offer(n),
+        RigFrameTicks::Offered | RigFrameTicks::UntilFlips => offer(n),
         RigFrameTicks::Withheld => {
             for _ in 0..n {
                 probe::pass(0.01);
@@ -1026,7 +1034,52 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
-    run(rig.attempts.0);
+    match rig.ticks {
+        // **Until the caret has flipped**: a clock's frames come on wall
+        // time, and a pass returns after the first source it handles, so a
+        // count of offers is no length of time; offered until the caret
+        // has flipped `attempts` times since the act, on its own clock,
+        // under the backstop -- not until a count of frames, which a link
+        // drawing every tick reaches before any flip. Each tick is offered
+        // once the last one's target has come, the display link's own
+        // period, which a real link never ticks faster than: the ticks the
+        // link takes are then a count of the frames it ran for, not of how
+        // fast the run loop's passes returned.
+        RigFrameTicks::UntilFlips => {
+            let wanted = u32::from(rig.attempts.0);
+            let since = || probe::flips().0.saturating_sub(flips.0);
+            let start = Instant::now();
+            let mut due = host_now();
+            let mut offered: u32 = 0;
+            while since() < wanted && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                let now = host_now();
+                match due.since(now) {
+                    Some(left) if !left.is_zero() => probe::pass(left.as_secs_f64()),
+                    _ => {
+                        due = now.plus(FRAME_PERIOD);
+                        offer(1);
+                        offered = offered.saturating_add(1);
+                    }
+                }
+            }
+            // **A clock that kept its period**: at least a tick offered for
+            // every second period passed, or a loaded machine has starved
+            // the rig's link, and a count of ticks taken -- the row's bound
+            // -- would read low for a reason that is not the app's.
+            let periods = start.elapsed().as_micros() / FRAME_PERIOD.as_micros();
+            if u128::from(offered).saturating_mul(2) < periods {
+                println!(
+                    "the rig's clock fell behind its period: {offered} ticks offered in {periods} periods"
+                );
+                return std::process::ExitCode::from(1);
+            }
+            if since() < wanted {
+                println!("timed out at the backstop");
+                return std::process::ExitCode::from(1);
+            }
+        }
+        RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),
+    }
     // **An act that ends by clearing the pasteboard is waited for**, as the
     // setup is: the run goes on until that clear, within the bound, and
     // then as long as the setup's settle, so what the act wrote is all fed
@@ -1052,7 +1105,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1105,6 +1158,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         probe::hands().0.saturating_sub(hands.0),
         probe::greetings().0.saturating_sub(greetings.0),
         probe::paths_asked().0.saturating_sub(asked.0),
+        probe::flips().0.saturating_sub(flips.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

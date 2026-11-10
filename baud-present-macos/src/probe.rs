@@ -307,6 +307,9 @@ thread_local! {
     static DELIVERED: Cell<Delivered> = const { Cell::new(Delivered(0)) };
     /// How many palettes the window's appearance applied.
     static STYLED: Cell<Styled> = const { Cell::new(Styled(0)) };
+    /// The half of its blink the caret was last seen in, and how many
+    /// times that half has changed (`caret_half`).
+    static CARET: Cell<(Option<CaretHalf>, Flips)> = const { Cell::new((None, Flips(0))) };
 }
 
 /// Hold `run` for the next frame ([`Inline::InFrame`]).
@@ -789,6 +792,19 @@ pub struct Sends(pub u32);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Delivered(pub u32);
 
+/// **Which half of its blink the caret is in**, as the window's tick
+/// reads its clock: shown, hidden, or not blinking.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CaretHalf {
+    Shown,
+    Hidden,
+    Steady,
+}
+
+/// How many times the caret has changed half: its flips, on its own clock.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Flips(pub u32);
+
 /// **Whether the polls still the tick's hold the display link**: kept, as
 /// in every real build, or lifted, the frame rig's ceiling arm
 /// (`rig_call::RigHolders`). Only a probe build has the lift.
@@ -901,6 +917,24 @@ pub fn styled() -> Styled {
 /// How many of the rig's ticks have reached the view.
 pub fn delivered() -> Delivered {
     DELIVERED.with(Cell::get)
+}
+
+/// **The half the caret is in at a tick**, as the window read it from the
+/// caret's clock: a change from the half last seen is a flip.
+pub fn caret_half(half: CaretHalf) {
+    CARET.with(|c| {
+        let (seen, Flips(n)) = c.get();
+        let n = match seen {
+            Some(was) if was != half => n.saturating_add(1),
+            _ => n,
+        };
+        c.set((Some(half), Flips(n)));
+    });
+}
+
+/// The caret's flips seen so far.
+pub fn flips() -> Flips {
+    CARET.with(|c| c.get().1)
 }
 
 /// One pass of the main run loop in the default mode, for at most
