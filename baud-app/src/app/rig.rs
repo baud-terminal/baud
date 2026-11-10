@@ -582,6 +582,15 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let styled = probe::styled();
     let reads = probe::hover_reads();
     let fed = probe::fed_turns();
+    let followed = || {
+        [
+            probe::Followed::Scroller,
+            probe::Followed::Flashing,
+            probe::Followed::Animated,
+        ]
+        .map(|s| probe::followed(s).0)
+    };
+    let followed_before = followed();
     let (motions, displays) = (
         probe::taken(probe::DisplayOption::Motion),
         probe::taken(probe::DisplayOption::Display),
@@ -621,6 +630,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         }
         // Its input closed, `read` ends and the shell with it.
         RigWindow::CommandExits => drop(command_input.take()),
+        RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     // The run: `attempts` ticks offered, or the run loop run as long with
@@ -659,7 +669,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -697,6 +707,17 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         match crate::fg::a_command_reaped() {
             crate::fg::Reaped::Now => 1,
             crate::fg::Reaped::Not => 0,
+        },
+        // Each followed setting's takes since the settle: scroller,
+        // flashing, animated.
+        {
+            let now = followed();
+            format!(
+                "{},{},{}",
+                now[0].saturating_sub(followed_before[0]),
+                now[1].saturating_sub(followed_before[1]),
+                now[2].saturating_sub(followed_before[2]),
+            )
         },
     );
     let _ = probe::take();

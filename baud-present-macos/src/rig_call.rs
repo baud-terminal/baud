@@ -106,9 +106,14 @@ pub enum RigWindow {
     /// input held open, then that input closed, so the child ends: the probe
     /// build starts no command of a click's own.
     CommandExits,
+    /// That the settings the window follows changed: "Show scroll bars",
+    /// Dim Flashing Lights and Animated Images, each notification posted on
+    /// the default centre, as the system posts it
+    /// (`settings::rig_post_settings`).
+    Settings,
 }
 
-const WINDOW: [(RigWindow, &str); 8] = [
+const WINDOW: [(RigWindow, &str); 9] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -117,6 +122,7 @@ const WINDOW: [(RigWindow, &str); 8] = [
     (RigWindow::DisplayOptions, "display-options"),
     (RigWindow::PointerOver, "pointer-over"),
     (RigWindow::CommandExits, "command-exits"),
+    (RigWindow::Settings, "settings"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

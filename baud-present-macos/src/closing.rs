@@ -120,7 +120,8 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         | RigWindow::Refocused
         | RigWindow::DisplayOptions
         | RigWindow::PointerOver
-        | RigWindow::CommandExits => return,
+        | RigWindow::CommandExits
+        | RigWindow::Settings => return,
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
     };

@@ -268,6 +268,8 @@ thread_local! {
     static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
     /// Whether this machine's names were handed (`Named`).
     static NAMED: Cell<Named> = const { Cell::new(Named::No) };
+    /// The followed settings' changes taken: scroller, flashing, animated.
+    static FOLLOWED: Cell<[Taken; 3]> = const { Cell::new([Taken(0); 3]) };
     /// What baud reads of the display options (`Access`).
     static ACCESS: Cell<Access> = const { Cell::new(Access::System) };
     /// The changes of the motion preference and the display settings taken.
@@ -492,6 +494,41 @@ pub fn fed_turn() {
 /// The turns that fed the core.
 pub fn fed_turns() -> FedTurns {
     FED_TURNS.with(Cell::get)
+}
+
+/// A setting the window follows, taken (baud-app's `follow_settings`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Followed {
+    /// "Show scroll bars".
+    Scroller,
+    /// Dim Flashing Lights.
+    Flashing,
+    /// Animated Images.
+    Animated,
+}
+
+/// **A followed setting's change taken** by baud-app, counted for the
+/// frame rig: on the turn its notification woke, not on a tick.
+pub fn follow(s: Followed) {
+    FOLLOWED.with(|f| {
+        let [scroller, flashing, animated] = f.get();
+        let one = |t: Taken| Taken(t.0.saturating_add(1));
+        f.set(match s {
+            Followed::Scroller => [one(scroller), flashing, animated],
+            Followed::Flashing => [scroller, one(flashing), animated],
+            Followed::Animated => [scroller, flashing, one(animated)],
+        });
+    });
+}
+
+/// How many times `s`'s change was taken.
+pub fn followed(s: Followed) -> Taken {
+    let [scroller, flashing, animated] = FOLLOWED.with(Cell::get);
+    match s {
+        Followed::Scroller => scroller,
+        Followed::Flashing => flashing,
+        Followed::Animated => animated,
+    }
 }
 
 /// Whether baud-app has handed this machine's names to the links.

@@ -1116,7 +1116,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A16", "FS-A17"];
+const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A17"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1168,6 +1168,9 @@ struct Counters {
     /// The window's title at the end, from its own line.
     title: String,
     reaped: u32,
+    /// Each followed setting's changes taken: scroller, flashing,
+    /// animated.
+    followed: [u32; 3],
 }
 
 impl Counters {
@@ -1211,6 +1214,11 @@ impl Counters {
             reads: count("reads")?,
             fed: count("fed")?,
             reaped: count("reaped")?,
+            followed: {
+                let mut n = field("followed")?.split(',').map(str::parse);
+                let mut next = || n.next()?.ok();
+                [next()?, next()?, next()?]
+            },
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1276,6 +1284,9 @@ enum Settles {
     /// **A command's child reaped with no tick**: the ticks withheld,
     /// nothing delivered, and the child handed over reaped once it ended.
     Reaped,
+    /// **The followed settings heard with no tick**: the ticks withheld,
+    /// nothing delivered, and each of the three settings' changes taken.
+    Followed,
 }
 
 impl Settles {
@@ -1303,6 +1314,7 @@ impl Settles {
             Settles::Previewed => c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause,
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
+            Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
             }
@@ -1352,7 +1364,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 18] = [
+const FRAME_SITES: [FrameSite; 19] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1723,6 +1735,24 @@ const FRAME_SITES: [FrameSite; 18] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Reaped,
+        state: RowState::Green,
+    },
+    // **FS-A16**: the settings the window follows -- "Show scroll bars",
+    // Dim Flashing Lights, Animated Images -- are taken on the turn their
+    // notification wakes, the ticks withheld: each observer marks its
+    // setting and wakes the window, and no tick polls for the marks.
+    FrameSite {
+        name: SiteName("the followed settings are taken with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Settings,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Followed,
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

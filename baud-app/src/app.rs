@@ -4996,7 +4996,7 @@ struct Driver {
     /// for, read when the display options change (`poll_display`).
     display: Display,
     /// The observers of the settings AppKit announces a change of, whose
-    /// marks the tick takes (`follow_settings`).
+    /// marks the turn their notification wakes takes (`follow_settings`).
     settings: baud_present_macos::settings::Watch,
     /// The window and screen as last handed to the core for XTWINOPS's
     /// reports, read on the tick (`poll_window`).
@@ -11364,10 +11364,13 @@ mod motion_tests {
         }
     }
 
-    /// **The window observes the settings from launch and the tick takes
-    /// what was heard**: both AppKit-bound, so the source is what can fail.
+    /// **The window observes the settings from launch and takes what was
+    /// heard on the turn the notification woke**, never on a tick alone
+    /// (FS-A16): both AppKit-bound, so the source is what can fail.
+    /// Perturbation: the take moved back into the tick's arm -- it fails
+    /// here, and the frame rig's row of the settings heard with no tick.
     #[test]
-    fn the_tick_follows_the_settings_heard() {
+    fn every_turn_follows_the_settings_heard() {
         const SRC: &str = include_str!("app.rs");
         let tick = SRC
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
@@ -11379,8 +11382,23 @@ mod motion_tests {
             "the control: {tick}"
         );
         assert!(
-            tick.contains(concat!("self.follow_", "settings();")),
+            !tick.contains(concat!("self.follow_", "settings();")),
             "{tick}"
+        );
+        let pump = SRC
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once(concat!("if let Trigger::", "Tick = trigger {")))
+            .map(|(before, _)| before)
+            .expect("the pump before its tick arm");
+        assert_eq!(
+            pump.matches(concat!("self.follow_", "settings();")).count(),
+            1,
+            "the pump takes the settings on every turn"
+        );
+        assert_eq!(
+            SRC.matches(concat!("self.follow_", "settings();")).count(),
+            1,
+            "and nowhere else"
         );
         assert_eq!(
             SRC.matches(concat!(
@@ -12474,11 +12492,13 @@ impl Driver {
             self.poll_motion();
             self.poll_display();
         }
+        // The other settings the window follows, on the turn their
+        // notification woke, as the display options are (`follow_settings`).
+        self.follow_settings();
         if let Trigger::Tick = trigger {
             self.link_host_check();
             self.paths_turn();
             self.notice_turn();
-            self.follow_settings();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
             if self.app.term.status_type() == baud_core::StatusType::Indicator {
@@ -14893,11 +14913,7 @@ impl Driver {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
             Holder::A17Splash => self.app.splash.waiting(),
-            Holder::A5Notices
-            | Holder::A9Front
-            | Holder::A13Hosts
-            | Holder::A14Paths
-            | Holder::A16Settings => true,
+            Holder::A5Notices | Holder::A9Front | Holder::A13Hosts | Holder::A14Paths => true,
         })
     }
 
@@ -15917,29 +15933,39 @@ impl Driver {
         self.app.owe_frame();
     }
 
-    /// **A setting AppKit said changed, followed on this tick**: the
-    /// observers in `baud_present_macos::settings` mark what was posted,
-    /// and this takes the marks. A change of "Show scroll bars" lays the
+    /// **A setting AppKit said changed, followed on the turn its
+    /// notification woke**: the observers in `baud_present_macos::settings`
+    /// mark what was posted and wake the window, and this takes the marks,
+    /// on every turn and never waiting for a tick. A change of "Show scroll bars" lays the
     /// window out again at once when the style it asks for is not the one
     /// drawn, so the legacy strip comes or goes, and the grid's columns
     /// with it, without waiting for the next wheel or resize.
     ///
     /// A change of Dim Flashing Lights is read here too, and the next
-    /// tick's phases take it (`dim_off_phases`): a blinking cell's off
+    /// frame's phases take it (`dim_off_phases`): a blinking cell's off
     /// phase goes faint or hidden on the frame the phase change owes. So is
-    /// a change of Animated Images, which the same tick's animation step
-    /// takes: a held picture plays on, or a playing one holds where it is.
+    /// a change of Animated Images, which the frame door reads as the
+    /// pictures' deadline (`Deadline::Images`) at this turn's settle: a held
+    /// picture plays on, or a playing one holds where it is.
     fn follow_settings(&mut self) {
         let heard = self.settings.take(Setting::Scroller);
+        #[cfg(feature = "effect-probe")]
+        if heard == Heard::Changed {
+            baud_present_macos::probe::follow(baud_present_macos::probe::Followed::Scroller);
+        }
         if scroller_change(heard, self.app.scroller, scroller_style) == Relayout::Now {
             crate::info!("scroller: {:?}", scroller_style());
             let _ = self.relayout(self.view.frame().size, self.app.scale);
         }
         if self.settings.take(Setting::DimFlashingLights) == Heard::Changed {
+            #[cfg(feature = "effect-probe")]
+            baud_present_macos::probe::follow(baud_present_macos::probe::Followed::Flashing);
             self.app.flashing = baud_present_macos::settings::flashing();
             crate::info!("flashing: {:?}", self.app.flashing);
         }
         if self.settings.take(Setting::AnimatedImages) == Heard::Changed {
+            #[cfg(feature = "effect-probe")]
+            baud_present_macos::probe::follow(baud_present_macos::probe::Followed::Animated);
             self.app.animated = baud_present_macos::settings::animated_images();
             crate::info!("animated images: {:?}", self.app.animated);
         }

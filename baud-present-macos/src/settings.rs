@@ -2,8 +2,7 @@
 //! setting AppKit announces with a notification is heard here. Nothing is
 //! polled and nothing waits: the observer marks the setting heard and wakes
 //! the window, and the driver that takes the mark reads the new value --
-//! the display options on the turn the wake runs, the others still on the
-//! display link's tick.
+//! on the turn the wake runs.
 //!
 //! * **"Show scroll bars"**: `preferredScrollerStyle` "may therefore change
 //!   over time, and applications should be prepared to adapt their user
@@ -16,7 +15,7 @@
 //!   the header names its object private and says to "Consult NSScroller's
 //!   +preferredScrollerStyle method when this notification is received, or
 //!   thereafter" (`[[source: macos-sdk-nsscroller-h]]` 92-94): so the mark
-//!   carries no value, and the tick asks.
+//!   carries no value, and the turn that takes it asks.
 //! * **Dim Flashing Lights**: "Check the value of the Dim Flashing Lights
 //!   setting at any time by using" `MADimFlashingLightsEnabled()`
 //!   (`[[source: apple-mediaaccessibility-flashing-lights]]`,
@@ -179,7 +178,7 @@ pub enum Heard {
     Unchanged,
 }
 
-/// The marks the observers set and the tick takes, one a setting.
+/// The marks the observers set and the driver's turn takes, one a setting.
 #[derive(Default)]
 struct Marks {
     scroller: AtomicBool,
@@ -253,7 +252,7 @@ impl Watch {
     }
 
     /// Whether `s`'s notification arrived since the last take, and the
-    /// mark cleared: one notification, or several before a tick, is one
+    /// mark cleared: one notification, or several before a take, is one
     /// change to act on.
     pub fn take(&self, s: Setting) -> Heard {
         match self.marks.of(s).swap(false, Ordering::AcqRel) {
@@ -313,6 +312,23 @@ pub fn rig_post_display_options() {
             Some(object),
         )
     };
+}
+
+/// **The frame rig's followed settings changed** (`rig_call::RigWindow`):
+/// "Show scroll bars", Dim Flashing Lights and Animated Images, each
+/// notification posted on the default centre with no object, where the
+/// observers listen; the values the driver then reads are the system's.
+#[cfg(feature = "effect-probe")]
+pub fn rig_post_settings() {
+    let center = NSNotificationCenter::defaultCenter();
+    // SAFETY: an AppKit constant, a valid `NSString` for the process's
+    // life.
+    let scroller = unsafe { NSPreferredScrollerStyleDidChangeNotification };
+    for name in [scroller, flashing_name(), animated_name()] {
+        // SAFETY: posted on the main thread, where the rig runs; the
+        // observers take no object.
+        unsafe { center.postNotificationName_object(name, None) };
+    }
 }
 
 #[cfg(test)]
