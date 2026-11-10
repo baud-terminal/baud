@@ -28,8 +28,6 @@ pub(crate) enum Holder {
     A13Hosts,
     /// FS-A14: `paths_turn`, until the worker's answer wakes the window.
     A14Paths,
-    /// FS-A15: `commands.reap`, until the child's exit (kqueue NOTE_EXIT).
-    A15Reap,
     /// FS-A16: `follow_settings`, until the settings file watch.
     A16Settings,
     /// FS-A17: the splash's wait for the window on screen, until
@@ -39,12 +37,11 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 7] = [
+    pub(crate) const ALL: [Holder; 6] = [
         Holder::A5Notices,
         Holder::A9Front,
         Holder::A13Hosts,
         Holder::A14Paths,
-        Holder::A15Reap,
         Holder::A16Settings,
         Holder::A17Splash,
     ];
@@ -57,7 +54,6 @@ impl Holder {
             Holder::A9Front => "FS-A9",
             Holder::A13Hosts => "FS-A13",
             Holder::A14Paths => "FS-A14",
-            Holder::A15Reap => "FS-A15",
             Holder::A16Settings => "FS-A16",
             Holder::A17Splash => "FS-A17",
         }
@@ -538,13 +534,12 @@ mod tests {
                 Holder::A9Front => Place(1),
                 Holder::A13Hosts => Place(2),
                 Holder::A14Paths => Place(3),
-                Holder::A15Reap => Place(4),
-                Holder::A16Settings => Place(5),
-                Holder::A17Splash => Place(6),
+                Holder::A16Settings => Place(4),
+                Holder::A17Splash => Place(5),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=6).map(Place).collect();
+        let want: Vec<Place> = (0..=5).map(Place).collect();
         assert_eq!(places, want);
     }
 

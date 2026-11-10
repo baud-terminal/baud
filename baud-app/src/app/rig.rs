@@ -495,6 +495,29 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     driver.pump(Trigger::Opening);
     // Where `PointerOver` moves the pointer: the first row's second cell.
     let over = driver.rig_point(Row::ZERO, Col::at_index(1));
+    // `CommandExits`'s child, handed over as a click's command is, its
+    // input kept here until the act closes it.
+    let mut command_input = match rig.window {
+        RigWindow::CommandExits => {
+            let mut sh = std::process::Command::new("/bin/sh");
+            sh.args(["-c", "read x"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            match sh.spawn() {
+                Ok(mut child) => {
+                    let input = child.stdin.take();
+                    driver.reap_command(child);
+                    input
+                }
+                Err(_) => {
+                    println!("the command's child would not start");
+                    return std::process::ExitCode::from(1);
+                }
+            }
+        }
+        _ => None,
+    };
     // The view made first responder before its responder is set, as
     // `show` does: the view's hook then tells no one, and the focus the
     // window opens with is the opening pump's reading (`KeyHeard`).
@@ -571,6 +594,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::PointerOver => {
             probe::press(&view, probe::Press::Moved, over, probe::Chord::Plain)
         }
+        // Its input closed, `read` ends and the shell with it.
+        RigWindow::CommandExits => drop(command_input.take()),
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     match rig.ticks {
@@ -585,7 +610,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -618,6 +643,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         },
         probe::hover_reads().0.saturating_sub(reads.0),
         probe::fed_turns().0.saturating_sub(fed.0),
+        // Marked by a watch's thread; no command is handed over before
+        // the act, so any reap is the act's.
+        match crate::fg::a_command_reaped() {
+            crate::fg::Reaped::Now => 1,
+            crate::fg::Reaped::Not => 0,
+        },
     );
     let _ = probe::take();
     let w = window.ns_window();

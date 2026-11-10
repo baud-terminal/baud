@@ -9,9 +9,13 @@
 //! is given none: its standard streams are the null device, and it is
 //! reaped without waiting on each turn of the loop.
 //!
-//! **The reaper is both drivers'**: a `[link.*]` rule's command (`rules.rs`)
-//! is started the same way, on macOS too, with the same null streams, and
-//! reaped the same way on each tick.
+//! **A `[link.*]` rule's command** (`rules.rs`) is started the same way, on
+//! macOS too, with the same null streams. Linux reaps it here on each turn
+//! of its loop; on macOS a window hands it to its process watch, which
+//! reaps it at its exit (`fg::Watch::reap_command`), after the window
+//! closes too; only one started once its window had closed, or in a window
+//! with no watch, is kept here, for the effect queue's turns
+//! (`os_effect.rs`).
 
 use std::process::{Child, Command, Stdio};
 
@@ -35,14 +39,16 @@ pub(crate) struct Opener {
 impl Opener {
     /// Start `cmd`, kept until it is reaped. Linux's, on its loop's next
     /// turn (`next_turn.rs`); macOS starts its commands on the effect
-    /// queue's turn (`os_effect.rs`) and keeps them here.
+    /// queue's turn (`os_effect.rs`).
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn start(&mut self, mut cmd: Command) -> std::io::Result<()> {
         self.children.push(cmd.spawn()?);
         Ok(())
     }
 
-    /// Keep `child`, started on a later turn, until it is reaped.
+    /// Keep `child`, started on a later turn, until it is reaped: on macOS
+    /// a command whose window had closed, or has no process watch
+    /// (`os_effect.rs`).
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn keep(&mut self, child: Child) {
         self.children.push(child);

@@ -581,6 +581,15 @@ fn run_with<T>(t: &T, mut exec: impl FnMut(&T, OsEffect, Its) -> Outcome) {
     }
 }
 
+/// **A command's child whose window has no process watch to reap it**
+/// (`Driver::reap_command`): kept with the closed windows' children, which
+/// the end of every outermost turn of the runner reaps, and a click's
+/// command is such a turn, so a child lasts as a zombie at most until the
+/// next click's, and no thread is made for it.
+pub(crate) fn keep_unwatched(child: std::process::Child) {
+    ORPHANS.with_borrow_mut(|o| o.keep(child));
+}
+
 /// **One effect, made**: the desktop call each kind names, with the turn
 /// that proves no responder borrow is held. A closed window's command
 /// starts and its child is the process's to reap.

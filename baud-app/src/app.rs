@@ -597,10 +597,6 @@ struct App {
     paths: crate::paths::Paths,
     probes: crate::probe::Probes<HostTime>,
     link_config: crate::config::Link,
-    /// The commands `[link.*]` rules run on a click (`rules.rs`), started
-    /// with no shell and null streams, and reaped on each tick, never
-    /// waited for.
-    commands: crate::opener::Opener,
     /// The printed path a click asked about again, and the `:line:col`
     /// printed after it, for a `[link.path]` command when the answer comes.
     path_click: Option<(Vec<u8>, crate::paths::Asked)>,
@@ -1628,7 +1624,6 @@ impl App {
                 p
             },
             link_config,
-            commands: crate::opener::Opener::default(),
             path_click: None,
             line_tip: crate::line_tip::LineTip::default(),
             copied: crate::copied::Signal::new(message),
@@ -7345,6 +7340,37 @@ mod alt_window_tests {
         );
     }
 
+    /// **A started command goes to the process watch, and no tick reaps
+    /// one** (`Driver::reap_command`, `fg::Watch::reap_command`): the
+    /// effect's outcome hands the child over, the pump's tick branch reaps
+    /// nothing, and the window keeps no list of children to poll. The pump
+    /// is AppKit-bound, so this holds the source; `fg.rs`'s
+    /// `a_command_is_reaped_at_its_exit_and_held_while_it_runs` holds the
+    /// reap, and the frame rig's FS-A15 row what a click's command does.
+    /// Perturbation: the tick reaping again -- it fails here.
+    #[test]
+    fn a_started_command_goes_to_the_watch_and_no_tick_reaps() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
+        let pump = SRC.split_once(PUMP).map(|(_, r)| r).expect("the pump");
+        let tick = pump.split(TICK).nth(1).expect("the tick branch");
+        let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
+        assert!(!tick.contains(".reap()"), "the tick reaps: {tick}");
+        assert!(
+            SRC.contains(concat!(
+                "started: Ok(child),\n                    from,\n                } => {\n",
+                "                    self.reap_command(child);"
+            )),
+            "a started command is not handed to the watch"
+        );
+        assert!(
+            !SRC.contains(concat!("crate::opener::", "Opener,\n")),
+            "a list to poll"
+        );
+    }
+
     /// **The `OSC 52` poll is the feed's per-read callback.** The pump is
     /// AppKit-bound and no test drives it, so this holds the source: the
     /// pump's one `reads::feed` call hands it `clips.poll`, which then runs
@@ -12417,7 +12443,6 @@ impl Driver {
         if let Trigger::Tick = trigger {
             self.link_host_check();
             self.paths_turn();
-            self.app.commands.reap();
             self.notice_turn();
             self.follow_settings();
             // The indicator line's printer field, read at the pace 070-14's
@@ -14838,7 +14863,6 @@ impl Driver {
             | Holder::A9Front
             | Holder::A13Hosts
             | Holder::A14Paths
-            | Holder::A15Reap
             | Holder::A16Settings => true,
         })
     }
@@ -15163,6 +15187,21 @@ impl Driver {
     fn poll_hover(&mut self) {
         if self.app.read_owed_hover() {
             self.app.owe_frame();
+        }
+    }
+
+    /// **A `[link.*]` command's child, reaped once it ends**
+    /// (`fg::Watch::reap_command`): by its exit, on the process watch's
+    /// thread, so no tick polls for it. A window with no watch -- a
+    /// refused terminal, or a kqueue or thread the system would not give --
+    /// hands it to the effect queue's own reaper, which the end of every
+    /// turn of the queue runs, and every click's effect is such a turn
+    /// (`os_effect::keep_unwatched`): no thread a child, however many are
+    /// clicked.
+    fn reap_command(&mut self, child: std::process::Child) {
+        match &self.watch {
+            Some(w) => w.reap_command(child),
+            None => crate::os_effect::keep_unwatched(child),
         }
     }
 
@@ -16749,7 +16788,7 @@ impl Driver {
                     started: Ok(child),
                     from,
                 } => {
-                    self.app.commands.keep(child);
+                    self.reap_command(child);
                     self.app.links.opened.bump();
                     match from {
                         Asked::PrintedPath => {

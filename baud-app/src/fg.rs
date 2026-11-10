@@ -333,6 +333,7 @@ pub struct Watch {
     moved: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     child: Option<Child>,
+    commands: Commands,
 }
 
 /// **The window's own child, for its watch to reap** (`Watch`): its pid,
@@ -362,7 +363,7 @@ impl Child {
 /// Whether a call reaped the child.
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Reaped {
+pub(crate) enum Reaped {
     Not,
     Now,
 }
@@ -407,30 +408,100 @@ fn wake_event(flags: core::ffi::c_ushort, fflags: core::ffi::c_uint) -> crate::s
 }
 
 /// Who watches a process: the main thread, whose events are the title's
-/// and wake it, or the watch's own thread, whose are only named.
+/// and wake it, the watch's own thread, whose are only named, or a
+/// command's reaper, whose exits only reap ([`Watch::reap_command`]).
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum By {
     Main,
     Thread,
+    Command,
 }
 
 #[cfg(target_os = "macos")]
 impl By {
     /// The mark an event carries back in its `udata`: none for the main
-    /// thread's, and a pointer never read for the thread's.
+    /// thread's, and a pointer never read for the others', one address
+    /// each.
     fn udata(self) -> *mut core::ffi::c_void {
         match self {
             By::Main => std::ptr::null_mut(),
-            By::Thread => std::ptr::dangling_mut(),
+            By::Thread => std::ptr::without_provenance_mut(1),
+            By::Command => std::ptr::without_provenance_mut(2),
         }
     }
 
     fn of(e: &crate::sys::Kevent) -> By {
-        match e.udata.is_null() {
-            true => By::Main,
-            false => By::Thread,
+        match e.udata.addr() {
+            0 => By::Main,
+            2 => By::Command,
+            _ => By::Thread,
         }
+    }
+}
+
+/// **The commands a `[link.*]` rule started, for the watch to reap**
+/// ([`Watch::reap_command`]): each until it has ended. A `Mutex`, as the
+/// main thread hands them over and the watch's thread reaps them.
+#[cfg(target_os = "macos")]
+type Commands = std::sync::Arc<std::sync::Mutex<Vec<std::process::Child>>>;
+
+/// **The commands in `commands` that have ended, reaped**, never waiting:
+/// each marked for the frame rig under the probe. Whether any is left.
+#[cfg(target_os = "macos")]
+fn reap_commands(commands: &Commands) -> Left {
+    let Ok(mut held) = commands.lock() else {
+        return Left::None;
+    };
+    held.retain_mut(|c| match c.try_wait() {
+        Ok(None) => true,
+        Ok(Some(_)) | Err(_) => {
+            #[cfg(feature = "effect-probe")]
+            A_COMMAND_REAPED.store(true, std::sync::atomic::Ordering::Relaxed);
+            false
+        }
+    });
+    match held.is_empty() {
+        true => Left::None,
+        false => Left::Some,
+    }
+}
+
+/// Whether any window's watch has reaped a command, for the frame rig:
+/// the watch's thread marks it, so a static and not the main thread's.
+#[cfg(all(target_os = "macos", feature = "effect-probe"))]
+static A_COMMAND_REAPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// **Whether a command has been reaped yet**, in this process, for the
+/// frame rig.
+#[cfg(all(target_os = "macos", feature = "effect-probe"))]
+pub(crate) fn a_command_reaped() -> Reaped {
+    match A_COMMAND_REAPED.load(std::sync::atomic::Ordering::Relaxed) {
+        true => Reaped::Now,
+        false => Reaped::Not,
+    }
+}
+
+/// Whether a command is left to reap.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Left {
+    None,
+    Some,
+}
+
+/// `SIGCHLD`'s signal event, added: posted for every child of the process
+/// as it becomes a zombie, after its `NOTE_EXIT` (see [`Watch`]).
+#[cfg(target_os = "macos")]
+fn sigchld_event() -> crate::sys::Kevent {
+    use crate::sys::{EV_ADD, EV_CLEAR, EVFILT_SIGNAL, Kevent, SIGCHLD};
+    Kevent {
+        ident: SIGCHLD.unsigned_abs().into(),
+        filter: EVFILT_SIGNAL,
+        flags: EV_ADD | EV_CLEAR,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
     }
 }
 
@@ -528,10 +599,7 @@ impl Watch {
         cell: crate::probe::WatchCell,
         wake: impl Fn() + Send + 'static,
     ) -> Option<Watch> {
-        use crate::sys::{
-            EV_ADD, EV_CLEAR, EVFILT_PROC, EVFILT_SIGNAL, Kevent, NOTE_EXEC, NOTE_EXIT, NOTE_FORK,
-            SIGCHLD,
-        };
+        use crate::sys::{EV_ADD, EV_CLEAR, EVFILT_PROC, Kevent, NOTE_EXEC, NOTE_EXIT, NOTE_FORK};
         use std::sync::atomic::{AtomicBool, Ordering};
         // SAFETY: no arguments; a descriptor or -1.
         let raw = unsafe { crate::sys::kqueue() };
@@ -549,15 +617,7 @@ impl Watch {
         // The child's two events, the signal first, then one look: see the
         // type's doc for why every order of the child's end reaps.
         if let Some(c) = &child {
-            let signal = Kevent {
-                ident: SIGCHLD.unsigned_abs().into(),
-                filter: EVFILT_SIGNAL,
-                flags: EV_ADD | EV_CLEAR,
-                fflags: 0,
-                data: 0,
-                udata: std::ptr::null_mut(),
-            };
-            if change(fd, &signal) < 0 {
+            if change(fd, &sigchld_event()) < 0 {
                 return None;
             }
             // `ESRCH` for a child already gone, which the look reaps. Its
@@ -572,6 +632,8 @@ impl Watch {
         let flag = std::sync::Arc::clone(&moved);
         let held = std::sync::Arc::clone(&kq);
         let reaps = child.clone();
+        let commands = Commands::default();
+        let reaping = std::sync::Arc::clone(&commands);
         let spawned = std::thread::Builder::new()
             .name("baud-fg-watch".into())
             .spawn(move || {
@@ -609,18 +671,27 @@ impl Watch {
                         (Some(c), false) => c.reap(),
                         _ => Reaped::Not,
                     };
+                    // The commands, at every batch: a command's exit, or
+                    // the `SIGCHLD` after it, is one; reaping wakes no one.
+                    let left = match got.is_empty() {
+                        true => Left::Some,
+                        false => reap_commands(&reaping),
+                    };
+                    let waits = reaps.as_ref().is_some_and(|c| !c.done()) || left == Left::Some;
                     if got.iter().any(|e| e.filter == crate::sys::EVFILT_USER) {
-                        // The window has gone: its child, if it has not
-                        // ended, is still reaped here, and no one is woken.
+                        // The window has gone: its child and its commands,
+                        // those not ended, are still reaped here, and no
+                        // one is woken.
                         drop(wake.take());
-                        match &reaps {
-                            Some(c) if !c.done() => continue,
-                            _ => return,
+                        match waits {
+                            true => continue,
+                            false => return,
                         }
                     }
                     if wake.is_none() {
-                        // Closed, and waiting only for the child.
-                        if reaps.as_ref().is_none_or(Child::done) {
+                        // Closed, and waiting only for the child and the
+                        // commands.
+                        if !waits {
                             return;
                         }
                         continue;
@@ -645,6 +716,7 @@ impl Watch {
             moved,
             thread: Some(thread),
             child,
+            commands,
         })
     }
 
@@ -667,6 +739,34 @@ impl Watch {
     pub fn add_children(&self, parent: Pid) {
         for kid in children(parent) {
             self.add(kid);
+        }
+    }
+
+    /// **A `[link.*]` command's child, reaped once it ends**, on the
+    /// watch's thread, by its exit (`NOTE_EXIT`) or the `SIGCHLD` after it,
+    /// so nothing polls for it. Held first, then watched, then looked at
+    /// once: a child that ended before its watch was added (`ESRCH`) is
+    /// reaped by that look, one that ends after by its events, and the
+    /// lock keeps the two from reaping it twice.
+    pub fn reap_command(&self, child: std::process::Child) {
+        use crate::sys::NOTE_EXIT;
+        let pid = Pid::try_from(child.id()).ok();
+        if let Ok(mut held) = self.commands.lock() {
+            held.push(child);
+        }
+        let _ = change(self.fd(), &sigchld_event());
+        if let Some(e) = pid.and_then(|p| proc_event_by(p, NOTE_EXIT, By::Command)) {
+            let _ = change(self.fd(), &e);
+        }
+        let _ = reap_commands(&self.commands);
+    }
+
+    /// Whether a command is held, not yet reaped.
+    #[cfg(test)]
+    fn commands_left(&self) -> Left {
+        match self.commands.lock().map_or(true, |h| h.is_empty()) {
+            true => Left::None,
+            false => Left::Some,
         }
     }
 
@@ -693,7 +793,8 @@ impl Drop for Watch {
         // A thread the event could not reach is left waiting rather than
         // joined forever, its kqueue kept open for it; so is one still to
         // reap the child, which returns once it has.
-        if raised < 0 || self.child.as_ref().is_some_and(|c| !c.done()) {
+        let commands = self.commands.lock().map_or(0, |h| h.len());
+        if raised < 0 || self.child.as_ref().is_some_and(|c| !c.done()) || commands > 0 {
             return;
         }
         let _ = t.join();
@@ -748,6 +849,71 @@ mod tests {
         );
         assert!(kq.upgrade().is_none(), "the kqueue is closed");
         drop(other);
+    }
+
+    /// Whether `w` holds a command, once its thread has had up to two
+    /// seconds to reap them all: the thread reaps them, so the test looks
+    /// until it has or the bound passes.
+    #[cfg(target_os = "macos")]
+    fn left_after(w: &Watch) -> Left {
+        let start = std::time::Instant::now();
+        while w.commands_left() == Left::Some && start.elapsed() < std::time::Duration::from_secs(2)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        w.commands_left()
+    }
+
+    /// **A command handed to the watch is reaped on its thread at its
+    /// exit, and a running one is held**: one that has ended before it is
+    /// handed over is reaped by the look after its watch is added; one
+    /// that runs is held while it runs and reaped once it is ended, with
+    /// nothing asked of the watch between; and the reap is the kernel's, no
+    /// zombie left. Named breaks: the exit not watched -- the running one,
+    /// ended, is held; no look after the watch -- the ended one is held.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_command_is_reaped_at_its_exit_and_held_while_it_runs() {
+        use std::process::{Command, Stdio};
+        let w = Watch::start(None, crate::probe::WatchCell::default(), || {}).expect("a kqueue");
+        let mut done = Command::new("/bin/sh");
+        done.args(["-c", "exit 0"]);
+        let ended = done.spawn().expect("a child");
+        // Ended before it is handed over: `waitid` with `WNOWAIT` waits for
+        // the exit and leaves the zombie.
+        let pid = crate::sys::Pid::try_from(ended.id()).expect("a pid");
+        let mut info = [0u8; 256];
+        let id = core::ffi::c_uint::try_from(pid).expect("a pid");
+        // SAFETY: a buffer larger than either system's `siginfo_t`.
+        let r = unsafe {
+            crate::sys::waitid(
+                crate::sys::P_PID,
+                id,
+                info.as_mut_ptr().cast(),
+                crate::sys::WEXITED | crate::sys::WNOWAIT,
+            )
+        };
+        assert_eq!(r, 0, "waitid: {}", std::io::Error::last_os_error());
+        w.reap_command(ended);
+        assert_eq!(left_after(&w), Left::None, "the ended one, by the look");
+        // SAFETY: signal 0 names no signal; it asks whether `pid` exists.
+        let gone = unsafe { crate::sys::kill(pid, 0) } < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(crate::sys::ESRCH);
+        assert!(gone, "reaped, not left a zombie");
+        let mut run = Command::new("/bin/sh");
+        run.args(["-c", "read x"]).stdin(Stdio::piped());
+        let mut running = run.spawn().expect("a child");
+        let stdin = running.stdin.take().expect("its input");
+        w.reap_command(running);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            w.commands_left(),
+            Left::Some,
+            "the control: held while it runs"
+        );
+        // Its input closed, `read` ends and so does the shell.
+        drop(stdin);
+        assert_eq!(left_after(&w), Left::None, "reaped at its exit");
     }
 
     /// A fresh directory holding `ssh` and `true`, each a link to

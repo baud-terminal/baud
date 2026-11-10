@@ -1116,9 +1116,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &[
-    "FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
-];
+const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A16", "FS-A17"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1169,6 +1167,7 @@ struct Counters {
     fed: u32,
     /// The window's title at the end, from its own line.
     title: String,
+    reaped: u32,
 }
 
 impl Counters {
@@ -1211,6 +1210,7 @@ impl Counters {
             },
             reads: count("reads")?,
             fed: count("fed")?,
+            reaped: count("reaped")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1272,6 +1272,9 @@ enum Settles {
     /// **A job started with no tick, in the window's title**: the ticks
     /// withheld, nothing delivered, and the derived title names the job.
     Titled(&'static str),
+    /// **A command's child reaped with no tick**: the ticks withheld,
+    /// nothing delivered, and the child handed over reaped once it ended.
+    Reaped,
 }
 
 impl Settles {
@@ -1298,6 +1301,7 @@ impl Settles {
             Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
             Settles::Previewed => c.preview == PreviewSeen::Link && c.link == LinkSeen::Pause,
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
+            Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
             }
@@ -1347,7 +1351,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 17] = [
+const FRAME_SITES: [FrameSite; 18] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1694,6 +1698,26 @@ const FRAME_SITES: [FrameSite; 17] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Titled("sleep"),
+        state: RowState::Green,
+    },
+    // **FS-A15**: a command's child, handed to the window as a click's
+    // `[link.*]` command is, is reaped at its exit, the ticks withheld: the
+    // process watch's thread hears its `NOTE_EXIT`, or the `SIGCHLD` after
+    // it, and reaps it, and no tick polls for it. The child is `read` in a
+    // shell, held open until the act closes its input; the probe build
+    // starts no command of a click's own.
+    FrameSite {
+        name: SiteName("a command's child is reaped at its exit with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::CommandExits,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Reaped,
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

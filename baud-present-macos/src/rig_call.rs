@@ -101,9 +101,14 @@ pub enum RigWindow {
     /// The pointer moved over the first row's second cell, no button held,
     /// sent to the view's own `mouseMoved:` (`probe::press`).
     PointerOver,
+    /// A command's child, handed to the window at opening as a click's
+    /// `[link.*]` command is (baud-app's `Driver::reap_command`) with its
+    /// input held open, then that input closed, so the child ends: the probe
+    /// build starts no command of a click's own.
+    CommandExits,
 }
 
-const WINDOW: [(RigWindow, &str); 7] = [
+const WINDOW: [(RigWindow, &str); 8] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -111,6 +116,7 @@ const WINDOW: [(RigWindow, &str); 7] = [
     (RigWindow::Refocused, "refocused"),
     (RigWindow::DisplayOptions, "display-options"),
     (RigWindow::PointerOver, "pointer-over"),
+    (RigWindow::CommandExits, "command-exits"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline
