@@ -14428,6 +14428,10 @@ impl Opening {
         };
         // The window its queue's own effects, a raise, are made on.
         driver.app.os.attach(window.ns_window());
+        // **`gethostname`'s name handed at opening** (`Hosts::given`), before
+        // any byte is read: a report or a link naming this machine lights
+        // whatever the reverse lookup behind the rest takes.
+        driver.hand_host_names(driver.hosts.given().to_vec());
         // **The config's watch, heard on the main queue** (`reload.rs`): the
         // dispatch source's handler drains the kqueue and wakes the view, and
         // `pump` takes the mark. No thread of baud's waits on it.
@@ -15255,11 +15259,12 @@ impl Driver {
         }
     }
 
-    /// **This machine's name reaching the links**, once the thread that reads
-    /// it has ended (`Hosts`), never waited for: every row read again, and
-    /// the preview's next read sees a new host. Until then a `file` link
-    /// naming a host gets no line and no look (`lined::Uris`). A title that
-    /// waited for the names is sent then too.
+    /// **This machine's names reaching the links**, once the thread that
+    /// reads them has ended (`Hosts`), never waited for: every row read
+    /// again, and the preview's next read sees the new names. Until then a
+    /// `file` link naming a host other than `gethostname`'s, which the
+    /// window handed at opening, gets no line and no look (`lined::Uris`). A
+    /// title that waited for the names is sent then too.
     fn link_host_check(&mut self) {
         // A title that waited for this machine's names, once they are read
         // (`TitleWaits`): the names' arrival, which this poll hears.
@@ -15267,19 +15272,20 @@ impl Driver {
             self.title_waits = TitleWaits::No;
             self.send_title();
         }
-        if self.app.uris.host_known() {
-            return;
+        // Every name this machine has, when the read added one to the name
+        // given at opening (`Hosts::owed`).
+        if let Some(names) = self.hosts.owed() {
+            self.hand_host_names(names);
         }
-        // Every name this machine has: a `./`'s `OSC 7` must name one, and a
-        // `file://` link naming either is this machine's, to the policy and
-        // the paths alike.
-        let Some(names) = self.hosts.names() else {
-            return;
-        };
-        let names = crate::link::MachineNames::of(names.to_vec());
+    }
+
+    /// **This machine's names handed to the links and the paths**: a
+    /// `./`'s `OSC 7` must name one, and a `file://` link naming one is this
+    /// machine's, to the policy and the paths alike. At opening, the name
+    /// `gethostname` gives (`Hosts::given`); then every name, once read.
+    fn hand_host_names(&mut self, names: Vec<String>) {
+        let names = crate::link::MachineNames::of(names);
         crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
-        #[cfg(feature = "effect-probe")]
-        baud_present_macos::probe::names_handed();
         self.app.lines.forget();
         // A `file` link under the pointer is this machine's or not by them.
         self.app.hover_owed = crate::link::HoverOwed::Yes;
@@ -16520,11 +16526,11 @@ impl Driver {
     /// (`title::Derive::title`), else "baud". A report naming another
     /// host, refused, is logged once (`Derive::refusal`).
     /// While this machine's names are still being read, a report naming
-    /// a host cannot be judged, and the title shown stays until they are
-    /// (`TitleWaits`).
+    /// a host other than `gethostname`'s cannot be judged, and the title
+    /// shown stays until they are (`TitleWaits`).
     fn derived_title(&mut self) -> String {
         let cwd = self.app.term.working_directory();
-        let Some(names) = judged_by(self.hosts.names(), cwd) else {
+        let Some(names) = self.hosts.judging(cwd) else {
             self.title_waits = TitleWaits::Names;
             return self.titles.sent().unwrap_or("baud").to_string();
         };
@@ -21975,57 +21981,150 @@ impl PrinterList {
 /// title is derived on the shell's first output, which comes while the
 /// launch logo plays, and a wait there holds the logo's frames for as long
 /// as the name takes to read (`derived_title`, note AJ section 18).
+///
+/// **`gethostname`'s name is given at once** (`given`): it is local and
+/// asks nothing of the network, and it is the name a shell's `OSC 7`
+/// carries (zsh's `$HOST`). The window hands it to the links and the
+/// paths at opening, and judges a report by it, so a `file://` link, a
+/// printed `./` path and the title from a report naming this machine light
+/// whatever the reverse lookup behind `hostName` takes. The thread's names
+/// follow, handed once it ends if they add any (`owed`).
 enum Hosts {
-    Reading(std::thread::JoinHandle<Vec<String>>),
-    Read(Vec<String>),
+    /// `gethostname`'s name, given, and the thread reading every name.
+    Reading {
+        given: Vec<String>,
+        thread: std::thread::JoinHandle<Vec<String>>,
+    },
+    /// Every name, read, and whether the links still lack any of them.
+    Read {
+        names: Vec<String>,
+        links: HostsHanded,
+    },
+}
+
+/// Whether the links and the paths have every name [`Hosts`] read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HostsHanded {
+    /// The read added a name to the one given at opening: still to hand.
+    Owed,
+    /// They have every name.
+    All,
+}
+
+/// How far [`Hosts`] has read: what a report naming a host is judged by.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HostsRead {
+    /// `gethostname`'s name only, the thread still reading.
+    Given,
+    /// Every name.
+    Every,
 }
 
 impl Hosts {
-    /// The read started, on its own thread; on the calling thread when no
-    /// thread can be made.
+    /// `gethostname`'s name now, and the read of every name started on its
+    /// own thread; on the calling thread when no thread can be made.
     fn start() -> Hosts {
+        let given: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
         match std::thread::Builder::new()
             .name("hosts".into())
             .spawn(machine_names)
         {
-            Ok(h) => Hosts::Reading(h),
-            Err(_) => Hosts::Read(machine_names()),
+            Ok(thread) => Hosts::Reading { given, thread },
+            Err(_) => Hosts::read(&given, machine_names()),
         }
+    }
+
+    /// Every name read, owed to the links when it adds one to `given`.
+    fn read(given: &[String], names: Vec<String>) -> Hosts {
+        let adds = names
+            .iter()
+            .any(|n| !given.iter().any(|g| g.eq_ignore_ascii_case(n)));
+        Hosts::Read {
+            names,
+            links: match adds {
+                true => HostsHanded::Owed,
+                false => HostsHanded::All,
+            },
+        }
+    }
+
+    /// The names known now: `gethostname`'s while the thread reads, every
+    /// name once it has ended.
+    fn given(&self) -> &[String] {
+        match self {
+            Hosts::Reading { given, .. } => given,
+            Hosts::Read { names, .. } => names,
+        }
+    }
+
+    /// Whether the thread has ended, its names taken when it has; never
+    /// waited for. A thread that ended in a panic leaves the given name.
+    fn ended(&mut self) -> HostsRead {
+        if let Hosts::Reading { thread, .. } = self {
+            if !thread.is_finished() {
+                return HostsRead::Given;
+            }
+            let taken = core::mem::replace(
+                self,
+                Hosts::Read {
+                    names: Vec::new(),
+                    links: HostsHanded::All,
+                },
+            );
+            if let Hosts::Reading { given, thread } = taken {
+                let names = thread.join().unwrap_or_else(|_| given.clone());
+                *self = Hosts::read(&given, names);
+            }
+        }
+        HostsRead::Every
     }
 
     /// The names, once the thread that reads them has ended; `None` while
-    /// it reads, never waited for. A thread that ended in a panic leaves
-    /// `gethostname`'s, which no lookup waits on.
+    /// it reads, never waited for.
     fn names(&mut self) -> Option<&[String]> {
-        if let Hosts::Reading(h) = self {
-            if h.is_finished() {
-                if let Hosts::Reading(h) = core::mem::replace(self, Hosts::Read(Vec::new())) {
-                    *self =
-                        Hosts::Read(h.join().unwrap_or_else(|_| {
-                            crate::hostlog::machine_name().into_iter().collect()
-                        }));
-                }
-            }
+        match self.ended() {
+            HostsRead::Every => Some(self.given()),
+            HostsRead::Given => None,
         }
+    }
+
+    /// The names the links and the paths still lack, once: every name, when
+    /// the ended read added one to the name given at opening.
+    fn owed(&mut self) -> Option<Vec<String>> {
+        let _ = self.ended();
         match self {
-            Hosts::Read(names) => Some(names),
-            Hosts::Reading(_) => None,
+            Hosts::Read { names, links } if *links == HostsHanded::Owed => {
+                *links = HostsHanded::All;
+                Some(names.clone())
+            }
+            _ => None,
         }
+    }
+
+    /// What a report with `cwd` is judged by now (`judged_by`).
+    fn judging(&mut self, cwd: Option<baud_core::WorkingDirectory<'_>>) -> Option<&[String]> {
+        let read = self.ended();
+        judged_by(self.given(), read, cwd)
     }
 }
 
-/// **The names a shell's report is judged by**: this machine's once read;
-/// none for a report naming no host, which needs none; and `None`, wait,
-/// for a report naming a host while they are still being read, which
-/// judged against no names would be refused as another machine's.
+/// **The names a shell's report is judged by**: every name once read;
+/// before then, `gethostname`'s for a report naming no host or naming
+/// that one; and `None`, wait, for a report naming another host while the
+/// rest are still being read, which judged against the given name alone
+/// would be refused as another machine's.
 fn judged_by<'n>(
-    names: Option<&'n [String]>,
+    names: &'n [String],
+    read: HostsRead,
     cwd: Option<baud_core::WorkingDirectory<'_>>,
 ) -> Option<&'n [String]> {
-    match (names, cwd.map(|d| d.host)) {
-        (Some(names), _) => Some(names),
-        (None, Some(baud_core::FileHost::Named(_))) => None,
-        (None, _) => Some(&[]),
+    match (read, cwd.map(|d| d.host)) {
+        (HostsRead::Given, Some(baud_core::FileHost::Named(h)))
+            if !names.iter().any(|n| h.eq_ignore_ascii_case(n.as_bytes())) =>
+        {
+            None
+        }
+        _ => Some(names),
     }
 }
 
@@ -22110,7 +22209,7 @@ fn machine_names() -> Vec<String> {
 
 #[cfg(test)]
 mod host_tests {
-    use super::{Hosts, judged_by, machine_names};
+    use super::{Hosts, HostsRead, judged_by, machine_names};
 
     use baud_core::{FileHost, WorkingDirectory};
 
@@ -22127,7 +22226,11 @@ mod host_tests {
             let _ = held.recv();
             vec!["here".to_string()]
         });
-        let mut hosts = Hosts::Reading(reading);
+        let mut hosts = Hosts::Reading {
+            given: vec!["given".to_string()],
+            thread: reading,
+        };
+        assert_eq!(hosts.given(), ["given"], "the given name at once");
         let (tx, rx) = std::sync::mpsc::channel();
         let taker = std::thread::spawn(move || {
             let _ = tx.send(hosts.names().map(<[String]>::to_vec));
@@ -22144,26 +22247,123 @@ mod host_tests {
             std::thread::yield_now();
         };
         assert_eq!(names, ["here"], "the names once the read has ended");
+        assert_eq!(
+            hosts.owed(),
+            Some(vec!["here".to_string()]),
+            "owed: it adds one"
+        );
+        assert_eq!(hosts.owed(), None, "owed once");
     }
 
-    /// **A report naming a host waits for the names**, where one naming
-    /// none needs none: judged against no names, `OSC 7` naming this
-    /// machine would be refused as another's.
+    /// **`gethostname`'s name reaches the links and the paths at opening**,
+    /// before any byte is read, through the same hand every name takes
+    /// (`hand_host_names`, `link::hand_names`): a `file://` link naming this
+    /// machine is admitted and a `./` under a report naming it is read
+    /// while the reverse lookup still runs (`lined`'s and `paths`' tests
+    /// hold what a handed name admits). The driver is AppKit-bound, so this
+    /// holds its source. Perturbation: the hand at opening taken out -- it
+    /// fails here.
     #[test]
-    fn a_report_naming_a_host_waits_for_the_names() {
-        let named = WorkingDirectory {
-            host: FileHost::Named(b"here"),
+    fn the_given_name_is_handed_at_opening() {
+        const SRC: &str = include_str!("app.rs");
+        let opening = SRC
+            .split_once(concat!("let mut driver = ", "Driver {"))
+            .and_then(|(_, rest)| rest.split_once(concat!("startup_mark(", "\"driver\");")))
+            .map(|(body, _)| body)
+            .expect("the driver's opening");
+        assert!(
+            opening.contains(concat!(
+                "driver.hand_host_names(",
+                "driver.hosts.given().to_vec());"
+            )),
+            "the given name handed at opening"
+        );
+        let hand = SRC
+            .split_once(concat!(
+                "fn hand_host_",
+                "names(&mut self, names: Vec<String>) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the hand");
+        assert!(
+            hand.contains(concat!(
+                "crate::link::hand_",
+                "names(names, &mut self.app.uris, &mut self.app.paths);"
+            )),
+            "{hand}"
+        );
+        let check = SRC
+            .split_once(concat!("fn link_host_", "check(&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the check");
+        assert!(
+            check.contains(concat!("self.hosts.", "owed()")) && !check.contains("host_known"),
+            "every name handed once read, not only while none is: {check}"
+        );
+    }
+
+    /// **A read that adds no name to the given one owes the links nothing**:
+    /// they have it from opening, and a second hand would move the paths'
+    /// generation and owe the hover a read for nothing new.
+    #[test]
+    fn a_read_that_adds_no_name_owes_nothing() {
+        let given = ["Here".to_string()];
+        let mut same = Hosts::read(&given, vec!["here".to_string()]);
+        assert_eq!(same.owed(), None, "the same name, in another case");
+        let mut more = Hosts::read(&given, vec!["here".to_string(), "here.local".to_string()]);
+        assert_eq!(
+            more.owed(),
+            Some(vec!["here".to_string(), "here.local".to_string()]),
+            "the control: a name added is owed"
+        );
+    }
+
+    /// **A report naming the given name is judged at once; one naming
+    /// another host waits for every name**: `gethostname`'s name is the one
+    /// a shell's `OSC 7` carries, and judged by it the report lights while
+    /// the reverse lookup still runs. A report naming another host, judged
+    /// against the given name alone, would be refused as another
+    /// machine's, so it waits until every name is read. Perturbation: every
+    /// named report waiting while the read runs, as before -- the first
+    /// assertion fails.
+    #[test]
+    fn a_report_naming_the_given_name_is_judged_at_once() {
+        let at = |host| WorkingDirectory {
+            host,
             path: b"/tmp",
         };
-        let local = WorkingDirectory {
-            host: FileHost::Local,
-            path: b"/tmp",
-        };
-        let names = ["here".to_string()];
-        assert_eq!(judged_by(None, Some(named)), None, "waits");
-        assert_eq!(judged_by(None, Some(local)), Some(&[][..]));
-        assert_eq!(judged_by(None, None), Some(&[][..]));
-        assert_eq!(judged_by(Some(&names), Some(named)), Some(&names[..]));
+        let given = ["Here".to_string()];
+        assert_eq!(
+            judged_by(&given, HostsRead::Given, Some(at(FileHost::Named(b"here")))),
+            Some(&given[..]),
+            "the given name, in another case: judged now"
+        );
+        assert_eq!(
+            judged_by(
+                &given,
+                HostsRead::Given,
+                Some(at(FileHost::Named(b"there")))
+            ),
+            None,
+            "another host: waits"
+        );
+        assert_eq!(
+            judged_by(&given, HostsRead::Given, Some(at(FileHost::Local))),
+            Some(&given[..])
+        );
+        assert_eq!(judged_by(&given, HostsRead::Given, None), Some(&given[..]));
+        let every = ["here".to_string(), "here.local".to_string()];
+        assert_eq!(
+            judged_by(
+                &every,
+                HostsRead::Every,
+                Some(at(FileHost::Named(b"there")))
+            ),
+            Some(&every[..]),
+            "every name read: judged, and refused by the title"
+        );
     }
 
     /// **An `OSC 7` naming the machine as a shell names it is local**: the

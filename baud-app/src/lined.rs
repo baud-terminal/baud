@@ -349,7 +349,7 @@ impl Uris {
     }
 
     /// Whether this machine's name has been handed over yet.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg(test)]
     pub fn host_known(&self) -> bool {
         self.host.is_some()
     }
@@ -1841,11 +1841,18 @@ mod tests {
             .expect("the driver hands the name over");
         let (at_tick, _) = at_tick.split_once("\n    }\n").expect("its end");
         assert!(
-            at_tick.contains(concat!(".hosts", ".names()")),
+            at_tick.contains(concat!(".hosts", ".owed()")),
             "the thread's read"
         );
-        assert!(at_tick.contains(concat!("link::", "hand_names(")));
-        assert!(at_tick.contains(concat!("lines.", "forget()")));
+        let (_, hand) = src
+            .split_once(concat!(
+                "fn hand_host_",
+                "names(&mut self, names: Vec<String>) {"
+            ))
+            .expect("the hand");
+        let (hand, _) = hand.split_once("\n    }\n").expect("its end");
+        assert!(hand.contains(concat!("link::", "hand_names(")));
+        assert!(hand.contains(concat!("lines.", "forget()")));
         // A click takes the answer the line took: the driver it runs in needs
         // a window, so the seam here is its source and `admit` on the same name.
         assert!(

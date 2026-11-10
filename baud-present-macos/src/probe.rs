@@ -266,8 +266,6 @@ thread_local! {
     static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
     /// The turns that fed the core (`FedTurns`).
     static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
-    /// Whether this machine's names were handed (`Named`).
-    static NAMED: Cell<Named> = const { Cell::new(Named::No) };
     /// The followed settings' changes taken: scroller, flashing, animated.
     static FOLLOWED: Cell<[Taken; 3]> = const { Cell::new([Taken(0); 3]) };
     /// What baud reads of the display options (`Access`).
@@ -529,26 +527,6 @@ pub fn followed(s: Followed) -> Taken {
         Followed::Flashing => flashing,
         Followed::Animated => animated,
     }
-}
-
-/// Whether baud-app has handed this machine's names to the links.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Named {
-    No,
-    Yes,
-}
-
-/// **This machine's names handed to the links** (baud-app's
-/// `link_host_check`): the frame rig hands its own at opening and checks
-/// they were, so no hand lands after a settle, where its owed read of the
-/// hover would be counted as the act's.
-pub fn names_handed() {
-    NAMED.with(|n| n.set(Named::Yes));
-}
-
-/// Whether this machine's names were handed to the links.
-pub fn named() -> Named {
-    NAMED.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.

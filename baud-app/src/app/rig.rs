@@ -490,18 +490,22 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let id = crate::windows::Windows::<()>::new().open(());
     driver.window_id = Some(id);
     driver.app.os.name(id);
-    // **This machine's names given at opening** (the rig's seam): the
-    // name `gethostname` gives, which a shell's `OSC 7` names, in place of
-    // the names thread's (`Hosts`), whose `NSProcessInfo.hostName` runs at
-    // the network's pace, and handed through the window's own hand
-    // (`link_host_check`) before the first turn. No row waits on the
-    // network, and no hand lands after a settle to owe the hover a read.
-    driver.hosts = super::Hosts::Read(crate::hostlog::machine_name().into_iter().collect());
-    driver.link_host_check();
-    if probe::named() == probe::Named::No {
-        println!("this machine's names were not handed at opening");
-        return std::process::ExitCode::from(1);
-    }
+    // **The reverse lookup stalled** (the rig's seam): the window's read of
+    // every name (`Hosts`), whose `NSProcessInfo.hostName` runs at the
+    // network's pace, replaced by one that never returns while the row
+    // runs, `gethostname`'s name, given at opening, kept. Every row then
+    // runs on that name alone: none waits on the network, and no hand of
+    // the read's names lands after a settle to owe the hover a read.
+    let (_stall, stalled) = std::sync::mpsc::channel::<()>();
+    let given = driver.hosts.given().to_vec();
+    let read = given.clone();
+    driver.hosts = super::Hosts::Reading {
+        given,
+        thread: std::thread::spawn(move || {
+            let _ = stalled.recv();
+            read
+        }),
+    };
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);

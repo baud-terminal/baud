@@ -1364,7 +1364,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 19] = [
+const FRAME_SITES: [FrameSite; 20] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1753,6 +1753,27 @@ const FRAME_SITES: [FrameSite; 19] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Followed,
+        state: RowState::Green,
+    },
+    // **A shell's report naming this machine is judged on `gethostname`'s
+    // name alone**, the reverse lookup behind the rest stalled (the rig's
+    // seam): an `OSC 7` naming this machine as `/bin/hostname` prints it --
+    // the name a shell carries -- is judged at once, so the derived title
+    // is the report's folder, the ticks withheld. Before, a report naming
+    // a host waited for every name, which the lookup held as long as the
+    // network did, and the title stayed the last one sent.
+    FrameSite {
+        name: SiteName("a report naming this machine titles the window, the lookup stalled"),
+        setup: r#"mkdir -p sub && printf '\033]7;file://%s%s/sub\007\033]52;c;!\007' "$(hostname)" "$PWD""#,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Titled("/sub"),
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

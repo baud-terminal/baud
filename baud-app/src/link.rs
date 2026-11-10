@@ -3085,9 +3085,10 @@ mod tests {
     /// app's own code (comments, literals and tests left out), every
     /// `.set_names(` call is one of `hand_names`' two, so no driver hands
     /// either side a set of its own; and the macOS window's
-    /// `link_host_check` builds the set from all the names its thread read.
+    /// `link_host_check` hands all the names its thread read, through
+    /// `hand_host_names`, as the opening hands `gethostname`'s.
     /// Named breaks: a `set_names` call outside `hand_names` (in
-    /// `link_host_check`) -- the first part names its file; the window
+    /// `hand_host_names`) -- the first part names its file; the window
     /// handing its last name alone (`MachineNames::of(names.last()..)`) --
     /// the second part fails.
     #[test]
@@ -3135,9 +3136,17 @@ mod tests {
         let app = include_str!("app.rs");
         let check = crate::no_appkit::fn_body(app, concat!("fn link_host_", "check(&mut self) {"));
         assert!(
-            check.contains("MachineNames::of(names.to_vec())")
-                && check.contains("hand_names(names, "),
+            check.contains(concat!("self.hosts.", "owed()"))
+                && check.contains(concat!("self.hand_host_", "names(names)")),
             "the window hands every name it read"
+        );
+        let hand = crate::no_appkit::fn_body(
+            app,
+            concat!("fn hand_host_", "names(&mut self, names: Vec<String>) {"),
+        );
+        assert!(
+            hand.contains("MachineNames::of(names)") && hand.contains("hand_names(names, "),
+            "whole, through hand_names"
         );
     }
 
