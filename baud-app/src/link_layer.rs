@@ -69,7 +69,8 @@ pub(crate) fn read(
 
 /// **After a batch of reads was fed**: each part of each read, with the
 /// writers it was fed under (`reads::paced`), kept with the lines the batch
-/// wrote from `began` to `ended` (`Probes::drain_taken`).
+/// wrote from `began` to `ended`, each page-width request's re-cut among
+/// them followed by what it told (`recuts`, `Probes::drain_recut`).
 pub(crate) fn fed<T: Moment>(
     probes: &mut Probes<T>,
     paths: &mut Paths,
@@ -77,8 +78,9 @@ pub(crate) fn fed<T: Moment>(
     parts: impl Iterator<Item = (Writers, Linked)> + Clone,
     on: (LineOn, LineOn),
     lines: CoreLines,
+    recuts: &crate::paths::Recuts,
 ) {
-    probes.drain_taken(paths, term, on, lines, parts);
+    probes.drain_recut(paths, term, on, lines, parts, recuts);
 }
 
 /// **The clock's half of a turn, at `now`**: the worker's hang watched and

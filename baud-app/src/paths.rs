@@ -960,6 +960,129 @@ impl CoreLines {
     }
 }
 
+/// **The lines each re-cut of the primary moved, as the core told them**
+/// (`Term::resize_with`, `LineRecut`), kept by a driver and reused: each
+/// resize's map sorted by the lines the text held before, with whether the
+/// resize told every line it re-cut, and the maps' buffers kept between
+/// batches. A window resize takes one ([`Recuts::last`]); a page-width
+/// request among a read's parts seals the resizes it made as that part's
+/// ([`Recuts::seal`]), and the drain takes each part's in the parts' order
+/// ([`Recuts::sealed`]), a part that made one naming it by [`RecutAt`].
+#[derive(Debug, Default)]
+pub struct Recuts {
+    sealed: Vec<Vec<Cut>>,
+    open: Vec<Cut>,
+    spare: Vec<Vec<baud_core::LineRecut>>,
+}
+
+/// One resize's map and whether it told every line it re-cut.
+#[derive(Debug)]
+struct Cut {
+    map: Vec<baud_core::LineRecut>,
+    following: baud_core::Following,
+}
+
+/// **That a part made resizes, sealed as its own** ([`Recuts::seal`]), with
+/// the primary's window top before them (`pre`), on the core's numbers
+/// before the re-cut: the window's last line then is one the re-cut may
+/// renumber. The drain takes the part's resizes as the next sealed ones,
+/// in the parts' order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RecutAt {
+    pre: baud_domain::LineIdx,
+}
+
+impl RecutAt {
+    /// Resizes a part made, the window's top `pre` before them.
+    pub fn before(pre: baud_domain::LineIdx) -> RecutAt {
+        RecutAt { pre }
+    }
+
+    /// The primary's window top before the re-cut.
+    pub fn pre(&self) -> baud_domain::LineIdx {
+        self.pre
+    }
+}
+
+/// Whether a part made any resize ([`Recuts::seal`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Sealed {
+    No,
+    Yes,
+}
+
+/// **One resize's re-cut, as told** ([`Recuts::last`]): the lines, in the
+/// order of the text they held before, and whether every line it re-cut
+/// was told. Not followed is never read as an empty map.
+#[derive(Clone, Copy, Debug)]
+pub struct Told<'a> {
+    pub map: &'a [baud_core::LineRecut],
+    pub following: baud_core::Following,
+}
+
+impl Cut {
+    fn told(&self) -> Told<'_> {
+        Told {
+            map: &self.map,
+            following: self.following,
+        }
+    }
+}
+
+impl Recuts {
+    /// No re-cut held: what a batch is drained with where nothing could
+    /// have resized it.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    pub const NONE: Recuts = Recuts {
+        sealed: Vec::new(),
+        open: Vec::new(),
+        spare: Vec::new(),
+    };
+
+    /// Every re-cut forgotten, the maps' buffers kept: a batch's start.
+    pub fn clear(&mut self) {
+        let cuts = self.sealed.drain(..).flatten().chain(self.open.drain(..));
+        for mut c in cuts {
+            c.map.clear();
+            self.spare.push(c.map);
+        }
+    }
+
+    /// **`term` resized to `ws`, what its re-cut told kept**
+    /// (`Term::resize_with`), sorted by the lines the text held before, in
+    /// a buffer an earlier resize left: the resize's own answer.
+    pub fn resize(&mut self, term: &mut Term<'_>, ws: &baud_domain::WinSize) -> baud_core::Resized {
+        let mut map = self.spare.pop().unwrap_or_default();
+        let (resized, following) = term.resize_with(ws, &mut |r| map.push(r));
+        // Told in the copy's order, newest first where it narrows.
+        map.sort_unstable_by_key(|r| r.old.first());
+        self.open.push(Cut { map, following });
+        resized
+    }
+
+    /// The last resize made and not sealed, as told: a window resize's.
+    pub fn last(&self) -> Option<Told<'_>> {
+        self.open.last().map(Cut::told)
+    }
+
+    /// **The resizes made since the last seal, sealed as one part's**:
+    /// whether there were any.
+    pub fn seal(&mut self) -> Sealed {
+        if self.open.is_empty() {
+            return Sealed::No;
+        }
+        self.sealed.push(core::mem::take(&mut self.open));
+        Sealed::Yes
+    }
+
+    /// **Each sealed part's resizes, as told, in the parts' order**: the
+    /// first a drain takes for the first part that names one
+    /// ([`RecutAt`]), and so on.
+    pub fn sealed(&self) -> impl Iterator<Item = impl Iterator<Item = Told<'_>> + '_> + '_ {
+        self.sealed.iter().map(|part| part.iter().map(Cut::told))
+    }
+}
+
 /// **Where one part's lines fall on the app's numbers**
 /// ([`CoreLines::part`]): the core's line at the primary's top as the part
 /// ended and the count that numbers it here.
@@ -1646,6 +1769,11 @@ pub struct Paths {
     /// ([`Paths::observe`]).
     slots: Vec<Option<SlotRecord>>,
     slots_at: Option<LinkEpoch>,
+    /// **The last re-cut's lines, before and after, here** ([`Paths::reflowed`]),
+    /// in the order of the text before, and what each takes on its new
+    /// lines: kept until the next, so the driver's spans are carried by the
+    /// same lines ([`Paths::recut_span`]), and reused.
+    recut: Vec<(LineSpan, LineSpan, Option<Fact>)>,
 }
 
 /// **What was filed over one surface's lines**: each run of lines, sorted,
@@ -2435,6 +2563,178 @@ impl Paths {
             let surface = self.surface(Screen::Alternate);
             self.renumbered(surface, alternate);
         }
+    }
+
+    /// **A re-cut of the primary's lines followed line by line** (`map`,
+    /// as `Term::resize_with` told it, sorted by the text's lines before),
+    /// in place of the floor a re-cut no map follows leaves
+    /// ([`Paths::renumbered`]): each line's new lines take the most
+    /// cautious writer of the lines its text held ([`Paths::worst_over`],
+    /// [`Fact::carried`]), all of them read from the facts as they stood
+    /// before, then filed. `at` places the core's numbers here, the same
+    /// count before the re-cut and after it (`keep::Counts`, which moves by
+    /// the window's top): `old` and `new` are both counted from the old
+    /// oldest line, and the new oldest is it plus the lines the re-cut
+    /// dropped (`Term::reflow_dropped`), so a line told is the first kept.
+    ///
+    /// Not known from here on, a local fact filed later included: every
+    /// line before the first told -- the lines the re-cut dropped, gone
+    /// from the history, and any it never numbered -- by the floor; every
+    /// line up to `last` that no line told covers -- the window's last rows
+    /// the re-cut blanked, whose cells may come back on a widen, and any
+    /// line the map left out -- by a fact no later one lifts
+    /// (`Fact::Unvouched`); and every line `at` cannot place, as one whose
+    /// writer was named nothing. With nothing told --
+    /// a line taller than the whole ring, dropped with the rest -- the
+    /// floor reaches `last`, as a re-cut no map follows leaves it.
+    ///
+    /// Returned: each new line with each span still to be named that
+    /// covered its text before (`Paths::pending`), which the driver holds
+    /// under that span's group, as for a part's moves ([`Paths::carried`]):
+    /// a line two writers' text now shares lights only once both are named.
+    pub fn reflowed(
+        &mut self,
+        map: &[baud_core::LineRecut],
+        at: &PartLines,
+        last: AbsLine,
+    ) -> Vec<(LineSpan, LineSpan)> {
+        let surface = Surface::Primary;
+        let place = |s: baud_core::Span| {
+            let a = at.line(Screen::Normal, s.first())?;
+            let b = at.line(Screen::Normal, s.last())?;
+            Some(LineSpan::on(surface, a, b))
+        };
+        let mut recut = core::mem::take(&mut self.recut);
+        recut.clear();
+        let mut held = Vec::new();
+        let mut by = Vec::new();
+        for r in map {
+            // A line before the session's first is no line here.
+            let Some(new) = place(r.new) else {
+                continue;
+            };
+            by.clear();
+            let (old, worst) = match place(r.old) {
+                Some(old) => (
+                    old,
+                    self.worst_over(surface, (old.first, old.last), &mut by),
+                ),
+                // Before the session's first, as only the oldest can be: on
+                // its first line, so the lines before stay in order.
+                None => {
+                    let first = AbsLine::at(Rows::ZERO);
+                    (
+                        LineSpan::on(surface, first, first),
+                        Some(Provenance::NotNamed),
+                    )
+                }
+            };
+            held.extend(by.iter().map(|&p| (new, p)));
+            recut.push((old, new, worst.map(Fact::carried)));
+        }
+        // The new lines in order, as the old are: the re-cut keeps the
+        // order of the text.
+        debug_assert!(recut.windows(2).all(|w| w[0].1.last < w[1].1.first));
+        let store = &mut self.primary;
+        store.runs.clear();
+        store.floor = match recut.first() {
+            Some((_, new, _)) => new.first.above(),
+            None => Some(last),
+        };
+        // The lines no line told covers, up to `last`.
+        let mut next = recut.first().map(|(_, new, _)| new.first);
+        let mut uncovered = Vec::new();
+        for &(_, new, _) in &recut {
+            if let (Some(n), Some(before)) = (next, new.first.above()) {
+                if n <= before {
+                    uncovered.push(LineSpan::on(surface, n, before));
+                }
+            }
+            next = Some(new.last.below());
+        }
+        if let Some(n) = next.filter(|n| *n <= last) {
+            uncovered.push(LineSpan::on(surface, n, last));
+        }
+        for &(_, new, fact) in &recut {
+            if let Some(fact) = fact {
+                self.file(fact, new);
+            }
+        }
+        for span in uncovered {
+            self.file(Fact::Unvouched, span);
+        }
+        self.recut = recut;
+        // What else here names a primary line: the program in front's
+        // line, the first a `./` is read against the folder from, and each
+        // link slot's lines.
+        self.front_from = self.front_from.map(|f| self.recut_line(f));
+        // Never earlier than it was: a line before the report keeps before
+        // it whichever surface the line was read on (`Paths::observe`
+        // takes it again at the next scan, the geometry changed).
+        self.dir.from = self.dir.from.map(|f| {
+            let on = self.recut_line(LineOn { surface, line: f });
+            on.line.max(f)
+        });
+        let mut slots = core::mem::take(&mut self.slots);
+        for r in slots.iter_mut().flatten() {
+            r.primary = r.primary.map(|s| self.recut_span(s));
+        }
+        self.slots = slots;
+        self.refiled = self.refiled.map(|s| self.recut_span(s));
+        self.origins = self.origins.next();
+        self.generation = self.generation.next();
+        self.changed();
+        held
+    }
+
+    /// **The line `on` names after the last re-cut** ([`Paths::recut_span`]):
+    /// the first of the lines its text now takes. One choice for every
+    /// single line carried -- the program in front's, a batch's cursor
+    /// (`probe::Probes::recut`) -- so the line a program is named from and
+    /// the line the one before it is filed to are the same line: the rows
+    /// of that line's text past its first are filed by the spans the reads
+    /// that wrote them named.
+    pub fn recut_line(&self, on: LineOn) -> LineOn {
+        let line = self
+            .recut_span(LineSpan::on(on.surface, on.line, on.line))
+            .first;
+        LineOn { line, ..on }
+    }
+
+    /// **Where the text of `span` is after the last re-cut**
+    /// ([`Paths::reflowed`]): the new lines of every line told whose text
+    /// it held, joined; its lines before the first told, which the re-cut
+    /// dropped, on the floor's last line; and its lines past the last told
+    /// -- rows no line held -- from the line after the last told on, which
+    /// is not known. Never nothing, so a span carried stays a span and
+    /// stays cautious. The span as it was on another surface, or where
+    /// nothing was told.
+    pub fn recut_span(&self, span: LineSpan) -> LineSpan {
+        let (Some(&(o0, n0, _)), Some(&(oz, nz, _))) = (self.recut.first(), self.recut.last())
+        else {
+            return span;
+        };
+        if span.surface != Surface::Primary {
+            return span;
+        }
+        let mut out: Option<LineSpan> = None;
+        let mut join = |s: LineSpan| out = Some(out.map_or(s, |o| o.joined(s)));
+        let from = self.recut.partition_point(|(o, _, _)| o.last < span.first);
+        for &(o, n, _) in &self.recut[from..] {
+            if o.first > span.last {
+                break;
+            }
+            join(n);
+        }
+        if span.first < o0.first {
+            let floor = n0.first.above().unwrap_or(n0.first);
+            join(LineSpan::on(span.surface, floor, floor));
+        }
+        if span.last > oz.last {
+            let after = nz.last.below();
+            join(LineSpan::on(span.surface, after, span.last.max(after)));
+        }
+        out.unwrap_or(span)
     }
 
     /// **The primary's window was taken back past the session's first
@@ -7004,32 +7304,96 @@ mod tests {
         );
     }
 
-    /// **Both drivers file a window resize at the resize**: in each, the
-    /// primary's last line, by its own count, is read before `Term::resize` and
-    /// [`Paths::resized`] is called after it, in the same function, so no
-    /// hover or frame between reads the old facts. The drivers' resizes
-    /// are AppKit's and Wayland's, so the source is what can fail. Named
-    /// break: drop the call from one driver.
+    /// **A re-cut carries the line a folder is read from** (`Dir::from`):
+    /// a line of thirty columns, `./x` under it, then the shell's folder
+    /// report with the cursor on the line after, at forty columns; the
+    /// window narrows to twenty, the long line takes two rows, and `./x`
+    /// moves down to the line the folder was read from before. It stays
+    /// before that line, which moved with the cursor's: `./x`, printed
+    /// before the report, is not read against the folder. The control: the
+    /// folder is read from the cursor's line, after `./x`'s. Named break:
+    /// the line left where it was (`Paths::reflowed` carrying no
+    /// `Dir::from`) -- it is `./x`'s new line.
+    #[test]
+    fn a_re_cut_carries_the_line_a_folder_is_read_from() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        p.set_names(crate::link::MachineNames::of(vec![
+            "here.example".to_string(),
+        ]));
+        let s = Scrolled::START;
+        let base = t.history_mark().line();
+        let _ = p.observe(&t, s);
+        let text = format!(
+            "{}\r\n./x\r\n\x1b]7;file://here.example/w\x07",
+            "y".repeat(30)
+        );
+        feed(&mut t, text.as_bytes());
+        let _ = p.observe(&t, s);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        assert_eq!(p.dir.from, Some(line(2)), "the control: the cursor's line");
+        let mut recuts = Recuts::default();
+        let _ = recuts.resize(
+            &mut t,
+            &WinSize {
+                ws_col: 20,
+                ws_row: 6,
+            },
+        );
+        let lines = CoreLines::of(Some((base, s))).on(Rows::of_count(6), s, Numbers::Followed);
+        let at = lines.part(Some(t.history_mark().line()));
+        let map = recuts.last().expect("the resize, told").map;
+        let _ = p.reflowed(map, &at, line(5));
+        let x = (0..6)
+            .find(|&y| {
+                t.row(baud_domain::Row::from_index(y)).is_some_and(|r| {
+                    r.first()
+                        .and_then(|c| c.content.as_codepoint())
+                        .map(|c| c.value())
+                        == Some(u32::from(b'.'))
+                })
+            })
+            .expect("./x on the screen");
+        assert_eq!(x, 2, "the control: ./x moved down a line");
+        assert_eq!(p.dir.from, Some(line(3)), "after ./x");
+    }
+
+    /// **Both drivers file a window resize at the resize, by what it told**:
+    /// in each, the primary's last line, by its own count, is read before
+    /// the resize, the resize is made through the pace's buffer, which
+    /// keeps what its re-cut told (`Recuts::resize`, reused), and
+    /// `Probes::resized` is called after it, in the same function, with
+    /// that resize's own map -- so no hover or frame between reads the old
+    /// facts, and no map is read for a resize that told none. The drivers'
+    /// resizes are AppKit's and Wayland's, so the source is what can fail.
+    /// Named breaks: drop the call from one driver; resize it by
+    /// `Term::resize`, which tells nothing.
     #[test]
     fn both_drivers_file_a_resize_at_the_resize() {
-        for (name, src, resized, primary) in [
+        for (name, src, call, resized, told, primary) in [
             (
                 "app.rs",
                 include_str!("app.rs"),
-                concat!("self.app.paths.", "resized("),
+                concat!("self.app.pace.recuts.", "resize(&mut self.app.term, &ws)"),
+                concat!("self.app.probes.", "resized("),
+                concat!("(&rec, self.app.pace.recuts.", "last())"),
                 concat!("last_line(&self.app.term, ", "self.app.counts.primary())"),
             ),
             (
                 "linux.rs",
                 include_str!("linux.rs"),
-                concat!(
-                    ".resized(&rec, &self.term, ",
-                    "was_last, primary, alternate)"
-                ),
+                concat!("self.pace.recuts.", "resize(&mut self.term, &ws)"),
+                concat!("self.probes.", "resized("),
+                concat!("(&rec, self.pace.recuts.", "last())"),
                 concat!("last_line(&self.term, ", "self.seat.counts().primary())"),
             ),
         ] {
-            let call = concat!("term.resize(", "&ws)");
             let (before, after) = src
                 .split_once(call)
                 .unwrap_or_else(|| panic!("{name}: the resize"));
@@ -7041,8 +7405,12 @@ mod tests {
                 "{name}: the primary's last line read before the resize"
             );
             assert!(
-                body_after.contains(resized),
-                "{name}: Paths::resized after the resize"
+                body_after.contains(resized) && body_after.contains(told),
+                "{name}: Probes::resized after the resize, with its map"
+            );
+            assert!(
+                !body_before.contains(concat!("term.", "resize(&ws)")),
+                "{name}: no resize that tells nothing"
             );
         }
     }

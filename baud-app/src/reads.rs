@@ -34,13 +34,14 @@ pub fn feed_parts<'r, T: Part>(
 ) -> Vec<T> {
     let mut pace = Pace::new();
     let mut took = Vec::new();
+    let mut after = after;
     let _ = paced(
         term,
         &mut pace,
         Instant::now(),
         reads,
         sink,
-        after,
+        |t, _| after(t),
         log,
         &mut took,
     );
@@ -87,6 +88,11 @@ pub struct Pace<T = ()> {
     why: Why,
     /// Delays ended early by [`HELD_MAX`].
     pub cut: DelaysCut,
+    /// **What each re-cut of the primary a call's parts asked for moved**
+    /// (`paths::Recuts`): one buffer, cleared as each call starts and
+    /// reused, each part's share named on its [`Taken`]. A window resize
+    /// between calls takes its own from it as well.
+    pub recuts: crate::paths::Recuts,
 }
 
 /// Whether the held reads wait on a one-shot ReGIS input.
@@ -130,6 +136,7 @@ impl<T: Copy> Pace<T> {
             input: Input::Free,
             why: Why::Delay,
             cut: DelaysCut::NONE,
+            recuts: crate::paths::Recuts::default(),
         }
     }
 
@@ -178,6 +185,9 @@ pub struct Taken {
     pub top: baud_domain::LineIdx,
     pub end_row: crate::vouch::EndRow,
     pub drew: crate::vouch::Drew,
+    /// The re-cuts `after` made for the part ([`Pace::recuts`]), told
+    /// line by line: none where it made none.
+    pub recut: Option<crate::paths::RecutAt>,
 }
 
 /// **A read's tag, cut to a part of its bytes**: what a read carries of
@@ -364,10 +374,11 @@ pub fn paced<'r, T: Part>(
     now: Instant,
     reads: impl IntoIterator<Item = (&'r [u8], T)>,
     mut sink: impl FnMut(&[u8]),
-    mut after: impl FnMut(&mut Term<'_>),
+    mut after: impl FnMut(&mut Term<'_>, &mut crate::paths::Recuts),
     log: &mut impl crate::hostlog::Tee,
     took: &mut Vec<T>,
 ) -> Fed {
+    pace.recuts.clear();
     printer_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
@@ -456,7 +467,7 @@ fn paced_one<T: Part>(
     now: Instant,
     (bytes, tag): (&[u8], T),
     sink: &mut impl FnMut(&[u8]),
-    after: &mut impl FnMut(&mut Term<'_>),
+    after: &mut impl FnMut(&mut Term<'_>, &mut crate::paths::Recuts),
     log: &mut impl crate::hostlog::Tee,
     took: &mut Vec<T>,
 ) -> Fed {
@@ -553,15 +564,42 @@ fn paced_one<T: Part>(
             log.take(&bytes[r.at.index()..fed_to]);
         }
         log.follow(term);
-        after(term);
-        // The part's record, taken after `after`, so a resize the embedder
-        // made for the part -- a page-width request's -- is its, and the
+        // The part's record, taken before `after`, so the lines its bytes
+        // wrote are named on the numbers they were written at, and the
         // window's top with it: once per part, never per byte.
         let rec = term.take_record();
         let top = term.history_mark().line();
         let end_row = crate::vouch::EndRow::of(term);
         let drew = crate::vouch::Drew::of(images, term);
-        // A part before the cut folds its verdict into the plan's.
+        let grid = term.geometry();
+        after(term, &mut pace.recuts);
+        let made = pace.recuts.seal();
+        // **A resize the embedder made for the part** -- a page-width
+        // request's -- is a part of its own after it, of none of its bytes:
+        // its record says the lines were renumbered, and what the resize
+        // told of its re-cut rides with it (`paths::RecutAt`), so the lines
+        // the part wrote are filed on the old numbers and then carried. One
+        // that told nothing renumbers them for every reader after it.
+        let resized = (made == crate::paths::Sealed::Yes || term.geometry() != grid).then(|| {
+            let end = BytePos::from_index(fed_to);
+            let resize = piece.part(end, end).under(pens);
+            let rec = term.take_record();
+            let taken = Taken {
+                record: rec,
+                top: term.history_mark().line(),
+                end_row: crate::vouch::EndRow::of(term),
+                drew: crate::vouch::Drew::Nothing,
+                recut: (made == crate::paths::Sealed::Yes)
+                    .then_some(crate::paths::RecutAt::before(top)),
+            };
+            (resize, taken)
+        });
+        // A part before the cut folds its verdict into the plan's. Its
+        // record was taken before `after`, so a page-width request's resize
+        // is not on it and does not refuse the cut here: the resize's own
+        // part says the lines were renumbered, and a cut a re-cut came
+        // among is refused where the parts are filed
+        // (`Probes::drain_segment`).
         if tag.plan().is_some() {
             tag = tag.pre_cut(crate::vouch::CutAt::of(&rec, fed.matched(&rec)));
         }
@@ -577,9 +615,15 @@ fn paced_one<T: Part>(
                 top,
                 end_row,
                 drew,
+                recut: None,
             })));
             last = Some(fed);
             last_end = Some(end_row);
+        }
+        if let Some((resize, taken)) = resized {
+            took.push(resize.recorded(Some(taken)));
+            last = Some(resize);
+            last_end = Some(taken.end_row);
         }
         if let Some(w) = term.take_regis_wait() {
             pace.until = Some(now + Duration::from_micros(w.micros()));
@@ -740,7 +784,17 @@ mod tests {
         log: &mut impl crate::hostlog::Tee,
     ) -> Fed {
         let tagged = reads.into_iter().map(|r| (r, ()));
-        super::paced(term, pace, now, tagged, sink, after, log, &mut Vec::new())
+        let mut after = after;
+        super::paced(
+            term,
+            pace,
+            now,
+            tagged,
+            sink,
+            |t, _| after(t),
+            log,
+            &mut Vec::new(),
+        )
     }
 
     /// A log that keeps each part it is handed, and the core's mode each
@@ -1091,11 +1145,15 @@ mod tests {
         );
     }
 
-    /// **A resize the embedder makes for a part is that part's**: a read
-    /// ending in a page-width request, which `after` answers by resizing,
-    /// has nothing after it to carry the re-cut, so the part's own record
-    /// says the lines were renumbered -- else it waits for a read that may
-    /// not come. Named break: take the record before `after` -- none.
+    /// **A resize the embedder makes for a part is a part of its own after
+    /// it**: a read ending in a page-width request, which `after` answers
+    /// by resizing, has nothing after it to carry the re-cut, so the resize
+    /// is pushed as a part whose record says the lines were renumbered --
+    /// else it waits for a read that may not come -- after the part whose
+    /// bytes asked, whose record names its lines on the numbers they were
+    /// written at. Named breaks: no part for the resize -- the renumbering
+    /// is in no record; the record taken after `after`, one part -- the
+    /// bytes' lines are named on no number.
     #[test]
     fn a_resize_after_a_part_is_in_that_parts_record() {
         use baud_core::{Renumbered, WidthHold};
@@ -1121,7 +1179,7 @@ mod tests {
             .iter()
             .map(|r| r.0.and_then(|r| r.renumbered()))
             .collect();
-        assert_eq!(said, [Some(Renumbered::Resize)], "{took:?}");
+        assert_eq!(said, [None, Some(Renumbered::Resize)], "{took:?}");
     }
 
     /// Row 0's text.

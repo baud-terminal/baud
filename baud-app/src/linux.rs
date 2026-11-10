@@ -1355,7 +1355,7 @@ impl Driver {
                 }
                 self.outbox.push(b);
             },
-            |t| {
+            |t, _| {
                 if let Some((d, warn)) = clips.poll(t, osc52) {
                     if let Some(line) = warn {
                         crate::warn!("{line}");
@@ -3434,7 +3434,12 @@ impl Driver {
         );
         let was = (self.term.geometry().0, self.term.screen());
         let was_last = crate::paths::last_line(&self.term, self.seat.counts().primary());
-        if let Resized::Truncated { cols, rows } = self.term.resize(&ws) {
+        // The re-cut told line by line, into the pace's buffer, which every
+        // resize reuses (`paths::Recuts`): no read is between here and the
+        // filing below.
+        self.pace.recuts.clear();
+        let resized = self.pace.recuts.resize(&mut self.term, &ws);
+        if let Resized::Truncated { cols, rows } = resized {
             crate::warn!(
                 "the window is larger than the grid; {}x{} of it is drawn",
                 cols.index(),
@@ -3448,13 +3453,16 @@ impl Driver {
         // files the paths.
         let rec = self.term.take_record();
         self.seat.resized(&self.term, was, &rec);
-        // The printed paths' facts, filed at once where the resize re-cut
-        // the lines (`Paths::resized`), before anything reads them.
+        // The printed paths' facts, carried at once where the resize re-cut
+        // the lines (`Probes::resized`), before anything reads them.
         let counts = self.seat.counts();
-        let (primary, alternate) = (counts.primary(), counts.alternate());
-        self.seat
-            .paths
-            .resized(&rec, &self.term, was_last, primary, alternate);
+        self.probes.resized(
+            &mut self.seat.paths,
+            (&rec, self.pace.recuts.last()),
+            &self.term,
+            was_last,
+            &counts,
+        );
         // The find's matches on the re-laid grid, and its current match
         // selected again, as the macOS driver's resize does.
         if let Some(f) = self.finding.as_mut() {

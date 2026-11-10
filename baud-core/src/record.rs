@@ -377,6 +377,35 @@ enum StartState {
     Wrote,
 }
 
+/// **One line of the primary a re-cut moved** ([`crate::Term::resize_with`]):
+/// the lines its text held before the re-cut, `old`, and after it, `new`,
+/// both numbered as the record numbers the primary's lines. Told once a
+/// line in the order the re-cut copies them -- oldest first where it
+/// widens, newest first where it narrows, so a reader that wants them in
+/// order sorts by `old` -- and in order the `old` spans tile the lines the
+/// re-cut kept and the `new` spans tile what it made of them. Every row
+/// from the first it kept through the rows a shorter window hides below
+/// it is on a line told, blank rows included; a line whose text it dropped
+/// from the oldest end is told nothing, and the window's last rows the
+/// re-cut blanked, past every line it wrote (`Reflowed::blanked`), are no
+/// line's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LineRecut {
+    pub old: Span,
+    pub new: Span,
+}
+
+/// **Whether a resize told every line of the primary it re-cut**
+/// ([`crate::Term::resize_with`]): a resize that re-cut nothing, or one
+/// whose every line was told, is followed; one that re-cut lines it could
+/// not tell -- [`crate::Term::resize`], or a core built without the record
+/// -- is not, and its lines are renumbered in a way no map says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Following {
+    Followed,
+    NotFollowed,
+}
+
 /// Whether the alternate screen's text was cleared in the read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cleared {

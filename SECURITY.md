@@ -131,10 +131,10 @@ or one baud could not name, is drawn without its line and refused on click:
 its look and its click are judged once, the same way, so a link never looks
 openable when a click would refuse it. A link a remote program opens with
 `OSC 8` and leaves open stays that program's, whatever is written under it
-afterwards. Text moved between rows keeps the most cautious writer of the
-rows it came from, and rows whose text baud cannot follow -- re-wrapped by
-a resize, or renumbered in a way it does not count -- are taken as written
-by a program it could not name.
+afterwards. Text moved between rows, or re-wrapped by a resize, keeps the
+most cautious writer of the rows it came from, and rows whose text baud
+cannot follow -- renumbered in a way it does not count -- are taken as
+written by a program it could not name.
 
 **You can add to the schemes a click opens, or change what a click does, in
 your own config.

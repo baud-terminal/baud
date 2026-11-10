@@ -2919,6 +2919,37 @@ impl<'b> Term<'b> {
     /// kept. **A live window stays live**, whatever the re-cut did, and so
     /// does one whose line a growth or the re-cut put on the live screen.
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
+        self.resized(ws, None).0
+    }
+
+    /// **[`Term::resize`], telling `told` each line of the primary its
+    /// re-cut moved** ([`LineRecut`]), once a line as the re-cut visits it,
+    /// in its copy's order: every retained line, the shell's rows kept
+    /// whole among them; a
+    /// line the re-cut dropped from the oldest end is told nothing, and the
+    /// alternate screen, never re-cut, is told nothing. Nothing is told
+    /// either where the change of width re-cuts nothing -- at a prompt
+    /// whose block's first row the ring no longer retains
+    /// (`Term::primary_cut`) -- and then no line is renumbered and the
+    /// record says none. What an embedder
+    /// numbering facts by the primary's lines follows a re-cut by, where
+    /// the record says it renumbered them ([`crate::Renumbered::Resize`]).
+    /// [`Following::NotFollowed`] for a re-cut it could not tell, built
+    /// without the record: the lines are then followed by nothing, which
+    /// is never an empty map.
+    pub fn resize_with(
+        &mut self,
+        ws: &WinSize,
+        told: &mut dyn FnMut(crate::record::LineRecut),
+    ) -> (Resized, crate::record::Following) {
+        self.resized(ws, Some(told))
+    }
+
+    fn resized(
+        &mut self,
+        ws: &WinSize,
+        told: Option<&mut dyn FnMut(crate::record::LineRecut)>,
+    ) -> (Resized, crate::record::Following) {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
         let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
@@ -3028,6 +3059,14 @@ impl<'b> Term<'b> {
         let mut blanked = Rows::ZERO;
         let mut whole = (self.rot, Rows::ZERO);
         let mut recut = Recut::No;
+        // Lines are told only where the record says they were renumbered:
+        // without it, a re-cut is followed by nothing (`Following`).
+        #[cfg(not(feature = "read-record"))]
+        let told: Option<&mut dyn FnMut(crate::record::LineRecut)> = {
+            let _ = told;
+            None
+        };
+        let mut following = crate::record::Following::Followed;
         if let Some(cut) = widths.then(|| self.primary_cut(rows)).flatten() {
             // A re-cut renumbers the primary's lines by where they land, which
             // no count says: the next record says so (`crate::record`).
@@ -3039,7 +3078,10 @@ impl<'b> Term<'b> {
                 self.frozen_normalized(rows);
                 recut = Recut::Yes;
             }
-            (blanked, whole, held) = self.resize_primary_width(g, held, &mut waited, cut);
+            if told.is_none() {
+                following = crate::record::Following::NotFollowed;
+            }
+            (blanked, whole, held) = self.resize_primary_width(g, held, &mut waited, cut, told);
         }
         self.resize_growth(g);
         self.resize_alternate_height(g);
@@ -3085,7 +3127,7 @@ impl<'b> Term<'b> {
         // than the oldest kept.
         debug_assert!(held.index() <= self.store.book.hist.index());
         self.store.book.set_window_back(held);
-        resized
+        (resized, following)
     }
 
     /// **The primary's height changes the way xterm's does, and it is
@@ -3303,6 +3345,7 @@ impl<'b> Term<'b> {
         mut held: Option<Rows>,
         waited: &mut Option<Col>,
         cut: baud_domain::Recut,
+        mut told: Option<&mut dyn FnMut(crate::record::LineRecut)>,
     ) -> (Rows, (RowRot, Rows), Option<Rows>) {
         let ResizeGeometry {
             old_cols,
@@ -3415,8 +3458,23 @@ impl<'b> Term<'b> {
         if let Some(f) = frz.as_mut() {
             f.clear_tags();
         }
+        let telling = told.is_some();
         let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
             visited = true;
+            // **Each line's lines before and after** ([`LineRecut`]): `from`
+            // and `land`'s rows are both counted from the old oldest
+            // retained row, `floor`, which the re-cut keeps as its origin --
+            // the new oldest is `floor` plus the rows it dropped
+            // (`Reflowed::dropped`), and `book.top` is set from the same
+            // origin below -- so each is a line by adding it to `floor`.
+            if let Some(t) = told.as_mut() {
+                let last = Rows::of_count(from.index() + n.index().saturating_sub(1));
+                let (d0, d1) = (land(from, Col::ZERO).0, land(last, old_last_x).0);
+                t(crate::record::LineRecut {
+                    old: crate::record::Span::of(floor.plus(from), floor.plus(last)),
+                    new: crate::record::Span::of(floor.plus(d0), floor.plus(d1)),
+                });
+            }
             if let Some(f) = frz.as_mut() {
                 if let Some(g) = f.spare(oldest.advance(from.index(), ring)) {
                     let d0 = land(from, Col::ZERO).0.index();
@@ -3459,11 +3517,18 @@ impl<'b> Term<'b> {
                 }
             }
         };
-        let follow: Option<Follow<'_>> =
-            match (staged, marked, view, anchors, decsc, follows_frozen) {
-                (0, 0, None, [None, None, None], None, false) => None,
-                _ => Some(&mut hook),
-            };
+        let follow: Option<Follow<'_>> = match (
+            staged,
+            marked,
+            view,
+            anchors,
+            decsc,
+            follows_frozen,
+            telling,
+        ) {
+            (0, 0, None, [None, None, None], None, false, false) => None,
+            _ => Some(&mut hook),
+        };
         let r = View::new(
             self.store.vp,
             self.store.used,

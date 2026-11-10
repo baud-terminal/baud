@@ -158,7 +158,7 @@ impl Session {
                 outbox.push(b);
                 handed.extend_from_slice(b);
             },
-            |_| {},
+            |_, _| {},
             &mut crate::hostlog::NoLog,
             &mut Vec::new(),
         );

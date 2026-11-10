@@ -484,6 +484,7 @@ impl Sizing {
 fn honour(
     polled: Option<(crate::width::Decision, Option<String>)>,
     term: &mut Term<'_>,
+    recuts: &mut crate::paths::Recuts,
 ) -> Option<crate::width::Grid> {
     let (d, warn) = polled?;
     if let Some(line) = warn {
@@ -493,8 +494,10 @@ fn honour(
         return None;
     };
     // A clamp is read back below rather than from the answer: the child is
-    // told the grid the terminal has.
-    let _ = term.resize(&grid.ws());
+    // told the grid the terminal has. The re-cut is told line by line, so
+    // the lines the read's parts filed before it are carried
+    // (`Probes::drain_recut`).
+    let _ = recuts.resize(term, &grid.ws());
     term.window_live();
     Some(crate::width::Grid::of(term))
 }
@@ -11775,10 +11778,10 @@ mod motion_tests {
                     outbox.push(b);
                     answered = Answered::Yes;
                 },
-                |t| {
+                |t, recuts| {
                     pasteboard("#,
             r#"clips.poll(t, osc52), os);
-                    resized = honour(widths.poll(t, host), t).or(resized);
+                    resized = honour(widths.poll(t, host), t, recuts).or(resized);
                     fonts_asked.extend_from_slice(t.font_requests());
                     t.clear_font_requests();
                     prints.take(t);
@@ -12876,9 +12879,9 @@ impl Driver {
                 outbox.push(b);
                 answered = Answered::Yes;
             },
-            |t| {
+            |t, recuts| {
                 pasteboard(clips.poll(t, osc52), os);
-                resized = honour(widths.poll(t, host), t).or(resized);
+                resized = honour(widths.poll(t, host), t, recuts).or(resized);
                 fonts_asked.extend_from_slice(t.font_requests());
                 t.clear_font_requests();
                 prints.take(t);
@@ -12952,6 +12955,7 @@ impl Driver {
             took.iter().copied(),
             (began, ended),
             self.app.counts.core_lines(&self.app.term),
+            &self.app.pace.recuts,
         );
         self.app.say_copied();
         if answered == Answered::Yes {
@@ -18120,7 +18124,11 @@ impl Driver {
             // (`kept_across_resize`).
             let was = (self.app.term.geometry().0, self.app.term.screen());
             let was_last = crate::paths::last_line(&self.app.term, self.app.counts.primary());
-            let _ = self.app.term.resize(&ws);
+            // The re-cut told line by line, into the pace's buffer, which
+            // every resize reuses (`paths::Recuts`): no read is between
+            // here and the filing below.
+            self.app.pace.recuts.clear();
+            let _ = self.app.pace.recuts.resize(&mut self.app.term, &ws);
             if let Some(t) = self.app.trace.as_mut() {
                 // What the core *has*, post-clamp, which is what a replay
                 // must ask it for.
@@ -18170,17 +18178,17 @@ impl Driver {
                 &mut self.app.counts,
                 &rec,
             );
-            // The printed paths' facts and a link's origin, filed at once
-            // where the resize re-cut the lines (`Paths::resized`): a quiet
+            // The printed paths' facts and a link's origin, carried at once
+            // where the resize re-cut the lines (`Probes::resized`): a quiet
             // shell sends no read to file it with, and the hover and the
             // frame below read them.
             let counts = self.app.counts;
-            self.app.paths.resized(
-                &rec,
+            self.app.probes.resized(
+                &mut self.app.paths,
+                (&rec, self.app.pace.recuts.last()),
                 &self.app.term,
                 was_last,
-                counts.primary(),
-                counts.alternate(),
+                &counts,
             );
             // The find's matches on the re-laid grid, and its current
             // match selected again, before the frame below draws them: a
@@ -21425,7 +21433,12 @@ mod tests {
                 [read],
                 |_| {},
                 |t| {
-                    resized = honour(widths.poll(t, host), t).or(resized);
+                    resized = honour(
+                        widths.poll(t, host),
+                        t,
+                        &mut crate::paths::Recuts::default(),
+                    )
+                    .or(resized);
                 },
                 &mut crate::hostlog::NoLog,
             );
@@ -21476,7 +21489,11 @@ mod tests {
                 [&b"\x1b[?40h\x1b[?3h"[..]],
                 |_| {},
                 |t| {
-                    let _ = honour(widths.poll(t, host), t);
+                    let _ = honour(
+                        widths.poll(t, host),
+                        t,
+                        &mut crate::paths::Recuts::default(),
+                    );
                 },
                 &mut crate::hostlog::NoLog,
             );
@@ -21511,7 +21528,12 @@ mod tests {
             [read.as_slice()],
             |_| {},
             |t| {
-                resized = honour(widths.poll(t, Host::Window), t).or(resized);
+                resized = honour(
+                    widths.poll(t, Host::Window),
+                    t,
+                    &mut crate::paths::Recuts::default(),
+                )
+                .or(resized);
             },
             &mut crate::hostlog::NoLog,
         );
@@ -21578,7 +21600,7 @@ mod tests {
             .1;
         let (args, after) = feed.split_once("\n        );").expect("the call ends");
         assert!(
-            args.contains(concat!("honour(widths.", "poll(t, host), t)")),
+            args.contains(concat!("honour(widths.", "poll(t, host), t, recuts)")),
             "the widths are polled at each read"
         );
         let follow = after.find("self.app.pty.follow(").expect("the follow");

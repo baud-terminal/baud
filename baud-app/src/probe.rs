@@ -303,6 +303,14 @@ impl WatchCell {
 /// the primary's alone, where a later part's clear took the alternate
 /// screen's text; or both, where its own clear did, the alternate screen's
 /// from the clear on -- not the line it began on, numbered before it.
+/// **Where a run of a drain's parts ends** (`Probes::drain_segment`): at a
+/// page-width request's re-cut that is followed, or with the batch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RunEnds {
+    AtRecut,
+    AtBatch,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Keeps {
     Both,
@@ -442,6 +450,10 @@ pub struct Writers {
     pub end_row: Option<crate::vouch::EndRow>,
     /// Whether the part fed placed an image, read with its record.
     pub drew: Option<crate::vouch::Drew>,
+    /// **The re-cuts a page-width request in the part made**, told line by
+    /// line (`reads::Taken`): what [`Probes::drain_recut`] carries the
+    /// lines through between the parts before and after it.
+    pub recut: Option<crate::paths::RecutAt>,
     /// **The line the part began on, where it wrote no cell of it**
     /// (`ReadRecord::start_row`) and its record names it nowhere off the
     /// path: placed here by [`Probes::drain_taken`], none before. Filed
@@ -508,6 +520,7 @@ impl crate::reads::Part for Writers {
             top: taken.map(|t| t.top),
             end_row: taken.map(|t| t.end_row),
             drew: taken.map(|t| t.drew),
+            recut: taken.and_then(|t| t.recut),
             ..self
         }
     }
@@ -584,6 +597,7 @@ impl Writers {
             end_row: None,
             drew: None,
             untouched: None,
+            recut: None,
         }
     }
 }
@@ -636,6 +650,7 @@ impl Sampler {
             end_row: None,
             drew: None,
             untouched: None,
+            recut: None,
         };
         self.forget_at_d();
         if at.is_some() {
@@ -1878,6 +1893,11 @@ pub struct Probes<T> {
     /// files on them (B10): the worker's copy is the lines as they were
     /// read.
     inflight: Vec<(Id, Option<Pid>, LineSpan)>,
+    /// **The cursor's line each batch out was sent with**, by the batch,
+    /// carried with its text through a re-cut (`Probes::recut`): the line
+    /// its answer's program in front is named from, where it is now, not
+    /// on the numbers it was sent on.
+    cursors: Vec<(Id, LineOn)>,
     /// **The lines still to be named that a local answer for another
     /// writer was filed over**, by the group still to name them (none for
     /// the lines past the groups kept): a span carried imprecisely -- a
@@ -1958,6 +1978,7 @@ impl<T: Moment> Probes<T> {
             seen: Vec::new(),
             unnamed: None,
             inflight: Vec::new(),
+            cursors: Vec::new(),
             held: Vec::new(),
             lit: Lit::default(),
             off: Vec::new(),
@@ -2044,13 +2065,38 @@ impl<T: Moment> Probes<T> {
     /// says the core cleared it, its facts go (`Paths::alternate_cleared`),
     /// and only the lines the parts from the last clear on name on it are
     /// filed -- the text the parts before it wrote there is gone.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn drain_taken(
+        &mut self,
+        paths: &mut Paths,
+        term: &Term<'_>,
+        on: (LineOn, LineOn),
+        lines: CoreLines,
+        reads: impl Iterator<Item = (Writers, Linked)>,
+    ) {
+        self.drain_recut(paths, term, on, lines, reads, &crate::paths::Recuts::NONE);
+    }
+
+    /// **[`Probes::drain_taken`], each page-width request's re-cut among
+    /// the parts followed** (`recuts`, the call's `reads::Pace::recuts`):
+    /// the parts up to the resize -- a part of its own after the bytes that
+    /// asked for it (`reads::paced`), which wrote none -- are filed first,
+    /// on the numbers before it, the bytes that asked included; the re-cut
+    /// then carries every line's facts and every span kept of the lines to
+    /// where its text went ([`Probes::recut`]); then the parts after it are
+    /// filed on the numbers it made. A resize whose re-cut was not told, or
+    /// is not held in `recuts`, or a batch whose count was clamped, or one
+    /// filed with `[link] paths` not on (`Probes::resized`), renumbers what
+    /// it reached as a re-cut no map follows does
+    /// (`Paths::part_renumbered`).
+    pub fn drain_recut(
         &mut self,
         paths: &mut Paths,
         term: &Term<'_>,
         (began, ended): (LineOn, LineOn),
         lines: CoreLines,
         reads: impl Iterator<Item = (Writers, Linked)>,
+        recuts: &crate::paths::Recuts,
     ) {
         // Every change to the lines still to be named was handed on.
         #[cfg(test)]
@@ -2069,7 +2115,102 @@ impl<T: Moment> Probes<T> {
                 (Writers { untouched, ..w }, linked)
             })
             .collect();
-        let reads = stepped.iter().copied();
+        // The window taken back past the session's first line (N2, P1):
+        // every line up to the window's last the batch's numbers reached.
+        let tops = |run: &[(Writers, Linked)]| -> Vec<baud_domain::LineIdx> {
+            run.iter().filter_map(|(w, _)| w.top).collect()
+        };
+        if lines.numbers() == crate::paths::Numbers::Clamped {
+            if let (Some(last), _) = lines.lasts(tops(&stepped).into_iter()) {
+                paths.taken_back_past_start(last);
+            }
+        }
+        // Each part's re-cut, where every line of it was told on a count
+        // that followed the core's top: a part that sealed resizes takes
+        // the next sealed ones (`Recuts::sealed`), whether it follows them
+        // or not, so each later part takes its own.
+        let mut sealed = recuts.sealed();
+        let follows: Vec<_> = stepped
+            .iter()
+            .map(|(w, _)| {
+                let at = w.recut?;
+                let told: Vec<_> = sealed.next()?.collect();
+                let resized =
+                    w.record.and_then(|r| r.renumbered()) == Some(baud_core::Renumbered::Resize);
+                let all = told
+                    .iter()
+                    .all(|t| t.following == baud_core::Following::Followed);
+                let on = paths.marks() == Marks::On;
+                (resized && all && on && lines.numbers() == crate::paths::Numbers::Followed)
+                    .then_some((at, told))
+            })
+            .collect();
+        let mut from = 0;
+        for (k, follow) in follows.iter().enumerate() {
+            let Some((at, told)) = follow else {
+                continue;
+            };
+            let (before, run) = stepped[..k + 1].split_at(from);
+            self.drain_segment(
+                paths,
+                term,
+                ((began, ended), lines),
+                (before, run, &follows[from..k + 1]),
+                RunEnds::AtRecut,
+            );
+            from = k + 1;
+            let w = stepped[k].0;
+            let placed = lines.part(w.top);
+            let reached = tops(&stepped[..k + 1]).into_iter().chain([at.pre()]);
+            let (Some(last), _) = lines.lasts(reached) else {
+                continue;
+            };
+            for t in told {
+                self.recut(paths, t.map, &placed, last);
+            }
+        }
+        let (before, run) = stepped.split_at(from);
+        self.drain_segment(
+            paths,
+            term,
+            ((began, ended), lines),
+            (before, run, &follows[from..]),
+            RunEnds::AtBatch,
+        );
+        // What lit each line, kept to the lines a write can reach once this
+        // drain's parts have read it (G1): a line one wrote over and then
+        // scrolled into history is held first.
+        let top = stepped
+            .iter()
+            .filter_map(|(w, _)| w.top)
+            .next_back()
+            .and_then(|top| lines.part(Some(top)).line(baud_core::Screen::Normal, top));
+        let surfaces =
+            [baud_core::Screen::Normal, baud_core::Screen::Alternate].map(|sc| paths.surface(sc));
+        self.lit.keep_from(surfaces, top);
+    }
+
+    /// **A run of a drain's parts, filed** ([`Probes::drain_recut`]):
+    /// `run`, the parts `before` it in the drain ahead of it, and `follows`
+    /// each one of the run's re-cut where it is followed -- a part between
+    /// two followed re-cuts is filed on the numbers the first made. The cut
+    /// is taken only in the run the batch ends with, the one the cursor
+    /// ended in; one before a re-cut is no cut, as one whose grid resized
+    /// since is (`cut::Spot::line`).
+    #[allow(clippy::type_complexity)]
+    fn drain_segment(
+        &mut self,
+        paths: &mut Paths,
+        term: &Term<'_>,
+        ((began, ended), lines): ((LineOn, LineOn), CoreLines),
+        (before, run, follows): (
+            &[(Writers, Linked)],
+            &[(Writers, Linked)],
+            &[Option<(crate::paths::RecutAt, Vec<crate::paths::Told<'_>>)>],
+        ),
+        ends: RunEnds,
+    ) {
+        let reads = run.iter().copied();
         let clears = reads
             .clone()
             .filter(|(w, _)| {
@@ -2080,23 +2221,20 @@ impl<T: Moment> Probes<T> {
         for _ in 0..clears {
             paths.alternate_cleared();
         }
-        // Lines renumbered in a way no count says (N2, P1): the window
-        // taken back past the session's first line, up to the window's last
-        // the batch's numbers reached; and each part the core says
-        // renumbered them -- a page-width request's re-cut, or a core that
-        // recorded nothing -- up to the window's last the numbers reached
-        // by the end of that part, not the lines the parts after it wrote.
-        let tops = |n| reads.clone().take(n).filter_map(|(w, _)| w.top);
-        if lines.numbers() == crate::paths::Numbers::Clamped {
-            if let (Some(last), _) = lines.lasts(tops(reads.clone().count())) {
-                paths.taken_back_past_start(last);
-            }
-        }
+        // Each part the core says renumbered the lines in a way no count
+        // says (N2, P1) -- a page-width request's re-cut no map follows, or
+        // a core that recorded nothing -- up to the window's last the
+        // numbers reached by the end of that part, not the lines the parts
+        // after it wrote.
         for (k, (w, _)) in reads.clone().enumerate() {
             let Some(why) = w.record.and_then(|r| r.renumbered()) else {
                 continue;
             };
-            if let (Some(primary), alternate) = lines.lasts(tops(k + 1)) {
+            if follows[k].is_some() {
+                continue;
+            }
+            let reached = before.iter().chain(&run[..k + 1]);
+            if let (Some(primary), alternate) = lines.lasts(reached.filter_map(|(w, _)| w.top)) {
                 paths.part_renumbered(why, (primary, alternate));
             }
         }
@@ -2110,12 +2248,24 @@ impl<T: Moment> Probes<T> {
             })
             .map(|(k, _)| k)
             .next_back();
+        // A cut whose parts a re-cut came among -- one before this run, or
+        // a renumbering in it from the cut on -- is no cut: the line it was
+        // taken on was renumbered since, and a grid restored to its size
+        // (132 columns, then 80) would pass `Spot::line`'s checks.
+        let after = |w: &Writers| matches!(w.cut, crate::cut::Cut::After(_));
+        let whole = !before.iter().any(|(w, _)| after(w));
         let cut = reads
             .clone()
             .enumerate()
+            .filter(|_| ends == RunEnds::AtBatch && whole)
             .find_map(|(k, (w, _))| match w.cut {
                 crate::cut::Cut::After(m) => Some((k, m)),
                 crate::cut::Cut::None | crate::cut::Cut::Plan(_) => None,
+            })
+            .filter(|&(k, _)| {
+                run[k..]
+                    .iter()
+                    .all(|(w, _)| w.record.and_then(|r| r.renumbered()).is_none())
             });
         let one_surface =
             began.surface == ended.surface && paths.surface(term.screen()) == ended.surface;
@@ -2177,16 +2327,6 @@ impl<T: Moment> Probes<T> {
             }
             self.publish(paths);
         }
-        // What lit each line, kept to the lines a write can reach once this
-        // drain's parts have read it (G1): a line one wrote over and then
-        // scrolled into history is held first.
-        let top = reads
-            .clone()
-            .filter_map(|(w, _)| w.top)
-            .next_back()
-            .and_then(|top| lines.part(Some(top)).line(baud_core::Screen::Normal, top));
-        let surfaces =
-            [baud_core::Screen::Normal, baud_core::Screen::Alternate].map(|sc| paths.surface(sc));
         let kept: Vec<_> = reads
             .clone()
             .enumerate()
@@ -2237,7 +2377,6 @@ impl<T: Moment> Probes<T> {
                 self.drain_parts(paths, &all);
             }
         }
-        self.lit.keep_from(surfaces, top);
     }
 
     /// **A part's writers, the window's latch stepped over it**
@@ -2374,11 +2513,18 @@ impl<T: Moment> Probes<T> {
         lines: &crate::paths::PartLines,
         screens: &[baud_core::Screen],
     ) {
-        let carry = |span: LineSpan| paths.carried_span(rec, lines, screens, span);
+        self.carry_spans(|span| paths.carried_span(rec, lines, screens, span));
+        self.publish(paths);
+    }
+
+    /// Every span this keeps of the lines, carried where `carry` says their
+    /// text went: those still to be named, held, written with paths off,
+    /// and lit.
+    fn carry_spans(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
         for e in &mut self.seen {
             e.1 = carry(e.1);
         }
-        self.unnamed = self.unnamed.map(carry);
+        self.unnamed = self.unnamed.map(&carry);
         for e in &mut self.inflight {
             e.2 = carry(e.2);
         }
@@ -2389,6 +2535,87 @@ impl<T: Moment> Probes<T> {
             *o = carry(*o);
         }
         self.lit.carry(carry);
+    }
+
+    /// **A resize the driver just made, filed at once** (`rec`, the core's
+    /// record of it, taken once for this and the counts, which
+    /// `keep::kept_across_resize` has moved; `told`, what the resize said
+    /// of its re-cut, `paths::Recuts::resize`), before any hover, click or
+    /// frame reads a line. Where the record says it renumbered the
+    /// primary's lines and every one it re-cut was told, on a count that
+    /// followed the core's top, each line's facts and spans go where its
+    /// text went ([`Probes::recut`]); else every line up to the window's
+    /// last before the resize (`was_last`) or after it is not known
+    /// (`Paths::resized`): a re-cut nothing told, a count clamped at the
+    /// session's first line, a core that recorded nothing -- or with
+    /// `[link] paths` not on: reads not kept then file nothing, so a line
+    /// nothing was filed over is not a line nothing wrote, and its text
+    /// carries no fact it should. A change of height alone re-cuts nothing
+    /// and keeps them.
+    pub fn resized(
+        &mut self,
+        paths: &mut Paths,
+        (rec, told): (&baud_core::ReadRecord, Option<crate::paths::Told<'_>>),
+        term: &Term<'_>,
+        was_last: baud_render::AbsLine,
+        counts: &crate::keep::Counts,
+    ) {
+        let lines = counts.core_lines(term);
+        let (primary, alternate) = (counts.primary(), counts.alternate());
+        let last = was_last.max(crate::paths::last_line(term, primary));
+        match (rec.renumbered(), told, lines.numbers(), paths.marks()) {
+            (None, _, _, _) => {}
+            (
+                Some(baud_core::Renumbered::Resize),
+                Some(crate::paths::Told {
+                    map,
+                    following: baud_core::Following::Followed,
+                }),
+                crate::paths::Numbers::Followed,
+                Marks::On,
+            ) => {
+                let at = lines.part(Some(term.history_mark().line()));
+                self.recut(paths, map, &at, last);
+            }
+            (Some(_), _, _, _) => paths.resized(rec, term, was_last, primary, alternate),
+        }
+    }
+
+    /// **A re-cut followed, on the lines and on every span kept of them**
+    /// (`Paths::reflowed`, `Paths::recut_span`): each new line whose text a
+    /// span still to be named covered is held under that span's group,
+    /// found on the spans as they were and held once they are carried, as
+    /// for a part's moves -- so a line holding two writers' text lights
+    /// only once both are named.
+    ///
+    /// This hold is the second guard on the rule, behind `carry_spans`: every
+    /// case built is held by the carried spans as well, so no test goes red
+    /// without it. It stays as the backstop for a span kind still to be named
+    /// that is added without a carry of its own.
+    fn recut(
+        &mut self,
+        paths: &mut Paths,
+        map: &[baud_core::LineRecut],
+        at: &crate::paths::PartLines,
+        last: baud_render::AbsLine,
+    ) {
+        let moved = paths.reflowed(map, at, last);
+        let mut held = Vec::new();
+        for (line, by) in moved {
+            let found: Vec<_> = self.groups_of(by).collect();
+            held.extend(holders(found).into_iter().map(|g| (g, line)));
+        }
+        self.carry_spans(|span| paths.recut_span(span));
+        // Each batch out's cursor line, where its text is now, as the
+        // program in front's is (`Paths::recut_line`).
+        for e in &mut self.cursors {
+            e.1 = paths.recut_line(e.1);
+        }
+        for h in held {
+            if !self.held.contains(&h) {
+                self.held.push(h);
+            }
+        }
         self.publish(paths);
     }
 
@@ -2740,6 +2967,12 @@ impl<T: Moment> Probes<T> {
             for a in answers {
                 self.counts.calls += a.calls;
                 self.answered = self.answered.next();
+                // The cursor's line as the batch was sent, where its text
+                // is now.
+                let cursor = match self.cursors.iter().position(|e| e.0 == a.id) {
+                    Some(i) => self.cursors.swap_remove(i).1,
+                    None => a.cursor,
+                };
                 if self.answered == self.sent {
                     self.flight = None;
                 }
@@ -2774,7 +3007,7 @@ impl<T: Moment> Probes<T> {
                     };
                     s.paths.trim_spans(screen, oldest);
                 }
-                s.paths.set_front(front, a.cursor);
+                s.paths.set_front(front, cursor);
                 // The program's folder, for the group still in front; on
                 // the normal screen it is none, which `Paths::observe` keeps.
                 // The key it was read under is the group and its leader's
@@ -3011,6 +3244,7 @@ impl<T: Moment> Probes<T> {
     ) -> bool {
         // A batch's lines are kept here too, carried with the text until
         // its answer (B10); a click's are the ones still kept to send.
+        self.cursors.push((ask.id, ask.cursor));
         if ask.kind == Kind::Screen {
             let lines = ask.seen.iter().map(|&(g, l)| (Some(g), l));
             for (g, l) in lines.chain(ask.unnamed.map(|l| (None, l))) {
@@ -3073,6 +3307,7 @@ impl<T: Moment> Probes<T> {
         self.seen.clear();
         self.unnamed = None;
         self.inflight.clear();
+        self.cursors.clear();
         self.held.clear();
         self.lit.clear();
         self.off.clear();
@@ -6147,7 +6382,7 @@ mod tests {
                 now,
                 drain.iter().map(|r| r.bytes).zip(taken),
                 |_| {},
-                |t| page_width(t, &ws),
+                |t, r| page_width(t, &ws, r),
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -6162,23 +6397,25 @@ mod tests {
             };
             let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             if !drain.iter().any(|r| r.sampled == Sampled::Unfiled) {
-                pr.drain_taken(
+                pr.drain_recut(
                     &mut paths,
                     &t,
                     (began, ended),
                     core,
                     took.into_iter().map(|w| (w, Linked::No)),
+                    &pace.recuts,
                 );
             }
             if let Then::Resize(ws_col, ws_row) = drain[n - 1].then {
                 let was = (t.geometry().0, t.screen());
                 let was_last = crate::paths::last_line(&t, counts.primary());
-                let _ = t.resize(&WinSize { ws_col, ws_row });
+                pace.recuts.clear();
+                let _ = pace.recuts.resize(&mut t, &WinSize { ws_col, ws_row });
                 if numbering == Numbering::Driven {
                     let rec = t.take_record();
                     s = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec).1;
-                    let (primary, alternate) = (counts.primary(), counts.alternate());
-                    paths.resized(&rec, &t, was_last, primary, alternate);
+                    let told = pace.recuts.last();
+                    pr.resized(&mut paths, (&rec, told), &t, was_last, &counts);
                 }
             }
             if drain[n - 1].then == Then::Sent {
@@ -6785,6 +7022,7 @@ mod tests {
                     top: t.history_mark().line(),
                     end_row: crate::vouch::EndRow::of(&t),
                     drew: crate::vouch::Drew::Nothing,
+                    recut: None,
                 }));
             let ended = s.line(Rows::ZERO, t.cursor().0);
             pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
@@ -6898,7 +7136,7 @@ mod tests {
                 now,
                 tagged,
                 |_| {},
-                |_| {},
+                |_, _| {},
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -6971,7 +7209,7 @@ mod tests {
                 now,
                 tagged,
                 |_| {},
-                |_| {},
+                |_, _| {},
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -7041,7 +7279,7 @@ mod tests {
                 now,
                 tagged,
                 |_| {},
-                |_| {},
+                |_, _| {},
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -7104,7 +7342,7 @@ mod tests {
                 now,
                 tagged,
                 |_| {},
-                |_| {},
+                |_, _| {},
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -7281,7 +7519,7 @@ mod tests {
                 last,
                 tagged,
                 |_| {},
-                |_| {},
+                |_, _| {},
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
@@ -7992,13 +8230,16 @@ mod tests {
     /// **A page-width request resized to**, as the app's `after` resizes
     /// to one (`width::Widths::poll`): the columns asked for, the rows of
     /// `ws` kept.
-    fn page_width(t: &mut Term<'_>, ws: &WinSize) {
+    fn page_width(t: &mut Term<'_>, ws: &WinSize, recuts: &mut crate::paths::Recuts) {
         if let Some(w) = t.requested_width() {
             if usize::from(w.ws_col()) != t.geometry().0.index() {
-                let _ = t.resize(&WinSize {
-                    ws_col: w.ws_col(),
-                    ws_row: ws.ws_row,
-                });
+                let _ = recuts.resize(
+                    t,
+                    &WinSize {
+                        ws_col: w.ws_col(),
+                        ws_row: ws.ws_row,
+                    },
+                );
             }
         }
     }
@@ -8044,7 +8285,7 @@ mod tests {
             Instant::now(),
             [(bytes, Sampler::default().unasked())],
             |_| {},
-            |t| page_width(t, ws),
+            |t, r| page_width(t, ws, r),
             &mut crate::hostlog::NoLog,
             &mut took,
         );
@@ -9450,6 +9691,7 @@ mod tests {
                 top: t.history_mark().line(),
                 end_row: crate::vouch::EndRow::of(&t),
                 drew: crate::vouch::Drew::Nothing,
+                recut: None,
             }));
         assert_eq!(w.before.or(w.at), None, "the control: no group");
         let rec = w.record;
@@ -9504,6 +9746,7 @@ mod tests {
                     top: t.history_mark().line(),
                     end_row: crate::vouch::EndRow::of(&t),
                     drew: crate::vouch::Drew::Nothing,
+                    recut: None,
                 }));
             let ended = s.line(Rows::ZERO, t.cursor().0);
             pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
@@ -9692,9 +9935,10 @@ mod tests {
     /// `/etc/passwd` on row 2 filed under no writer, then a local prompt;
     /// the window widened, the wrapped line takes one row and the path
     /// moves up to row 1, which was filed local -- and the re-cut, filed at
-    /// the resize as the drivers file it (`Paths::resized`), leaves every
-    /// line it renumbered not known. Named break: `Paths::resized` does
-    /// nothing -- row 1 lights.
+    /// the resize as the drivers file it (`Probes::resized`), carries each
+    /// line's facts with its text, and the path's line had none. Named
+    /// break: the spans still to be named left where they were
+    /// (`Probes::recut` carrying none) -- after the resize, a row lights.
     #[test]
     fn a_resize_moves_unnamed_text_and_it_stays_dark() {
         let narrow = WinSize {
@@ -9730,6 +9974,787 @@ mod tests {
             Vec::<usize>::new(),
             "the path the re-cut moved"
         );
+    }
+
+    /// **A widen that brings a lit history line back into the window
+    /// leaves an unnamed writer's overwrite of it held** (G1 over a
+    /// re-cut): `ls` prints `/etc/hosts` and two lines wrapped over two
+    /// rows each at twenty columns, named, so the path's line is in the
+    /// history; `ls`'s next read trims what lit each line to the window;
+    /// the window widens to forty, each wrapped line takes one row, and the
+    /// path's line is back in the window with its local fact carried and
+    /// nothing naming what lit it; then `ssh`, still to be named, moves to
+    /// it and prints `/etc/passwd`. The line is not known before `ssh`'s
+    /// answer. The control: the widen brought the line back -- `ssh`'s move
+    /// to the first row lands on it. Named break: hold only the lines
+    /// another group is named for (`Lit`'s spans of other groups) -- the
+    /// line reads local.
+    #[test]
+    fn a_widen_that_brings_a_lit_line_back_holds_an_unnamed_overwrite() {
+        let narrow = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let wrapped = [
+            b"/etc/hosts\r\n".as_slice(),
+            &[b'x'; 30],
+            b"\r\n",
+            &[b'y'; 30],
+        ]
+        .concat();
+        let reads = [
+            Read {
+                then: Then::Answered,
+                ..read(&wrapped, 2)
+            },
+            Read {
+                then: Then::Resize(40, 4),
+                ..read(b"\x1b[m", 2)
+            },
+            Read {
+                then: Then::Took,
+                ..read(b"\x1b[1;1H/etc/passwd", 9)
+            },
+        ];
+        let t = taken_midway(
+            narrow,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |t, _| holding(t, "/etc/passwd"),
+        );
+        assert_eq!(t.looked, [0], "the control: ssh's path on the first row");
+        assert_eq!(
+            t.midway_origins[0][0],
+            Origin::Unknown,
+            "before ssh's answer"
+        );
+    }
+
+    /// **A program's own page-width request does not light its overwrite
+    /// of a history line the widen brings back** (G1 over a re-cut, the
+    /// one-read form): `ls` prints `/etc/hosts`, a line wrapped over three
+    /// rows at forty columns and `/etc/group`, named, so the first path's
+    /// line is in the history; `ls`'s next read trims what lit each line to
+    /// the window; then `ssh`, still to be named, in one read asks for 132
+    /// columns -- the wrapped line takes one row and the path's line is back
+    /// in the window -- moves to the first row and prints `/etc/passwd` over
+    /// it.
+    /// The line is not known before `ssh`'s answer. The control: the
+    /// request resized and `ssh`'s path is on the first row. Named break:
+    /// hold only the lines another group is named for (`Lit`'s spans of
+    /// other groups) -- the line reads local.
+    #[test]
+    fn a_programs_own_widen_does_not_light_its_overwrite() {
+        let wrapped = [
+            b"/etc/hosts\r\n".as_slice(),
+            &[b'x'; 100],
+            b"\r\n/etc/group",
+        ]
+        .concat();
+        let reads = [
+            Read {
+                then: Then::Answered,
+                ..read(&wrapped, 2)
+            },
+            read(b"\x1b[m", 2),
+            Read {
+                then: Then::Took,
+                ..read(b"\x1b[132$|\x1b[1;1H/etc/passwd", 9)
+            },
+        ];
+        let t = taken_midway(
+            WS,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |t, _| {
+                (
+                    t.geometry().0.index(),
+                    holding(t, "/etc/passwd"),
+                    holding(t, "/etc/group"),
+                )
+            },
+        );
+        assert_eq!(
+            t.looked,
+            (132, vec![0], vec![2]),
+            "the control: resized, ssh's path on row 0"
+        );
+        assert_eq!(
+            t.midway_origins[0][0],
+            Origin::Unknown,
+            "before ssh's answer"
+        );
+    }
+
+    /// **A re-cut while `[link] paths` is off is followed by nothing**:
+    /// `ls` prints a full row ending `fi`, named local; paths go off; `ssh`
+    /// writes `le:///etc/passwd` on, wrapped onto the next row -- a read not
+    /// kept, which files nothing -- and the window widens, re-cutting both
+    /// rows into one line. That line is not known: under paths off, a line
+    /// nothing was filed over may be one a read not kept wrote, so the
+    /// re-cut floors as one no map follows does. The control: before the
+    /// widen, the continuation's row is not known and the row above it
+    /// local. Named break: follow the re-cut whatever the paths are
+    /// (`Probes::resized` taking any `Marks`) -- the joined line reads
+    /// local.
+    #[test]
+    fn a_re_cut_with_paths_off_is_followed_by_nothing() {
+        let narrow = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let row = [[b'x'; 17].as_slice(), b" fi"].concat();
+        let origins = |then: Then| {
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(&row, 2)
+                },
+                Read {
+                    then: Then::Paths(Turned::Off),
+                    ..read(b"\x1b[m", 2)
+                },
+                Read {
+                    then,
+                    ..read(b"le:///etc/passwd", 9)
+                },
+            ];
+            let narrow = WinSize { ..narrow };
+            taken_numbered(
+                narrow,
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |_, p| [0, 1].map(|n| p.origin(AbsLine::at(Rows::of_count(n)))),
+            )
+            .2
+        };
+        assert_eq!(
+            origins(Then::Nothing),
+            [Origin::Local, Origin::Unknown],
+            "the control: no widen"
+        );
+        assert_eq!(
+            origins(Then::Resize(40, 4))[0],
+            Origin::Unknown,
+            "re-cut into one line"
+        );
+    }
+
+    /// **A re-cut carries each line's writer to where its text went** (C):
+    /// a local line wrapped over two rows at twenty columns, `ls`'s
+    /// `/etc/passwd` below it and `ssh`'s `/etc/hosts` below that, each
+    /// named, then the window widened to forty -- the wrapped line takes one
+    /// row and both paths move up one -- and narrowed back to twenty. The
+    /// local path lights on its row each time, and the remote one stays
+    /// dark. The control: no resize. Named breaks: `Probes::resized` floors
+    /// the lines as a re-cut no map follows does (`Paths::resized`) --
+    /// nothing lights; every new line filed local whatever its text's
+    /// writer (`Fact::carried`) -- the remote path lights.
+    #[test]
+    fn a_re_cut_carries_each_lines_writer_to_where_its_text_went() {
+        let narrow = || WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let wrapped = [[b'x'; 30].as_slice(), b"\r\n"].concat();
+        let lit = |thens: &[Then]| {
+            let mut reads = vec![
+                read(&wrapped, 2),
+                read(b"/etc/passwd\r\n", 2),
+                Read {
+                    then: Then::Answered,
+                    ..read(b"/etc/hosts\r\n", 9)
+                },
+            ];
+            reads.extend(thens.iter().map(|&then| Read {
+                then,
+                ..read(b"", 1)
+            }));
+            lit_driven(narrow(), named_groups(), &reads)
+        };
+        assert_eq!(lit(&[]), [2], "the control: no resize");
+        assert_eq!(lit(&[Then::Resize(40, 6)]), [1], "widened");
+        assert_eq!(
+            lit(&[Then::Resize(40, 6), Then::Resize(20, 6)]),
+            [2],
+            "widened and narrowed back"
+        );
+    }
+
+    /// **An answer still out across a re-cut is filed where the re-cut took
+    /// its lines** (C): [`a_re_cut_carries_each_lines_writer_to_where_its_text_went`]'s
+    /// reads with no answer taken before the window widens, so every group
+    /// is still to be named as the lines move. The local path lights on the
+    /// row it moved to and the remote one stays dark: each new line is held
+    /// under the group whose span covered its text (`Paths::reflowed`), and
+    /// the answer files on its holds as on its spans. Named break:
+    /// `Probes::resized` floors the lines as a re-cut no map follows does
+    /// -- the path stays dark.
+    #[test]
+    fn an_answer_still_out_is_filed_where_the_re_cut_took_its_lines() {
+        let narrow = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let wrapped = [[b'x'; 30].as_slice(), b"\r\n"].concat();
+        let reads = [
+            read(&wrapped, 2),
+            read(b"/etc/passwd\r\n", 2),
+            Read {
+                then: Then::Resize(40, 6),
+                ..read(b"/etc/hosts\r\n", 9)
+            },
+        ];
+        assert_eq!(lit_driven(narrow, named_groups(), &reads), [1]);
+    }
+
+    /// **What following a re-cut costs, over a full ring** (C, M2): the
+    /// app's ring -- 2,000 lines of history, `Depth::DEFAULT`, behind a
+    /// window of 160x50 in storage of 400x150 -- full of lines of 150
+    /// columns, each line's writer alternating local and remote so every
+    /// line is a run of its own, eight spans still to be named; the window
+    /// narrowed to 100 columns and widened back, 11 rounds, the first not
+    /// counted. Timed apart: the core's resize telling nothing
+    /// (`Term::resize`), the same resize telling every line
+    /// (`Recuts::resize`, its buffer reused), and the app's following of
+    /// it (`Probes::resized`: `Paths::reflowed` and every span's carry).
+    /// Run by hand (`--ignored --nocapture`) for the record; it asserts the
+    /// counts.
+    #[test]
+    #[ignore]
+    fn measure_following_a_re_cut_over_a_full_ring() {
+        let room = WinSize {
+            ws_col: 400,
+            ws_row: 150,
+        };
+        let wide = WinSize {
+            ws_col: 160,
+            ws_row: 50,
+        };
+        let narrow = WinSize {
+            ws_col: 100,
+            ws_row: 50,
+        };
+        let mut owned = Owned::with_history(
+            &room,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::DEFAULT,
+        );
+        let mut t = Term::new(owned.storage(), &wide);
+        let text: Vec<u8> = (0..3_000)
+            .flat_map(|i| format!("{i:05}{}\r\n", "z".repeat(145)).into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let _ = t.take_record();
+        let mut counts = crate::keep::Counts::new(&t);
+        let _ = counts.numbered(&t, None);
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        for n in 0..3_000usize {
+            let at = AbsLine::at(Rows::of_count(n));
+            match n % 2 {
+                0 => paths.written_by_shell(LineSpan::of(at, at)),
+                _ => paths.written_remote(LineSpan::of(at, at)),
+            }
+        }
+        for g in 0..8usize {
+            let at = AbsLine::at(Rows::of_count(2_000 + g * 100));
+            let span = LineSpan::of(at, at.below());
+            pr.seen.push((Pid::try_from(10 + g).expect("a pid"), span));
+        }
+        pr.publish(&mut paths);
+        let mut recuts = crate::paths::Recuts::default();
+        let mut times = [Vec::new(), Vec::new(), Vec::new()];
+        let mut told = 0;
+        let mut sizes = Vec::new();
+        for round in 0..11 {
+            for ws in [&narrow, &wide] {
+                // The core alone, telling nothing: a copy to resize.
+                let mut plain_owned = Owned::with_history(
+                    &room,
+                    &baud_core::CacheGeometry::UNKNOWN,
+                    baud_core::Depth::DEFAULT,
+                );
+                let mut plain = Term::new(plain_owned.storage(), &wide);
+                plain.write_at(BytePos::ZERO, &text);
+                plain.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+                if ws.ws_col == wide.ws_col {
+                    let _ = plain.resize(&narrow);
+                }
+                let t0 = Instant::now();
+                let _ = plain.resize(ws);
+                let plain_took = t0.elapsed();
+                let was = (t.geometry().0, t.screen());
+                let was_last = crate::paths::last_line(&t, counts.primary());
+                recuts.clear();
+                let t1 = Instant::now();
+                let _ = recuts.resize(&mut t, ws);
+                let told_took = t1.elapsed();
+                let rec = t.take_record();
+                let _ = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec);
+                let map = recuts.last().expect("held");
+                told = map.map.len();
+                let t2 = Instant::now();
+                pr.resized(&mut paths, (&rec, Some(map)), &t, was_last, &counts);
+                let followed_took = t2.elapsed();
+                if round > 0 {
+                    sizes.push((told, rec.renumbered().is_some()));
+                    times[0].push(plain_took);
+                    times[1].push(told_took);
+                    times[2].push(followed_took);
+                }
+            }
+        }
+        // At 100 columns each line takes two rows, so about half as many
+        // lines as the ring has rows are left to tell.
+        assert!(told > 1_000, "the control: a full ring told, {told} lines");
+        assert_eq!(pr.seen.len(), 8, "the control: the spans kept");
+        assert!(
+            sizes.iter().all(|&(n, re_cut)| n > 1_000 && re_cut),
+            "the control: every resize re-cut a full ring: {sizes:?}"
+        );
+        for (name, mut ts) in ["Term::resize", "Recuts::resize", "Probes::resized"]
+            .into_iter()
+            .zip(times)
+        {
+            ts.sort();
+            let (lo, mid, hi) = (ts[0], ts[ts.len() / 2], ts[ts.len() - 1]);
+            println!(
+                "{name}: median {mid:?}, range {lo:?}..{hi:?}, {} resizes",
+                ts.len()
+            );
+        }
+    }
+
+    /// **A re-cut carries every hold with its text** (C): `ls` prints a
+    /// line of thirty columns, `/etc/hosts` and `/etc/passwd` at forty
+    /// columns, named; `ssh`, still to be named, writes `/etc/group` over
+    /// the path's row, which holds it; the window narrows to twenty, the
+    /// long line takes two rows, and `/etc/hosts` moves down onto the
+    /// number the held row had. Before `ssh`'s answer, `/etc/hosts` reads
+    /// local where it is now, and `ssh`'s row, one further down, is held.
+    /// Named break: the spans kept of the lines left where they were
+    /// (`Probes::recut` carrying none) -- the hold stays on its old number
+    /// and `/etc/hosts` reads not known.
+    #[test]
+    fn a_re_cut_carries_every_hold_with_its_text() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let printed = [[b'x'; 30].as_slice(), b"\r\n/etc/hosts\r\n/etc/passwd\r\n"].concat();
+        let reads = [
+            Read {
+                then: Then::Answered,
+                ..read(&printed, 2)
+            },
+            Read {
+                then: Then::Resize(20, 6),
+                ..read(b"\x1b[3;1H/etc/group", 9)
+            },
+            Read {
+                then: Then::Took,
+                ..read(b"", 1)
+            },
+        ];
+        let t = taken_midway(
+            ws,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |t, _| (holding(t, "/etc/hosts"), holding(t, "/etc/group")),
+        );
+        assert_eq!(t.looked, (vec![2], vec![3]), "the control: both moved down");
+        assert_eq!(
+            [t.midway_origins[0][2], t.midway_origins[0][3]],
+            [Origin::Local, Origin::Unknown]
+        );
+    }
+
+    /// **A quiet part after a page-width request is not lost to the
+    /// dedupe** (D4): `ls` prints a line wrapped over two rows at forty
+    /// columns and `$ /etc/hosts` after it, leaving the cursor on it,
+    /// named; then `ssh`, still to be named, in one read asks for 132
+    /// columns -- the wrapped line takes one row and the cursor's line
+    /// moves up one -- and returns to the start of the line to print
+    /// `/etc/passwd` over it. That last part's record is quiet, its cursor
+    /// on the line it began on, and its tag the resize's part's, so it is
+    /// not a part of its own and the resize's part, whose record says it
+    /// renumbered, names no line. It is not lost all the same: a quiet part
+    /// writes only on the cursor's line, which the asking part named as
+    /// the line it began on, and the re-cut carries that span to where the
+    /// cursor's text went. Not known before `ssh`'s answer. The control:
+    /// the request resized and `ssh`'s path is on the cursor's line, moved
+    /// up. Named break: the spans kept of the lines left where they were
+    /// (`Probes::recut` carrying none) -- the asking part's span stays on
+    /// the old number and the line reads local.
+    #[test]
+    fn a_quiet_part_after_a_page_width_request_is_filed() {
+        let printed = [[b'x'; 60].as_slice(), b"\r\n$ /etc/hosts"].concat();
+        let reads = [
+            Read {
+                then: Then::Answered,
+                ..read(&printed, 2)
+            },
+            Read {
+                then: Then::Took,
+                ..read(b"\x1b[132$|\r/etc/passwd ", 9)
+            },
+        ];
+        let t = taken_midway(
+            WS,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |t, _| (t.geometry().0.index(), holding(t, "/etc/passwd")),
+        );
+        assert_eq!(
+            t.looked,
+            (132, vec![1]),
+            "the control: resized, ssh's path on row 1"
+        );
+        assert_eq!(
+            t.midway_origins[0][1],
+            Origin::Unknown,
+            "before ssh's answer"
+        );
+    }
+
+    /// **A cut a re-cut came among is no cut** (D4, `cut::Spot`): under
+    /// `ssh`, run from the shell, which is in front by the read, a read of
+    /// `/etc/hosts`, the shell's `D` and prompt, and then
+    /// requests for 132 columns and back to 80, with `/etc/passwd` typed
+    /// after them. The cut's line was renumbered twice, and the grid ends
+    /// the size it was, which `Spot::line`'s checks would pass: the parts
+    /// from the cut on are filed as they would be uncut, under the remote
+    /// command's verdict, so no row lights. The control: the same read with no
+    /// requests lights the typed path. Named break: the cut taken in the
+    /// run the batch ends with whatever came before it
+    /// (`Probes::drain_segment` taking any cut there) -- a row lights.
+    #[test]
+    fn a_cut_a_re_cut_came_among_is_no_cut() {
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 6,
+        };
+        let lit = |requests: &[u8]| {
+            let remote = [
+                b"/etc/hosts\r\n".as_slice(),
+                &prompt_after(""),
+                requests,
+                b"/etc/passwd",
+            ]
+            .concat();
+            let start = ran("ssh h", ";cmdline=ssh\\ h");
+            let reads = [read(&start, 1), read(&remote, 1)];
+            let ws = WinSize { ..ws };
+            taken_numbered(
+                ws,
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |t, _| t.geometry().0.index(),
+            )
+        };
+        let (plain, _, cols) = lit(b"");
+        assert_eq!(
+            (plain.len(), cols),
+            (1, 80),
+            "the control: the typed path lights"
+        );
+        let (recut, _, cols) = lit(b"\x1b[132$|\x1b[80$|");
+        assert_eq!(
+            (recut, cols),
+            (vec![], 80),
+            "re-cut twice, the grid restored"
+        );
+    }
+
+    /// The rows of the screen up whose text holds `what`.
+    fn holding(t: &Term<'_>, what: &str) -> Vec<usize> {
+        (0..t.geometry().1.index())
+            .filter(|&y| {
+                let row = t.row(baud_domain::Row::from_index(y)).expect("a row");
+                let text: String = row
+                    .iter()
+                    .filter_map(|c| c.content.as_codepoint())
+                    .filter_map(|c| char::from_u32(c.value()))
+                    .collect();
+                text.contains(what)
+            })
+            .collect()
+    }
+
+    /// **A page-width request among a read's parts is followed by what its
+    /// re-cut told** (C, D4): a line wrapped over two rows filed local,
+    /// `ssh`'s `/etc/hosts` and the shell's prompt after it, named; then
+    /// `ls` printing `/etc/passwd`, asking for 132 columns and printing
+    /// `/etc/passwd` again. The part before the
+    /// request is filed on the numbers before the re-cut and carried, the
+    /// part after it on the numbers it made: both paths light where they
+    /// are drawn, the remote one stays dark, and line 0, the wrapped line,
+    /// keeps its local writer. Named break: the drain filed with no re-cut
+    /// held (`Recuts::NONE`) -- nothing lights, and line 0 is not known, as
+    /// a re-cut no map follows leaves them.
+    #[test]
+    fn a_page_width_request_among_a_reads_parts_is_followed() {
+        let wrapped = [[b'x'; 60].as_slice(), b"\r\n"].concat();
+        let reads = [
+            read(&wrapped, 2),
+            read(b"/etc/hosts\r\n", 9),
+            Read {
+                then: Then::Answered,
+                ..read(b"$ \r\n", 1)
+            },
+            read(b"/etc/passwd\r\n\x1b[132$|/etc/passwd", 2),
+        ];
+        let (lit, _, (wide, local, remote, first)) = taken_numbered(
+            WS,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |t, p| {
+                (
+                    t.geometry().0.index(),
+                    holding(t, "/etc/passwd"),
+                    holding(t, "/etc/hosts"),
+                    p.origin(AbsLine::at(Rows::ZERO)),
+                )
+            },
+        );
+        assert_eq!(wide, 132, "the control: the request resized");
+        assert_eq!(local.len(), 2, "the control: both paths up: {local:?}");
+        assert_eq!(remote.len(), 1, "the control: the remote one up");
+        assert_eq!(lit, local, "the local paths, and only they");
+        assert_eq!(first, Origin::Local, "line 0, carried");
+    }
+
+    /// **The bytes that ask for a page width are filed on the numbers they
+    /// were written at** (C, D4): `ls` prints `/etc/passwd` on row 0, named
+    /// local; then `ssh` writes `/etc/hosts` over it and asks for 132
+    /// columns in the same part. Its record is taken before the resize, so
+    /// the remote writer is filed over row 0 before the re-cut carries it:
+    /// the row stays dark. The control: the same bytes with no request
+    /// lights nothing either. Named break: the part's record taken after
+    /// the resize, as one record (`reads::paced_one`) -- it says the lines
+    /// were renumbered and names none, and row 0 carries the local writer
+    /// and lights.
+    #[test]
+    fn the_bytes_that_ask_for_a_page_width_are_filed_before_its_re_cut() {
+        let lit = |ask: &[u8]| {
+            let over = [b"\x1b[1;1H/etc/hosts  ".as_slice(), ask].concat();
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(b"/etc/passwd\r\n", 2)
+                },
+                read(&over, 9),
+            ];
+            taken_numbered(
+                WS,
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |t, _| t.geometry().0.index(),
+            )
+        };
+        let (plain, _, cols) = lit(b"");
+        assert_eq!((plain, cols), (vec![], 40), "the control: no request");
+        let (asked, _, cols) = lit(b"\x1b[132$|");
+        assert_eq!((asked, cols), (vec![], 132), "the request");
+    }
+
+    /// **What each of the primary's first twelve lines reads as after a
+    /// re-cut told as `edit` leaves the map** (`Probes::resized`): six
+    /// lines of thirty columns filed local on a 40x4 window, narrowed to
+    /// twenty, so each takes two lines, then the shell's prompt filed local
+    /// over line `prompt`, as the shell redraws it after the resize.
+    fn after_recut(
+        edit: impl FnOnce(&mut Vec<baud_core::LineRecut>) -> baud_core::Following,
+        prompt: Rows,
+    ) -> Vec<Origin> {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        let text: Vec<u8> = (0..6)
+            .flat_map(|i| format!("{i}{}\r\n", "y".repeat(29)).into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let _ = t.take_record();
+        let _ = counts.numbered(&t, None);
+        paths.all_written_here();
+        let was = (t.geometry().0, t.screen());
+        let was_last = crate::paths::last_line(&t, counts.primary());
+        let mut recuts = crate::paths::Recuts::default();
+        let _ = recuts.resize(
+            &mut t,
+            &WinSize {
+                ws_col: 20,
+                ws_row: 4,
+            },
+        );
+        let rec = t.take_record();
+        let _ = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec);
+        let mut map = recuts.last().expect("the resize, held").map.to_vec();
+        assert_eq!(map.len(), 7, "the control: six lines and the cursor's");
+        let following = edit(&mut map);
+        let told = crate::paths::Told {
+            map: &map,
+            following,
+        };
+        pr.resized(&mut paths, (&rec, Some(told)), &t, was_last, &counts);
+        let at = AbsLine::at(prompt);
+        paths.written_by_shell(LineSpan::of(at, at));
+        (0..12)
+            .map(|n| paths.origin(AbsLine::at(Rows::of_count(n))))
+            .collect()
+    }
+
+    /// **A re-cut that drops lines from the history keeps every line's
+    /// writer on its own text** (D3 in the app): ten lines of thirty
+    /// columns, each numbered at its start, on a 40x4 window over a history
+    /// of six lines, the even ones filed local and the odd remote; the
+    /// window narrows to twenty, each line takes two rows, and the ring
+    /// drops the oldest. Every row of every line left reads its own line's
+    /// writer, found by the number its text starts with. The control: the
+    /// re-cut dropped lines -- the oldest left is past the oldest before.
+    /// A widen re-cuts each line into fewer rows and drops none. Named
+    /// break: each line's new lines one later than the core says
+    /// (`LineRecut::new` shifted in the re-cut's hook) -- a row reads the
+    /// line before's writer.
+    #[test]
+    fn a_re_cut_that_drops_lines_keeps_each_lines_writer_on_its_text() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::with_history(
+            &ws,
+            &baud_core::CacheGeometry::UNKNOWN,
+            baud_core::Depth::of(6),
+        );
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        let text: Vec<u8> = (0..10)
+            .flat_map(|i| format!("{i}{}\r\n", "z".repeat(29)).into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &text);
+        t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
+        let _ = t.take_record();
+        let _ = counts.numbered(&t, None);
+        for n in 0..10 {
+            let at = AbsLine::at(Rows::of_count(n));
+            match n % 2 {
+                0 => paths.written_by_shell(LineSpan::of(at, at)),
+                _ => paths.written_remote(LineSpan::of(at, at)),
+            }
+        }
+        let first_before = crate::keep::oldest(&t, counts.primary());
+        let was = (t.geometry().0, t.screen());
+        let was_last = crate::paths::last_line(&t, counts.primary());
+        let mut recuts = crate::paths::Recuts::default();
+        let _ = recuts.resize(
+            &mut t,
+            &WinSize {
+                ws_col: 20,
+                ws_row: 4,
+            },
+        );
+        let rec = t.take_record();
+        let s = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec).1;
+        pr.resized(&mut paths, (&rec, recuts.last()), &t, was_last, &counts);
+        let first = crate::keep::oldest(&t, s);
+        assert!(
+            first > first_before,
+            "the control: the re-cut dropped lines"
+        );
+        // Each row with text, by the line its text belongs to.
+        let mut writer = None;
+        let mut rows = 0;
+        let mut line = first;
+        while let Some((cells, _)) = baud_render::row_of(&t, s, line) {
+            let lead = cells.first().and_then(|c| c.content.as_codepoint());
+            match lead.map(|c| c.value()) {
+                Some(d) if (u32::from(b'0')..=u32::from(b'9')).contains(&d) => {
+                    writer = Some(match (d - u32::from(b'0')) % 2 {
+                        0 => Origin::Local,
+                        _ => Origin::Remote,
+                    });
+                }
+                Some(_) => {}
+                None => writer = None,
+            }
+            if let Some(w) = writer {
+                assert_eq!(paths.origin(line), w, "{line:?}");
+                rows += 1;
+            }
+            line = line.below();
+        }
+        assert!(rows >= 6, "the control: the rows compared, {rows}");
+    }
+
+    /// **A resize that re-cut lines it did not tell is followed by
+    /// nothing** (D1): the map the resize told, said not followed, as a
+    /// resize through `Term::resize` or a core without the record says --
+    /// every line it renumbered is not known, the prompt the shell redraws
+    /// on line 3 after it included. The control: followed, every line
+    /// keeps its local writer. Named break: `Probes::resized` reading the
+    /// map whatever `Following` says -- every line local.
+    #[test]
+    fn a_re_cut_not_followed_is_followed_by_nothing() {
+        let followed = after_recut(|_| baud_core::Following::Followed, Rows::of_count(3));
+        assert_eq!(followed, vec![Origin::Local; 12], "the control: followed");
+        let not = after_recut(|_| baud_core::Following::NotFollowed, Rows::of_count(3));
+        assert_eq!(not, vec![Origin::Unknown; 12], "not followed");
+    }
+
+    /// **A line no line told covers is not known, a local fact filed over it
+    /// after included** (D2): the map less the line whose text the re-cut
+    /// put on lines 4 and 5 -- both are not known, the prompt the shell
+    /// redraws on line 4 after it included, and every other line keeps its
+    /// local writer. Named break: the lines no line told left with nothing
+    /// filed (`Paths::reflowed`'s uncovered lines) -- line 4 lights once
+    /// the prompt is filed over it.
+    #[test]
+    fn a_line_no_line_told_covers_is_not_known() {
+        let origins = after_recut(
+            |map| {
+                map.remove(2);
+                baud_core::Following::Followed
+            },
+            Rows::of_count(4),
+        );
+        let want: Vec<_> = (0..12)
+            .map(|n| match n {
+                4 | 5 => Origin::Unknown,
+                _ => Origin::Local,
+            })
+            .collect();
+        assert_eq!(origins, want);
     }
 
     /// **Where F5 does not reach, the row written below stays dark**:
