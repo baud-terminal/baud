@@ -896,7 +896,12 @@ impl crate::term::Cold {
     /// **Rows `from` to `to` moved `k` rows `way` in place**, the primary's
     /// window top at `top`: the text that stays in the band, recorded with
     /// where it went. The rows it leaves are blanked, and recorded as
-    /// written where they are (`Paint::path_rows`).
+    /// written where they are (`Paint::path_rows`). A shift of the band's
+    /// whole height or more leaves no text in it and records no move: `SU`,
+    /// `SD`, `IL` and `DL` with such a count, each among the control
+    /// functions that write a cell (`write::writes_no_cell`). `LF`, `IND`,
+    /// `NEL` and `RI` shift one row in a band of at least two -- `DECSTBM`
+    /// takes no region of one row -- and always record one.
     pub(crate) fn record_band(
         &mut self,
         (from, to): (baud_domain::Row, baud_domain::Row),

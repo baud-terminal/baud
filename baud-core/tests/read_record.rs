@@ -640,15 +640,25 @@ fn the_mark_line_is_the_window_top_each_record_counts_from() {
 /// move on that line's screen** (`Cold::band_moved`, `Cold::moved_in_place`):
 /// a line feed at the bottom of a region below the top, the alternate
 /// screen's copy of a short top region, `RI` at a region's top margin, a
-/// line feed under side margins, and a prompt pinned to the last row at its
-/// `133;B`. Only
-/// the full screen's scroll, a turn of the ring that keeps each line's
-/// text on its own number, records none, and an embedder holds the line
-/// on any move (StartRow). Named breaks: a full-width band moved with no
-/// record (`band_moved` without `record_band`) -- the region's, the
-/// alternate's, `RI`'s and the pin's read with no move; a rectangle moved
-/// with none (`moved_in_place` without `record_within`) -- the side
-/// margins' does.
+/// line feed under side margins, `SU` and `SD` in a region below the top,
+/// and a prompt pinned to the last row at its `133;B`. A turn of the ring
+/// keeps each line's text on its own number and records none: the full
+/// screen's line feed and `SU`, a top region's `SU` on the primary, `SD`
+/// taking a line back from the history, and the alternate screen's `SU`
+/// and `SD` while its count can move; and where it cannot -- `SD` at the
+/// primary's line zero, with no history to take back -- the text moves
+/// down under the numbers it had, recorded as a move of its own
+/// (`record_move` in the scroll down). An embedder holds the line on any
+/// move (StartRow). The one copy that records none is a shift of a band by
+/// its whole height or more (`record_band`), which leaves no text in it:
+/// `SU`, `SD`, `IL` and `DL` with such a count, which the core takes as
+/// writing the line when the cursor is on it. The line feeds this test
+/// runs shift one row in a band of at least two. Named breaks: a
+/// full-width band moved with no record
+/// (`band_moved` without `record_band`) -- every region's and the pin's
+/// read with no move; a rectangle moved with none (`moved_in_place`
+/// without `record_within`) -- the side margins' does; the scroll down at
+/// line zero recording nothing -- `SD` with no history does.
 #[test]
 fn every_scroll_that_copies_onto_the_start_line_records_a_move() {
     let moved_onto_start = |rec: ReadRecord| {
@@ -662,6 +672,9 @@ fn every_scroll_that_copies_onto_the_start_line_records_a_move() {
         (b"\x1b[?1049h\x1b[1;5r\x1b[5;1Habc", b"\n"),
         (b"\x1b[5;10r\x1b[5;1Habc", b"\x1bM"),
         (b"\x1b[?69h\x1b[2;20s\x1b[5;10r\x1b[10;5Habc", b"\n"),
+        (b"\x1b[5;10r\x1b[7;1Habc", b"\x1b[S"),
+        (b"\x1b[5;10r\x1b[7;1Habc", b"\x1b[T"),
+        (b"\x1b[3;1Habc", b"\x1b[T"),
     ]
     .into_iter()
     .map(|(before, bytes)| moved_onto_start(after(&WS, before, bytes)))
@@ -671,12 +684,28 @@ fn every_scroll_that_copies_onto_the_start_line_records_a_move() {
         let _ = read(t, b"out\r\n");
         read(t, b"\x1b]133;A\x07$ \x1b]133;B\x07")
     })));
-    // The control: the full screen's scroll moves no line's text off its
-    // number.
-    got.push(moved_onto_start(after(&WS, b"\x1b[24;1Habc", b"\n")));
-    // The region's, the alternate's, `RI`'s, the side margins', the pin's;
-    // the ring's.
-    assert_eq!(got, [true, true, true, true, true, false]);
+    // The ring's turns: no line's text moves off its number.
+    let history = [b"x\r\n".repeat(40), b"\x1b[3;1Habc".to_vec()].concat();
+    for (before, bytes) in [
+        (b"\x1b[24;1Habc".as_slice(), b"\n".as_slice()),
+        (b"\x1b[7;1Habc", b"\x1b[S"),
+        (b"\x1b[1;10r\x1b[7;1Habc", b"\x1b[S"),
+        (&history, b"\x1b[T"),
+        (b"\x1b[?1049h\x1b[3;1Habc", b"\x1b[S"),
+        (b"\x1b[?1049h\x1b[3;1Habc", b"\x1b[T"),
+    ] {
+        got.push(moved_onto_start(after(&WS, before, bytes)));
+    }
+    // The region's line feed, the alternate's, `RI`'s, the side margins',
+    // the region's `SU` and `SD`, `SD` with no history, the pin's; then the
+    // ring's six.
+    assert_eq!(
+        got,
+        [
+            true, true, true, true, true, true, true, true, false, false, false, false, false,
+            false
+        ]
+    );
 }
 
 /// **A control function that may write a cell, run with the cursor on the
