@@ -21,6 +21,32 @@ pub fn hebrew_among<S: AsRef<str>>(languages: impl IntoIterator<Item = S>) -> He
     }
 }
 
+/// **One caller of the Text Input Sources API at a time, in the unit
+/// tests**: HIToolbox aborts the process when two threads call it at once
+/// ("Text Input Sources or Text Services Manager API is being called in
+/// two threads concurrently"), and libtest runs each test on a thread of
+/// its own. The app calls it on the main thread alone: `App::new`, from
+/// `Opening::new`, which takes a `MainThreadMarker`; `Driver::set_focus`;
+/// and the key path (`Driver::key`, `key_repeat::app_event`), AppKit's
+/// responder calls. So the lock is the tests' alone, and the app's build
+/// has none.
+#[cfg(all(test, target_os = "macos"))]
+fn tis() -> std::sync::MutexGuard<'static, ()> {
+    static TIS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TIS.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// No lock outside the unit tests: the app calls on the main thread alone.
+#[cfg(all(not(test), target_os = "macos"))]
+fn tis() -> Unlocked {
+    Unlocked
+}
+
+/// What [`tis`] holds outside the unit tests: nothing.
+#[cfg(all(not(test), target_os = "macos"))]
+struct Unlocked;
+
 /// The languages of every enabled keyboard input source: the system's
 /// list, read once.
 #[cfg(target_os = "macos")]
@@ -30,6 +56,7 @@ fn enabled_languages() -> Vec<String> {
         TIS_CATEGORY_KEYBOARD_INPUT_SOURCE, TIS_PROPERTY_INPUT_SOURCE_CATEGORY,
         TIS_PROPERTY_INPUT_SOURCE_LANGUAGES, TISCreateInputSourceList, TISGetInputSourceProperty,
     };
+    let _tis = tis();
     let mut out = Vec::new();
     // SAFETY: a null dictionary and 0 ask for the enabled sources; the
     // array returned is owned here and released below.
@@ -135,6 +162,7 @@ fn unshifted_on_selected(
     key: &macos_liquid_glass::drawable::KeyPress,
 ) -> Option<baud_domain::Codepoint> {
     use crate::sys::{CFRelease, TISCopyCurrentKeyboardLayoutInputSource};
+    let _tis = tis();
     // SAFETY: no argument; the source returned is owned here and released
     // below.
     let source = unsafe { TISCopyCurrentKeyboardLayoutInputSource() };
@@ -221,6 +249,7 @@ fn unshifted_on_installed(
     };
     // SAFETY: a null dictionary and 1 ask for every installed source; the
     // array is owned here and released below.
+    let _tis = tis();
     let list = unsafe { TISCreateInputSourceList(core::ptr::null(), 1) };
     let mut found = None;
     if !list.is_null() && !wanted.is_null() {
@@ -305,6 +334,40 @@ mod tests {
             None,
             "Up types a private character"
         );
+    }
+
+    /// **Two threads reading layouts at once do not abort the process**:
+    /// each reads the US and the Hebrew layout's `a` fifty times, as the
+    /// tests above do on libtest's threads, and each read is the layout's
+    /// own character. HIToolbox aborts on a second concurrent caller, so
+    /// without [`tis`] the whole test binary dies here. Break: `tis` taking
+    /// no lock, and the binary aborts with HIToolbox's "called in two
+    /// threads concurrently".
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn two_threads_reading_layouts_at_once_do_not_abort() {
+        let read = || {
+            let a = macos_liquid_glass::drawable::KeyPress {
+                key_code: 0x00,
+                characters: String::new(),
+                unmodified: String::new(),
+                modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+                repeat: false,
+            };
+            for _ in 0..50 {
+                assert_eq!(
+                    unshifted(KeyLayout::US, &a),
+                    Some(baud_domain::Codepoint::from_char('a'))
+                );
+                assert_eq!(
+                    unshifted(KeyLayout::HEBREW, &a),
+                    Some(baud_domain::Codepoint::from_char('\u{5e9}'))
+                );
+            }
+        };
+        let other = std::thread::spawn(read);
+        read();
+        other.join().expect("the other thread's reads");
     }
 
     /// **The layout a test names is the one read, whatever this Mac has
