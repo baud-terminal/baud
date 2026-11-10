@@ -6,9 +6,9 @@
 //! `#[cfg(feature = "counters")]`, and a plain length or `Tally::of(n)`
 //! need not. A source check, so it runs in every build.
 //!
-//! Its controls: it reads every counter call in baud-render's sources and
-//! `baud-present-macos`'s copy of the screen, at least as many as were
-//! there when it was written, and it flags a walking argument with no
+//! Its controls: it reads every counter call in baud-render's sources, the
+//! copy of the screen's (`src/screens.rs`) among them, at least as many as
+//! were there when it was written, and it flags a walking argument with no
 //! attribute and passes the same one under the attribute.
 
 use std::path::{Path, PathBuf};
@@ -88,7 +88,6 @@ fn no_counter_argument_walks_outside_the_feature() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
     sources(&root.join("src"), &mut files);
-    files.push(root.join("../baud-present-macos/src/screens.rs"));
     let mut bad = Vec::new();
     let mut calls = 0;
     for f in &files {

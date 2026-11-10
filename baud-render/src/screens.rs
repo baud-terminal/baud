@@ -5,7 +5,7 @@
 //! The cell shader does not read the core's grid: the core rewrites the
 //! rows of the live window in place, so a frame gets a still copy of the
 //! window, laid out flat in screen order, in the set of buffers no frame
-//! in flight holds ([`crate::journal::Wheel`]). A frame where only the
+//! in flight holds (`baud-present-macos`'s `Wheel`). A frame where only the
 //! cursor, its blink animation or its trail moved is built from the screen
 //! the last frame was: its cells, its status line and its line renditions
 //! are the ones the last frame copied, compared row for row against that
@@ -19,13 +19,25 @@
 //! cells changed (`Renderer::rejoin_bidi`), and no other compare reads the
 //! window for them.
 
+use crate::counters::{Counter, add, compared};
+use crate::{Leaving, Lending, Rejoin, Tally, WalkKey};
 use baud_core::StatusLine;
 use baud_domain::{LineRendition, PackedCell, Row, Stride, StyleId, Viewport};
-use baud_render::counters::{Counter, add, compared};
-use baud_render::{Leaving, Lending, Rejoin, Tally, WalkKey};
 
-use crate::journal::{SetIx, Wheel};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// **The buffer sets a frame is built into**: one for the frame the GPU
+/// reads and one for the frame being built, `baud-present-macos`'s
+/// `Wheel::SETS`, whose reason it is.
+pub const SETS: usize = 2;
+
+/// Which of the per-frame buffer sets a frame is built into.
+///
+/// The buffers are the caller's -- the resolved styles and the overlay
+/// mask, which live in the app -- so this names a set rather than holding
+/// one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SetIx(pub usize);
 
 /// Whether a frame is built from the last frame's screen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -115,7 +127,7 @@ impl Screens {
     pub fn new() -> Screens {
         Screens {
             now: ScreenGen::default(),
-            copied: vec![None; Wheel::SETS],
+            copied: vec![None; SETS],
             last: None,
             renditions: Vec::new(),
             status: None,
@@ -403,11 +415,10 @@ impl Screens {
 
 #[cfg(test)]
 mod tests {
-    use super::{Built, Compare, Screens};
-    use crate::journal::SetIx;
+    use super::{Built, Compare, Screens, SetIx};
+    use crate::Leaving;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, PackedCell, ReadLen, Row, WinSize};
-    use baud_render::Leaving;
 
     const WS: WinSize = WinSize {
         ws_col: 20,

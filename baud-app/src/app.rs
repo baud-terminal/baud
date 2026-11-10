@@ -34,10 +34,10 @@ use baud_core::{
     grid_stride,
 };
 use baud_domain::{
-    CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
-    KeyEventKind, KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers,
-    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisRepainted, Row,
-    RowRot, Rows, WinSize,
+    Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent, KeyEventKind,
+    KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers, MouseButton,
+    MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, RegisRepainted, Row, RowRot, Rows,
+    WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -46,15 +46,14 @@ use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer, SurfaceSpace,
     journal::{Reshape, Wheel},
-    screens::{Built, Compare, Screens},
+    screens::Screens,
 };
 use baud_render::Led;
 use baud_render::Place;
 use baud_render::{
     Blend, BlinkPhases, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Instance, Look,
     MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar, Scrolled,
-    Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, WalkKey,
-    Window, gutter,
+    Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme, Trail, TrailLook, Window, gutter,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, ModifierChange,
@@ -2782,546 +2781,59 @@ impl App {
                 // The window `back` lines up the ring: the shader's rotation
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
-                let back = self.term.window_back();
-                // The window in the order each row is drawn in, laid out once
-                // for this frame: the core's own view when no row is
-                // reordered. With BDSM reset, once a letter that takes a
-                // joining form has been drawn, the last frame's joins are
-                // kept for the rows the copy's compare finds changed.
-                // Row 9's predicted echoes, on the live view, are laid out
-                // as written, so a prediction's row is drawn in the order
-                // its echo will be.
-                let joins_seen = self.renderer.joins_seen();
-                self.renderer.set_predicted(
-                    self.predictions
-                        .iter()
-                        .filter(|_| back.index() == 0)
-                        .map(|p| (p.row, p.col, p.cp)),
-                );
-                let rejoin = self.renderer.lay_out_bidi_copied(&self.term, back);
-                let view = self.renderer.bidi().window(
+                // **The frame, built where every caller builds it**
+                // (`baud_render::cell_frame`): the window laid out, the
+                // set's copy put back, compared and taken, the map walked
+                // and the overlay's records and the records after them
+                // gathered. The kept frame's row marks are refilled in
+                // place, and left as they were when no set is free.
+                let live = live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
+                let inputs = baud_render::cell_frame::CellInputs {
+                    back: self.term.window_back(),
+                    predictions: self.predictions.iter().map(|p| (p.row, p.col, p.cp)),
+                    live,
+                    composition: &composition,
+                    highlight,
+                    leaving,
+                    pan,
+                };
+                let mut used = cell
+                    .last
+                    .as_mut()
+                    .map(|b| std::mem::take(&mut b.used))
+                    .unwrap_or_default();
+                let presenter = &self.presenter;
+                let built = baud_render::cell_frame::build(
+                    &mut self.renderer,
                     &self.term,
-                    back,
-                    &mut cell.bidi_cells,
-                    &mut cell.bidi_used,
+                    &inputs,
+                    &mut baud_render::cell_frame::CellParts {
+                        map: &mut cell.maps.live,
+                        exceptions: &mut cell.exceptions,
+                        screens: &mut cell.screens,
+                        copies_mem: &mut cell.copies_mem[..],
+                        styles_mem: &mut cell.styles_mem[..],
+                        overlay_mem: &mut cell.overlay_mem[..],
+                        style_stamps: &mut cell.style_stamps[..],
+                        lent: &mut cell.lent[..],
+                        candidates: &mut cell.candidates,
+                        records: &mut cell.records,
+                        grounds: &mut cell.grounds,
+                        bidi_cells: &mut cell.bidi_cells,
+                        bidi_used: &mut cell.bidi_used,
+                        lent_cells: &mut cell.lent_cells,
+                        lent_used: &mut cell.lent_used,
+                    },
+                    &mut used,
+                    || presenter.as_ref().and_then(Presenter::building),
                 );
-                // Smooth scroll: at the live screen on the primary surface, a
-                // non-zero pan draws one leaving row above the window.
-                // The leaving row's glyphs are one row up, not in `view`, so
-                // ensure the map over the view one line up too -- the
-                // persistent map holds them from when the row was on screen,
-                // and this covers a clear. It is ensured *first*, because
-                // `ensure` clears `candidates` and refills them for the view
-                // it walks (`cellmap`): the screen must be ensured last, or
-                // the overlay's records name `above`'s rows -- the whole
-                // screen one line up -- and every mark and ligature is drawn
-                // a row off its cell for the length of the slide.
-                // Which buffers this frame may write: any set no frame in
-                // flight was committed with. `None` would mean every one is
-                // held and there is nowhere to build that a live draw is not
-                // reading -- which cannot happen while one frame is in
-                // flight and three sets exist, and is a refusal rather than
-                // a corruption if it ever does.
-                let Some(at) = self.presenter.as_ref().and_then(Presenter::building) else {
+                let Some(frame) = built else {
+                    if let Some(b) = &mut cell.last {
+                        b.used = used;
+                    }
                     return;
                 };
-                let set = at.0;
-                // **The ids this set's copy was lent, put back**, and the
-                // slots this set lent its last frame's frozen and struck
-                // cells after them: no frame in flight reads this set, so
-                // its copy is the screen it was copied from again, and a
-                // set that holds the screen need not copy it afresh.
-                cell.lent[set].restore(cell.copies_mem[set], self.term.stride());
-                self.renderer.give_back(
-                    &mut cell.styles_mem[set][..],
-                    &mut cell.style_stamps[set],
-                    &mut cell.lent[set],
-                );
-                // The set's resolved table, brought up to date from the core's
-                // log: only the slots written since this set was last built,
-                // which on a steady screen is none. Before the map
-                // walk, which reads each cell's face style from it.
-                self.renderer.sync_styles(
-                    &self.term,
-                    &mut cell.styles_mem[set][..],
-                    &mut cell.style_stamps[set],
-                );
-                // **The leaving row**: the line just above the window,
-                // `view(back + 1).row(0)`, appended to the copy at index
-                // `vrows`, where `slide_rows = 1` maps draw row 0 to it with
-                // the identity rotation the copy is read under -- in the
-                // order it was drawn in as the first row of the window one
-                // line up, a marked cell given its base, as the shader reads
-                // it (`Renderer::copy_leaving`). It is never selected and
-                // never holds the cursor (the shader's row there is past
-                // every one). The map is ensured over that row as copied,
-                // and what that walk finds kept for the row's own records
-                // (`Overlay::ensure_leaving`).
-                if sliding {
-                    let (vcols, vrows) = (view.cols().index(), view.rows().index());
-                    let at = vrows * self.term.stride().index();
-                    let row = &mut cell.copies_mem[set][at..at + vcols];
-                    self.renderer.copy_leaving(&self.term, back, row);
-                }
-                let cursor_at =
-                    live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
-                // Row 9: the drawn cursor sits after the last predicted
-                // glyph, for the shader and for the overlay's own paint.
-                let cursor_at = match (cursor_at, self.predictions.last()) {
-                    (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
-                    (c, _) => c,
-                };
-                // A composition puts the drawn cursor after itself, as the
-                // instance and CPU paths do in their convert.
-                let cursor_at = match (cursor_at, &composition) {
-                    (Some((_, _, style)), Some(c)) => {
-                        c.cursor(c.width_on(&view)).map(|(r, col)| (r, col, style))
-                    }
-                    (c, _) => c,
-                };
-                // No cursor over an address or a message, as the instance and
-                // CPU paths have it in their convert.
-                let cursor_at = self.renderer.clear_of_messages(&self.term, cursor_at);
-                // **Whether this frame's screen is the last frame's**: its
-                // rows, its status line and its line renditions against the
-                // copy that frame left, row for row; never while sliding,
-                // whose copy holds a leaving row and whose walk another
-                // window. **D4: the window, copied into this frame's set**,
-                // unless that set's copy holds the screen already -- a
-                // frame that changed only the cursor, built into a set an
-                // earlier one copied the same screen into. The rows the view
-                // names, in screen order, so what the shader reads is a
-                // still image of the screen rather than a grid the parser is
-                // still writing -- which is what lets `pump` keep feeding
-                // while this frame is in flight.
-                let stride = self.term.stride().index();
-                let (vcols, vrows) = (view.cols().index(), view.rows().index());
-                // The status line in its drawn order, the row after the
-                // window's in the renderer's maps.
-                let mut status_cells = Vec::new();
-                let status = self.term.status_line().map(|line| {
-                    self.renderer.bidi().status_line(
-                        Row::from_index(vrows),
-                        line,
-                        &mut status_cells,
-                    )
-                });
-                let lined = usize::from(status.is_some());
-                let screens = &mut cell.screens;
-                screens.compare = Compare::for_rejoin(rejoin);
-                // **Whether a cell of this frame names a row the core froze**
-                // (`baud_render::Lent`): the window's, a display line's
-                // among them, or the leaving row's. No row at all while the
-                // core has frozen nothing, which one test answers.
-                let leaving_source =
-                    sliding.then(|| self.renderer.leaving_source(&self.term, back));
-                let frozen = self.renderer.bidi().window_frozen(&self.term, back)
-                    || leaving_source
-                        .as_ref()
-                        .is_some_and(|s| !s.words().is_live());
-                // A window that shows a frozen row is copied afresh, its ids
-                // the core's. A copy an earlier frame lent was put back
-                // above.
-                if frozen {
-                    screens.forget(at);
-                }
-                // The last frame's copy, as a compare reads it: through the
-                // ids its lending rewrote, which its set, maybe in flight,
-                // still holds.
-                let undo = screens
-                    .last_set()
-                    .and_then(|l| cell.lent.get(l.0))
-                    .map_or(&[][..], baud_render::Lent::rewrites);
-                let built = screens.take_lent(
-                    &mut cell.copies_mem,
-                    at,
-                    &view,
-                    status.as_ref(),
-                    self.term.stride(),
-                    leaving,
-                    undo,
-                );
-                // **A frozen row of the window drawn in its own renditions,
-                // and a struck link's text in grey** (`baud_render::Lent`):
-                // its copied cells given slots no row of the frame names, the
-                // frozen first, and the walk and the overlay reading the
-                // copy, so all three resolve each id in the one table. A
-                // frame with neither asks one test a row.
-                let struck =
-                    self.renderer
-                        .struck_cells(&view, view.rows(), baud_render::CopyOrder::Stored);
-                let lend = match frozen || struck.iter().any(|r| !r.is_empty()) {
-                    false => baud_render::Lend::Nothing,
-                    true => {
-                        // Each window row through the table each of its cells
-                        // names, in the order the copy holds them; the row
-                        // after the window's the leaving row while sliding,
-                        // else the status line's, and the notice's after it.
-                        let sources: Vec<baud_render::RowSource<'_>> = (0..vrows)
-                            .map(|y| {
-                                self.renderer.bidi().row_source(
-                                    &self.term,
-                                    back,
-                                    Row::from_index(y),
-                                )
-                            })
-                            .collect();
-                        let mut rows: Vec<(&mut [PackedCell], baud_render::Words<'_>)> = Vec::new();
-                        for (y, chunk) in cell.copies_mem[set].chunks_mut(stride).enumerate() {
-                            let words = match (sources.get(y), &leaving_source) {
-                                (Some(s), _) => s.words(),
-                                (None, Some(s)) if y == vrows => s.words(),
-                                _ => baud_render::Words::LIVE,
-                            };
-                            if y > vrows + 1 {
-                                break;
-                            }
-                            let n = vcols.min(chunk.len());
-                            rows.push((&mut chunk[..n], words));
-                        }
-                        self.renderer.lend(
-                            &self.term,
-                            &mut rows,
-                            &struck,
-                            &mut cell.styles_mem[set][..],
-                            &mut cell.style_stamps[set],
-                            &mut cell.lent[set],
-                        )
-                    }
-                };
-                // What the walk, the overlay and a sized line read the copy
-                // through: the words its lent slots were given.
-                self.renderer.set_frame_lent(&cell.lent[set]);
-                // A copy lent frozen rows names other ids than the last
-                // frame's copy did, so no compare of the two says the screen
-                // is the same. One lent struck cells alone is the last
-                // frame's under the same lending: its slots were given for
-                // the same renditions, so every id means what it meant, and
-                // the map is not walked again.
-                let lending = cell.lent[set].lending();
-                let built = match (frozen, lend, built) {
-                    (true, baud_render::Lend::Rows | baud_render::Lend::Short, _) => Built::New,
-                    (_, _, Built::Last) if lending == screens.lending => Built::Last,
-                    (_, _, Built::Last) => {
-                        screens.built(Built::New, &view, status.as_ref());
-                        Built::New
-                    }
-                    (_, _, Built::New) => Built::New,
-                };
-                screens.lending = lending;
-                // **The leaving row's map ensured**, over the row as copied
-                // and lent: before the screen's walk below, which clears the
-                // candidates and refills them for the view it walks.
-                if sliding {
-                    let at = vrows * stride;
-                    let row = &cell.copies_mem[set][at..at + vcols];
-                    self.renderer.leaving_lent(row);
-                    let used = [baud_domain::RowExtent::of(vcols)];
-                    let leaving = baud_domain::Viewport::new(
-                        row,
-                        &used,
-                        baud_domain::Stride::of_cells(vcols),
-                        view.cols(),
-                        Rows::of_count(1),
-                        Rows::of_count(1),
-                        RowRot::NONE,
-                    );
-                    cell.exceptions.ensure_leaving(
-                        &mut cell.maps.live,
-                        &self.term,
-                        leaving,
-                        &cell.styles_mem[set][..],
-                        &mut self.renderer,
-                    );
-                }
-                let view = match lend {
-                    baud_render::Lend::Nothing => view,
-                    _ => {
-                        cell.lent_cells.clear();
-                        cell.lent_cells
-                            .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
-                        cell.lent_used.clear();
-                        for y in 0..vrows {
-                            let r = Row::from_index(y);
-                            let mut e = baud_domain::RowExtent::of(vcols)
-                                .with_rendition(view.rendition(r), view.cols());
-                            if view.wrapped(r) == baud_domain::Wrap::Continues {
-                                e = e.wrapping(vcols);
-                            }
-                            cell.lent_used.push(e);
-                        }
-                        baud_domain::Viewport::new(
-                            &cell.lent_cells,
-                            &cell.lent_used,
-                            self.term.stride(),
-                            view.cols(),
-                            view.rows(),
-                            view.rows(),
-                            RowRot::NONE,
-                        )
-                    }
-                };
-                // The kept joins found again on the rows that compare found
-                // changed, before the walk and the records read the forms.
-                if let Some(how) = rejoin {
-                    self.renderer
-                        .rejoin_bidi(&self.term, back, how, |r| screens.changed(r));
-                }
-                let key = WalkKey {
-                    table: cell.style_stamps[set],
-                    map: cell.maps.live.generation(),
-                    grown: self.renderer.atlas_stats().grown,
-                    clusters: self.term.cluster_epoch(),
-                    back,
-                    cols: view.cols(),
-                    rows: view.rows(),
-                };
-                if built == Built::New || screens.walked != Some(key) {
-                    cell.maps.live.ensure(
-                        &self.term,
-                        view,
-                        &cell.styles_mem[set][..],
-                        &mut self.renderer,
-                        &mut cell.candidates,
-                    );
-                    screens.walked = (!sliding).then(|| WalkKey {
-                        map: cell.maps.live.generation(),
-                        grown: self.renderer.atlas_stats().grown,
-                        ..key
-                    });
-                }
-                // **The first letter that takes a joining form**, shaped by
-                // the walk with BDSM reset, was laid out unjoined, since no
-                // row is read for joins before one is drawn: laid out again,
-                // before the records draw the forms. Once a renderer's life.
-                self.renderer.join_after_walk(&self.term, back, joins_seen);
-                // The lines at rest on this frame's layout and the look of
-                // the link under the pointer, placed once the layout is
-                // final and before the walk, which reads the look's fields
-                // as empty, as the instance path blanks their cells.
-                self.renderer.place_links(&self.term, &view);
-                let cursor = cursor_at.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
-                // **The config's notice row, after the status line's**:
-                // blank cells, whose default background the shader draws,
-                // under the notice's field drawn with baud's own overlays
-                // below (`Renderer::notice_bar`). No slide runs while it is
-                // shown (`below_grid`). Filled on every frame, the copy of
-                // the screen skipped or not: a set that holds the screen may
-                // not hold the notice's row.
-                let noticed = match self.renderer.notice_bar() {
-                    Some(_) => {
-                        let at = (vrows + lined) * stride;
-                        match cell.copies_mem[set].get_mut(at..at + vcols) {
-                            Some(row) => {
-                                row.fill(PackedCell::EMPTY);
-                                1
-                            }
-                            None => 0,
-                        }
-                    }
-                    None => 0,
-                };
-                cell.exceptions.ensure(
-                    &Scene {
-                        term: &self.term,
-                        view,
-                        styles: &cell.styles_mem[set][..],
-                        cursor,
-                        highlight,
-                        map: &cell.maps.live,
-                        candidates: &cell.candidates,
-                        // Smooth scroll: the records slide with the grid,
-                        // gated on the same `sliding` as the grid's own pan
-                        // so a mark or a ligature never lags a settled frame.
-                        pan: if sliding { pan } else { Px::of(0) },
-                        composition: composition.as_ref(),
-                    },
-                    &mut self.renderer,
-                    &mut cell.overlay_mem[set][..],
-                    &mut cell.records,
-                );
-                let walked = cell.records.len();
-                // Row 9: the predicted echoes, each a masked cell and a
-                // record in the rendition of the cell to its left, on the
-                // live view only. A cell the walk above already drew a
-                // record for -- a mark, or a glyph inside a ligature
-                // window -- is left to that record: two records for one
-                // cell would draw two glyphs on top of each other, and the
-                // echo is a frame away.
-                if back.index() == 0 {
-                    for p in &self.predictions {
-                        // The rendition is the cell to the left's, Mosh's
-                        // heuristic: what was typed before this is what
-                        // this will look like, where the cell under the
-                        // cursor may hold the shell's own dimmed guess.
-                        // The logical cell, read from the core's view: the
-                        // window drawn may show another cell there.
-                        let at = if p.col.index() > 0 {
-                            p.col.index() - 1
-                        } else {
-                            p.col.index()
-                        };
-                        let style = self
-                            .term
-                            .view(back)
-                            .row(p.row)
-                            .get(at)
-                            .map_or(PackedCell::EMPTY.style, |c| c.style);
-                        cell.exceptions.predicted(
-                            &mut self.renderer,
-                            (p.row, p.col),
-                            PackedCell {
-                                content: Content::codepoint(p.cp),
-                                style,
-                                flags: CellFlags::NONE,
-                            },
-                            &cell.styles_mem[set][..],
-                            cursor,
-                            highlight,
-                            view.cols(),
-                            &mut cell.overlay_mem[set][..],
-                            &mut cell.records,
-                        );
-                    }
-                }
-                // The composition: its cells masked off the shader and its
-                // records -- glyphs and underline -- after the walk's, the
-                // same records the instance and CPU paths draw.
-                if let Some(c) = &composition {
-                    let under = view
-                        .row(c.row)
-                        .get(self.renderer.bidi().visual_col(c.row, c.col).index())
-                        .copied()
-                        .unwrap_or(PackedCell::EMPTY);
-                    cell.exceptions.composed(
-                        &mut self.renderer,
-                        &self.term,
-                        (c, baud_render::Laid::AsWritten),
-                        under,
-                        &cell.styles_mem[set][..],
-                        cursor,
-                        view.cols(),
-                        view.rendition(c.row),
-                        if sliding { pan } else { Px::of(0) },
-                        &mut cell.overlay_mem[set][..],
-                        &mut cell.records,
-                    );
-                }
-                // Every match's mark and the link preview's underline, with
-                // the content; the find field and the link's bar are baud's
-                // own and go over the images, below.
-                cell.records.extend_from_slice(self.renderer.find_solids());
-                cell.records.extend_from_slice(self.renderer.link_solids());
-                // The lines at rest, placed before the walk, moved with the
-                // text under a slide.
-                self.renderer
-                    .link_lines_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.records);
-                // The leaving row: what the map does not draw of it drawn by
-                // records, as on a row of the window, and a line that is not
-                // single-width drawn whole by them, its row of the mask the
-                // one after the screen's (`Overlay::leaving`).
-                if sliding {
-                    cell.exceptions.leaving(
-                        &mut self.renderer,
-                        &self.term,
-                        (&cell.maps.live, &cell.styles_mem[set][..]),
-                        back,
-                        (view.cols(), view.rows()),
-                        pan,
-                        &mut cell.overlay_mem[set][..],
-                        &mut cell.records,
-                    );
-                }
-                // The status line's records, its row of the mask marked.
-                cell.exceptions.status(
-                    &mut self.renderer,
-                    &self.term,
-                    cursor,
-                    (view.cols(), view.rows()),
-                    &mut cell.overlay_mem[set][..],
-                    &mut cell.records,
-                );
-                // The trail, thumb and screen fade ride with the records,
-                // drawn after the cell passes: the trail under the thumb, and
-                // the fade last so it veils everything during a switch.
-                let moving_from = cell.records.len();
-                cell.records.extend_from_slice(self.renderer.trail());
-                // The plasma blink's glow over the cursor's cell, after the
-                // trail as `Renderer::instances` has it: built from the
-                // cursor before the phase's filter, since the glow is drawn
-                // while the cursor is not.
-                self.renderer.set_cursor_glow_at(cursor_at);
-                cell.records.extend_from_slice(self.renderer.cursor_glow());
-                // The badge, which stays where the view has it, and the
-                // cursor guide from the same cursor, else on the cursor's
-                // line while the window looks back, its records under the
-                // glyphs (`CellInput::grounds`).
-                self.renderer.place_grounds(
-                    cursor_at,
-                    baud_render::Renderer::cursor_line(&self.term, back),
-                );
-                cell.grounds.clear();
-                cell.grounds.extend_from_slice(self.renderer.badge());
-                self.renderer
-                    .cursor_guide_lowered(if sliding { pan } else { Px::of(0) }, &mut cell.grounds);
-                let moving = (moving_from, cell.records.len());
-                // baud's own overlays, drawn over the images over the text
-                // (`CellInput::chrome`): a `BEL`'s tint under the rest; the
-                // find field over its cells, masked off the shader as a
-                // composition is, and its caret; the link preview's bar the
-                // same way; the thumb; the fade.
-                let chrome_from = cell.records.len();
-                cell.records.extend_from_slice(self.renderer.bell_tint());
-                for (c, under) in self.renderer.hover_bars() {
-                    cell.exceptions.composed(
-                        &mut self.renderer,
-                        &self.term,
-                        (&c, baud_render::Laid::OnScreen),
-                        under,
-                        &cell.styles_mem[set][..],
-                        None,
-                        view.cols(),
-                        baud_domain::LineRendition::Single,
-                        Px::of(0),
-                        &mut cell.overlay_mem[set][..],
-                        &mut cell.records,
-                    );
-                }
-                let tips = self
-                    .renderer
-                    .tip_bars()
-                    .into_iter()
-                    .map(|c| (Some(c), false));
-                let fields = [
-                    (self.renderer.find_field(), true),
-                    (self.renderer.link_bar(), false),
-                ]
-                .into_iter()
-                .chain(tips)
-                .chain([(self.renderer.notice_bar(), false)]);
-                for (c, caret) in fields {
-                    let Some(c) = c else { continue };
-                    cell.exceptions.composed(
-                        &mut self.renderer,
-                        &self.term,
-                        (&c, baud_render::Laid::OnScreen),
-                        PackedCell::EMPTY,
-                        &cell.styles_mem[set][..],
-                        None,
-                        view.cols(),
-                        baud_domain::LineRendition::Single,
-                        Px::of(0),
-                        &mut cell.overlay_mem[set][..],
-                        &mut cell.records,
-                    );
-                    if caret {
-                        cell.records.extend_from_slice(self.renderer.find_caret());
-                    }
-                }
-                cell.records.extend_from_slice(self.renderer.splash());
-                cell.records.extend_from_slice(self.renderer.scrollbar());
-                cell.records.extend_from_slice(self.renderer.screen_fade());
-                let chrome = Tally::of(cell.records.len() - chrome_from);
+                let (at, set, cursor, chrome) = (frame.at, frame.at.0, frame.cursor, frame.chrome);
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
@@ -3339,18 +2851,15 @@ impl App {
                 }
                 // What this frame is built from, for a screen switch's kept
                 // frame (`draw_kept`).
-                let mut used = cell.last.take().map(|b| b.used).unwrap_or_default();
-                used.clear();
-                used.extend((0..view.rows().index()).map(|y| view.extent(Row::from_index(y))));
                 cell.last = Some(CellBuilt {
                     at,
-                    cols: view.cols(),
-                    rows: view.rows(),
+                    cols: frame.cols,
+                    rows: frame.rows,
                     used,
-                    walked: Tally::of(walked),
-                    moving,
+                    walked: frame.walked,
+                    moving: frame.moving,
                     stride: self.term.stride(),
-                    ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
+                    ring: frame.ring,
                     highlight,
                     composition: composition.clone(),
                     chrome,
@@ -3372,7 +2881,7 @@ impl App {
                     stride: self.term.stride(),
                     rotation: RowRot::NONE,
                     // One more row when sliding: the appended leaving row.
-                    ring: Rows::of_index(vrows + lined + noticed + usize::from(sliding)),
+                    ring: frame.ring,
                     cursor,
                     cursor_drawn: cell.exceptions.cursor_drawn(),
                     highlight,
@@ -3386,7 +2895,7 @@ impl App {
                     table: cell.style_stamps[set],
                     map_gen: cell.maps.live.generation(),
                     reach: cell.maps.live.reach(),
-                    moving,
+                    moving: frame.moving,
                     // The screen the copy holds, as the record that decided
                     // whether to copy it names it: the GPU's change is
                     // taken against the last frame it committed.
@@ -8458,7 +7967,7 @@ mod drag_tests {
         for built in [
             "self.renderer.set_blink(",
             "Presenter::building",
-            "self.renderer.sync_styles(",
+            "cell_frame::build(",
             ".convert(&self.term",
             ".render_at(",
         ] {

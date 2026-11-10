@@ -15343,12 +15343,11 @@ fn no_cursor_covers_an_address_on_any_arm() {
             "{name}, the control: with no bar the cursor reaches the pixels"
         );
     }
-    let source = include_str!("../../baud-app/src/app.rs");
+    let app = include_str!("../../baud-app/src/app.rs");
+    let frame = include_str!("../../baud-render/src/cell_frame.rs");
     assert!(
-        source.contains(concat!(
-            "self.renderer.clear_of_",
-            "messages(&self.term, cursor_at)"
-        )),
+        app.contains("baud_render::cell_frame::build(")
+            && frame.contains(concat!("renderer.clear_of_", "messages(term, cursor_at)")),
         "the app's cell path takes its cursor through the rule this harness copies"
     );
 }

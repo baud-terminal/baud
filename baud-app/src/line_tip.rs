@@ -472,6 +472,8 @@ mod tests {
         const MAC: &str = include_str!("app.rs");
         const LINUX: &str = include_str!("linux.rs");
         const STRIP: &str = include_str!("lights.rs");
+        // The cell path's frame, which the app builds through.
+        const FRAME: &str = include_str!("../../baud-render/src/cell_frame.rs");
         let body = |src: &'static str, head: &str| {
             let at = src.find(head).unwrap_or_else(|| panic!("{head}"));
             let rest = &src[at..];
@@ -542,7 +544,10 @@ mod tests {
             "self.seat.line_over(g, self.term.status_rows())",
             "self.line_tip.dismiss(&self.term)",
         ] {
-            assert!(MAC.contains(want) || LINUX.contains(want), "{want}");
+            assert!(
+                MAC.contains(want) || LINUX.contains(want) || FRAME.contains(want),
+                "{want}"
+            );
         }
         for want in [
             "let at = self.seat.frame_point(g.scale);",

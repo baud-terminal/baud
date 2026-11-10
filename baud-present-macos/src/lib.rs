@@ -56,7 +56,11 @@ pub mod probe;
 pub mod redraw;
 #[cfg(feature = "effect-probe")]
 pub mod rig_call;
-pub mod screens;
+/// The copy of the screen each frame's set holds, kept in `baud_render`
+/// where the cell frame is built (`baud_render::screens`).
+pub mod screens {
+    pub use baud_render::screens::*;
+}
 pub mod selection;
 pub mod settings;
 pub mod turn;

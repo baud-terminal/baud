@@ -355,20 +355,27 @@ fn a_freed_slot_retaken_under_the_same_cells_repaints() {
 }
 
 /// **The app never resolves the whole table a frame.** It syncs each set's
-/// copy from the log; `resolve_styles_into` is the full resolve the tests and
-/// the oracle compare against.
+/// copy from the log, in the cell frame it builds through
+/// (`src/cell_frame.rs`); `resolve_styles_into` is the full resolve the tests
+/// and the oracle compare against.
 #[test]
 fn the_app_syncs_and_never_resolves_the_whole_table() {
-    let src = std::fs::read_to_string(format!(
-        "{}/../baud-app/src/app.rs",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap();
-    assert!(src.contains("sync_styles("), "the app does not sync");
+    let read = |p: &str| {
+        std::fs::read_to_string(format!("{}/{p}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|e| panic!("{p}: {e}"))
+    };
+    let (app, frame) = (read("../baud-app/src/app.rs"), read("src/cell_frame.rs"));
     assert!(
-        !src.contains("resolve_styles_into("),
-        "the app resolves the whole rendition table"
+        app.contains("baud_render::cell_frame::build("),
+        "the app builds its cell frame through the one that syncs"
     );
+    assert!(frame.contains("sync_styles("), "the app does not sync");
+    for src in [&app, &frame] {
+        assert!(
+            !src.contains("resolve_styles_into("),
+            "the app resolves the whole rendition table"
+        );
+    }
 }
 
 /// **A copy resolved against one table is resolved whole against another**,

@@ -1,8 +1,8 @@
 //! **What a frame costs when only the cursor's blink moved**, counted
 //! headless on both paths the app draws with: the CPU path's `render_at`,
-//! and the cell path's frame -- the renderer half of `App::present`'s cell
-//! arm with the copy of the screen it draws from (`Screens::take_lent`),
-//! built and never handed to a GPU. A 200x50 screen with every row full:
+//! and the cell path's frame -- `baud_render::cell_frame::build`, which
+//! `App::present`'s cell arm builds it with, the copy of the screen it
+//! draws from included, built and never handed to a GPU. A 200x50 screen with every row full:
 //! Hebrew and Arabic runs, ligature pairs, combining marks, a DECDWL row and
 //! a DECDHL pair, wrapped rows under word-wrap, two link lines with one
 //! struck, a kitty image over the text, a Sixel and a status line.
@@ -20,11 +20,11 @@
 //! row alone and draws the pixels a full frame does -- and every count is
 //! printed, for the rows that bring each one down to assert their own.
 //!
-//! The cell path's driver is pinned to `App::present`: every call it makes
-//! into the renderer, the glyph map, the overlay and the copy is one
-//! `present` makes, in `present`'s order, and so is the gate that skips
-//! the map's walk. Without it the counts would describe a frame the app no
-//! longer draws.
+//! The cell path's driver is pinned to `App::present`: both build the
+//! frame through `build`, once, every call the driver makes before it is
+//! one `present` makes, in `present`'s order, and `present` makes none of
+//! the calls `build` makes. Without it the counts would describe a frame
+//! the app no longer draws.
 //!
 //! The faces are read from the repository by path, never from the system:
 //! JetBrains Mono from `baud-app/fonts/jetbrains-mono`, as the app embeds
@@ -44,7 +44,7 @@ const NAMES: [&str; 5] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
-    "the_cell_driver_makes_the_calls_present_makes_in_its_order",
+    "the_cell_driver_builds_as_present_builds",
     "nothing_that_ships_counts",
 ];
 
@@ -75,8 +75,8 @@ fn main() {
             "a_written_cell_repaints_its_row_alone" => {
                 checks::a_written_cell_repaints_its_row_alone();
             }
-            "the_cell_driver_makes_the_calls_present_makes_in_its_order" => {
-                checks::the_cell_driver_makes_the_calls_present_makes_in_its_order();
+            "the_cell_driver_builds_as_present_builds" => {
+                checks::the_cell_driver_builds_as_present_builds();
             }
             "nothing_that_ships_counts" => checks::nothing_that_ships_counts(),
             _ => unreachable!("every name is dispatched"),
@@ -153,17 +153,16 @@ mod heap {
 mod checks {
     use crate::heap::{self, Heap};
     use baud_core::{Owned, Term};
-    use baud_domain::{
-        BytePos, Col, Cols, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
-    };
+    use baud_domain::{BytePos, Col, Cols, ImageBudget, PackedCell, ReadLen, Row, Rows, WinSize};
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{SetIx, Wheel};
-    use baud_present_macos::screens::{Built, Compare, Screens};
+    use baud_present_macos::screens::{Built, Screens};
+    use baud_render::cell_frame::{CellInputs, CellParts, build};
     use baud_render::counters::{self, Counter, Counts};
     use baud_render::{
         Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
-        Leaving, Lend, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, PxSize, Renderer,
-        Resolved, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey, Words,
+        Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, PxSize, Renderer,
+        Resolved, Stack, StyleStamp, Tally, Target, Theme,
     };
 
     const WS: WinSize = WinSize {
@@ -556,6 +555,7 @@ mod checks {
         bidi_used: Vec<baud_domain::RowExtent>,
         lent_cells: Vec<PackedCell>,
         lent_used: Vec<baud_domain::RowExtent>,
+        used: Vec<baud_domain::RowExtent>,
     }
 
     impl<'m> Cells<'m> {
@@ -578,19 +578,17 @@ mod checks {
                 bidi_used: Vec::new(),
                 lent_cells: Vec::new(),
                 lent_used: Vec::new(),
+                used: Vec::new(),
             }
         }
     }
 
     /// **The cell path's frame as `App::present` builds it**, into `set`:
-    /// the inputs set, the window laid out, the set's copy put back and
-    /// its styles synced, the copy compared with the last frame's and
-    /// taken, a struck link's cells lent their grey, the map walked unless
-    /// the screen and the walk's key are the last frame's, the overlay and
-    /// the status line's records built, and the records after them
-    /// gathered. No composition, no prediction, no slide and no notice.
-    /// Every call here is one `present` makes, in its order
-    /// (`the_cell_driver_makes_the_calls_present_makes_in_its_order`).
+    /// the inputs `present` sets on the renderer first, then the frame
+    /// itself through the function `present` builds it with
+    /// (`baud_render::cell_frame::build`). No composition, no prediction,
+    /// no slide and no notice. Every call here is one `present` makes, in
+    /// its order (`the_cell_driver_builds_as_present_builds`).
     fn cell_frame(
         r: &mut Renderer<'_, '_>,
         t: &Term<'_>,
@@ -611,207 +609,48 @@ mod checks {
         r.set_trail(None);
         r.place_marks(t, back, Leaving::None, Px::of(0));
         r.place_lights(t);
-        let joins_seen = r.joins_seen();
-        let rejoin = r.lay_out_bidi_copied(t, back);
-        let view = r
-            .bidi()
-            .window(t, back, &mut cell.bidi_cells, &mut cell.bidi_used);
-        let set = at.0;
-        cell.lent[set].restore(&mut cell.copies_mem[set], t.stride());
-        r.give_back(
-            &mut cell.styles_mem[set][..],
-            &mut cell.style_stamps[set],
-            &mut cell.lent[set],
-        );
-        r.sync_styles(
-            t,
-            &mut cell.styles_mem[set][..],
-            &mut cell.style_stamps[set],
-        );
-        let cursor_at = t
+        let live = t
             .cursor_visible()
             .then(|| t.cursor())
             .map(|(row, col)| (row, col, t.cursor_style()));
-        let cursor_at = r.clear_of_messages(t, cursor_at);
-        let stride = t.stride().index();
-        let (vcols, vrows) = (view.cols().index(), view.rows().index());
-        let mut status_cells = Vec::new();
-        let status = t.status_line().map(|line| {
-            r.bidi()
-                .status_line(Row::from_index(vrows), line, &mut status_cells)
-        });
-        let screens = &mut cell.screens;
-        screens.compare = Compare::for_rejoin(rejoin);
-        let frozen = r.bidi().window_frozen(t, back);
-        if frozen {
-            screens.forget(at);
-        }
-        let undo = screens
-            .last_set()
-            .and_then(|l| cell.lent.get(l.0))
-            .map_or(&[][..], Lent::rewrites);
-        let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
-        let built = screens.take_lent(
-            &mut copies,
-            at,
-            &view,
-            status.as_ref(),
-            t.stride(),
-            Leaving::None,
-            undo,
-        );
-        let struck = r.struck_cells(&view, view.rows(), baud_render::CopyOrder::Stored);
-        let lend = match frozen || struck.iter().any(|row| !row.is_empty()) {
-            false => Lend::Nothing,
-            true => {
-                let sources: Vec<baud_render::RowSource<'_>> = (0..vrows)
-                    .map(|y| r.bidi().row_source(t, back, Row::from_index(y)))
-                    .collect();
-                let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = Vec::new();
-                for (y, chunk) in cell.copies_mem[set].chunks_mut(stride).enumerate() {
-                    let words = match sources.get(y) {
-                        Some(s) => s.words(),
-                        None => Words::LIVE,
-                    };
-                    if y > vrows + 1 {
-                        break;
-                    }
-                    let n = vcols.min(chunk.len());
-                    rows.push((&mut chunk[..n], words));
-                }
-                r.lend(
-                    t,
-                    &mut rows,
-                    &struck,
-                    &mut cell.styles_mem[set][..],
-                    &mut cell.style_stamps[set],
-                    &mut cell.lent[set],
-                )
-            }
-        };
-        r.set_frame_lent(&cell.lent[set]);
-        let lending = cell.lent[set].lending();
-        let built = match (frozen, lend, built) {
-            (true, Lend::Rows | Lend::Short, _) => Built::New,
-            (_, _, Built::Last) if lending == screens.lending => Built::Last,
-            (_, _, Built::Last) => {
-                screens.built(Built::New, &view, status.as_ref());
-                Built::New
-            }
-            (_, _, Built::New) => Built::New,
-        };
-        screens.lending = lending;
-        let view = match lend {
-            Lend::Nothing => view,
-            _ => {
-                cell.lent_cells.clear();
-                cell.lent_cells
-                    .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
-                // The app's copy, which no counter of the renderer's sees.
-                counters::add(Counter::CellsCopied, Tally::of(vrows * stride));
-                cell.lent_used.clear();
-                for y in 0..vrows {
-                    let row = Row::from_index(y);
-                    let mut e = baud_domain::RowExtent::of(vcols)
-                        .with_rendition(view.rendition(row), view.cols());
-                    if view.wrapped(row) == baud_domain::Wrap::Continues {
-                        e = e.wrapping(vcols);
-                    }
-                    cell.lent_used.push(e);
-                }
-                baud_domain::Viewport::new(
-                    &cell.lent_cells,
-                    &cell.lent_used,
-                    t.stride(),
-                    view.cols(),
-                    view.rows(),
-                    view.rows(),
-                    RowRot::NONE,
-                )
-            }
-        };
-        if let Some(how) = rejoin {
-            r.rejoin_bidi(t, back, how, |row| screens.changed(row));
-        }
-        let key = WalkKey {
-            table: cell.style_stamps[set],
-            map: cell.map.generation(),
-            grown: r.atlas_stats().grown,
-            clusters: t.cluster_epoch(),
+        let frame_inputs = CellInputs {
             back,
-            cols: view.cols(),
-            rows: view.rows(),
+            predictions: core::iter::empty(),
+            live,
+            composition: &None,
+            highlight: None,
+            leaving: Leaving::None,
+            pan: Px::of(0),
         };
-        if built == Built::New || screens.walked != Some(key) {
-            cell.map
-                .ensure(t, view, &cell.styles_mem[set][..], r, &mut cell.candidates);
-            screens.walked = Some(WalkKey {
-                map: cell.map.generation(),
-                grown: r.atlas_stats().grown,
-                ..key
-            });
-        }
-        r.join_after_walk(t, back, joins_seen);
-        r.place_links(t, &view);
-        let cursor = cursor_at.filter(|&(_, _, style)| r.cursor_drawn(style));
-        cell.exceptions.ensure(
-            &Scene {
-                term: t,
-                view,
-                styles: &cell.styles_mem[set][..],
-                cursor,
-                highlight: None,
-                map: &cell.map,
-                candidates: &cell.candidates,
-                pan: Px::of(0),
-                composition: None,
-            },
-            r,
-            &mut cell.overlay_mem[set][..],
-            &mut cell.records,
-        );
-        cell.records.extend_from_slice(r.find_solids());
-        cell.records.extend_from_slice(r.link_solids());
-        r.link_lines_lowered(Px::of(0), &mut cell.records);
-        cell.exceptions.status(
+        let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
+        let mut styles = cell.styles_mem.each_mut().map(|c| &mut c[..]);
+        let mut overlay = cell.overlay_mem.each_mut().map(|c| &mut c[..]);
+        let frame = build(
             r,
             t,
-            cursor,
-            (view.cols(), view.rows()),
-            &mut cell.overlay_mem[set][..],
-            &mut cell.records,
-        );
-        cell.records.extend_from_slice(r.trail());
-        r.set_cursor_glow_at(cursor_at);
-        cell.records.extend_from_slice(r.cursor_glow());
-        r.place_grounds(cursor_at, Renderer::cursor_line(t, back));
-        cell.grounds.clear();
-        cell.grounds.extend_from_slice(r.badge());
-        r.cursor_guide_lowered(Px::of(0), &mut cell.grounds);
-        cell.records.extend_from_slice(r.bell_tint());
-        for (c, under) in r.hover_bars() {
-            cell.exceptions.composed(
-                r,
-                t,
-                (&c, baud_render::Laid::OnScreen),
-                under,
-                &cell.styles_mem[set][..],
-                None,
-                view.cols(),
-                baud_domain::LineRendition::Single,
-                Px::of(0),
-                &mut cell.overlay_mem[set][..],
-                &mut cell.records,
-            );
-        }
-        let tips = r.tip_bars();
-        assert!(tips.is_empty(), "the fixture shows no tip");
-        assert!(r.find_field().is_none() && r.link_bar().is_none());
-        assert!(r.notice_bar().is_none(), "the fixture shows no notice");
-        cell.records.extend_from_slice(r.splash());
-        cell.records.extend_from_slice(r.scrollbar());
-        cell.records.extend_from_slice(r.screen_fade());
-        built
+            &frame_inputs,
+            &mut CellParts {
+                map: &mut cell.map,
+                exceptions: &mut cell.exceptions,
+                screens: &mut cell.screens,
+                copies_mem: &mut copies,
+                styles_mem: &mut styles,
+                overlay_mem: &mut overlay,
+                style_stamps: &mut cell.style_stamps,
+                lent: &mut cell.lent,
+                candidates: &mut cell.candidates,
+                records: &mut cell.records,
+                grounds: &mut cell.grounds,
+                bidi_cells: &mut cell.bidi_cells,
+                bidi_used: &mut cell.bidi_used,
+                lent_cells: &mut cell.lent_cells,
+                lent_used: &mut cell.lent_used,
+            },
+            &mut cell.used,
+            || Some(at),
+        )
+        .expect("the set is free");
+        frame.built
     }
 
     /// A screen of the fixture, its links set at rest with the first one
@@ -1119,19 +958,22 @@ mod checks {
     }
 
     /// The code of `name`'s body in `src`, its comment lines dropped and
-    /// its whitespace removed: from its signature to the brace that closes
-    /// a function at four spaces' indent, which both files' functions are.
-    fn body_of(src: &str, name: &str) -> String {
+    /// its whitespace removed: from its signature to the first `close`
+    /// after it, the brace that closes a function at its indent.
+    fn body_of(src: &str, name: &str, close: &str) -> String {
         let at = src
             .find(name)
             .unwrap_or_else(|| panic!("{name} is in its file"));
-        let end = at + src[at..].find("\n    }\n").expect("a body");
+        let end = at + src[at..].find(close).expect("a body");
         src[at..end]
             .lines()
             .filter(|l| !l.trim_start().starts_with("//"))
             .flat_map(str::split_whitespace)
             .collect()
     }
+
+    /// A method's body, closed at four spaces' indent.
+    const METHOD: &str = "\n    }\n";
 
     /// Each call in `flat` whose receiver is one of `prefixes`, as the
     /// receiver `spell` gives that prefix and the method, in order: the
@@ -1163,35 +1005,42 @@ mod checks {
         out
     }
 
-    /// **The cell driver is `App::present`'s cell arm**: every call
-    /// `cell_frame` makes into the renderer, its layout, the map, the
-    /// overlay and the copy is one `present` makes, in `present`'s order,
-    /// and the gate that skips the map's walk is `present`'s, spelled the
-    /// same. A call added to the driver that the app does not make, one
-    /// the app moved or stopped making, fails it.
-    pub fn the_cell_driver_makes_the_calls_present_makes_in_its_order() {
+    /// The receivers a call is read on in the app, spelled as the app
+    /// spells them.
+    const APP: [(&str, &str); 5] = [
+        ("self.renderer.bidi().", "self.renderer.bidi()."),
+        ("self.renderer.", "self.renderer."),
+        ("cell.maps.live.", "cell.maps.live."),
+        ("cell.exceptions.", "cell.exceptions."),
+        ("screens.", "screens."),
+    ];
+
+    /// **The cell driver builds the frame as `App::present` does**: both
+    /// call `baud_render::cell_frame::build` once, every call the driver
+    /// makes before it into the renderer is one `present` makes, in
+    /// `present`'s order, and so is every call `cpu_frame` makes. And
+    /// `present` makes none of the calls `build` makes itself -- but the
+    /// map's generation, which the GPU's input names the map by -- so no
+    /// part of the frame is built twice or built where the driver does not
+    /// reach it; `draw_kept` makes the four calls it makes to redraw a kept
+    /// frame, named here until it is built through `build` too. A call
+    /// added to a driver that the app does not make, one the app moved or
+    /// stopped making, or a moved call made in the app again, fails it.
+    pub fn the_cell_driver_builds_as_present_builds() {
         let here = include_str!("caret_frame.rs");
-        let app = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../baud-app/src/app.rs"
-        ))
-        .expect("the app's source");
+        let read = |p: &str| {
+            std::fs::read_to_string(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+                .unwrap_or_else(|e| panic!("{p}: {e}"))
+        };
+        let app = read("baud-app/src/app.rs");
         let present = body_of(
             &app,
             "fn present(&mut self, screen: &DrawableView, show: Show)",
+            METHOD,
         );
-        let theirs = calls(
-            &present,
-            &[
-                ("self.renderer.bidi().", "self.renderer.bidi()."),
-                ("self.renderer.", "self.renderer."),
-                ("cell.maps.live.", "cell.maps.live."),
-                ("cell.exceptions.", "cell.exceptions."),
-                ("screens.", "screens."),
-            ],
-        );
+        let theirs = calls(&present, &APP);
         for (path, name) in [("cell", "fn cell_frame("), ("cpu", "fn cpu_frame(")] {
-            let driver = body_of(here, name);
+            let driver = body_of(here, name, METHOD);
             let ours = calls(
                 &driver,
                 &[
@@ -1216,11 +1065,62 @@ mod checks {
                 }
             }
         }
-        let gate = "ifbuilt==Built::New||screens.walked!=Some(key){";
-        assert!(present.contains(gate), "present skips the walk on its gate");
-        assert!(
-            body_of(here, "fn cell_frame(").contains(gate),
-            "and the driver on the same"
+        let built = |flat: &str| flat.matches("cell_frame::build(").count();
+        assert_eq!(built(&present), 1, "present builds the frame once");
+        let driver = body_of(here, "fn cell_frame(", METHOD);
+        assert_eq!(
+            driver.matches("=build(").count(),
+            1,
+            "and the driver once: {driver}"
+        );
+        let library = read("baud-render/src/cell_frame.rs");
+        let moved: std::collections::BTreeSet<String> = calls(
+            &body_of(&library, "pub fn build<P>(", "\n}\n"),
+            &[
+                ("renderer.bidi().", "self.renderer.bidi()."),
+                ("renderer.", "self.renderer."),
+                ("cell.map.", "cell.maps.live."),
+                ("cell.exceptions.", "cell.exceptions."),
+                ("screens.", "screens."),
+            ],
+        )
+        .into_iter()
+        .collect();
+        for control in [
+            "screens.take_lent",
+            "cell.maps.live.ensure",
+            "cell.exceptions.ensure",
+            "self.renderer.sync_styles",
+            "self.renderer.bidi().window",
+        ] {
+            assert!(moved.contains(control), "build's calls are read: {moved:?}");
+        }
+        let made = |flat: &str| -> std::collections::BTreeSet<String> {
+            calls(flat, &APP)
+                .into_iter()
+                .filter(|c| moved.contains(c))
+                .collect()
+        };
+        assert_eq!(
+            made(&present),
+            ["cell.maps.live.generation"].map(String::from).into(),
+            "present makes none of build's calls"
+        );
+        assert_eq!(
+            made(&body_of(
+                &app,
+                "fn draw_kept(&mut self) -> KeptDraw",
+                METHOD
+            )),
+            [
+                "cell.exceptions.ensure",
+                "self.renderer.badge",
+                "self.renderer.place_grounds",
+                "self.renderer.set_cursor_glow_at",
+            ]
+            .map(String::from)
+            .into(),
+            "draw_kept makes the calls it redraws a kept frame with"
         );
     }
 

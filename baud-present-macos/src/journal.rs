@@ -65,13 +65,9 @@ pub struct Landing {
     pub ended: HostTime,
 }
 
-/// Which of the per-frame buffer sets a frame is built into.
-///
-/// The buffers are the caller's -- the resolved styles and the overlay
-/// mask, which live in the app -- so this names a set rather than holding
-/// one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct SetIx(pub usize);
+/// Which of the per-frame buffer sets a frame is built into, named where
+/// the copy of the screen each set holds is kept (`baud_render::screens`).
+pub use baud_render::screens::SetIx;
 
 /// Whether a set has a frame in it that has not landed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -144,7 +140,7 @@ impl Wheel {
     /// about the *layer* -- the compositor may hold one while another is
     /// shown -- and not about these buffers. Copying a number across from
     /// a structure that has a different reason for it is how it got here.
-    pub const SETS: usize = 2;
+    pub const SETS: usize = baud_render::screens::SETS;
 
     /// The set to build the next frame into: the next one round, or the
     /// first free one after it. `None` while every set is held, which
