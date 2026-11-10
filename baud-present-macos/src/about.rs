@@ -933,6 +933,84 @@ fn acknowledgements_button(
 /// reads, one constant so the word changes in one place.
 pub const ACKNOWLEDGEMENTS: &str = "Acknowledgements";
 
+/// **The window's column, laid out from each line's own size**: its
+/// content's size, where the film's box starts up it, the author's picture
+/// if there is one, and each line's frame, bottom first.
+#[derive(Clone, Debug, PartialEq)]
+struct Column {
+    size: NSSize,
+    film_y: CGFloat,
+    face: Option<NSRect>,
+    lines: Vec<NSRect>,
+}
+
+/// **What stands beside the lines**: the author's picture, or nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Beside {
+    Picture,
+    Nothing,
+}
+
+/// **The column for lines `fits` in size**, bottom first, as AppKit's
+/// `fittingSize` gives them, with `beside` beside them, under a film that
+/// moves in `moves` of its box. Every size is read, none
+/// assumed: the acknowledgements line is a button, and a standard control
+/// takes the linked SDK's metrics
+/// ([[source: apple-adopting-liquid-glass-2026-11-09]]), so the band under
+/// the film is as tall as the lines AppKit sizes, each line as tall as its
+/// own fit.
+fn column(fits: &[NSSize], beside: Beside, moves: NSRect) -> Column {
+    let gaps = LINE_GAP * CGFloat::from(u8::try_from(fits.len().saturating_sub(1)).unwrap_or(0));
+    let block = fits.iter().map(|f| f.height).sum::<CGFloat>() + gaps;
+    let widest = fits.iter().map(|f| f.width).fold(0.0, CGFloat::max);
+    // The band under the film: the picture, or the lines alone.
+    let band = match beside {
+        Beside::Picture => FACE.max(block),
+        Beside::Nothing => block,
+    };
+    // Where the film moves sits `GAP` over the band; the box's bare bottom
+    // reaches down into it.
+    let film_y = MARGIN + band + GAP - moves.origin.y;
+    let size = NSSize::new(LOGO.width, film_y + LOGO.height);
+    // The picture and the lines as one block, centred across the window,
+    // the lines left-aligned at the picture's right; without the picture,
+    // each line centred across it.
+    let (x, width, face) = match beside {
+        Beside::Picture => {
+            // Whole points throughout: the lines' column a whole number
+            // wide, and the odd point, if any, into the picture's gap.
+            let widest = widest.ceil();
+            let rest = size.width - FACE - FACE_GAP - widest;
+            let odd = rest.rem_euclid(2.0);
+            let left = ((rest - odd) / 2.0).max(MARGIN);
+            let x = left + FACE + FACE_GAP + odd;
+            let width = widest.min(size.width - MARGIN - x);
+            let at = NSRect::new(
+                NSPoint::new(left, MARGIN + (band - FACE) / 2.0),
+                NSSize::new(FACE, FACE),
+            );
+            (x, width, Some(at))
+        }
+        Beside::Nothing => (0.0, size.width, None),
+    };
+    // Centred on the band's middle, the picture's.
+    let mut y = MARGIN + (band - block) / 2.0;
+    let lines = fits
+        .iter()
+        .map(|fit| {
+            let at = NSRect::new(NSPoint::new(x, y), NSSize::new(width, fit.height));
+            y += fit.height + LINE_GAP;
+            at
+        })
+        .collect();
+    Column {
+        size,
+        film_y,
+        face,
+        lines,
+    }
+}
+
 /// **Where the window's parts are, in its content's points**: what a test
 /// holds against the layout.
 #[derive(Clone, Debug, PartialEq)]
@@ -1018,19 +1096,16 @@ impl About {
         .chain([as_view(&version)])
         .collect();
         let fits: Vec<NSSize> = fields.iter().map(|f| f.fittingSize()).collect();
-        let gaps = LINE_GAP * CGFloat::from(u8::try_from(fields.len() - 1).unwrap_or(0));
-        let block = fits.iter().map(|f| f.height).sum::<CGFloat>() + gaps;
-        let widest = fits.iter().map(|f| f.width).fold(0.0, CGFloat::max);
-        // The band under the film: the picture, or the lines alone.
-        let band = match &content.face {
-            Some(_) => FACE.max(block),
-            None => block,
-        };
-        // Where the film moves sits `GAP` over the band; the box's bare
-        // bottom reaches down into it.
         let moves = &content.moves_at;
-        let film_y = MARGIN + band + GAP - moves.origin.y;
-        let size = NSSize::new(LOGO.width, film_y + LOGO.height);
+        let laid = column(
+            &fits,
+            match content.face {
+                Some(_) => Beside::Picture,
+                None => Beside::Nothing,
+            },
+            *moves,
+        );
+        let (film_y, size) = (laid.film_y, laid.size);
 
         let on_dark = Picture::of(&content.on_dark, content.page_dark);
         let on_light = Picture::of(&content.on_light, content.page_light);
@@ -1061,38 +1136,18 @@ impl About {
         // draw over it.
         view.addSubview(&logo);
 
-        // The picture and the lines as one block, centred across the
-        // window, the lines left-aligned at the picture's right; without the
-        // picture, each line centred across it.
-        let (x, width, face) = match content.face.as_ref() {
-            Some(f) => {
-                // Whole points throughout: the lines' column a whole number
-                // wide, and the odd point, if any, into the picture's gap.
-                let widest = widest.ceil();
-                let rest = size.width - FACE - FACE_GAP - widest;
-                let odd = rest.rem_euclid(2.0);
-                let left = ((rest - odd) / 2.0).max(MARGIN);
-                let x = left + FACE + FACE_GAP + odd;
-                let width = widest.min(size.width - MARGIN - x);
-                let at = NSRect::new(
-                    NSPoint::new(left, MARGIN + (band - FACE) / 2.0),
-                    NSSize::new(FACE, FACE),
-                );
+        // The picture and the lines where `column` puts them.
+        let face = match (content.face.as_ref(), laid.face) {
+            (Some(f), Some(at)) => {
                 let face = FaceView::new(mtm, f, at);
                 view.addSubview(&face);
-                (x, width, Some(face))
+                Some(face)
             }
-            None => (0.0, size.width, None),
+            _ => None,
         };
-        // Centred on the band's middle, the picture's.
-        let mut y = MARGIN + (band - block) / 2.0;
-        for (field, fit) in fields.iter().zip(&fits) {
-            field.setFrame(NSRect::new(
-                NSPoint::new(x, y),
-                NSSize::new(width, fit.height),
-            ));
+        for (field, at) in fields.iter().zip(&laid.lines) {
+            field.setFrame(*at);
             view.addSubview(field);
-            y += fit.height + LINE_GAP;
         }
         // The acknowledgements line after the film's pause in the key view
         // loop, so Tab reaches it from the window's first responder.
@@ -1388,6 +1443,88 @@ mod tests {
         assert_eq!(at(1050 * 1000 + 50), f(2));
         assert_eq!(frame_at(&[], ms(50)), f(0));
         assert_eq!(frame_at(&[Duration::ZERO, Duration::ZERO], ms(50)), f(0));
+    }
+
+    /// **The acknowledgements button fits the column at the compact metrics
+    /// and at larger ones, and overlaps nothing**: with the author's picture
+    /// and without, each line is laid out as tall as its fit and at least as
+    /// wide, inside the content and its margins, clear of every other line,
+    /// of the picture and of where the film moves. Apple, on a rebuild with
+    /// the latest Xcode: "If you use standard controls from system frameworks
+    /// and don't hard-code their layout metrics, your app adopts changes to
+    /// shapes and sizes automatically"
+    /// ([[source: apple-adopting-liquid-glass-2026-11-09]]); the opt-out
+    /// sizes controls "with compact metrics compatible with macOS 15.0 and
+    /// earlier" ([[source: apple-nsview-preferscompactcontrolsizemetrics]]),
+    /// and baud does not set it. What the new metrics make of a borderless
+    /// small button is not documented, so the larger sets here are not
+    /// guesses at it: they are taller and wider buttons the layout must hold
+    /// whatever they are. The sizes are fed, not read from AppKit, so no
+    /// window, control or application is made. Break: each line laid at a
+    /// fixed 16 points, the compact button's height, as if the metrics were
+    /// known; the first set already reads a 14-point label laid 16 tall, and
+    /// the 22- and 28-point buttons would be cut to 16.
+    #[test]
+    fn the_acknowledgements_button_fits_the_column_at_any_metrics() {
+        // baud-app's `about::MOVES`, where the film moves in its box.
+        let moves = NSRect::new(NSPoint::new(60.0, 67.0), NSSize::new(308.0, 159.0));
+        let size = NSSize::new;
+        // Bottom first: the button, the copyright, the link, the age, the
+        // version.
+        let labels = [size(230.0, 14.0), size(190.0, 14.0), size(80.0, 14.0)];
+        let version = size(160.0, 16.0);
+        for button in [size(105.0, 16.0), size(118.0, 22.0), size(140.0, 28.0)] {
+            let fits: Vec<NSSize> = [button]
+                .into_iter()
+                .chain(labels)
+                .chain([version])
+                .collect();
+            for beside in [Beside::Picture, Beside::Nothing] {
+                let c = column(&fits, beside, moves);
+                let at = format!("button {button:?}, {beside:?}");
+                let pause = NSRect::new(
+                    NSPoint::new(moves.origin.x, moves.origin.y + c.film_y),
+                    moves.size,
+                );
+                let apart = |a: NSRect, b: NSRect| {
+                    a.origin.x + a.size.width <= b.origin.x
+                        || b.origin.x + b.size.width <= a.origin.x
+                        || a.origin.y + a.size.height <= b.origin.y
+                        || b.origin.y + b.size.height <= a.origin.y
+                };
+                assert_eq!(c.lines.len(), fits.len(), "{at}");
+                for (i, (line, fit)) in c.lines.iter().zip(&fits).enumerate() {
+                    assert_eq!(line.size.height, fit.height, "{at}: line {i} {line:?}");
+                    assert!(line.size.width >= fit.width, "{at}: line {i} {line:?} cut");
+                    assert!(
+                        line.origin.x >= 0.0
+                            && line.origin.y >= MARGIN
+                            && line.origin.x + line.size.width <= c.size.width
+                            && line.origin.y + line.size.height <= c.size.height,
+                        "{at}: line {i} {line:?} outside {:?}",
+                        c.size
+                    );
+                    assert!(
+                        apart(*line, pause),
+                        "{at}: line {i} {line:?} under the film"
+                    );
+                    if let Some(f) = c.face {
+                        assert!(apart(*line, f), "{at}: line {i} {line:?} on the picture");
+                        assert!(
+                            line.origin.x + line.size.width <= c.size.width - MARGIN,
+                            "{at}: line {i} {line:?} in the margin"
+                        );
+                    }
+                    for (j, other) in c.lines.iter().enumerate().skip(i + 1) {
+                        assert!(apart(*line, *other), "{at}: lines {i} and {j} overlap");
+                    }
+                }
+                assert_eq!(c.face.is_some(), beside == Beside::Picture, "{at}");
+                if let Some(f) = c.face {
+                    assert!(apart(f, pause), "{at}: the picture under the film");
+                }
+            }
+        }
     }
 
     /// **The age in AppKit's words, the unit the formatter's**, in a fixed

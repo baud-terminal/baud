@@ -40244,3 +40244,45 @@ bytes  = 152124
 status = "external"
 group  = "AS"
 # Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-uidesignrequirescompatibility]
+key    = "apple-uidesignrequirescompatibility"
+title  = "UIDesignRequiresCompatibility -- the compatibility mode shows an app as built against earlier SDKs; absent or NO is the default for apps linking the latest SDKs; ignored when built for macOS 27 or later (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/uidesignrequirescompatibility.json"
+file   = ""
+sha256 = "aac472ac005daa0ea5521e34d167aafb804ec68534d1490fa2ed66f30b9e3a12"
+bytes  = 21898
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsview-preferscompactcontrolsizemetrics]
+key    = "apple-nsview-preferscompactcontrolsizemetrics"
+title  = "NSView.prefersCompactControlSizeMetrics -- YES sizes a view's controls with the compact metrics of macOS 15.0 and earlier; defaults to NO (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/preferscompactcontrolsizemetrics.json"
+file   = ""
+sha256 = "0f23a1cc3c28a8b567d816bf64b031066a64c700c558fcc692f19b590be35d1c"
+bytes  = 8196
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-updates-appkit]
+key    = "apple-updates-appkit"
+title  = "AppKit updates -- the pasteboard privacy alert when an app reads the general pasteboard programmatically, not after paste-related input on a UI element (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/updates/appkit.json"
+file   = ""
+sha256 = "68435819c8a03509959669700f3da44f57ba27493af55f7599a5e12a017ab5a4"
+bytes  = 66193
+status = "external"
+group  = "AK"
+# Read and hash-verified; not committed -- a vendor page.

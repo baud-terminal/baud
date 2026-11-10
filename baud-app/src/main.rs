@@ -169,6 +169,8 @@ mod mark;
 // screen.
 #[cfg(all(target_os = "macos", not(feature = "effect-probe")))]
 mod full_screen_check;
+#[cfg(all(test, target_os = "macos"))]
+mod sdk_gates;
 #[cfg(target_os = "macos")]
 mod strip;
 // The state lights as words on DEC's indicator line, both drivers.
