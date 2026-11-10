@@ -482,6 +482,40 @@ pub(crate) fn a_command_reaped() -> Reaped {
     }
 }
 
+/// **What a batch of the watch's events reaped, and whether the thread
+/// has still to wait**: the window's child reaped at a batch that holds an
+/// event, and the commands at every batch, an empty one too -- a `kevent`
+/// the system interrupted (`EINTR`) -- so a closed window's thread with
+/// nothing left to reap returns at it, rather than waiting again until an
+/// event no one sends. It waits while the child or a command has not
+/// ended. Reaping wakes no one.
+#[cfg(target_os = "macos")]
+fn after_batch(
+    got: &[crate::sys::Kevent],
+    child: Option<&Child>,
+    commands: &Commands,
+) -> (Reaped, Waits) {
+    let reaped = match (child, got.is_empty()) {
+        (Some(c), false) => c.reap(),
+        _ => Reaped::Not,
+    };
+    let left = reap_commands(commands);
+    let waits = match child.is_some_and(|c| !c.done()) || left == Left::Some {
+        true => Waits::Yes,
+        false => Waits::No,
+    };
+    (reaped, waits)
+}
+
+/// Whether the watch's thread has still to wait, for its window's child
+/// or a command.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Waits {
+    No,
+    Yes,
+}
+
 /// Whether a command is left to reap.
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -667,17 +701,8 @@ impl Watch {
                         return;
                     }
                     let got = &events[..usize::try_from(n).unwrap_or(0)];
-                    let reaped = match (&reaps, got.is_empty()) {
-                        (Some(c), false) => c.reap(),
-                        _ => Reaped::Not,
-                    };
-                    // The commands, at every batch: a command's exit, or
-                    // the `SIGCHLD` after it, is one; reaping wakes no one.
-                    let left = match got.is_empty() {
-                        true => Left::Some,
-                        false => reap_commands(&reaping),
-                    };
-                    let waits = reaps.as_ref().is_some_and(|c| !c.done()) || left == Left::Some;
+                    let (reaped, waits) = after_batch(got, reaps.as_ref(), &reaping);
+                    let waits = waits == Waits::Yes;
                     if got.iter().any(|e| e.filter == crate::sys::EVFILT_USER) {
                         // The window has gone: its child and its commands,
                         // those not ended, are still reaped here, and no
@@ -849,6 +874,46 @@ mod tests {
         );
         assert!(kq.upgrade().is_none(), "the kqueue is closed");
         drop(other);
+    }
+
+    /// **A closed watch with nothing to reap stops at an empty batch**
+    /// (`after_batch`): a `kevent` the system interrupted returns no event,
+    /// and with no child and no command held the thread need not wait
+    /// again. The control: a command still running keeps it waiting, at an
+    /// empty batch too. Named break: an empty batch taken as a command
+    /// left -- the first assertion fails.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_empty_batch_with_nothing_held_ends_the_wait() {
+        use std::process::{Command, Stdio};
+        let commands = Commands::default();
+        assert_eq!(
+            after_batch(&[], None, &commands).1,
+            Waits::No,
+            "nothing held"
+        );
+        let mut run = Command::new("/bin/sh");
+        run.args(["-c", "read x"]).stdin(Stdio::piped());
+        let mut running = run.spawn().expect("a child");
+        let stdin = running.stdin.take().expect("its input");
+        commands.lock().expect("the commands' lock").push(running);
+        assert_eq!(
+            after_batch(&[], None, &commands).1,
+            Waits::Yes,
+            "the control: a command running"
+        );
+        drop(stdin);
+        let start = std::time::Instant::now();
+        while after_batch(&[], None, &commands).1 == Waits::Yes
+            && start.elapsed() < std::time::Duration::from_secs(2)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(
+            after_batch(&[], None, &commands).1,
+            Waits::No,
+            "reaped, done"
+        );
     }
 
     /// Whether `w` holds a command, once its thread has had up to two
