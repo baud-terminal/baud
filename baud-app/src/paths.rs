@@ -2307,6 +2307,45 @@ impl Paths {
         }
     }
 
+    /// **The lines of `span` whose facts read as written on this machine**
+    /// -- local or a multiplexer's, by what was filed over them alone, held
+    /// or not, and not under the floor -- in runs: what a group still to be
+    /// named writing over them holds (`probe::Probes::read_taken`, G1),
+    /// whoever's verdict lit them. A line nothing was filed over is none of
+    /// them: nothing wrote it, and the writer's own answer files it.
+    pub fn filed_lit(&self, span: LineSpan) -> Vec<LineSpan> {
+        let mut out: Vec<LineSpan> = Vec::new();
+        let Some(store) = self.store(span.surface) else {
+            return out;
+        };
+        let runs = &store.runs;
+        let from = runs.partition_point(|(r, _)| r.last < span.first);
+        for (r, facts) in &runs[from..] {
+            if r.first > span.last {
+                break;
+            }
+            let lit = matches!(
+                facts.provenance(),
+                Some(Provenance::Local | Provenance::Multiplexed)
+            );
+            let first = r.first.max(span.first);
+            let first = match store.floor {
+                Some(f) if f >= first => f.below(),
+                _ => first,
+            };
+            let last = r.last.min(span.last);
+            if !lit || first > last {
+                continue;
+            }
+            let run = LineSpan::on(span.surface, first, last);
+            match out.last_mut() {
+                Some(prev) if prev.touches(run) => *prev = prev.joined(run),
+                _ => out.push(run),
+            }
+        }
+        out
+    }
+
     /// Whether a held line ([`Paths::set_pending`]) lies in `first` to
     /// `last` of `surface`.
     fn held_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> bool {

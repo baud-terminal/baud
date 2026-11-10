@@ -1810,12 +1810,15 @@ impl Lit {
         });
     }
 
-    /// The lines of `w` another source than `g` lit.
-    fn others(&self, g: Option<Pid>, w: LineSpan) -> impl Iterator<Item = LineSpan> + '_ {
-        self.spans
-            .iter()
-            .filter(move |e| e.0 != g)
-            .filter_map(move |e| e.1.meet(w))
+    /// **The lines of `lit` that `g`'s own verdict did not light**: each
+    /// span less the lines this names `g` for. A line it names no source
+    /// for is among them.
+    fn not_of(&self, g: Option<Pid>, lit: Vec<LineSpan>) -> Vec<LineSpan> {
+        let mut out = lit;
+        for &(_, own) in self.spans.iter().filter(|e| e.0 == g) {
+            out = out.into_iter().flat_map(|s| s.outside(own)).collect();
+        }
+        out
     }
 
     fn clear(&mut self) {
@@ -2581,12 +2584,14 @@ impl<T: Moment> Probes<T> {
             paths.written_by_shell(span);
             self.lit.set(self.shell_group, span);
         }
-        // A group still to be named writing over lines another group lit
-        // holds them until its own answer (G1): what lit them was another
-        // text's, and its own has no fact yet. A group's rewrite of its own
-        // keeps lighting.
+        // A group still to be named writing over lines that read lit holds
+        // them until its own answer (G1): what lit them was another text's,
+        // and its own has no fact yet. Only a line whose lit fact its own
+        // verdict filed, as `Lit` names it, keeps lighting -- a group's
+        // rewrite of its own -- and a line `Lit` names no group for holds:
+        // one the window trimmed and a resize brought back.
         for g in groups.into_iter().flatten() {
-            for over in self.lit.others(Some(g), span) {
+            for over in self.lit.not_of(Some(g), paths.filed_lit(span)) {
                 // Less the line it began on, where it wrote no cell of it.
                 let mut written = [Some(over), None];
                 if let Some(start) = writers.untouched {
@@ -4111,6 +4116,10 @@ mod tests {
             let mut paths = Paths::new(None, Forms::DEFAULT);
             paths.set(Turned::On);
             paths.all_written_here();
+            // Lit by the shell's verdict, as its own reads light them (G1).
+            let all = AbsLine::at(Rows::of_count(usize::MAX));
+            pr.lit
+                .set(Some(1), LineSpan::of(AbsLine::at(Rows::ZERO), all));
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let printed = s.line(Rows::ZERO, baud_domain::Row::ZERO);
@@ -5029,6 +5038,10 @@ mod tests {
             let mut paths = Paths::new(None, Forms::DEFAULT);
             paths.set(Turned::On);
             paths.all_written_here();
+            // Lit by the shell's verdict, as its own reads light them (G1).
+            let all = AbsLine::at(Rows::of_count(usize::MAX));
+            pr.lit
+                .set(Some(1), LineSpan::of(AbsLine::at(Rows::ZERO), all));
             let (mut lines, mut uris) = (Lines::default(), Uris::default());
             let s = Scrolled::START;
             let row = |r: usize| s.line(Rows::ZERO, baud_domain::Row::from_index(r));
@@ -8663,6 +8676,67 @@ mod tests {
         assert_eq!(run(2), (vec![vec![0]], vec![0]), "the control");
     }
 
+    /// **A group still to be named writing over a line that reads lit holds
+    /// it, whoever lit it** (G1): `ls` prints `/etc/hosts` and four lines,
+    /// named, so the path's line goes into the history; `ls`'s next read
+    /// trims what lit each line to the window (`Lit::keep_from`); the window
+    /// grows to eight rows and the line comes back into it with its local
+    /// fact and nothing naming what lit it; then `ssh`, still to be named,
+    /// moves to it and prints `/etc/passwd` over it. The line is not known
+    /// before `ssh`'s answer. The control: `ls` printing over its own lit
+    /// line, with nothing trimmed, keeps it lit before its answer;
+    /// [`a_command_that_feeds_off_the_prompt_leaves_its_path_lit`] keeps a
+    /// path typed on the shell's prompt lit, the prompt's read lighting it
+    /// at once. Named break: hold only the lines another group is named
+    /// for (`Lit`'s spans of other groups, met with the span) -- the line
+    /// the window brought back reads local.
+    #[test]
+    fn a_line_that_reads_lit_is_held_whoever_lit_it() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        let back = [
+            Read {
+                then: Then::Answered,
+                ..read(b"/etc/hosts\r\na\r\nb\r\nc\r\nd", 2)
+            },
+            read(b"\x1b[m", 2),
+            Read {
+                then: Then::Resize(40, 8),
+                ..read(b"", 1)
+            },
+            Read {
+                then: Then::Took,
+                ..read(b"\x1b[1;1H/etc/passwd", 9)
+            },
+        ];
+        assert_eq!(
+            origins_midway(ws, named_groups(), &back)[0][0],
+            Origin::Unknown,
+            "ssh's write over the line the window brought back"
+        );
+        let own = [
+            Read {
+                then: Then::Answered,
+                ..read(b"/etc/hosts\r\n", 2)
+            },
+            Read {
+                then: Then::Took,
+                ..read(b"\x1b[1;1H/etc/hosts", 2)
+            },
+        ];
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 4,
+        };
+        assert_eq!(
+            origins_midway(ws, named_groups(), &own)[0][0],
+            Origin::Local,
+            "the control: ls over its own lit line"
+        );
+    }
+
     /// **A command whose first read only feeds off the prompt line leaves
     /// a path typed there lit** (G1, `ReadRecord::start_row`): the shell's
     /// prompt with `/etc/passwd` typed on it, named and looked up; then
@@ -9159,12 +9233,8 @@ mod tests {
             assert_eq!(paths.origin(line(3)), Origin::Unknown, "held");
             pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)]);
             assert_eq!((paths.origin(line(3)), pr.held.len()), (origin, 0));
-            assert!(
-                pr.lit
-                    .others(Some(2), LineSpan::of(line(3), line(3)))
-                    .next()
-                    .is_some()
-            );
+            let three = vec![LineSpan::of(line(3), line(3))];
+            assert!(pr.lit.not_of(Some(9), three).is_empty(), "lit by its group");
         }
     }
 
