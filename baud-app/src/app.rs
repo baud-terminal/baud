@@ -12610,6 +12610,10 @@ impl Driver {
         }
         self.apply_style();
         let drained = self.app.pty.drain();
+        // The event rig's split arm: a wake's turn takes none of a read,
+        // the next frame all of it, which is owed (`rig::split`).
+        #[cfg(feature = "effect-probe")]
+        let drained = rig::split(drained, trigger, &mut self.app);
         for chunk in &drained.chunks {
             self.app
                 .launch_log

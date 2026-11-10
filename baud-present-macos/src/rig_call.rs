@@ -218,6 +218,10 @@ pub enum RigTicks {
     /// Undriven, `turn::after` alone run inline in the callback that asked:
     /// with no tick only a callback can drain the read that asks it.
     AfterInCallback,
+    /// Driven, each read left to the frame: a wake's turn takes none of it
+    /// and the next frame all of it, so what a read asks is asked inside
+    /// `frame`.
+    Split,
 }
 
 /// Whether baud believes the rig's window is key: AppKit's answer alone,
@@ -239,12 +243,13 @@ const ACTS: [(RigAct, &str); 8] = [
     (RigAct::TypeTwo, "type-two"),
 ];
 
-const TICKS: [(RigTicks, &str); 5] = [
+const TICKS: [(RigTicks, &str); 6] = [
     (RigTicks::Driven, "tick"),
     (RigTicks::None, "no-tick"),
     (RigTicks::InCallback, "tick-inline"),
     (RigTicks::InFrame, "tick-in-frame"),
     (RigTicks::AfterInCallback, "tick-after-inline"),
+    (RigTicks::Split, "tick-split"),
 ];
 
 const FOCUS: [(RigFocus, &str); 2] = [

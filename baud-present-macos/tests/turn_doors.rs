@@ -376,6 +376,7 @@ const CALLS: &[(&str, Sites)] = &[
             ("../baud-app/src/app.rs", "show", 1),
             ("../baud-app/src/app/rig.rs", "run", 1),
             ("../baud-app/src/app/rig.rs", "run_frames", 1),
+            ("../baud-app/src/app/rig.rs", "split", 1),
         ],
     ),
 ];

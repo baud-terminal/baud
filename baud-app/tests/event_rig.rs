@@ -237,6 +237,10 @@ enum Ticks {
     /// not driven: the read is drained by the reader's `wake` alone, as a
     /// pending program row's is ([`arms`]).
     UndrivenAfterInline,
+    /// Driven, each read left to the frame: a wake's turn takes none of it
+    /// and the next frame all of it, as the tty's pieces can fall, so what
+    /// the read asks is asked inside `frame` every time.
+    DrivenSplit,
 }
 
 /// What the row expects: these effects, each exactly once an iteration
@@ -777,18 +781,22 @@ fn config(rule: Rule) -> &'static str {
 /// its recorded site would be one entry or the other by timing -- and so
 /// does the `turn::after` control, whose recorded site is the callback. A row
 /// whose effect the tick alone asks ([`Polled::Tick`]) runs driven alone.
+/// A green program row runs undriven, driven, and driven with each read
+/// left to the frame ([`Ticks::DrivenSplit`]), as the tty's pieces can
+/// fall, its effects still each on a turn of its own.
 fn arms(site: &Site) -> &'static [Ticks] {
     match (site.cause, site.state, site.cause.shape().polled) {
         (Cause::PrintedPath(_, Ticks::Driven), ..) => &[Ticks::Driven],
         (Cause::PrintedPath(_, Ticks::None), ..) => &[Ticks::None],
         (Cause::PrintedPath(_, Ticks::DrivenInline), ..) => &[Ticks::DrivenInline],
         (Cause::PrintedPath(_, Ticks::DrivenInFrame), ..) => &[Ticks::DrivenInFrame],
+        (Cause::PrintedPath(_, Ticks::DrivenSplit), ..) => &[Ticks::DrivenSplit],
         (Cause::PrintedPath(_, Ticks::UndrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
             &[Ticks::UndrivenAfterInline]
         }
         (_, _, Polled::Tick { .. }) => &[Ticks::Driven],
         (Cause::Program(_) | Cause::ProgramThen(..), RowState::Green, Polled::Read) => {
-            &[Ticks::None, Ticks::Driven]
+            &[Ticks::None, Ticks::Driven, Ticks::DrivenSplit]
         }
         (Cause::Program(_) | Cause::ProgramThen(..) | Cause::Gesture(_), ..) => &[Ticks::None],
     }
@@ -845,6 +853,7 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             Ticks::DrivenInline => RigTicks::InCallback,
             Ticks::DrivenInFrame => RigTicks::InFrame,
             Ticks::UndrivenAfterInline => RigTicks::AfterInCallback,
+            Ticks::DrivenSplit => RigTicks::Split,
         },
         focus,
         each: expect.each.to_vec(),

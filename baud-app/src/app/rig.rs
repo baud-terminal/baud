@@ -25,7 +25,10 @@
 //! is printed as a line for the parent; an iteration with none prints
 //! `none`. `tick-inline` and `tick-in-frame` are the controls:
 //! the effect queue's turn runs inline, in the callback that asked or in the
-//! next frame.
+//! next frame. `tick-split` drives the frame and splits each read
+//! ([`split`]): a wake's turn takes none of a read and the next frame all
+//! of it, so a green row's effects are asked inside `frame` and must still
+//! each be made on a turn of its own.
 //!
 //! Under `focus-believed` baud believes the window is key (`probe::Key`),
 //! read by `poll_focus` alone, so a left press is a click rather than the
@@ -85,6 +88,62 @@ thread_local! {
     /// window's key.
     static CLOSE: RefCell<Option<(crate::os_effect::Closer, crate::windows::WindowId)>> =
         const { RefCell::new(None) };
+}
+
+/// Whether the rig splits each read: the `tick-split` arm.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Splits {
+    No,
+    Yes,
+}
+
+thread_local! {
+    /// Whether reads are split, set once by the call.
+    static SPLITS: core::cell::Cell<Splits> = const { core::cell::Cell::new(Splits::No) };
+    /// What a wake's turn left of its reads, for the next frame.
+    static TAIL: RefCell<Vec<crate::pty::Read>> = const { RefCell::new(Vec::new()) };
+    /// How many frames have fed a read, what a wake left or what the frame
+    /// drained itself: one at least each iteration, or the arm left nothing
+    /// to a frame.
+    static TAILS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+/// **A read left to the frame, the way the event loop allows**, under
+/// `tick-split`: a wake's turn takes none of what the reader sent, and the
+/// next frame takes all of it, which `app` is owed so the link runs. The
+/// tty hands one write back in pieces, and a wake that took
+/// the first leaves the rest to whichever turn comes next, the display
+/// link's whenever it runs; the prefix a wake takes is left empty here
+/// because any other can end a sequence -- a BEL, the `\` of an ST, a CSI
+/// final, each the first byte of a later piece -- and what that sequence
+/// asks would then be asked in the callback, by timing. So whatever a read
+/// asks is asked inside `frame`, every time, and every effect must still be
+/// made on a turn of its own. Every other arm: the reads as drained.
+pub(super) fn split(
+    mut drained: crate::pty::Drained,
+    trigger: Trigger,
+    app: &mut App,
+) -> crate::pty::Drained {
+    if SPLITS.with(core::cell::Cell::get) == Splits::No {
+        return drained;
+    }
+    match trigger {
+        Trigger::Tick => {
+            let tail = TAIL.with_borrow_mut(core::mem::take);
+            drained.chunks.splice(0..0, tail);
+            if !drained.chunks.is_empty() {
+                TAILS.with(|t| t.set(t.get().saturating_add(1)));
+            }
+            drained
+        }
+        Trigger::Wake | Trigger::Opening => {
+            TAIL.with_borrow_mut(|t| t.append(&mut drained.chunks));
+            if TAIL.with_borrow(|t| !t.is_empty()) {
+                app.owe_tick();
+            }
+            drained
+        }
+    }
 }
 
 thread_local! {
@@ -180,6 +239,10 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
         RigTicks::AfterInCallback => {
             probe::set_inline(probe::Inline::AfterInCallback);
             Ticks::None
+        }
+        RigTicks::Split => {
+            SPLITS.with(|s| s.set(Splits::Yes));
+            Ticks::Driven
         }
     };
     run(act, iterations, ticks, &each)
@@ -337,6 +400,8 @@ fn run(
     }
     let mut failed = false;
     for i in 0..iterations.0 {
+        // A read the setup left to a frame is not this iteration's.
+        TAILS.with(|t| t.set(0));
         // Kept, never dropped: whatever an iteration's records miss is the
         // parent's to see.
         let mut got = probe::take();
@@ -420,6 +485,14 @@ fn run(
         if w.styleMask().contains(NSWindowStyleMask::FullScreen) {
             println!("the window was put in full screen");
             failed = true;
+        }
+        // The split arm's own control: a frame fed a read this iteration.
+        if SPLITS.with(core::cell::Cell::get) == Splits::Yes {
+            let tails = TAILS.with(core::cell::Cell::get);
+            if tails == 0 {
+                println!("no read was fed in a frame");
+                failed = true;
+            }
         }
     }
     // No panic stopped anywhere: a borrow taken twice in a nested turn
