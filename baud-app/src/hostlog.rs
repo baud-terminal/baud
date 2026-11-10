@@ -733,9 +733,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **When the writer answers**: as the app's feed leaves it, on its own
+    /// thread, at any point of the feed or after; or before each of the
+    /// feed's looks at the log ([`Prompt`]).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Answers {
+        Free,
+        First,
+    }
+
+    /// A log whose writer has done everything it was sent before each of
+    /// the feed's looks at it.
+    struct Prompt<'a>(&'a mut HostLog);
+
+    impl Tee for Prompt<'_> {
+        fn take(&mut self, part: &[u8]) {
+            self.0.take(part);
+        }
+        fn follow(&mut self, term: &mut Term<'_>) {
+            self.0.wait();
+            self.0.follow(term);
+        }
+    }
+
     /// **A file others may write is refused, and the core's log stops**, as
     /// xterm's `open_userfile` refuses it; so is a FIFO with no reader, at
-    /// once and without blocking, and a directory.
+    /// once and without blocking, and a directory. The refusal comes from
+    /// the writer's thread and stops the core at the feed's first look at
+    /// the log after it arrives -- the look after each part of a read
+    /// (`reads::feed`) -- so whether the core is still started when the
+    /// feed returns is the writer's pace: the start is asked once whatever
+    /// the order, the core stopped within the feed when the writer answers
+    /// before its next look, and stopped by the settle in any order. Named
+    /// break: ask the core to be started when the feed returns -- red at
+    /// once with the writer answering first.
     #[test]
     fn a_file_xterm_would_refuse_stops_the_log() {
         let dir = scratch("refuse");
@@ -750,18 +781,34 @@ mod tests {
             .expect("mkfifo");
         assert!(made.success(), "mkfifo");
         for name in [&b"shared.log"[..], b"fifo", b"."] {
-            let mut s = Owned::new(&WS);
-            let mut t = Term::new(s.storage(), &WS);
-            t.set_logging(Logging::On);
-            let mut seq = b"\x1b]46;".to_vec();
-            seq.extend_from_slice(name);
-            seq.extend_from_slice(b"\x07\x1b[?46hx");
-            let mut log = HostLog::new(dir.clone());
-            run(&mut log, &mut t, &[&seq]);
-            assert_eq!(t.log_mode(), LogMode::Started, "{name:?} asked");
-            log.settle(&mut t);
-            assert_eq!(t.log_mode(), LogMode::Stopped, "{name:?} refused");
-            log.finish();
+            for answers in [Answers::Free, Answers::First] {
+                let mut s = Owned::new(&WS);
+                let mut t = Term::new(s.storage(), &WS);
+                t.set_logging(Logging::On);
+                let mut seq = b"\x1b]46;".to_vec();
+                seq.extend_from_slice(name);
+                seq.extend_from_slice(b"\x07\x1b[?46hx");
+                let mut log = HostLog::new(dir.clone());
+                match answers {
+                    Answers::Free => run(&mut log, &mut t, &[&seq]),
+                    Answers::First => crate::reads::feed(
+                        &mut t,
+                        [&seq[..]],
+                        |_| {},
+                        |_| {},
+                        &mut Prompt(&mut log),
+                    ),
+                }
+                let why = format!("{:?} {answers:?}", String::from_utf8_lossy(name));
+                assert_eq!(t.log_file(), Some(name), "{why}: named");
+                assert_eq!(log.epoch, Epoch(1), "{why}: one open asked");
+                if answers == Answers::First {
+                    assert_eq!(t.log_mode(), LogMode::Stopped, "{why}: within the feed");
+                }
+                log.settle(&mut t);
+                assert_eq!(t.log_mode(), LogMode::Stopped, "{why}: refused");
+                log.finish();
+            }
         }
         assert_eq!(
             std::fs::read(&shared).expect("the file"),
