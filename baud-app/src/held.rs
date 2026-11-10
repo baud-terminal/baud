@@ -359,33 +359,30 @@ pub fn closes(key: baud_domain::KeyCode) -> bool {
 }
 
 /// **The tip slot's look with a held window's line in it**: the line's
-/// fields after `tip`'s, but none on a row the tip's words take: there the
-/// words hide the line for their moment -- a copy's words at the bar with
-/// `[message.held] place = "bar"` -- and the line comes back once they go,
-/// when the slot is the line alone. So every path draws one field a row.
-/// The area spans the tip's and the rows of the line it keeps. Either
-/// alone is itself.
+/// fields after `tip`'s, unless the tip's words take a row of the line's:
+/// then the words hide the whole line for their moment -- a copy's words at
+/// the bar with `[message.held] place = "bar"`, the line wrapped onto the
+/// rows above included -- as a link's preview hides it, and the line comes
+/// back once they go, when the slot is the line alone. So every path draws
+/// one field a row, and no line is drawn cut short. The area is the tip's
+/// and the line's together, or the tip's alone while the line is hidden.
+/// Either alone is itself.
 pub fn with_line(
     tip: Option<baud_render::TipLook>,
     line: Option<baud_render::TipLook>,
 ) -> Option<baud_render::TipLook> {
     match (tip, line) {
         (Some(mut t), Some(l)) => {
-            let taken: Vec<Row> = t.lines.iter().map(|f| f.row).collect();
-            let kept: Vec<baud_render::Field> = l
-                .lines
-                .into_iter()
-                .filter(|f| !taken.contains(&f.row))
-                .collect();
-            let rows = kept.iter().map(|f| f.row.index());
-            if let (Some(first), Some(last)) = (rows.clone().min(), rows.max()) {
-                let a = &mut t.area;
-                a.top = a.top.min(l.area.top.max(Row::from_index(first)));
-                a.bottom = a.bottom.max(l.area.bottom.min(Row::from_index(last + 1)));
-                a.left = a.left.min(l.area.left);
-                a.right = a.right.max(l.area.right);
+            let taken = |row: Row| t.lines.iter().any(|f| f.row == row);
+            if l.lines.iter().any(|f| taken(f.row)) {
+                return Some(t);
             }
-            t.lines.extend(kept);
+            let a = &mut t.area;
+            a.top = a.top.min(l.area.top);
+            a.bottom = a.bottom.max(l.area.bottom);
+            a.left = a.left.min(l.area.left);
+            a.right = a.right.max(l.area.right);
+            t.lines.extend(l.lines);
             Some(t)
         }
         (t, l) => t.or(l),
@@ -972,6 +969,54 @@ mod tests {
                 .count();
             assert_eq!(differ, 0, "{look_is:?}: the bar row is the words' alone");
             assert_eq!(with_line(None, line.clone()), line, "{look_is:?}: back");
+        }
+    }
+
+    /// **A line wrapped at the bar is hidden whole by a copy's words**: a
+    /// held line longer than the width, at the bar, wraps onto the rows
+    /// above it; a copy's words said there take the bottom row, and no
+    /// field of the line is kept, in either look, so its upper rows are not
+    /// left drawn with its tail cut off. The slot is the words' alone, area
+    /// included. Named break: drop only the line's fields on the words'
+    /// row.
+    #[test]
+    fn a_line_wrapped_at_the_bar_is_hidden_whole_by_a_copys_words() {
+        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        let (cols, rows) = (Cols::of_index(32), Rows::of_index(8));
+        let words = baud_render::message_look(
+            "Copied 3 characters",
+            cols,
+            rows,
+            baud_render::MessageAt::Bar,
+        )
+        .expect("words");
+        for look_is in [HeldLook::Box, HeldLook::Plain] {
+            let held = MessageHeld {
+                look: look_is,
+                place: HeldPlace::Bar,
+            };
+            let line = look(
+                "hx stopped with error 1. Press any key to close.",
+                Row::from_index(2),
+                cols,
+                rows,
+                held,
+            )
+            .expect("line");
+            let line_rows: Vec<Row> = line.lines.iter().map(|f| f.row).collect();
+            assert!(
+                line_rows
+                    .iter()
+                    .any(|&r| words.lines.iter().all(|w| w.row != r)),
+                "{look_is:?}: the line wraps above the words' row: {line_rows:?}"
+            );
+            let both = with_line(Some(words.clone()), Some(line.clone())).expect("both");
+            assert_eq!(both, words, "{look_is:?}: the words alone, area too");
+            assert_eq!(
+                with_line(None, Some(line.clone())),
+                Some(line),
+                "{look_is:?}: back"
+            );
         }
     }
 
