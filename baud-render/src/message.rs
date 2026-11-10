@@ -54,6 +54,20 @@ impl Pair {
     }
 }
 
+/// **`place` under every `[message.*]`**: by what the message is about, or
+/// at the bottom of the window. A copy's words by the selection -- a
+/// program's copy has no selection to be placed by, and goes in the bar
+/// whichever this says; a held window's line on the row below the blank one
+/// under what the program printed; a link's address by the link.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MessagePlace {
+    /// By what the message is about.
+    #[default]
+    Tip,
+    /// The window's bottom line.
+    Bar,
+}
+
 /// One colour of `[message]`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MessagePaint {

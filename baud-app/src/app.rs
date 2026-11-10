@@ -1599,6 +1599,7 @@ impl App {
             hover: {
                 let mut h = crate::link::Hover::default();
                 h.set_at_rest(link_config.at_rest());
+                h.set_place(message.link.place);
                 h
             },
             link_chord: crate::link::Chord::Other,
@@ -2470,7 +2471,7 @@ impl App {
                 cols,
                 rows,
                 self.copied.message().held,
-                preview,
+                crate::held::Address::of(preview, self.copied.message().link.place),
             ),
         };
         match (signal.look, held) {
@@ -9086,7 +9087,7 @@ mod drag_tests {
             concat!("self.copied.message()", ".held,"),
             concat!(
                 "self.copied.message().held,\n",
-                "                preview,\n"
+                "                crate::held::Address::of(preview, self.copied.message().link.place),\n"
             ),
         ] {
             assert!(SRC.contains(want), "macOS: {want}");
@@ -16626,6 +16627,9 @@ impl Driver {
                 Part::Message => {
                     self.app.renderer.set_message_colours(c.message.colours);
                     self.app.copied.set(c.message);
+                    // Where a link's address shows: read again under the chord.
+                    self.app.hover.set_place(c.message.link.place);
+                    self.app.hover_owed = crate::link::HoverOwed::Yes;
                     self.app.owe_frame();
                 }
                 Part::Link => {

@@ -84,6 +84,7 @@ use baud_core::{Focus, LINK_MAX, PointerShape, Term};
 pub use crate::paths::NoPaths;
 pub use crate::paths::{Gone, PathsAt};
 use crate::rules::{NO_RULES, Rules};
+use baud_render::MessagePlace;
 
 use baud_domain::{
     AdmittedUri, Attrs, ClusterEpoch, Codepoint, Col, Cols, DirectoryReport, FileHost, FileUri,
@@ -2333,28 +2334,53 @@ pub fn bar_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> (Row, 
     }
 }
 
+/// **Where the address goes by the link**, `[message.link] place = "tip"`,
+/// as a copy's words go by the selection (`baud_render::MessageAt::Tip`):
+/// on the row under the link's last row, from the column its run starts at
+/// there -- column 0 on a wrapped link's continuation row -- or, when that
+/// row is past the last, on the row above its first, from its first
+/// column; moved left only as far as `width` needs to fit. Neither row has
+/// a cell of the link, so the address never covers it. None where the link
+/// has no cell on the view or fills the rows from the first to the last:
+/// the bar then, as [`bar_at`] places it.
+pub fn tip_at(spans: &[LinkSpan], width: Cols, cols: Cols, rows: Rows) -> Option<(Row, Col)> {
+    let (first, last) = (spans.first()?, spans.last()?);
+    let (width, cols, rows) = (width.index(), cols.index(), rows.index());
+    let room = cols.checked_sub(width)?;
+    let (row, from) = if last.row.index() + 1 < rows {
+        (last.row.index() + 1, last.from)
+    } else if first.row.index() > 0 {
+        (first.row.index() - 1, first.from)
+    } else {
+        return None;
+    };
+    Some((Row::from_index(row), Col::at_index(from.index().min(room))))
+}
+
 /// **What the preview draws for `link` under `spot`**: its cells underlined
 /// where a click opens it -- a link [`admit`] refuses is drawn as no link,
 /// and the bar says why -- and the bar with its address, a space either side,
-/// in the message pair ([`baud_render::message`]): an opaque box and text no
+/// by the link, as `[message.link] place` is by default ([`tip_at`]), in
+/// the message pair ([`baud_render::message`]): an opaque box and text no
 /// program's colours reach, cell-aligned text a program could copy, which
 /// shows only while the chord is held. The drivers read through
 /// [`preview_with`], so only tests call it.
 #[cfg(test)]
 pub fn preview(term: &Term<'_>, spot: Spot, link: &Under, host: &MachineNames) -> Option<LinkLook> {
-    preview_with(term, spot, link, host, &NoPaths)
+    preview_with(term, spot, link, host, &NoPaths, MessagePlace::default())
 }
 
 /// [`preview`], with what `paths` found gone said as the reason, and the
-/// link admitted with the rules `paths` holds: **every rule's link shows
-/// its address in the same bar**, which no rule turns off, since it is the
-/// check on where a click goes.
+/// link admitted with the rules `paths` holds, the address shown where
+/// `place` says: **every rule's link shows its address in the same box**,
+/// which no rule turns off, since it is the check on where a click goes.
 pub fn preview_with(
     term: &Term<'_>,
     spot: Spot,
     link: &Under,
     host: &MachineNames,
     paths: &dyn PathsAt,
+    place: MessagePlace,
 ) -> Option<LinkLook> {
     let view = term.view(spot.back);
     let (rows, cols) = (view.rows().index(), view.cols().index());
@@ -2372,12 +2398,16 @@ pub fn preview_with(
         .chars()
         .map(Codepoint::from_char)
         .collect();
-    let (row, col) = bar_at(
-        &spans,
+    let (width, cols_, rows_) = (
         Cols::of_index(text.len()),
         Cols::of_index(cols),
         Rows::of_index(rows),
     );
+    let tip = match place {
+        MessagePlace::Tip => tip_at(&spans, width, cols_, rows_),
+        MessagePlace::Bar => None,
+    };
+    let (row, col) = tip.unwrap_or_else(|| bar_at(&spans, width, cols_, rows_));
     let n = text.len();
     let opens = matches!(verdict(link, term, host, paths, printed), Some((_, Ok(()))));
     Some(LinkLook {
@@ -2591,6 +2621,8 @@ pub struct Hover {
     entered: Option<Gone>,
     at_rest: AtRest,
     held: Held,
+    /// `[message.link] place`: where the address shows.
+    place: MessagePlace,
     read: Option<ReadOf>,
     /// What the last read went over, as it then was.
     covered: Covered,
@@ -2683,6 +2715,7 @@ impl Hover {
             paths: generation,
         });
         let previewing = chord == Chord::Cmd && focus == Focus::Gained;
+        let place = self.place;
         let (paint, every) = match (self.at_rest, self.held, focus) {
             (AtRest::Look(paint), Held::No, Focus::Gained) => (Some(paint), true),
             (AtRest::PathsOnly(paint), Held::No, Focus::Gained) => (Some(paint), false),
@@ -2737,7 +2770,7 @@ impl Hover {
                         }
                     });
                 let look = match previewing {
-                    true => preview_with(term, s, &link, host, paths),
+                    true => preview_with(term, s, &link, host, paths, place),
                     false => None,
                 };
                 let opens = match (look.is_some(), opens) {
@@ -2797,6 +2830,15 @@ impl Hover {
     pub fn set_at_rest(&mut self, at_rest: AtRest) {
         if self.at_rest != at_rest {
             self.at_rest = at_rest;
+            self.read = None;
+        }
+    }
+
+    /// **Where the address shows**, `[message.link] place`, from the config
+    /// as it is read and read again.
+    pub fn set_place(&mut self, place: MessagePlace) {
+        if self.place != place {
+            self.place = place;
             self.read = None;
         }
     }
@@ -4732,6 +4774,139 @@ mod tests {
             ),
             (top, Col::ZERO)
         );
+    }
+
+    /// **The address goes by the link** (`[message.link] place = "tip"`):
+    /// on the row under its last row from where its run starts there --
+    /// column 0 on a wrapped link's continuation row -- moved left only as
+    /// far as it needs to fit; on the last row, above its first row from its
+    /// first column; and no place by it for a link that fills every row, or
+    /// has no cell on the view, or an address wider than the window, which
+    /// then take the bar. Never a row of the link's. Named breaks: drop the
+    /// row above -- a link on the last row gets none; drop the move left --
+    /// the address runs past the right edge.
+    #[test]
+    fn the_address_goes_by_the_link() {
+        let s = |r: usize, a: usize, b: usize| LinkSpan {
+            row: Row::from_index(r),
+            from: Col::at_index(a),
+            to: Col::at_index(b),
+        };
+        let (cols, rows) = (Cols::of_index(80), Rows::of_index(10));
+        let at = |spans: &[LinkSpan], width: usize| {
+            tip_at(spans, Cols::of_index(width), cols, rows).map(|(r, c)| (r.index(), c.index()))
+        };
+        // Each: the link's spans, the address's width, where it goes.
+        type Case<'a> = (&'a [LinkSpan], usize, Option<(usize, usize)>, &'a str);
+        let cases: [Case<'_>; 8] = [
+            (&[s(3, 10, 30)], 20, Some((4, 10)), "under the link"),
+            (&[s(3, 70, 79)], 20, Some((4, 60)), "moved left to fit"),
+            (&[s(2, 30, 79), s(3, 0, 10)], 20, Some((4, 0)), "wrapped"),
+            (&[s(9, 12, 40)], 20, Some((8, 12)), "above on the last row"),
+            (
+                &[s(8, 30, 79), s(9, 0, 10)],
+                20,
+                Some((7, 30)),
+                "wrapped, last",
+            ),
+            (
+                &[s(0, 5, 79), s(9, 0, 10)],
+                20,
+                None,
+                "every row from the first to the last",
+            ),
+            (&[], 20, None, "no cell on the view"),
+            (&[s(3, 10, 30)], 81, None, "wider than the window"),
+        ];
+        for (spans, width, want, why) in cases {
+            let got = at(spans, width);
+            assert_eq!(got, want, "{why}");
+            if let Some((r, c)) = got {
+                assert!(
+                    spans.iter().all(|x| x.row.index() != r),
+                    "{why}: on a row of the link's"
+                );
+                assert!(c + width <= cols.index(), "{why}: past the right edge");
+            }
+        }
+    }
+
+    /// **The tip shows what the bar shows, by the link, and the bar is
+    /// where it was**: a link on a real grid under the chord, with the
+    /// default place and with `"bar"`: the same text, the same shortening of
+    /// a long address to the bar's room, by the link for the tip -- under it,
+    /// above it on the last row, under a wrapped link's continuation from
+    /// column 0 -- and [`bar_at`]'s place for the bar; a link that fills
+    /// every row takes the bar either way. Named break: build the preview at
+    /// the bar whatever `place` says.
+    #[test]
+    fn the_tip_shows_what_the_bar_shows_by_the_link() {
+        let look = |ws: &WinSize, bytes: &[u8], at: (usize, usize), place: MessagePlace| {
+            let mut owned = Owned::new(ws);
+            let mut t = Term::new(owned.storage(), ws);
+            feed(&mut t, bytes);
+            let mut h = Hover::default();
+            h.set_place(place);
+            let at = Some((Row::from_index(at.0), Col::at_index(at.1)));
+            h.update(&t, at, Scrolled::START, Chord::Cmd, Focus::Gained, NONE);
+            let l = h.look().cloned().expect("a look under the chord");
+            (bar_string(&l), l.bar.row.index(), l.bar.col.index())
+        };
+        let small = WinSize {
+            ws_col: 20,
+            ws_row: 2,
+        };
+        let long = b"https://a.example/abcdefghijklmnopqrstuvwxyz";
+        let both = b"https://a.example/abcdefghijklmnopqrstu";
+        let last = [&b"\r\n\r\n\r\n\r\n\r\nx https://a.example/"[..]].concat();
+        // Each: the grid, its bytes, the pointer, the tip's place and the
+        // bar's, which moves right off a link on the last row's left.
+        type Case<'a> = (
+            &'a WinSize,
+            &'a [u8],
+            (usize, usize),
+            (usize, usize),
+            (usize, usize),
+            &'a str,
+        );
+        let cases: [Case<'_>; 4] = [
+            (
+                &WIDE,
+                b"see https://a.example/ here",
+                (0, 6),
+                (1, 4),
+                (5, 0),
+                "under",
+            ),
+            (
+                &WIDE,
+                &last,
+                (5, 4),
+                (4, 2),
+                (5, 40),
+                "above on the last row",
+            ),
+            (&WS, long, (0, 3), (3, 0), (5, 0), "wrapped, long"),
+            (
+                &small,
+                both,
+                (0, 3),
+                (0, 0),
+                (0, 0),
+                "fills every row: the bar",
+            ),
+        ];
+        for (ws, bytes, at, tip, bar, why) in cases {
+            let (text, row, col) = look(ws, bytes, at, MessagePlace::Tip);
+            let (bar_text, bar_row, bar_col) = look(ws, bytes, at, MessagePlace::Bar);
+            assert_eq!(text, bar_text, "{why}: the same words");
+            assert!(
+                text.chars().count() <= usize::from(ws.ws_col),
+                "{why}: {text}"
+            );
+            assert_eq!((row, col), tip, "{why}: by the link");
+            assert_eq!((bar_row, bar_col), bar, "{why}: the bar where it was");
+        }
     }
 
     /// **Every cell naming the link is underlined**, connected or not --

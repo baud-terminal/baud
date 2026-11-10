@@ -50,7 +50,7 @@ use baud_render::{
 
 use crate::access::FlashingLights;
 use crate::bell::Moment;
-use crate::config::{CopyPlace, CopyPulse, CopySignal, Message, SystemMotion};
+use crate::config::{CopyPulse, CopySignal, Message, MessagePlace, SystemMotion};
 
 /// How long the selection takes the message pair.
 pub(crate) const PULSE_FOR: Duration = Duration::from_millis(150);
@@ -280,8 +280,8 @@ impl<T: Moment> Signal<T> {
             source: Source::Selection,
             count,
             place: match self.message.copy.place {
-                CopyPlace::Tip => Place::Selection,
-                CopyPlace::Bar => Place::At(MessageAt::Bar),
+                MessagePlace::Tip => Place::Selection,
+                MessagePlace::Bar => Place::At(MessageAt::Bar),
             },
             until: None,
         });
@@ -647,7 +647,7 @@ mod tests {
     fn a_program_has_no_selection_to_be_placed_by() {
         let t = zero();
         let mut bar = Message::default();
-        bar.copy.place = CopyPlace::Bar;
+        bar.copy.place = MessagePlace::Bar;
         let mut s = signal(bar);
         s.selection(Characters(5), Pulse::Skip);
         let f = drawn(&mut s, t).look.unwrap();
@@ -687,7 +687,7 @@ mod tests {
         assert_eq!(f.owes, Owes::Frame);
         // And on again, with a new place, for the next copy.
         let mut on = Message::default();
-        on.copy.place = CopyPlace::Bar;
+        on.copy.place = MessagePlace::Bar;
         s.set(on);
         assert_eq!(s.message(), on);
         s.selection(Characters(5), Pulse::Skip);

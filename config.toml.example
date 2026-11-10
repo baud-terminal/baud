@@ -589,8 +589,8 @@
 #
 # Where a copy of your selection is said: "tip", the row under it, or above it
 # on the last row; or "bar", the bottom of the window. A program's copy always
-# goes at the bottom. While Cmd (Ctrl on Linux) shows a link's address, the
-# address keeps its place and no words show.
+# goes at the bottom. While Cmd (Ctrl on Linux) shows a link's address, no words
+# show.
 # place = "tip"
 #
 # "on" draws the selection in the box's colours for 150 ms when it is copied.
@@ -605,9 +605,17 @@
 # look = "box"
 #
 # Where it goes: "tip", the row below the blank one under what the program
-# printed; or "bar", the bottom of the window, where a link's address shows.
-# At the bar, a link's address or a copy's words take the line's place while
-# they show, and it comes back after.
+# printed; or "bar", the bottom of the window. While Cmd (Ctrl on Linux) shows
+# a link's address by the link, or at the bottom with the line there too, the
+# line hides and comes back after; at the bar a copy's words hide it the same
+# way.
+# place = "tip"
+
+# [message.link]
+#
+# Where a link's address shows while Cmd (Ctrl on Linux) is held over it:
+# "tip", the row under the link, or above it when the link is on the last
+# row; or "bar", the bottom of the window.
 # place = "tip"
 
 # How links show. A web, mail or file link is underlined as it appears, whether

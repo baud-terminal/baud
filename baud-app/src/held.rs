@@ -236,11 +236,11 @@ pub fn look(
     rows: Rows,
     held: crate::config::MessageHeld,
 ) -> Option<baud_render::TipLook> {
-    use crate::config::{HeldLook, HeldPlace};
+    use crate::config::{HeldLook, MessagePlace};
     use baud_render::MessageAt;
     let at = match held.place {
-        HeldPlace::Tip => MessageAt::Row(row),
-        HeldPlace::Bar => MessageAt::Bar,
+        MessagePlace::Tip => MessageAt::Row(row),
+        MessagePlace::Bar => MessageAt::Bar,
     };
     match held.look {
         HeldLook::Box => baud_render::message_look(line, cols, rows, at),
@@ -303,11 +303,36 @@ fn plain(
     })
 }
 
+/// **Where a link's address is while a held line is drawn**: the link
+/// preview's ([`crate::copied::Preview`]) at `[message.link]`'s place.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Address {
+    /// No preview up.
+    Down,
+    /// Up at the window's bottom line, `[message.link] place = "bar"`.
+    AtBar,
+    /// Up by the link, `[message.link] place = "tip"`.
+    ByLink,
+}
+
+impl Address {
+    /// The preview's state, its address at `place`.
+    pub fn of(preview: crate::copied::Preview, place: crate::config::MessagePlace) -> Address {
+        match (preview, place) {
+            (crate::copied::Preview::None, _) => Address::Down,
+            (crate::copied::Preview::Up, crate::config::MessagePlace::Bar) => Address::AtBar,
+            (crate::copied::Preview::Up, crate::config::MessagePlace::Tip) => Address::ByLink,
+        }
+    }
+}
+
 /// **[`look`] on the view as it is scrolled**: at its tip, the live
 /// screen's `row` shown `back` rows down while the window looks back
 /// through the history, and no line once that row is below the view; in the
-/// bar, the bottom line however the view is scrolled, and none while the
-/// link preview is up (`preview`), which keeps that line for the address.
+/// bar, the bottom line however the view is scrolled. None while a link's
+/// address is up where the line could be ([`Address`]): by the link,
+/// wherever the line is, or at the bar with the line there too; the line
+/// comes back once the address goes.
 pub fn on_view(
     line: &str,
     row: Row,
@@ -315,15 +340,21 @@ pub fn on_view(
     cols: Cols,
     rows: Rows,
     held: crate::config::MessageHeld,
-    preview: crate::copied::Preview,
+    address: Address,
 ) -> Option<baud_render::TipLook> {
+    use crate::config::MessagePlace;
     let at = row.index() + back.index();
+    let hidden = match address {
+        Address::Down => false,
+        Address::ByLink => true,
+        Address::AtBar => held.place == MessagePlace::Bar,
+    };
+    if hidden {
+        return None;
+    }
     match held.place {
-        crate::config::HeldPlace::Bar => match preview {
-            crate::copied::Preview::Up => None,
-            crate::copied::Preview::None => look(line, row, cols, rows, held),
-        },
-        crate::config::HeldPlace::Tip => {
+        MessagePlace::Bar => look(line, row, cols, rows, held),
+        MessagePlace::Tip => {
             (at < rows.index()).then(|| look(line, Row::from_index(at), cols, rows, held))?
         }
     }
@@ -402,11 +433,10 @@ mod tests {
     /// `SIGSEGV`: 11 on Darwin and on Linux, the two this test runs on.
     const SIGSEGV: i32 = 11;
     /// No link preview on screen.
-    const NO_PREVIEW: crate::copied::Preview = crate::copied::Preview::None;
     /// `[message.held]` at its defaults: the box, at the tip.
     const BOX_TIP: crate::config::MessageHeld = crate::config::MessageHeld {
         look: crate::config::HeldLook::Box,
-        place: crate::config::HeldPlace::Tip,
+        place: crate::config::MessagePlace::Tip,
     };
 
     /// **Status 0 closes the window, however soon.** Named break: hold on
@@ -645,7 +675,7 @@ mod tests {
                 cols,
                 rows,
                 BOX_TIP,
-                NO_PREVIEW,
+                Address::Down,
             )
             .map(|l| l.lines[0].row.index())
         };
@@ -717,7 +747,7 @@ mod tests {
                 cols,
                 rows,
                 BOX_TIP,
-                NO_PREVIEW,
+                Address::Down,
             )
             .expect("room");
             let mut r = Renderer::new(
@@ -800,7 +830,7 @@ mod tests {
     /// the red ground on one row and vanishes on the other.
     #[test]
     fn a_plain_held_line_is_drawn_in_the_default_rendition() {
-        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use crate::config::{HeldLook, MessageHeld, MessagePlace};
         use baud_core::{BytePos, Owned, ReadLen, Term};
         use baud_domain::WinSize;
         use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
@@ -811,7 +841,7 @@ mod tests {
         let line = "hx stopped with error 1.";
         let plain = MessageHeld {
             look: HeldLook::Plain,
-            place: HeldPlace::Tip,
+            place: MessagePlace::Tip,
         };
         let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
         let screen: &[u8] = b"\x1b[?25l\x1b[2;1H\x1b[41mred ground under the line\x1b[K\x1b[0m\
@@ -897,7 +927,7 @@ mod tests {
     /// row, and the CPU path draws it over them.
     #[test]
     fn a_copys_words_at_the_bar_hide_the_line_until_they_go() {
-        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use crate::config::{HeldLook, MessageHeld, MessagePlace};
         use baud_core::{BytePos, Owned, ReadLen, Term};
         use baud_domain::WinSize;
         use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
@@ -945,7 +975,7 @@ mod tests {
         for look_is in [HeldLook::Box, HeldLook::Plain] {
             let held = MessageHeld {
                 look: look_is,
-                place: HeldPlace::Bar,
+                place: MessagePlace::Bar,
             };
             let line = look(
                 "hx stopped with error 1. Press any key to close.",
@@ -972,6 +1002,50 @@ mod tests {
         }
     }
 
+    /// **A link's address by the link hides the held line wherever it is**,
+    /// and the line comes back once it goes; an address at the bar hides
+    /// only a line at the bar, as before. [`Address::of`] reads the
+    /// preview's state at `[message.link]`'s place. Named break: keep the
+    /// line at its tip under an address by the link -- the two can share a
+    /// row.
+    #[test]
+    fn an_address_by_the_link_hides_the_held_line_until_it_goes() {
+        use crate::config::{MessageHeld, MessagePlace};
+        use crate::copied::Preview;
+        let (cols, rows) = (Cols::of_index(80), Rows::of_index(24));
+        assert_eq!(Address::of(Preview::None, MessagePlace::Tip), Address::Down);
+        assert_eq!(Address::of(Preview::None, MessagePlace::Bar), Address::Down);
+        assert_eq!(Address::of(Preview::Up, MessagePlace::Bar), Address::AtBar);
+        assert_eq!(Address::of(Preview::Up, MessagePlace::Tip), Address::ByLink);
+        for place in [MessagePlace::Tip, MessagePlace::Bar] {
+            let held = MessageHeld { place, ..BOX_TIP };
+            let at = |address| {
+                on_view(
+                    "hx stopped with error 1. Press any key to close.",
+                    Row::from_index(4),
+                    Rows::ZERO,
+                    cols,
+                    rows,
+                    held,
+                    address,
+                )
+                .map(|l| l.lines[0].row.index())
+            };
+            let shown = match place {
+                MessagePlace::Tip => 4,
+                MessagePlace::Bar => 23,
+            };
+            assert_eq!(at(Address::Down), Some(shown), "{place:?}: no address");
+            assert_eq!(at(Address::ByLink), None, "{place:?}: by the link");
+            let at_bar = match place {
+                MessagePlace::Tip => Some(shown),
+                MessagePlace::Bar => None,
+            };
+            assert_eq!(at(Address::AtBar), at_bar, "{place:?}: at the bar");
+            assert_eq!(at(Address::Down), Some(shown), "{place:?}: back");
+        }
+    }
+
     /// **A line wrapped at the bar is hidden whole by a copy's words**: a
     /// held line longer than the width, at the bar, wraps onto the rows
     /// above it; a copy's words said there take the bottom row, and no
@@ -981,7 +1055,7 @@ mod tests {
     /// row.
     #[test]
     fn a_line_wrapped_at_the_bar_is_hidden_whole_by_a_copys_words() {
-        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use crate::config::{HeldLook, MessageHeld, MessagePlace};
         let (cols, rows) = (Cols::of_index(32), Rows::of_index(8));
         let words = baud_render::message_look(
             "Copied 3 characters",
@@ -993,7 +1067,7 @@ mod tests {
         for look_is in [HeldLook::Box, HeldLook::Plain] {
             let held = MessageHeld {
                 look: look_is,
-                place: HeldPlace::Bar,
+                place: MessagePlace::Bar,
             };
             let line = look(
                 "hx stopped with error 1. Press any key to close.",
@@ -1069,7 +1143,7 @@ mod tests {
     /// with the tip's row; draw the bar over the preview's address.
     #[test]
     fn the_held_line_takes_its_look_and_its_place() {
-        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use crate::config::{HeldLook, MessageHeld, MessagePlace};
         use baud_domain::Col;
         let (cols, rows) = (Cols::of_index(80), Rows::of_index(24));
         let line = "hx stopped with error 1. Press any key to close.";
@@ -1093,7 +1167,7 @@ mod tests {
                 line.to_string(),
             ),
         ] {
-            for (place, at) in [(HeldPlace::Tip, 4), (HeldPlace::Bar, 23)] {
+            for (place, at) in [(MessagePlace::Tip, 4), (MessagePlace::Bar, 23)] {
                 let l = look(line, row, cols, rows, held(look_is, place)).expect("room");
                 assert_eq!(l.lines.len(), 1, "{look_is:?} {place:?}");
                 let f = &l.lines[0];
@@ -1115,12 +1189,12 @@ mod tests {
                     cols,
                     rows,
                     held(look_is, place),
-                    NO_PREVIEW,
+                    Address::Down,
                 )
                 .expect("on the view");
                 let want = match place {
-                    HeldPlace::Tip => 7,
-                    HeldPlace::Bar => 23,
+                    MessagePlace::Tip => 7,
+                    MessagePlace::Bar => 23,
                 };
                 assert_eq!(back.lines[0].row.index(), want, "{look_is:?} {place:?}");
                 let far = on_view(
@@ -1130,12 +1204,12 @@ mod tests {
                     cols,
                     rows,
                     held(look_is, place),
-                    NO_PREVIEW,
+                    Address::Down,
                 )
                 .map(|l| l.lines[0].row.index());
                 let want = match place {
-                    HeldPlace::Tip => None,
-                    HeldPlace::Bar => Some(23),
+                    MessagePlace::Tip => None,
+                    MessagePlace::Bar => Some(23),
                 };
                 assert_eq!(far, want, "{look_is:?} {place:?}: scrolled back 20");
                 let under = on_view(
@@ -1145,12 +1219,12 @@ mod tests {
                     cols,
                     rows,
                     held(look_is, place),
-                    crate::copied::Preview::Up,
+                    Address::AtBar,
                 )
                 .map(|l| l.lines[0].row.index());
                 let want = match place {
-                    HeldPlace::Tip => Some(4),
-                    HeldPlace::Bar => None,
+                    MessagePlace::Tip => Some(4),
+                    MessagePlace::Bar => None,
                 };
                 assert_eq!(under, want, "{look_is:?} {place:?}: under a link's preview");
             }
@@ -1161,7 +1235,7 @@ mod tests {
             Row::from_index(23),
             narrow,
             rows,
-            held(HeldLook::Plain, HeldPlace::Tip),
+            held(HeldLook::Plain, MessagePlace::Tip),
         )
         .expect("room");
         let chars: Vec<char> = line.chars().collect();
@@ -1188,7 +1262,7 @@ mod tests {
     /// message pair, or in the selection's colours.
     #[test]
     fn a_plain_held_line_draws_as_the_line_written_into_the_cells() {
-        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use crate::config::{HeldLook, MessageHeld, MessagePlace};
         use baud_core::{BytePos, Owned, ReadLen, Term};
         use baud_domain::WinSize;
         use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
@@ -1199,7 +1273,7 @@ mod tests {
         let line = "hx stopped with error 1. Press any key to close.";
         let plain = MessageHeld {
             look: HeldLook::Plain,
-            place: HeldPlace::Tip,
+            place: MessagePlace::Tip,
         };
         let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
         let feed = |t: &mut Term<'_>, b: &[u8]| {
@@ -1222,7 +1296,7 @@ mod tests {
                         feed(&mut t, line.as_bytes());
                         None
                     }
-                    false => on_view(line, row, t.window_back(), cols, rows, plain, NO_PREVIEW),
+                    false => on_view(line, row, t.window_back(), cols, rows, plain, Address::Down),
                 };
                 if !into_cells {
                     let screen = crate::programs::screen(&t);

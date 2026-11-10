@@ -138,7 +138,7 @@ pub use linked::{
     HoverPaint, LINK_TEXT_CONTRAST, LineColour, LineStyle, LinkHover, LinkLine, LinkLook, LinkSpan,
     MISSING_CONTRAST, MissingPaint,
 };
-pub use message::{MessageColours, MessagePaint, Pair, SelectionPulse};
+pub use message::{MessageColours, MessagePaint, MessagePlace, Pair, SelectionPulse};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
     Caret, Composition, CursorDrawn, Hints, Laid, MASK_BARE, MASK_BIDI, MASK_PICTURE, MASK_RECORD,

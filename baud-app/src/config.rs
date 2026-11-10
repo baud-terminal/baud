@@ -538,7 +538,7 @@ pub struct Config {
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
     pub clipboard: Clipboard,
-    /// `[message]`, `[message.copy]` and `[message.held]`.
+    /// `[message]`, `[message.copy]`, `[message.held]` and `[message.link]`.
     pub message: Message,
     /// `[link]`.
     pub link: Link,
@@ -597,15 +597,22 @@ pub enum CopySignal {
     Off,
 }
 
-/// `[message.copy] place`: where a copy's words go. A program's copy has no
-/// selection to be placed by, and goes in the bar whichever this says.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum CopyPlace {
-    /// By the selection.
-    #[default]
-    Tip,
-    /// Where the link preview's bar goes.
-    Bar,
+/// **`place` under every `[message.*]`**: baud-render's, so the link's
+/// reader, which builds without this file, names the same type.
+pub use baud_render::MessagePlace;
+
+/// `[message.*] place`'s value, or the default with what was wrong said.
+fn message_place(value: &str, table: &str, said: &mut Vec<String>) -> MessagePlace {
+    match value.trim().trim_matches('"') {
+        "tip" => MessagePlace::Tip,
+        "bar" => MessagePlace::Bar,
+        other => {
+            said.push(format!(
+                "config: [{table}] place {other:?} is not tip or bar; using the default, tip"
+            ));
+            MessagePlace::Tip
+        }
+    }
 }
 
 /// `[message.copy] pulse`: whether the selection takes the message pair for
@@ -621,7 +628,7 @@ pub enum CopyPulse {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct MessageCopy {
     pub enable: CopySignal,
-    pub place: CopyPlace,
+    pub place: MessagePlace,
     pub pulse: CopyPulse,
 }
 
@@ -636,31 +643,29 @@ pub enum HeldLook {
     Plain,
 }
 
-/// `[message.held] place`: where a held window's line goes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum HeldPlace {
-    /// The row below the blank one under what the program printed.
-    #[default]
-    Tip,
-    /// The window's bottom line, as `[message.copy] place = "bar"`.
-    Bar,
-}
-
 /// `[message.held]`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct MessageHeld {
     pub look: HeldLook,
-    pub place: HeldPlace,
+    pub place: MessagePlace,
 }
 
-/// `[message]`, `[message.copy]` and `[message.held]`: baud's short
-/// messages, drawn in a pair a program cannot change
+/// `[message.link]`: where a link's address shows while the link gesture's
+/// modifier is held over it (`link.rs`'s `preview_with`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct MessageLink {
+    pub place: MessagePlace,
+}
+
+/// `[message]`, `[message.copy]`, `[message.held]` and `[message.link]`:
+/// baud's short messages, drawn in a pair a program cannot change
 /// (`baud_render::message`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Message {
     pub colours: baud_render::MessageColours,
     pub copy: MessageCopy,
     pub held: MessageHeld,
+    pub link: MessageLink,
 }
 
 /// `[link] urls`: whether a link is shown with no modifier. Off skips the scan
@@ -2613,17 +2618,7 @@ impl Config {
                     };
                 }
                 ("message.copy", "place") => {
-                    self.message.copy.place = match value.trim().trim_matches('"') {
-                        "tip" => CopyPlace::Tip,
-                        "bar" => CopyPlace::Bar,
-                        other => {
-                            said.push(format!(
-                                "config: [message.copy] place {other:?} is not tip or bar; \
-                                 using the default, tip"
-                            ));
-                            CopyPlace::Tip
-                        }
-                    };
+                    self.message.copy.place = message_place(&value, "message.copy", &mut said)
                 }
                 ("message.copy", "pulse") => {
                     self.message.copy.pulse = match value.trim().trim_matches('"') {
@@ -2657,21 +2652,19 @@ impl Config {
                     };
                 }
                 ("message.held", "place") => {
-                    self.message.held.place = match value.trim().trim_matches('"') {
-                        "tip" => HeldPlace::Tip,
-                        "bar" => HeldPlace::Bar,
-                        other => {
-                            said.push(format!(
-                                "config: [message.held] place {other:?} is not tip or bar; \
-                                 using the default, tip"
-                            ));
-                            HeldPlace::Tip
-                        }
-                    };
+                    self.message.held.place = message_place(&value, "message.held", &mut said)
                 }
                 ("message.held", other) => {
                     said.push(format!(
                         "config: [message.held] has no key {other:?}; it is ignored"
+                    ));
+                }
+                ("message.link", "place") => {
+                    self.message.link.place = message_place(&value, "message.link", &mut said)
+                }
+                ("message.link", other) => {
+                    said.push(format!(
+                        "config: [message.link] has no key {other:?}; it is ignored"
                     ));
                 }
                 ("link", "urls") => {
@@ -6339,22 +6332,22 @@ mod reader {
         assert_eq!(d.colours.page, MessagePaint::Baud);
         assert_eq!(d.colours.text, MessagePaint::Baud);
         assert_eq!(d.copy.enable, CopySignal::On);
-        assert_eq!(d.copy.place, CopyPlace::Tip);
+        assert_eq!(d.copy.place, MessagePlace::Tip);
         assert_eq!(d.copy.pulse, CopyPulse::Off);
         assert_eq!(d.held.look, HeldLook::Box);
-        assert_eq!(d.held.place, HeldPlace::Tip);
+        assert_eq!(d.held.place, MessagePlace::Tip);
         for (text, look, place) in [
             (
                 "look = \"box\"\nplace = \"tip\"\n",
                 HeldLook::Box,
-                HeldPlace::Tip,
+                MessagePlace::Tip,
             ),
-            ("look = \"plain\"\n", HeldLook::Plain, HeldPlace::Tip),
-            ("place = \"bar\"\n", HeldLook::Box, HeldPlace::Bar),
+            ("look = \"plain\"\n", HeldLook::Plain, MessagePlace::Tip),
+            ("place = \"bar\"\n", HeldLook::Box, MessagePlace::Bar),
             (
                 "look = \"plain\"\nplace = \"bar\"\n",
                 HeldLook::Plain,
-                HeldPlace::Bar,
+                MessagePlace::Bar,
             ),
         ] {
             let mut c = Config::defaults();
@@ -6397,7 +6390,7 @@ mod reader {
         c.apply("[message.held]\nlook = \"plain\"\nplace = \"top\"\n");
         assert_eq!(
             c.message.held.place,
-            HeldPlace::Tip,
+            MessagePlace::Tip,
             "a bad place is the tip"
         );
         let mut c = Config::defaults();
@@ -6412,7 +6405,7 @@ mod reader {
             MessagePaint::Colour(rgb(255, 255, 255))
         );
         assert_eq!(c.message.copy.enable, CopySignal::Off);
-        assert_eq!(c.message.copy.place, CopyPlace::Bar);
+        assert_eq!(c.message.copy.place, MessagePlace::Bar);
         assert_eq!(c.message.copy.pulse, CopyPulse::On);
         for (bad, key) in [
             ("[message]\nbox_color = \"nope\"\n", "box_color"),
@@ -6447,6 +6440,46 @@ mod reader {
         let said = c.apply("[message]\nbox_color = \"none\"\ntext_color = \"#111111\"\n");
         assert!(said.is_empty(), "the frame measures a \"none\": {said:?}");
         assert_eq!(c.message.colours.page, MessagePaint::Selection);
+    }
+
+    /// **`[message.link] place` reads as it documents**: `"tip"` by default,
+    /// each value, a bad value said and the tip kept, an unknown key said,
+    /// and nothing else of `[message]` moved. Perturbation: read the key
+    /// into `[message.held]`'s place.
+    #[test]
+    fn the_link_messages_place_reads_as_it_documents() {
+        let d = Config::defaults().message;
+        assert_eq!(d.link.place, MessagePlace::Tip);
+        for (text, place) in [
+            ("place = \"tip\"\n", MessagePlace::Tip),
+            ("place = \"bar\"\n", MessagePlace::Bar),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(&format!("[message.link]\n{text}"));
+            assert!(said.is_empty(), "{text}: {said:?}");
+            assert_eq!(c.message.link.place, place, "{text}");
+            assert_eq!(
+                (c.message.colours, c.message.copy, c.message.held),
+                (d.colours, d.copy, d.held),
+                "{text}"
+            );
+        }
+        for (bad, says) in [
+            (
+                "[message.link]\nplace = \"top\"\n",
+                "using the default, tip",
+            ),
+            ("[message.link]\nother = 1\n", "no key \"other\""),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(bad);
+            assert_eq!(c.message, d, "{bad}");
+            assert!(
+                said.iter()
+                    .any(|s| s.contains("[message.link]") && s.contains(says)),
+                "{bad}: {said:?}"
+            );
+        }
     }
 
     /// **`[clipboard] copy_on_select` is on unless it says off** (note

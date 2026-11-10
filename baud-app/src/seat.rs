@@ -351,6 +351,12 @@ impl Seat {
                 .refresh_with(term, self.scrolled, chord, self.focus, host, &self.paths)
     }
 
+    /// Where a link's address shows, `[message.link] place`.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub(crate) fn set_place(&mut self, place: crate::config::MessagePlace) {
+        self.hover.set_place(place);
+    }
+
     /// What the config asks of the link under the pointer.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) fn set_at_rest(&mut self, at_rest: crate::link::AtRest) {
@@ -2608,7 +2614,8 @@ mod tests {
     }
 
     /// **Ctrl held over a link previews it**: its cells underlined and its
-    /// address in a bar on the bottom row; for a URI in the text, across
+    /// address in a bar on the bottom row, `[message.link] place =
+    /// "bar"`; for a URI in the text, across
     /// the soft wrap it runs over. Taken away when Ctrl is let go, with
     /// Shift (the selection's), when the pointer leaves and when the window
     /// loses the keyboard; never shown without the keyboard. Perturbation:
@@ -2623,6 +2630,7 @@ mod tests {
             b"\x1b]8;;https://example.com/\x1b\\link\x1b]8;;\x1b\\ https://a.example/b",
         );
         let mut seat = Seat::new();
+        seat.set_place(crate::config::MessagePlace::Bar);
         let ctrl = Modifiers::NONE.with(Modifiers::CTRL);
         let host = &crate::link::MachineNames::NONE;
         put(&mut seat, &mut t, Input::Moved(15.0, 5.0), NONE);

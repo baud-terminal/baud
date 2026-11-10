@@ -738,6 +738,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
             let mut seat = crate::seat::Seat::new();
             seat.set_word_wrap(cfg.wrap_words);
             seat.set_at_rest(cfg.link.at_rest());
+            seat.set_place(cfg.message.link.place);
             // `HOME` read once, here, and this machine's one name.
             use std::os::unix::ffi::OsStringExt;
             let home = std::env::var_os("HOME").map(std::ffi::OsString::into_vec);
@@ -2472,6 +2473,7 @@ impl Driver {
                 Part::Message => {
                     self.renderer.set_message_colours(c.message.colours);
                     self.copied.set(c.message);
+                    self.seat.set_place(c.message.link.place);
                     self.pending = Pending::Dirty;
                 }
                 Part::Link => {
@@ -3643,7 +3645,7 @@ impl Driver {
                 cols,
                 rows,
                 self.copied.message().held,
-                preview,
+                crate::held::Address::of(preview, self.copied.message().link.place),
             ),
         };
         match (signal.look, held) {
