@@ -1889,10 +1889,15 @@ impl<T: Moment> Probes<T> {
     }
 
     /// **The next instant a turn is owed by the clock**: the batch's
-    /// deadline while one is owed, and the hang's while one is out. For the
-    /// Linux loop's wait; macOS's display link ticks anyway.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    /// deadline while one is owed, and the hang's while one is out. The
+    /// Linux loop's wait, and the wake the macOS driver schedules after a
+    /// turn's last scan, so no tick polls for it. None once the worker is
+    /// closed: its turn would do nothing, and a deadline of `now` that no
+    /// turn clears is a wake on every turn.
     pub fn deadline(&self, paths: &Paths, now: T) -> Option<T> {
+        if matches!(self.slot, Slot::Closed) {
+            return None;
+        }
         match paths.marks() {
             Marks::On => {}
             Marks::Closed => return None,
@@ -2124,6 +2129,10 @@ impl<T: Moment> Probes<T> {
         }
         s.paths.front_moved(cursor);
         s.paths.begin_collect();
+        // What the rows drew before the batch's scan: a frame is owed only
+        // where the scan drew them otherwise, so a batch over a still screen
+        // draws nothing.
+        let drawn = (s.lines.lines().to_vec(), s.lines.struck().to_vec());
         s.lines.forget();
         let _ = s.lines.scan(
             s.term,
@@ -2135,7 +2144,9 @@ impl<T: Moment> Probes<T> {
             },
         );
         let queue = s.paths.end_collect();
-        turn.frame = Owed::Yes;
+        if (s.lines.lines(), s.lines.struck()) != (&drawn.0[..], &drawn.1[..]) {
+            turn.frame = Owed::Yes;
+        }
         // With no path to ask about, the groups seen still go, to be named
         // and answered with nothing looked up, so the next batch's are its
         // own.
@@ -2856,8 +2867,9 @@ mod tests {
             )
         };
         let _ = turn(&mut pr, at(0), &mut paths, &mut lines, &mut uris);
-        let sent = turn(&mut pr, at(200), &mut paths, &mut lines, &mut uris);
-        assert_eq!(sent.frame, Owed::Yes, "the batch went");
+        let batches = pr.counts.batches;
+        let _ = turn(&mut pr, at(200), &mut paths, &mut lines, &mut uris);
+        assert_eq!(pr.counts.batches, batches + 1, "the batch went");
         assert_eq!(*starts.lock().unwrap(), 1);
         // The worker reaches the stuck lookup; the test waits for that call.
         while !log.lock().unwrap().iter().any(|p| p == b"/etc/hosts") {
@@ -3332,6 +3344,137 @@ mod tests {
         assert_eq!(run(9), (false, 0), "ssh's: not looked up, not marked");
     }
 
+    /// **The worker names the turn it next owes** (FS-A14), which the window
+    /// schedules a wake for: nothing owed, none; a path met and not yet due,
+    /// the batch's deadline; a batch out, its hang; the answer in, none.
+    /// Perturbation: no hang in `deadline` -- the third fails.
+    #[test]
+    fn the_worker_names_its_next_turn() {
+        let f = Fake::with(&[("/etc", Entry::Dir), ("/etc/hosts", Entry::File)]);
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"/etc/hosts\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(12));
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.all_written_here();
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        assert_eq!(pr.deadline(&paths, t0), None, "nothing owed");
+        let _ = lines.scan(
+            &t,
+            s,
+            &mut Links {
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            },
+        );
+        let mut turn = |pr: &mut Probes<Instant>, paths: &mut Paths, lines: &mut Lines, at| {
+            pr.turn(
+                at,
+                Seen {
+                    term: &t,
+                    scrolled: s,
+                    lines,
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths,
+                },
+                || Some(1),
+            )
+        };
+        let _ = turn(&mut pr, &mut paths, &mut lines, t0);
+        assert_eq!(
+            pr.deadline(&paths, t0),
+            Some(t0 + SETTLE),
+            "the batch's deadline"
+        );
+        let sent = t0 + Duration::from_millis(200);
+        let _ = turn(&mut pr, &mut paths, &mut lines, sent);
+        assert_eq!(
+            pr.deadline(&paths, sent),
+            Some(sent + HANG),
+            "a batch out: its hang"
+        );
+        while turn(&mut pr, &mut paths, &mut lines, sent).frame != Owed::Yes {
+            std::thread::yield_now();
+        }
+        assert_eq!(pr.deadline(&paths, sent), None, "answered, nothing owed");
+    }
+
+    /// **A closed worker names no turn**, whatever is owed: its turn would
+    /// do nothing, and a deadline of `now` that no turn clears would be a
+    /// wake on every turn. The control: the programs owed to a worker not
+    /// yet started, at once. Perturbation: no closed guard in `deadline` --
+    /// the second fails.
+    #[test]
+    fn a_closed_worker_names_no_turn() {
+        let (mut pr, _) = probes(Fake::default());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let t0 = Instant::now();
+        pr.set_programs(vec![Program::Command("/usr/bin/ed".to_owned())]);
+        assert_eq!(pr.deadline(&paths, t0), Some(t0), "the control: owed");
+        pr.slot = Slot::Closed;
+        assert_eq!(pr.deadline(&paths, t0), None, "closed");
+    }
+
+    /// **A batch whose scan draws the rows as they were owes no frame**: a
+    /// row of plain words changed, which owes a batch; at its deadline the
+    /// batch's scan reads the rows again, finds no line, and asks nothing,
+    /// and no frame is owed for lines that did not change. Perturbation: a
+    /// frame owed by every batch -- the last assertion fails.
+    #[test]
+    fn a_batch_over_rows_drawn_as_they_were_owes_no_frame() {
+        let (mut pr, _) = probes(Fake::with(&[]));
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.write_at(BytePos::ZERO, b"plain words\r\n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(13));
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.all_written_here();
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let _ = lines.scan(
+            &t,
+            s,
+            &mut Links {
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            },
+        );
+        let mut turn = |pr: &mut Probes<Instant>, paths: &mut Paths, at| {
+            pr.turn(
+                at,
+                Seen {
+                    term: &t,
+                    scrolled: s,
+                    lines: &mut lines,
+                    uris: &mut uris,
+                    urls: Turned::On,
+                    paths,
+                },
+                || Some(1),
+            )
+        };
+        let _ = turn(&mut pr, &mut paths, t0);
+        assert_eq!(
+            pr.deadline(&paths, t0),
+            Some(t0 + SETTLE),
+            "the control: a batch owed"
+        );
+        let at = t0 + Duration::from_millis(200);
+        let still = turn(&mut pr, &mut paths, at);
+        assert_eq!(pr.deadline(&paths, at), None, "the batch's turn came");
+        assert_eq!(still.frame, Owed::No, "no line changed, no frame");
+    }
+
     /// **A result arrives with no cell changed, and the lines are drawn
     /// again once for it, no row read**: the batch's answer redraws the path
     /// the collection kept, and a turn with no answer owes nothing.
@@ -3381,12 +3524,9 @@ mod tests {
             urls: Turned::On,
             paths: &mut paths,
         };
-        assert_eq!(
-            pr.turn(t0 + Duration::from_millis(200), seen, || Some(1))
-                .frame,
-            Owed::Yes,
-            "the batch went"
-        );
+        let batches = pr.counts.batches;
+        let _ = pr.turn(t0 + Duration::from_millis(200), seen, || Some(1));
+        assert_eq!(pr.counts.batches, batches + 1, "the batch went");
         let r = loop {
             let seen = Seen {
                 term: &t,

@@ -1139,7 +1139,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14"];
+const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1198,6 +1198,8 @@ struct Counters {
     hands: u32,
     /// The launch splash's starts.
     greeted: u32,
+    /// The printed paths' batches sent after the settle.
+    batches: u32,
 }
 
 impl Counters {
@@ -1248,6 +1250,7 @@ impl Counters {
             },
             hands: count("hands")?,
             greeted: count("greeted")?,
+            batches: count("batches")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1327,6 +1330,10 @@ enum Settles {
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
+    /// **Output's printed paths asked about with no tick**: the ticks
+    /// withheld, nothing delivered, and a batch sent for the paths the
+    /// act's output filed.
+    Filed,
 }
 
 impl Settles {
@@ -1358,6 +1365,7 @@ impl Settles {
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
+            Settles::Filed => c.delivered == 0 && c.batches >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
@@ -1408,7 +1416,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 23] = [
+const FRAME_SITES: [FrameSite; 24] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1879,10 +1887,28 @@ const FRAME_SITES: [FrameSite; 23] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::PreviewedUnticked,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
+    },
+    // **Output's printed paths are asked about with no tick** (FS-A14): the
+    // act prints a `file:///usr` link and the clear that signs it, then
+    // waits on `read`, so no prompt or later output gives the window
+    // another turn; the ticks withheld and no pointer moved. The frame
+    // that draws the output files the path, and the turn that drew it
+    // schedules the worker's wake for the batch's deadline, a paused
+    // window's included.
+    FrameSite {
+        name: SiteName("output's printed paths are asked about with no tick"),
+        setup: STILL,
+        act: r"printf '\033[2J\033[Hfile:///usr\033]52;c;!\007'; read x",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(200),
+        expect: Settles::Filed,
+        state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red
     // while the door's backend starts a new link each run, until

@@ -173,6 +173,10 @@ pub(super) fn take_pressed() -> Option<String> {
 /// The bound on one iteration: reaching it is that iteration's failure.
 const BOUND: Duration = Duration::from_secs(2);
 
+/// The bound on the setup's printed paths being answered: past the batch's
+/// one-second ceiling (`probe::CEILING`) and a worker's answer.
+const PATHS_BOUND: Duration = Duration::from_secs(5);
+
 /// **An iteration's shortest length**, its tail spent running the run
 /// loop: longer than the frame interval within which bells ring once
 /// (`bell.rs`, `Ringer::hear`). An undriven view keeps the interval it
@@ -634,6 +638,18 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         println!("the row's screen was never drawn");
         return std::process::ExitCode::from(1);
     }
+    // **The setup's printed paths answered**: its batch goes at its
+    // deadline, as late as a second after the last, and its answer may owe
+    // a frame, both the setup's work and not the act's; waited for, within
+    // the bound, on the run loop.
+    let start = Instant::now();
+    while probe::paths_due() == probe::PathsDue::Owed && start.elapsed() < PATHS_BOUND {
+        offer(1);
+    }
+    if probe::paths_due() == probe::PathsDue::Owed {
+        println!("the setup's paths were never answered");
+        return std::process::ExitCode::from(1);
+    }
     // Settled: what the setup owed drawn, and the link left as it then is.
     offer(30);
     let (_, sends) = probe::link();
@@ -644,6 +660,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let fed = probe::fed_turns();
     let hands = probe::hands();
     let greetings = probe::greetings();
+    let batches = probe::paths_batches();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -737,7 +754,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} batches={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -789,6 +806,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         },
         probe::hands().0.saturating_sub(hands.0),
         probe::greetings().0.saturating_sub(greetings.0),
+        probe::paths_batches().0.saturating_sub(batches.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

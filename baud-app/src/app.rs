@@ -1993,6 +1993,7 @@ impl App {
             self.uris.names(),
             &self.paths,
         );
+        self.recheck_entered();
         if changed {
             self.reshape_pointer();
         }
@@ -2099,18 +2100,27 @@ impl App {
         }
         self.renderer
             .set_link_missing(self.link_config.missing_color);
-        self.recheck_entered();
     }
 
     /// **A link found gone that the pointer came over is asked about again**,
     /// once: its file at the next batch, or the programs at the next turn.
+    /// Asked by the hover's read that found it, not by a frame, and the
+    /// window woken so its turn sends the ask (`Driver::paths_turn`), a
+    /// paused window's included.
     fn recheck_entered(&mut self) {
-        match self.hover.take_entered() {
-            Some(crate::paths::Gone::File(path)) => self.paths.recheck_path(&path),
-            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
-                self.probes.owe_programs()
+        let asked = match self.hover.take_entered() {
+            Some(crate::paths::Gone::File(path)) => {
+                self.paths.recheck_path(&path);
+                true
             }
-            None => {}
+            Some(crate::paths::Gone::NoApp(_) | crate::paths::Gone::NoCommand) => {
+                self.probes.owe_programs();
+                true
+            }
+            None => false,
+        };
+        if asked {
+            self.waker.wake();
         }
     }
 
@@ -5057,6 +5067,8 @@ struct Driver {
     title_waits: TitleWaits,
     /// The derived title's pace (`title_check`).
     title_paced: TitlePaced,
+    /// The wake scheduled for the printed paths' worker (`paths_turn`).
+    paths_wake: PathsWake,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -7327,6 +7339,101 @@ mod alt_window_tests {
             "the names' arrival sends no title"
         );
         assert!(!body(CHECK).contains(WAITS), "the check waits on the names");
+    }
+
+    /// **The printed paths' worker's deadline is scheduled once**
+    /// (`PathsWake`): no deadline, no wake; a new one, the wait to it; the
+    /// same one again, nothing more; one already past, at once; a later
+    /// one, its own wait. Perturbation: schedule every turn -- the third
+    /// fails.
+    #[test]
+    fn the_paths_deadline_is_scheduled_once() {
+        use super::{HostTime, PathsWake};
+        use std::time::Duration;
+        let at = |ms| HostTime::ZERO.plus(Duration::from_millis(ms));
+        let mut w = PathsWake::default();
+        assert_eq!(w.schedule(None, at(100)), None, "no deadline");
+        assert_eq!(
+            w.schedule(Some(at(250)), at(100)),
+            Some(Duration::from_millis(150))
+        );
+        assert_eq!(w.schedule(Some(at(250)), at(200)), None, "scheduled once");
+        assert_eq!(
+            w.schedule(Some(at(300)), at(400)),
+            Some(Duration::ZERO),
+            "past"
+        );
+        assert_eq!(
+            w.schedule(Some(at(1400)), at(400)),
+            Some(Duration::from_secs(1)),
+            "a later one"
+        );
+    }
+
+    /// **The printed paths' worker runs on every turn, and a hovered link's
+    /// ask on the hover's read** (FS-A14): the pump calls `paths_turn` before
+    /// its tick arm and not in it, schedules the worker's next turn from
+    /// `Probes::deadline` last, after the frame gate's present and so after
+    /// the scan that files the turn's output, and `recheck_entered` runs on
+    /// the pointer's read and on a read the turn owes, not in the frame's
+    /// scan. AppKit-bound, so this holds the source; the frame rig's
+    /// file-link and output rows hold the turn. Perturbations: the call back
+    /// in the tick arm; the schedule before the present; the ask back in the
+    /// scan.
+    #[test]
+    fn the_paths_turn_runs_every_turn_and_the_hover_asks_on_its_read() {
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            SRC.split_once(head)
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(body, _)| body)
+                .expect(head)
+        };
+        let pump = SRC
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .map(|(_, rest)| rest)
+            .expect("the pump");
+        let (before, tick) = pump
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .expect("the tick arm");
+        let tick = tick.split_once('}').map_or(tick, |(arm, _)| arm);
+        let call = concat!("self.paths_", "turn();");
+        assert!(before.contains(call), "every turn");
+        assert!(!tick.contains(call), "{tick}");
+        let schedule = concat!("self.paths_", "schedule();");
+        let pump_body = pump.split_once("\n    }\n").map_or(pump, |(b, _)| b);
+        let (to_present, after) = pump_body
+            .rsplit_once(concat!("self.app.present(&view, ", "Show::Event);"))
+            .expect("the frame gate's present");
+        assert!(after.contains(schedule), "after the present");
+        assert!(!to_present.contains(schedule), "not before it");
+        let scheduled = body(concat!("    fn paths_", "schedule(&mut self) {"));
+        assert!(
+            scheduled.contains(concat!("probes.", "deadline(&self.app.paths, now)"))
+                && scheduled.contains(concat!("self.paths_wake.", "schedule(next, now)")),
+            "its next turn from the deadline, scheduled once"
+        );
+        let ask = concat!("recheck_", "entered();");
+        assert!(
+            !body(concat!("    fn scan_", "lines(&mut self) {")).contains(ask),
+            "not in the frame's scan"
+        );
+        assert!(
+            body(concat!(
+                "    fn read_hover_",
+                "as(&mut self, chord: crate::link::Chord) -> bool {"
+            ))
+            .contains(ask),
+            "on a read the turn owes"
+        );
+        assert!(
+            body(concat!(
+                "    fn hover_",
+                "mouse(&mut self, event: &Mouse) {"
+            ))
+            .contains(ask),
+            "on the pointer's read"
+        );
     }
 
     /// **A title check owed too soon waits for one wake** (`TitlePaced`):
@@ -12569,8 +12676,10 @@ impl Driver {
         // and on any turn after it: a read that ended before the window's
         // waker was set woke no one.
         self.link_host_check();
+        // The printed paths' worker, on every turn: a batch owed goes once
+        // it is due, at a wake scheduled for its deadline (`paths_wake`).
+        self.paths_turn();
         if let Trigger::Tick = trigger {
-            self.paths_turn();
             self.notice_turn();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
@@ -13094,6 +13203,9 @@ impl Driver {
                 self.app.present(&view, Show::Event);
             }
         }
+        // The printed paths' worker's next turn, after the frame's scan filed
+        // what this turn's output wrote.
+        self.paths_schedule();
     }
 }
 
@@ -14480,6 +14592,7 @@ impl Opening {
             hosts,
             title_waits: TitleWaits::No,
             title_paced: TitlePaced::default(),
+            paths_wake: PathsWake::default(),
             home: std::env::var_os("HOME")
                 .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
             hiding,
@@ -14987,7 +15100,7 @@ impl Driver {
     fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
-            Holder::A5Notices | Holder::A9Front | Holder::A13Hosts | Holder::A14Paths => true,
+            Holder::A5Notices | Holder::A9Front | Holder::A13Hosts => true,
         })
     }
 
@@ -15434,10 +15547,11 @@ impl Driver {
         }
     }
 
-    /// **The printed paths' worker, at each tick**: its answers merged, its
-    /// hang watched, and a batch sent once one is due (`probe.rs`). Never
-    /// waits: an answer not yet sent is read at a later tick. A click's
-    /// second look, once answered, opens or says why not here.
+    /// **The printed paths' worker, on every turn**: its hang watched and a
+    /// batch sent once one is due (`probe.rs`); the wake for the next of
+    /// those is scheduled at the turn's end (`paths_schedule`). Never waits:
+    /// the worker's answers wake the window (`paths_answered`). A click's second look, once answered, opens or
+    /// says why not here.
     fn paths_turn(&mut self) {
         let app = &mut self.app;
         let master = app.pty.reads().master;
@@ -15461,6 +15575,40 @@ impl Driver {
         }
         if turn.frame == crate::paths::Owed::Yes {
             app.owe_frame();
+        }
+    }
+
+    /// **The printed paths' worker's next turn, scheduled at a turn's end**,
+    /// after its last scan: the batch's deadline, at once for paths the
+    /// turn's frame filed and no turn has timed, and the hang's while a
+    /// batch is out (`Probes::deadline`), each scheduled once (`PathsWake`).
+    /// So the batch goes and a silent worker is closed with no tick, a paused
+    /// window's included, and the output that filed the paths owns the ask,
+    /// not a frame after it.
+    fn paths_schedule(&mut self) {
+        let now = host_now();
+        let next = self.app.probes.deadline(&self.app.paths, now);
+        if let Some(wait) = self.paths_wake.schedule(next, now) {
+            self.wake_at(Instant::now() + wait);
+        }
+        self.record_paths_due(next);
+    }
+
+    /// What the frame rig reads of the worker, under the probe only: whether
+    /// it owes a turn, which the settle waits on, and the batches it sent.
+    #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
+    fn record_paths_due(&self, next: Option<HostTime>) {
+        #[cfg(not(feature = "effect-probe"))]
+        let _ = next;
+        #[cfg(feature = "effect-probe")]
+        {
+            use baud_present_macos::probe;
+            probe::set_paths_due(match next {
+                Some(_) => probe::PathsDue::Owed,
+                None => probe::PathsDue::Idle,
+            });
+            let sent = self.app.probes.counts.batches;
+            probe::set_paths_batches(probe::Taken(u32::try_from(sent).unwrap_or(u32::MAX)));
         }
     }
 
@@ -16842,6 +16990,7 @@ impl Driver {
             &app.paths,
         );
         app.link_chord = chord;
+        app.recheck_entered();
         app.record_preview();
         if hovered || pressed {
             app.reshape_pointer();
@@ -22248,6 +22397,28 @@ fn judged_by<'n>(
             None
         }
         _ => Some(names),
+    }
+}
+
+/// **The wake scheduled for the printed paths' worker** (`paths_turn`): the
+/// moment it was scheduled for, so a turn that finds the same deadline
+/// schedules nothing more.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct PathsWake {
+    scheduled: Option<HostTime>,
+}
+
+impl PathsWake {
+    /// **The wait to schedule for `next`**, the worker's next deadline, at
+    /// `now`: none with no deadline or one already scheduled; else the time
+    /// to it, zero for one already past, and it is kept as scheduled.
+    fn schedule(&mut self, next: Option<HostTime>, now: HostTime) -> Option<Duration> {
+        let at = next?;
+        if self.scheduled == Some(at) {
+            return None;
+        }
+        self.scheduled = Some(at);
+        Some(at.since(now).unwrap_or(Duration::ZERO))
     }
 }
 

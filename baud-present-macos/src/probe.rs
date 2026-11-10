@@ -258,6 +258,10 @@ thread_local! {
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
     static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
+    /// Whether the printed paths' worker owes a turn (`PathsDue`).
+    static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
+    /// The printed paths' batches sent (`paths_batches`).
+    static PATHS_BATCHES: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether baud believes its window is on screen (`Shown`).
     static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
     /// The launch splash's starts (`greeted`).
@@ -339,6 +343,36 @@ pub fn set_key(key: Key) {
 /// Whether baud believes its window is key.
 pub fn key() -> Key {
     KEY.with(Cell::get)
+}
+
+/// **Whether the printed paths' worker owes a turn**: a batch due or
+/// out, its wake scheduled (baud-app's `Probes::deadline`), or nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PathsDue {
+    Idle,
+    Owed,
+}
+
+/// Set whether the printed paths' worker owes a turn.
+pub fn set_paths_due(due: PathsDue) {
+    PATHS_DUE.with(|d| d.set(due));
+}
+
+/// Whether the printed paths' worker owes a turn: the frame rig's settle
+/// waits for the setup's batch and its answer.
+pub fn paths_due() -> PathsDue {
+    PATHS_DUE.with(Cell::get)
+}
+
+/// Set the printed paths' batches sent so far, the worker's own count.
+pub fn set_paths_batches(sent: Taken) {
+    PATHS_BATCHES.with(|b| b.set(sent));
+}
+
+/// **The printed paths' batches sent so far**: the frame rig counts those
+/// an act's output owed.
+pub fn paths_batches() -> Taken {
+    PATHS_BATCHES.with(Cell::get)
 }
 
 /// **Whether baud believes its window is on screen**: what AppKit says,
