@@ -40216,3 +40216,17 @@ url    = "https://raw.githubusercontent.com/rust-lang/rust/249c1e4e31111b54ad248
 sha256 = "cf51d0e94117cc636829e08ecf12d441bf91ca8e9a04a667c1e9e234c13ecd0e"
 bytes  = 13960
 group  = "E"
+
+[sources.apple-macos-27-release-notes]
+key    = "apple-macos-27-release-notes"
+title  = "macOS 27 Release Notes -- AppKit: titlebar accessories may draw outside their bounds for apps linked on macOS 27.0 or later; menu item images hidden on the 27 SDK; nothing on run loops, display links or UserNotifications authorization (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/macos-release-notes/macos-27-release-notes.json"
+file   = ""
+sha256 = "71894d02d46dc40c9f3bda12ffa7072f223cc8460d3caff6130be33a8eec5a6f"
+bytes  = 147581
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page.

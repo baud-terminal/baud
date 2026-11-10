@@ -591,7 +591,15 @@ const SITES: [Site; 27] = [
     // turn of its own the row passes, and the control is red. The frame is
     // not driven: the tty can hand back the typed line's echo in pieces,
     // and a tick after a wake that drained only the first would drain the
-    // rest, the notification with it, in a frame.
+    // rest, the notification with it, in a frame. Driven, the row read
+    // the post's ask in a frame on some runs and in the callback on
+    // others, and only with the macOS 27 SDK linked; no header, release
+    // note or documentation page of Apple's says the link changes when a
+    // run loop services the reader's wake or the display link
+    // ([[source: apple-macos-27-release-notes]]). The ask is right in
+    // either place, since feeding the terminal in a frame is not an
+    // effect; the split arm holds what the driven row stopped holding
+    // (`Ticks::DrivenSplit`).
     Site {
         name: SiteName("a program's notification, its expiry made inside the callback"),
         cause: Cause::Program(Program {
