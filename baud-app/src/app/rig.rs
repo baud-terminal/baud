@@ -280,14 +280,41 @@ const BOUND: Duration = Duration::from_secs(2);
 /// one-second ceiling (`probe::CEILING`) and a worker's answer.
 const PATHS_BOUND: Duration = Duration::from_secs(5);
 
-/// **An iteration's shortest length**, its tail spent running the run
-/// loop: longer than the frame interval within which bells ring once
-/// (`bell.rs`, `Ringer::hear`). An undriven view keeps the interval it
-/// starts with, 8.3 ms, and the bell's rows are undriven, so a bell each
-/// iteration is a ring each iteration. A typed line's rows only. A floor on time passed, never a
-/// wait for something to happen: what every iteration waits for is its
-/// records, under [`BOUND`].
+/// **The run loop's time between one iteration's records and the next
+/// iteration**: longer than the frame interval within which bells ring
+/// once (`bell.rs`, `Ringer::hear`), so a bell each iteration is a ring
+/// each iteration. The view keeps the interval it starts with, 8.333 ms,
+/// on every arm: the hand-driven link's target never advances, so the
+/// tick clock measures no interval of its own. Counted from the records,
+/// not from the iteration's start: a ring later than this floor ended its
+/// iteration with nothing left of it, the next line went out at once, and
+/// its bell fell inside the frame of the last ring and was absorbed, a
+/// raise lost to the rig and not to the terminal. A typed line's rows
+/// only. A floor on time passed, never a wait for something to happen:
+/// what every iteration waits for is its records, under [`BOUND`].
 const SPACING: Duration = Duration::from_millis(50);
+
+/// A 60 Hz display's frame, the longest a display link of the screens
+/// baud is drawn on steps by: the floor is past it whatever the view's
+/// interval, and each read's own is checked against it besides
+/// ([`heard_under`]).
+const _: () = assert!(SPACING.as_micros() > 16_667);
+
+thread_local! {
+    /// The longest frame interval the ringer heard a read's bells under
+    /// this iteration (`Ringer::hear`'s `frame`), for the check against
+    /// [`SPACING`].
+    static HEARD: core::cell::Cell<Duration> = const { core::cell::Cell::new(Duration::ZERO) };
+}
+
+/// **The frame interval a read's bells are heard under**, the very value
+/// the driver hands `Ringer::hear`, the longest kept for the iteration: a
+/// bell within it of the last ring rings with it once, so an interval at
+/// or past the floor between iterations would let one iteration's bell be
+/// absorbed by the last's.
+pub(super) fn heard_under(frame: Duration) {
+    HEARD.with(|h| h.set(h.get().max(frame)));
+}
 
 /// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
 /// already parsed into `RigCall`, the one type the parent builds too.
@@ -518,6 +545,7 @@ fn run(
     for i in 0..iterations.0 {
         // A read the setup left to a frame is not this iteration's.
         TAILS.with(|t| t.set(0));
+        HEARD.with(|h| h.set(Duration::ZERO));
         // Kept, never dropped: whatever an iteration's records miss is the
         // parent's to see.
         let mut got = probe::take();
@@ -576,6 +604,7 @@ fn run(
             probe::pass(0.01);
             got.extend(probe::take());
         }
+        let answered = Instant::now();
         // Whatever else is ready runs, so a second effect would be seen.
         for _ in 0..64 {
             probe::pass(0.0);
@@ -583,11 +612,20 @@ fn run(
         got.extend(probe::take());
         // A program's rows only: a click rings no bell.
         while let (Act::Type(_) | Act::TypeTwo(..) | Act::Gesture(..), Some(left)) =
-            (&act, SPACING.checked_sub(start.elapsed()))
+            (&act, SPACING.checked_sub(answered.elapsed()))
         {
             probe::pass(left.as_secs_f64());
         }
         got.extend(probe::take());
+        // The floor is longer than every frame this iteration's bells were
+        // heard under, or the next iteration's bell may ring with this one.
+        let heard = HEARD.with(core::cell::Cell::get);
+        if heard >= SPACING {
+            println!(
+                "bells heard under a {heard:?} frame, the floor between iterations {SPACING:?}"
+            );
+            failed = true;
+        }
         // The sentinel says the program ended; it is no effect of the
         // row's, so it is not printed. An iteration it ended without the
         // effects is unanswered, and one nothing ended timed out.

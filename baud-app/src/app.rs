@@ -11762,8 +11762,11 @@ mod motion_tests {
             if !drained.chunks.is_empty() || fed == crate::reads::Fed::Some {
                 self.app.owe_frame();
             }
+            let frame = self.app.interval;
+            #[cfg(feature = "effect-probe")]
+            rig::heard_under(frame);
             if let Rings::Ring(volume) = self.app.ringer
-                .hear(&self.app.term, Instant::now(), self.app.interval)
+                .hear(&self.app.term, Instant::now(), frame)
             { self.ring_bell(volume); }"#
         );
         let span = bare(READ_TO_RING);
@@ -12870,12 +12873,12 @@ impl Driver {
         // **The bells this read brought ring now**, before the early returns
         // for a held update or a busy frame: a sound, a bounce and a raise
         // are not drawn, and a minimized window draws nothing. Once a frame
-        // interval (`Ringer`).
-        if let Rings::Ring(volume) =
-            self.app
-                .ringer
-                .hear(&self.app.term, Instant::now(), self.app.interval)
-        {
+        // interval (`Ringer`). The event rig keeps the very interval the
+        // ringer hears under, to check its floor between iterations past it.
+        let frame = self.app.interval;
+        #[cfg(feature = "effect-probe")]
+        rig::heard_under(frame);
+        if let Rings::Ring(volume) = self.app.ringer.hear(&self.app.term, Instant::now(), frame) {
             self.ring_bell(volume);
         }
         // Every turn that fed the core, counted for the frame rig: what a

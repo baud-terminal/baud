@@ -409,7 +409,7 @@ const KITTY_ERROR: &str = concat!(
     r#"case $r in *";E"*"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
 );
 
-const SITES: [Site; 29] = [
+const SITES: [Site; 31] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -561,13 +561,63 @@ const SITES: [Site; 29] = [
         expect: Expect::effect(&[EffectKind::Attention]),
         state: RowState::Green,
     },
+    // **The bell's raise, `?1043`, ended on its own event**: the bell and
+    // then the sentinel, a clear, so the iteration ends on the raise, or on
+    // the clear with no raise (Unanswered: a bell lost), never on the rig's
+    // two seconds, where a lost bell and a program late to print both read
+    // NotRun.
     Site {
         name: SiteName("the bell's raise, mode 1043"),
-        cause: Cause::Program(Program {
-            line: r"printf '\033[?1043h\007'",
-            config: "",
-            shape: READ,
-        }),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: r"printf '\033[?1043h\007'; printf '\033]52;c;!\007'",
+                config: "",
+                shape: READ,
+            },
+            Hold::No,
+        ),
+        expect: Expect::effect(&[EffectKind::Front]),
+        state: RowState::Green,
+    },
+    // **The same raise, its program late on purpose**: the shell sleeps
+    // 2.5 s before the bell, past the rig's two-second bound, the wall time
+    // a loaded machine can take. Break: the row ended on that bound
+    // (`Cause::Program`), and every arm reads NotRun.
+    Site {
+        name: SiteName("the bell's raise, mode 1043, its program late"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: r"sleep 2.5; printf '\033[?1043h\007'; printf '\033]52;c;!\007'",
+                config: "",
+                shape: HELD,
+            },
+            Hold::No,
+        ),
+        expect: Expect::effect(&[EffectKind::Front]),
+        state: RowState::Green,
+    },
+    // **The same raise, every other ring late**: on alternate iterations
+    // the shell sleeps 80 ms before the bell, past the rig's 50-ms floor
+    // between iterations, so the next bell follows that late ring at once.
+    // The terminal rings bells within one frame interval once
+    // (`Ringer::hear`), so the floor is counted from the iteration's
+    // records. Break: the floor counted from the iteration's start, and the
+    // fast bells, a few milliseconds after the late ones, are absorbed:
+    // Unanswered.
+    Site {
+        name: SiteName("the bell's raise, mode 1043, every other ring late"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: concat!(
+                    r#"if [ -e "$HOME/late" ]; then rm "$HOME/late"; "#,
+                    r#"else : > "$HOME/late"; sleep 0.08; fi; "#,
+                    r"printf '\033[?1043h\007'; printf '\033]52;c;!\007'",
+                ),
+                config: "",
+                shape: READ,
+            },
+            Hold::No,
+        ),
         expect: Expect::effect(&[EffectKind::Front]),
         state: RowState::Green,
     },
