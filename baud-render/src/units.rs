@@ -9,6 +9,9 @@ use baud_font::Px;
 pub struct Tally(u64);
 
 impl Tally {
+    /// None counted.
+    pub const ZERO: Tally = Tally(0);
+
     pub fn bump(&mut self) {
         self.0 = self.0.saturating_add(1);
     }

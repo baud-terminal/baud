@@ -762,6 +762,10 @@ impl Orders {
         cells.clear();
         cells.resize(line.cells.len(), PackedCell::EMPTY);
         self.permute(r, line.cells, cells);
+        crate::counters::add(
+            crate::counters::Counter::CellsCopied,
+            Tally::of(line.cells.len()),
+        );
         StatusLine { cells, ..line }
     }
 
@@ -859,6 +863,10 @@ impl Orders {
         let (nrows, ncols) = (vp.rows().index(), vp.cols().index());
         cells.clear();
         cells.resize(nrows * ncols, PackedCell::EMPTY);
+        crate::counters::add(
+            crate::counters::Counter::CellsCopied,
+            Tally::of(nrows * ncols),
+        );
         used.clear();
         for y in 0..nrows {
             let r = Row::from_index(y);
@@ -1273,7 +1281,7 @@ impl Seen {
         // each time, and its answer not kept: the same ids name other words
         // in another generation, which the compare of its cells cannot see.
         let live = words.is_live();
-        if self.opens[y] != Opens::Unknown && PackedCell::same_cells(kept, cells) {
+        if self.opens[y] != Opens::Unknown && crate::counters::same_cells(kept, cells) {
             let strung = match (live, self.strung[y]) {
                 (true, Opens::Unknown) => {
                     self.strung[y] = self.row_strung(term, words, cells);
@@ -1290,6 +1298,7 @@ impl Seen {
             };
         }
         kept.copy_from_slice(cells);
+        crate::counters::add(crate::counters::Counter::CellsCopied, Tally::of(n));
         work.tested.bump();
         let h = Holds {
             strung: self.row_strung(term, words, cells),
@@ -1982,6 +1991,7 @@ impl Reorder {
     /// joins are then found over the cells as [`Reorder::reverse_paths`]
     /// lays them out, by the visual column every draw path reads.
     fn join_shown(&mut self, term: &Term<'_>, (r, words): (Row, Words<'_>), cells: &[PackedCell]) {
+        crate::counters::add(crate::counters::Counter::BidiRowsLaid, Tally::of(1));
         if !self.orders.reordered(r) {
             return self.join_displayed(term, (r, words), cells);
         }
@@ -2271,6 +2281,11 @@ impl Reorder {
         (dir, path): (BidiParagraph, LineBidi),
         resolves: Resolves,
     ) -> Option<BidiLevel> {
+        #[cfg(feature = "counters")]
+        crate::counters::add(
+            crate::counters::Counter::BidiRowsLaid,
+            Tally::of(rows.iter().filter(|r| r.window.is_some()).count()),
+        );
         self.text.clear();
         self.owner.clear();
         self.rule.clear();

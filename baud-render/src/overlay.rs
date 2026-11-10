@@ -23,6 +23,7 @@ use crate::cellmap::{
     Swaps,
 };
 use crate::color::Argb;
+use crate::counters::Counter;
 use crate::frozen::Words;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
@@ -760,6 +761,7 @@ impl Overlay {
         // bit alone.
         if self.stats.pictured.value() > 0 {
             let w = cols.index();
+            crate::counters::add(Counter::PictureCellsScanned, Tally::of(w * rows.index()));
             for y in 0..rows.index() {
                 for x in 0..w {
                     if self.pictures.at(Row::from_index(y), Col::at_index(x)) != Pictured::Yes {
@@ -839,6 +841,7 @@ impl Overlay {
                 if !orders.reordered(row) && (!displayed || same) {
                     continue;
                 }
+                crate::counters::add(Counter::OverlayCellsBuilt, Tally::of(cols));
                 for (x, cell) in view.row(row).iter().enumerate().take(cols) {
                     let l = orders.logical_col(row, Col::at_index(x));
                     let sel = scene
@@ -1343,6 +1346,7 @@ impl Overlay {
             }
             self.painted[y] = Some(painted);
         }
+        crate::counters::add(Counter::OverlayCellsBuilt, Tally::of(rows * cols));
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
@@ -1387,6 +1391,12 @@ impl Overlay {
             self.reach(scene, r, mask, records, &paint, &geom, &covered);
             self.order(records);
         }
+        #[cfg(feature = "counters")]
+        crate::counters::add(Counter::OverlayCellsBuilt, {
+            let mut built = self.stats.cells;
+            built.add(self.stats.window_cells);
+            built
+        });
         self.under = Tally::of(records.len());
         records.append(&mut self.over);
         r.set_blink_seen(seen);

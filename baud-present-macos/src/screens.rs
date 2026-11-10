@@ -21,7 +21,8 @@
 
 use baud_core::StatusLine;
 use baud_domain::{LineRendition, PackedCell, Row, Stride, StyleId, Viewport};
-use baud_render::{Leaving, Lending, Rejoin, WalkKey};
+use baud_render::counters::{Counter, add, compared};
+use baud_render::{Leaving, Lending, Rejoin, Tally, WalkKey};
 
 use crate::journal::{SetIx, Wheel};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -183,7 +184,11 @@ impl Screens {
             let (cols, stride) = (view.cols().index(), stride.index());
             self.changed.extend((0..view.rows().index()).map(|y| {
                 let now = view.row(Row::from_index(y)).get(..cols);
-                match last.map(|copy| copy.get(y * stride..y * stride + cols)) {
+                let kept = last.map(|copy| copy.get(y * stride..y * stride + cols));
+                if let Some(kept) = kept {
+                    compared(kept, now);
+                }
+                match kept {
                     Some(kept) if kept == now => RowChange::Same,
                     _ => RowChange::Changed,
                 }
@@ -207,6 +212,7 @@ impl Screens {
                 let at = y * stride;
                 copy[at..at + cols].copy_from_slice(&src[..cols]);
             }
+            add(Counter::CellsCopied, Tally::of(rows * cols));
             // **The status line's row, after the main display's**, at index
             // `rows`: the shader draws `rows` and the line's row
             // (`Renderer::grid`), its backgrounds from here and its glyphs
@@ -216,6 +222,7 @@ impl Screens {
                 let at = rows * stride;
                 let n = cols.min(line.cells.len());
                 copy[at..at + n].copy_from_slice(&line.cells[..n]);
+                add(Counter::CellsCopied, Tally::of(n));
             }
             if let Some(c) = self.copied.get_mut(set.0) {
                 *c = Some(self.now);
@@ -255,6 +262,7 @@ impl Screens {
         let mut scratch: Vec<PackedCell> = Vec::new();
         let mut row_same = |copy: &[PackedCell], y: usize, now: Option<&[PackedCell]>| {
             let kept = copy.get(y * at..y * at + cols);
+            compared(kept, now);
             if kept == now {
                 return true;
             }
@@ -271,6 +279,7 @@ impl Screens {
                     c.style = was;
                 }
             }
+            compared(Some(&scratch), Some(now));
             scratch[..] == now[..]
         };
         if self.compare == Compare::Rows || !undo.is_empty() {
@@ -300,6 +309,7 @@ impl Screens {
                 let at = y * stride;
                 copy[at..at + cols].copy_from_slice(&src[..cols]);
             }
+            add(Counter::CellsCopied, Tally::of(rows * cols));
             // **The status line's row, after the main display's**, at index
             // `rows`: the shader draws `rows` and the line's row
             // (`Renderer::grid`), its backgrounds from here and its glyphs
@@ -309,6 +319,7 @@ impl Screens {
                 let at = rows * stride;
                 let n = cols.min(line.cells.len());
                 copy[at..at + n].copy_from_slice(&line.cells[..n]);
+                add(Counter::CellsCopied, Tally::of(n));
             }
             if let Some(c) = self.copied.get_mut(set.0) {
                 *c = Some(self.now);
@@ -330,7 +341,9 @@ impl Screens {
     ) -> Built {
         let (cols, at) = (view.cols().index(), stride.index());
         self.is_last_by(copy, view, status, stride, |y, r| {
-            copy.get(y * at..y * at + cols) == view.row(r).get(..cols)
+            let (kept, now) = (copy.get(y * at..y * at + cols), view.row(r).get(..cols));
+            compared(kept, now);
+            kept == now
         })
     }
 
@@ -354,7 +367,12 @@ impl Screens {
             })
             && status.is_none_or(|line| {
                 let n = cols.min(line.cells.len());
-                copy.get(rows * stride..rows * stride + n) == line.cells.get(..n)
+                let (kept, now) = (
+                    copy.get(rows * stride..rows * stride + n),
+                    line.cells.get(..n),
+                );
+                compared(kept, now);
+                kept == now
             });
         match same {
             true => Built::Last,

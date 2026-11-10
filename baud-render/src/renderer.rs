@@ -13,6 +13,7 @@ use crate::cellmap::{
 };
 use crate::color::{Argb, BaudCursor, CursorMade, Theme, Video};
 use crate::composite::{Blend, Blit, Mix, Page, Target, Texels};
+use crate::counters::Counter;
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
@@ -4421,6 +4422,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.hover_bars = bars;
         self.hover_spare = spare;
+        crate::counters::add(Counter::LinkInstancesBuilt, Tally::of(out.len()));
         self.line_inst = out;
     }
 
@@ -7881,6 +7883,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if i0 >= i1 || j0 >= j1 {
             return;
         }
+        crate::counters::add(Counter::ImageTablesBuilt, Tally::of(1));
         let (src, dest) = (draw.src, draw.dest);
         let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
         let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
@@ -8593,6 +8596,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             &line.cells[..n],
             &mut self.cur[range.start..range.start + n],
         );
+        crate::counters::add(Counter::CellsCopied, Tally::of(n));
         self.cur_size[r.index()] = line.rendition;
         let mut exc = Exceptions::default();
         self.convert_row(term, r, cursor, &mut exc);
@@ -8689,6 +8693,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             orders.permute(row, vp.row(row), &mut self.cur[r * ncols..(r + 1) * ncols]);
             self.cur_size[r] = vp.rendition(row);
         }
+        crate::counters::add(Counter::CellsCopied, Tally::of(main.index() * ncols));
         // **The status line's row, below the main display's**, whatever the
         // window looks back on: it is no line of the history. In the order
         // its own layout gives it, the maps' row after the window's.
@@ -8702,6 +8707,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     &line.cells[..n],
                     &mut self.cur[r * ncols..r * ncols + n],
                 );
+                crate::counters::add(Counter::CellsCopied, Tally::of(n));
                 self.cur_size[r] = line.rendition;
             }
         }
@@ -8977,6 +8983,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.splice = None;
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
+            crate::counters::add(Counter::CellsCompared, Tally::of(range.len()));
             let changed = self.cur[range.clone()] != self.prev[range]
                 || self.cur_size[r] != self.prev_size[r];
             // A window row's joins found again, with BDSM reset, where its
@@ -11940,6 +11947,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
+        crate::counters::add(Counter::CellsConverted, Tally::of(range.len()));
         // A copy of the row, so shaping may borrow the renderer mutably.
         let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
         // **A reordered row's map, copied for the same reason**: the logical

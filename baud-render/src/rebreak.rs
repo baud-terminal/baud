@@ -862,15 +862,17 @@ impl Kept {
             && (0..key.rows.index()).all(|y| {
                 let r = Row::from_index(y);
                 mark_of(vp, r) == self.marks[y]
-                    && PackedCell::same_cells(vp.row(r), &self.window[y * n..(y + 1) * n])
+                    && crate::counters::same_cells(vp.row(r), &self.window[y * n..(y + 1) * n])
             })
             && self.up.iter().enumerate().all(|(i, (c, m))| {
-                up_row(term, key.back, i + 1)
-                    .is_some_and(|(cells, mark)| mark == *m && PackedCell::same_cells(cells, c))
+                up_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
+                    mark == *m && crate::counters::same_cells(cells, c)
+                })
             })
             && self.down.iter().enumerate().all(|(i, (c, m))| {
-                down_row(term, key.back, i + 1)
-                    .is_some_and(|(cells, mark)| mark == *m && PackedCell::same_cells(cells, c))
+                down_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
+                    mark == *m && crate::counters::same_cells(cells, c)
+                })
             })
     }
 }
@@ -989,6 +991,10 @@ pub(crate) fn lay_out(
     let (up, down) = (
         context_up(term, back, budget),
         context_down(term, back, &vp, budget),
+    );
+    crate::counters::add(
+        crate::counters::Counter::CellsCopied,
+        Tally::of(nrows * key.cols.index()),
     );
     work.last = Some(Kept {
         key,

@@ -39,6 +39,7 @@ mod caret;
 mod cellmap;
 mod color;
 mod composite;
+pub mod counters;
 pub mod det;
 pub mod effect;
 mod find;

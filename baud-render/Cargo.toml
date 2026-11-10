@@ -62,3 +62,10 @@ ceiling-no-windows = []
 # through baud-app's dev-dependency, so no build of the app or of this
 # crate as published carries them.
 posed-saucer = []
+# **What a frame did, counted where it does it** (`src/counters.rs`):
+# cells compared, copied and converted, rows laid out, overlay and picture
+# cells, link records and image tables, each a thread's count read by
+# `counters::take`. Off by default, so nothing that ships carries a store
+# on a per-cell path; `baud-present-macos`'s frame-cost harness
+# (`tests/caret_frame.rs`) turns it on through its dev-dependency.
+counters = []

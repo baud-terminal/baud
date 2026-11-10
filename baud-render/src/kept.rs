@@ -95,6 +95,11 @@ impl RowKey {
     /// Each cell's content and rendition, folded in four lanes so no lane
     /// waits on another's multiply; the flags are left to the compare.
     fn of(cells: &[PackedCell]) -> RowKey {
+        // Every cell read to find the row kept, as a compare reads it.
+        crate::counters::add(
+            crate::counters::Counter::CellsCompared,
+            crate::Tally::of(cells.len()),
+        );
         let word = |c: &PackedCell| {
             u64::from(c.content.bits()) | (u64::try_from(c.style.index()).unwrap_or(u64::MAX) << 32)
         };
@@ -194,7 +199,8 @@ impl KeptRows {
         if self.last.len() <= y {
             self.last.resize(y + 1, None);
         }
-        let same = |row: &KeptRow| PackedCell::same_cells(&row.cells, cells) && row.order == order;
+        let same =
+            |row: &KeptRow| crate::counters::same_cells(&row.cells, cells) && row.order == order;
         let hinted = self.last[y].filter(|k| self.rows.get(k.0).is_some_and(same));
         // A row not where it was is folded, and found by its fold.
         let mut key = None;

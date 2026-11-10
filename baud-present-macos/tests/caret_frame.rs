@@ -1,0 +1,1259 @@
+//! **What a frame costs when only the cursor's blink moved**, counted
+//! headless on both paths the app draws with: the CPU path's `render_at`,
+//! and the cell path's frame -- the renderer half of `App::present`'s cell
+//! arm with the copy of the screen it draws from (`Screens::take_lent`),
+//! built and never handed to a GPU. A 200x50 screen with every row full:
+//! Hebrew and Arabic runs, ligature pairs, combining marks, a DECDWL row and
+//! a DECDHL pair, wrapped rows under word-wrap, two link lines with one
+//! struck, a kitty image over the text, a Sixel and a status line.
+//!
+//! Each frame is read for the renderer's counters
+//! (`baud_render::counters`, under its `counters` feature, which this
+//! crate's dev-dependency turns on: a build without it does not compile)
+//! and for the heap allocations made on this thread and on any other while
+//! it was built. The arms: (a) the first frames, which build everything;
+//! (b) frames where only the cursor's blink phase changes; (c) one cell
+//! written mid-screen, then a frame; (d) the pointer at rest over a link;
+//! and a screen with a blinking cell whose text blink flips, apart. Only
+//! the controls are asserted -- that each counter moves on a full frame,
+//! that the caret frame blinks the cursor, that a written cell repaints its
+//! row alone and draws the pixels a full frame does -- and every count is
+//! printed, for the rows that bring each one down to assert their own.
+//!
+//! The cell path's driver is pinned to `App::present`: every call it makes
+//! into the renderer, the glyph map, the overlay and the copy is one
+//! `present` makes, in `present`'s order, and so is the gate that skips
+//! the map's walk. Without it the counts would describe a frame the app no
+//! longer draws.
+//!
+//! The faces are read from the repository by path, never from the system:
+//! JetBrains Mono from `baud-app/fonts/jetbrains-mono`, as the app embeds
+//! it, and Cascadia Mono's Hebrew and Arabic from
+//! `baud-app/fonts/glyphs/languages/hebrew`, under the SIL Open Font
+//! Licence 1.1 (`OFL.txt` beside it).
+//!
+//! `harness = false`, so the process has one thread and an allocation on
+//! any other is one the renderer's frame made. It answers nextest's
+//! `--list` itself, one name a check.
+
+#[cfg(target_os = "macos")]
+#[global_allocator]
+static HEAP: heap::Counting = heap::Counting;
+
+const NAMES: [&str; 5] = [
+    "every_counter_moves_on_a_full_frame",
+    "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
+    "a_written_cell_repaints_its_row_alone",
+    "the_cell_driver_makes_the_calls_present_makes_in_its_order",
+    "nothing_that_ships_counts",
+];
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "--list") {
+        if cfg!(target_os = "macos") && !args.iter().any(|a| a == "--ignored") {
+            for name in NAMES {
+                println!("{name}: test");
+            }
+        }
+        return;
+    }
+    let exact = args.iter().any(|a| a == "--exact");
+    let filter = args.iter().find(|a| !a.starts_with('-'));
+    let chosen = |name: &str| match filter {
+        None => true,
+        Some(f) if exact => name == f.as_str(),
+        Some(f) => name.contains(f.as_str()),
+    };
+    #[cfg(target_os = "macos")]
+    for name in NAMES.into_iter().filter(|n| chosen(n)) {
+        match name {
+            "every_counter_moves_on_a_full_frame" => checks::every_counter_moves_on_a_full_frame(),
+            "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs" => {
+                checks::a_caret_frame_blinks_the_cursor_and_counts_what_it_costs();
+            }
+            "a_written_cell_repaints_its_row_alone" => {
+                checks::a_written_cell_repaints_its_row_alone();
+            }
+            "the_cell_driver_makes_the_calls_present_makes_in_its_order" => {
+                checks::the_cell_driver_makes_the_calls_present_makes_in_its_order();
+            }
+            "nothing_that_ships_counts" => checks::nothing_that_ships_counts(),
+            _ => unreachable!("every name is dispatched"),
+        }
+        println!("test {name} ... ok");
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = chosen;
+}
+
+/// **Every allocation, counted on the thread that made it and in all.**
+/// The system's allocator does the work; this counts each `alloc`, and
+/// `alloc_zeroed` and `realloc`, which reach it through the trait's own
+/// defaults. A `const` thread-local with nothing to drop, so counting
+/// allocates nothing.
+#[cfg(target_os = "macos")]
+mod heap {
+    use baud_render::Tally;
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    pub struct Counting;
+
+    static EVERY_THREAD: AtomicUsize = AtomicUsize::new(0);
+
+    std::thread_local! {
+        static THIS_THREAD: Cell<usize> = const { Cell::new(0) };
+        static THIS_THREAD_BYTES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    // SAFETY: every call is forwarded to the system allocator with the
+    // layout and pointer it was given; the counts are plain stores.
+    #[allow(unsafe_code)]
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            EVERY_THREAD.fetch_add(1, Ordering::Relaxed);
+            let _ = THIS_THREAD.try_with(|c| c.set(c.get().wrapping_add(1)));
+            let _ = THIS_THREAD_BYTES.try_with(|c| c.set(c.get().wrapping_add(layout.size())));
+            // SAFETY: the caller's contract, passed on.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: the caller's contract, passed on.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+    }
+
+    /// What was allocated since the last [`take`]: on this thread, its
+    /// bytes, and on every other thread.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub struct Heap {
+        pub here: Tally,
+        pub bytes: Tally,
+        pub elsewhere: Tally,
+    }
+
+    /// The allocations since the last call, which start again at zero.
+    /// Nothing between two calls may print, or it counts.
+    pub fn take() -> Heap {
+        let here = THIS_THREAD.with(|c| c.replace(0));
+        let bytes = THIS_THREAD_BYTES.with(|c| c.replace(0));
+        let all = EVERY_THREAD.swap(0, Ordering::Relaxed);
+        Heap {
+            here: Tally::of(here),
+            bytes: Tally::of(bytes),
+            elsewhere: Tally::of(all.saturating_sub(here)),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod checks {
+    use crate::heap::{self, Heap};
+    use baud_core::{Owned, Term};
+    use baud_domain::{
+        BytePos, Col, Cols, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+    };
+    use baud_font::{Face, Px};
+    use baud_present_macos::journal::{SetIx, Wheel};
+    use baud_present_macos::screens::{Built, Compare, Screens};
+    use baud_render::counters::{self, Counter, Counts};
+    use baud_render::{
+        Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
+        Leaving, Lend, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, PxSize, Renderer,
+        Resolved, Scene, Stack, StyleStamp, Tally, Target, Theme, WalkKey, Words,
+    };
+
+    const WS: WinSize = WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+
+    /// **A frame's place in an arm**: the first [`Nth::WARM`] build what
+    /// the later ones keep -- one a set of the cell path's copies, and one
+    /// more -- and after them the blink's phase flips every frame.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Nth(usize);
+
+    impl Nth {
+        const WARM: Nth = Nth(Wheel::SETS + 1);
+        /// The first frames, then ten whose blink flips.
+        const ALL: Nth = Nth(Nth::WARM.0 + 10);
+
+        /// The frames before this one, in order.
+        fn before(self) -> impl Iterator<Item = Nth> {
+            (0..self.0).map(Nth)
+        }
+
+        fn warming(self) -> bool {
+            self.0 < Nth::WARM.0
+        }
+
+        /// Whether a blink draws its hidden phase: every other frame after
+        /// the first ones, starting with the first after them.
+        fn hidden(self) -> bool {
+            !self.warming() && (self.0 - Nth::WARM.0) % 2 == 0
+        }
+
+        /// The cell path's set this frame is built into, round in turn as
+        /// the app's wheel hands them out while each frame lands before
+        /// the next is built.
+        fn set(self) -> SetIx {
+            SetIx(self.0 % Wheel::SETS)
+        }
+    }
+
+    const JETBRAINS: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
+    ));
+    const CASCADIA: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf"
+    ));
+    const SWIRL: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/recordings/sixel/swirl.raw"
+    ));
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// A theme that finds pictures drawn in text: the app's dimmed
+    /// backgrounds with pictures kept opaque.
+    fn theme() -> Theme {
+        Theme {
+            bg_alpha: baud_domain::Chan::from_u8(56),
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: baud_render::PictureBg::Opaque,
+            ..Theme::dark()
+        }
+    }
+
+    fn renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
+        let r = Renderer::new(
+            Stack::new(faces).expect("a stack of the two faces"),
+            PxSize::of(14.0).expect("a size"),
+            theme(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .expect("a renderer");
+        assert!(r.theme().finds_pictures(), "the theme finds pictures");
+        r
+    }
+
+    /// The columns `s` takes: a combining mark none, every other
+    /// character of the fixture one.
+    fn width(s: &str) -> Cols {
+        Cols::of_index(
+            s.chars()
+                .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+                .count(),
+        )
+    }
+
+    /// `seed` repeated and cut to exactly `cols` columns.
+    fn filled(seed: &str, cols: Cols) -> String {
+        let mut out = String::new();
+        let mut used = 0;
+        'fill: loop {
+            for c in seed.chars() {
+                let w = width(c.encode_utf8(&mut [0; 4])).index();
+                if used + w > cols.index() {
+                    break 'fill;
+                }
+                out.push(c);
+                used += w;
+            }
+        }
+        out
+    }
+
+    const SEEDS: [&str; 6] = [
+        "fn main() -> Result != None => ok <= x // ",
+        "caf\u{65}\u{301} na\u{69}\u{308}ve r\u{65}\u{301}sum\u{65}\u{301} a\u{308}\u{301} ",
+        "shalom \u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e2}\u{5d5}\u{5dc}\u{5dd} 2026 world ",
+        "marhaba \u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645} 42 ",
+        "\x1b[31mred\x1b[0m \x1b[42mgreen\x1b[0m \x1b[1mbold\x1b[0m plain text -> ",
+        "a -> b != c :: d <- e == f ",
+    ];
+
+    /// **The screen**: the status line, a DECDWL row, a DECDHL pair, rows
+    /// full from the seeds -- every fourth one wrapped onto the next as one
+    /// line -- two links, a kitty image and a Sixel over the text, a
+    /// blinking cell where `blinking` asks, and the cursor a blinking block
+    /// mid-screen.
+    fn fixture(blinking: Blinking) -> Vec<u8> {
+        let cols = usize::from(WS.ws_col);
+        // The screen's width, and half of it for a double-width line.
+        let (wide, half) = (Cols::of_index(cols), Cols::of_index(cols / 2));
+        let mut v = Vec::new();
+        v.extend_from_slice(b"\x1b[2$~\x1b[1$}");
+        v.extend_from_slice(
+            filled("status -> main != done \u{5e9}\u{5dc}\u{5d5}\u{5dd} ", wide).as_bytes(),
+        );
+        v.extend_from_slice(b"\x1b[0$}\x1b[H");
+        v.extend_from_slice(b"\x1b#6");
+        v.extend_from_slice(filled(SEEDS[0], half).as_bytes());
+        v.extend_from_slice(b"\r\n\x1b#3");
+        v.extend_from_slice(filled(SEEDS[5], half).as_bytes());
+        v.extend_from_slice(b"\r\n\x1b#4");
+        v.extend_from_slice(filled(SEEDS[5], half).as_bytes());
+        let main = usize::from(WS.ws_row);
+        let mut y = 3;
+        while y < main {
+            v.extend_from_slice(b"\r\n");
+            let seed = SEEDS[y % SEEDS.len()];
+            let text = match (y % 4, y + 1 < main) {
+                // A line two rows long, which the terminal cut at the
+                // margin and word-wrap draws at its words.
+                (0, true) => {
+                    y += 1;
+                    let mut words = String::new();
+                    while width(&words).index() < cols * 2 - 8 {
+                        words.push_str("wrapped words of a long line ");
+                    }
+                    filled(&words, Cols::of_index(cols * 2 - 3))
+                }
+                _ if seed.contains('\x1b') => {
+                    let plain = "red green bold plain text -> ";
+                    let mut s = String::new();
+                    for _ in 0..cols / width(plain).index() {
+                        s.push_str(seed);
+                    }
+                    s.push_str(&filled(plain, Cols::of_index(cols % width(plain).index())));
+                    s
+                }
+                _ => filled(seed, wide),
+            };
+            v.extend_from_slice(text.as_bytes());
+            y += 1;
+        }
+        // Two links written over the text, and a blinking cell.
+        v.extend_from_slice(
+            b"\x1b[12;10H\x1b]8;;https://example.com/one\x1b\\link one\x1b]8;;\x1b\\",
+        );
+        v.extend_from_slice(
+            b"\x1b[14;30H\x1b]8;;https://example.com/two\x1b\\link two\x1b]8;;\x1b\\",
+        );
+        if blinking == Blinking::Yes {
+            v.extend_from_slice(b"\x1b[16;40H\x1b[5mBLINK\x1b[25m");
+        }
+        // A kitty image over the text, and a Sixel.
+        v.extend_from_slice(b"\x1b[8;150H");
+        v.extend_from_slice(&kitty_image());
+        v.extend_from_slice(b"\x1b[20;120H");
+        v.extend_from_slice(SWIRL);
+        // The cursor: a blinking block, shown, mid-screen.
+        v.extend_from_slice(b"\x1b[30;60H\x1b[1 q\x1b[?25h");
+        v
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Blinking {
+        No,
+        Yes,
+    }
+
+    /// A 24x16 RGBA kitty image, `a=T` at the cursor, z 0: over the text.
+    fn kitty_image() -> Vec<u8> {
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let (w, h) = (24u32, 16u32);
+        let mut px = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                px.extend_from_slice(&[
+                    u8::try_from(x * 10).unwrap(),
+                    u8::try_from(y * 15).unwrap(),
+                    200,
+                    255,
+                ]);
+            }
+        }
+        let mut b64 = Vec::new();
+        for q in px.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..4 {
+                match k <= q.len() {
+                    true => b64.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                    false => b64.push(b'='),
+                }
+            }
+        }
+        let mut v = format!("\x1b_Ga=T,f=32,s={w},v={h};").into_bytes();
+        v.extend_from_slice(&b64);
+        v.extend_from_slice(b"\x1b\\");
+        v
+    }
+
+    /// The fixture's links, each a run of one rendition, as the app's scan
+    /// finds them at rest.
+    fn links(t: &Term<'_>) -> Vec<LinkLine> {
+        let view = t.viewport();
+        let mut out = Vec::new();
+        for y in 0..view.rows().index() {
+            let row = Row::from_index(y);
+            let cells = view.row(row);
+            let n = cells.len().min(view.cols().index());
+            let mut x = 0;
+            while x < n {
+                let c = cells[x];
+                if c.flags.link().is_none() {
+                    x += 1;
+                    continue;
+                }
+                let (link, word, from) = (c.flags.link(), t.style_of(c), x);
+                while x + 1 < n
+                    && cells[x + 1].flags.link() == link
+                    && t.style_of(cells[x + 1]) == word
+                {
+                    x += 1;
+                }
+                out.push(LinkLine {
+                    row,
+                    from: Col::at_index(from),
+                    to: Col::at_index(x),
+                    word,
+                });
+                x += 1;
+            }
+        }
+        out
+    }
+
+    /// What one frame did: the renderer's counts and the heap's.
+    #[derive(Clone, Copy, Debug)]
+    struct Cost {
+        counts: Counts,
+        heap: Heap,
+        /// The rows the CPU path repainted; none on the cell path.
+        rows_dirty: Option<Tally>,
+    }
+
+    impl Cost {
+        /// Both read and started again: what was done since the last.
+        fn take() -> Cost {
+            let heap = heap::take();
+            Cost {
+                counts: counters::take(),
+                heap,
+                rows_dirty: None,
+            }
+        }
+
+        fn line(&self) -> String {
+            let mut s = String::new();
+            for c in Counter::ALL {
+                s.push_str(&format!("{}={} ", c.name(), self.counts.of(c).value()));
+            }
+            s.push_str(&format!(
+                "allocations={} bytes={} other_threads={}",
+                self.heap.here.value(),
+                self.heap.bytes.value(),
+                self.heap.elsewhere.value()
+            ));
+            if let Some(rows) = self.rows_dirty {
+                s.push_str(&format!(" rows_dirty={}", rows.value()));
+            }
+            s
+        }
+    }
+
+    /// What a frame is drawn with beyond the screen: the cursor's blink
+    /// phase, the text's, and the link under the pointer.
+    #[derive(Clone)]
+    struct Inputs {
+        caret: CursorPhase,
+        blink: BlinkPhases,
+        hover: Option<LinkHover>,
+        /// The CPU path's damage after the first frame: full on a text
+        /// blink's flip, as the app draws it, since the flip changes no
+        /// cell for a row's compare to find.
+        damage: Damage,
+    }
+
+    impl Inputs {
+        fn at(caret: CursorPhase) -> Inputs {
+            Inputs {
+                caret,
+                blink: BlinkPhases::SHOWN,
+                hover: None,
+                damage: Damage::Incremental,
+            }
+        }
+    }
+
+    /// The CPU path's frame as `App::present` draws it on that path: the
+    /// inputs set, then `render_at` into the frame's pixels.
+    fn cpu_frame(
+        r: &mut Renderer<'_, '_>,
+        t: &mut Term<'_>,
+        inputs: &Inputs,
+        target: &mut Target<'_>,
+        damage: Damage,
+    ) -> baud_render::Frame {
+        let back = t.window_back();
+        r.fit(t);
+        r.set_highlight(None);
+        r.set_link(None);
+        r.set_link_hover(inputs.hover.as_ref());
+        r.set_tip(None);
+        r.set_blink(inputs.blink);
+        r.set_cursor_blink(inputs.caret);
+        r.splash_yields_to(t, Px::of(0));
+        r.set_trail(None);
+        r.place_marks(t, back, Leaving::None, Px::of(0));
+        r.place_lights(t);
+        r.render_at(t, back, target, damage)
+    }
+
+    /// Pixels the size of `r`'s frame.
+    struct Pixels {
+        px: Vec<u32>,
+        w: Px,
+        h: Px,
+    }
+
+    impl Pixels {
+        fn of(r: &Renderer<'_, '_>) -> Pixels {
+            let (w, h) = r.pixel_size();
+            let n = usize::try_from(w.value() * h.value()).unwrap();
+            Pixels {
+                px: vec![0u32; n],
+                w,
+                h,
+            }
+        }
+
+        fn target(&mut self) -> Target<'_> {
+            Target::new(&mut self.px, self.w, self.w, self.h).expect("a target")
+        }
+    }
+
+    /// The cell path's buffers, one set a frame in flight as the app keeps
+    /// them, and what it keeps between frames.
+    struct Cells<'m> {
+        map: GlyphMap<'m>,
+        exceptions: Overlay,
+        screens: Screens,
+        copies_mem: [Vec<PackedCell>; Wheel::SETS],
+        styles_mem: [Vec<Resolved>; Wheel::SETS],
+        overlay_mem: [Vec<u8>; Wheel::SETS],
+        style_stamps: [StyleStamp; Wheel::SETS],
+        lent: [Lent; Wheel::SETS],
+        candidates: Vec<Candidate>,
+        records: Vec<Instance>,
+        grounds: Vec<Instance>,
+        bidi_cells: Vec<PackedCell>,
+        bidi_used: Vec<baud_domain::RowExtent>,
+        lent_cells: Vec<PackedCell>,
+        lent_used: Vec<baud_domain::RowExtent>,
+    }
+
+    impl<'m> Cells<'m> {
+        fn new(backing: &'m mut [baud_render::MapEntry], t: &Term<'_>) -> Cells<'m> {
+            let stride = t.stride().index();
+            let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+            Cells {
+                map: GlyphMap::over(backing),
+                exceptions: Overlay::new(),
+                screens: Screens::new(),
+                copies_mem: core::array::from_fn(|_| vec![PackedCell::EMPTY; (rows + 2) * stride]),
+                styles_mem: core::array::from_fn(|_| vec![Resolved::default(); t.styles().len()]),
+                overlay_mem: core::array::from_fn(|_| vec![0u8; cols * (rows + 1)]),
+                style_stamps: [StyleStamp::default(); Wheel::SETS],
+                lent: core::array::from_fn(|_| Lent::default()),
+                candidates: Vec::new(),
+                records: Vec::new(),
+                grounds: Vec::new(),
+                bidi_cells: Vec::new(),
+                bidi_used: Vec::new(),
+                lent_cells: Vec::new(),
+                lent_used: Vec::new(),
+            }
+        }
+    }
+
+    /// **The cell path's frame as `App::present` builds it**, into `set`:
+    /// the inputs set, the window laid out, the set's copy put back and
+    /// its styles synced, the copy compared with the last frame's and
+    /// taken, a struck link's cells lent their grey, the map walked unless
+    /// the screen and the walk's key are the last frame's, the overlay and
+    /// the status line's records built, and the records after them
+    /// gathered. No composition, no prediction, no slide and no notice.
+    /// Every call here is one `present` makes, in its order
+    /// (`the_cell_driver_makes_the_calls_present_makes_in_its_order`).
+    fn cell_frame(
+        r: &mut Renderer<'_, '_>,
+        t: &Term<'_>,
+        inputs: &Inputs,
+        cell: &mut Cells<'_>,
+        at: SetIx,
+    ) -> Built {
+        let back = t.window_back();
+        r.fit(t);
+        r.set_highlight(None);
+        r.set_link(None);
+        r.set_link_hover(inputs.hover.as_ref());
+        r.set_tip(None);
+        r.set_blink(inputs.blink);
+        r.set_cursor_blink(inputs.caret);
+        r.set_images(t, back);
+        r.splash_yields_to(t, Px::of(0));
+        r.set_trail(None);
+        r.place_marks(t, back, Leaving::None, Px::of(0));
+        r.place_lights(t);
+        let joins_seen = r.joins_seen();
+        let rejoin = r.lay_out_bidi_copied(t, back);
+        let view = r
+            .bidi()
+            .window(t, back, &mut cell.bidi_cells, &mut cell.bidi_used);
+        let set = at.0;
+        cell.lent[set].restore(&mut cell.copies_mem[set], t.stride());
+        r.give_back(
+            &mut cell.styles_mem[set][..],
+            &mut cell.style_stamps[set],
+            &mut cell.lent[set],
+        );
+        r.sync_styles(
+            t,
+            &mut cell.styles_mem[set][..],
+            &mut cell.style_stamps[set],
+        );
+        let cursor_at = t
+            .cursor_visible()
+            .then(|| t.cursor())
+            .map(|(row, col)| (row, col, t.cursor_style()));
+        let cursor_at = r.clear_of_messages(t, cursor_at);
+        let stride = t.stride().index();
+        let (vcols, vrows) = (view.cols().index(), view.rows().index());
+        let mut status_cells = Vec::new();
+        let status = t.status_line().map(|line| {
+            r.bidi()
+                .status_line(Row::from_index(vrows), line, &mut status_cells)
+        });
+        let screens = &mut cell.screens;
+        screens.compare = Compare::for_rejoin(rejoin);
+        let frozen = r.bidi().window_frozen(t, back);
+        if frozen {
+            screens.forget(at);
+        }
+        let undo = screens
+            .last_set()
+            .and_then(|l| cell.lent.get(l.0))
+            .map_or(&[][..], Lent::rewrites);
+        let mut copies = cell.copies_mem.each_mut().map(|c| &mut c[..]);
+        let built = screens.take_lent(
+            &mut copies,
+            at,
+            &view,
+            status.as_ref(),
+            t.stride(),
+            Leaving::None,
+            undo,
+        );
+        let struck = r.struck_cells(&view, view.rows(), baud_render::CopyOrder::Stored);
+        let lend = match frozen || struck.iter().any(|row| !row.is_empty()) {
+            false => Lend::Nothing,
+            true => {
+                let sources: Vec<baud_render::RowSource<'_>> = (0..vrows)
+                    .map(|y| r.bidi().row_source(t, back, Row::from_index(y)))
+                    .collect();
+                let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = Vec::new();
+                for (y, chunk) in cell.copies_mem[set].chunks_mut(stride).enumerate() {
+                    let words = match sources.get(y) {
+                        Some(s) => s.words(),
+                        None => Words::LIVE,
+                    };
+                    if y > vrows + 1 {
+                        break;
+                    }
+                    let n = vcols.min(chunk.len());
+                    rows.push((&mut chunk[..n], words));
+                }
+                r.lend(
+                    t,
+                    &mut rows,
+                    &struck,
+                    &mut cell.styles_mem[set][..],
+                    &mut cell.style_stamps[set],
+                    &mut cell.lent[set],
+                )
+            }
+        };
+        r.set_frame_lent(&cell.lent[set]);
+        let lending = cell.lent[set].lending();
+        let built = match (frozen, lend, built) {
+            (true, Lend::Rows | Lend::Short, _) => Built::New,
+            (_, _, Built::Last) if lending == screens.lending => Built::Last,
+            (_, _, Built::Last) => {
+                screens.built(Built::New, &view, status.as_ref());
+                Built::New
+            }
+            (_, _, Built::New) => Built::New,
+        };
+        screens.lending = lending;
+        let view = match lend {
+            Lend::Nothing => view,
+            _ => {
+                cell.lent_cells.clear();
+                cell.lent_cells
+                    .extend_from_slice(&cell.copies_mem[set][..vrows * stride]);
+                // The app's copy, which no counter of the renderer's sees.
+                counters::add(Counter::CellsCopied, Tally::of(vrows * stride));
+                cell.lent_used.clear();
+                for y in 0..vrows {
+                    let row = Row::from_index(y);
+                    let mut e = baud_domain::RowExtent::of(vcols)
+                        .with_rendition(view.rendition(row), view.cols());
+                    if view.wrapped(row) == baud_domain::Wrap::Continues {
+                        e = e.wrapping(vcols);
+                    }
+                    cell.lent_used.push(e);
+                }
+                baud_domain::Viewport::new(
+                    &cell.lent_cells,
+                    &cell.lent_used,
+                    t.stride(),
+                    view.cols(),
+                    view.rows(),
+                    view.rows(),
+                    RowRot::NONE,
+                )
+            }
+        };
+        if let Some(how) = rejoin {
+            r.rejoin_bidi(t, back, how, |row| screens.changed(row));
+        }
+        let key = WalkKey {
+            table: cell.style_stamps[set],
+            map: cell.map.generation(),
+            grown: r.atlas_stats().grown,
+            clusters: t.cluster_epoch(),
+            back,
+            cols: view.cols(),
+            rows: view.rows(),
+        };
+        if built == Built::New || screens.walked != Some(key) {
+            cell.map
+                .ensure(t, view, &cell.styles_mem[set][..], r, &mut cell.candidates);
+            screens.walked = Some(WalkKey {
+                map: cell.map.generation(),
+                grown: r.atlas_stats().grown,
+                ..key
+            });
+        }
+        r.join_after_walk(t, back, joins_seen);
+        r.place_links(t, &view);
+        let cursor = cursor_at.filter(|&(_, _, style)| r.cursor_drawn(style));
+        cell.exceptions.ensure(
+            &Scene {
+                term: t,
+                view,
+                styles: &cell.styles_mem[set][..],
+                cursor,
+                highlight: None,
+                map: &cell.map,
+                candidates: &cell.candidates,
+                pan: Px::of(0),
+                composition: None,
+            },
+            r,
+            &mut cell.overlay_mem[set][..],
+            &mut cell.records,
+        );
+        cell.records.extend_from_slice(r.find_solids());
+        cell.records.extend_from_slice(r.link_solids());
+        r.link_lines_lowered(Px::of(0), &mut cell.records);
+        cell.exceptions.status(
+            r,
+            t,
+            cursor,
+            (view.cols(), view.rows()),
+            &mut cell.overlay_mem[set][..],
+            &mut cell.records,
+        );
+        cell.records.extend_from_slice(r.trail());
+        r.set_cursor_glow_at(cursor_at);
+        cell.records.extend_from_slice(r.cursor_glow());
+        r.place_grounds(cursor_at, Renderer::cursor_line(t, back));
+        cell.grounds.clear();
+        cell.grounds.extend_from_slice(r.badge());
+        r.cursor_guide_lowered(Px::of(0), &mut cell.grounds);
+        cell.records.extend_from_slice(r.bell_tint());
+        for (c, under) in r.hover_bars() {
+            cell.exceptions.composed(
+                r,
+                t,
+                (&c, baud_render::Laid::OnScreen),
+                under,
+                &cell.styles_mem[set][..],
+                None,
+                view.cols(),
+                baud_domain::LineRendition::Single,
+                Px::of(0),
+                &mut cell.overlay_mem[set][..],
+                &mut cell.records,
+            );
+        }
+        let tips = r.tip_bars();
+        assert!(tips.is_empty(), "the fixture shows no tip");
+        assert!(r.find_field().is_none() && r.link_bar().is_none());
+        assert!(r.notice_bar().is_none(), "the fixture shows no notice");
+        cell.records.extend_from_slice(r.splash());
+        cell.records.extend_from_slice(r.scrollbar());
+        cell.records.extend_from_slice(r.screen_fade());
+        built
+    }
+
+    /// A screen of the fixture, its links set at rest with the first one
+    /// struck, handed to `f` with the faces' renderer.
+    fn with_screen(blinking: Blinking, f: impl FnOnce(&mut Term<'_>, &mut Renderer<'_, '_>)) {
+        let faces = [
+            Face::parse(JETBRAINS).expect("JetBrains Mono"),
+            Face::parse(CASCADIA).expect("Cascadia Mono"),
+        ];
+        let mut r = renderer(&faces);
+        let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &fixture(blinking));
+        let lines = links(&t);
+        assert_eq!(lines.len(), 2, "two links on screen");
+        r.set_link_lines(&lines, LineStyle::Solid);
+        r.set_link_strikes(&lines[..1], &[]);
+        f(&mut t, &mut r);
+    }
+
+    /// The pointer at rest over the second link, drawn as a box.
+    fn hover_over(t: &Term<'_>) -> LinkHover {
+        let line = links(t)[1];
+        LinkHover {
+            spans: vec![LinkSpan {
+                row: line.row,
+                from: line.from,
+                to: line.to,
+            }],
+            paint: HoverPaint::Box,
+        }
+    }
+
+    /// The CPU path's frames for `steps`, each read for its cost: the
+    /// first at `Damage::Full`, the rest at the damage each step asks.
+    fn cpu_costs(
+        blinking: Blinking,
+        steps: impl Fn(&Term<'_>, Nth) -> Inputs,
+        n: Nth,
+    ) -> Vec<Cost> {
+        let mut costs = Vec::new();
+        with_screen(blinking, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            Cost::take();
+            for k in n.before() {
+                let inputs = steps(t, k);
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => inputs.damage,
+                };
+                Cost::take();
+                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                costs.push(Cost {
+                    rows_dirty: Some(f.rows_dirty),
+                    ..Cost::take()
+                });
+            }
+        });
+        costs
+    }
+
+    /// The cell path's frames for `steps`, each into the next set round,
+    /// read for its cost and what it was built from.
+    fn cell_costs(
+        blinking: Blinking,
+        steps: impl Fn(&Term<'_>, Nth) -> Inputs,
+        n: Nth,
+    ) -> Vec<(Cost, Built)> {
+        let mut costs = Vec::new();
+        with_screen(blinking, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            Cost::take();
+            for k in n.before() {
+                let inputs = steps(t, k);
+                Cost::take();
+                let built = cell_frame(r, t, &inputs, &mut cells, k.set());
+                costs.push((Cost::take(), built));
+            }
+        });
+        costs
+    }
+
+    /// The caret's phase on frame `k`: shown, then hidden and shown in
+    /// turn after the first frames.
+    fn caret_at(k: Nth) -> CursorPhase {
+        match k.hidden() {
+            true => CursorPhase::HIDDEN,
+            false => CursorPhase::SHOWN,
+        }
+    }
+
+    fn print(arm: &str, path: &str, costs: impl Iterator<Item = Cost>) {
+        for (k, c) in costs.enumerate() {
+            println!("{arm} {path} frame {k}: {}", c.line());
+        }
+    }
+
+    /// **Every counter moves on a full frame**, on the path that does
+    /// that work, so none can read zero because nothing feeds it: the
+    /// CPU path's first frame converts, compares, copies, lays out, scans
+    /// for pictures and places the links and the images; the cell path's
+    /// first frames do all of that but the conversion of the window, and
+    /// build the overlay's records. A counter that stopped being fed reads
+    /// zero here and fails.
+    pub fn every_counter_moves_on_a_full_frame() {
+        let still = |_: &Term<'_>, _| Inputs::at(CursorPhase::SHOWN);
+        let cpu = cpu_costs(Blinking::No, still, Nth(1));
+        let cell = cell_costs(Blinking::No, still, Nth::WARM);
+        print("full", "cpu", cpu.iter().copied());
+        print("full", "cell", cell.iter().map(|c| c.0));
+        let cell_sum = |c: Counter| -> u64 { cell.iter().map(|f| f.0.counts.of(c).value()).sum() };
+        for c in Counter::ALL {
+            let on_cpu = cpu[0].counts.of(c).value();
+            match c {
+                Counter::OverlayCellsBuilt => {
+                    assert_eq!(on_cpu, 0, "the CPU path builds no overlay")
+                }
+                _ => assert!(on_cpu > 0, "the CPU path's full frame moves {}", c.name()),
+            }
+            assert!(
+                cell_sum(c) > 0,
+                "the cell path's first frames move {}",
+                c.name()
+            );
+        }
+        assert_eq!(
+            cell[0].1,
+            Built::New,
+            "the cell path's first frame is a screen of its own"
+        );
+    }
+
+    /// **(b) A caret frame blinks the cursor, and what it costs**, and
+    /// (d) the pointer at rest over a link, and a screen whose text blinks:
+    /// each frame's counts printed per path, master's being the numbers
+    /// the rows that bring them down start from. The control that makes
+    /// (b) mean something: the cursor is drawn on one phase and not the
+    /// other, and the pixels at its cell change with it, a row at a time.
+    pub fn a_caret_frame_blinks_the_cursor_and_counts_what_it_costs() {
+        let n = Nth::ALL;
+        with_screen(Blinking::No, |t, r| {
+            let mut a = Pixels::of(r);
+            let style = t.cursor_style();
+            cpu_frame(
+                r,
+                t,
+                &Inputs::at(CursorPhase::SHOWN),
+                &mut a.target(),
+                Damage::Full,
+            );
+            assert!(r.cursor_drawn(style), "the shown phase draws the cursor");
+            let shown = a.px.clone();
+            let f = cpu_frame(
+                r,
+                t,
+                &Inputs::at(CursorPhase::HIDDEN),
+                &mut a.target(),
+                Damage::Incremental,
+            );
+            assert!(!r.cursor_drawn(style), "the hidden phase draws none");
+            assert_eq!(f.rows_dirty.value(), 1, "the cursor's row alone repaints");
+            assert!(shown != a.px, "the cursor's cell changed with its phase");
+        });
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        print(
+            "caret",
+            "cpu",
+            cpu_costs(Blinking::No, caret, n).into_iter(),
+        );
+        let cell = cell_costs(Blinking::No, caret, n);
+        for (k, (_, built)) in cell.iter().enumerate().skip(1) {
+            assert_eq!(
+                *built,
+                Built::Last,
+                "caret frame {k} is built from the last screen"
+            );
+        }
+        print("caret", "cell", cell.into_iter().map(|c| c.0));
+        let hover = |t: &Term<'_>, k: Nth| Inputs {
+            hover: Some(hover_over(t)),
+            ..Inputs::at(caret_at(k))
+        };
+        // The control that makes (d) mean something: the link under the
+        // pointer is drawn, on the CPU path in other pixels and on the cell
+        // path as a bar.
+        with_screen(Blinking::No, |t, r| {
+            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
+            let still = Inputs::at(CursorPhase::SHOWN);
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame(r, t, &hover(t, Nth(0)), &mut b.target(), Damage::Full);
+            assert!(a.px != b.px, "the link under the pointer is drawn");
+        });
+        with_screen(Blinking::No, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            cell_frame(r, t, &hover(t, Nth(0)), &mut cells, Nth(0).set());
+            assert!(
+                !r.hover_bars().is_empty(),
+                "and drawn as a bar on the cell path"
+            );
+        });
+        print(
+            "hover",
+            "cpu",
+            cpu_costs(Blinking::No, hover, n).into_iter(),
+        );
+        print(
+            "hover",
+            "cell",
+            cell_costs(Blinking::No, hover, n).into_iter().map(|c| c.0),
+        );
+        let text_blink = |_: &Term<'_>, k: Nth| Inputs {
+            blink: match k.hidden() {
+                false => BlinkPhases::SHOWN,
+                true => BlinkPhases {
+                    slow: Blink::Hidden,
+                    rapid: Blink::Shown,
+                },
+            },
+            damage: match k.warming() {
+                true => Damage::Incremental,
+                false => Damage::Full,
+            },
+            ..Inputs::at(CursorPhase::SHOWN)
+        };
+        // And for the SGR 5 arm: the blinking cell is on screen, seen by
+        // the cell path's walk and drawn in other pixels when hidden.
+        let hidden = Nth::WARM;
+        assert!(
+            hidden.hidden(),
+            "the first frame after the first ones hides"
+        );
+        with_screen(Blinking::Yes, |t, r| {
+            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
+            cpu_frame(r, t, &text_blink(t, Nth(0)), &mut a.target(), Damage::Full);
+            cpu_frame(r, t, &text_blink(t, hidden), &mut b.target(), Damage::Full);
+            assert!(a.px != b.px, "the blinking cell is hidden");
+        });
+        with_screen(Blinking::Yes, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            cell_frame(r, t, &text_blink(t, Nth(0)), &mut cells, Nth(0).set());
+            assert_eq!(
+                r.blink_seen(),
+                baud_render::Blinking::SLOW,
+                "the cell path's walk sees the blinking cell"
+            );
+        });
+        print(
+            "sgr5",
+            "cpu",
+            cpu_costs(Blinking::Yes, text_blink, n).into_iter(),
+        );
+        print(
+            "sgr5",
+            "cell",
+            cell_costs(Blinking::Yes, text_blink, n)
+                .into_iter()
+                .map(|c| c.0),
+        );
+    }
+
+    /// **(c) One cell written mid-screen repaints its row alone**, and
+    /// the frame is the one a full frame draws, pixel for pixel; the cell
+    /// path takes it as a new screen. The control the caret rows are
+    /// checked against: a fix that stops repainting also stops this.
+    pub fn a_written_cell_repaints_its_row_alone() {
+        with_screen(Blinking::No, |t, r| {
+            let (mut a, mut b) = (Pixels::of(r), Pixels::of(r));
+            let still = Inputs::at(CursorPhase::SHOWN);
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            feed(t, b"\x1b7\x1b[25;100HX\x1b8");
+            Cost::take();
+            let f = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            let cost = Cost::take();
+            println!(
+                "written cpu: {} rows_dirty={}",
+                cost.line(),
+                f.rows_dirty.value()
+            );
+            assert_eq!(f.rows_dirty.value(), 1, "the written row alone repaints");
+            cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+            assert!(
+                a.px == b.px,
+                "the incremental frame is the full frame's pixels"
+            );
+        });
+        with_screen(Blinking::No, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            let still = Inputs::at(CursorPhase::SHOWN);
+            for k in Nth::WARM.before() {
+                cell_frame(r, t, &still, &mut cells, k.set());
+            }
+            let next = Nth::WARM.set();
+            feed(t, b"\x1b7\x1b[25;100HX\x1b8");
+            Cost::take();
+            let built = cell_frame(r, t, &still, &mut cells, next);
+            println!("written cell: {}", Cost::take().line());
+            assert_eq!(built, Built::New, "a written cell is a new screen");
+        });
+    }
+
+    /// The code of `name`'s body in `src`, its comment lines dropped and
+    /// its whitespace removed: from its signature to the brace that closes
+    /// a function at four spaces' indent, which both files' functions are.
+    fn body_of(src: &str, name: &str) -> String {
+        let at = src
+            .find(name)
+            .unwrap_or_else(|| panic!("{name} is in its file"));
+        let end = at + src[at..].find("\n    }\n").expect("a body");
+        src[at..end]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(str::split_whitespace)
+            .collect()
+    }
+
+    /// Each call in `flat` whose receiver is one of `prefixes`, as the
+    /// receiver `spell` gives that prefix and the method, in order: the
+    /// receiver is not the tail of a longer path.
+    fn calls(flat: &str, prefixes: &[(&str, &str)]) -> Vec<String> {
+        let mut out = Vec::new();
+        let bytes = flat.as_bytes();
+        let mut i = 0;
+        while i < flat.len() {
+            let before = i.checked_sub(1).map(|j| bytes[j]);
+            let free =
+                before.is_none_or(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.'));
+            let hit = prefixes
+                .iter()
+                .find(|(p, _)| free && flat[i..].starts_with(*p));
+            let Some((p, spell)) = hit else {
+                i += 1;
+                continue;
+            };
+            let rest = &flat[i + p.len()..];
+            let n = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            if n > 0 && rest[n..].starts_with('(') {
+                out.push(format!("{spell}{}", &rest[..n]));
+            }
+            i += p.len() + n;
+        }
+        out
+    }
+
+    /// **The cell driver is `App::present`'s cell arm**: every call
+    /// `cell_frame` makes into the renderer, its layout, the map, the
+    /// overlay and the copy is one `present` makes, in `present`'s order,
+    /// and the gate that skips the map's walk is `present`'s, spelled the
+    /// same. A call added to the driver that the app does not make, one
+    /// the app moved or stopped making, fails it.
+    pub fn the_cell_driver_makes_the_calls_present_makes_in_its_order() {
+        let here = include_str!("caret_frame.rs");
+        let app = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-app/src/app.rs"
+        ))
+        .expect("the app's source");
+        let present = body_of(
+            &app,
+            "fn present(&mut self, screen: &DrawableView, show: Show)",
+        );
+        let theirs = calls(
+            &present,
+            &[
+                ("self.renderer.bidi().", "self.renderer.bidi()."),
+                ("self.renderer.", "self.renderer."),
+                ("cell.maps.live.", "cell.maps.live."),
+                ("cell.exceptions.", "cell.exceptions."),
+                ("screens.", "screens."),
+            ],
+        );
+        for (path, name) in [("cell", "fn cell_frame("), ("cpu", "fn cpu_frame(")] {
+            let driver = body_of(here, name);
+            let ours = calls(
+                &driver,
+                &[
+                    ("r.bidi().", "self.renderer.bidi()."),
+                    ("r.", "self.renderer."),
+                    ("cell.map.", "cell.maps.live."),
+                    ("cell.exceptions.", "cell.exceptions."),
+                    ("screens.", "screens."),
+                ],
+            );
+            assert!(
+                ours.len() > 10,
+                "the {path} driver's calls are read: {ours:?}"
+            );
+            let mut at = 0;
+            for call in &ours {
+                match theirs[at..].iter().position(|c| c == call) {
+                    Some(i) => at += i + 1,
+                    None => panic!(
+                        "the {path} driver calls {call} where present does not, in present's order"
+                    ),
+                }
+            }
+        }
+        let gate = "ifbuilt==Built::New||screens.walked!=Some(key){";
+        assert!(present.contains(gate), "present skips the walk on its gate");
+        assert!(
+            body_of(here, "fn cell_frame(").contains(gate),
+            "and the driver on the same"
+        );
+    }
+
+    /// **No build that ships turns the counters on**: `baud-app` names no
+    /// `counters` feature, the workspace's own `baud-render` requirement
+    /// names none, and this crate turns it on in its dev-dependencies
+    /// alone. Each file is read where it names `baud-render`, the control
+    /// that this read the right files.
+    pub fn nothing_that_ships_counts() {
+        let read = |p: &str| {
+            std::fs::read_to_string(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+                .unwrap_or_else(|e| panic!("{p}: {e}"))
+        };
+        for p in ["baud-app/Cargo.toml", "Cargo.toml"] {
+            let toml = read(p);
+            assert!(toml.contains("baud-render"), "{p} names baud-render");
+            assert!(!toml.contains("counters"), "{p} turns no counters on");
+        }
+        let own = read("baud-present-macos/Cargo.toml");
+        let mut section = String::new();
+        let mut on = Vec::new();
+        for line in own.lines() {
+            if line.starts_with('[') {
+                section = line.to_string();
+            }
+            if line.contains("counters") && !line.trim_start().starts_with('#') {
+                on.push(section.clone());
+            }
+        }
+        assert_eq!(
+            on,
+            ["[target.'cfg(target_os = \"macos\")'.dev-dependencies]"],
+            "this crate turns the counters on in its dev-dependencies alone"
+        );
+    }
+}

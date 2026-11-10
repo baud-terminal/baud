@@ -59,6 +59,11 @@ objc2-core-foundation = "0.3"
 # archive (`suite-archive`, `src/metal/suite.rs`): a dev-dependency's
 # feature, so the crate as built and published leaves it out.
 baud-present-macos = { path = ".", features = ["suite-archive"] }
+# **The renderer's counters, on for these tests alone**
+# (`baud-render/src/counters.rs`): `tests/caret_frame.rs` reads what a
+# frame did through them, and fails to compile without them rather than
+# reading zeros.
+baud-render = { workspace = true, features = ["counters"] }
 
 # AppKit's views are main-thread-only and libtest runs each test on a thread
 # of its own: this test's `main` is the process's main thread.
@@ -83,6 +88,13 @@ path = "tests/probe_gates.rs"
 [[test]]
 name = "deferred_link"
 path = "tests/deferred_link.rs"
+harness = false
+
+# **What a caret frame costs** (`tests/caret_frame.rs`): one thread in the
+# process, so an allocation on any other is one a frame made.
+[[test]]
+name = "caret_frame"
+path = "tests/caret_frame.rs"
 harness = false
 
 # `baud-core`'s NEON scan, on, for the reason `baud-render` gives.

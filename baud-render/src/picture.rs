@@ -195,6 +195,10 @@ impl Pictures {
     ) -> Tally {
         self.begin(view.cols(), view.rows());
         let (cols, rows) = (view.cols().index(), view.rows().index());
+        crate::counters::add(
+            crate::counters::Counter::PictureCellsScanned,
+            Tally::of(cols * rows),
+        );
         let mut above = 0..0;
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
