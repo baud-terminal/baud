@@ -147,6 +147,109 @@ pub(super) fn split(
 }
 
 thread_local! {
+    /// Whether a decode's replies are held, set once by the call
+    /// (`RigAct::TypeHeld`).
+    static HOLDS: core::cell::Cell<Holds> = const { core::cell::Cell::new(Holds::No) };
+    /// The reply held, when what is left of it may go, and whether its
+    /// first half has gone.
+    static HELD: RefCell<Option<(Vec<u8>, Instant, Halves)>> = const { RefCell::new(None) };
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Holds {
+    No,
+    Yes,
+}
+
+/// Whether the held reply's first half has gone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Halves {
+    Whole,
+    Rest,
+}
+
+/// **What ends an iteration**: its effects, or [`BOUND`] passing; or its
+/// effects or the program's sentinel, a clear, with
+/// [`probe_call::SENTINEL_BACKSTOP`] a backstop that says it was reached
+/// (`RigAct::TypeUntil`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ends {
+    Bound,
+    Sentinel,
+}
+
+thread_local! {
+    /// What ends this call's iterations, set once by the call.
+    static ENDS: core::cell::Cell<Ends> = const { core::cell::Cell::new(Ends::Bound) };
+}
+
+/// **The held arm's reply, taken from the terminal on a decode's turn**,
+/// to go [`probe_call::HELD_REPLY`] from now: wall time passed on purpose,
+/// as a loaded machine passes it, scheduled and never slept. When it may
+/// go, for a wake then; `None` with no hold, or with one already waiting,
+/// which this reply joins.
+pub(super) fn hold_reply(app: &mut App) -> Option<Instant> {
+    if HOLDS.with(core::cell::Cell::get) == Holds::No || app.term.reply().is_empty() {
+        return None;
+    }
+    let bytes = app.term.reply().to_vec();
+    app.term.clear_reply();
+    HELD.with(|h| match &mut *h.borrow_mut() {
+        Some((held, ..)) => {
+            held.extend_from_slice(&bytes);
+            None
+        }
+        slot @ None => {
+            let at = Instant::now() + probe_call::HELD_REPLY;
+            *slot = Some((bytes, at, Halves::Whole));
+            Some(at)
+        }
+    })
+}
+
+/// What [`release_reply`] let go.
+pub(super) enum Released {
+    /// Nothing: no reply held, or its time not come.
+    Nothing,
+    /// The reply's first half, the rest to go at this time, for a wake
+    /// then: a reply written in two pieces, as a tty may hand a raw read
+    /// one before the other.
+    Half(Instant),
+    /// The rest, or the whole of a reply too short to halve.
+    Rest,
+}
+
+/// **How long the held reply's second half waits on its first**: long
+/// enough that a read woken by the first returns with it alone.
+const HALVES_APART: Duration = Duration::from_millis(200);
+
+/// **The held reply, once its time has come**, put where the next flush
+/// writes it: its first half, then the rest [`HALVES_APART`] after.
+pub(super) fn release_reply(app: &mut App) -> Released {
+    HELD.with(|h| {
+        let mut h = h.borrow_mut();
+        let now = Instant::now();
+        let Some((bytes, at, halves)) = h.as_mut() else {
+            return Released::Nothing;
+        };
+        if now < *at {
+            return Released::Nothing;
+        }
+        if *halves == Halves::Whole && bytes.len() >= 2 {
+            let rest = bytes.split_off(bytes.len() / 2);
+            app.outbox.push(bytes);
+            *bytes = rest;
+            *at = now + HALVES_APART;
+            *halves = Halves::Rest;
+            return Released::Half(*at);
+        }
+        app.outbox.push(bytes);
+        *h = None;
+        Released::Rest
+    })
+}
+
+thread_local! {
     /// The path the next `wake` clicks.
     static CLICK: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     /// The line the next `wake` sends the shell.
@@ -210,6 +313,15 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
     let act = match act {
         RigAct::Path => Act::Click(arg.as_bytes().to_vec()),
         RigAct::Type => Act::Type(line()),
+        RigAct::TypeUntil => {
+            ENDS.with(|e| e.set(Ends::Sentinel));
+            Act::Type(line())
+        }
+        RigAct::TypeHeld => {
+            ENDS.with(|e| e.set(Ends::Sentinel));
+            HOLDS.with(|h| h.set(Holds::Yes));
+            Act::Type(line())
+        }
         RigAct::Link => Act::Gesture(Gesture::LinkClick, line()),
         RigAct::Select => Act::Gesture(Gesture::Select, line()),
         RigAct::CopyMenu => Act::Gesture(Gesture::CopyMenu, line()),
@@ -437,7 +549,19 @@ fn run(
         // that turn after the passes below, in the next iteration, where
         // the first record ended the wait before that iteration's own
         // effect had run.
-        while !holds(&got, each) && start.elapsed() < BOUND {
+        // A row that ends on an event ends on its effects or the program's
+        // sentinel, a clear, and its bound is a backstop that says so.
+        let (bound, ended) = match ENDS.with(core::cell::Cell::get) {
+            Ends::Bound => (BOUND, None),
+            Ends::Sentinel => (
+                probe_call::SENTINEL_BACKSTOP,
+                Some(probe::EffectKind::Clear),
+            ),
+        };
+        let over = |got: &[probe::Record]| {
+            holds(got, each) || ended.is_some_and(|k| got.iter().any(|r| r.kind == k))
+        };
+        while !over(&got) && start.elapsed() < bound {
             if ticks == Ticks::Driven {
                 // Queued, and shown not yet delivered: nothing runs the
                 // run loop between the post and the frame.
@@ -464,8 +588,18 @@ fn run(
             probe::pass(left.as_secs_f64());
         }
         got.extend(probe::take());
-        if got.is_empty() {
-            println!("none");
+        // The sentinel says the program ended; it is no effect of the
+        // row's, so it is not printed. An iteration it ended without the
+        // effects is unanswered, and one nothing ended timed out.
+        let sentinel = ended.is_some_and(|k| got.iter().any(|r| r.kind == k));
+        if let Some(k) = ended {
+            got.retain(|r| r.kind != k);
+        }
+        match (ended, holds(&got, each), sentinel) {
+            (Some(_), false, true) => println!("unanswered"),
+            (Some(_), false, false) => println!("timed out at the backstop"),
+            _ if got.is_empty() => println!("none"),
+            _ => {}
         }
         for r in &got {
             println!("{}", r.line());

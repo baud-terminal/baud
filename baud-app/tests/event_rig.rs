@@ -77,6 +77,13 @@ enum Failure {
     Aborted,
     /// No effect within the bound.
     NotRun,
+    /// An iteration that ends on an event met neither its effects nor the
+    /// program's sentinel before the backstop ([`Cause::ProgramUntil`]):
+    /// the rig stopped waiting, which says nothing of the effect.
+    TimedOut,
+    /// The program's sentinel came with no effect: it ended, and what it
+    /// waited for never came ([`Cause::ProgramUntil`]).
+    Unanswered,
     /// The effect ran other than once in an iteration, or another effect
     /// ran.
     Times,
@@ -107,6 +114,13 @@ enum RowState {
 }
 
 /// What makes the row's effect happen.
+/// **Whether a decode's replies are held** ([`Cause::ProgramUntil`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Hold {
+    No,
+    Reply,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Cause {
     /// A click on a printed path, the paths worker's answer on its wake,
@@ -121,6 +135,15 @@ enum Cause {
     /// once the first's first effect has run, so the second is read after
     /// the first's effect is made; run as a program's row.
     ProgramThen(Program, &'static str),
+    /// What a program writes, as [`Cause::Program`], each iteration ending
+    /// on its effects or on the program's sentinel, a clear, and never on
+    /// wall time (`RigAct::TypeUntil`): the rig's wait a backstop that,
+    /// reached, reads [`Failure::TimedOut`], and the sentinel
+    /// [`Failure::Unanswered`]. With [`Hold::Reply`], each reply the
+    /// terminal makes on a decode's turn is held `HELD_REPLY` first
+    /// (`RigAct::TypeHeld`), the wall time a loaded machine takes, passed
+    /// on purpose. Run as a program's row.
+    ProgramUntil(Program, Hold),
     /// A gesture sent to the view's own methods, over what `setup`, typed
     /// once first, drew; the frame never driven.
     Gesture(Gesture),
@@ -131,6 +154,7 @@ impl Cause {
     fn shape(self) -> Shape {
         match self {
             Cause::Program(Program { shape, .. })
+            | Cause::ProgramUntil(Program { shape, .. }, _)
             | Cause::ProgramThen(Program { shape, .. }, _)
             | Cause::Gesture(Gesture { shape, .. }) => shape,
             Cause::PrintedPath(..) => READ,
@@ -190,6 +214,14 @@ enum Polled {
 const READ: Shape = Shape {
     polled: Polled::Read,
     iterations: ITERATIONS,
+};
+
+/// **Four iterations of a row whose replies are held**: each holds its
+/// reply `HELD_REPLY`, so a hundred would hold the run four minutes an
+/// arm; four show every iteration ends on its copy, not on time.
+const HELD: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(4),
 };
 
 /// **Four iterations of a row that posts a notification each**: the
@@ -317,20 +349,67 @@ fn verdict(state: RowState, observed: Observed, current: Stage) -> Verdict {
     }
 }
 
-/// **A kitty transmit whose reply the shell waits for**: echo and line
-/// editing off, a read that returns on the first bytes or after a second
-/// (under the iteration's bound), and a copy on an `OK`. The picture is
+/// **The reply read to its terminator**, ST (`ESC \`), a byte at a time
+/// into `r`, and the line's settings put back: a macro, so the lines below
+/// can `concat!` it.
+macro_rules! to_st {
+    () => {
+        concat!(
+            r#"e=$(printf '\033'); r=; p=; "#,
+            r#"while c=$(dd bs=1 count=1 2>/dev/null); [ -n "$c" ]; do "#,
+            r#"r="$r$c"; [ "$p$c" = "$e\\" ] && break; p=$c; done; "#,
+            r"stty echo icanon; ",
+        )
+    };
+}
+
+/// **A kitty transmit whose reply the shell reads to its end**: echo and
+/// line editing off, a byte at a time until the last two are `ESC \`, the
+/// reply's own terminator (ST), so any reply, an `OK` or an error, split
+/// anywhere, is read whole and nothing of it is left for the next line
+/// typed; then a copy on an `OK` followed by that ST and a clear, a
+/// sentinel, on anything else, so the shell's end is an event either way
+/// and a copy says the read reached the terminator. A read that returned
+/// on the first bytes took half a reply when the tty handed it over in two
+/// pieces, read the half as no `OK`, and left the rest to garble the next
+/// line; a read of a fixed 11 bytes, an `OK`'s length, would leave a longer
+/// error's tail the same way. Its wait is not the row's line: each byte is
+/// waited for as long as it takes, the rig's own 10-second backstop the
+/// only bound ([`Cause::ProgramUntil`] holds a reply past the rig's two
+/// seconds, and writes it in two pieces, on purpose). The picture is
 /// `baud-font/tests/png/g8-1x1-n.png`, a 1x1 grey PNG, whose decode is
 /// deferred like any PNG's.
 const KITTY_OK: &str = concat!(
-    r"stty -echo -icanon min 0 time 10; ",
+    r"stty -echo -icanon min 1 time 0; ",
     r"printf '\033_Ga=T,f=100,i=7;",
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR42mPoAwAAkACPLN3KfgAAAABJRU5ErkJggg==",
-    r"\033\\'; r=$(dd bs=64 count=1 2>/dev/null); stty echo icanon; ",
-    r"case $r in *OK*) printf '\033]52;c;aGk=\007';; esac",
+    r"\033\\'; ",
+    to_st!(),
+    r#"case $r in *OK"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
 );
 
-const SITES: [Site; 27] = [
+/// **A kitty transmit the terminal refuses, its error read to its end**:
+/// the 1x1 picture of [`KITTY_OK`] with its compressed data split over
+/// two `IDAT` chunks and the second's CRC one bit off. The header and the
+/// first `IDAT` parse, so the decode is deferred as a good picture's is
+/// and fails on its step, where an `OK` would leave: the error, 42 bytes
+/// against an `OK`'s 11, is held and halved as the `OK` is. Four bytes
+/// that are no PNG fail at the header, in the read's own turn, an answer
+/// the hold never sees. A copy on an error (`;E`, every error code
+/// starting with `E`) followed by its ST, and the sentinel on anything
+/// else. Each iteration ending on its copy says the error was read whole,
+/// the next line clean: the error's first half already holds `;E`, so a
+/// match on the code alone would copy on half a reply.
+const KITTY_ERROR: &str = concat!(
+    r"stty -echo -icanon min 1 time 0; ",
+    r"printf '\033_Ga=T,f=100,i=8;",
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAAAklEQVR42v0bdY4AAAAISURBVGPoAwAAkACPhuNGQQAAAABJRU5ErkJggg==",
+    r"\033\\'; ",
+    to_st!(),
+    r#"case $r in *";E"*"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
+);
+
+const SITES: [Site; 29] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -440,11 +519,14 @@ const SITES: [Site; 27] = [
     // never copies.
     Site {
         name: SiteName("a kitty picture's OK, with or without a tick"),
-        cause: Cause::Program(Program {
-            line: KITTY_OK,
-            config: "",
-            shape: READ,
-        }),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: KITTY_OK,
+                config: "",
+                shape: READ,
+            },
+            Hold::No,
+        ),
         expect: Expect {
             each: &[EffectKind::Copy],
             paced: &[EffectKind::Announce],
@@ -713,6 +795,59 @@ const SITES: [Site; 27] = [
         },
         state: RowState::Green,
     },
+    // **The same `OK`, sent late and in two pieces on purpose**: each reply
+    // held 2.5 s (`HELD_REPLY`), scheduled on a wake and never slept, then
+    // written as its first half and, 200 ms on, the rest. The wall time a
+    // loaded machine took when the shell waited a second for it, and the
+    // split a tty can make of one write, each read a reply as none: the row
+    // went NotRun, then Unanswered, on runs that fell either way. The hold
+    // is past the shell's old second and the rig's two-second bound, so
+    // neither decides the row: the iteration ends on the copy or the
+    // shell's sentinel, the rig's wait a backstop that says when it is
+    // reached. Breaks: the shell's wait back to a second (`time 10`), or
+    // its read back to the first bytes (`min 0`), and every arm reads the
+    // sentinel, Unanswered; the hold past the backstop, and every arm reads
+    // TimedOut, never NotRun.
+    Site {
+        name: SiteName("a kitty picture's OK, sent late"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: KITTY_OK,
+                config: "",
+                shape: HELD,
+            },
+            Hold::Reply,
+        ),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Green,
+    },
+    // **A kitty picture's error, sent late and in two pieces**: the reply
+    // to a picture whose decode fails on its step, held and split as the
+    // row above holds and splits its `OK`. An error is longer than an
+    // `OK`, so a read of a fixed `OK`'s length would leave its tail to
+    // garble the next line; read to its terminator it is consumed whole,
+    // and each of the four iterations ends on its own copy. Break: the
+    // shell reading once, at least 11 bytes (`min 11`), takes the error's
+    // first half, and the row reads Unanswered.
+    Site {
+        name: SiteName("a kitty picture's error, sent late"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: KITTY_ERROR,
+                config: "",
+                shape: HELD,
+            },
+            Hold::Reply,
+        ),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
+        state: RowState::Green,
+    },
 ];
 
 /// **A notification's clicks**, polled by the tick until stage 3, and
@@ -803,10 +938,18 @@ fn arms(site: &Site) -> &'static [Ticks] {
             &[Ticks::UndrivenAfterInline]
         }
         (_, _, Polled::Tick { .. }) => &[Ticks::Driven],
-        (Cause::Program(_) | Cause::ProgramThen(..), RowState::Green, Polled::Read) => {
-            &[Ticks::None, Ticks::Driven, Ticks::DrivenSplit]
-        }
-        (Cause::Program(_) | Cause::ProgramThen(..) | Cause::Gesture(_), ..) => &[Ticks::None],
+        (
+            Cause::Program(_) | Cause::ProgramUntil(..) | Cause::ProgramThen(..),
+            RowState::Green,
+            Polled::Read,
+        ) => &[Ticks::None, Ticks::Driven, Ticks::DrivenSplit],
+        (
+            Cause::Program(_)
+            | Cause::ProgramUntil(..)
+            | Cause::ProgramThen(..)
+            | Cause::Gesture(_),
+            ..,
+        ) => &[Ticks::None],
     }
 }
 
@@ -836,6 +979,15 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             (RigAct::Path, file, config(rule), RigFocus::Real)
         }
         Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, RigFocus::Real),
+        Cause::ProgramUntil(p, hold) => (
+            match hold {
+                Hold::No => RigAct::TypeUntil,
+                Hold::Reply => RigAct::TypeHeld,
+            },
+            p.line.to_owned(),
+            p.config,
+            RigFocus::Real,
+        ),
         Cause::ProgramThen(p, second) => (
             RigAct::TypeTwo,
             format!("{}\n{second}", p.line),
@@ -896,6 +1048,12 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     let iterations = usize::from(n.0);
     let mut records = 0;
     let mut paced = vec![0_usize; expect.paced.len()];
+    if lines.contains(&"timed out at the backstop") {
+        return Observed::Failed(Failure::TimedOut);
+    }
+    if lines.contains(&"unanswered") {
+        return Observed::Failed(Failure::Unanswered);
+    }
     for line in &lines {
         if *line == "none" {
             return Observed::Failed(Failure::NotRun);
@@ -989,7 +1147,7 @@ fn no_row_turns_on_focus_reporting() {
     for site in SITES {
         let text = match site.cause {
             Cause::PrintedPath(rule, _) => config(rule).to_owned(),
-            Cause::Program(p) => format!("{} {}", p.line, p.config),
+            Cause::Program(p) | Cause::ProgramUntil(p, _) => format!("{} {}", p.line, p.config),
             Cause::ProgramThen(p, second) => format!("{} {second} {}", p.line, p.config),
             Cause::Gesture(g) => format!("{} {}", g.setup, g.config),
         };

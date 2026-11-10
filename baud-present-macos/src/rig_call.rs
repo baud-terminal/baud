@@ -204,7 +204,29 @@ pub enum RigAct {
     /// `arg`'s first line typed to the shell, and its second once the
     /// first's first effect has run: two reads, in order.
     TypeTwo,
+    /// Type `arg` to the shell, each iteration ending on its effects or on
+    /// the program's sentinel, a clear: never on wall time, with
+    /// [`SENTINEL_BACKSTOP`] a backstop that, reached, says so.
+    TypeUntil,
+    /// [`RigAct::TypeUntil`], each reply the terminal makes on a decode's
+    /// turn held [`HELD_REPLY`] and then written in two pieces: wall time
+    /// passed and a write split on purpose, as a loaded machine and a tty
+    /// make them.
+    TypeHeld,
 }
+
+/// **How long [`RigAct::TypeHeld`] holds a reply**: past the second a
+/// shell that waited a second for it gave, and past the rig's two-second
+/// bound on an iteration that ends on time, so neither line can decide
+/// the row. Then it is written in two pieces, its first half and the
+/// rest, as a tty may hand them to a raw read.
+pub const HELD_REPLY: std::time::Duration = std::time::Duration::from_millis(2500);
+
+/// **The backstop on an iteration that ends on an event**
+/// ([`RigAct::TypeUntil`]): no pass or fail line, only the point past
+/// which the rig stops waiting and says it timed out, never that the
+/// effect did not run.
+pub const SENTINEL_BACKSTOP: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Whether the frame is driven, and whether a turn runs inline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -232,7 +254,7 @@ pub enum RigFocus {
     Believed,
 }
 
-const ACTS: [(RigAct, &str); 8] = [
+const ACTS: [(RigAct, &str); 10] = [
     (RigAct::Path, "path"),
     (RigAct::Type, "type"),
     (RigAct::Link, "link"),
@@ -241,6 +263,8 @@ const ACTS: [(RigAct, &str); 8] = [
     (RigAct::NoticeClick, "notice-click"),
     (RigAct::Close, "close"),
     (RigAct::TypeTwo, "type-two"),
+    (RigAct::TypeUntil, "type-until"),
+    (RigAct::TypeHeld, "type-held"),
 ];
 
 const TICKS: [(RigTicks, &str); 6] = [

@@ -15546,6 +15546,23 @@ impl Driver {
         if shown == crate::reads::Shown::Changed {
             self.app.owe_frame();
         }
+        // The event rig's held arm: the reply kept back a while, and let go
+        // on the wake scheduled for then (`rig::hold_reply`).
+        #[cfg(feature = "effect-probe")]
+        if let Some(at) = rig::hold_reply(&mut self.app) {
+            self.wake_at(at);
+        }
+        #[cfg(feature = "effect-probe")]
+        match rig::release_reply(&mut self.app) {
+            rig::Released::Nothing => {}
+            rig::Released::Half(rest) => {
+                self.app.flush_reply(Asked::Unasked);
+                self.wake_at(rest);
+            }
+            rig::Released::Rest => {
+                self.app.flush_reply(Asked::Unasked);
+            }
+        }
         if !self.app.term.reply().is_empty() {
             self.app.flush_reply(Asked::Unasked);
         }
