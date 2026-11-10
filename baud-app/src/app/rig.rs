@@ -114,11 +114,6 @@ pub(super) fn take_pressed() -> Option<String> {
 /// The bound on one iteration: reaching it is that iteration's failure.
 const BOUND: Duration = Duration::from_secs(2);
 
-/// The bound on this machine's names reaching the links: read on a thread
-/// (`Hosts`) through `NSProcessInfo.hostName`, whose pace is the network's
-/// rather than the run's, so longer than an iteration's.
-const NAMES_BOUND: Duration = Duration::from_secs(30);
-
 /// **An iteration's shortest length**, its tail spent running the run
 /// loop: longer than the frame interval within which bells ring once
 /// (`bell.rs`, `Ringer::hear`). An undriven view keeps the interval it
@@ -495,21 +490,21 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let id = crate::windows::Windows::<()>::new().open(());
     driver.window_id = Some(id);
     driver.app.os.name(id);
+    // **This machine's names given at opening** (the rig's seam): the
+    // name `gethostname` gives, which a shell's `OSC 7` names, in place of
+    // the names thread's (`Hosts`), whose `NSProcessInfo.hostName` runs at
+    // the network's pace, and handed through the window's own hand
+    // (`link_host_check`) before the first turn. No row waits on the
+    // network, and no hand lands after a settle to owe the hover a read.
+    driver.hosts = super::Hosts::Read(crate::hostlog::machine_name().into_iter().collect());
+    driver.link_host_check();
+    if probe::named() == probe::Named::No {
+        println!("this machine's names were not handed at opening");
+        return std::process::ExitCode::from(1);
+    }
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);
-    // **This machine's names read before the setup is sent**: their thread
-    // (`Hosts`) reads `NSProcessInfo.hostName` at the network's pace, not
-    // the run's, and the window hands them on the first tick after it ends,
-    // so the setup's ticks hand them whatever the machine.
-    let start = Instant::now();
-    while driver.hosts.names().is_none() && start.elapsed() < NAMES_BOUND {
-        probe::pass(0.01);
-    }
-    if driver.hosts.names().is_none() {
-        println!("this machine's names were never read");
-        return std::process::ExitCode::from(1);
-    }
     // Where `PointerOver` moves the pointer: the first row's second cell.
     let over = driver.rig_point(Row::ZERO, Col::at_index(1));
     // `CommandExits`'s child, handed over as a click's command is, its
@@ -564,14 +559,6 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     }
     if !ready {
         println!("the row's screen was never drawn");
-        return std::process::ExitCode::from(1);
-    }
-    // **This machine's names handed before the settle**, on the setup's
-    // ticks, their thread having ended before the setup was sent: their
-    // arrival owes the hover a read, which counted after the settle would
-    // be the names', not the act's.
-    if probe::named() == probe::Named::No {
-        println!("this machine's names were not handed by the setup");
         return std::process::ExitCode::from(1);
     }
     // Settled: what the setup owed drawn, and the link left as it then is.

@@ -539,9 +539,9 @@ pub enum Named {
 }
 
 /// **This machine's names handed to the links** (baud-app's
-/// `link_host_check`): the frame rig's settle waits for it, as the names
-/// arrive from a thread whose pace is the machine's, and their arrival
-/// owes the hover a read.
+/// `link_host_check`): the frame rig hands its own at opening and checks
+/// they were, so no hand lands after a settle, where its owed read of the
+/// hover would be counted as the act's.
 pub fn names_handed() {
     NAMED.with(|n| n.set(Named::Yes));
 }
