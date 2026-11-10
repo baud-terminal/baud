@@ -182,7 +182,7 @@ enum Polled {
     /// stage is red ([`no_row_polls_the_tick_past_its_stage`]).
     Tick { until: Stage },
     /// The control for `turn::after`: that door alone made inline, in the
-    /// callback that asked.
+    /// callback that asked, the frame not driven.
     AfterInline,
 }
 
@@ -233,8 +233,10 @@ enum Ticks {
     DrivenInline,
     /// Parked, and made by the next `frame`: the crash's own shape.
     DrivenInFrame,
-    /// `turn::after` alone inline, in the callback that asked.
-    DrivenAfterInline,
+    /// `turn::after` alone inline, in the callback that asked, the frame
+    /// not driven: the read is drained by the reader's `wake` alone, as a
+    /// pending program row's is ([`arms`]).
+    UndrivenAfterInline,
 }
 
 /// What the row expects: these effects, each exactly once an iteration
@@ -582,7 +584,10 @@ const SITES: [Site; 27] = [
     // expiry's removal, made in the callback, spins the nested loop the
     // probe makes there, which runs that queued turn inside the callback
     // too, so the first record is the post's ask, held. With the door on a
-    // turn of its own the row passes, and the control is red.
+    // turn of its own the row passes, and the control is red. The frame is
+    // not driven: the tty can hand back the typed line's echo in pieces,
+    // and a tick after a wake that drained only the first would drain the
+    // rest, the notification with it, in a frame.
     Site {
         name: SiteName("a program's notification, its expiry made inside the callback"),
         cause: Cause::Program(Program {
@@ -769,7 +774,8 @@ fn config(rule: Rule) -> &'static str {
 /// and driven, where a tick can read it first. Both must make the effect
 /// on its turn, so a read on the tick that still makes it inline goes
 /// red. A pending program row runs undriven alone: with the frame driven,
-/// its recorded site would be one entry or the other by timing. A row
+/// its recorded site would be one entry or the other by timing -- and so
+/// does the `turn::after` control, whose recorded site is the callback. A row
 /// whose effect the tick alone asks ([`Polled::Tick`]) runs driven alone.
 fn arms(site: &Site) -> &'static [Ticks] {
     match (site.cause, site.state, site.cause.shape().polled) {
@@ -777,8 +783,8 @@ fn arms(site: &Site) -> &'static [Ticks] {
         (Cause::PrintedPath(_, Ticks::None), ..) => &[Ticks::None],
         (Cause::PrintedPath(_, Ticks::DrivenInline), ..) => &[Ticks::DrivenInline],
         (Cause::PrintedPath(_, Ticks::DrivenInFrame), ..) => &[Ticks::DrivenInFrame],
-        (Cause::PrintedPath(_, Ticks::DrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
-            &[Ticks::DrivenAfterInline]
+        (Cause::PrintedPath(_, Ticks::UndrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
+            &[Ticks::UndrivenAfterInline]
         }
         (_, _, Polled::Tick { .. }) => &[Ticks::Driven],
         (Cause::Program(_) | Cause::ProgramThen(..), RowState::Green, Polled::Read) => {
@@ -838,7 +844,7 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             Ticks::None => RigTicks::None,
             Ticks::DrivenInline => RigTicks::InCallback,
             Ticks::DrivenInFrame => RigTicks::InFrame,
-            Ticks::DrivenAfterInline => RigTicks::AfterInCallback,
+            Ticks::UndrivenAfterInline => RigTicks::AfterInCallback,
         },
         focus,
         each: expect.each.to_vec(),

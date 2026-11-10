@@ -173,9 +173,13 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
             probe::set_inline(probe::Inline::InFrame);
             Ticks::Driven
         }
+        // With no tick, so the read that asks the expiry is drained by
+        // the reader's wake, a callback, and never by a frame: a tick could
+        // take what a wake left of a read the tty split, and the recorded
+        // site would be the frame by timing.
         RigTicks::AfterInCallback => {
             probe::set_inline(probe::Inline::AfterInCallback);
-            Ticks::Driven
+            Ticks::None
         }
     };
     run(act, iterations, ticks, &each)

@@ -215,7 +215,8 @@ pub enum RigTicks {
     InCallback,
     /// Driven, each turn parked for the next frame.
     InFrame,
-    /// Driven, `turn::after` alone run inline in the callback that asked.
+    /// Undriven, `turn::after` alone run inline in the callback that asked:
+    /// with no tick only a callback can drain the read that asks it.
     AfterInCallback,
 }
 
