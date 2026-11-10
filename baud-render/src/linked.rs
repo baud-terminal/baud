@@ -58,8 +58,8 @@ pub enum LineStyle {
     /// One thickness on, one off, as `SGR 4:4` draws.
     Dotted,
     /// `[link] line = "off"`: no line at rest. The scan still runs while
-    /// `missing = "strike"`, for the struck runs, which are drawn whatever
-    /// the line is.
+    /// `missing = "strike"`, for the struck runs, which are struck whatever
+    /// the line is, and get no line under them.
     Off,
 }
 

@@ -90,3 +90,66 @@ impl Metrics {
         })
     }
 }
+
+impl Metrics {
+    /// **Where a struck link's underline goes** (`Renderer::place_links`):
+    /// the face's underline, moved down to a pixel under the strike where
+    /// the two would touch, and kept inside the cell. JetBrains Mono's leave
+    /// a gap at every size, so it moves nothing there.
+    pub fn struck_underline(&self) -> Px {
+        clear_of_strike(self.underline, self.strike, self.thickness, self.cell_h)
+    }
+}
+
+/// `underline`, or a pixel under the strike's bottom (`strike` +
+/// `thickness`) where it would be closer than that, clamped so a line
+/// `thickness` thick stays inside a cell `cell_h` tall.
+fn clear_of_strike(underline: Px, strike: Px, thickness: Px, cell_h: Px) -> Px {
+    let clear = strike
+        .value()
+        .saturating_add(thickness.value())
+        .saturating_add(1);
+    Px::of(
+        underline
+            .value()
+            .max(clear)
+            .min(cell_h.value().saturating_sub(thickness.value())),
+    )
+}
+
+#[cfg(test)]
+mod struck_tests {
+    use super::{Px, clear_of_strike};
+
+    /// **A struck link's underline never touches its strike**: metrics
+    /// whose underline sits on the strike, or above it, put it a pixel
+    /// under the strike's bottom; ones with a gap keep the face's place;
+    /// and the line stays inside the cell when the cell is too short for
+    /// the gap. Perturbation: the face's underline as it is -- the first
+    /// two fail.
+    #[test]
+    fn a_struck_underline_clears_the_strike() {
+        let px = Px::of;
+        // Strike at 8, 2 thick: its bottom is 10, so the underline goes to 11.
+        assert_eq!(
+            clear_of_strike(px(9), px(8), px(2), px(20)),
+            px(11),
+            "touching"
+        );
+        assert_eq!(
+            clear_of_strike(px(5), px(8), px(2), px(20)),
+            px(11),
+            "above it"
+        );
+        assert_eq!(
+            clear_of_strike(px(14), px(8), px(2), px(20)),
+            px(14),
+            "a gap kept"
+        );
+        assert_eq!(
+            clear_of_strike(px(9), px(8), px(2), px(12)),
+            px(10),
+            "in the cell"
+        );
+    }
+}

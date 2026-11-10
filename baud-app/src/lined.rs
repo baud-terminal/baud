@@ -40,15 +40,18 @@
 //! these, and a concealed cell gets none. A double-size line gets none: no
 //! overlay of a single cell's width lies on its cells.
 //!
-//! **A link baud knows would open nothing is struck, not underlined**
+//! **A link baud knows would open nothing is struck and underlined**
 //! ([`Lines::struck`], [`Mark::Struck`]): what the reader says, from the
 //! worker's answers it was handed, never from a call made here. At rest that
 //! is a link whose kind has no app to open it, and an `OSC 8` `file://` link
 //! naming this machine by name whose file the worker found gone (`paths.rs`
 //! has the rules). A cell a program already strikes with `SGR 9` keeps its
 //! own strike, and a concealed cell and a double-size line get none, as for
-//! the line. Struck or not, the cells are the program's: a struck link
-//! selects and copies as it is written.
+//! the line. Its line is the live line's -- `[link] line`'s style, in the
+//! box's colour at rest and the text's under the pointer -- kept clear of
+//! the strike, and a cell a program underlines keeps its own. Struck or
+//! not, the cells are the program's: a struck link selects and copies as
+//! it is written.
 #![forbid(unsafe_code)]
 
 use core::ops::Range;

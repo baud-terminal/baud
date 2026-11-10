@@ -796,6 +796,36 @@ enum StripFresh {
 }
 
 /// A filled rectangle `w` by `h` at `(x, y)` in `color`.
+/// **A link's line over `w` pixels from `left` at `y`, `thick` thick**, in
+/// `[link] line`'s style: one solid, dots a thickness wide a thickness
+/// apart, or none.
+fn line_solids(
+    out: &mut Vec<Instance>,
+    style: LineStyle,
+    (left, y): (i32, Screen),
+    (w, thick): (u32, Px),
+    colour: Argb,
+) {
+    match style {
+        LineStyle::Solid => out.push(solid(screen(left), y, Px::of(w), thick, colour)),
+        LineStyle::Off => {}
+        LineStyle::Dotted => {
+            let step = thick.value().max(1);
+            let mut dx = 0;
+            while dx < w {
+                out.push(solid(
+                    screen(left.saturating_add(i32::try_from(dx).unwrap_or(i32::MAX))),
+                    y,
+                    Px::of(step),
+                    thick,
+                    colour,
+                ));
+                dx = dx.saturating_add(step.saturating_mul(2));
+            }
+        }
+    }
+}
+
 fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
     Instance {
         x,
@@ -2570,6 +2600,9 @@ pub struct Renderer<'f, 'a> {
     /// its own cells, through slots the frame's table lends it
     /// ([`Renderer::struck_cells`], `crate::frozen`).
     link_strikes: Vec<LinkLine>,
+    /// The strikes the gesture's modifier made over the link under the
+    /// pointer, whose line takes the text's colour.
+    link_held: Vec<LinkLine>,
     last_link_strikes: Vec<LinkLine>,
     pub(crate) missing_paint: MissingPaint,
     /// **The link under the pointer** on this frame and the last, and the
@@ -3135,6 +3168,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             line_colour: LineColour::Box,
             line_inst: Vec::new(),
             link_strikes: Vec::new(),
+            link_held: Vec::new(),
             last_link_strikes: Vec::new(),
             missing_paint: MissingPaint::Gray,
             link_hover: None,
@@ -4123,6 +4157,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.link_strikes.extend_from_slice(at_rest);
             self.link_strikes.extend_from_slice(held);
         }
+        if self.link_held != held {
+            self.link_held.clear();
+            self.link_held.extend_from_slice(held);
+        }
     }
 
     /// `[link] missing_color`, read at draw against the colours in force.
@@ -4262,28 +4300,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if self.line_style == LineStyle::Off {
                 continue;
             }
+            let style = self.line_style;
             let mut push = |row: Row, at: Col, n: usize| {
-                let (left, w) = (x(at), u32::try_from(n).unwrap_or(0).saturating_mul(cw));
-                match self.line_style {
-                    LineStyle::Solid => {
-                        out.push(solid(screen(left), y(self, row), Px::of(w), thick, colour))
-                    }
-                    LineStyle::Off => {}
-                    LineStyle::Dotted => {
-                        let step = thick.value().max(1);
-                        let mut dx = 0;
-                        while dx < w {
-                            out.push(solid(
-                                screen(left.saturating_add(i32::try_from(dx).unwrap_or(i32::MAX))),
-                                y(self, row),
-                                Px::of(step),
-                                thick,
-                                colour,
-                            ));
-                            dx = dx.saturating_add(step.saturating_mul(2));
-                        }
-                    }
-                }
+                let w = u32::try_from(n).unwrap_or(0).saturating_mul(cw);
+                line_solids(&mut out, style, (x(at), y(self, row)), (w, thick), colour);
             };
             match plain {
                 true => push(
@@ -4306,7 +4326,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // each run, in the colour its text is drawn in -- `missing_color`
         // where that reads, through the slot each struck cell is lent
         // (`crate::frozen`, [`Renderer::struck_cells`]), so the text itself
-        // is drawn by the cells, as any other.
+        // is drawn by the cells, as any other. **And the live line under it**:
+        // `[link] line`'s style and thickness, in the box's colour at rest
+        // and, under the pointer -- the gesture's strikes, or a run the
+        // link under the pointer covers -- in the text's, as a live line
+        // takes them; at `Metrics::struck_underline`, which keeps it clear of
+        // the strike. None with `line = "off"`, and none over a cell a
+        // program underlines itself, whose own line is drawn.
         if !self.link_strikes.is_empty() {
             let strike_y = self.metrics.strike.value();
             let sy = |this: &Self, r: Row| {
@@ -4315,6 +4341,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         .unwrap_or(i32::MAX),
                 )
             };
+            let struck_under = self.metrics.struck_underline().value();
+            let uy = |this: &Self, r: Row| {
+                screen(
+                    i32::try_from(this.band(r).top.value().saturating_add(struck_under))
+                        .unwrap_or(i32::MAX),
+                )
+            };
+            let style = self.line_style;
             let mut last: Option<(baud_domain::StyleWord, Option<Argb>)> = None;
             for l in &self.link_strikes {
                 let colour = match last {
@@ -4327,6 +4361,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }
                 };
                 let Some(colour) = colour else { continue };
+                let under = self.link_held.contains(l) || self.hovered_line(l);
+                let line = match (under, rest) {
+                    (false, Some(rest)) => rest,
+                    _ => colour,
+                };
+                let own = l.word.attrs().only(Attrs::UNDERLINES) != Attrs::NONE;
                 for (row, at, n) in self.bidi.orders().stored_runs(l.row, l.from, l.to) {
                     let w = u32::try_from(n.index()).unwrap_or(0).saturating_mul(cw);
                     out.push(solid(
@@ -4336,6 +4376,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         thick,
                         colour,
                     ));
+                    if !own {
+                        line_solids(&mut out, style, (x(at), uy(self, row)), (w, thick), line);
+                    }
                 }
             }
         }

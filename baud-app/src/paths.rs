@@ -3827,9 +3827,9 @@ mod tests {
     }
 
     /// **An `OSC 8` `file://` link naming this machine, its file gone, is
-    /// struck at rest and not underlined**; one found is underlined; and with
-    /// `missing = "off"` the gone one is underlined as before and nothing is
-    /// asked for it. Perturbations: strike on `Named::NoMachine` in
+    /// struck at rest, a struck run and not a live line**; one found is a
+    /// live line; and with `missing = "off"` the gone one is a live line as
+    /// before and nothing is asked for it. Perturbations: strike on `Named::NoMachine` in
     /// `file_link`; let `file_link` ignore `missing`; push a struck run into
     /// the lines in `osc8`.
     #[test]

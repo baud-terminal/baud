@@ -401,3 +401,164 @@ fn the_grey_is_weighed_against_the_dimmed_page() {
         "on the dimmed page it does not, and the text keeps its red"
     );
 }
+
+/// A renderer over `bytes` at `px` pixels, JetBrains Mono, fitted.
+fn struck_frame<'f>(faces: &'f [Face<'f>], t: &Term<'_>, px: f32) -> Renderer<'f, 'f> {
+    let mut r = Renderer::new(
+        Stack::new(faces).unwrap(),
+        PxSize::of(px).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(80),
+        Rows::of_index(24),
+    )
+    .unwrap();
+    r.fit(t);
+    r
+}
+
+/// **A struck link is underlined as a live one is**: struck at rest, its
+/// run carries the strike in the text's colour and, under it, the live
+/// line at `Metrics::struck_underline` in the box's colour, the colour a
+/// live link's line at rest takes beside it; struck by the gesture under
+/// the pointer, its line takes the text's colour, as a live line under the
+/// pointer does. With `[link] line = "off"` it is struck and has no line.
+/// Red before: a struck run drew the strike alone. Perturbations: no line
+/// under a struck run (the first two fail); the held run's line in the
+/// box's colour (the second fails); the line under a struck run whatever
+/// `line` says (the third fails).
+#[test]
+fn a_struck_link_is_underlined_as_a_live_one_is() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[?25l\x1b]4;8;rgb:c0/c0/c0\x1b\\see https://example.org/x https://example.org/y",
+    );
+    let mut r = struck_frame(&faces, &t, 14.0);
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let m = r.metrics();
+    let at = geometry(&r);
+    let (struck, live) = ((4, 24), (26, 46));
+    let mut plain = vec![0u32; n];
+    paint(&mut r, &mut t, &mut plain, Damage::Full);
+    // At rest: a live line beside the struck run gives the box's colour.
+    r.set_link_lines(&[run(&t, live.0, live.1)], baud_render::LineStyle::Solid);
+    r.set_link_strikes(&[run(&t, struck.0, struck.1)], &[]);
+    let mut rest = vec![0u32; n];
+    paint(&mut r, &mut t, &mut rest, Damage::Full);
+    let boxed = line_at(&rest, at, live, m.underline);
+    assert!(
+        boxed.iter().all(|&p| p == boxed[0]) && boxed[0] != 0x00C0_C0C0,
+        "the control: the live line at rest, in one colour not the text's"
+    );
+    assert!(
+        line_at(&rest, at, struck, m.strike)
+            .iter()
+            .all(|&p| p == 0x00C0_C0C0),
+        "the strike, in the text's colour"
+    );
+    assert!(
+        line_at(&rest, at, struck, m.struck_underline())
+            .iter()
+            .all(|&p| p == boxed[0]),
+        "the struck run's line at rest, in the box's colour"
+    );
+    // Struck by the gesture under the pointer: the line in the text's colour.
+    r.set_link_strikes(&[], &[run(&t, struck.0, struck.1)]);
+    let mut held = vec![0u32; n];
+    paint(&mut r, &mut t, &mut held, Damage::Full);
+    assert!(
+        line_at(&held, at, struck, m.struck_underline())
+            .iter()
+            .all(|&p| p == 0x00C0_C0C0),
+        "under the pointer, the line in the text's colour"
+    );
+    // `line = "off"`: struck, no line.
+    r.set_link_lines(&[run(&t, live.0, live.1)], baud_render::LineStyle::Off);
+    r.set_link_strikes(&[run(&t, struck.0, struck.1)], &[]);
+    let mut off = vec![0u32; n];
+    paint(&mut r, &mut t, &mut off, Damage::Full);
+    assert!(
+        line_at(&off, at, struck, m.strike)
+            .iter()
+            .all(|&p| p == 0x00C0_C0C0),
+        "still struck"
+    );
+    assert!(
+        !line_at(&off, at, struck, m.struck_underline()).contains(&boxed[0]),
+        "and no line"
+    );
+    assert_eq!(
+        line_at(&off, at, live, m.underline),
+        line_at(&plain, at, live, m.underline),
+        "the control: no live line either"
+    );
+}
+
+/// **A cell a program underlines keeps its own line, struck**: a struck
+/// run written with `SGR 4` is struck and gets no link line in the box's
+/// colour over it, its own underline drawn by the cell instead. The
+/// control: the same run without `SGR 4` gets the box-coloured line.
+/// Perturbation: draw the link line over a cell's own underline.
+#[test]
+fn a_struck_cell_a_program_underlines_keeps_its_own_line() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        b"\x1b[?25lsee \x1b[4mhttps://example.org/x\x1b[m https://example.org/y",
+    );
+    let mut r = struck_frame(&faces, &t, 14.0);
+    let (w, h) = r.pixel_size();
+    let n = usize::try_from(w.value() * h.value()).unwrap();
+    let m = r.metrics();
+    let at = geometry(&r);
+    let (own, bare) = ((4, 24), (26, 46));
+    r.set_link_lines(&[run(&t, bare.0, bare.1)], baud_render::LineStyle::Solid);
+    let mut live = vec![0u32; n];
+    paint(&mut r, &mut t, &mut live, Damage::Full);
+    let boxed = line_at(&live, at, bare, m.underline)[0];
+    r.set_link_lines(&[], baud_render::LineStyle::Solid);
+    r.set_link_strikes(&[run(&t, own.0, own.1), run(&t, bare.0, bare.1)], &[]);
+    let mut px = vec![0u32; n];
+    paint(&mut r, &mut t, &mut px, Damage::Full);
+    assert!(
+        line_at(&px, at, bare, m.struck_underline())
+            .iter()
+            .all(|&p| p == boxed),
+        "the control: a bare struck run's line, in the box's colour"
+    );
+    assert!(
+        !line_at(&px, at, own, m.struck_underline()).contains(&boxed),
+        "no link line over a cell's own underline"
+    );
+}
+
+/// **JetBrains Mono's struck line never touches its strike**: at every
+/// size from 6 to 40 pixels the underline's top is at least a pixel under
+/// the strike's bottom, at the face's own underline (the guard moves
+/// nothing), inside the cell.
+#[test]
+fn jetbrains_monos_struck_line_clears_its_strike_at_every_size() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let t = Term::new(owned.storage(), &WS);
+    for size in 6..=40u16 {
+        let r = struck_frame(&faces, &t, f32::from(size));
+        let m = r.metrics();
+        let under = m.struck_underline();
+        assert!(
+            under.value() > m.strike.value() + m.thickness.value(),
+            "{size} px: {m:?}"
+        );
+        assert_eq!(under, m.underline, "{size} px: the face's own place");
+        assert!(under.value() + m.thickness.value() <= m.cell_h.value());
+    }
+}
