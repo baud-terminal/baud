@@ -619,6 +619,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     );
     let _ = probe::take();
     let w = window.ns_window();
+    // The window's title, on a line of its own: it may hold spaces.
+    println!("title {}", w.title());
     let mut failed = false;
     if w.isVisible() || w.isKeyWindow() || w.isMiniaturized() {
         println!("the window was shown, made key or minimised");

@@ -24,8 +24,6 @@ pub(crate) enum Holder {
     /// FS-A9: `front.tick` in the lights, until the process watch's
     /// events and a timer for its regroup.
     A9Front,
-    /// FS-A12: `title_check`, until the feed that changes the title.
-    A12Title,
     /// FS-A13: `link_host_check`, until a host name change notification.
     A13Hosts,
     /// FS-A14: `paths_turn`, until the worker's answer wakes the window.
@@ -41,10 +39,9 @@ pub(crate) enum Holder {
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 8] = [
+    pub(crate) const ALL: [Holder; 7] = [
         Holder::A5Notices,
         Holder::A9Front,
-        Holder::A12Title,
         Holder::A13Hosts,
         Holder::A14Paths,
         Holder::A15Reap,
@@ -58,7 +55,6 @@ impl Holder {
         match self {
             Holder::A5Notices => "FS-A5",
             Holder::A9Front => "FS-A9",
-            Holder::A12Title => "FS-A12",
             Holder::A13Hosts => "FS-A13",
             Holder::A14Paths => "FS-A14",
             Holder::A15Reap => "FS-A15",
@@ -540,16 +536,15 @@ mod tests {
             match h {
                 Holder::A5Notices => Place(0),
                 Holder::A9Front => Place(1),
-                Holder::A12Title => Place(2),
-                Holder::A13Hosts => Place(3),
-                Holder::A14Paths => Place(4),
-                Holder::A15Reap => Place(5),
-                Holder::A16Settings => Place(6),
-                Holder::A17Splash => Place(7),
+                Holder::A13Hosts => Place(2),
+                Holder::A14Paths => Place(3),
+                Holder::A15Reap => Place(4),
+                Holder::A16Settings => Place(5),
+                Holder::A17Splash => Place(6),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=7).map(Place).collect();
+        let want: Vec<Place> = (0..=6).map(Place).collect();
         assert_eq!(places, want);
     }
 

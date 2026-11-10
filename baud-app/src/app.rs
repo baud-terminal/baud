@@ -5044,6 +5044,8 @@ struct Driver {
     /// (`title.rs`).
     hosts: Hosts,
     title_waits: TitleWaits,
+    /// The derived title's pace (`title_check`).
+    title_paced: TitlePaced,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -7266,6 +7268,73 @@ mod alt_window_tests {
             read.contains(concat!("self.read_hover_as(self.", "link_chord)"))
                 && !SRC.contains(concat!("NSEvent::modifier", "Flags_class()")),
             "the read asks AppKit for the modifiers"
+        );
+    }
+
+    /// **The derived title is checked on a turn that owes it, after its
+    /// feed, and never on the tick** (`Driver::title_check`): the pump calls
+    /// it out of its tick branch, after the read is fed and owes it; and a
+    /// title that waited for this machine's names is sent where the names
+    /// arrive (`link_host_check`), not in the check. The pump is
+    /// AppKit-bound, so this holds the source; the frame rig's FS-A12 row
+    /// holds what the turns do, and `a_title_check_owed_too_soon_waits_once`
+    /// the pace. Perturbations: the call back in the tick branch, or before
+    /// the feed -- each fails here.
+    #[test]
+    fn the_title_is_checked_on_a_turn_that_owes_it() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const TICK: &str = concat!("if let Trigger::", "Tick = trigger {");
+        const CALL: &str = concat!("self.title_", "check();");
+        const HOSTS: &str = concat!("    fn link_host_", "check(&mut self) {");
+        const CHECK: &str = concat!("    fn title_", "check(&mut self) {");
+        const WAITS: &str = concat!("self.title_waits == TitleWaits::", "Names");
+        let body = |head: &str| {
+            assert_eq!(SRC.matches(head).count(), 1, "one {head}");
+            let b = SRC.split(head).nth(1).expect(head);
+            &b[..b.find("\n    }\n").expect("the function ends")]
+        };
+        let pump = body(PUMP);
+        let tick = pump.split(TICK).nth(1).expect("the tick branch");
+        let tick = &tick[..tick.find("\n        }\n").expect("the branch ends")];
+        assert!(!tick.contains(CALL), "the tick checks the title");
+        let fed = pump
+            .find(concat!("crate::reads::", "paced("))
+            .expect("the feed");
+        let call = pump.find(CALL).expect("the pump does not check the title");
+        assert!(call > fed, "the title is checked before the feed");
+        assert_eq!(SRC.matches(CALL).count(), 1, "and nowhere else");
+        assert!(
+            body(HOSTS).contains(WAITS),
+            "the names' arrival sends no title"
+        );
+        assert!(!body(CHECK).contains(WAITS), "the check waits on the names");
+    }
+
+    /// **A title check owed too soon waits for one wake** (`TitlePaced`):
+    /// the first turn checks; a turn within a frame interval schedules a
+    /// wake for the interval's end; another turn before it schedules
+    /// nothing more; the wake's turn checks. So a flood of reads costs one
+    /// check a frame. Perturbations: no pace -- the second turn checks;
+    /// a wake every time -- the third schedules again.
+    #[test]
+    fn a_title_check_owed_too_soon_waits_once() {
+        use super::{TitlePaced, TitleTurn};
+        use std::time::{Duration, Instant};
+        let (t0, frame) = (Instant::now(), Duration::from_millis(16));
+        let mut p = TitlePaced::default();
+        assert_eq!(p.turn(t0, frame), TitleTurn::Check, "the first turn");
+        let soon = t0 + Duration::from_millis(5);
+        assert_eq!(p.turn(soon, frame), TitleTurn::WakeAt(t0 + frame));
+        let sooner = t0 + Duration::from_millis(9);
+        assert_eq!(p.turn(sooner, frame), TitleTurn::Wait, "scheduled once");
+        assert_eq!(p.turn(t0 + frame, frame), TitleTurn::Check, "the wake");
+        let after = t0 + frame + Duration::from_millis(1);
+        assert_eq!(
+            p.turn(after, frame),
+            TitleTurn::WakeAt(t0 + frame + frame),
+            "the next interval's wake"
         );
     }
 
@@ -12339,7 +12408,6 @@ impl Driver {
             self.poll_display();
         }
         if let Trigger::Tick = trigger {
-            self.title_check();
             self.link_host_check();
             self.paths_turn();
             self.app.commands.reap();
@@ -12590,7 +12658,7 @@ impl Driver {
             self.judge();
             // A program's title: only a read can set one, so this is the
             // one place it can have changed. The read owes the derived
-            // title a check too, made on the next tick (`title_check`).
+            // title a check too, made after the feed (`title_check`).
             self.derive.owe();
             self.send_title();
             // A program's pointer shape, shown at once while the pointer is
@@ -12775,6 +12843,10 @@ impl Driver {
             self.app.owe_hover_if_moved();
         }
         self.poll_hover();
+        // The derived title, on a turn that owes it a check -- a read, a
+        // key, a process event this turn took -- after the feed, so the
+        // read's owing is seen (`title_check`).
+        self.title_check();
         self.pace_wake();
         self.app.flush_reply(Asked::Unasked);
         self.decode_turn(
@@ -14247,6 +14319,7 @@ impl Opening {
             watch,
             hosts,
             title_waits: TitleWaits::No,
+            title_paced: TitlePaced::default(),
             home: std::env::var_os("HOME")
                 .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
             hiding,
@@ -14753,7 +14826,6 @@ impl Driver {
             Holder::A17Splash => self.app.splash.waiting(),
             Holder::A5Notices
             | Holder::A9Front
-            | Holder::A12Title
             | Holder::A13Hosts
             | Holder::A14Paths
             | Holder::A15Reap
@@ -15087,8 +15159,15 @@ impl Driver {
     /// **This machine's name reaching the links**, once the thread that reads
     /// it has ended (`Hosts`), never waited for: every row read again, and
     /// the preview's next read sees a new host. Until then a `file` link
-    /// naming a host gets no line and no look (`lined::Uris`).
+    /// naming a host gets no line and no look (`lined::Uris`). A title that
+    /// waited for the names is sent then too.
     fn link_host_check(&mut self) {
+        // A title that waited for this machine's names, once they are read
+        // (`TitleWaits`): the names' arrival, which this poll hears.
+        if self.title_waits == TitleWaits::Names && self.hosts.names().is_some() {
+            self.title_waits = TitleWaits::No;
+            self.send_title();
+        }
         if self.app.uris.host_known() {
             return;
         }
@@ -16370,21 +16449,27 @@ impl Driver {
         }
     }
 
-    /// **The derived title's check, once a tick and only when owed**
-    /// (`title::Derive`). After a process event the last group's children
-    /// are watched before the group is read, so a job that takes the
-    /// terminal and execs after the read still says so (`fg::Watch`);
-    /// the group read is watched after it. A title that waited for this
-    /// machine's names is sent once they are read.
+    /// **The derived title's check, on a turn that owes it**
+    /// (`title::Derive`): a read, a key or a process event owes one, and
+    /// the pump asks after its feed, so no tick polls for it. One check a
+    /// frame interval however many turns owe one, as `title::Derive` says:
+    /// a turn sooner than that after the last check schedules a wake for
+    /// the interval's end, once (`title_paced`), whose turn makes it.
+    /// After a process event the last group's children are watched before
+    /// the group is read, so a job that takes the terminal and execs after
+    /// the read still says so (`fg::Watch`); the group read is watched
+    /// after it.
     fn title_check(&mut self) {
-        // A title that waited for this machine's names, once they are read
-        // (`TitleWaits`).
-        if self.title_waits == TitleWaits::Names && self.hosts.names().is_some() {
-            self.title_waits = TitleWaits::No;
-            self.send_title();
-        }
         if self.derive.owed() == crate::title::Owed::No {
             return;
+        }
+        match self.title_paced.turn(Instant::now(), self.app.interval) {
+            TitleTurn::Check => {}
+            TitleTurn::WakeAt(next) => {
+                self.wake_at(next);
+                return;
+            }
+            TitleTurn::Wait => return,
         }
         if let (Some(w), Some(g), true) = (
             &self.watch,
@@ -21810,6 +21895,49 @@ fn judged_by<'n>(
         (Some(names), _) => Some(names),
         (None, Some(baud_core::FileHost::Named(_))) => None,
         (None, _) => Some(&[]),
+    }
+}
+
+/// **The derived title's pace**: when it was last checked, and the wake
+/// scheduled for the next check a turn owed too soon, so one is scheduled
+/// once (`Driver::title_check`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct TitlePaced {
+    checked: Option<Instant>,
+    wake: Option<Instant>,
+}
+
+/// What a turn that owes the derived title a check does (`TitlePaced::turn`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TitleTurn {
+    /// The check, now.
+    Check,
+    /// A wake scheduled for the interval's end, whose turn checks.
+    WakeAt(Instant),
+    /// Nothing: that wake is already scheduled.
+    Wait,
+}
+
+impl TitlePaced {
+    /// **A turn owing a check at `now`**: the check, a frame `interval` or
+    /// more after the last; sooner, a wake for the interval's end, once;
+    /// and nothing for a wake already scheduled.
+    fn turn(&mut self, now: Instant, interval: Duration) -> TitleTurn {
+        match self
+            .checked
+            .map(|last| last + interval)
+            .filter(|&n| now < n)
+        {
+            None => {
+                self.checked = Some(now);
+                TitleTurn::Check
+            }
+            Some(next) if self.wake != Some(next) => {
+                self.wake = Some(next);
+                TitleTurn::WakeAt(next)
+            }
+            Some(_) => TitleTurn::Wait,
+        }
     }
 }
 

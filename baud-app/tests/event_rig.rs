@@ -1117,7 +1117,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
 const HOLDERS: &[&str] = &[
-    "FS-A5", "FS-A9", "FS-A12", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
+    "FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A15", "FS-A16", "FS-A17",
 ];
 
 /// The focus baud last set, as a frame rig's child printed it.
@@ -1165,6 +1165,8 @@ struct Counters {
     display: u32,
     preview: PreviewSeen,
     reads: u32,
+    /// The window's title at the end, from its own line.
+    title: String,
 }
 
 impl Counters {
@@ -1206,6 +1208,11 @@ impl Counters {
                 _ => return None,
             },
             reads: count("reads")?,
+            title: text
+                .lines()
+                .find_map(|l| l.strip_prefix("title "))
+                .unwrap_or_default()
+                .to_owned(),
         })
     }
 }
@@ -1252,6 +1259,9 @@ enum Settles {
     /// least `drawn` frames of the output drawn, and not one read of the
     /// link under the pointer after the settle.
     Unread { drawn: u64 },
+    /// **A job started with no tick, in the window's title**: the ticks
+    /// withheld, nothing delivered, and the derived title names the job.
+    Titled(&'static str),
 }
 
 impl Settles {
@@ -1277,6 +1287,7 @@ impl Settles {
             Settles::Focused(focus) => c.focus == focus && c.link == LinkSeen::Pause,
             Settles::Accessed => c.link == LinkSeen::Pause && c.motion >= 1 && c.display >= 1,
             Settles::Previewed => c.delivered == 0 && c.preview == PreviewSeen::Link,
+            Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
             Settles::Unread { drawn } => {
                 c.reads == 0 && c.preview == PreviewSeen::Link && c.drawn >= drawn
             }
@@ -1323,7 +1334,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 15] = [
+const FRAME_SITES: [FrameSite; 16] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1618,6 +1629,25 @@ const FRAME_SITES: [FrameSite; 15] = [
         focus: RigFocus::Believed,
         attempts: Iterations(200),
         expect: Settles::Unread { drawn: 10 },
+        state: RowState::Green,
+    },
+    // **FS-A12**: a job started at the prompt is in the derived title, the
+    // ticks withheld: the read of its echo and the shell's fork and exec,
+    // each a turn, owe the check, which the turn makes, and no tick polls
+    // for it. `sleep` prints nothing and outlasts the run, so only those
+    // turns can name it.
+    FrameSite {
+        name: SiteName("a job started with no tick is in the title"),
+        setup: STILL,
+        act: "sleep 30",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Titled("sleep"),
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

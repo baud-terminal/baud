@@ -214,9 +214,10 @@ impl Judged {
 /// **The folder and program a title is derived from**, and when they are
 /// read again. **A check is owed, never timed**: a read, a key and, on
 /// macOS, a process fork, exec or exit (`fg::Watch`) each owe one, and the
-/// app makes it once, on its next display-link tick (macOS) or frame
-/// (Linux), however many were owed -- a flood of reads costs one check a
-/// frame, and an idle terminal none (note AK 6.5). A check reads the
+/// app makes it once, on the turn that owed it (macOS, at most one a frame
+/// interval, a turn sooner waiting for a wake at its end) or its next
+/// frame (Linux), however many were owed -- a flood of reads costs one
+/// check a frame, and an idle terminal none (note AK 6.5). A check reads the
 /// group, 2.5 us measured on this Mac, and the directory, 0.45 us; the
 /// name only for a new group or after a process event, argv[0] costing
 /// 3.8-5.9 us (note AK 2.6).
@@ -703,7 +704,8 @@ mod tests {
     /// drivers are AppKit- and Wayland-bound and no test drives them, so
     /// this holds their source, as `app.rs` holds its pump's: a read and a
     /// key owe a check, macOS's process events too, the check runs on the
-    /// tick (macOS) or where a frame is presented (Linux), and the only
+    /// pump's turn after its feed and out of the tick (macOS) or where a
+    /// frame is presented (Linux), and the only
     /// `titles.next` in each is `send_title`'s, which passes the derived
     /// title. Spelled apart, so this test's own text is not what it finds.
     #[test]
@@ -726,10 +728,17 @@ mod tests {
             .split(concat!("if let Trigger::Tick = ", "trigger {"))
             .nth(1)
             .expect("the tick");
+        let check = concat!("self.title", "_check();");
         assert!(
-            tick[..tick.find("\n        }\n").expect("the tick ends")]
-                .contains(concat!("self.title", "_check();")),
+            !tick[..tick.find("\n        }\n").expect("the tick ends")].contains(check),
             "checked on the tick"
+        );
+        let fed = pump
+            .find(concat!("crate::reads::", "paced("))
+            .expect("the feed");
+        assert!(
+            pump.find(check).is_some_and(|c| c > fed),
+            "not checked on the turn, after its feed"
         );
         assert!(
             body(
