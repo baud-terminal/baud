@@ -15262,6 +15262,8 @@ impl Driver {
         };
         let names = crate::link::MachineNames::of(names.to_vec());
         crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::names_handed();
         self.app.lines.forget();
         // A `file` link under the pointer is this machine's or not by them.
         self.app.hover_owed = crate::link::HoverOwed::Yes;

@@ -266,6 +266,8 @@ thread_local! {
     static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
     /// The turns that fed the core (`FedTurns`).
     static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
+    /// Whether this machine's names were handed (`Named`).
+    static NAMED: Cell<Named> = const { Cell::new(Named::No) };
     /// What baud reads of the display options (`Access`).
     static ACCESS: Cell<Access> = const { Cell::new(Access::System) };
     /// The changes of the motion preference and the display settings taken.
@@ -490,6 +492,26 @@ pub fn fed_turn() {
 /// The turns that fed the core.
 pub fn fed_turns() -> FedTurns {
     FED_TURNS.with(Cell::get)
+}
+
+/// Whether baud-app has handed this machine's names to the links.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Named {
+    No,
+    Yes,
+}
+
+/// **This machine's names handed to the links** (baud-app's
+/// `link_host_check`): the frame rig's settle waits for it, as the names
+/// arrive from a thread whose pace is the machine's, and their arrival
+/// owes the hover a read.
+pub fn names_handed() {
+    NAMED.with(|n| n.set(Named::Yes));
+}
+
+/// Whether this machine's names were handed to the links.
+pub fn named() -> Named {
+    NAMED.with(Cell::get)
 }
 
 /// Set whether a turn's door hands over inline.
