@@ -480,6 +480,14 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let size = WINDOW_SIZE;
     let scale = 2.0;
     let inset = predicted_inset(mtm, size);
+    // **The reverse lookup stalled** (the rig's seam, `probe::HostName`):
+    // the window's own read of every name (`Hosts`) runs on its thread, and
+    // its `NSProcessInfo.hostName`, whose pace is the network's, is held
+    // until a row answers it (`RigWindow::HostNamed`). Every other row runs
+    // on `gethostname`'s name, given at opening, alone: none waits on the
+    // network, and no hand of the read's names lands after a settle to owe
+    // the hover a read.
+    probe::set_host_name(probe::HostName::Stalled);
     let shell = Shell::start(scale, size, inset, None, None);
     let Opening {
         mut driver,
@@ -490,22 +498,6 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let id = crate::windows::Windows::<()>::new().open(());
     driver.window_id = Some(id);
     driver.app.os.name(id);
-    // **The reverse lookup stalled** (the rig's seam): the window's read of
-    // every name (`Hosts`), whose `NSProcessInfo.hostName` runs at the
-    // network's pace, replaced by one that never returns while the row
-    // runs, `gethostname`'s name, given at opening, kept. Every row then
-    // runs on that name alone: none waits on the network, and no hand of
-    // the read's names lands after a settle to owe the hover a read.
-    let (_stall, stalled) = std::sync::mpsc::channel::<()>();
-    let given = driver.hosts.given().to_vec();
-    let read = given.clone();
-    driver.hosts = super::Hosts::Reading {
-        given,
-        thread: std::thread::spawn(move || {
-            let _ = stalled.recv();
-            read
-        }),
-    };
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);
@@ -573,6 +565,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let styled = probe::styled();
     let reads = probe::hover_reads();
     let fed = probe::fed_turns();
+    let hands = probe::hands();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -622,6 +615,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         // Its input closed, `read` ends and the shell with it.
         RigWindow::CommandExits => drop(command_input.take()),
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
+        // The stalled lookup answered with a name `gethostname` does not
+        // give, so the read adds one and its names are owed to the links.
+        RigWindow::HostNamed => {
+            probe::set_host_name(probe::HostName::Answered("baud-rig.invalid".to_owned()))
+        }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     // The run: `attempts` ticks offered, or the run loop run as long with
@@ -660,7 +658,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -710,6 +708,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 now[2].saturating_sub(followed_before[2]),
             )
         },
+        probe::hands().0.saturating_sub(hands.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

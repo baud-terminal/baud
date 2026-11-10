@@ -1171,6 +1171,8 @@ struct Counters {
     /// Each followed setting's changes taken: scroller, flashing,
     /// animated.
     followed: [u32; 3],
+    /// The hands of this machine's names to the links.
+    hands: u32,
 }
 
 impl Counters {
@@ -1219,6 +1221,7 @@ impl Counters {
                 let mut next = || n.next()?.ok();
                 [next()?, next()?, next()?]
             },
+            hands: count("hands")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1287,6 +1290,9 @@ enum Settles {
     /// **The followed settings heard with no tick**: the ticks withheld,
     /// nothing delivered, and each of the three settings' changes taken.
     Followed,
+    /// **This machine's names handed with no tick**: the ticks withheld,
+    /// nothing delivered, and the read's names handed to the links.
+    Handed,
 }
 
 impl Settles {
@@ -1315,6 +1321,7 @@ impl Settles {
             Settles::Titled(job) => c.delivered == 0 && c.title.contains(job),
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
+            Settles::Handed => c.delivered == 0 && c.hands >= 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
             }
@@ -1364,7 +1371,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 20] = [
+const FRAME_SITES: [FrameSite; 21] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1774,6 +1781,25 @@ const FRAME_SITES: [FrameSite; 20] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Titled("/sub"),
+        state: RowState::Green,
+    },
+    // **The read of every name hands them with no tick** (B5): the rig's
+    // stalled reverse lookup answered with a name `gethostname` does not
+    // give, the ticks withheld. The read's thread stores the names and
+    // wakes the window, whose turn hands them to the links, a paused
+    // window's included; no tick polls for them.
+    FrameSite {
+        name: SiteName("the names read late are handed with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::HostNamed,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Handed,
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

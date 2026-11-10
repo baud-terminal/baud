@@ -127,6 +127,11 @@ pub fn workspace(turn: &Turn<'_>, ask: Ask, url: &str) -> Opened {
 
 /// This machine's name, as `file://host/path` links name it.
 pub fn host_name() -> String {
+    // The frame rig's stalled or answered lookup, in a probe build.
+    #[cfg(feature = "effect-probe")]
+    if let Some(name) = crate::probe::host_name() {
+        return name;
+    }
     NSProcessInfo::processInfo().hostName().to_string()
 }
 

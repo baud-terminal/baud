@@ -111,9 +111,13 @@ pub enum RigWindow {
     /// the default centre, as the system posts it
     /// (`settings::rig_post_settings`).
     Settings,
+    /// That the reverse lookup the frame rig stalls answered with a name of
+    /// its own (`probe::HostName`), so the window's read of every name
+    /// ends, adding one.
+    HostNamed,
 }
 
-const WINDOW: [(RigWindow, &str); 9] = [
+const WINDOW: [(RigWindow, &str); 10] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -123,6 +127,7 @@ const WINDOW: [(RigWindow, &str); 9] = [
     (RigWindow::PointerOver, "pointer-over"),
     (RigWindow::CommandExits, "command-exits"),
     (RigWindow::Settings, "settings"),
+    (RigWindow::HostNamed, "host-named"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

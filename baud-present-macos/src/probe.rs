@@ -266,6 +266,8 @@ thread_local! {
     static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
     /// The turns that fed the core (`FedTurns`).
     static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
+    /// The hands of this machine's names to the links (`hand_names`).
+    static HANDS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The followed settings' changes taken: scroller, flashing, animated.
     static FOLLOWED: Cell<[Taken; 3]> = const { Cell::new([Taken(0); 3]) };
     /// What baud reads of the display options (`Access`).
@@ -492,6 +494,55 @@ pub fn fed_turn() {
 /// The turns that fed the core.
 pub fn fed_turns() -> FedTurns {
     FED_TURNS.with(Cell::get)
+}
+
+/// **What `link::host_name` answers in a probe build**: the system's
+/// `NSProcessInfo.hostName`, or the frame rig's stalled reverse lookup,
+/// which holds the window's read of every name (baud-app's `Hosts`) until
+/// the rig answers it with a name of its own. Shared across threads: the
+/// read runs on a thread of its own.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum HostName {
+    System,
+    Stalled,
+    Answered(String),
+}
+
+static HOST_NAME: std::sync::Mutex<HostName> = std::sync::Mutex::new(HostName::System);
+static HOST_NAME_SET: std::sync::Condvar = std::sync::Condvar::new();
+
+/// Set what `link::host_name` answers, waking a read it holds.
+pub fn set_host_name(h: HostName) {
+    *HOST_NAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = h;
+    HOST_NAME_SET.notify_all();
+}
+
+/// The name `link::host_name` answers, `None` for the system's: held
+/// while the lookup is stalled.
+pub fn host_name() -> Option<String> {
+    let held = HOST_NAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let held = HOST_NAME_SET
+        .wait_while(held, |h| *h == HostName::Stalled)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match &*held {
+        HostName::Answered(name) => Some(name.clone()),
+        HostName::System | HostName::Stalled => None,
+    }
+}
+
+/// **This machine's names handed to the links** by baud-app
+/// (`hand_host_names`), counted for the frame rig.
+pub fn hand_names() {
+    HANDS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times baud-app handed this machine's names to the links.
+pub fn hands() -> Taken {
+    HANDS.with(Cell::get)
 }
 
 /// A setting the window follows, taken (baud-app's `follow_settings`).

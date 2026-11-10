@@ -755,7 +755,7 @@ mod tests {
         let send = body(MAC, concat!("    fn send_title(", "&mut self) {"), "    ");
         assert!(send.contains(next) && send.contains("&fallback"));
         assert!(
-            MAC.contains(concat!(".spawn(machine", "_names)"))
+            MAC.contains(concat!("Hosts::start_with(given, machine", "_names, wake)"))
                 && body(MAC, concat!("fn machine", "_names() -> Vec<String> {"), "")
                     .contains(concat!("hostlog::machine", "_name()")),
             "macOS compares with the name shells send"

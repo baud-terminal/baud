@@ -8647,7 +8647,9 @@ mod drag_tests {
         const SRC: &str = include_str!("app.rs");
         let launch = launch(SRC);
         assert!(
-            launch.before.contains("Hosts::start()"),
+            launch
+                .before
+                .contains(concat!("Hosts::", "start(move || {")),
             "the read is started"
         );
         for part in [launch.before.as_str(), launch.callback, launch.show] {
@@ -8656,16 +8658,24 @@ mod drag_tests {
                 "read on the launch's own thread"
             );
         }
-        let start = SRC
-            .split_once(concat!("fn start() -> ", "Hosts {"))
-            .map(|(_, rest)| rest)
-            .expect("the read's start");
+        let body = |head: &str| {
+            SRC.split_once(head)
+                .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+                .map(|(body, _)| body)
+                .expect(head)
+        };
         assert!(
-            start
-                .split_once("\n    }\n")
-                .expect("its end")
-                .0
-                .contains(".spawn(machine_names)"),
+            body(concat!(
+                "fn start(wake: impl Fn() + Send + 'static) -> ",
+                "Hosts {"
+            ))
+            .contains(concat!("Hosts::start_", "with(given, machine_names, wake)")),
+            "every name read by machine_names"
+        );
+        let with = body(concat!("    fn start_", "with("));
+        assert!(
+            with.contains(".spawn(move || {")
+                && with.contains(concat!("std::panic::catch_", "unwind(names)")),
             "on a thread of its own"
         );
     }
@@ -8688,7 +8698,7 @@ mod drag_tests {
             .find(concat!("Pty::", "spawn("))
             .expect("the control: the shell is spawned in the launch");
         for start in [
-            concat!("Hosts::", "start()"),
+            concat!("Hosts::", "start("),
             concat!("Boot::", "start_probe("),
         ] {
             let at = launch
@@ -12495,8 +12505,11 @@ impl Driver {
         // The other settings the window follows, on the turn their
         // notification woke, as the display options are (`follow_settings`).
         self.follow_settings();
+        // This machine's names, on the turn their read's wake runs (`Hosts`),
+        // and on any turn after it: a read that ended before the window's
+        // waker was set woke no one.
+        self.link_host_check();
         if let Trigger::Tick = trigger {
-            self.link_host_check();
             self.paths_turn();
             self.notice_turn();
             // The indicator line's printer field, read at the pace 070-14's
@@ -14202,8 +14215,15 @@ impl Shell {
         // it; the GPU's probe loads its driver. Started here, neither is in
         // either at the fork, and the probe starts 2-3 ms later.
         let gpu_probe = Boot::start_probe(boot.request);
-        // This machine's names, read while the launch goes on (`Hosts`).
-        let hosts = Hosts::start();
+        // This machine's names, read while the launch goes on (`Hosts`), the
+        // read waking the main thread once it has stored them, as the pty's
+        // reader does.
+        let wake_hosts = Arc::clone(&late);
+        let hosts = Hosts::start(move || {
+            if let Some(w) = wake_hosts.get() {
+                w.wake();
+            }
+        });
         startup_mark("hosts");
         // The process events the derived title is checked on (`fg::Watch`),
         // waking the main thread as the pty's reader does.
@@ -15284,6 +15304,8 @@ impl Driver {
     /// machine's, to the policy and the paths alike. At opening, the name
     /// `gethostname` gives (`Hosts::given`); then every name, once read.
     fn hand_host_names(&mut self, names: Vec<String>) {
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::hand_names();
         let names = crate::link::MachineNames::of(names);
         crate::link::hand_names(names, &mut self.app.uris, &mut self.app.paths);
         self.app.lines.forget();
@@ -21988,12 +22010,16 @@ impl PrinterList {
 /// paths at opening, and judges a report by it, so a `file://` link, a
 /// printed `./` path and the title from a report naming this machine light
 /// whatever the reverse lookup behind `hostName` takes. The thread's names
-/// follow, handed once it ends if they add any (`owed`).
+/// follow, handed once it ends if they add any (`owed`): **the thread wakes
+/// the window when it has stored them**, so the turn that wake runs takes
+/// them, a paused window's included, and no tick polls for them. The names
+/// are stored before the wake, so the turn it runs finds them.
 enum Hosts {
-    /// `gethostname`'s name, given, and the thread reading every name.
+    /// `gethostname`'s name, given, and where the thread reading every name
+    /// stores them before its wake.
     Reading {
         given: Vec<String>,
-        thread: std::thread::JoinHandle<Vec<String>>,
+        read: Arc<OnceLock<Vec<String>>>,
     },
     /// Every name, read, and whether the links still lack any of them.
     Read {
@@ -22022,15 +22048,31 @@ enum HostsRead {
 
 impl Hosts {
     /// `gethostname`'s name now, and the read of every name started on its
-    /// own thread; on the calling thread when no thread can be made.
-    fn start() -> Hosts {
+    /// own thread, which stores them and then calls `wake`; on the calling
+    /// thread when no thread can be made. A read that panics stores the
+    /// given name.
+    fn start(wake: impl Fn() + Send + 'static) -> Hosts {
         let given: Vec<String> = crate::hostlog::machine_name().into_iter().collect();
+        Hosts::start_with(given, machine_names, wake)
+    }
+
+    /// [`Hosts::start`] with `given` and the read of every name, `names`.
+    fn start_with(
+        given: Vec<String>,
+        names: fn() -> Vec<String>,
+        wake: impl Fn() + Send + 'static,
+    ) -> Hosts {
+        let read = Arc::new(OnceLock::new());
+        let (store, fallback) = (Arc::clone(&read), given.clone());
         match std::thread::Builder::new()
             .name("hosts".into())
-            .spawn(machine_names)
-        {
-            Ok(thread) => Hosts::Reading { given, thread },
-            Err(_) => Hosts::read(&given, machine_names()),
+            .spawn(move || {
+                let names = std::panic::catch_unwind(names).unwrap_or(fallback);
+                let _ = store.set(names);
+                wake();
+            }) {
+            Ok(_) => Hosts::Reading { given, read },
+            Err(_) => Hosts::read(&given, names()),
         }
     }
 
@@ -22057,24 +22099,14 @@ impl Hosts {
         }
     }
 
-    /// Whether the thread has ended, its names taken when it has; never
-    /// waited for. A thread that ended in a panic leaves the given name.
+    /// Whether the thread has stored every name, taken when it has; never
+    /// waited for.
     fn ended(&mut self) -> HostsRead {
-        if let Hosts::Reading { thread, .. } = self {
-            if !thread.is_finished() {
+        if let Hosts::Reading { given, read } = self {
+            let Some(names) = read.get() else {
                 return HostsRead::Given;
-            }
-            let taken = core::mem::replace(
-                self,
-                Hosts::Read {
-                    names: Vec::new(),
-                    links: HostsHanded::All,
-                },
-            );
-            if let Hosts::Reading { given, thread } = taken {
-                let names = thread.join().unwrap_or_else(|_| given.clone());
-                *self = Hosts::read(&given, names);
-            }
+            };
+            *self = Hosts::read(given, names.clone());
         }
         HostsRead::Every
     }
@@ -22221,38 +22253,85 @@ mod host_tests {
     /// take joined the thread, and the logo's frames waited on the read.
     #[test]
     fn the_machines_names_are_never_waited_for() {
-        let (release, held) = std::sync::mpsc::channel::<()>();
-        let reading = std::thread::spawn(move || {
-            let _ = held.recv();
-            vec!["here".to_string()]
-        });
+        let read = std::sync::Arc::new(std::sync::OnceLock::new());
         let mut hosts = Hosts::Reading {
             given: vec!["given".to_string()],
-            thread: reading,
+            read: std::sync::Arc::clone(&read),
         };
         assert_eq!(hosts.given(), ["given"], "the given name at once");
-        let (tx, rx) = std::sync::mpsc::channel();
-        let taker = std::thread::spawn(move || {
-            let _ = tx.send(hosts.names().map(<[String]>::to_vec));
-            hosts
-        });
-        let answer = rx.recv_timeout(std::time::Duration::from_secs(2));
-        release.send(()).expect("the read is held");
-        let mut hosts = taker.join().expect("the take returns");
-        assert_eq!(answer, Ok(None), "answered at once, with none");
-        let names = loop {
-            if let Some(n) = hosts.names() {
-                break n.to_vec();
-            }
-            std::thread::yield_now();
-        };
-        assert_eq!(names, ["here"], "the names once the read has ended");
+        assert_eq!(hosts.names(), None, "answered at once, with none");
+        let _ = read.set(vec!["here".to_string()]);
+        let names = hosts.names().map(<[String]>::to_vec);
+        assert_eq!(
+            names.as_deref(),
+            Some(&["here".to_string()][..]),
+            "once stored"
+        );
         assert_eq!(
             hosts.owed(),
             Some(vec!["here".to_string()]),
             "owed: it adds one"
         );
         assert_eq!(hosts.owed(), None, "owed once");
+    }
+
+    /// **The names are taken on every turn, not on the tick alone**: the
+    /// read's wake runs a turn, which hands what the read stored, a paused
+    /// window's included. The pump is AppKit-bound, so this holds its
+    /// source; the frame rig's row of the names read late holds the turn.
+    /// Perturbation: the check moved back into the tick's arm -- it fails
+    /// here.
+    #[test]
+    fn the_names_are_taken_on_every_turn() {
+        const SRC: &str = include_str!("app.rs");
+        let pump = SRC
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .map(|(_, rest)| rest)
+            .expect("the pump");
+        let (before, tick) = pump
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .expect("the tick arm");
+        let tick = tick.split_once('}').map_or(tick, |(arm, _)| arm);
+        assert!(
+            before.contains(concat!("self.link_host_", "check();")),
+            "every turn takes the names"
+        );
+        assert!(
+            !tick.contains(concat!("self.link_host_", "check();")),
+            "{tick}"
+        );
+    }
+
+    /// **The read wakes the window once it has stored every name**, so the
+    /// turn that wake runs finds them: the wake comes after the store, and
+    /// a read that panics stores the given name and wakes all the same.
+    /// Perturbation: the wake before the store -- the names are not there
+    /// on the wake, or the wake never comes.
+    #[test]
+    fn the_read_wakes_the_window_once_its_names_are_stored() {
+        use std::sync::mpsc::channel;
+        fn read() -> Vec<String> {
+            vec!["here".to_string(), "here.local".to_string()]
+        }
+        fn panics() -> Vec<String> {
+            panic!("a read that fails")
+        }
+        for (names, want) in [
+            (
+                read as fn() -> Vec<String>,
+                vec!["here".to_string(), "here.local".to_string()],
+            ),
+            (panics, vec!["here".to_string()]),
+        ] {
+            let (woke, wakes) = channel::<()>();
+            let mut hosts = Hosts::start_with(vec!["here".to_string()], names, move || {
+                let _ = woke.send(());
+            });
+            wakes
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the read wakes the window");
+            assert_eq!(hosts.names().map(<[String]>::to_vec), Some(want));
+        }
     }
 
     /// **`gethostname`'s name reaches the links and the paths at opening**,
