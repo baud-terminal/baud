@@ -7371,6 +7371,40 @@ mod alt_window_tests {
         );
     }
 
+    /// **The paths' turns owe the hover a read only when an answer moved
+    /// them** (`answered_of`): their generation or the lines' provenance,
+    /// which a hover read depends on. A frame the lines owe for a row that
+    /// changed is output's, which the frame's own compare reads where it
+    /// moved, and owes the hover nothing. AppKit-bound, so this holds the
+    /// source of both turns. Perturbation: the mark on the lines' owed
+    /// frame, as it was -- it fails here.
+    #[test]
+    fn a_paths_turn_owes_the_hover_only_when_an_answer_moved_it() {
+        const SRC: &str = include_str!("app.rs");
+        const MARK: &str = concat!(
+            "if answered_of(&app.paths) != answered {\n",
+            "            app.hover_owed = crate::link::HoverOwed::Yes;\n        }"
+        );
+        for head in [
+            concat!("    fn paths_", "turn(&mut self) {"),
+            concat!("    fn paths_", "answered(&mut self) {"),
+        ] {
+            let body = SRC.split_once(head).map(|(_, r)| r).expect(head);
+            let body = &body[..body.find("\n    }\n").expect("its end")];
+            assert!(
+                body.contains(concat!("let answered = ", "answered_of(&app.paths);")),
+                "{head}: not read before the turn"
+            );
+            assert!(body.contains(MARK), "{head}: not marked by the answers");
+            assert_eq!(
+                body.matches(concat!("hover_owed = ", "crate::link::HoverOwed::Yes"))
+                    .count(),
+                1,
+                "{head}: marked elsewhere"
+            );
+        }
+    }
+
     /// **The `OSC 52` poll is the feed's per-read callback.** The pump is
     /// AppKit-bound and no test drives it, so this holds the source: the
     /// pump's one `reads::feed` call hands it `clips.poll`, which then runs
@@ -15270,6 +15304,7 @@ impl Driver {
     fn paths_turn(&mut self) {
         let app = &mut self.app;
         let master = app.pty.reads().master;
+        let answered = answered_of(&app.paths);
         let mut layer = crate::link_layer::Layer {
             term: &app.term,
             scrolled: app.scrolled,
@@ -15280,10 +15315,14 @@ impl Driver {
         };
         let turn = crate::link_layer::tick(&mut app.probes, &mut layer, host_now(), master);
         app.links.checks = app.probes.counts;
-        if turn.frame == crate::paths::Owed::Yes {
-            // An answer merged: a printed path under the pointer may open
-            // now, or be gone.
+        // An answer merged -- the answers or the lines' provenance moved --
+        // owes the hover a read: a printed path under the pointer may open
+        // now, or be gone. A frame the lines owe for a row that changed
+        // owes it none; that frame's own compare reads it where it moved.
+        if answered_of(&app.paths) != answered {
             app.hover_owed = crate::link::HoverOwed::Yes;
+        }
+        if turn.frame == crate::paths::Owed::Yes {
             app.owe_frame();
         }
     }
@@ -15295,6 +15334,7 @@ impl Driver {
     /// (`paths_turn`).
     fn paths_answered(&mut self) {
         let app = &mut self.app;
+        let answered = answered_of(&app.paths);
         let mut layer = crate::link_layer::Layer {
             term: &app.term,
             scrolled: app.scrolled,
@@ -15305,10 +15345,14 @@ impl Driver {
         };
         let turn = crate::link_layer::answers(&mut app.probes, &mut layer);
         app.links.checks = app.probes.counts;
-        if turn.frame == crate::paths::Owed::Yes {
-            // An answer merged: a printed path under the pointer may open
-            // now, or be gone.
+        // An answer merged -- the answers or the lines' provenance moved --
+        // owes the hover a read: a printed path under the pointer may open
+        // now, or be gone. A frame the lines owe for a row that changed
+        // owes it none; that frame's own compare reads it where it moved.
+        if answered_of(&app.paths) != answered {
             app.hover_owed = crate::link::HoverOwed::Yes;
+        }
+        if turn.frame == crate::paths::Owed::Yes {
             app.owe_frame();
         }
         if let Some(done) = turn.clicked {
@@ -21998,6 +22042,16 @@ impl TitlePaced {
             Some(_) => TitleTurn::Wait,
         }
     }
+}
+
+/// **What the paths' answers stand at**: their generation and the lines'
+/// provenance's, which a worker's answer moves and a hover read depends on
+/// (`link::Hover::under_moved`).
+fn answered_of(
+    paths: &crate::paths::Paths,
+) -> (crate::paths::Generation, crate::paths::Generation) {
+    use crate::paths::PathsAt;
+    (paths.generation(), paths.origins())
 }
 
 /// Whether a title waits for this machine's names: the shell's `OSC 7`

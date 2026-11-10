@@ -1261,8 +1261,9 @@ enum Settles {
     Previewed,
     /// **Output on rows away from a resting pointer, and no read of it**:
     /// the link under the pointer previewed by the pointer's own event, at
-    /// least `drawn` frames of the output drawn, and not one read of the
-    /// link under the pointer after the settle.
+    /// least `drawn` frames of the output drawn -- one, the act waited for
+    /// to its end, guards against a run that drew nothing -- and not one
+    /// read of the link under the pointer after the settle.
     Unread { drawn: u64 },
     /// **Scrolling output under a resting pointer, read for the frames**:
     /// the hover read at least once, no more often than a frame was drawn,
@@ -1634,26 +1635,30 @@ const FRAME_SITES: [FrameSite; 18] = [
     },
     // **FS-A3, the other side**: output on rows away from a resting pointer
     // reads nothing under it. The pointer rests on a URI on the first row;
-    // a loop writes rows nine to fourteen by cursor address, so no row
-    // scrolls, over many turns and the ticks offered, each drawn. Not one
-    // read of the link under the pointer follows the settle: a turn's
-    // output owes the hover a read only where it wrote what the last read
-    // went over.
+    // a loop of the shell's own builtins writes rows nine to fourteen by
+    // cursor address, so no row scrolls, the ticks offered, and ends by
+    // clearing the pasteboard, which the run waits for, so the whole act is
+    // fed and drawn whatever the machine's pace. Not one read of the link
+    // under the pointer follows the settle: a turn's output owes the hover a
+    // read only where it wrote what the last read went over. The loop starts
+    // no program and the printed paths are off: a paths worker answer that
+    // moves them owes the hover a read, an event this row is not about.
     FrameSite {
         name: SiteName("output away from a resting pointer reads nothing under it"),
         setup: r"printf '\033[2J\033[Hhttps://example.com/\033[5H\033]52;c;!\007'",
-        act: r"i=0; while [ $i -lt 40 ]; do printf '\033[%d;1Hout %d' $((i%6+9)) $i; i=$((i+1)); sleep 0.02; done",
+        act: r"i=0; while [ $i -lt 400 ]; do printf '\033[%d;1Hout %d' $((i%6+9)) $i; i=$((i+1)); done; printf '\033]52;c;!\007'",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::Offered,
         window: RigWindow::PointerOver,
         env: &[],
         config: concat!(
+            "[link]\npaths = \"off\"\nmissing = \"off\"\n",
             "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
             "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
         ),
         focus: RigFocus::Believed,
         attempts: Iterations(200),
-        expect: Settles::Unread { drawn: 10 },
+        expect: Settles::Unread { drawn: 1 },
         state: RowState::Green,
     },
     // **FS-A3's M1**: scrolling output under a resting pointer moves the

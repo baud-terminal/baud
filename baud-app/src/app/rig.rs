@@ -598,14 +598,38 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::CommandExits => drop(command_input.take()),
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
-    match rig.ticks {
-        RigFrameTicks::Offered => offer(rig.attempts.0),
-        // The run loop run as long, with no tick: the act's own turns.
+    // The run: `attempts` ticks offered, or the run loop run as long with
+    // no tick, the act's own turns.
+    let run = |n: u16| match rig.ticks {
+        RigFrameTicks::Offered => offer(n),
         RigFrameTicks::Withheld => {
-            for _ in 0..rig.attempts.0 {
+            for _ in 0..n {
                 probe::pass(0.01);
             }
         }
+    };
+    run(rig.attempts.0);
+    // **An act that ends by clearing the pasteboard is waited for**, as the
+    // setup is: the run goes on until that clear, within the bound, and
+    // then as long as the setup's settle, so what the act wrote is all fed
+    // and drawn whatever the machine's pace, and the row's counts are the
+    // whole act's.
+    if rig.act.contains("]52;c;!") {
+        let start = Instant::now();
+        let mut signed = probe::take()
+            .iter()
+            .any(|r| r.kind == probe::EffectKind::Clear);
+        while !signed && start.elapsed() < BOUND {
+            run(1);
+            signed = probe::take()
+                .iter()
+                .any(|r| r.kind == probe::EffectKind::Clear);
+        }
+        if !signed {
+            println!("the act never finished");
+            return std::process::ExitCode::from(1);
+        }
+        run(30);
     }
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
