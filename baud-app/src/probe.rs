@@ -7826,15 +7826,73 @@ mod tests {
         assert_eq!(lit_driven(TALL, named_groups(), &reads), [0]);
     }
 
+    /// **A row a remote read reached below its span, and left, stays dark
+    /// under the shell's prompt that moves onto it, by the core's record of
+    /// the lowest line the read reached alone** (F5, E5's `sank`): under
+    /// `ssh h`, a read that feeds a line down, writes `/etc/passwd` there,
+    /// moves back up and ends writing `bye` on the row it began on -- its
+    /// last write and its cursor above the path's row; the shell's `D` in a
+    /// read of its own; then a prompt read that feeds a line onto the
+    /// path's row and draws `$ ` there. Row 2 stays dark. Every other layer
+    /// is off, each shown by a control in this test: the remote's own span
+    /// ends above the row, and the prompt read is the shell's alone -- no
+    /// group sampled before it and no cut -- so the same session, its
+    /// remote read writing nothing below, lights `/etc/hosts` typed at the
+    /// prompt on that row; and the same bytes under a command named here
+    /// light the path. Named break: no record at the climb (the core's
+    /// `record_climb` a no-op) -- row 2 lights.
+    #[test]
+    fn a_row_a_remote_read_reached_below_is_dark_by_its_record_alone() {
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let below = [
+            b"\r\n".as_slice(),
+            &b" ".repeat(20),
+            b"/etc/passwd\x1b[A\rbye",
+        ]
+        .concat();
+        let prompt = |typed: &str| format!("\r\n\x1b]133;A;aid=1\x07$ {typed}").into_bytes();
+        let run = |start: &[u8], remote: &[u8], g: Pid, prompt: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(start, 1),
+                    read(remote, g),
+                    read(&d, 1),
+                    read(prompt, 1),
+                ],
+            )
+        };
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        assert_eq!(
+            run(&ssh, b"bye", 9, &prompt("/etc/hosts")),
+            [2],
+            "the control: the prompt read is the shell's alone"
+        );
+        assert_eq!(
+            run(&ran("cat x", ";cmdline=cat\\ x"), &below, 2, &prompt("")),
+            [2],
+            "the control: written here, the path lights"
+        );
+        assert_eq!(run(&ssh, &below, 9, &prompt("")), Vec::<usize>::new());
+    }
+
     /// **A row a remote read wrote below its span, coming back up after,
-    /// stays dark under the prompt that lands there** (F5): the read is
-    /// filed over every line its record says it reached, the row below
-    /// included ([`below_and_back`]). In two shapes: `logout` in ssh's read
-    /// and the prompt in a read of its own, filed as the shell's; and
-    /// `logout`, the `D` and the prompt in one read, which the cut reaches
-    /// the row through. Named break: file each read only from the line it
-    /// began on to the line it ended on, leaving out the lines its record
-    /// says it reached off that path -- row 2 lights in both.
+    /// stays dark under the prompt that lands there** (F5,
+    /// [`below_and_back`]): in two shapes, `logout` in ssh's read and the
+    /// prompt in a read of its own; and `logout`, the `D` and the prompt in
+    /// one read, behind the cut. A paired-layer row: two layers each hold
+    /// it alone. The remote read's record of the lowest line it reached
+    /// (the core's `sank`) files it over the row below; and `logout`'s line
+    /// feed ends its read on that row, which holds the path, so its record
+    /// vouches nothing clean there (`vouch::Below`, its end row) and the
+    /// row is that read's. Named break: both -- no record at the climb (the
+    /// core's `record_climb` a no-op) and the end line vouched clean
+    /// whatever its row holds -- row 2 lights in both shapes; either alone
+    /// leaves it dark. Each layer is pinned alone elsewhere:
+    /// [`a_row_a_remote_read_reached_below_is_dark_by_its_record_alone`]
+    /// and `read_record.rs`'s climb tests for the record,
+    /// [`text_after_a_remote_reads_last_line_feed_stays_the_reads`] for the
+    /// end row.
     #[test]
     fn a_row_written_below_a_remote_reads_span_stays_dark() {
         let [start, remote, logout, prompt] = below_and_back();
@@ -10757,14 +10815,16 @@ mod tests {
         assert_eq!(origins, want);
     }
 
-    /// **Where F5 does not reach, the row written below stays dark**:
-    /// [`below_and_back`]'s bytes all in one read, whose move up refuses
-    /// the cut, and its reads taken in one drain, whose span reaches the
-    /// prompt's row under the remote read. Named breaks: let any escape
-    /// before the `D` through (`Forward::of`) and file the part before the
-    /// cut by the plan's reach, not its own bytes' (`reads::paced_one`) --
-    /// the one read lights; neither alone does, each holding it; a drain's
-    /// reach the last read's alone (`Reach::then`) -- the drain lights.
+    /// **The row written below stays dark in one read or one drain**:
+    /// [`below_and_back`]'s bytes all in one read, and its reads taken in
+    /// one drain. A paired-layer row, held by the same two layers as
+    /// [`a_row_written_below_a_remote_reads_span_stays_dark`]: the remote
+    /// part's record of the lowest line it reached, and `logout`'s part
+    /// ending on the path's row, which its record vouches nothing clean
+    /// on. Named break: both -- no record at the climb (the core's
+    /// `record_climb` a no-op) and the end line vouched clean whatever its
+    /// row holds -- the one read and the drain light; either alone leaves
+    /// them dark.
     #[test]
     fn a_row_written_below_stays_dark_in_one_read_or_one_drain() {
         let [start, remote, logout, prompt] = below_and_back();
