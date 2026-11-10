@@ -515,6 +515,9 @@ impl Paint<'_, '_> {
             0x07 => StringTerm::Bel,
             _ => StringTerm::St,
         };
+        if !str_writes_no_cell(self.cold.str_kind) {
+            self.control_may_write();
+        }
         match self.cold.str_kind {
             StrKind::Osc => self.dispatch_osc(term),
             StrKind::Sixel => self.sixel_end(),
@@ -1363,6 +1366,32 @@ pub(crate) enum StrKind {
     /// image data, decoded into the PNG scratch as it arrives (`file.rs`).
     /// Reached through the body's own bytes, as `Clipboard` is.
     ItermFile,
+}
+
+/// **Whether a control string is known to write no cell** of the row the
+/// cursor is on as it ends (`Paint::control_may_write`): reports, settings,
+/// the clipboard, the titles and marks of `OSC`, a restore whose replayed
+/// functions answer for themselves. The pictures -- Sixel, kitty's, ReGIS's
+/// and iTerm2's -- draw over cells. Exhaustive, as `write::writes_no_cell`
+/// is.
+fn str_writes_no_cell(kind: StrKind) -> bool {
+    match kind {
+        StrKind::Osc
+        | StrKind::Decrqss
+        | StrKind::Clipboard
+        | StrKind::Other
+        | StrKind::Apc
+        | StrKind::RestoreCursor
+        | StrKind::RestoreTabs
+        | StrKind::LocatorKeys
+        | StrKind::Tcap
+        | StrKind::TcapCut
+        | StrKind::Notice
+        | StrKind::RestoreTerminal
+        | StrKind::RestoreColors
+        | StrKind::ColorControl => true,
+        StrKind::Sixel | StrKind::Kitty | StrKind::Regis | StrKind::ItermFile => false,
+    }
 }
 
 impl StrKind {

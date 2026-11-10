@@ -432,7 +432,13 @@ impl<'a, 'b> Paint<'a, 'b> {
             images,
             ..
         } = store;
-        let hooks = WriteHooks::of(images, cold.watched, cold.bell.armed, flags);
+        let hooks = WriteHooks::of(
+            images,
+            cold.watched,
+            cold.bell.armed,
+            flags,
+            start_window(cold),
+        );
         // **The live surface by which screen is up.** The primary is the
         // ring -- the screen's capacity plus the scrollback -- and the
         // alternate is a ring of the capacity alone, so a scroll there
@@ -2507,7 +2513,8 @@ impl<'a, 'b> Paint<'a, 'b> {
                     self.images,
                     self.cold.watched,
                     self.cold.bell.armed,
-                    self.flags
+                    self.flags,
+                    start_window(self.cold)
                 ) == WriteHooks::Off
             );
             return;
@@ -2525,6 +2532,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.overwrite_images(start, end);
         self.wrote_rows(self.cy, self.cy);
+        // The read's first text decides whether it wrote its first line:
+        // on it, `wrote_rows` said so; off it, a return is a climb. Text on
+        // the status display is neither (`record_start_rows` passes it by):
+        // the window stays as it was.
+        #[cfg(feature = "read-record")]
+        if !self.on_status() {
+            self.cold.record.start_left();
+        }
         self.margin_bell(start, end);
         self.rehook();
     }
@@ -2538,8 +2553,15 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the one caller each of its tests has.
     pub(crate) fn overwrote_unprinted(&mut self, start: Col, end: Col) {
         let armed = self.cold.bell.armed.take();
+        // Nor is it the read's text at the cursor, which alone closes the
+        // window on the read's first line: a rectangle's row reached is
+        // told as written, the window kept open behind it.
+        #[cfg(feature = "read-record")]
+        let window = self.cold.record.start_window();
         self.overwrote(start, end);
         self.cold.bell.armed = armed;
+        #[cfg(feature = "read-record")]
+        self.cold.record.reopened(window);
         self.rehook();
     }
 
@@ -2582,6 +2604,22 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.cold.bell.folded = 0;
     }
 
+    /// **A control function not known to write no cell ran with the
+    /// cursor on its row**: where the row is the line the read began on and
+    /// the read has not written it yet, it has now ([`crate::StartRow`]).
+    /// Fail closed by construction: each dispatch names the functions that
+    /// write no cell (`write::writes_no_cell`, `write::esc_writes_no_cell`,
+    /// `osc::str_writes_no_cell`), exhaustively, and every other one comes
+    /// here, so a writer no list of writers named still decides the line.
+    /// One compare of the record's byte a call once the line is written.
+    #[inline(always)]
+    pub(crate) fn control_may_write(&mut self) {
+        #[cfg(feature = "read-record")]
+        if self.cold.record.start_row() == crate::record::StartRow::Untouched {
+            self.record_start_rows(self.cy, self.cy);
+        }
+    }
+
     /// [`Paint::hooks`] read again, after anything that may have placed an
     /// image and on the hooked path itself.
     pub(crate) fn rehook(&mut self) {
@@ -2590,6 +2628,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cold.watched,
             self.cold.bell.armed,
             self.flags,
+            start_window(self.cold),
         );
     }
 
@@ -2612,6 +2651,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         #[cfg(feature = "read-record")]
         if from < self.cy || to > self.cy {
             self.record_rows(from, to);
+        }
+        #[cfg(feature = "read-record")]
+        if self.cold.record.start_row() == crate::record::StartRow::Untouched {
+            self.record_start_rows(from, to);
         }
         if self.cold.watched == crate::term::Watched::Rows {
             self.watch_written(from, to);
@@ -2835,8 +2878,20 @@ enum WrapAt {
     LineEnd,
 }
 
-/// [`Paint::hooks`]: whether a write of text has an image, a watch or an
-/// armed margin bell to tell.
+/// **Whether the read's text may still land on its first line**
+/// ([`crate::record::StartWindow`]): never, built without the record.
+fn start_window(cold: &crate::term::Cold) -> crate::record::StartWindow {
+    #[cfg(feature = "read-record")]
+    return cold.record.start_window();
+    #[cfg(not(feature = "read-record"))]
+    {
+        let _ = cold;
+        crate::record::StartWindow::Closed
+    }
+}
+
+/// [`Paint::hooks`]: whether a write of text has an image, a watch, an
+/// armed margin bell, or the read's first line still open to tell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum WriteHooks {
     Off,
@@ -2849,11 +2904,13 @@ impl WriteHooks {
         watched: crate::term::Watched,
         armed: Option<crate::margin::Line>,
         flags: CellFlags,
+        start: crate::record::StartWindow,
     ) -> WriteHooks {
         match images.any_placed()
             || watched == crate::term::Watched::Rows
             || armed.is_some()
             || !flags.link().is_none()
+            || start == crate::record::StartWindow::Open
         {
             true => WriteHooks::On,
             false => WriteHooks::Off,

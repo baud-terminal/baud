@@ -620,3 +620,166 @@ fn the_mark_line_is_the_window_top_each_record_counts_from() {
         );
     });
 }
+
+/// **Whether a read wrote the line it began on** (`StartRow`): each
+/// writer, on the line the cursor stands on as the read begins -- text,
+/// text after a carriage return, `REP`, `EL`, `ECH`, `ED` reaching it,
+/// `ICH`, `DCH`, `DECFRA`, `DECERA`, `DECCRA` onto it -- says it wrote it;
+/// so does any control function not known to write no cell run with the
+/// cursor on the line, wherever it writes: `DECFRA` on the line above, a
+/// switch to the alternate screen (`Paint::control_may_write`). A carriage
+/// return, a line feed, a cursor move or a rendition alone, and the text
+/// that follows on later lines, leave it untouched; so does `DECFRA` on
+/// the line above run from there. A climb back onto it is named off the
+/// path instead. Named breaks: the fact never set
+/// (`Paint::record_start_rows` a no-op) -- every writer reads untouched; a
+/// rectangle's row closing the window (`Paint::overwrote_unprinted`
+/// without `reopened`) -- text after a rectangle run from the line above
+/// reads untouched.
+/// **Every scroll that copies rows over the line a read began on records a
+/// move on that line's screen** (`Cold::band_moved`, `Cold::moved_in_place`):
+/// a line feed at the bottom of a region below the top, the alternate
+/// screen's copy of a short top region, `RI` at a region's top margin, a
+/// line feed under side margins, and a prompt pinned to the last row at its
+/// `133;B`. Only
+/// the full screen's scroll, a turn of the ring that keeps each line's
+/// text on its own number, records none, and an embedder holds the line
+/// on any move (StartRow). Named breaks: a full-width band moved with no
+/// record (`band_moved` without `record_band`) -- the region's, the
+/// alternate's, `RI`'s and the pin's read with no move; a rectangle moved
+/// with none (`moved_in_place` without `record_within`) -- the side
+/// margins' does.
+#[test]
+fn every_scroll_that_copies_onto_the_start_line_records_a_move() {
+    let moved_onto_start = |rec: ReadRecord| {
+        let start = rec.start();
+        rec.moves()
+            .iter()
+            .any(|m| m.screen() == start.screen && m.band().holds(start.line))
+    };
+    let mut got: Vec<bool> = [
+        (b"\x1b[5;10r\x1b[10;1Habc".as_slice(), b"\n".as_slice()),
+        (b"\x1b[?1049h\x1b[1;5r\x1b[5;1Habc", b"\n"),
+        (b"\x1b[5;10r\x1b[5;1Habc", b"\x1bM"),
+        (b"\x1b[?69h\x1b[2;20s\x1b[5;10r\x1b[10;5Habc", b"\n"),
+    ]
+    .into_iter()
+    .map(|(before, bytes)| moved_onto_start(after(&WS, before, bytes)))
+    .collect();
+    got.push(moved_onto_start(support::with_term(&WS, |t| {
+        t.set_prompt_at_bottom(baud_domain::PromptAtBottom::On);
+        let _ = read(t, b"out\r\n");
+        read(t, b"\x1b]133;A\x07$ \x1b]133;B\x07")
+    })));
+    // The control: the full screen's scroll moves no line's text off its
+    // number.
+    got.push(moved_onto_start(after(&WS, b"\x1b[24;1Habc", b"\n")));
+    // The region's, the alternate's, `RI`'s, the side margins', the pin's;
+    // the ring's.
+    assert_eq!(got, [true, true, true, true, true, false]);
+}
+
+/// **A control function that may write a cell, run with the cursor on the
+/// line a read began on, says it wrote it, though no list of writers names
+/// it** (`Paint::control_may_write`): `IL` and `DL` on the bottom margin,
+/// which record no row and no move, and `DECCARA` and `DECRARA` on the
+/// line alone, which tell no row. Named break: the function placed among
+/// those that write no cell (`write::writes_no_cell`) -- it reads
+/// untouched.
+#[test]
+fn a_control_function_not_known_to_write_nothing_writes_the_start_line() {
+    for (before, bytes) in [
+        (b"\x1b[24;1Habc".as_slice(), b"\x1b[L".as_slice()),
+        (b"\x1b[24;1Habc", b"\x1b[M"),
+        (b"\x1b[1;1Habc", b"\x1b[1;1;1;3;7$r"),
+        (b"\x1b[1;1Habc", b"\x1b[1;1;1;3;7$t"),
+    ] {
+        assert_eq!(
+            after(&WS, before, bytes).start_row(),
+            StartRow::Wrote,
+            "{bytes:?}"
+        );
+    }
+}
+
+/// **Text on the status display neither decides nor closes the window on
+/// the line a read began on**: the status line taken, text written there,
+/// the main display back and text on the line -- it wrote the line. The
+/// control: the same with no text on the line -- untouched. Named break:
+/// text on the status display closing the window (`overwrote_hooked`
+/// without its `on_status` guard) -- the line's text reads untouched.
+#[test]
+fn text_on_the_status_line_leaves_the_start_lines_window_open() {
+    let before = b"\x1b[2$~abc";
+    assert_eq!(
+        after(&WS, before, b"\x1b[1$}s\x1b[0$}\rx").start_row(),
+        StartRow::Wrote
+    );
+    assert_eq!(
+        after(&WS, before, b"\x1b[1$}s\x1b[0$}").start_row(),
+        StartRow::Untouched,
+        "the control"
+    );
+}
+
+/// **A reset writes the line a read began on, wherever the cursor stands**:
+/// `RIS` from the alternate screen after it scrolled, with the cursor on
+/// the line and a row below it. Named break: the reset leaving the fact as
+/// it was (`hard_reset` without `start_wrote`) -- the row below reads
+/// untouched.
+#[test]
+fn a_reset_writes_the_start_line() {
+    let before = [b"\x1b[?1049h".as_slice(), &[b'\n'; 30], b"abc"].concat();
+    for bytes in [b"\x1bc".as_slice(), b"\n\x1bc"] {
+        assert_eq!(
+            after(&WS, &before, bytes).start_row(),
+            StartRow::Wrote,
+            "{bytes:?}"
+        );
+    }
+}
+
+#[test]
+fn a_read_says_whether_it_wrote_the_line_it_began_on() {
+    let prompt = b"$ /etc/hosts\r\nx\r\n\x1b[A";
+    let start = |bytes: &[u8]| after(&WS, prompt, bytes).start_row();
+    for wrote in [
+        b"z".as_slice(),
+        b"\rz",
+        b"z\x1b[3b",
+        b"\x1b[K",
+        b"\x1b[2X",
+        b"\x1b[B\x1b[1J",
+        b"\x1b[@",
+        b"\x1b[P",
+        b"\x1b[46;2;1;2;5$x",
+        b"\x1b[2;1;2;5$z",
+        b"\x1b[1;1;1;5;1;2;1;1$v",
+        b"\x1b[46;1;1;1;5$x",
+        b"\x1b[?1049hz\x1b[K",
+    ] {
+        assert_eq!(start(wrote), StartRow::Wrote, "{wrote:?}");
+    }
+    for untouched in [
+        b"\r".as_slice(),
+        b"\r\n",
+        b"\n",
+        b"\x1b[5;5H",
+        b"\x1b[1;31m",
+        b"\r\nls output\r\n",
+        b"\x1b[A\x1b[46;1;1;1;5$x\x1b[B",
+    ] {
+        assert_eq!(start(untouched), StartRow::Untouched, "{untouched:?}");
+    }
+    // A rectangle written on another row is not the read's text: the
+    // line is still open to it.
+    for rect_then_text in [
+        b"\x1b[A\x1b[46;1;1;1;5$x\x1b[B\rz".as_slice(),
+        b"\x1b[A\x1b[2;1;2;5;1;1;1;1$v\x1b[B\rz",
+    ] {
+        assert_eq!(start(rect_then_text), StartRow::Wrote, "{rect_then_text:?}");
+    }
+    let climbed = after(&WS, prompt, b"\r\nout\x1b[Az");
+    assert_eq!(climbed.start_row(), StartRow::Untouched);
+    assert_eq!(climbed.off_path(Screen::Normal), rows(1, 2));
+}

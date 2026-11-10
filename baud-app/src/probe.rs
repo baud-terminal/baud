@@ -310,6 +310,29 @@ enum Keeps {
     ClearedHere,
 }
 
+/// **The line a part began on, here, where it wrote no cell of it**
+/// (`ReadRecord::start_row`) and its record names it nowhere off the path:
+/// a climb back onto it, an erase or an edit reaching it from another row.
+/// Fail closed: only where nothing else the record holds could have reached
+/// it either -- no move of text on its screen at all, however exact the
+/// band (a scroll that copies rows, a region's, the prompt's pin), no clear
+/// of the alternate screen, no change of screen, and no renumbering.
+fn untouched_start(paths: &Paths, lines: &PartLines, w: &Writers) -> Option<LineSpan> {
+    let rec = w.record.filter(|r| r.renumbered().is_none())?;
+    let start = rec.start();
+    let off = rec.off_path(start.screen);
+    let named = off.is_some_and(|s| s.first() <= start.line && start.line <= s.last());
+    let moved = rec.moves().fill() == baud_core::Fill::Overflowed
+        || rec.moves().iter().any(|m| m.screen() == start.screen);
+    let cleared = rec.cleared() != baud_core::Cleared::No;
+    let switched = rec.end().screen != start.screen;
+    if rec.start_row() == baud_core::StartRow::Wrote || named || moved || cleared || switched {
+        return None;
+    }
+    let line = lines.line(start.screen, start.line)?;
+    Some(LineSpan::on(paths.surface(start.screen), line, line))
+}
+
 /// **The lines a part names on each surface, here** (N1): the hull of what
 /// its record says it wrote off its forward path there
 /// (`ReadRecord::off_path`) and the lines it began and ended on there,
@@ -419,6 +442,13 @@ pub struct Writers {
     pub end_row: Option<crate::vouch::EndRow>,
     /// Whether the part fed placed an image, read with its record.
     pub drew: Option<crate::vouch::Drew>,
+    /// **The line the part began on, where it wrote no cell of it**
+    /// (`ReadRecord::start_row`) and its record names it nowhere off the
+    /// path: placed here by [`Probes::drain_taken`], none before. Filed
+    /// with the part's other lines, as a link opened there needs; never
+    /// held for it (G1), so a command whose first read only feeds off the
+    /// prompt line leaves a path typed there lit.
+    pub untouched: Option<LineSpan>,
 }
 
 /// **The folder verdict of a part** (`ran::Folder`): none if the core
@@ -553,6 +583,7 @@ impl Writers {
             top: None,
             end_row: None,
             drew: None,
+            untouched: None,
         }
     }
 }
@@ -604,6 +635,7 @@ impl Sampler {
             top: None,
             end_row: None,
             drew: None,
+            untouched: None,
         };
         self.forget_at_d();
         if at.is_some() {
@@ -2027,8 +2059,13 @@ impl<T: Moment> Probes<T> {
         // Each part's marks against the core's, and the window's latch
         // stepped over them in order: a part whose marks are not trusted
         // is filed as the shell's marks had said nothing of it.
-        let stepped: Vec<(Writers, Linked)> =
-            reads.map(|(w, linked)| (self.latched(w), linked)).collect();
+        let stepped: Vec<(Writers, Linked)> = reads
+            .map(|(w, linked)| {
+                let w = self.latched(w);
+                let untouched = untouched_start(paths, &lines.part(w.top), &w);
+                (Writers { untouched, ..w }, linked)
+            })
+            .collect();
         let reads = stepped.iter().copied();
         let clears = reads
             .clone()
@@ -2550,8 +2587,18 @@ impl<T: Moment> Probes<T> {
         // keeps lighting.
         for g in groups.into_iter().flatten() {
             for over in self.lit.others(Some(g), span) {
-                if !self.held.contains(&(Some(g), over)) {
-                    self.held.push((Some(g), over));
+                // Less the line it began on, where it wrote no cell of it.
+                let mut written = [Some(over), None];
+                if let Some(start) = writers.untouched {
+                    written = [None, None];
+                    for (slot, part) in written.iter_mut().zip(over.outside(start)) {
+                        *slot = Some(part);
+                    }
+                }
+                for over in written.into_iter().flatten() {
+                    if !self.held.contains(&(Some(g), over)) {
+                        self.held.push((Some(g), over));
+                    }
                 }
             }
         }
@@ -8614,6 +8661,168 @@ mod tests {
         };
         assert_eq!(run(9), (vec![vec![]], vec![]));
         assert_eq!(run(2), (vec![vec![0]], vec![0]), "the control");
+    }
+
+    /// **A command whose first read only feeds off the prompt line leaves
+    /// a path typed there lit** (G1, `ReadRecord::start_row`): the shell's
+    /// prompt with `/etc/passwd` typed on it, named and looked up; then
+    /// `ls`'s first read, a carriage return and line feeds off that line
+    /// and its output under it -- the typed path lit before `ls`'s answer
+    /// and after. Where `ls`'s read returns and prints over the line
+    /// instead, the line is held until its answer: dark before, lit after.
+    /// Named break: hold the line a part began on whether it wrote it or
+    /// not (`Writers::untouched` ignored) -- the typed path dark before
+    /// `ls`'s answer.
+    #[test]
+    fn a_command_that_feeds_off_the_prompt_leaves_its_path_lit() {
+        let run = |first: &[u8]| {
+            lit_midway(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"$ /etc/passwd", 1)
+                    },
+                    Read {
+                        then: Then::Took,
+                        ..read(first, 2)
+                    },
+                ],
+            )
+        };
+        assert_eq!(run(b"\r\nfoo\r\n"), (vec![vec![0]], vec![0]));
+        assert_eq!(run(b"\r$ /etc/passwd x"), (vec![vec![]], vec![0]));
+    }
+
+    /// **A line a scroll copied text onto is held, though the read began on
+    /// it and wrote no cell of it itself** (StartRow, B2, F-G1a): the shell
+    /// lights `/etc/hosts` and the prompt's `/etc/passwd` in a region of
+    /// rows 2 to 5; `ssh`'s first read feeds off the prompt, prints
+    /// `file:///etc/hosts` on the bottom margin and feeds again, and the
+    /// region's scroll copies that text onto the prompt's row -- not known
+    /// before `ssh` is named. The control: no region, so no scroll moves
+    /// text and the prompt keeps its row -- lit. Named break: a line taken
+    /// as untouched whatever its screen's moves (`untouched_start` without
+    /// `moved`) -- the row reads local before `ssh` is named.
+    #[test]
+    fn a_scroll_that_copies_onto_the_start_line_holds_it() {
+        let run = |region: &'static [u8]| {
+            let first = [
+                region,
+                b"\x1b[1;1H/etc/hosts\x1b[4;1H$ /etc/passwd".as_slice(),
+            ]
+            .concat();
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(&first, 1)
+                },
+                Read {
+                    then: Then::Took,
+                    ..read(b"\r\nfile:///etc/hosts\r\n", 9)
+                },
+            ];
+            origins_midway(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &reads,
+            )[0][3]
+        };
+        assert_eq!(run(b"\x1b[2;5r"), Origin::Unknown);
+        assert_eq!(run(b""), Origin::Local, "the control: no region");
+    }
+
+    /// **The line a part began on is taken as untouched only where nothing
+    /// else its record holds could have reached it** (StartRow): a read
+    /// feeding off the line is; one that leaves it and switches to the
+    /// alternate screen (`?47`, which clears nothing), or clears the
+    /// alternate screen and comes back (`?1049`), is
+    /// not -- the core says the line is not written, and the record holds
+    /// a change it cannot place on it. Named breaks: the switch ignored
+    /// (`untouched_start` without `switched`), and the clear ignored
+    /// (without `cleared`) -- that line is taken as untouched.
+    #[test]
+    fn the_start_line_is_untouched_only_where_nothing_else_reached_it() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let untouched = |bytes: &[u8]| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let prompt = b"$ /etc/passwd";
+            t.write_at(BytePos::ZERO, prompt);
+            t.feed(BytePos::ZERO, ReadLen::from_index(prompt.len()));
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let w = Writers {
+                record: Some(t.take_record()),
+                top: Some(t.history_mark().line()),
+                ..Writers::at(None)
+            };
+            let counts = crate::keep::Counts::new(&t);
+            let paths = Paths::new(None, Forms::DEFAULT);
+            let start = w.record.map(|r| r.start_row());
+            let lines = counts.core_lines_at(Scrolled::START, &t).part(w.top);
+            (start, untouched_start(&paths, &lines, &w).is_some())
+        };
+        let core_untouched = Some(baud_core::StartRow::Untouched);
+        assert_eq!(
+            untouched(b"\r\nfoo\r\n"),
+            (core_untouched, true),
+            "feeds off it"
+        );
+        assert_eq!(
+            untouched(b"\n\x1b[?47h"),
+            (core_untouched, false),
+            "a switch"
+        );
+        assert_eq!(
+            untouched(b"\n\x1b[?1049h\x1b[?1049l"),
+            (core_untouched, false),
+            "the alternate screen cleared"
+        );
+    }
+
+    /// **A command that leaves the prompt line and comes back to print on it
+    /// is held there** (StartRow, S1): the shell's prompt, named and looked
+    /// up; `ls`'s first read prints on the line under it, moves the cursor
+    /// back to the prompt line and prints `/etc/passwd` there. The line
+    /// was not written while the cursor was still on it, but the move back
+    /// is a climb the record names off the path, so the line is held: dark
+    /// before `ls`'s answer, lit after. Named breaks: a cursor move up
+    /// recorded as no climb (`Paint::set_row` without `record_climb`), and
+    /// the line taken as untouched whatever the record names off the path
+    /// (`untouched_start` without `named`) -- either way the path lights
+    /// before `ls`'s answer.
+    #[test]
+    fn a_command_that_comes_back_to_the_prompt_line_is_held_there() {
+        let lit = lit_midway(
+            WinSize {
+                ws_col: 40,
+                ws_row: 6,
+            },
+            named_groups(),
+            &[
+                Read {
+                    then: Then::Answered,
+                    ..read(b"$ /etc/passwd", 1)
+                },
+                Read {
+                    then: Then::Took,
+                    ..read(b"\r\nfoo\x1b[1;1H/etc/passwd x", 2)
+                },
+            ],
+        );
+        assert_eq!(lit, (vec![vec![]], vec![0]));
     }
 
     /// **A move of lines nothing wrote carries nothing** (W3): on a fresh

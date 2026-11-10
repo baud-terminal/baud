@@ -92,7 +92,7 @@ mod rect;
 mod regis;
 pub use record::{
     At, Cleared, Events, Feeds, Fill, Folder, FolderEvent, Grounded, LineShift, MarkEvent, Move,
-    ReadEncoding, ReadRecord, Renumbered, Sources, Span,
+    ReadEncoding, ReadRecord, Renumbered, Sources, Span, StartRow,
 };
 mod search;
 mod shift;

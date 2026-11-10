@@ -166,7 +166,8 @@ pub enum Move {
 }
 
 impl Move {
-    fn screen(self) -> Screen {
+    /// The screen the text moved on.
+    pub fn screen(self) -> Screen {
         match self {
             Move::Exact { screen, .. } | Move::Within { screen, .. } => screen,
         }
@@ -336,6 +337,46 @@ pub enum Feeds {
     Stuck,
 }
 
+/// **Whether the read wrote a cell of the line it began on**: text while
+/// the cursor had not yet left that line, an erase or edit reaching it at
+/// any point (`Paint::wrote_rows`), a reset, or any control function not
+/// known to write no cell run with the cursor on it
+/// (`Paint::control_may_write`) -- each dispatch names those that write
+/// none, exhaustively, so a writer no list names still says the line was
+/// written. Not a write: a cursor move, a carriage return, a line feed, a
+/// rendition, a mode that changes no cell, a report. A return to the line
+/// once the cursor has left it is a climb, which the record names off the
+/// path instead ([`ReadRecord::off_path`]); text moved onto it is one of
+/// the read's moves ([`ReadRecord::moves`]). What tells a command whose
+/// first read only feeds off the prompt line from one that writes over it
+/// is all three: an embedder takes the line as untouched only where this
+/// says so and neither of the others names it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StartRow {
+    Untouched,
+    Wrote,
+}
+
+/// **Whether text written now may still be on the line the read began
+/// on**: open until the read's first text, which decides it, so a run of
+/// text tests it once a read and never again (`Paint::hooks`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum StartWindow {
+    Open,
+    Closed,
+}
+
+/// [`StartRow`] as the record keeps it while the read runs: the line not
+/// written yet with the read's text still able to land on it, or with its
+/// text off it, or written. One byte in the record's padding, where the
+/// window and the fact apart would take a word of `Cold`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StartState {
+    Open,
+    Left,
+    Wrote,
+}
+
 /// Whether the alternate screen's text was cleared in the read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cleared {
@@ -359,6 +400,7 @@ pub enum Renumbered {
 pub struct ReadRecord {
     start: At,
     end: At,
+    start_row: StartState,
     primary: Option<Span>,
     alternate: Option<Span>,
     encoding: ReadEncoding,
@@ -400,6 +442,14 @@ impl ReadRecord {
     /// Where the parser stood as the read began and as it ended.
     pub fn grounded(&self) -> (Grounded, Grounded) {
         (self.began, self.ended)
+    }
+
+    /// Whether the read wrote a cell of the line it began on ([`StartRow`]).
+    pub fn start_row(&self) -> StartRow {
+        match self.start_row {
+            StartState::Open | StartState::Left => StartRow::Untouched,
+            StartState::Wrote => StartRow::Wrote,
+        }
     }
 
     pub fn feeds(&self) -> Feeds {
@@ -538,6 +588,7 @@ impl Recording {
             rec: ReadRecord {
                 start,
                 end: start,
+                start_row: StartState::Open,
                 primary: None,
                 alternate: None,
                 encoding,
@@ -554,11 +605,52 @@ impl Recording {
         }
     }
 
+    /// Whether the read's text may still land on its first line.
+    pub(crate) fn start_window(&self) -> StartWindow {
+        match self.rec.start_row {
+            StartState::Open => StartWindow::Open,
+            StartState::Left | StartState::Wrote => StartWindow::Closed,
+        }
+    }
+
+    /// Whether the read has written its first line yet.
+    pub(crate) fn start_row(&self) -> StartRow {
+        self.rec.start_row()
+    }
+
+    /// **The read wrote its first line**, and so text decides nothing more.
+    pub(crate) fn start_wrote(&mut self) {
+        self.rec.start_row = StartState::Wrote;
+    }
+
+    /// **The window as it was before a write that was not the read's text
+    /// at the cursor** (`Paint::overwrote_unprinted`): open again if it was
+    /// and the line is still not written.
+    pub(crate) fn reopened(&mut self, was: StartWindow) {
+        if was == StartWindow::Open && self.rec.start_row == StartState::Left {
+            self.rec.start_row = StartState::Open;
+        }
+    }
+
+    /// **The read's text is off its first line**, unless it wrote it: a
+    /// return to it is a climb, which is recorded off the path.
+    pub(crate) fn start_left(&mut self) {
+        if self.rec.start_row == StartState::Open {
+            self.rec.start_row = StartState::Left;
+        }
+    }
+
     /// The record, ended at `end` with the parser at `ended`.
     pub(crate) fn ended(&self, end: At, ended: Grounded) -> ReadRecord {
         ReadRecord {
             end,
             ended,
+            // Handed out as the fact alone: whether text could still have
+            // landed on the line is the read's, not the record's.
+            start_row: match self.rec.start_row {
+                StartState::Open | StartState::Left => StartState::Left,
+                StartState::Wrote => StartState::Wrote,
+            },
             ..self.rec
         }
     }
@@ -696,6 +788,23 @@ impl crate::paint::Paint<'_, '_> {
         }
         let (a, b) = (self.record_line(a), self.record_line(b));
         self.cold.record.reached(a.screen, Span::of(a.line, b.line));
+    }
+
+    /// **Rows `a` to `b` of the live screen were written**, tested against
+    /// the line the read began on ([`StartRow`]). Out of line, and reached
+    /// until the read has written that line: by an erase or edit, a control
+    /// function's cost, and by text once a read (`Paint::hooks`).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn record_start_rows(&mut self, a: baud_domain::Row, b: baud_domain::Row) {
+        if self.on_status() {
+            return;
+        }
+        let start = self.cold.record.rec.start;
+        let (a, b) = (self.record_line(a), self.record_line(b));
+        if a.screen == start.screen && a.line <= start.line && start.line <= b.line {
+            self.cold.record.start_wrote();
+        }
     }
 
     /// **The cursor climbs to `to`**: the rows from there to the row it

@@ -5548,9 +5548,12 @@ impl Paint<'_, '_> {
     /// RIS. **Everything a soft reset does, and the screen as well.**
     pub(crate) fn hard_reset(&mut self) {
         // The alternate screen's text goes with the reset, whichever screen
-        // it is issued from.
+        // it is issued from; and every cell of both screens, the line the
+        // read began on among them, wherever the cursor stands.
         #[cfg(feature = "read-record")]
         self.alt_cleared();
+        #[cfg(feature = "read-record")]
+        self.cold.record.start_wrote();
         // **RIS erases and leaves the status line**, "The Status Display will
         // be erased and exited" (070-14 p. 14-10), to the power-up type,
         // none: first, so the rest resets the main display.

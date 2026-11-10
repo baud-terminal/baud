@@ -2232,6 +2232,9 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         p.unsupported_total += 1;
         return;
     }
+    if !writes_no_cell(&op) {
+        p.control_may_write();
+    }
     match op {
         // **The cursor functions with BDSM reset**, one bit of the mode word
         // (`ModeBit::CursorPresented`) and the rest out of line
@@ -2703,6 +2706,257 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
 /// honest: an application that reads it then draws with Sixel rather than a
 /// text fallback, and an unprovisioned baud that refuses every Sixel must not
 /// claim it.
+/// **Whether a control sequence is known to write no cell** of the row the
+/// cursor is on as it runs ([`Paint::control_may_write`]): the cursor
+/// moves, SGR, modes that change no cell, reports and settings. An
+/// exhaustive match, so a function added to [`DomCsi`] is a compile error
+/// here until it is placed; every function not named as writing no cell
+/// is taken as writing one, the read's first line included.
+fn writes_no_cell(op: &DomCsi) -> bool {
+    match op {
+        DomCsi::CursorUp(..)
+        | DomCsi::CursorDown(..)
+        | DomCsi::CursorForward(..)
+        | DomCsi::CursorBack(..)
+        | DomCsi::CursorPosition { .. }
+        | DomCsi::CharacterLinePosition { .. }
+        | DomCsi::CursorForwardTab(..)
+        | DomCsi::CursorBackTab(..)
+        | DomCsi::CursorLineTab(..)
+        | DomCsi::CursorNextLine(..)
+        | DomCsi::CursorPrevLine(..)
+        | DomCsi::ColumnAbsolute(..)
+        | DomCsi::CharacterPositionAbsolute(..)
+        | DomCsi::LineAbsolute(..)
+        | DomCsi::ColumnRelative(..)
+        | DomCsi::LineRelative(..)
+        | DomCsi::ColumnBackward(..)
+        | DomCsi::LineBackward(..)
+        | DomCsi::SaveCursor
+        | DomCsi::RestoreCursor
+        | DomCsi::TabClear(..)
+        | DomCsi::CursorTabControl
+        | DomCsi::TabsEveryEight
+        | DomCsi::SetScrollRegion { .. }
+        | DomCsi::SetSideMargins { .. }
+        | DomCsi::SelectEditingExtent(..)
+        | DomCsi::SelectProtection { .. }
+        | DomCsi::Sgr
+        | DomCsi::Stack(..)
+        | DomCsi::CursorStyle(..)
+        | DomCsi::WarningBellVolume(..)
+        | DomCsi::MarginBellVolume(..)
+        | DomCsi::SelectCharacterPath { .. }
+        | DomCsi::SelectPresentationDirections { .. }
+        | DomCsi::SelectPresentationVariants
+        | DomCsi::SelectActiveDisplay(..)
+        | DomCsi::SoftReset
+        | DomCsi::SetConformanceLevel
+        | DomCsi::DeviceAttributes
+        | DomCsi::DeviceStatus(..)
+        | DomCsi::ColorSchemeQuery
+        | DomCsi::Query(..)
+        | DomCsi::Locator(..)
+        | DomCsi::MediaCopy(..)
+        | DomCsi::RequestVersion
+        | DomCsi::RequestMode { .. }
+        | DomCsi::RequestPresentationState
+        | DomCsi::RequestTerminalState
+        | DomCsi::Graphics(..)
+        | DomCsi::KeyControl(..)
+        | DomCsi::ShiftEscape(..)
+        | DomCsi::PointerMode(..)
+        | DomCsi::KittySet { .. }
+        | DomCsi::KittyQuery
+        | DomCsi::KittyPush { .. }
+        | DomCsi::KittyPop { .. }
+        | DomCsi::HighlightMouseTracking(..)
+        | DomCsi::SaveModes
+        | DomCsi::TitleModes(..)
+        | DomCsi::Unsupported { .. } => true,
+        DomCsi::Mode { mode, .. } => ansi_mode_writes_no_cell(*mode),
+        DomCsi::PrivateMode { mode, .. } => private_mode_writes_no_cell(*mode),
+        DomCsi::Position(op, _) => matches!(
+            op,
+            PositionOp::RemoveStop | PositionOp::LineHome | PositionOp::LineLimit
+        ),
+        DomCsi::EraseInDisplay(..)
+        | DomCsi::EraseInLine(..)
+        | DomCsi::InsertLines(..)
+        | DomCsi::DeleteLines(..)
+        | DomCsi::DeleteChars(..)
+        | DomCsi::EraseChars(..)
+        | DomCsi::InsertBlanks(..)
+        | DomCsi::SelectiveEraseDisplay(..)
+        | DomCsi::SelectiveEraseLine(..)
+        | DomCsi::EraseSavedLines
+        | DomCsi::SelectiveEraseSavedLines
+        | DomCsi::EraseEach(..)
+        | DomCsi::EraseInArea(..)
+        | DomCsi::EraseInField(..)
+        | DomCsi::Repeat(..)
+        | DomCsi::ScrollUp(..)
+        | DomCsi::ScrollDown(..)
+        | DomCsi::ScrollLeft(..)
+        | DomCsi::ScrollRight(..)
+        | DomCsi::InsertColumns(..)
+        | DomCsi::DeleteColumns(..)
+        | DomCsi::SetColumnsPerPage(..)
+        | DomCsi::SelectStatusType(..)
+        | DomCsi::String(..)
+        | DomCsi::Window(..)
+        | DomCsi::Area(..)
+        | DomCsi::RestoreModes => false,
+    }
+}
+
+/// [`writes_no_cell`] for an ANSI mode: none clears or moves a cell as it
+/// is set or reset; each changes what later functions do.
+fn ansi_mode_writes_no_cell(mode: AnsiMode) -> bool {
+    match mode {
+        AnsiMode::InsertReplace
+        | AnsiMode::LineFeedNewLine
+        | AnsiMode::Erasure
+        | AnsiMode::TabulationStop
+        | AnsiMode::KeyboardAction
+        | AnsiMode::SendReceive
+        | AnsiMode::BiDirectionalSupport
+        | AnsiMode::DeviceComponentSelect
+        | AnsiMode::CharacterEditing
+        | AnsiMode::GuardedAreaTransfer
+        | AnsiMode::MultipleAreaTransfer
+        | AnsiMode::TransferTermination
+        | AnsiMode::SelectedAreaTransfer
+        | AnsiMode::Other(..) => true,
+    }
+}
+
+/// [`writes_no_cell`] for a DEC private mode: all but the change of columns,
+/// which clears the screen, and the alternate screens, which clear one and
+/// show the other.
+fn private_mode_writes_no_cell(mode: PrivateMode) -> bool {
+    match mode {
+        PrivateMode::Column132
+        | PrivateMode::AltScreen
+        | PrivateMode::AltScreenLegacy
+        | PrivateMode::AltScreenClearing => false,
+        PrivateMode::Origin
+        | PrivateMode::AutoWrap
+        | PrivateMode::HighlightTracking
+        | PrivateMode::Utf8Resource
+        | PrivateMode::CjkWidthResource
+        | PrivateMode::EmojiWidthResource
+        | PrivateMode::PrivateWidthResource
+        | PrivateMode::GraphemeClustering
+        | PrivateMode::CursorVisible
+        | PrivateMode::BracketedPaste
+        | PrivateMode::SynchronizedOutput
+        | PrivateMode::InbandResize
+        | PrivateMode::ColorPaletteUpdates
+        | PrivateMode::LeftRightMargin
+        | PrivateMode::AnsiMode
+        | PrivateMode::CursorKeys
+        | PrivateMode::SmoothScroll
+        | PrivateMode::ReverseVideo
+        | PrivateMode::AutoRepeat
+        | PrivateMode::CursorBlink
+        | PrivateMode::ReverseWrap
+        | PrivateMode::Scrollbar
+        | PrivateMode::MoreFix
+        | PrivateMode::MarginBell
+        | PrivateMode::NationalReplacement
+        | PrivateMode::Logging
+        | PrivateMode::PrintFormFeed
+        | PrivateMode::PrintExtent
+        | PrivateMode::GraphicsExpandedPrint
+        | PrivateMode::SaveCursor
+        | PrivateMode::MetaSendsEscape
+        | PrivateMode::EightBitInput
+        | PrivateMode::AltSendsEscape
+        | PrivateMode::MouseNormal
+        | PrivateMode::MouseButtonEvent
+        | PrivateMode::MouseAnyEvent
+        | PrivateMode::MouseSgr
+        | PrivateMode::MouseX10Compat
+        | PrivateMode::MouseUtf8
+        | PrivateMode::MouseUrxvt
+        | PrivateMode::MouseSgrPixels
+        | PrivateMode::AlternateScroll
+        | PrivateMode::FocusReporting
+        | PrivateMode::BellIsUrgent
+        | PrivateMode::PopOnBell
+        | PrivateMode::AllowColumnMode
+        | PrivateMode::NoClearOnColumn
+        | PrivateMode::SixelDisplay
+        | PrivateMode::SixelPrivateRegisters
+        | PrivateMode::SixelScrollsRight
+        | PrivateMode::EraseColor
+        | PrivateMode::NumericKeypad
+        | PrivateMode::BackarrowKey
+        | PrivateMode::NumLockModifiers
+        | PrivateMode::DeleteIsDel
+        | PrivateMode::Keyboard(..)
+        | PrivateMode::CursorBlinkResource
+        | PrivateMode::CursorBlinkXor
+        | PrivateMode::FastScroll
+        | PrivateMode::KeepClipboard
+        | PrivateMode::Resource(..)
+        | PrivateMode::BoxMirroring
+        | PrivateMode::DirectionAutodetect
+        | PrivateMode::ArrowKeySwap
+        | PrivateMode::RightToLeftCopy
+        | PrivateMode::HebrewEncoding
+        | PrivateMode::CursorRightToLeft
+        | PrivateMode::HebrewKeyboard
+        | PrivateMode::Other(..) => true,
+    }
+}
+
+/// **Whether an escape sequence is known to write no cell** of the row the
+/// cursor is on ([`writes_no_cell`] for `ESC`): a designation, a
+/// conformance or encoding change, a shift, a save or a restore, the line
+/// feeds, a tab stop, an area's edge. `ESC #` -- DECALN and the double and
+/// single lines -- writes, and so does a function [`Esc::parse`] does not
+/// list as writing none: the reset, the justified tab, DECBI and DECFI.
+/// The line feeds go by: a scroll that copies rows is a move the record
+/// names, and the full screen's scroll writes no line it holds.
+fn esc_writes_no_cell(csi: &Csi, b: StreamByte) -> bool {
+    if let Some(i) = csi.intermediate() {
+        return matches!(
+            i.raw_byte(),
+            b'(' | b')' | b'*' | b'+' | b'-' | b'.' | b'/' | b' ' | b'%'
+        );
+    }
+    match Esc::parse(b) {
+        Esc::SaveCursor
+        | Esc::RestoreCursor
+        | Esc::ReverseIndex
+        | Esc::Index
+        | Esc::NextLine
+        | Esc::KeypadApplication
+        | Esc::KeypadNumeric
+        | Esc::TabSet
+        | Esc::LineTabSet
+        | Esc::StringTerminator
+        | Esc::Identify
+        | Esc::StartGuardedArea
+        | Esc::EndGuardedArea
+        | Esc::StartSelectedArea
+        | Esc::EndSelectedArea
+        | Esc::SingleShift2
+        | Esc::SingleShift3
+        | Esc::LockingShift2
+        | Esc::LockingShift3
+        | Esc::LockingShift1Right
+        | Esc::LockingShift2Right
+        | Esc::LockingShift3Right
+        | Esc::MemoryLock
+        | Esc::MemoryUnlock
+        | Esc::Unsupported => true,
+        Esc::Reset | Esc::TabJustify | Esc::BackIndex | Esc::ForwardIndex => false,
+    }
+}
+
 fn primary_device_attributes(p: &mut Paint<'_, '_>) {
     p.want_reply(Report::PrimaryDeviceAttributes(match p.sixel_claim() {
         SixelClaim::No => DeviceAttribute::Vt100Avo,
@@ -2728,6 +2982,9 @@ fn esc_final(
     // the `EscFinal` arm, the one caller a GR final reaches, clears its
     // eighth bit, and `fast_esc` passes only `30-7E`. The intermediate is
     // 7-bit as stored (`Csi::intermediate`).
+    if !esc_writes_no_cell(csi, b) {
+        p.control_may_write();
+    }
     // A designator is an *intermediate plus* a final: `ESC ( B` selects
     // USASCII into G0 and `ESC B` is a different sequence entirely.
     if let Some(i) = csi.intermediate() {
