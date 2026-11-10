@@ -7366,22 +7366,47 @@ mod alt_window_tests {
         use std::time::Duration;
         let at = |ms| HostTime::ZERO.plus(Duration::from_millis(ms));
         let mut w = PathsWake::default();
-        assert_eq!(w.schedule(None, at(100)), None, "no deadline");
+        let mut wait = |next, now| w.schedule(next, now).map(|(wait, _)| wait);
+        assert_eq!(wait(None, at(100)), None, "no deadline");
         assert_eq!(
-            w.schedule(Some(at(250)), at(100)),
+            wait(Some(at(250)), at(100)),
             Some(Duration::from_millis(150))
         );
-        assert_eq!(w.schedule(Some(at(250)), at(200)), None, "scheduled once");
+        assert_eq!(wait(Some(at(250)), at(200)), None, "scheduled once");
+        assert_eq!(wait(Some(at(300)), at(400)), Some(Duration::ZERO), "past");
         assert_eq!(
-            w.schedule(Some(at(300)), at(400)),
-            Some(Duration::ZERO),
-            "past"
-        );
-        assert_eq!(
-            w.schedule(Some(at(1400)), at(400)),
+            wait(Some(at(1400)), at(400)),
             Some(Duration::from_secs(1)),
             "a later one"
         );
+    }
+
+    /// **A wake the worker posted is still to come until its callback lets
+    /// it go, whatever the clock reads** (`PathsWake::pending`, the frame
+    /// rig's Waking door): a hang's wake for 5 s posted, then a batch's for
+    /// 1 s in its place; the batch's runs and the hang's is still to come,
+    /// though the deadline kept is past; both posted moments past and the
+    /// hang's callback not yet run (a wake runs at or after its moment),
+    /// still to come; its callback run, none. The times are the host's
+    /// first seconds, long past on any clock. Perturbation: the door
+    /// reading the clock (`scheduled > host_now()`) -- "both posted" fails.
+    #[test]
+    fn a_posted_wake_is_still_to_come_until_it_runs() {
+        use super::{HostTime, PathsWake};
+        use std::time::Duration;
+        let at = |ms| HostTime::ZERO.plus(Duration::from_millis(ms));
+        let mut w = PathsWake::default();
+        assert!(!w.pending(), "none posted");
+        let (_, hang) = w.schedule(Some(at(5000)), at(0)).expect("the hang's");
+        let (_, batch) = w.schedule(Some(at(1000)), at(500)).expect("the batch's");
+        assert!(w.pending(), "both posted, neither run");
+        drop(batch);
+        assert!(
+            w.pending(),
+            "the hang's still to come after the batch's ran"
+        );
+        drop(hang);
+        assert!(!w.pending(), "both run");
     }
 
     /// **The printed paths' worker runs on every turn, and a hovered link's
@@ -14996,6 +15021,11 @@ impl baud_present_macos::unwind::Settles for Driver {
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::owed(format!("{owes:?}"));
         #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::set_frame_owed(match self.app.pending {
+            Pending::Dirty => baud_present_macos::probe::FrameOwed::Yes,
+            Pending::Clean => baud_present_macos::probe::FrameOwed::No,
+        });
+        #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::drawn(self.app.frames);
         match crate::frames::act(owes) {
             // Whoever owed the frame may not have run the link -- a
@@ -15630,8 +15660,8 @@ impl Driver {
     fn paths_schedule(&mut self) {
         let now = host_now();
         let next = self.app.probes.deadline(&self.app.paths, now);
-        if let Some(wait) = self.paths_wake.schedule(next, now) {
-            self.wake_at(Instant::now() + wait);
+        if let Some((wait, posted)) = self.paths_wake.schedule(next, now) {
+            self.wake_holding(Instant::now() + wait, posted);
         }
         self.record_paths_due(next);
     }
@@ -15645,7 +15675,7 @@ impl Driver {
         #[cfg(feature = "effect-probe")]
         {
             use baud_present_macos::probe;
-            let waking = self.paths_wake.pending(host_now());
+            let waking = self.paths_wake.pending();
             probe::set_paths_due(match (next, waking) {
                 (Some(_), _) => probe::PathsDue::Owed,
                 (None, true) => probe::PathsDue::Waking,
@@ -16344,10 +16374,21 @@ impl Driver {
     /// A turn of `pump` at `at`, from the main queue: the settle's end,
     /// reached whether or not the display link is running.
     fn wake_at(&self, at: Instant) {
+        self.wake_holding(at, ());
+    }
+
+    /// [`Driver::wake_at`], with `held` let go in the callback before the
+    /// wake, or with the callback when it is not posted: the printed paths'
+    /// worker counts its wakes still to come by it (`Posted`), so the count
+    /// holds each until its turn is posted.
+    fn wake_holding<T: Send + 'static>(&self, at: Instant, held: T) {
         let waker = self.app.waker;
         let after = at.saturating_duration_since(Instant::now());
         if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
-            let _ = dispatch2::DispatchQueue::main().after(when, move || waker.wake());
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                drop(held);
+                waker.wake();
+            });
         }
     }
 
@@ -22458,30 +22499,54 @@ fn judged_by<'n>(
 
 /// **The wake scheduled for the printed paths' worker** (`paths_turn`): the
 /// moment it was scheduled for, so a turn that finds the same deadline
-/// schedules nothing more.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+/// schedules nothing more, and the wakes posted and not yet run
+/// ([`Posted`]). A posted wake cannot be taken back (`dispatch_after`), so
+/// a later deadline's is still to come after an earlier one took its place
+/// here, and a wake runs at or after its moment, not at it: what is still
+/// to come is counted, not read off the clock.
+#[derive(Debug, Default)]
 struct PathsWake {
     scheduled: Option<HostTime>,
+    outstanding: std::sync::Arc<std::sync::atomic::AtomicU32>,
+}
+
+/// **A wake posted for the printed paths' worker**, counted in
+/// [`PathsWake`] from its posting until it is let go: in its callback,
+/// before the turn it posts (`Driver::wake_holding`), or with the callback
+/// when it is never posted.
+#[derive(Debug)]
+struct Posted(std::sync::Arc<std::sync::atomic::AtomicU32>);
+
+impl Drop for Posted {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
 }
 
 impl PathsWake {
     /// **The wait to schedule for `next`**, the worker's next deadline, at
-    /// `now`: none with no deadline or one already scheduled; else the time
-    /// to it, zero for one already past, and it is kept as scheduled.
-    fn schedule(&mut self, next: Option<HostTime>, now: HostTime) -> Option<Duration> {
+    /// `now`, and the wake counted as posted: none with no deadline or one
+    /// already scheduled; else the time to it, zero for one already past,
+    /// and it is kept as scheduled.
+    fn schedule(&mut self, next: Option<HostTime>, now: HostTime) -> Option<(Duration, Posted)> {
         let at = next?;
         if self.scheduled == Some(at) {
             return None;
         }
         self.scheduled = Some(at);
-        Some(at.since(now).unwrap_or(Duration::ZERO))
+        self.outstanding
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Some((
+            at.since(now).unwrap_or(Duration::ZERO),
+            Posted(std::sync::Arc::clone(&self.outstanding)),
+        ))
     }
 
-    /// Whether the wake scheduled last is still to come at `now`: the frame
-    /// rig's door, so a row's second stage waits past it.
-    #[cfg(feature = "effect-probe")]
-    fn pending(&self, now: HostTime) -> bool {
-        self.scheduled.is_some_and(|at| at > now)
+    /// **Whether a wake posted is still to come**, whatever its moment: the
+    /// frame rig's door, so a row's second stage waits past it.
+    #[cfg_attr(not(any(test, feature = "effect-probe")), allow(dead_code))]
+    fn pending(&self) -> bool {
+        self.outstanding.load(std::sync::atomic::Ordering::Acquire) > 0
     }
 }
 

@@ -990,7 +990,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 let answered = probe::paths_due() == probe::PathsDue::Idle;
                 // Drawn: the frame that files what the act wrote is not
                 // still owed, so its paths are owed before they are read.
-                let drawn = !probe::owes().starts_with("Frame(Owed");
+                let drawn = probe::frame_owed() == probe::FrameOwed::No;
                 if (signed && answered && drawn) || start.elapsed() >= RELEASE_BOUND {
                     break;
                 }

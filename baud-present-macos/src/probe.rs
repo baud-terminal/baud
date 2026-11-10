@@ -262,6 +262,8 @@ thread_local! {
     static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
     /// The printed paths asked about (`paths_asked`).
     static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// Whether a frame is owed and not yet drawn (`FrameOwed`).
+    static FRAME_OWED: Cell<FrameOwed> = const { Cell::new(FrameOwed::No) };
     /// Whether baud believes its window is on screen (`Shown`).
     static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
     /// The launch splash's starts (`greeted`).
@@ -365,6 +367,25 @@ pub fn set_paths_due(due: PathsDue) {
 /// waits for the setup's batch and its answer.
 pub fn paths_due() -> PathsDue {
     PATHS_DUE.with(Cell::get)
+}
+
+/// **Whether a frame is owed and not yet drawn**, as the window's last
+/// settle found it (baud-app's `Pending::Dirty`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrameOwed {
+    No,
+    Yes,
+}
+
+/// Set whether a frame is owed, at a settle.
+pub fn set_frame_owed(owed: FrameOwed) {
+    FRAME_OWED.with(|o| o.set(owed));
+}
+
+/// Whether the last settle found a frame owed: the frame rig's release
+/// waits for none.
+pub fn frame_owed() -> FrameOwed {
+    FRAME_OWED.with(Cell::get)
 }
 
 /// Set the printed paths asked about so far, the worker's own count.

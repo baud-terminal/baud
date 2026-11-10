@@ -260,8 +260,9 @@ fn production_code_is_read_past_the_first_test_module() {
 /// **A delayed block goes on the main queue only through `turn::after`**:
 /// `DispatchQueue::main()` followed by `.after(` -- across a line break
 /// too -- is found in `turn::after` and in no other function but the two
-/// that make no effect: a window's wake at the settle's end (`wake_at`,
-/// which the next stage moves onto a turn with the other bare blocks),
+/// that make no effect: a window's wake at the settle's end
+/// (`wake_holding`, `wake_at`'s, which the next stage moves onto a turn
+/// with the other bare blocks),
 /// and the README filming run's reading of its window (`run`). Named
 /// break: the expiry back on a bare main-queue block.
 #[test]
@@ -274,7 +275,7 @@ fn a_delayed_block_reaches_the_main_queue_only_through_the_turn() {
         found,
         want(&[
             ("src/turn.rs", "after", 1),
-            ("../baud-app/src/app.rs", "wake_at", 1),
+            ("../baud-app/src/app.rs", "wake_holding", 1),
             ("../baud-app/src/full_screen_check.rs", "run", 1),
         ]),
         "{found:?}"
