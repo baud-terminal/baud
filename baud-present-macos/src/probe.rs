@@ -278,6 +278,9 @@ thread_local! {
     static HOVER_READS: Cell<HoverReads> = const { Cell::new(HoverReads(0)) };
     /// The turns that fed the core (`FedTurns`).
     static FED_TURNS: Cell<FedTurns> = const { Cell::new(FedTurns(0)) };
+    /// The clock baud-app's frame gate reads the last commit's age by
+    /// (`GateClock`).
+    static GATE_CLOCK: Cell<GateClock> = const { Cell::new(GateClock::Live) };
     /// The hands of this machine's names to the links (`hand_names`).
     static HANDS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The followed settings' changes taken: scroller, flashing, animated.
@@ -582,6 +585,45 @@ pub fn previewed(p: Previewed) {
 /// What the last read found under the pointer.
 pub fn preview() -> Previewed {
     PREVIEWED.with(Cell::get)
+}
+
+/// **The clock baud-app's frame gate reads the last commit's age by**
+/// (its `since_commit`, and nothing else): the instant now, or one the
+/// frame rig froze -- so a turn that feeds the core draws no frame for
+/// the time since the last, a frame interval of which owes one (D14),
+/// whatever the machine's pace. Frozen at an instant, a commit after it
+/// is no time ago; advanced ([`advance_gate`]), every commit is that much
+/// older. No other clock reads it: the caret's, a synchronised update's
+/// bound, the pace's deadlines and the splash keep theirs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GateClock {
+    Live,
+    Frozen(std::time::Instant),
+}
+
+/// The frame gate's clock stopped now.
+pub fn freeze_gate() {
+    GATE_CLOCK.with(|c| c.set(GateClock::Frozen(std::time::Instant::now())));
+}
+
+/// The frame gate's clock live again.
+pub fn unfreeze_gate() {
+    GATE_CLOCK.with(|c| c.set(GateClock::Live));
+}
+
+/// The frozen frame gate's clock moved on by `d`; a live one is left as it
+/// is.
+pub fn advance_gate(d: std::time::Duration) {
+    GATE_CLOCK.with(|c| {
+        if let GateClock::Frozen(at) = c.get() {
+            c.set(GateClock::Frozen(at + d));
+        }
+    });
+}
+
+/// The frame gate's clock.
+pub fn gate_clock() -> GateClock {
+    GATE_CLOCK.with(Cell::get)
 }
 
 /// How many times baud-app read the link under a resting pointer.

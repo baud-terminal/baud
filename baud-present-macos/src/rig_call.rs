@@ -178,12 +178,26 @@ pub enum RigFrameTicks {
     /// link that drew every tick would reach before any flip -- and
     /// [`SENTINEL_BACKSTOP`] is a backstop that, reached, says so.
     UntilFlips,
+    /// **One tick after the act fed the core twice, the frame gate's clock
+    /// frozen** (`probe::GateClock`): frozen once the act has fed, a frame
+    /// drawn after it, so the last commit is no time ago and a fed turn
+    /// draws no frame for its age; the ticks withheld until two turns have
+    /// fed the core; then ticks offered until one draws, and no more,
+    /// whatever `attempts` says.
+    OneAfterFeeds,
+    /// **[`RigFrameTicks::OneAfterFeeds`]'s positive control**: frozen the
+    /// same way and then advanced an hour, so every commit is an hour old
+    /// and a fed turn draws a frame of its own; the ticks withheld until
+    /// two frames have drawn.
+    EventFrames,
 }
 
-const FRAME_TICKS: [(RigFrameTicks, &str); 3] = [
+const FRAME_TICKS: [(RigFrameTicks, &str); 5] = [
     (RigFrameTicks::Offered, "offered"),
     (RigFrameTicks::Withheld, "withheld"),
     (RigFrameTicks::UntilFlips, "until-flips"),
+    (RigFrameTicks::OneAfterFeeds, "one-after-feeds"),
+    (RigFrameTicks::EventFrames, "event-frames"),
 ];
 
 /// The event rig's call.
@@ -460,6 +474,19 @@ mod tests {
             ticks: RigFrameTicks::Withheld,
         });
         assert_eq!(RigCall::parse(&frames.to_args()), Ok(frames));
+        for ticks in [RigFrameTicks::OneAfterFeeds, RigFrameTicks::EventFrames] {
+            let frozen = RigCall::Frames(FrameRig {
+                setup: "printf x".to_owned(),
+                act: "seq 1 9".to_owned(),
+                attempts: Iterations(1),
+                focus: RigFocus::Believed,
+                holders: RigHolders::Kept,
+                window: RigWindow::PointerOver,
+                keys: RigKeys::Line,
+                ticks,
+            });
+            assert_eq!(RigCall::parse(&frozen.to_args()), Ok(frozen));
+        }
         for refused in [
             args(&[]),
             args(&["README.md"]),

@@ -1570,10 +1570,24 @@ enum Settles {
     /// read of the link under the pointer after the settle.
     Unread { drawn: u64 },
     /// **Scrolling output under a resting pointer, read for the frames**:
-    /// the hover read at least once, no more often than a frame was drawn,
-    /// and fewer times than a turn fed the core -- which a read per feed
-    /// would equal, whatever the machine's pace.
+    /// the hover read at least once, and never more often than a frame was
+    /// drawn -- the tick's and the event frames a fed turn draws (D14)
+    /// alike, which the count includes, `present` counting every frame it
+    /// draws -- or a turn fed the core. Bounds that hold at any pace; that
+    /// a frame takes many fed turns in one read is
+    /// [`Settles::ReadOnce`]'s row.
     ReadByFrame,
+    /// **Two fed turns and one frame, one read**
+    /// (`RigFrameTicks::OneAfterFeeds`): the hover read exactly once, two
+    /// turns or more having fed the core and a frame drawn, never more
+    /// often than a frame was drawn or a turn fed. A read per feed reads
+    /// once a turn, twice at least.
+    ReadOnce,
+    /// **Its positive control, a frame a fed turn** (`EventFrames`): two
+    /// frames or more drawn on fed turns with no tick, the hover read in
+    /// each that drew, at least twice, and never more often than a frame
+    /// was drawn or a turn fed.
+    ReadByEvents,
     /// **A job started with no tick, in the window's title**: the ticks
     /// withheld, nothing delivered, and the derived title names the job.
     Titled(&'static str),
@@ -1641,7 +1655,17 @@ impl Settles {
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
             Settles::ReadByFrame => {
-                c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
+                c.reads >= 1 && u64::from(c.reads) <= c.drawn && c.reads <= c.fed
+            }
+            Settles::ReadOnce => {
+                c.reads == 1
+                    && c.fed >= 2
+                    && c.drawn >= 1
+                    && u64::from(c.reads) <= c.drawn
+                    && c.reads <= c.fed
+            }
+            Settles::ReadByEvents => {
+                c.reads >= 2 && c.drawn >= 2 && u64::from(c.reads) <= c.drawn && c.reads <= c.fed
             }
             Settles::Unread { drawn } => {
                 c.reads == 0 && c.preview == PreviewSeen::Link && c.drawn >= drawn
@@ -1699,7 +1723,7 @@ const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 26] = [
+const FRAME_SITES: [FrameSite; 28] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2069,9 +2093,13 @@ const FRAME_SITES: [FrameSite; 26] = [
     // that draw it, not for every read: the frame compares what the last
     // read covered and reads, and the pump reads only what an event marked.
     // `seq` scrolls the screen over many reads, the ticks offered, longer
-    // than the run on either arm. The guard is free of the machine's pace:
-    // fewer reads than turns that fed the core, which a read per feed
-    // equals, at least one, and no more than the frames drawn.
+    // than the run on either arm. Here only bounds that hold at any pace:
+    // read at least once, and never more often than a frame was drawn --
+    // the event frames a fed turn draws (D14) counted with the ticks' -- or
+    // a turn fed the core. A count of reads against feeds over offered
+    // ticks measured the machine's pace: where the output comes no faster
+    // than frames, each feed has a frame of its own and its read. That a
+    // frame takes many feeds in one read is the next row's.
     FrameSite {
         name: SiteName("scrolling output under a resting pointer is read once a frame"),
         setup: STILL,
@@ -2087,6 +2115,60 @@ const FRAME_SITES: [FrameSite; 26] = [
         focus: RigFocus::Believed,
         attempts: Iterations(200),
         expect: Settles::ReadByFrame,
+        state: RowState::Green,
+    },
+    // **M1, two feeds to a frame**: `seq` scrolls the screen under the
+    // resting pointer with the frame gate's clock frozen
+    // (`RigFrameTicks::OneAfterFeeds`), so no fed turn draws a frame for
+    // the time since the last; two turns feed the core with no tick and no
+    // frame, and one tick then draws a frame that reads the hover once.
+    // No other path owes a frame in the window: the act is written to the
+    // shell as a line, not pressed, so no key's echo or prediction is
+    // owed and no composition marked; its output is digits, so no printed
+    // path is asked about and no worker's answer owes the hover a read;
+    // the caret is steady (`blink = false`), the trail and the splash off.
+    // Named break: read the hover on every turn that feeds the core --
+    // read twice before the tick.
+    FrameSite {
+        name: SiteName(
+            "two fed turns under a resting pointer are read once by the frame after them",
+        ),
+        setup: STILL,
+        act: "seq 1 200000",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::OneAfterFeeds,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: concat!(
+            "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(1),
+        expect: Settles::ReadOnce,
+        state: RowState::Green,
+    },
+    // **Its positive control**: the same output with the frame gate's
+    // clock moved on an hour (`RigFrameTicks::EventFrames`), so every
+    // commit is an hour old and each fed turn draws a frame of its own
+    // with no tick (D14), and each of those frames reads the hover: two
+    // frames, two reads at least. It shows the frozen row's one read is
+    // the clock's doing, not a read the frames never make.
+    FrameSite {
+        name: SiteName("fed turns that each draw a frame are read by each"),
+        setup: STILL,
+        act: "seq 1 200000",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::EventFrames,
+        window: RigWindow::PointerOver,
+        env: &[],
+        config: concat!(
+            "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(1),
+        expect: Settles::ReadByEvents,
         state: RowState::Green,
     },
     // **FS-A12**: a job started at the prompt is in the derived title, the

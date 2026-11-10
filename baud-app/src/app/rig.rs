@@ -867,10 +867,14 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     view.set_responder(Box::new(baud_present_macos::unwind::Guarded(driver)));
     probe::set_waker(view.waker());
     let ticker = probe::Ticker::new(&view);
+    // The ticks offered, the rig's own count: what a withheld window is
+    // held to (`RigFrameTicks::OneAfterFeeds`).
+    let offered = core::cell::Cell::new(0_u32);
     // Each offered tick due a frame after now, on the display link's clock
     // (`probe::set_target`), as a real link's would be.
     let offer = |n: u16| {
         for _ in 0..n {
+            offered.set(offered.get().saturating_add(1));
             let now = host_now().since(HostTime::ZERO).unwrap_or_default();
             probe::set_target((now + FRAME_PERIOD).as_secs_f64());
             ticker.tick();
@@ -946,11 +950,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     offer(30);
     let (_, sends) = probe::link();
     let delivered = probe::delivered();
-    let drawn = probe::frames();
+    let mut drawn = probe::frames();
     let flips = probe::flips();
     let styled = probe::styled();
-    let reads = probe::hover_reads();
-    let fed = probe::fed_turns();
+    let mut reads = probe::hover_reads();
+    let mut fed = probe::fed_turns();
     let hands = probe::hands();
     let greetings = probe::greetings();
     let asked = probe::paths_asked();
@@ -982,7 +986,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // no tick, the act's own turns.
     let run = |n: u16| match rig.ticks {
         RigFrameTicks::Offered | RigFrameTicks::UntilFlips => offer(n),
-        RigFrameTicks::Withheld => {
+        RigFrameTicks::Withheld | RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames => {
             for _ in 0..n {
                 probe::pass(0.01);
             }
@@ -1117,6 +1121,83 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 println!("timed out at the backstop");
                 return std::process::ExitCode::from(1);
             }
+        }
+        // **The frame gate's clock frozen** (`OneAfterFeeds`,
+        // `EventFrames`): once the act has fed the core, the clock stopped
+        // and ticks offered until one draws -- a commit after the freeze,
+        // so the last commit is no time ago by the frozen clock, and no fed
+        // turn draws a frame for its age (D14), whatever the machine's
+        // pace. The counts the row is judged on are taken again there. Then
+        // the ticks withheld: until two turns have fed the core, and one
+        // tick drawn after -- or, the clock moved on an hour first so every
+        // fed turn draws a frame of its own, until two frames have drawn.
+        // In between, no tick offered by the rig's own count.
+        RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames => {
+            let start = Instant::now();
+            while probe::fed_turns().0 == fed.0 && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                probe::pass(0.01);
+            }
+            if probe::fed_turns().0 == fed.0 {
+                println!("the act never fed the core");
+                return std::process::ExitCode::from(1);
+            }
+            probe::freeze_gate();
+            let before = probe::frames().value();
+            let start = Instant::now();
+            while probe::frames().value() == before
+                && start.elapsed() < probe_call::SENTINEL_BACKSTOP
+            {
+                offer(1);
+            }
+            if probe::frames().value() == before {
+                println!("no frame drew after the freeze");
+                return std::process::ExitCode::from(1);
+            }
+            (reads, fed, drawn) = (probe::hover_reads(), probe::fed_turns(), probe::frames());
+            let since = offered.get();
+            let fed_since = || probe::fed_turns().0.saturating_sub(fed.0);
+            let drawn_since = || probe::frames().value().saturating_sub(drawn.value());
+            let start = Instant::now();
+            match rig.ticks {
+                RigFrameTicks::EventFrames => {
+                    probe::advance_gate(Duration::from_secs(3600));
+                    while drawn_since() < 2 && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                        probe::pass(0.01);
+                    }
+                    if drawn_since() < 2 {
+                        println!("fed turns never drew two frames of their own");
+                        return std::process::ExitCode::from(1);
+                    }
+                }
+                _ => {
+                    while fed_since() < 2 && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                        probe::pass(0.01);
+                    }
+                    if fed_since() < 2 {
+                        println!("the act fed fewer than two turns with the ticks withheld");
+                        return std::process::ExitCode::from(1);
+                    }
+                    if drawn_since() != 0 {
+                        println!("a frame drew in the frozen window");
+                        return std::process::ExitCode::from(1);
+                    }
+                }
+            }
+            if offered.get() != since {
+                println!("a tick was offered with the ticks withheld");
+                return std::process::ExitCode::from(1);
+            }
+            if rig.ticks == RigFrameTicks::OneAfterFeeds {
+                let start = Instant::now();
+                while drawn_since() == 0 && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                    offer(1);
+                }
+                if drawn_since() == 0 {
+                    println!("no tick drew after the frozen window");
+                    return std::process::ExitCode::from(1);
+                }
+            }
+            probe::unfreeze_gate();
         }
         RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),
     }

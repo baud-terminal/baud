@@ -1964,6 +1964,20 @@ impl App {
         }
     }
 
+    /// **How long since the last frame was committed**, as the frame gate
+    /// reads it (`frame_gate`'s `since_commit`): the one reader of the
+    /// frame rig's gate clock (`probe::GateClock`), which no other timing
+    /// reads. Outside a probe build, the instant's own age.
+    fn since_commit(&self) -> Duration {
+        #[cfg(feature = "effect-probe")]
+        if let baud_present_macos::probe::GateClock::Frozen(at) =
+            baud_present_macos::probe::gate_clock()
+        {
+            return at.saturating_duration_since(self.last_commit);
+        }
+        self.last_commit.elapsed()
+    }
+
     /// **The link preview read again on a turn that owes it**
     /// (`link::HoverOwed`), and the mark taken; on no other turn, so a
     /// turn whose output leaves what the last read covered reads no text.
@@ -7328,6 +7342,69 @@ mod alt_window_tests {
             gained.contains(FLAGS),
             "the gain does not ask the modifiers"
         );
+    }
+
+    /// **Output moves what the hover read went over only in the frame's
+    /// compare, and the frame gate's clock is read in one place**: the
+    /// compare of what the last read covered (`Hover::under_moved`) has
+    /// one caller, `owe_hover_if_moved`, which marks the hover owed from
+    /// it, and `present` calls that, alone -- so no other site marks the
+    /// hover owed for the output a turn fed; and the frame
+    /// rig's gate clock (`probe::GateClock`) is read by `since_commit`
+    /// alone, which is the frame gate's `since_commit` and the one age of
+    /// `last_commit` taken -- freezing it reaches no other timing, the
+    /// caret's, a synchronised update's bound, the pace's deadlines or the
+    /// splash. Perturbations: a compare in another function, the gate fed
+    /// the instant's own age beside the helper, or the probe clock read a
+    /// second time -- each fails here.
+    #[test]
+    fn output_marks_the_hover_only_in_the_frame_and_the_gate_clock_is_read_once() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const COMPARE: &str = concat!(".under_", "moved(");
+        const MOVED_FN: &str = concat!("    fn owe_hover_", "if_moved(&mut self) {");
+        const MOVED: &str = concat!("self.owe_hover_", "if_moved();");
+        const OWES: &str = concat!("self.hover_owed = crate::link::", "HoverOwed::Yes;");
+        const PRESENT: &str = concat!(
+            "    fn present(&mut self, ",
+            "screen: &DrawableView, show: Show) {"
+        );
+        const CLOCK: &str = concat!("probe::gate_", "clock()");
+        const HELPER: &str = concat!("    fn since_", "commit(&self) -> Duration {");
+        const AGE: &str = concat!("last_commit.", "elapsed()");
+        const GATE: &str = concat!("since_commit: self.app.since_", "commit(),");
+        let body = |head: &str| {
+            assert_eq!(SRC.matches(head).count(), 1, "one {head}");
+            let b = SRC.split(head).nth(1).expect(head);
+            &b[..b.find("\n    }\n").expect("the function ends")]
+        };
+        assert_eq!(SRC.matches(COMPARE).count(), 1, "a compare elsewhere");
+        let moved = body(MOVED_FN);
+        assert!(
+            moved.contains(COMPARE) && moved.contains(OWES),
+            "the compare moved, or marks nothing"
+        );
+        assert_eq!(
+            SRC.matches(MOVED).count(),
+            1,
+            "the compare has another caller"
+        );
+        assert!(body(PRESENT).contains(MOVED), "its caller is not present");
+        assert_eq!(SRC.matches(CLOCK).count(), 1, "the gate clock read again");
+        assert_eq!(SRC.matches(AGE).count(), 1, "the commit's age taken again");
+        let helper = body(HELPER);
+        assert!(
+            helper.contains(CLOCK) && helper.contains(AGE),
+            "the helper is not the one reader"
+        );
+        assert_eq!(
+            SRC.matches(GATE).count(),
+            1,
+            "the gate does not read the helper"
+        );
+        for other in [include_str!("app/rig.rs"), include_str!("linux.rs")] {
+            assert!(!other.contains(CLOCK), "the gate clock read outside app.rs");
+        }
     }
 
     /// **The derived title is checked on a turn that owes it, after its
@@ -13260,7 +13337,7 @@ impl Driver {
             echo: self.app.echo,
             guess: self.app.guess,
             marked: self.app.marked,
-            since_commit: self.app.last_commit.elapsed(),
+            since_commit: self.app.since_commit(),
             interval: self.app.interval,
             flight: match busy {
                 true => InFlight::Busy,
