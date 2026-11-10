@@ -818,7 +818,7 @@ struct App {
     /// the window's being shown (`App::build_plasma`), and taken by the
     /// tick once built (`App::plasma_ready`): the logo waits for them,
     /// and nothing waits for the logo.
-    plasma: Option<std::thread::JoinHandle<baud_present_macos::EffectPipes>>,
+    plasma: Option<std::sync::mpsc::Receiver<baud_present_macos::EffectPipes>>,
     /// Whether an alternate-screen switch slides, from `[screen]
     /// transition`, and the switch being animated. `Some` forces a frame the
     /// way a trail does, so an idle terminal on either screen builds nothing.
@@ -2261,29 +2261,39 @@ impl App {
             .as_ref()
             .and_then(|p| p.effect_build(baud_render::effect::Effect::Plasma));
         if let Some(b) = build {
-            self.plasma = Some(std::thread::spawn(move || b.build()));
+            // Sent, then the window woken: the turn the wake runs finds them
+            // and the splash's start reads them (`Driver::splash_check`).
+            let (send, built) = std::sync::mpsc::channel();
+            let waker = self.waker;
+            std::thread::spawn(move || {
+                let _ = send.send(b.build());
+                waker.wake();
+            });
+            self.plasma = Some(built);
             startup_mark("plasma building");
         }
     }
 
     /// **Whether the plasma is ready for the logo**: its pipelines taken
-    /// once their thread has ended, never waited for, so a tick before
+    /// once their thread has sent them, never waited for, so a turn before
     /// then starts no logo and draws everything else; ready at once with
-    /// nothing building.
+    /// nothing building, and with a build whose thread ended sending none.
     fn plasma_ready(&mut self) -> bool {
         match self.plasma.take() {
             None => true,
-            Some(h) if !h.is_finished() => {
-                self.plasma = Some(h);
-                false
-            }
-            Some(h) => {
-                if let (Ok(built), Some(p)) = (h.join(), self.presenter.as_mut()) {
-                    p.adopt(built);
+            Some(built) => match built.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    self.plasma = Some(built);
+                    false
                 }
-                startup_mark("plasma built");
-                true
-            }
+                taken => {
+                    if let (Ok(pipes), Some(p)) = (taken, self.presenter.as_mut()) {
+                        p.adopt(pipes);
+                    }
+                    startup_mark("plasma built");
+                    true
+                }
+            },
         }
     }
 
@@ -4957,6 +4967,11 @@ struct Driver {
     keyed: Option<Keyed>,
     /// The window's key changes, heard (`KeyHeard`).
     key_heard: KeyHeard,
+    /// **The window's occlusion changes, heard**
+    /// (`closing::when_occlusion_changes`): each wakes the view, whose turn
+    /// starts a splash waiting for its window (`splash_check`). Dropping it
+    /// removes the observer.
+    _occluded: baud_present_macos::closing::Closing,
     /// The key handed to the input manager, until the `text` or
     /// `command` it answers with (`Handed`).
     handed: Handed,
@@ -8304,22 +8319,34 @@ mod drag_tests {
         );
     }
 
-    /// **The tick starts the splash only once the window is shown**: a
-    /// frame on the layer and AppKit's window on screen and not wholly
-    /// covered. The tick is AppKit-bound, so the source is what can fail.
+    /// **The splash starts only once the window is shown, on every turn
+    /// and not on the tick** (FS-A17): a frame on the layer and AppKit's
+    /// window on screen and not wholly covered, read by `splash_check`,
+    /// which the pump calls each turn; the tick starts nothing. The window
+    /// is AppKit-bound, so the source is what can fail. Perturbation: the
+    /// start back in the tick -- it fails here.
     #[test]
-    fn the_tick_starts_the_splash_only_once_the_window_is_shown() {
+    fn the_splash_starts_only_once_the_window_is_shown() {
         const SRC: &str = include_str!("app.rs");
-        let frame = SRC
+        let tick = SRC
             .split_once(concat!("fn frame(&mut self, ", "target: f64) {"))
             .and_then(|(_, rest)| rest.split_once("\n    }\n"))
             .map(|(body, _)| body)
             .expect("the tick");
         let start = concat!("self.app.splash.", "shown()");
+        assert!(!tick.contains(start), "the tick starts nothing");
+        let frame = SRC
+            .split_once(concat!("fn splash_", "check(&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the check");
         assert_eq!(frame.matches(start).count(), 1, "one start: {frame}");
         let (before, _) = frame.split_once(start).expect("the start");
         let gate = before
-            .rsplit_once(concat!("if self.app.splash.", "waiting()"))
+            .split_once(concat!(
+                "if !self.app.splash.",
+                "waiting() {\n            return;\n        }"
+            ))
             .map(|(_, gate)| gate)
             .expect("the start is gated");
         for read in [
@@ -8329,6 +8356,28 @@ mod drag_tests {
         ] {
             assert!(gate.contains(read), "{read} in the gate: {gate}");
         }
+        // What it waits for wakes the window: the frame's presentation, and
+        // the occlusion change (the plasma's thread, below).
+        let presented = SRC
+            .split_once(concat!(
+                "fn presented(&mut ",
+                "self) {\n        self.app.layer_shown = Done::Yes;"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("presented");
+        assert!(
+            presented.contains(concat!("if self.app.splash.", "waiting() {"))
+                && presented.contains(concat!("self.app.waker.", "wake();")),
+            "{presented}"
+        );
+        assert!(
+            SRC.contains(concat!(
+                "baud_present_macos::closing::when_occlusion_",
+                "changes(window.ns_window(), move || {\n                waker.wake();"
+            )),
+            "the occlusion change wakes the window"
+        );
     }
 
     /// **The plasma's pipeline is built off the first frame's path**: not
@@ -8374,22 +8423,22 @@ mod drag_tests {
             concat!("fn plasma_", "ready(&mut self) -> bool {"),
             "    ",
         );
-        let polled = ready.find(".is_finished()").expect("polled");
-        let joined = ready.find(".join()").expect("joined once ended");
-        assert!(polled < joined, "joined only once its thread has ended");
-        let frame = body(
-            SRC,
-            concat!("fn frame(&mut self, ", "target: f64) {"),
-            "    ",
+        assert!(
+            ready.contains(".try_recv()") && !ready.contains(".recv()"),
+            "taken once sent, never waited for"
         );
+        let built = body(SRC, concat!("fn build_", "plasma(&mut self) {"), "    ");
+        let sent = built.find("send.send(b.build());").expect("sent");
+        let woke = built.find("waker.wake();").expect("then the window woken");
+        assert!(sent < woke, "sent before the wake, so its turn finds them");
+        let frame = body(SRC, concat!("fn splash_", "check(&mut self) {"), "    ");
         let gate = frame
             .split_once(concat!("let plasma = self.app.", "plasma_ready();"))
             .map(|(_, after)| after)
-            .expect("the tick reads it");
+            .expect("the check reads it");
         assert!(
-            gate.trim_start().starts_with(
-                "if self.app.splash.waiting() && self.app.layer_shown == Done::Yes && plasma {"
-            ),
+            gate.trim_start()
+                .starts_with("if self.app.layer_shown == Done::Yes && plasma {"),
             "the logo's start waits for it: {gate}"
         );
         for build in ["effect_build(", ".build()", "warm_effect("] {
@@ -8977,9 +9026,10 @@ mod drag_tests {
     /// **Nothing a key or a read does waits on the splash**: the key's
     /// way to the shell (`key`, `typed`, `send`) and the pump that feeds
     /// the shell's output to the terminal and owes its frame name nothing
-    /// of it, in every window; the splash is read by the frame, which
-    /// draws it over the grid, and the tick. The windows are AppKit's, so
-    /// the source is what can fail.
+    /// of it, in every window, but the pump's one `splash_check`, which
+    /// starts a waiting splash and waits on nothing; the splash is read by
+    /// the frame, which draws it over the grid. The windows are AppKit's,
+    /// so the source is what can fail.
     #[test]
     fn no_key_or_read_waits_on_the_splash() {
         const SRC: &str = include_str!("app.rs");
@@ -8993,6 +9043,13 @@ mod drag_tests {
             concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
         ] {
             let path = body(SRC, head, "    ");
+            let check = concat!(
+                "        // The splash's start, on the turn any of what it waits for woke\n",
+                "        // (`splash_check`).\n",
+                "        self.splash_",
+                "check();\n"
+            );
+            let path = path.replacen(check, "", 1);
             assert!(!path.contains("splash"), "{head} reads the splash");
         }
         // And the frame gate the pump decides by, whose fields are the
@@ -12505,6 +12562,9 @@ impl Driver {
         // The other settings the window follows, on the turn their
         // notification woke, as the display options are (`follow_settings`).
         self.follow_settings();
+        // The splash's start, on the turn any of what it waits for woke
+        // (`splash_check`).
+        self.splash_check();
         // This machine's names, on the turn their read's wake runs (`Hosts`),
         // and on any turn after it: a read that ended before the window's
         // waker was set woke no one.
@@ -13662,32 +13722,6 @@ impl Responder for Driver {
         if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.owe_frame();
         }
-        // **The window is shown to the splash** once a frame has reached
-        // the layer and AppKit reports the window on screen and not wholly
-        // covered -- `isVisible`, "visible onscreen", and the occlusion
-        // state's `.visible`, "at least part of the window is visible"
-        // ([[source: apple-nswindow-isvisible]],
-        // [[source: apple-nswindow-occlusionstate]]): its clock starts on
-        // this tick's frame, which this owes. The window was ordered front
-        // with no open animation and its first frame already on its layer
-        // (`run`), so on screen is whole on screen (note AJ, sections 13
-        // and 15). It waits too for the plasma's pipelines, built on a
-        // thread of their own from the window's being shown, so the
-        // emerge's first frame never pays for them and nothing before it
-        // waits on them (`App::build_plasma`).
-        let plasma = self.app.plasma_ready();
-        if self.app.splash.waiting() && self.app.layer_shown == Done::Yes && plasma {
-            let visible = self.view.window().is_some_and(|w| {
-                w.isVisible() && w.occlusionState().contains(NSWindowOcclusionState::Visible)
-            });
-            if visible {
-                startup_first("window visible", &FIRST_VISIBLE);
-            }
-            if visible && self.app.splash.shown() == crate::splash::Owes::Frame {
-                self.app.owe_frame();
-                startup_mark("splash shown");
-            }
-        }
         // The launch splash owes every frame while it plays or fades, and
         // the one a reduced-motion hold ends on.
         if self.app.splash.owes(target) == crate::splash::Owes::Frame {
@@ -13772,6 +13806,11 @@ impl Responder for Driver {
 
     fn presented(&mut self) {
         self.app.layer_shown = Done::Yes;
+        // A splash waiting for its window reads this on the turn the wake
+        // runs (`splash_check`).
+        if self.app.splash.waiting() {
+            self.app.waker.wake();
+        }
         self.app.presented();
     }
 
@@ -14389,6 +14428,13 @@ impl Opening {
         let style = PendingStyle::default();
         let hiding = crate::hide::Hiding::new(&probe.term);
         let key_heard = KeyHeard::new(window.ns_window(), &view);
+        let occluded = {
+            let waker = view.waker();
+            // Inside AppKit's change: it wakes, nothing more.
+            baud_present_macos::closing::when_occlusion_changes(window.ns_window(), move || {
+                waker.wake();
+            })
+        };
         let waker = view.waker();
         let mut driver = Driver {
             app: probe,
@@ -14402,6 +14448,7 @@ impl Opening {
             key_kind: KeyEventKind::Press,
             keyed: None,
             key_heard,
+            _occluded: occluded,
             handed: Handed::NONE,
             downs: Downs::NONE,
             click: Click::Ours,
@@ -14936,7 +14983,6 @@ impl Driver {
     fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
-            Holder::A17Splash => self.app.splash.waiting(),
             Holder::A5Notices | Holder::A9Front | Holder::A13Hosts | Holder::A14Paths => true,
         })
     }
@@ -15312,6 +15358,47 @@ impl Driver {
         // A `file` link under the pointer is this machine's or not by them.
         self.app.hover_owed = crate::link::HoverOwed::Yes;
         self.app.owe_frame();
+    }
+
+    /// **The window is shown to the splash** once a frame has reached the
+    /// layer and AppKit reports the window on screen and not wholly covered
+    /// -- `isVisible`, "visible onscreen", and the occlusion state's
+    /// `.visible`, "at least part of the window is visible"
+    /// ([[source: apple-nswindow-isvisible]],
+    /// [[source: apple-nswindow-occlusionstate]]): its clock starts on the
+    /// frame this owes. The window was ordered front with no open animation
+    /// and its first frame already on its layer (`run`), so on screen is
+    /// whole on screen (note AJ, sections 13 and 15). It waits too for the
+    /// plasma's pipelines, built on a thread of their own from the window's
+    /// being shown, so the emerge's first frame never pays for them and
+    /// nothing before it waits on them (`App::build_plasma`).
+    ///
+    /// **Taken on the turn what it waits for wakes**, and no tick polls
+    /// for it: the window's occlusion change (`Occluded`), the frame's
+    /// presentation (`presented`), and the plasma's thread, each wake the
+    /// window, and every turn comes here.
+    fn splash_check(&mut self) {
+        if !self.app.splash.waiting() {
+            return;
+        }
+        let plasma = self.app.plasma_ready();
+        if self.app.layer_shown == Done::Yes && plasma {
+            let visible = self.view.window().is_some_and(|w| {
+                w.isVisible() && w.occlusionState().contains(NSWindowOcclusionState::Visible)
+            });
+            #[cfg(feature = "effect-probe")]
+            let visible = visible
+                || baud_present_macos::probe::shown() == baud_present_macos::probe::Shown::Yes;
+            if visible {
+                startup_first("window visible", &FIRST_VISIBLE);
+            }
+            if visible && self.app.splash.shown() == crate::splash::Owes::Frame {
+                #[cfg(feature = "effect-probe")]
+                baud_present_macos::probe::greeted();
+                self.app.owe_frame();
+                startup_mark("splash shown");
+            }
+        }
     }
 
     /// **A kitty picture's decode, a step a turn** (`reads::decode_step`):

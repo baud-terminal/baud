@@ -104,12 +104,14 @@ impl Drop for Closing {
     }
 }
 
-/// **The frame rig's window told it became or resigned the key window**
-/// (`rig_call::RigWindow`; its other events post nothing): the notification AppKit posts, posted to the
-/// window's observers with the window as its object, as AppKit's names it
+/// **The frame rig's window told it became or resigned the key window, or
+/// that its occlusion changed** (`rig_call::RigWindow`; its other events
+/// post nothing): the notification AppKit posts, posted to the window's
+/// observers with the window as its object, as AppKit's names it
 /// (`[[source: apple-nswindow-didbecomekeynotification]]`,
-/// `[[source: apple-nswindow-didresignkeynotification]]`). The window is
-/// not made key; the rig checks it never is.
+/// `[[source: apple-nswindow-didresignkeynotification]]`,
+/// `[[source: apple-nswindow-occlusionstate]]`). The window is not made
+/// key nor ordered front; the rig checks it never is key.
 #[cfg(feature = "effect-probe")]
 pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
     use crate::rig_call::RigWindow;
@@ -125,6 +127,7 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         | RigWindow::HostNamed => return,
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
+        RigWindow::Shown => unsafe { NSWindowDidChangeOcclusionStateNotification },
     };
     let object: &AnyObject = window;
     // SAFETY: a notification with this window as its object, posted on the

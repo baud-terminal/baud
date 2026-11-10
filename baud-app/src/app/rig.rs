@@ -566,6 +566,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let reads = probe::hover_reads();
     let fed = probe::fed_turns();
     let hands = probe::hands();
+    let greetings = probe::greetings();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -615,6 +616,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         // Its input closed, `read` ends and the shell with it.
         RigWindow::CommandExits => drop(command_input.take()),
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
+        RigWindow::Shown => probe::set_shown(probe::Shown::Yes),
         // The stalled lookup answered with a name `gethostname` does not
         // give, so the read adds one and its names are owed to the links.
         RigWindow::HostNamed => {
@@ -658,7 +660,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -709,6 +711,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             )
         },
         probe::hands().0.saturating_sub(hands.0),
+        probe::greetings().0.saturating_sub(greetings.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

@@ -1116,7 +1116,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14", "FS-A17"];
+const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13", "FS-A14"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1173,6 +1173,8 @@ struct Counters {
     followed: [u32; 3],
     /// The hands of this machine's names to the links.
     hands: u32,
+    /// The launch splash's starts.
+    greeted: u32,
 }
 
 impl Counters {
@@ -1222,6 +1224,7 @@ impl Counters {
                 [next()?, next()?, next()?]
             },
             hands: count("hands")?,
+            greeted: count("greeted")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1295,6 +1298,9 @@ enum Settles {
     /// link and the link paused there. A miss is recorded as
     /// [`Failure::Held`], a poll the tick makes still holding it.
     PreviewedUnticked,
+    /// **The launch splash started with no tick**: the ticks withheld,
+    /// nothing delivered, and the splash started once.
+    Greeted,
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
@@ -1329,6 +1335,7 @@ impl Settles {
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
+            Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
             }
@@ -1378,7 +1385,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 22] = [
+const FRAME_SITES: [FrameSite; 23] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1511,11 +1518,13 @@ const FRAME_SITES: [FrameSite; 22] = [
             recorded: Failure::Held,
         },
     },
-    // **The splash's wait holds the link** (`FS-A17`): the one row with the
-    // splash on, so its kept arm names it among the polls; the window is
-    // never shown, and the splash waits for ever.
+    // **The splash's wait holds no link** (`FS-A17`): the splash on, the
+    // window never shown, so the splash waits for ever, and on the lifted
+    // arm the link pauses: what it waits for wakes the window
+    // (`splash_check`), and no tick polls for it. The kept arm's other
+    // holders still run the link.
     FrameSite {
-        name: SiteName("a splash waiting for its window holds the link"),
+        name: SiteName("a splash waiting for its window holds no link"),
         setup: STILL,
         act: "",
         keys: RigKeys::Line,
@@ -1530,6 +1539,25 @@ const FRAME_SITES: [FrameSite; 22] = [
             stage: Stage::Three,
             recorded: Failure::Held,
         },
+    },
+    // **FS-A17**: the splash starts on the turn its window is shown, the
+    // ticks withheld: the occlusion change AppKit posts wakes the window,
+    // whose turn finds a frame on the layer and the window on screen (the
+    // probe's door, the window never ordered front) and starts the splash,
+    // owing its first frame; no tick polls for it.
+    FrameSite {
+        name: SiteName("the splash starts when its window is shown, with no tick"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Shown,
+        env: &[],
+        config: "[cursor]\nblink = false\ntrail = \"off\"\n",
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Greeted,
+        state: RowState::Green,
     },
     // **FS-A2**: the window made key is heard with the link paused, from
     // its notification, and no tick polls for it.
@@ -1860,15 +1888,10 @@ const FRAME_SITES: [FrameSite; 22] = [
     },
 ];
 
-/// **The polls a row's settle names**: [`HOLDERS`], `FS-A17` only where the
-/// splash is on -- every row but one turns it off.
-fn holders_of(site: &FrameSite) -> Vec<&'static str> {
-    let splash_off = site.config.contains("splash = \"off\"");
-    HOLDERS
-        .iter()
-        .copied()
-        .filter(|h| !(splash_off && *h == "FS-A17"))
-        .collect()
+/// **The polls a row's settle names**: [`HOLDERS`], whatever the row
+/// turns on or off.
+fn holders_of(_site: &FrameSite) -> Vec<&'static str> {
+    HOLDERS.to_vec()
 }
 
 /// One frame row's child, the holders kept or lifted.

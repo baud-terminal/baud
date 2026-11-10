@@ -115,9 +115,13 @@ pub enum RigWindow {
     /// its own (`probe::HostName`), so the window's read of every name
     /// ends, adding one.
     HostNamed,
+    /// That it is shown: the probe's door set to on screen
+    /// (`probe::Shown`), then the occlusion change AppKit would post. The
+    /// window is not ordered front.
+    Shown,
 }
 
-const WINDOW: [(RigWindow, &str); 10] = [
+const WINDOW: [(RigWindow, &str); 11] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -128,6 +132,7 @@ const WINDOW: [(RigWindow, &str); 10] = [
     (RigWindow::CommandExits, "command-exits"),
     (RigWindow::Settings, "settings"),
     (RigWindow::HostNamed, "host-named"),
+    (RigWindow::Shown, "shown"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

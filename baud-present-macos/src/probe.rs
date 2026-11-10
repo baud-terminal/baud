@@ -258,6 +258,10 @@ thread_local! {
     static INLINE: Cell<Inline> = const { Cell::new(Inline::No) };
     static PARKED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
+    /// Whether baud believes its window is on screen (`Shown`).
+    static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
+    /// The launch splash's starts (`greeted`).
+    static GREETED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -335,6 +339,38 @@ pub fn set_key(key: Key) {
 /// Whether baud believes its window is key.
 pub fn key() -> Key {
     KEY.with(Cell::get)
+}
+
+/// **Whether baud believes its window is on screen**: what AppKit says,
+/// or shown whatever it says -- the frame rig's window, which is never
+/// ordered front, told it is shown (`rig_call::RigWindow::Shown`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shown {
+    /// What AppKit says, alone.
+    No,
+    /// On screen, whatever AppKit says.
+    Yes,
+}
+
+/// Set whether baud believes its window is on screen.
+pub fn set_shown(shown: Shown) {
+    SHOWN.with(|s| s.set(shown));
+}
+
+/// Whether baud believes its window is on screen.
+pub fn shown() -> Shown {
+    SHOWN.with(Cell::get)
+}
+
+/// **The launch splash started**, its window shown (baud-app's
+/// `splash_check`), counted for the frame rig.
+pub fn greeted() {
+    GREETED.with(|g| g.set(Taken(g.get().0.saturating_add(1))));
+}
+
+/// How many times the launch splash started.
+pub fn greetings() -> Taken {
+    GREETED.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before

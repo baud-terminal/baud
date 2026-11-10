@@ -28,19 +28,15 @@ pub(crate) enum Holder {
     A13Hosts,
     /// FS-A14: `paths_turn`, until the worker's answer wakes the window.
     A14Paths,
-    /// FS-A17: the splash's wait for the window on screen, until
-    /// `when_occlusion_changes`.
-    A17Splash,
 }
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 5] = [
+    pub(crate) const ALL: [Holder; 4] = [
         Holder::A5Notices,
         Holder::A9Front,
         Holder::A13Hosts,
         Holder::A14Paths,
-        Holder::A17Splash,
     ];
 
     /// The row's name, as the event rig prints it.
@@ -51,7 +47,6 @@ impl Holder {
             Holder::A9Front => "FS-A9",
             Holder::A13Hosts => "FS-A13",
             Holder::A14Paths => "FS-A14",
-            Holder::A17Splash => "FS-A17",
         }
     }
 }
@@ -530,18 +525,17 @@ mod tests {
                 Holder::A9Front => Place(1),
                 Holder::A13Hosts => Place(2),
                 Holder::A14Paths => Place(3),
-                Holder::A17Splash => Place(4),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=4).map(Place).collect();
+        let want: Vec<Place> = (0..=3).map(Place).collect();
         assert_eq!(places, want);
     }
 
     /// **The event rig's `HOLDERS` is every holder's name**, in `ALL`'s
     /// order: the frame rows read their holder lists against it, so a name
     /// it leaves out is a poll no row can see. Read from the test's source,
-    /// which is another binary. Break: `FS-A17` left out of `HOLDERS`.
+    /// which is another binary. Break: `FS-A14` left out of `HOLDERS`.
     #[test]
     fn the_rigs_holders_are_every_holder() {
         const RIG: &str = include_str!("../tests/event_rig.rs");
