@@ -1292,7 +1292,7 @@ pub(crate) fn joins_below(
     above: AbsLine,
     paths: &dyn PathsAt,
 ) -> bool {
-    runs_on(term, scrolled, above) && paths.joins(above) == Joins::Yes
+    runs_on(term, scrolled, above) && paths.joins(term.screen(), above) == Joins::Yes
 }
 
 /// A URI read from the text: the cells it spans, both ends inclusive, by
@@ -3041,6 +3041,43 @@ mod tests {
     use super::*;
 
     const NONE: &MachineNames = &MachineNames::NONE;
+
+    /// **The status line's row is no spot** (R9): with a host-writable
+    /// status line shown (`DECSSDT 2`) and an `OSC 8` link written on it
+    /// (`DECSASD 1`) and on the main display's first row, a pointer on the
+    /// status line's row reads no spot, so the link there is neither
+    /// hovered nor clicked; on the first row it reads the link. Named
+    /// break: `spot_now` without its bound on the view's rows -- the status
+    /// row reads a spot.
+    #[test]
+    fn the_status_row_is_no_spot() {
+        use baud_domain::{BytePos, ReadLen, WinSize};
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let link = b"\x1b]8;;file:///etc/hosts\x1b\\/etc/hosts\x1b]8;;\x1b\\";
+        let bytes = [
+            b"\x1b[2$~\x1b[1$}".as_slice(),
+            link,
+            b"\x1b[0$}\x1b[H",
+            link,
+        ]
+        .concat();
+        t.write_at(BytePos::ZERO, &bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let rows = t.view(t.window_back()).rows();
+        assert!(t.status_line().is_some(), "the status line is shown");
+        let status = Row::from_index(rows.index());
+        assert_eq!(spot_now(&t, Scrolled::START, status, Col::ZERO), None);
+        let first = spot_now(&t, Scrolled::START, Row::ZERO, Col::ZERO).expect("row 0");
+        assert!(
+            hovered(&t, first).is_some(),
+            "the control: the first row's link"
+        );
+    }
 
     /// **This machine's names match a host without case, and an empty name
     /// is none**: `Mac.local` matches `mac.LOCAL`; an empty name given is

@@ -19,8 +19,8 @@ use crate::host::{
     startup_first, startup_mark, startup_note,
 };
 use crate::keep::{
-    Before, KeptText, Ring, followed, kept_across_resize, live_moved, numbered, oldest, reset_in,
-    scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
+    Before, Counts, KeptText, Numbered, Ring, followed, kept_across_resize, live_moved, oldest,
+    reset_in, scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
     whole_screen_scrolled,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
@@ -572,6 +572,9 @@ struct App {
     /// (`keep::KeptText`).
     kept: KeptText,
     scrolled: Scrolled,
+    /// Each surface's count, of which `scrolled` is the live one's
+    /// (`keep::Counts`).
+    counts: Counts,
     /// The find field while it is open (`find.rs`): its matches, kept
     /// across reads, and the current one, which is the selection.
     finding: Option<crate::find::Finding>,
@@ -1541,6 +1544,7 @@ impl App {
         let notes = crate::notify::Delivery::new(notifications, &term, images);
         let fireworks = crate::fireworks::Fireworks::new();
         let last_prompts = term.prompts_opened();
+        let counts = Counts::new(&term);
         App {
             bell,
             bell_style,
@@ -1587,6 +1591,7 @@ impl App {
                 kept
             },
             scrolled: Scrolled::START,
+            counts,
             finding: None,
             hover: {
                 let mut h = crate::link::Hover::default();
@@ -5898,7 +5903,7 @@ mod ghost_tests {
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Hold, Ring, erased, hold_after, live_cursor, live_moved, numbered, oldest,
+        Before, Counts, Hold, Numbered, Ring, erased, hold_after, live_cursor, live_moved, oldest,
         snap_live, stale_in_moved_rows, switched, whole_screen_scrolled, window_of,
     };
     use baud_core::{Depth, Owned, Screen, Term};
@@ -6192,6 +6197,11 @@ mod alt_window_tests {
             if let Ring::Retired(n) = live_moved(t, before) {
                 scrolled = scrolled.advanced(n);
             }
+            let mut counts = Counts::starting(t, scrolled);
+            // The live surface's count after the setup: the alternate screen's
+            // where it entered it.
+            let rec = t.take_record();
+            scrolled = counts.numbered(t, Some(&rec)).scrolled();
             let span = |t: &Term<'_>, y: usize| {
                 let r = Row::from_index(y);
                 Span::cell(
@@ -6203,21 +6213,19 @@ mod alt_window_tests {
             let mut sel = Selection::at(span(t, y), Grain::Cell);
             sel.extend(span(t, last));
             for bytes in reads {
-                let before = Before::watched(t, Some(&sel), scrolled);
+                let _ = Before::watched(t, Some(&sel), scrolled);
                 feed(t, bytes);
                 if stale_in_moved_rows(t) {
                     dropped = true;
                     return;
                 }
-                scrolled = match numbered(t, before, None) {
-                    Ring::Retired(n) => scrolled.advanced(n),
-                    Ring::Restored(n) => match scrolled.retreated(n) {
-                        Some(s) => s,
-                        None => {
-                            dropped = true;
-                            return;
-                        }
-                    },
+                let rec = t.take_record();
+                scrolled = match counts.numbered(t, Some(&rec)) {
+                    Numbered::At(s) => s,
+                    Numbered::PastStart(_) => {
+                        dropped = true;
+                        return;
+                    }
                 };
                 let mut kept = Some(sel);
                 super::followed(t, &mut kept, scrolled);
@@ -6655,6 +6663,11 @@ mod alt_window_tests {
         if let Ring::Retired(n) = live_moved(t, before) {
             scrolled = scrolled.advanced(n);
         }
+        let mut counts = Counts::starting(t, scrolled);
+        // The live surface's count after the setup: the alternate screen's
+        // where it entered it.
+        let rec = t.take_record();
+        scrolled = counts.numbered(t, Some(&rec)).scrolled();
         // Line `y` as a view's distance back and its row.
         let at = |y: i32| match usize::try_from(y) {
             Ok(y) => (Rows::ZERO, Row::from_index(y)),
@@ -6680,9 +6693,10 @@ mod alt_window_tests {
             if stale_in_moved_rows(t) {
                 return None;
             }
-            scrolled = match numbered(t, before, None) {
-                Ring::Retired(n) => scrolled.advanced(n),
-                Ring::Restored(n) => scrolled.retreated(n)?,
+            let rec = t.take_record();
+            scrolled = match counts.numbered(t, Some(&rec)) {
+                Numbered::At(s) => s,
+                Numbered::PastStart(_) => return None,
             };
             // How far the read carried the selection's text against the
             // count, so each line it was made on is looked for where its
@@ -9708,7 +9722,7 @@ mod refont_tests {
 
 #[cfg(test)]
 mod resize_selection_tests {
-    use super::kept_across_resize;
+    use super::{Counts, kept_across_resize};
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
     use baud_render::{Grain, Scrolled, Selection, Span};
@@ -9735,7 +9749,11 @@ mod resize_selection_tests {
             .collect();
         feed(&mut t, &lines);
         feed(&mut t, setup);
-        let mut scrolled = Scrolled::START.advanced(Rows::of_count(t.scrollback().len()));
+        let mut counts = Counts::starting(
+            &t,
+            Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+        );
+        let mut scrolled = counts.primary();
         let span = |t: &Term<'_>, y: usize, s: Scrolled| {
             let r = Row::from_index(y);
             Span::cell(
@@ -9749,12 +9767,13 @@ mod resize_selection_tests {
         let want = sel.text(&t, scrolled);
         let mut kept = Some(sel);
         for &(c, r) in sizes {
-            let was = (t.history_mark(), t.geometry().0, t.screen());
+            let was = (t.geometry().0, t.screen());
             let _ = t.resize(&WinSize {
                 ws_col: c,
                 ws_row: r,
             });
-            (kept, scrolled) = kept_across_resize(&t, was, kept, scrolled);
+            let rec = t.take_record();
+            (kept, scrolled) = kept_across_resize(&t, was, kept, &mut counts, &rec);
         }
         let got = kept.map(|s| s.text(&t, scrolled));
         if let Some(g) = &got {
@@ -10455,8 +10474,7 @@ mod restart_tests {
             !pump.contains("let window = "),
             "a window read at the pump's start"
         );
-        let renumbered =
-            at("self.app.scrolled = match numbered(&self.app.term, before, resized) {");
+        let renumbered = at("self.app.scrolled = match numbered {");
         assert!(renumbered < call);
         // The selection is carried by the watch after the count moved, so
         // the lines it names are read on the count they are numbered by.
@@ -10495,20 +10513,20 @@ mod restart_tests {
         let fed = &pump[..pump
             .find(concat!("crate::link_layer::", "fed("))
             .expect("the batch filed")];
-        let ended = fed.rfind("let ended = ").expect("its last line");
+        let ended = fed.rfind("let ended_at = ").expect("its last line");
         assert!(
             fed[ended..].starts_with(concat!(
-                "let ended = numbered_now.",
+                "let ended_at = numbered_now.",
                 "line(Rows::ZERO, self.app.term.cursor().0);"
             )),
             "{}",
             &fed[ended..]
         );
-        let now = fed.rfind("let numbered_now = ").expect("the count moved");
+        let now = fed.rfind("let numbered = ").expect("the count moved");
         assert!(
             fed[now..ended].contains(concat!(
-                "match numbered(",
-                "&self.app.term, before, resized)"
+                "self.app.counts.",
+                "numbered(&self.app.term, last.as_ref())"
             )),
             "numbered as the window's count is"
         );
@@ -10540,8 +10558,7 @@ mod restart_tests {
             drop.contains("self.app.kept.dropped(&self.app.term);"),
             "kept where the watch drops it: {drop}"
         );
-        let renumbered =
-            at("self.app.scrolled = match numbered(&self.app.term, before, resized) {");
+        let renumbered = at("self.app.scrolled = match numbered {");
         let off = at("scrolled_off_the_top(&self.app.term, &s, tops)");
         let carried = at("followed(&self.app.term, &mut self.app.selection, self.app.scrolled);");
         assert!(renumbered < off && off < carried);
@@ -12770,6 +12787,7 @@ impl Driver {
         // The line the batch begins on: with the one it ends on, the lines
         // its reads wrote (`Probes::read_taken`).
         let began = self.app.scrolled.line(Rows::ZERO, self.app.term.cursor().0);
+        let began = self.app.paths.line_on(self.app.term.screen(), began);
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -12897,18 +12915,18 @@ impl Driver {
         // the lines it retired or took back counted (`numbered`), as the
         // window's count is below, or a batch that scrolled would file the
         // lines above the ones it wrote.
-        let numbered_now = match numbered(&self.app.term, before, resized) {
-            Ring::Retired(n) => self.app.scrolled.advanced(n),
-            Ring::Restored(n) => self.app.scrolled.retreated(n).unwrap_or(Scrolled::START),
-        };
-        let ended = numbered_now.line(Rows::ZERO, self.app.term.cursor().0);
+        let last = took.iter().rev().find_map(|(w, _)| w.record);
+        let numbered = self.app.counts.numbered(&self.app.term, last.as_ref());
+        let numbered_now = numbered.scrolled();
+        let ended_at = numbered_now.line(Rows::ZERO, self.app.term.cursor().0);
+        let ended = self.app.paths.line_on(self.app.term.screen(), ended_at);
         crate::link_layer::fed(
             &mut self.app.probes,
             &mut self.app.paths,
             &self.app.term,
             took.iter().copied(),
-            began,
-            ended,
+            (began, ended),
+            self.app.counts.core_lines(&self.app.term),
         );
         self.app.say_copied();
         if answered == Answered::Yes {
@@ -12978,17 +12996,14 @@ impl Driver {
             self.app.kept.dropped(&self.app.term);
         }
         let top_was = self.app.scrolled.top(Rows::ZERO);
-        self.app.scrolled = match numbered(&self.app.term, before, resized) {
-            Ring::Retired(n) => self.app.scrolled.advanced(n),
-            Ring::Restored(n) => match self.app.scrolled.retreated(n) {
-                Some(s) => s,
-                // Taken back past the session's first line: a fresh
-                // terminal's scroll down, which no count can number.
-                None => {
-                    self.app.selection = None;
-                    Scrolled::START
-                }
-            },
+        self.app.scrolled = match numbered {
+            Numbered::At(s) => s,
+            // Taken back past the session's first line: a fresh terminal's
+            // scroll down, which no count can number.
+            Numbered::PastStart(s) => {
+                self.app.selection = None;
+                s
+            }
         };
         // While `?1040` is reset, a selection the screen's scroll took off
         // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`).
@@ -18052,11 +18067,8 @@ impl Driver {
             // the resize retired or took back, a re-cut's renumbering
             // included, whether or not the selection is kept
             // (`kept_across_resize`).
-            let was = (
-                self.app.term.history_mark(),
-                self.app.term.geometry().0,
-                self.app.term.screen(),
-            );
+            let was = (self.app.term.geometry().0, self.app.term.screen());
+            let was_last = crate::paths::last_line(&self.app.term, self.app.counts.primary());
             let _ = self.app.term.resize(&ws);
             if let Some(t) = self.app.trace.as_mut() {
                 // What the core *has*, post-clamp, which is what a replay
@@ -18097,12 +18109,27 @@ impl Driver {
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells; a change of height alone on the primary
-            // keeps it on its lines (note V, V3).
+            // keeps it on its lines (note V, V3). The core's record of the
+            // resize, taken once, moves the counts and files the paths.
+            let rec = self.app.term.take_record();
             (self.app.selection, self.app.scrolled) = kept_across_resize(
                 &self.app.term,
                 was,
                 self.app.selection.take(),
-                self.app.scrolled,
+                &mut self.app.counts,
+                &rec,
+            );
+            // The printed paths' facts and a link's origin, filed at once
+            // where the resize re-cut the lines (`Paths::resized`): a quiet
+            // shell sends no read to file it with, and the hover and the
+            // frame below read them.
+            let counts = self.app.counts;
+            self.app.paths.resized(
+                &rec,
+                &self.app.term,
+                was_last,
+                counts.primary(),
+                counts.alternate(),
             );
             // The find's matches on the re-laid grid, and its current
             // match selected again, before the frame below draws them: a

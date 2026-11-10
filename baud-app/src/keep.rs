@@ -353,23 +353,175 @@ pub(crate) fn oldest(term: &Term<'_>, scrolled: Scrolled) -> AbsLine {
     scrolled.oldest(term.looking_back(retained))
 }
 
-/// How the selection's numbering moves across a read: by the core's count
-/// of the lines the live surface retired or took back since the watch was
-/// armed on the selection (`Term::watched_moved`), which is exact however
-/// far the read went -- where the rotation is read round the ring, so past
-/// half of it lines retired read as lines taken back, and a ring and a line
-/// as one line. With no watch armed, or one a line it names reached, the
-/// rotation, which numbers nothing kept. Nothing across a switch or a
-/// resize, after which no selection is kept.
-pub(crate) fn numbered(
-    term: &Term<'_>,
-    before: Before,
-    resized: Option<crate::width::Grid>,
-) -> Ring {
-    match (resized, switched(term, before), term.watched_moved()) {
-        (Some(_), _, _) | (None, true, _) => Ring::Retired(Rows::ZERO),
-        (None, false, Some(m)) => m,
-        (None, false, None) => term.moved_since(before.live),
+/// **The count each surface numbers its lines by**, one for the primary
+/// and one for the alternate screen, so a line of one is never numbered as
+/// a line of the other. The live surface's is the drivers' `scrolled`,
+/// which a selection, the lines at rest, a hover and the printed paths'
+/// facts are all numbered by, so what is filed is what is looked up.
+///
+/// - **The primary's** moves only by what its window retired into the
+///   history or took back (`Term::history_moved_since`), counted by the line
+///   at the window's top rather than read round a ring. So it is exact
+///   however far a read went, and across a switch: what the alternate
+///   screen scrolled moves it not at all, and leaving it needs no
+///   re-anchoring. One count shared with the alternate screen moved by its
+///   scrolling and was never moved back, so after a pager scrolled, every
+///   primary row was looked up that many lines off.
+/// - **The alternate screen's** is the core's own number for its top line,
+///   read from the record of the last part fed (`ReadRecord::end`, the
+///   cursor's line, less its row) while it is up: never read round its
+///   ring, which past half of it reads lines retired as lines taken back,
+///   and back at its start whenever the core clears it.
+///
+/// A count made before its terminal is ([`Counts::default`]) is armed at
+/// the first read ([`Counts::arm`]): nothing moved before it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Counts {
+    primary: Scrolled,
+    mark: Option<HistoryMark>,
+    /// The primary's window-top line and the count that numbered it as the
+    /// last batch began -- the mark and the count the numbering before it
+    /// left -- and whether that batch's count stayed on the core's
+    /// numbers: what each part's lines are placed by (`CoreLines`).
+    base: Option<(baud_domain::LineIdx, Scrolled)>,
+    placed: Placed,
+    alternate: Scrolled,
+}
+
+/// Whether the last numbering kept the primary's count on the core's
+/// numbers, or clamped it at the session's first line
+/// ([`Numbered::PastStart`]), where no count places the core's lines.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Placed {
+    #[default]
+    Yes,
+    No,
+}
+
+/// **The live surface's count after a read or a resize** ([`Counts`]), or
+/// that the primary's window was taken back past the session's first line
+/// -- a fresh terminal's scroll down, which no count numbers -- and starts
+/// again at it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Numbered {
+    At(Scrolled),
+    PastStart(Scrolled),
+}
+
+impl Numbered {
+    /// The count, either way.
+    pub(crate) fn scrolled(self) -> Scrolled {
+        match self {
+            Numbered::At(s) | Numbered::PastStart(s) => s,
+        }
+    }
+}
+
+impl Counts {
+    /// Both counts at their start, the primary's window where it stands.
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn new(term: &Term<'_>) -> Counts {
+        Counts {
+            mark: Some(term.history_mark()),
+            ..Counts::default()
+        }
+    }
+
+    /// Both counts, the primary's at `primary`, for a test whose window
+    /// already holds history.
+    #[cfg(all(test, target_os = "macos"))]
+    pub(crate) fn starting(term: &Term<'_>, primary: Scrolled) -> Counts {
+        Counts {
+            primary,
+            ..Counts::new(term)
+        }
+    }
+
+    /// The primary's window where it stands, if no read has armed it yet.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn arm(&mut self, term: &Term<'_>) {
+        if self.mark.is_none() {
+            self.mark = Some(term.history_mark());
+        }
+    }
+
+    /// The primary's count, whatever screen is up.
+    pub(crate) fn primary(&self) -> Scrolled {
+        self.primary
+    }
+
+    /// **Where the core's lines fall on these counts** (`paths::CoreLines`),
+    /// on `term`'s window: each part's primary lines placed against its own
+    /// window top from the last batch's base, and none after a numbering
+    /// that clamped the count at the session's first line, which every
+    /// line from the base on is renumbered by.
+    pub(crate) fn core_lines(&self, term: &Term<'_>) -> crate::paths::CoreLines {
+        let numbers = match self.placed {
+            Placed::Yes => crate::paths::Numbers::Followed,
+            Placed::No => crate::paths::Numbers::Clamped,
+        };
+        crate::paths::CoreLines::of(self.base).on(term.geometry().1, self.alternate, numbers)
+    }
+
+    /// [`Counts::core_lines`] with the primary's window numbered by `held`
+    /// as it stands now: a test whose count stands still while the core
+    /// scrolls.
+    #[cfg(test)]
+    pub(crate) fn core_lines_at(&self, held: Scrolled, term: &Term<'_>) -> crate::paths::CoreLines {
+        crate::paths::CoreLines::of(self.mark.map(|m| (m.line(), held))).on(
+            term.geometry().1,
+            self.alternate,
+            crate::paths::Numbers::Followed,
+        )
+    }
+
+    /// The alternate screen's count, whatever screen is up.
+    pub(crate) fn alternate(&self) -> Scrolled {
+        self.alternate
+    }
+
+    /// **Both counts moved by what the core did since the last call**, and
+    /// the live surface's: the primary's by its window's top, and the
+    /// alternate screen's from `last`, the record of the last part fed
+    /// (`reads::Part::recorded`), when it ended on the alternate screen and
+    /// the screen is still up. None fed, the alternate screen's stays.
+    pub(crate) fn numbered(
+        &mut self,
+        term: &Term<'_>,
+        last: Option<&baud_core::ReadRecord>,
+    ) -> Numbered {
+        let mut past = false;
+        self.base = self.mark.map(|m| (m.line(), self.primary));
+        match self.mark.map(|m| term.history_moved_since(m)) {
+            None => {}
+            Some(Ring::Retired(n)) => self.primary = self.primary.advanced(n),
+            Some(Ring::Restored(n)) => match self.primary.retreated(n) {
+                Some(s) => self.primary = s,
+                None => {
+                    self.primary = Scrolled::START;
+                    past = true;
+                }
+            },
+        }
+        self.mark = Some(term.history_mark());
+        let up = term.screen();
+        if let Some(end) = last.map(baud_core::ReadRecord::end) {
+            if (end.screen, up) == (Screen::Alternate, Screen::Alternate) {
+                let top = end.line.minus(Rows::of_count(term.cursor().0.index()));
+                let top = top.map_or(0, baud_domain::LineIdx::value);
+                let top = usize::try_from(top).unwrap_or(usize::MAX);
+                self.alternate = Scrolled::START.advanced(Rows::of_count(top));
+            }
+        }
+        self.placed = match past {
+            true => Placed::No,
+            false => Placed::Yes,
+        };
+        match (up, past) {
+            (Screen::Normal, true) => Numbered::PastStart(self.primary),
+            (Screen::Normal, false) => Numbered::At(self.primary),
+            (Screen::Alternate, _) => Numbered::At(self.alternate),
+        }
     }
 }
 
@@ -404,24 +556,27 @@ pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrol
 /// goes where it reaches a row the shrink cut below the screen, which may
 /// come back or be blanked when history is pulled instead. A line the ring
 /// recycled is clipped, as after a read. Until 2026-10-20 every change of
-/// grid cleared it. `mark`, `cols` and `screen` are read before the
-/// resize.
+/// grid cleared it. `cols` and `screen` are read before the resize, and
+/// `counts` are moved by it whatever screen is up ([`Counts::numbered`]),
+/// by `rec`, the core's record of the resize (`Term::take_record`): the
+/// primary's re-cut renumbers its lines while the alternate screen is up
+/// too, and a change of height may move the alternate screen's rows, whose
+/// top the record says.
 pub(crate) fn kept_across_resize(
     term: &Term<'_>,
-    (mark, cols, screen): (HistoryMark, Cols, Screen),
+    (cols, screen): (Cols, Screen),
     selection: Option<Selection>,
-    scrolled: Scrolled,
+    counts: &mut Counts,
+    rec: &baud_core::ReadRecord,
 ) -> (Option<Selection>, Scrolled) {
+    let numbered = counts.numbered(term, Some(rec));
     let (now_cols, rows) = term.geometry();
     if screen != Screen::Normal || term.screen() != Screen::Normal {
-        return (None, scrolled);
+        return (None, numbered.scrolled());
     }
-    let scrolled = match term.history_moved_since(mark) {
-        Ring::Retired(n) => scrolled.advanced(n),
-        Ring::Restored(n) => match scrolled.retreated(n) {
-            Some(s) => s,
-            None => return (None, Scrolled::START),
-        },
+    let scrolled = match numbered {
+        Numbered::At(s) => s,
+        Numbered::PastStart(s) => return (None, s),
     };
     if now_cols != cols {
         return (None, scrolled);
@@ -655,5 +810,68 @@ mod highlight_tests {
             ),
             "and kept where it is, two lines past the view's last row"
         );
+    }
+}
+
+/// Where the counts place the core's lines (`Counts::core_lines`).
+#[cfg(test)]
+mod counts_tests {
+    use super::{Counts, Numbered};
+    use baud_core::{Owned, Screen, Term};
+    use baud_domain::{BytePos, ReadLen, WinSize};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 6,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **A numbering that clamps the primary's count at the session's
+    /// first line places no part's lines** (D2): a count started over a
+    /// window that already holds history, at its first line; then, in one
+    /// batch, a part that retires four lines and one that scrolls down
+    /// six, taking back more than the count has -- `PastStart`. The first
+    /// part's top was a line the count numbers, and still nothing is
+    /// placed: the clamp moved every number after it. The control: the
+    /// same batch with the count started before the history, the first
+    /// part placed. Named break: place the lines after a clamp as after
+    /// any numbering -- the first part's top is placed.
+    #[test]
+    fn a_count_clamped_at_the_first_line_places_nothing() {
+        let lines = b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\r\ni\r\nj\r\n";
+        for clamped in [false, true] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut counts = Counts::new(&t);
+            feed(&mut t, lines);
+            match clamped {
+                true => counts = Counts::new(&t),
+                false => {
+                    let _ = counts.numbered(&t, None);
+                }
+            }
+            feed(&mut t, b"k\r\nl\r\nm\r\nn\r\n");
+            let first = t.history_mark().line();
+            feed(&mut t, b"\x1b[6T");
+            let numbered = counts.numbered(&t, None);
+            let placed = counts
+                .core_lines(&t)
+                .part(Some(first))
+                .line(Screen::Normal, first);
+            match clamped {
+                true => {
+                    assert!(matches!(numbered, Numbered::PastStart(_)), "{numbered:?}");
+                    assert_eq!(placed, None, "nothing placed past the start");
+                }
+                false => {
+                    assert!(matches!(numbered, Numbered::At(_)), "{numbered:?}");
+                    assert!(placed.is_some(), "the control: placed");
+                }
+            }
+        }
     }
 }

@@ -387,7 +387,8 @@ impl<'t, 's> Under<'t, 's> {
             |_| {},
             &mut crate::hostlog::NoLog,
         );
-        self.seat.after_read(self.term, before);
+        let rec = self.term.take_record();
+        self.seat.after_read(self.term, before, Some(&rec));
         let out = self.withheld.strip(out);
         self.send(&out);
         let answered = match (out.is_empty(), self.answer()) {

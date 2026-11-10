@@ -349,6 +349,16 @@ pub enum WrapPending {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct HistoryMark(LineIdx);
 
+impl HistoryMark {
+    /// **The primary's window-top line the mark was taken at**, on the
+    /// numbers a [`crate::ReadRecord`] names the primary's lines by: what
+    /// an embedder places a record's lines against, read with the record
+    /// rather than worked back from where its cursor ended.
+    pub fn line(self) -> LineIdx {
+        self.0
+    }
+}
+
 /// Which surface is up, and which time it went up: it moves on every switch
 /// between the primary and the alternate screen, in either direction. Two
 /// equal readings saw one surface throughout -- where [`Term::screen`] read
@@ -5821,6 +5831,14 @@ impl<'b> Term<'b> {
     /// they were.
     pub fn scroll_region(&self) -> (Row, Row) {
         (self.cold.top, self.cold.bot)
+    }
+
+    /// The side margins DECSLRM set, as their first and last column: the
+    /// screen's own edges when none are set (`DECLRMM` reset). An embedder
+    /// that judges what a run of blanks reaches needs them: under a right
+    /// margin the run wraps where the screen's edge would not.
+    pub fn side_margins(&self) -> (Col, Col) {
+        (self.cold.left, self.cold.right)
     }
 
     /// Drop every placement whose row is gone, on either screen: the

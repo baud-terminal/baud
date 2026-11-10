@@ -837,46 +837,227 @@ pub enum Owed {
     Yes,
 }
 
-/// **The lines one program wrote, first to last**, on the terminal's
+/// **Which of the terminal's two surfaces a line is on**: the primary, or
+/// the alternate screen as it stood between two of its clears. Each keeps
+/// its own count of lines and its own facts ([`Paths`]), so a line of one
+/// is never looked up, or filed, as a line of the other; and the alternate
+/// screen's count starts again at each of its clears, so a span of an
+/// earlier epoch names text that is gone, and is filed nowhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Surface {
+    Primary,
+    Alternate(AltEpoch),
+}
+
+/// **How many times the core has cleared the alternate screen**
+/// (`ReadRecord::cleared`), from this window's start.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct AltEpoch(u64);
+
+impl AltEpoch {
+    fn next(self) -> AltEpoch {
+        AltEpoch(self.0.wrapping_add(1))
+    }
+}
+
+/// **A line on one surface**: the cursor's when a read began or ended, or
+/// when a batch was sent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LineOn {
+    pub surface: Surface,
+    pub line: AbsLine,
+}
+
+/// **Where the core's line numbers fall on the app's for one batch**
+/// (`ReadRecord`'s lines, `keep::Counts`): on the primary, the core's line
+/// at its window's top as the batch began and the count that numbered it,
+/// none where no count places them -- a numbering that clamped the count at
+/// the session's first line; each part's lines are placed against the top
+/// it ended with ([`CoreLines::part`]). On the alternate screen the count
+/// is the core's own number for its top line, so a line is its number.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CoreLines {
+    primary: Option<(baud_domain::LineIdx, Scrolled)>,
+    numbers: Numbers,
+    rows: Rows,
+    alternate: Scrolled,
+}
+
+/// **Whether a batch's numbering kept the primary's count on the core's
+/// numbers**, or clamped it at the session's first line as the window was
+/// taken back past it (`keep::Numbered::PastStart`): every number from the
+/// batch's base on then names other text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Numbers {
+    Followed,
+    Clamped,
+}
+
+impl CoreLines {
+    /// The primary's window top as the batch began: `core`, the core's
+    /// line, numbered here by `scrolled`.
+    pub fn of(primary: Option<(baud_domain::LineIdx, Scrolled)>) -> CoreLines {
+        CoreLines {
+            primary,
+            numbers: Numbers::Followed,
+            rows: Rows::ZERO,
+            alternate: Scrolled::START,
+        }
+    }
+
+    /// The batch's lines on a window of `rows`, the alternate screen's
+    /// numbered by `alternate`, its numbering `numbers`.
+    pub fn on(self, rows: Rows, alternate: Scrolled, numbers: Numbers) -> CoreLines {
+        CoreLines {
+            rows,
+            alternate,
+            numbers,
+            ..self
+        }
+    }
+
+    /// Whether the batch's numbering kept the primary's count.
+    pub fn numbers(&self) -> Numbers {
+        self.numbers
+    }
+
+    /// **The last line of each surface's window the batch's numbers
+    /// reached**: on the primary, the window's last at the batch's base or
+    /// at the highest top a part ended with, `tops`, none where nothing
+    /// placed the base; on the alternate screen, its window's last.
+    pub fn lasts(
+        &self,
+        tops: impl Iterator<Item = baud_domain::LineIdx>,
+    ) -> (Option<AbsLine>, AbsLine) {
+        let last = |s: Scrolled| {
+            s.line(
+                Rows::ZERO,
+                baud_domain::Row::from_index(self.rows.index().saturating_sub(1)),
+            )
+        };
+        let primary = self.primary.map(|(base, count)| {
+            let up = tops.filter_map(|t| t.since(base)).max();
+            last(up.map_or(count, |d| count.advanced(d)))
+        });
+        (primary, last(self.alternate))
+    }
+
+    /// **One part's lines**, its window top `top` as it ended
+    /// (`reads::Taken`), numbered here as far from the batch's count as
+    /// the core's top moved from the batch's: none for a part with no top,
+    /// or one whose top the count cannot number, before the session's
+    /// first line.
+    pub fn part(&self, top: Option<baud_domain::LineIdx>) -> PartLines {
+        let placed = self.primary.filter(|_| self.numbers == Numbers::Followed);
+        let primary = placed.zip(top).and_then(|((base, count), top)| {
+            let here = match top.since(base) {
+                Some(down) => count.advanced(down),
+                None => count.retreated(base.since(top)?)?,
+            };
+            Some((top, here))
+        });
+        PartLines { primary }
+    }
+}
+
+/// **Where one part's lines fall on the app's numbers**
+/// ([`CoreLines::part`]): the core's line at the primary's top as the part
+/// ended and the count that numbers it here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PartLines {
+    primary: Option<(baud_domain::LineIdx, Scrolled)>,
+}
+
+impl PartLines {
+    /// **The line here of the core's `line` of `screen`**: none on the
+    /// primary where the part could not be placed, or for a line before the
+    /// session's first.
+    pub fn line(&self, screen: Screen, line: baud_domain::LineIdx) -> Option<AbsLine> {
+        match screen {
+            Screen::Normal => {
+                let (core, here) = self.primary?;
+                let at = match line.since(core) {
+                    Some(down) => here.advanced(down),
+                    None => here.retreated(core.since(line)?)?,
+                };
+                Some(at.top(Rows::ZERO))
+            }
+            Screen::Alternate => line.since(baud_domain::LineIdx::FIRST).map(AbsLine::at),
+        }
+    }
+
+    /// **The core's line of `screen` that is `line` here**: [`PartLines::line`]
+    /// undone, none where it places nothing.
+    fn core(&self, screen: Screen, line: AbsLine) -> Option<baud_domain::LineIdx> {
+        let (core, here) = match screen {
+            Screen::Normal => self.primary?,
+            Screen::Alternate => (baud_domain::LineIdx::FIRST, Scrolled::START),
+        };
+        match here.surface_line(line, Rows::of_count(usize::MAX))? {
+            baud_core::SurfaceLine::At(r) => Some(core.plus(Rows::of_count(r.index()))),
+            baud_core::SurfaceLine::Above(n) => core.minus(n),
+        }
+    }
+}
+
+/// **The lines one program wrote, first to last**, on one surface's
 /// absolute line numbers, so history scrolling and trimming leave them
 /// where they were: what a read was, from the line the cursor was on as it
 /// began to the line it ended on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct LineSpan {
+    surface: Surface,
     first: AbsLine,
     last: AbsLine,
 }
 
+/// Whether `b` holds the spans `a` does, in whatever order.
+fn same_spans(a: &[LineSpan], b: impl Iterator<Item = LineSpan> + Clone) -> bool {
+    b.clone().all(|s| a.contains(&s)) && a.iter().all(|p| b.clone().any(|s| s == *p))
+}
+
 impl LineSpan {
-    /// From `first` to `last`, whichever way round they come.
-    pub fn of(first: AbsLine, last: AbsLine) -> LineSpan {
+    /// From `first` to `last` on `surface`, whichever way round they come.
+    pub fn on(surface: Surface, first: AbsLine, last: AbsLine) -> LineSpan {
         LineSpan {
+            surface,
             first: first.min(last),
             last: first.max(last),
         }
     }
 
-    /// **The lines a read wrote**, the cursor on `began` as it began and on
-    /// `ended` after it: to the line above `ended` when nothing in the read
-    /// could have written on the line it ended on ([`crate::reach::Reach`]:
-    /// text and forward motion only, ending on a line feed) -- where the
-    /// shell draws its next prompt. Any other read may have written on the
-    /// cursor's line, and keeps it.
-    pub fn read(began: AbsLine, ended: AbsLine, reach: crate::reach::Reach) -> LineSpan {
-        match (reach, ended.above()) {
-            (crate::reach::Reach::Below, Some(above)) if ended > began => {
-                LineSpan::of(began, above)
-            }
-            _ => LineSpan::of(began, ended),
+    /// From `first` to `last` on the primary: the surface most tests file.
+    #[cfg(test)]
+    pub fn of(first: AbsLine, last: AbsLine) -> LineSpan {
+        LineSpan::on(Surface::Primary, first, last)
+    }
+
+    /// The lines both hold, on one surface; none for none.
+    pub fn meet(self, other: LineSpan) -> Option<LineSpan> {
+        let (first, last) = (self.first.max(other.first), self.last.min(other.last));
+        (self.surface == other.surface && first <= last).then_some(LineSpan {
+            surface: self.surface,
+            first,
+            last,
+        })
+    }
+
+    /// The span and `other` as one, the lines between included; `other`
+    /// alone if it is on another surface, which no span joins.
+    pub fn joined(self, other: LineSpan) -> LineSpan {
+        match self.surface == other.surface {
+            true => LineSpan {
+                surface: self.surface,
+                first: self.first.min(other.first),
+                last: self.last.max(other.last),
+            },
+            false => other,
         }
     }
 
-    /// The span and `other` as one, the lines between included.
-    pub fn joined(self, other: LineSpan) -> LineSpan {
-        LineSpan {
-            first: self.first.min(other.first),
-            last: self.last.max(other.last),
-        }
+    /// The surface.
+    pub fn surface(self) -> Surface {
+        self.surface
     }
 
     /// The last line.
@@ -884,14 +1065,65 @@ impl LineSpan {
         self.last
     }
 
+    /// **The span less `line`**: the lines above it and the lines below it,
+    /// each where there are any; the span whole where `line` is not in it.
+    pub fn without(self, line: AbsLine) -> impl Iterator<Item = LineSpan> {
+        let on = |a, b| LineSpan::on(self.surface, a, b);
+        let (above, below) = match self.holds(line) {
+            false => (Some(self), None),
+            true => (
+                line.above()
+                    .filter(|&a| a >= self.first)
+                    .map(|a| on(self.first, a)),
+                (line < self.last).then(|| on(line.below(), self.last)),
+            ),
+        };
+        above.into_iter().chain(below)
+    }
+
+    /// **The span less `other`'s lines**: those above `other` and those
+    /// below it, each where there are any; the span whole on another
+    /// surface.
+    pub fn outside(self, other: LineSpan) -> impl Iterator<Item = LineSpan> {
+        let on = |a, b| LineSpan::on(self.surface, a, b);
+        let (above, below) = match self.surface == other.surface {
+            false => (Some(self), None),
+            true => (
+                other
+                    .first
+                    .above()
+                    .filter(|&a| a >= self.first)
+                    .map(|a| on(self.first, a.min(self.last))),
+                (other.last < self.last).then(|| on(other.last.below().max(self.first), self.last)),
+            ),
+        };
+        above.into_iter().chain(below)
+    }
+
+    /// **The span less the lines above `line`** on `surface`: none where it
+    /// lies wholly above; the span whole on another surface.
+    pub fn below_or_at(self, surface: Surface, line: AbsLine) -> Option<LineSpan> {
+        match self.surface == surface {
+            false => Some(self),
+            true => (self.last >= line).then(|| LineSpan {
+                first: self.first.max(line),
+                ..self
+            }),
+        }
+    }
+
+    /// Whether `line`, a line of this span's surface, is in it.
     pub(crate) fn holds(self, line: AbsLine) -> bool {
         self.first <= line && line <= self.last
     }
 
     /// Whether `other` overlaps this span or begins on the line after it, or
-    /// the other way round: two that make one run of lines.
+    /// the other way round, on the same surface: two that make one run of
+    /// lines.
     pub(crate) fn touches(self, other: LineSpan) -> bool {
-        other.first <= self.last.below() && self.first <= other.last.below()
+        self.surface == other.surface
+            && other.first <= self.last.below()
+            && self.first <= other.last.below()
     }
 }
 
@@ -1012,11 +1244,29 @@ impl Pens {
 
 /// **Every read that opened a link or wrote under it**, for one slot of the
 /// link table: the target it held then and the lines those reads wrote,
-/// joined ([`Paths::slot_wrote`]).
+/// joined, on each surface they wrote ([`Paths::slot_wrote`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct SlotRecord {
     uri: UriHash,
-    lines: LineSpan,
+    primary: Option<LineSpan>,
+    alternate: Option<LineSpan>,
+}
+
+impl SlotRecord {
+    /// The lines on `span`'s surface, joined with `span`.
+    fn joined(self, span: LineSpan) -> SlotRecord {
+        let join = |was: Option<LineSpan>| Some(was.map_or(span, |w| w.joined(span)));
+        match span.surface {
+            Surface::Primary => SlotRecord {
+                primary: join(self.primary),
+                ..self
+            },
+            Surface::Alternate(_) => SlotRecord {
+                alternate: join(self.alternate),
+                ..self
+            },
+        }
+    }
 }
 
 /// What the program in front is, as the worker last named it.
@@ -1081,6 +1331,15 @@ enum Unnamed {
     Yes,
 }
 
+/// Whether a read nothing names -- no group sampled for it, no marks of the
+/// shell's -- wrote a run of rows ([`Paths::written_unnamed`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Nameless {
+    #[default]
+    No,
+    Yes,
+}
+
 /// Whether a command the shell named here, with its token, wrote a run of
 /// rows (`crate::ran::Ran::Here`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -1090,6 +1349,15 @@ enum Here {
     Yes,
 }
 
+/// Whether text a read moved onto a run of rows came from a line no fact
+/// vouched for ([`Paths::carried`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Carried {
+    #[default]
+    Vouched,
+    Unvouched,
+}
+
 /// **What was filed over a run of rows**, each kind of fact kept apart, so
 /// the order the facts arrive in -- a worker's verdict usually after the
 /// read it is about -- changes nothing ([`Facts::provenance`]).
@@ -1097,7 +1365,9 @@ enum Here {
 struct Facts {
     writer: Option<Writer>,
     unnamed: Unnamed,
+    nameless: Nameless,
     here: Here,
+    carried: Carried,
 }
 
 /// One fact filed over a span of rows ([`Paths::file`]).
@@ -1108,8 +1378,13 @@ enum Fact {
     Writer(Writer),
     /// A writer the worker could not name.
     NotNamed,
+    /// A read nothing names wrote the rows: no writer to name, so no
+    /// command's lift reaches it.
+    Nameless,
     /// A command the shell named here wrote the rows.
     Here,
+    /// A read moved text onto the rows from a line no fact vouched for.
+    Unvouched,
 }
 
 impl Fact {
@@ -1133,10 +1408,30 @@ impl Fact {
                 unnamed: Unnamed::Yes,
                 ..facts
             },
+            Fact::Nameless => Facts {
+                nameless: Nameless::Yes,
+                ..facts
+            },
             Fact::Here => Facts {
                 here: Here::Yes,
                 ..facts
             },
+            Fact::Unvouched => Facts {
+                carried: Carried::Unvouched,
+                ..facts
+            },
+        }
+    }
+
+    /// **What to file over a line whose text came from lines whose most
+    /// cautious writer was `worst`** ([`Paths::carried`]): that writer, or,
+    /// for lines no writer was named for, a fact no other lifts.
+    fn carried(worst: Provenance) -> Fact {
+        match worst {
+            Provenance::Local => Fact::Writer(Writer::Local),
+            Provenance::Multiplexed => Fact::Writer(Writer::Multiplexed),
+            Provenance::NotNamed => Fact::Unvouched,
+            Provenance::Remote => Fact::Writer(Writer::Remote),
         }
     }
 }
@@ -1146,8 +1441,10 @@ impl Facts {
     /// weightiest of the writer named and a writer not named, the second
     /// lifted to local where a command the shell named here wrote them --
     /// a lift of that fact alone, never of a remote writer or a
-    /// multiplexer, and nothing where no writer was named at all. None for
-    /// no fact, which no reader takes as local.
+    /// multiplexer, and nothing where no writer was named at all -- nor of
+    /// a read nothing names, nor of text a read moved from a line no fact
+    /// vouched for. None for no fact,
+    /// which no reader takes as local.
     fn provenance(self) -> Option<Provenance> {
         let named = self.writer.map(|w| match w {
             Writer::Local => Provenance::Local,
@@ -1159,7 +1456,15 @@ impl Facts {
             (Unnamed::Yes, Here::Yes) => Some(Provenance::Local),
             (Unnamed::Yes, Here::No) => Some(Provenance::NotNamed),
         };
-        named.max(unnamed)
+        let nameless = match self.nameless {
+            Nameless::No => None,
+            Nameless::Yes => Some(Provenance::NotNamed),
+        };
+        let carried = match self.carried {
+            Carried::Vouched => None,
+            Carried::Unvouched => Some(Provenance::NotNamed),
+        };
+        named.max(unnamed).max(nameless).max(carried)
     }
 }
 
@@ -1297,12 +1602,14 @@ pub struct Paths {
     /// What is in front, and the line it was named at when it is not
     /// local: rows from there are its while it stays.
     front: Front,
-    front_from: Option<AbsLine>,
-    /// **What was filed over each run of rows**, sorted, apart, and runs of
-    /// equal facts that touch merged ([`Paths::file`]): a writer not local
-    /// darkens its own rows and no other. A buffer the filing reuses, and
-    /// the steps every lookup has taken ([`Paths::facts_at`]).
-    runs: Vec<(LineSpan, Facts)>,
+    front_from: Option<LineOn>,
+    /// **What was filed over each surface's lines** ([`Store`]): the
+    /// primary's, and the alternate screen's since its last clear, the
+    /// epoch it is in. A buffer the filing reuses, and the steps every
+    /// lookup has taken ([`Paths::facts_at`]).
+    primary: Store,
+    alternate: Store,
+    alt_epoch: AltEpoch,
     pieces: Vec<(LineSpan, Facts)>,
     looked: core::cell::Cell<Tally>,
     /// Moved by every span named, which may join or part two rows
@@ -1312,6 +1619,19 @@ pub struct Paths {
     /// until the next scan takes it ([`Reader::refiled`]): a fact moves
     /// what a link on a row reads, with no change to the row's cells.
     refiled: Option<LineSpan>,
+    /// **The lines whose writer is still to be named, where their text is
+    /// now** (`probe::Probes`'s: kept to send, and sent and not yet
+    /// answered): a gap among them carries nothing when a read moves it
+    /// ([`Paths::worst_over`]), since its span goes with the text.
+    pending: Vec<LineSpan>,
+    /// **The lines of those an answer for another writer was filed over**
+    /// (`probe::Probes`'s holds): none reads as this machine's, whatever is
+    /// filed over it ([`Paths::wrote`]), until its own writer is named. A
+    /// span carried through a move it did not make exactly -- the hull of a
+    /// move that took part of it, a band -- covers lines another writer's
+    /// text may hold, so a local answer filed over it stands on them only
+    /// once their own writer's does.
+    held: Vec<LineSpan>,
     key: Vec<u8>,
     tokens: Vec<Token>,
     /// The paths the last read found runs for, each run's [`Key::Path`] a
@@ -1326,6 +1646,80 @@ pub struct Paths {
     /// ([`Paths::observe`]).
     slots: Vec<Option<SlotRecord>>,
     slots_at: Option<LinkEpoch>,
+}
+
+/// **What was filed over one surface's lines**: each run of lines, sorted,
+/// apart, and runs of equal facts that touch merged ([`Paths::file`]) -- a
+/// writer not local darkens its own lines and no other -- and the line up
+/// to which every line was renumbered in a way no count says
+/// ([`Paths::renumbered`]), not known whatever is filed over it after.
+#[derive(Debug, Default)]
+struct Store {
+    runs: Vec<(LineSpan, Facts)>,
+    floor: Option<AbsLine>,
+}
+
+impl Store {
+    /// Whether the renumbering covers `line`.
+    fn floored(&self, line: AbsLine) -> bool {
+        self.floor.is_some_and(|l| line <= l)
+    }
+
+    /// [`Paths::file`] in this store, `pieces` a buffer it reuses.
+    fn file(&mut self, fact: Fact, span: LineSpan, pieces: &mut Vec<(LineSpan, Facts)>) -> Moved {
+        let on = |a, b| LineSpan::on(span.surface, a, b);
+        let from = self.runs.partition_point(|(r, _)| r.last < span.first);
+        pieces.clear();
+        let mut moved = Moved::No;
+        // The next line of `span` no run has covered yet; none once past
+        // its end.
+        let mut next = Some(span.first);
+        let mut to = from;
+        while let Some(&(run, facts)) = self.runs.get(to) {
+            if run.first > span.last {
+                break;
+            }
+            if let (Some(n), Some(before)) = (next, run.first.above()) {
+                if n < run.first {
+                    pieces.push((on(n, before), fact.added_to(Facts::default())));
+                    moved = Moved::Yes;
+                }
+            }
+            if let Some(left) = span.first.above().filter(|_| run.first < span.first) {
+                pieces.push((on(run.first, left), facts));
+            }
+            let now = fact.added_to(facts);
+            if now != facts {
+                moved = Moved::Yes;
+            }
+            pieces.push((on(run.first.max(span.first), run.last.min(span.last)), now));
+            if run.last > span.last {
+                pieces.push((on(span.last.below(), run.last), facts));
+            }
+            next = (run.last < span.last).then(|| run.last.below());
+            to += 1;
+        }
+        if let Some(n) = next.filter(|n| *n <= span.last) {
+            pieces.push((on(n, span.last), fact.added_to(Facts::default())));
+            moved = Moved::Yes;
+        }
+        let placed = pieces.len();
+        self.runs.splice(from..to, pieces.drain(..));
+        // Merge runs of equal facts that touch, around what was placed.
+        let mut i = from.saturating_sub(1);
+        let end = from + placed;
+        while i < end && i + 1 < self.runs.len() {
+            let (a, fa) = self.runs[i];
+            let (b, fb) = self.runs[i + 1];
+            if fa == fb && a.last.below() == b.first {
+                self.runs[i] = (on(a.first, b.last), fa);
+                self.runs.remove(i + 1);
+            } else {
+                i += 1;
+            }
+        }
+        moved
+    }
 }
 
 impl Paths {
@@ -1690,12 +2084,58 @@ impl Paths {
         Moved::Yes
     }
 
+    /// **The surface `screen` is now**: the primary, or the alternate
+    /// screen in the epoch it is in.
+    pub fn surface(&self, screen: Screen) -> Surface {
+        match screen {
+            Screen::Normal => Surface::Primary,
+            Screen::Alternate => Surface::Alternate(self.alt_epoch),
+        }
+    }
+
+    /// **Line `line` of `screen` as it is now** ([`Paths::surface`]).
+    pub fn line_on(&self, screen: Screen, line: AbsLine) -> LineOn {
+        LineOn {
+            surface: self.surface(screen),
+            line,
+        }
+    }
+
+    /// The store `surface`'s lines are filed in: none for the alternate
+    /// screen of an epoch past, whose text a clear took.
+    fn store(&self, surface: Surface) -> Option<&Store> {
+        match surface {
+            Surface::Primary => Some(&self.primary),
+            Surface::Alternate(e) => (e == self.alt_epoch).then_some(&self.alternate),
+        }
+    }
+
+    fn store_mut(&mut self, surface: Surface) -> Option<&mut Store> {
+        match surface {
+            Surface::Primary => Some(&mut self.primary),
+            Surface::Alternate(e) => (e == self.alt_epoch).then_some(&mut self.alternate),
+        }
+    }
+
+    /// **The core cleared the alternate screen** (`Cleared::Alternate`:
+    /// `?1049h` from either screen, `?1047l`, `RIS`, `DECCOLM` while it is
+    /// up): its facts go with its text, and its next lines, which the count
+    /// numbers from its start again, are a new epoch's -- a span of the
+    /// last, a worker's answer still on its way included, is filed nowhere.
+    pub fn alternate_cleared(&mut self) {
+        self.alternate = Store::default();
+        self.alt_epoch = self.alt_epoch.next();
+        self.origins = self.origins.next();
+        self.generation = self.generation.next();
+        self.changed();
+    }
+
     /// **What the worker named in front**, at the line the cursor was on
     /// when it was asked: rows from there are its while it stays in front,
     /// and rows to there were filed by the spans it and the programs before
     /// it wrote. A program not on this machine, or a multiplexer, leaves its
     /// rows from that line on behind it when another comes in front.
-    pub fn set_front(&mut self, front: Front, through: AbsLine) {
+    pub fn set_front(&mut self, front: Front, through: LineOn) {
         if self.front != front {
             self.leave_front(through);
             self.front_from = match front {
@@ -1707,33 +2147,55 @@ impl Paths {
         }
     }
 
-    /// The program in front leaves: its rows from where it was named to
-    /// `through` are filed under it.
-    fn leave_front(&mut self, through: AbsLine) {
+    /// **The program in front leaves**: its rows from where it was named to
+    /// `through` are filed under it. Named on one surface and leaving on the
+    /// other, it may have written either from its line on, so the first
+    /// surface's lines from there and the second's to `through` are filed
+    /// under it, failing closed.
+    fn leave_front(&mut self, through: LineOn) {
         let writer = match self.front {
             Front::Local => return,
             Front::Elsewhere => Writer::Remote,
             Front::Multiplexer => Writer::Multiplexed,
         };
-        if let Some(from) = self.front_from.take() {
-            self.file_since(Fact::Writer(writer), LineSpan::of(from, through));
+        let Some(from) = self.front_from.take() else {
+            return;
+        };
+        let fact = Fact::Writer(writer);
+        if from.surface == through.surface {
+            self.file_since(fact, LineSpan::on(from.surface, from.line, through.line));
+            return;
         }
+        let end = AbsLine::at(Rows::of_count(usize::MAX));
+        self.file_since(fact, LineSpan::on(from.surface, from.line, end));
+        let start = AbsLine::at(Rows::ZERO);
+        self.file_since(fact, LineSpan::on(through.surface, start, through.line));
     }
 
     /// **Rows `span` were written by `seen`**, named by the worker after
     /// the program had gone: they keep no mark if it is not local or not
     /// named, and no `./` under a multiplexer; and a `file://` link on them
-    /// takes its origin from it ([`Paths::origin`]). Only those rows: the
+    /// takes its origin from it ([`Paths::origin_at`]). Only those rows: the
     /// rows above them keep what their own writers made of them. What is
-    /// in front now is [`Paths::set_front`]'s, and does not change.
+    /// in front now is [`Paths::set_front`]'s, and does not change. A span
+    /// of the alternate screen before its last clear is filed nowhere.
     pub fn written_under(&mut self, seen: Seen, span: LineSpan) {
         self.file_since(Fact::of(seen), span);
+    }
+
+    /// **A read nothing names wrote `span`**: no group sampled for it and
+    /// no marks of the shell's (`probe::Probes::read_taken`). Its rows are
+    /// not known, as a group gone before it was named leaves them, and only
+    /// those rows -- and not lifted by a command the shell named here
+    /// writing them after, which names a writer this read never had.
+    pub fn written_unnamed(&mut self, span: LineSpan) {
+        self.file_read(Fact::Nameless, span);
     }
 
     /// **A program not on this machine wrote `span`**, as the job watch or
     /// the shell's marks say of a read (`probe::Watched`, [`crate::ran`]):
     /// its rows keep no mark, and a `file://` link on them takes a remote
-    /// origin ([`Paths::origin`]). Only those rows, as for any writer.
+    /// origin ([`Paths::origin_at`]). Only those rows, as for any writer.
     pub fn written_remote(&mut self, span: LineSpan) {
         self.file_read(Fact::Writer(Writer::Remote), span);
     }
@@ -1765,67 +2227,19 @@ impl Paths {
         }
     }
 
-    /// **`fact` filed over `span`**: each run of rows it covers gets it
-    /// added to what was filed there, split at the span's ends, rows no
-    /// run held getting a run of their own, and runs of equal facts that
-    /// touch merged, so the runs stay sorted, apart and bounded by how
-    /// often writers alternate. Whether anything changed.
+    /// **`fact` filed over `span`**, in its surface's store: each run of
+    /// rows it covers gets it added to what was filed there, split at the
+    /// span's ends, rows no run held getting a run of their own, and runs
+    /// of equal facts that touch merged, so the runs stay sorted, apart and
+    /// bounded by how often writers alternate. Whether anything changed;
+    /// nothing for a span of the alternate screen before its last clear.
     fn file(&mut self, fact: Fact, span: LineSpan) -> Moved {
-        let from = self.runs.partition_point(|(r, _)| r.last < span.first);
         let mut pieces = core::mem::take(&mut self.pieces);
-        pieces.clear();
-        let mut moved = Moved::No;
-        // The next line of `span` no run has covered yet; none once past
-        // its end.
-        let mut next = Some(span.first);
-        let mut to = from;
-        while let Some(&(run, facts)) = self.runs.get(to) {
-            if run.first > span.last {
-                break;
-            }
-            if let (Some(n), Some(before)) = (next, run.first.above()) {
-                if n < run.first {
-                    pieces.push((LineSpan::of(n, before), fact.added_to(Facts::default())));
-                    moved = Moved::Yes;
-                }
-            }
-            if let Some(left) = span.first.above().filter(|_| run.first < span.first) {
-                pieces.push((LineSpan::of(run.first, left), facts));
-            }
-            let now = fact.added_to(facts);
-            if now != facts {
-                moved = Moved::Yes;
-            }
-            pieces.push((
-                LineSpan::of(run.first.max(span.first), run.last.min(span.last)),
-                now,
-            ));
-            if run.last > span.last {
-                pieces.push((LineSpan::of(span.last.below(), run.last), facts));
-            }
-            next = (run.last < span.last).then(|| run.last.below());
-            to += 1;
-        }
-        if let Some(n) = next.filter(|n| *n <= span.last) {
-            pieces.push((LineSpan::of(n, span.last), fact.added_to(Facts::default())));
-            moved = Moved::Yes;
-        }
-        let placed = pieces.len();
-        self.runs.splice(from..to, pieces.drain(..));
+        let moved = match self.store_mut(span.surface) {
+            Some(store) => store.file(fact, span, &mut pieces),
+            None => Moved::No,
+        };
         self.pieces = pieces;
-        // Merge runs of equal facts that touch, around what was placed.
-        let mut i = from.saturating_sub(1);
-        let end = from + placed;
-        while i < end && i + 1 < self.runs.len() {
-            let (a, fa) = self.runs[i];
-            let (b, fb) = self.runs[i + 1];
-            if fa == fb && a.last.below() == b.first {
-                self.runs[i] = (LineSpan::of(a.first, b.last), fa);
-                self.runs.remove(i + 1);
-            } else {
-                i += 1;
-            }
-        }
         if moved == Moved::Yes {
             self.origins = self.origins.next();
         }
@@ -1843,29 +2257,33 @@ impl Paths {
 
     /// **Every row filed as written by a program on this machine**, for a
     /// test that feeds the terminal itself, with no reader to say who wrote
-    /// what: as the reader files the rows of a local program's reads.
+    /// what: as the reader files the rows of a local program's reads, on
+    /// both surfaces.
     #[cfg(test)]
     pub(crate) fn all_written_here(&mut self) {
-        let all = LineSpan::of(
-            AbsLine::at(Rows::ZERO),
-            AbsLine::at(Rows::of_count(1 << 30)),
-        );
-        let _ = self.file(Fact::Writer(Writer::Local), all);
+        for surface in [Surface::Primary, Surface::Alternate(self.alt_epoch)] {
+            let all = LineSpan::on(
+                surface,
+                AbsLine::at(Rows::ZERO),
+                AbsLine::at(Rows::of_count(usize::MAX)),
+            );
+            let _ = self.file(Fact::Writer(Writer::Local), all);
+        }
     }
 
-    /// **The facts filed over `line`**, found by a binary search of the
-    /// runs, the steps it took counted ([`Paths::lookups`]).
-    fn facts_at(&self, line: AbsLine) -> Option<Facts> {
+    /// **The facts filed over `line` of `surface`**, found by a binary
+    /// search of the runs, the steps it took counted ([`Paths::lookups`]).
+    fn facts_at(&self, surface: Surface, line: AbsLine) -> Option<Facts> {
+        let runs = &self.store(surface)?.runs;
         let mut steps = Tally::default();
-        let i = self.runs.partition_point(|(r, _)| {
+        let i = runs.partition_point(|(r, _)| {
             steps.bump();
             r.last < line
         });
         let mut looked = self.looked.get();
         looked.add(steps);
         self.looked.set(looked);
-        self.runs
-            .get(i)
+        runs.get(i)
             .filter(|(r, _)| r.first <= line)
             .map(|&(_, f)| f)
     }
@@ -1876,22 +2294,156 @@ impl Paths {
         self.looked.get()
     }
 
-    /// **What wrote `line`** ([`Facts::provenance`]); none if nothing was
-    /// filed over it.
-    fn wrote(&self, line: AbsLine) -> Option<Provenance> {
-        self.facts_at(line).and_then(Facts::provenance)
+    /// **What wrote `line` of `surface`** ([`Facts::provenance`]); none if
+    /// nothing was filed over it, or it is the alternate screen's before its
+    /// last clear. A line [`Paths::renumbered`] covers is at least not
+    /// known: no local fact filed after lifts it.
+    fn wrote(&self, surface: Surface, line: AbsLine) -> Option<Provenance> {
+        let filed = self.facts_at(surface, line).and_then(Facts::provenance);
+        let floored = self.store(surface).is_some_and(|s| s.floored(line));
+        match floored || self.held_over(surface, (line, line)) {
+            true => filed.max(Some(Provenance::NotNamed)),
+            false => filed,
+        }
     }
 
-    /// **Where the program that printed `line` runs**: remote if a program
-    /// named not local wrote it, local if only local ones did (a writer not
-    /// named lifted by the shell's marks included), not known otherwise --
-    /// a writer not named, or nothing filed ([`Paths::wrote`]).
-    pub fn origin(&self, line: AbsLine) -> Origin {
-        match self.wrote(line) {
+    /// Whether a held line ([`Paths::set_pending`]) lies in `first` to
+    /// `last` of `surface`.
+    fn held_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> bool {
+        self.held
+            .iter()
+            .any(|p| p.surface == surface && p.first <= last && first <= p.last)
+    }
+
+    /// Whether `pending` and `held` are the spans [`Paths::set_pending`]
+    /// last handed, in whatever order: what a line reads depends on the
+    /// lines covered alone.
+    #[cfg(test)]
+    pub fn pending_is<I, J>(&self, pending: I, held: J) -> bool
+    where
+        I: Iterator<Item = LineSpan> + Clone,
+        J: Iterator<Item = LineSpan> + Clone,
+    {
+        same_spans(&self.pending, pending) && same_spans(&self.held, held)
+    }
+
+    /// **The lines whose writer is still to be named, where their text is
+    /// now, and those of them held**, as the paths' worker driver carries
+    /// them (`probe::Probes`): a held line reads as not known until its
+    /// own writer is named. Where the held lines changed, every line each
+    /// covered or covers is read again ([`Reader::refiled`]), and so is a
+    /// link's look under the pointer.
+    pub fn set_pending<I, J>(&mut self, pending: I, held: J)
+    where
+        I: Iterator<Item = LineSpan> + Clone,
+        J: Iterator<Item = LineSpan> + Clone,
+    {
+        if !same_spans(&self.pending, pending.clone()) {
+            self.pending.clear();
+            self.pending.extend(pending);
+        }
+        if same_spans(&self.held, held.clone()) {
+            return;
+        }
+        for span in self.held.iter().copied().chain(held.clone()) {
+            self.refiled = Some(self.refiled.map_or(span, |r| r.joined(span)));
+        }
+        self.held.clear();
+        self.held.extend(held);
+        self.origins = self.origins.next();
+    }
+
+    /// **A resize the driver just made, filed at once**, before any hover,
+    /// click or frame reads a line: `rec`, the core's record of it
+    /// (`Term::take_record`), taken once for this and the counts
+    /// (`keep::kept_across_resize`), and where it says the lines were renumbered,
+    /// each surface it renumbered floored ([`Paths::renumbered`]). A re-cut
+    /// by a change of columns renumbers the primary's lines, every one up
+    /// to its window's last before the resize (`was_last`, [`last_line`])
+    /// or after it, numbered by `primary`, its count; a core that recorded
+    /// nothing renumbers both, the alternate screen's to its window's last
+    /// by `alternate`. Not left for the next read's part, which on a quiet
+    /// shell may never come while the old facts sit on the new numbers. A
+    /// change of height alone re-cuts nothing and keeps them.
+    pub fn resized(
+        &mut self,
+        rec: &baud_core::ReadRecord,
+        term: &Term<'_>,
+        was_last: AbsLine,
+        primary: Scrolled,
+        alternate: Scrolled,
+    ) {
+        if let Some(why) = rec.renumbered() {
+            let last = was_last.max(last_line(term, primary));
+            self.part_renumbered(why, (last, last_line(term, alternate)));
+        }
+    }
+
+    /// **A part the core says renumbered lines, by `why`** (N2, P1): a
+    /// re-cut by a change of columns -- a page-width request's resize
+    /// among a read's parts, or the window's (`Paths::resized`) --
+    /// renumbers the primary's lines up to `primary`, its window's last
+    /// that the batch's numbers reached; a core that recorded nothing
+    /// renumbers the alternate screen's too, up to `alternate`. Every such
+    /// line is not known from here on ([`Paths::renumbered`]).
+    pub fn part_renumbered(
+        &mut self,
+        why: baud_core::Renumbered,
+        (primary, alternate): (AbsLine, AbsLine),
+    ) {
+        self.renumbered(Surface::Primary, primary);
+        if why == baud_core::Renumbered::Unrecorded {
+            let surface = self.surface(Screen::Alternate);
+            self.renumbered(surface, alternate);
+        }
+    }
+
+    /// **The primary's window was taken back past the session's first
+    /// line** (`keep::Numbered::PastStart`): its count clamped there while
+    /// the core's top fell further, so every line up to `through`, the
+    /// window's last before the clamp, now names other text, and is not
+    /// known from here on ([`Paths::renumbered`]). A take-back the count
+    /// follows keeps every fact on its line.
+    pub fn taken_back_past_start(&mut self, through: AbsLine) {
+        self.renumbered(Surface::Primary, through);
+    }
+
+    /// **Every line of `surface` up to `through` was renumbered in a way no
+    /// count says**: a re-cut of the primary's lines by a change of columns
+    /// (`Renumbered::Resize`), or a core that recorded nothing
+    /// (`Renumbered::Unrecorded`). What was filed over the old numbers
+    /// now sits on other text, so it goes, and every line up to `through`
+    /// -- the history and the window, each a line the renumbering may have
+    /// moved -- is not known from here on, a local fact filed over it
+    /// later included: a local prompt redrawn over a remote line the
+    /// re-cut moved under it does not light it. Only a later line, which
+    /// the renumbering never numbered, is filed as before.
+    fn renumbered(&mut self, surface: Surface, through: AbsLine) {
+        if let Some(store) = self.store_mut(surface) {
+            store.floor = Some(store.floor.map_or(through, |l| l.max(through)));
+            store.runs.clear();
+        }
+        self.origins = self.origins.next();
+        self.generation = self.generation.next();
+        self.changed();
+    }
+
+    /// **Where the program that printed `line` of `surface` runs**: remote
+    /// if a program named not local wrote it, local if only local ones did
+    /// (a writer not named lifted by the shell's marks included), not known
+    /// otherwise -- a writer not named, or nothing filed ([`Paths::wrote`]).
+    pub fn origin_at(&self, surface: Surface, line: AbsLine) -> Origin {
+        match self.wrote(surface, line) {
             Some(Provenance::Remote) => Origin::Remote,
             Some(Provenance::NotNamed) | None => Origin::Unknown,
             Some(Provenance::Local | Provenance::Multiplexed) => Origin::Local,
         }
+    }
+
+    /// [`Paths::origin_at`] on the primary, where most tests file.
+    #[cfg(test)]
+    pub fn origin(&self, line: AbsLine) -> Origin {
+        self.origin_at(Surface::Primary, line)
     }
 
     /// **Where the program that printed `link` ran, for what it may open**
@@ -1902,18 +2454,19 @@ impl Paths {
     /// for a link marked with `OSC 8` and for one read from the text alike,
     /// since a `file://` URI a remote program prints as plain text names its
     /// machine's file just as a marked one does. A printed path is asked
-    /// about by its own check, and has none.
+    /// about by its own check, and has none. The rows are the screen's up.
     pub fn printed(&self, term: &Term<'_>, link: &crate::link::Under) -> crate::link::Printed {
         use crate::link::{Printed, Under};
+        let surface = self.surface(term.screen());
         match link {
             Under::Osc8(o) => Printed::Link {
                 origin: match o.uri(term) {
-                    Some(uri) => self.link_origin(o.id(), uri, &o.view_rows(term)),
+                    Some(uri) => self.link_origin(surface, o.id(), uri, &o.view_rows(term)),
                     None => LinkOrigin::unknown(),
                 },
             },
             Under::Bare(b) => Printed::Link {
-                origin: self.bare_origin(b.lines()),
+                origin: self.bare_origin(surface, b.lines()),
             },
             Under::Path(_) => Printed::Path,
         }
@@ -1921,20 +2474,27 @@ impl Paths {
 
     /// **Where the program that printed the `OSC 8` link `id` to `uri` ran**,
     /// the most cautious of two: every row in view holding its slot, `rows`
-    /// -- the cells its look draws -- and every read that opened it or wrote
-    /// under it, filed against the slot ([`Paths::slot_wrote`]). So a link a
-    /// remote program left open and a local prompt then wrote under is the
-    /// remote program's, and one slot shown over two runs gives either row
-    /// the same answer. A record's rows that have left history read as not
-    /// known, never local: a link a local program left open past history
-    /// stays dark.
-    pub fn link_origin(&self, id: LinkId, uri: &[u8], rows: &[AbsLine]) -> LinkOrigin {
+    /// of `surface` -- the cells its look draws -- and every read that
+    /// opened it or wrote under it, filed against the slot on the surface
+    /// it wrote ([`Paths::slot_wrote`]). So a link a remote program left
+    /// open and a local prompt then wrote under is the remote program's,
+    /// and one slot shown over two runs gives either row the same answer. A
+    /// record's rows that have left history, or the alternate screen's
+    /// before its last clear, read as not known, never local: a link a
+    /// local program left open past history stays dark.
+    pub fn link_origin(
+        &self,
+        surface: Surface,
+        id: LinkId,
+        uri: &[u8],
+        rows: &[AbsLine],
+    ) -> LinkOrigin {
         // A slot no row in view shows has no row to vouch for it.
         let shown = match rows {
             [] => Origin::Unknown,
-            _ => rows
-                .iter()
-                .fold(Origin::Local, |o, &line| o.or(self.origin(line))),
+            _ => rows.iter().fold(Origin::Local, |o, &line| {
+                o.or(self.origin_at(surface, line))
+            }),
         };
         let opened = self
             .slots
@@ -1943,34 +2503,41 @@ impl Paths {
             .flatten()
             .filter(|r| r.uri == UriHash::of(uri))
             .map_or(Origin::Local, |r| {
-                self.origin_over((r.lines.first, r.lines.last))
+                [r.primary, r.alternate]
+                    .into_iter()
+                    .flatten()
+                    .fold(Origin::Local, |o, s| {
+                        o.or(self.origin_over(s.surface, (s.first, s.last)))
+                    })
             });
         LinkOrigin(shown.or(opened))
     }
 
     /// **Where the program that printed a URI read from the text on the
-    /// lines `first` to `last` ran** ([`Paths::origin_over`]).
-    pub fn bare_origin(&self, lines: (AbsLine, AbsLine)) -> LinkOrigin {
-        LinkOrigin(self.origin_over(lines))
+    /// lines `first` to `last` of `surface` ran** ([`Paths::origin_over`]).
+    pub fn bare_origin(&self, surface: Surface, lines: (AbsLine, AbsLine)) -> LinkOrigin {
+        LinkOrigin(self.origin_over(surface, lines))
     }
 
     /// **A part of a read was fed under the link `pen`, writing `span`**:
-    /// the slot's record joins the span, or, where the slot holds another
-    /// target than its record says, starts over at it.
+    /// the slot's record on `span`'s surface joins the span, or, where the
+    /// slot holds another target than its record says, starts over at it.
     pub fn slot_wrote(&mut self, pen: Pen, span: LineSpan) {
         let i = pen.id.index();
         if self.slots.len() <= i {
             self.slots.resize(i + 1, None);
         }
-        let joined = match self.slots[i] {
-            Some(r) if r.uri == pen.uri => r.lines.joined(span),
-            _ => span,
+        let fresh = SlotRecord {
+            uri: pen.uri,
+            primary: None,
+            alternate: None,
         };
-        if self.slots[i].map(|r| r.lines) != Some(joined) {
-            self.slots[i] = Some(SlotRecord {
-                uri: pen.uri,
-                lines: joined,
-            });
+        let joined = match self.slots[i] {
+            Some(r) if r.uri == pen.uri => r.joined(span),
+            _ => fresh.joined(span),
+        };
+        if self.slots[i] != Some(joined) {
+            self.slots[i] = Some(joined);
             self.generation = self.generation.next();
             self.changed();
         }
@@ -1995,17 +2562,211 @@ impl Paths {
         }
     }
 
-    /// **Where the program that printed the lines `first` to `last` ran**:
-    /// remote if one of them is, local if every one is, else not known --
-    /// a URI read across them is the one program's. Walked over the runs
-    /// that touch the lines, not line by line, a line no run holds not
-    /// known, so a span a link left open the length of history costs the
-    /// runs in it.
-    fn origin_over(&self, (first, last): (AbsLine, AbsLine)) -> Origin {
-        let from = self.runs.partition_point(|(r, _)| r.last < first);
-        let mut all = Origin::Local;
+    /// **Where the program that printed the lines `first` to `last` of
+    /// `surface` ran**: remote if one of them is, local if every one is,
+    /// else not known -- a URI read across them is the one program's.
+    /// Walked over the runs that touch the lines, not line by line, a line
+    /// no run holds not known, so a span a link left open the length of
+    /// history costs the runs in it. Not known on the alternate screen of
+    /// an epoch past.
+    /// **The most cautious writer of lines `first` to `last` of `surface`**
+    /// ([`Paths::wrote`]): a line the renumbering covers counted as a writer
+    /// not named; a line nothing was filed over carrying nothing (W3) --
+    /// every read is filed or still to be named, and the top is always
+    /// known, so such a line is one nothing wrote -- and every span still to
+    /// be named that touches one pushed to `by`.
+    fn worst_over(
+        &self,
+        surface: Surface,
+        (first, last): (AbsLine, AbsLine),
+        by: &mut Vec<LineSpan>,
+    ) -> Option<Provenance> {
+        // A gap carries nothing. One a span still to be named touches: that
+        // span is carried with the text (B10), and the line it goes to is
+        // held under its group (`Probes::held`) -- every such span, since a
+        // gap may join a writer's line to lines below it nothing wrote
+        // (F-W3a). Any other is lines nothing wrote (W3), whose move writes
+        // nothing the mover did not.
+        let mut gap = |a: AbsLine, b: AbsLine| -> Option<Provenance> {
+            let touching = self
+                .pending
+                .iter()
+                .filter(|p| p.surface == surface && p.first <= b && a <= p.last);
+            by.extend(touching);
+            None
+        };
+        let Some(store) = self.store(surface) else {
+            return gap(first, last);
+        };
+        let runs = &store.runs;
+        let from = runs.partition_point(|(r, _)| r.last < first);
+        let mut worst = store.floored(first).then_some(Provenance::NotNamed);
         let mut next = Some(first);
-        for (r, facts) in &self.runs[from..] {
+        for (r, facts) in &runs[from..] {
+            let Some(want) = next else {
+                break;
+            };
+            if r.first > last {
+                break;
+            }
+            if r.first > want {
+                worst = worst.max(r.first.above().and_then(|b| gap(want, b)));
+            }
+            worst = worst.max(Some(facts.provenance().unwrap_or(Provenance::NotNamed)));
+            next = (r.last < last).then(|| r.last.below());
+        }
+        if let Some(want) = next {
+            worst = worst.max(gap(want, last));
+        }
+        worst
+    }
+
+    /// **Where the text of `span` is after `rec`'s moves** (B10), for a
+    /// span whose writer is still to be named as a part moves its text --
+    /// a group a batch has yet to name, the lines it wrote kept until the
+    /// answer -- so the answer is filed where the text went, not where it
+    /// was read: an exact move shifts the part of the span it moved and
+    /// leaves the rest, the hull of both taken; a move within a band takes
+    /// the band's hull, as does the fold the record makes of more moves
+    /// than it keeps. The span as it was on another surface, or where
+    /// `lines` places nothing.
+    pub fn carried_span(
+        &self,
+        rec: &baud_core::ReadRecord,
+        lines: &PartLines,
+        screens: &[Screen],
+        span: LineSpan,
+    ) -> LineSpan {
+        use baud_core::{Move, Span};
+        let Some(&screen) = screens.iter().find(|&&sc| self.surface(sc) == span.surface) else {
+            return span;
+        };
+        let (Some(a), Some(b)) = (
+            lines.core(screen, span.first),
+            lines.core(screen, span.last),
+        ) else {
+            return span;
+        };
+        let overlaps = |x: Span, y: Span| x.first() <= y.last() && y.first() <= x.last();
+        let mut at = Span::of(a, b);
+        for m in rec.moves().iter() {
+            at = match m {
+                Move::Exact { screen: s, .. } | Move::Within { screen: s, .. } if s != screen => at,
+                Move::Exact { from, by, .. } if overlaps(at, from) => {
+                    let inside = Span::of(at.first().max(from.first()), at.last().min(from.last()));
+                    match inside.moved(by) {
+                        Some(went) if inside == at => went,
+                        Some(went) => at.hull(went),
+                        None => at.hull(m.band()),
+                    }
+                }
+                Move::Within { band, .. } if overlaps(at, band) => at.hull(band),
+                Move::Exact { .. } | Move::Within { .. } => at,
+            };
+        }
+        match (
+            lines.line(screen, at.first()),
+            lines.line(screen, at.last()),
+        ) {
+            (Some(a), Some(b)) => LineSpan::on(span.surface, a, b),
+            _ => span,
+        }
+    }
+
+    /// **Text a read moved, filed on the lines it went to** (C2), by the
+    /// core's record of it: every line a move wrote to on each of
+    /// `screens` takes the most cautious writer of the lines its text may
+    /// have come from ([`baud_core::ReadRecord::carried_from`]), itself
+    /// among them, each read from the facts as they stood before the read
+    /// -- all of them found first, then filed, so a line one move fills is
+    /// not read as another's source with what this read put there. A
+    /// source the renumbering covers, or whose writer was named nothing,
+    /// leaves the line not known, which no fact filed after lifts; a source
+    /// nothing was filed over, which nothing wrote, carries nothing (W3); a
+    /// line `lines` cannot place is filed nowhere.
+    /// The read's own writer is filed over the lines its moves wrote as
+    /// over any it wrote (`probe::part_spans`).
+    ///
+    /// **A line whose text may have come from a line still to be named**
+    /// is returned with each span still to be named that covered such a
+    /// source, its own line among them: what was filed over the line before
+    /// is another text's, and the moved text has no fact until its writer
+    /// is named, so the caller holds the line under that span's group
+    /// (`Probes::held`) until its answer.
+    pub fn carried(
+        &mut self,
+        rec: &baud_core::ReadRecord,
+        lines: &PartLines,
+        screens: &[Screen],
+    ) -> Vec<(LineSpan, LineSpan)> {
+        use baud_core::{Move, Span};
+        let mut found = Vec::new();
+        let mut held = Vec::new();
+        let mut by = Vec::new();
+        for &screen in screens {
+            let surface = self.surface(screen);
+            let mut to: Vec<_> = rec
+                .moves()
+                .iter()
+                .filter(|m| match m {
+                    Move::Exact { screen: s, .. } | Move::Within { screen: s, .. } => *s == screen,
+                })
+                .flat_map(|m| {
+                    let band = m.band();
+                    core::iter::successors(Some(band.first()), move |l| {
+                        (*l < band.last()).then(|| l.next())
+                    })
+                })
+                .collect();
+            to.sort_unstable();
+            to.dedup();
+            for line in to {
+                let sources = rec.carried_from(screen, line);
+                if sources.iter().all(|s| s == Span::of(line, line)) {
+                    continue;
+                }
+                let Some(here) = lines.line(screen, line) else {
+                    continue;
+                };
+                let here = LineSpan::on(surface, here, here);
+                by.clear();
+                let worst = sources
+                    .iter()
+                    .map(
+                        |s| match (lines.line(screen, s.first()), lines.line(screen, s.last())) {
+                            (Some(a), Some(b)) => self.worst_over(surface, (a, b), &mut by),
+                            _ => Some(Provenance::NotNamed),
+                        },
+                    )
+                    .fold(None, Option::max);
+                held.extend(by.iter().map(|&p| (here, p)));
+                // Only lines whose writer is still to be named: their span
+                // is carried to here instead (`Paths::carried_span`).
+                let Some(worst) = worst else {
+                    continue;
+                };
+                found.push((here, Fact::carried(worst)));
+            }
+        }
+        for (span, fact) in found {
+            self.file_read(fact, span);
+        }
+        held
+    }
+
+    fn origin_over(&self, surface: Surface, (first, last): (AbsLine, AbsLine)) -> Origin {
+        let Some(store) = self.store(surface) else {
+            return Origin::Unknown;
+        };
+        let runs = &store.runs;
+        let from = runs.partition_point(|(r, _)| r.last < first);
+        // A line the renumbering covers is not known ([`Paths::wrote`]).
+        let mut all = match store.floored(first) {
+            true => Origin::Unknown,
+            false => Origin::Local,
+        };
+        let mut next = Some(first);
+        for (r, facts) in &runs[from..] {
             let Some(want) = next else {
                 break;
             };
@@ -2025,17 +2786,26 @@ impl Paths {
         if next.is_some() {
             all = all.or(Origin::Unknown);
         }
+        // A held line is not known ([`Paths::wrote`]).
+        if self.held_over(surface, (first, last)) {
+            all = all.or(Origin::Unknown);
+        }
         all
     }
 
-    /// **The spans that have left history dropped**: those ending above
-    /// `oldest`, the oldest line kept, so the set is bounded by history.
-    pub fn trim_spans(&mut self, oldest: AbsLine) {
-        let was = self.runs.len();
-        self.runs.retain(|(r, _)| r.last >= oldest);
+    /// **The spans of `screen`'s surface that have left its history
+    /// dropped**: those ending above `oldest`, the oldest line it keeps, so
+    /// each store is bounded by what its surface keeps.
+    pub fn trim_spans(&mut self, screen: Screen, oldest: AbsLine) {
+        let surface = self.surface(screen);
+        let Some(store) = self.store_mut(surface) else {
+            return;
+        };
+        let was = store.runs.len();
+        store.runs.retain(|(r, _)| r.last >= oldest);
         // A link a read on those lines opened is read again: they read as
         // not known now (`Paths::link_origin`).
-        if self.runs.len() != was {
+        if store.runs.len() != was {
             self.generation = self.generation.next();
         }
     }
@@ -2043,7 +2813,7 @@ impl Paths {
     /// **Another program is in front than the worker last named**: until it
     /// is named, rows to `through` keep what the last one made of them, and
     /// rows after it are read as the next answer says.
-    pub fn front_moved(&mut self, through: AbsLine) {
+    pub fn front_moved(&mut self, through: LineOn) {
         if self.front == Front::Elsewhere {
             self.leave_front(through);
             self.front = Front::Local;
@@ -2177,15 +2947,22 @@ impl Paths {
     /// a relative form, none a multiplexer's pane wrote, and a folder to
     /// read it against.
     fn readable_on(&self, (first, last): (AbsLine, AbsLine), screen: Screen, form: Form) -> bool {
-        let since_front =
-            |f: Front| self.front == f && self.front_from.is_none_or(|from| last >= from);
+        let surface = self.surface(screen);
+        // Named on the other surface, the program in front may have written
+        // any line of this one.
+        let since_front = |f: Front| {
+            self.front == f
+                && self
+                    .front_from
+                    .is_none_or(|from| from.surface != surface || last >= from.line)
+        };
         if self.marks != Marks::On || since_front(Front::Elsewhere) {
             return false;
         }
         let mut muxed = false;
         let mut line = first;
         loop {
-            match self.wrote(line) {
+            match self.wrote(surface, line) {
                 Some(Provenance::Remote | Provenance::NotNamed) | None => return false,
                 Some(Provenance::Multiplexed) => muxed = true,
                 Some(Provenance::Local) => {}
@@ -2422,6 +3199,16 @@ impl Paths {
     }
 }
 
+/// **The window's last line**, numbered by `scrolled`: what a driver reads
+/// before a resize, for [`Paths::resized`].
+pub fn last_line(term: &Term<'_>, scrolled: Scrolled) -> AbsLine {
+    let rows = term.geometry().1;
+    scrolled.line(
+        Rows::ZERO,
+        baud_domain::Row::from_index(rows.index().saturating_sub(1)),
+    )
+}
+
 /// Whether every row from just below `top` to `bottom` is blank: what `clear`
 /// leaves under its prompt.
 fn blank_between(term: &Term<'_>, scrolled: Scrolled, top: AbsLine, bottom: AbsLine) -> bool {
@@ -2569,7 +3356,7 @@ pub trait PathsAt {
     /// next**, where it runs on in a URI's characters (`link::runs_on`):
     /// `[link] join_rows`, and the two rows' provenance. Yes with nothing to
     /// go by, as `join_rows` is on by default.
-    fn joins(&self, _above: AbsLine) -> Joins {
+    fn joins(&self, _screen: Screen, _above: AbsLine) -> Joins {
         Joins::Yes
     }
 
@@ -2662,9 +3449,11 @@ impl PathsAt for Paths {
         self.origins
     }
 
-    fn joins(&self, above: AbsLine) -> Joins {
+    fn joins(&self, screen: Screen, above: AbsLine) -> Joins {
+        let surface = self.surface(screen);
+        let origin = |line| self.origin_at(surface, line);
         match self.join {
-            Turned::On if self.origin(above) == self.origin(above.below()) => Joins::Yes,
+            Turned::On if origin(above) == origin(above.below()) => Joins::Yes,
             Turned::On | Turned::Off => Joins::No,
         }
     }
@@ -2774,8 +3563,8 @@ impl Reader for Links<'_> {
         (self.urls == Turned::On && self.uris.wants(tail)) || self.paths.wants(tail.0.to_be_bytes())
     }
 
-    fn joins(&self, above: AbsLine) -> Joins {
-        PathsAt::joins(&*self.paths, above)
+    fn joins(&self, screen: Screen, above: AbsLine) -> Joins {
+        PathsAt::joins(&*self.paths, screen, above)
     }
 
     fn key(&self, at: Range<usize>) -> &[u8] {
@@ -2797,7 +3586,8 @@ impl Reader for Links<'_> {
             // printed on any of the lines it covers names its machine's
             // file: unmarked, as its click refuses it
             // ([`crate::link::admit_link`]).
-            let origin = |lines| paths.bare_origin(lines);
+            let surface = paths.surface(text.screen);
+            let origin = |lines| paths.bare_origin(surface, lines);
             n += self
                 .uris
                 .read_marking(text, found, &origin, &|t| Some(paths.target_mark(t)));
@@ -2816,7 +3606,8 @@ impl Reader for Links<'_> {
         // A `file://` link a program not local, or not known, printed on any
         // row its slot is shown on, or a read that opened it wrote, names its
         // machine's file: unmarked, as its click refuses it.
-        let origin = self.paths.link_origin(at.id(), uri, at.rows());
+        let surface = self.paths.surface(at.screen());
+        let origin = self.paths.link_origin(surface, at.id(), uri, at.rows());
         let t = admit_link(uri, self.uris.names(), self.uris.rules(), origin).ok()?;
         Some(match t.scheme() {
             Scheme::File => self.paths.file_link(uri, at),
@@ -2841,6 +3632,37 @@ mod tests {
     use baud_core::Owned;
     use baud_domain::{BytePos, ReadLen, WinSize};
 
+    /// **Each part's lines are placed against its own window top**
+    /// (`CoreLines::part`): a batch begun with the core's top at line 10,
+    /// numbered 3 here. A part whose top rose to 12 places line 12 at 5
+    /// and line 9 at 2; one whose top fell to 8 places line 8 at 1; one
+    /// whose top fell to 6, past the count's first line, places nothing,
+    /// and neither does a line before the first under any part. Named
+    /// break: number a part's top by the batch's count as it began, as
+    /// one top read after the batch would number a part before a re-cut
+    /// -- line 12 under the part at 12 lands on 3.
+    #[test]
+    fn each_part_is_placed_against_its_own_top() {
+        use baud_domain::LineIdx;
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let core = |n: u64| LineIdx::of(n);
+        let batch = CoreLines::of(Some((
+            core(10),
+            Scrolled::START.advanced(Rows::of_count(3)),
+        )));
+        let up = batch.part(Some(core(12)));
+        assert_eq!(up.line(Screen::Normal, core(12)), Some(at(5)));
+        assert_eq!(up.line(Screen::Normal, core(9)), Some(at(2)));
+        assert_eq!(up.line(Screen::Normal, core(6)), None);
+        let down = batch.part(Some(core(8)));
+        assert_eq!(down.line(Screen::Normal, core(8)), Some(at(1)));
+        assert_eq!(
+            batch.part(Some(core(6))).line(Screen::Normal, core(6)),
+            None
+        );
+        assert_eq!(batch.part(None).line(Screen::Normal, core(10)), None);
+    }
+
     const WS: WinSize = WinSize {
         ws_col: 60,
         ws_row: 6,
@@ -2855,6 +3677,14 @@ mod tests {
 
     fn at() -> Scrolled {
         Scrolled::START.advanced(Rows::of_count(1_000))
+    }
+
+    /// `line` on the primary, where most tests file.
+    fn on_primary(line: AbsLine) -> LineOn {
+        LineOn {
+            surface: Surface::Primary,
+            line,
+        }
     }
 
     fn units(s: &str) -> Vec<Unit> {
@@ -3308,7 +4138,7 @@ mod tests {
         };
         assert_eq!(ask(&mut p).len(), 2, "the control: both");
         p.written_under(Seen::Named(Front::Multiplexer), LineSpan::of(first, first));
-        p.set_front(Front::Multiplexer, first.below());
+        p.set_front(Front::Multiplexer, on_primary(first.below()));
         assert_eq!(
             ask(&mut p),
             [b"/etc/hosts".to_vec()],
@@ -3317,9 +4147,9 @@ mod tests {
         let mut p = fresh();
         let _ = p.observe(&t, at());
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, first));
-        p.set_front(Front::Elsewhere, first.below());
+        p.set_front(Front::Elsewhere, on_primary(first.below()));
         assert!(ask(&mut p).is_empty(), "ssh in front: nothing");
-        p.set_front(Front::Local, first.below());
+        p.set_front(Front::Local, on_primary(first.below()));
         assert!(ask(&mut p).is_empty(), "and its rows stay unmarked after");
     }
 
@@ -4177,7 +5007,7 @@ mod tests {
         // `ssh` in front: nothing asked, nothing struck.
         p.set_front(
             Front::Elsewhere,
-            at().line(Rows::ZERO, baud_domain::Row::ZERO),
+            on_primary(at().line(Rows::ZERO, baud_domain::Row::ZERO)),
         );
         p.begin_collect();
         scan(&mut p, &mut l);
@@ -4847,7 +5677,7 @@ mod tests {
                 feed(&mut t, marked(&uri, "hosts").as_bytes());
                 // Named as the worker names the read's group.
                 p.written_under(Seen::Named(front), LineSpan::of(line, line));
-                p.set_front(front, line);
+                p.set_front(front, on_primary(line));
                 let read = link_at(&t, baud_domain::Row::ZERO);
                 assert_eq!(read, uri.as_bytes(), "the bytes the core kept");
                 let in_front = clicked_at(&read, &p, line);
@@ -4857,7 +5687,7 @@ mod tests {
                     Seen::Named(Front::Local),
                     LineSpan::of(line.below(), line.below()),
                 );
-                p.set_front(Front::Local, line.below());
+                p.set_front(Front::Local, on_primary(line.below()));
                 let after = clicked_at(&read, &p, line);
                 let want = match (h, front) {
                     ("other.example", _) => Err(Refused::Host),
@@ -5156,10 +5986,16 @@ mod tests {
     fn a_slot_no_row_shows_is_not_known() {
         let mut p = Paths::new(None, Forms::DEFAULT);
         let (id, uri) = (LinkId::from_index(1), b"file:///etc/hosts".as_slice());
-        assert_eq!(p.link_origin(id, uri, &[]).origin(), Origin::Unknown);
+        assert_eq!(
+            p.link_origin(Surface::Primary, id, uri, &[]).origin(),
+            Origin::Unknown
+        );
         let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
         p.written_under(Seen::Named(Front::Local), LineSpan::of(line, line));
-        assert_eq!(p.link_origin(id, uri, &[line]).origin(), Origin::Local);
+        assert_eq!(
+            p.link_origin(Surface::Primary, id, uri, &[line]).origin(),
+            Origin::Local
+        );
     }
 
     /// Whether `row` draws a line once `l`, kept from scan to scan, scans
@@ -5321,7 +6157,7 @@ mod tests {
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, last));
-        p.set_front(Front::Elsewhere, last);
+        p.set_front(Front::Elsewhere, on_primary(last));
         let want = [
             ("file:///etc/passwd", Refused::Remote),
             ("file://localhost/etc/passwd", Refused::Remote),
@@ -5333,7 +6169,7 @@ mod tests {
             if ended {
                 // It ends: the shell is in front again.
                 p.written_under(Seen::Named(Front::Local), LineSpan::of(after, after));
-                p.set_front(Front::Local, after);
+                p.set_front(Front::Local, on_primary(after));
             }
             for (row, (uri, why)) in want.into_iter().enumerate() {
                 let read = link_at(&t, baud_domain::Row::from_index(row));
@@ -5398,14 +6234,14 @@ mod tests {
             let line = at().line(Rows::ZERO, baud_domain::Row::ZERO);
             feed(&mut t, b"file://localhost/etc/passwd\r\n");
             p.written_under(Seen::Named(front), LineSpan::of(line, line));
-            p.set_front(front, line);
+            p.set_front(front, on_primary(line));
             let (uri, in_front) = clicked_under(&t, &p, baud_domain::Row::ZERO);
             assert_eq!(uri, b"file://localhost/etc/passwd", "read from the text");
             p.written_under(
                 Seen::Named(Front::Local),
                 LineSpan::of(line.below(), line.below()),
             );
-            p.set_front(Front::Local, line.below());
+            p.set_front(Front::Local, on_primary(line.below()));
             let (_, after) = clicked_under(&t, &p, baud_domain::Row::ZERO);
             (in_front, after)
         };
@@ -5476,7 +6312,7 @@ mod tests {
                     let first = at().line(Rows::ZERO, baud_domain::Row::ZERO);
                     let second = first.below();
                     p.written_under(Seen::Named(front), LineSpan::of(first, second));
-                    p.set_front(front, second);
+                    p.set_front(front, on_primary(second));
                     let click = |p: &Paths| {
                         let (m, marked) = clicked_under(&t, p, baud_domain::Row::ZERO);
                         let (b, plain) = clicked_under(&t, p, baud_domain::Row::from_index(1));
@@ -5489,7 +6325,7 @@ mod tests {
                     let in_front = click(&p);
                     let back = second.below();
                     p.written_under(Seen::Named(Front::Local), LineSpan::of(back, back));
-                    p.set_front(Front::Local, back);
+                    p.set_front(Front::Local, on_primary(back));
                     let after = click(&p);
                     let opened = match rules {
                         None => Click::Reveal,
@@ -5549,7 +6385,7 @@ mod tests {
         feed(&mut t, CAPTURE);
         let last = at().line(Rows::ZERO, t.cursor().0);
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(first, last));
-        p.set_front(Front::Elsewhere, last);
+        p.set_front(Front::Elsewhere, on_primary(last));
         let want = [
             ("file:///etc/passwd", Refused::Remote),
             ("file://localhost/etc/passwd", Refused::Remote),
@@ -5560,7 +6396,7 @@ mod tests {
         for ended in [false, true] {
             if ended {
                 p.written_under(Seen::Named(Front::Local), LineSpan::of(after, after));
-                p.set_front(Front::Local, after);
+                p.set_front(Front::Local, on_primary(after));
             }
             for (row, (uri, why)) in want.into_iter().enumerate() {
                 let (read, clicked) = clicked_under(&t, &p, baud_domain::Row::from_index(row));
@@ -5597,7 +6433,7 @@ mod tests {
             marked("file://localhost/etc/hosts", "hosts").as_bytes(),
         );
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(l1, l1));
-        p.set_front(Front::Elsewhere, l1);
+        p.set_front(Front::Elsewhere, on_primary(l1));
         assert_eq!(
             clicked_at(&link_at(&t, baud_domain::Row::ZERO), &p, l0),
             Ok(Click::Reveal),
@@ -5781,17 +6617,18 @@ mod tests {
         for f in filings {
             let _ = p.file(f.fact, LineSpan::of(on(f.first), on(f.last)));
         }
-        (0..8).map(|n| p.wrote(l(n))).collect()
+        (0..8).map(|n| p.wrote(Surface::Primary, l(n))).collect()
     }
 
     /// **R5: what wrote a line is one total function of the facts over it,
     /// whatever order they came in**: over 20,000 random sequences of up to
     /// six facts on eight lines -- writers named local, multiplexer and
-    /// remote, writers not named, the shell's local commands -- the answer
-    /// for every line is the same filed in order, reversed and rotated; a
-    /// line any remote writer wrote is remote; a line is local only if no
-    /// writer named over it is other than local and every writer not named
-    /// over it is under the shell's local command; and a line with no fact
+    /// remote, writers not named, reads nothing names, the shell's local
+    /// commands -- the answer for every line is the same filed in order,
+    /// reversed and rotated; a line any remote writer wrote is remote; a
+    /// line is local only if no writer named over it is other than local,
+    /// every writer not named over it is under the shell's local command,
+    /// and no read nothing names wrote it; and a line with no fact
     /// has no answer. Named break: the last writer filed wins -- the orders
     /// disagree.
     #[test]
@@ -5801,6 +6638,7 @@ mod tests {
             Fact::Writer(Writer::Multiplexed),
             Fact::Writer(Writer::Remote),
             Fact::NotNamed,
+            Fact::Nameless,
             Fact::Here,
         ];
         let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
@@ -5843,11 +6681,13 @@ mod tests {
                     assert!(!has(Fact::Writer(Writer::Multiplexed)), "{what}");
                     assert!(!has(Fact::Writer(Writer::Remote)), "{what}");
                     assert!(!has(Fact::NotNamed) || has(Fact::Here), "{what}");
+                    assert!(!has(Fact::Nameless), "{what}");
                 }
                 let named = has(Fact::Writer(Writer::Local))
                     || has(Fact::Writer(Writer::Multiplexed))
                     || has(Fact::Writer(Writer::Remote))
-                    || has(Fact::NotNamed);
+                    || has(Fact::NotNamed)
+                    || has(Fact::Nameless);
                 if !named {
                     assert_eq!(*got, None, "{what}");
                 }
@@ -5873,11 +6713,11 @@ mod tests {
             };
             p.written_under(Seen::Named(front), LineSpan::of(l(n), l(n)));
         }
-        assert_eq!(p.runs.len(), 10_000, "none merged");
+        assert_eq!(p.primary.runs.len(), 10_000, "none merged");
         let before = p.lookups().value();
         for n in 9_950..10_000 {
             let _ = p.origin(l(n));
-            let _ = p.origin_over((l(n), l(n)));
+            let _ = p.origin_over(Surface::Primary, (l(n), l(n)));
         }
         let steps = p.lookups().value() - before;
         assert!(steps <= 2 * 50 * 15, "{steps} steps for 100 lookups");
@@ -5897,19 +6737,275 @@ mod tests {
         p.written_under(Seen::Named(Front::Elsewhere), LineSpan::of(l(3), l(3)));
         p.written_under(Seen::Named(Front::Local), LineSpan::of(l(3), l(3)));
         assert_eq!(
-            p.runs.len(),
+            p.primary.runs.len(),
             2,
             "the two local reads merged, the line both wrote apart: {:?}",
-            p.runs
+            p.primary.runs
         );
         assert_eq!(
             p.origin(l(3)),
             Origin::Remote,
             "a line both wrote is remote"
         );
-        p.trim_spans(l(3));
+        p.trim_spans(Screen::Normal, l(3));
         assert_eq!(p.origin(l(1)), Origin::Unknown, "gone with its history");
         assert_eq!(p.origin(l(3)), Origin::Remote);
+    }
+
+    /// A window of `WS` with twenty lines of 40 columns fed, so its
+    /// history holds fourteen, the record taken, and the count that
+    /// numbers its lines.
+    fn with_history(t: &mut Term<'_>) -> Scrolled {
+        for n in 0..20 {
+            feed(t, format!("line {n:02} {}\r\n", "x".repeat(32)).as_bytes());
+        }
+        let _ = t.take_record();
+        Scrolled::START.advanced(Rows::of_count(t.scrollback().len()))
+    }
+
+    /// **A window resize, as both drivers make it**: the last line read,
+    /// the core resized, the count moved by what it retired or took back,
+    /// as `keep::kept_across_resize` moves it, then [`Paths::resized`]. The
+    /// count after.
+    fn resize_as_drivers_do(
+        t: &mut Term<'_>,
+        p: &mut Paths,
+        scrolled: Scrolled,
+        ws: &WinSize,
+    ) -> Scrolled {
+        let mark = t.history_mark();
+        let was_last = last_line(t, scrolled);
+        let _ = t.resize(ws);
+        let scrolled = match t.history_moved_since(mark) {
+            baud_core::Moved::Retired(n) => scrolled.advanced(n),
+            baud_core::Moved::Restored(n) => scrolled.retreated(n).expect("within the count"),
+        };
+        let rec = t.take_record();
+        p.resized(&rec, t, was_last, scrolled, Scrolled::START);
+        scrolled
+    }
+
+    /// Every line from the oldest kept to the window's last.
+    fn every_line(t: &Term<'_>, scrolled: Scrolled) -> LineSpan {
+        let back = Rows::of_count(t.scrollback().len());
+        LineSpan::of(
+            scrolled.line(back, baud_domain::Row::ZERO),
+            last_line(t, scrolled),
+        )
+    }
+
+    /// **A span still to be named goes where its text went** (B10,
+    /// `Paths::carried_span`), on the core's records of a six-row screen:
+    /// a region of rows 2 to 4 scrolled up by one carries a span on row 3
+    /// to row 2, exactly; a span from row 1 to row 3, part of it in the
+    /// region, takes the hull of where it was and where its moved part
+    /// went; a span on row 5, outside it, stays; the same region scrolled
+    /// up and then down, which the record keeps as a move within the
+    /// band, widens a span on row 3 to the band; and a span on the
+    /// alternate screen is not carried by the primary's moves. Named
+    /// breaks: shift the whole span by an exact move -- the part outside
+    /// the region moves too; leave a span inside a band where it was --
+    /// the band's other rows are dropped.
+    #[test]
+    fn a_span_still_to_be_named_goes_where_its_text_went() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a, b| LineSpan::on(Surface::Primary, at(a), at(b));
+        let carried = |bytes: &[u8], s: LineSpan| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let lines = CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
+                .part(Some(t.history_mark().line()));
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            p.carried_span(&rec, &lines, &[Screen::Normal, Screen::Alternate], s)
+        };
+        let up = b"\x1b[3;5r\x1b[5;1H\n";
+        assert_eq!(carried(up, span(3, 3)), span(2, 2), "exact");
+        assert_eq!(carried(up, span(1, 3)), span(1, 3), "part in the region");
+        assert_eq!(carried(up, span(5, 5)), span(5, 5), "outside it");
+        let both = b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM";
+        assert_eq!(carried(both, span(3, 3)), span(2, 4), "within the band");
+        let p = Paths::new(None, Forms::DEFAULT);
+        let alt = LineSpan::on(p.surface(Screen::Alternate), at(3), at(3));
+        assert_eq!(carried(up, alt), alt, "another surface");
+    }
+
+    /// **A part the core says renumbered lines leaves each surface it
+    /// names not known, up to the line it is given** (N2): both surfaces
+    /// filed local at lines 2 and 9, then a re-cut (`Resize`) through line
+    /// 5 of each, then the same local facts again. The primary's line 2 is
+    /// not known and its line 9, past the renumbering, local; the
+    /// alternate screen keeps both. A core that recorded nothing
+    /// (`Unrecorded`) leaves the alternate screen's line 2 not known too.
+    /// Named break: renumber the primary alone for `Unrecorded` -- the
+    /// alternate screen's line 2 stays local.
+    #[test]
+    fn a_renumbering_part_darkens_the_surfaces_it_names() {
+        use baud_core::Renumbered;
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        for (why, alternate) in [
+            (Renumbered::Resize, Origin::Local),
+            (Renumbered::Unrecorded, Origin::Unknown),
+        ] {
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            let surfaces = [Surface::Primary, p.surface(Screen::Alternate)];
+            let local = |p: &mut Paths| {
+                for s in surfaces {
+                    for n in [2, 9] {
+                        p.written_by_shell(LineSpan::on(s, at(n), at(n)));
+                    }
+                }
+            };
+            local(&mut p);
+            p.part_renumbered(why, (at(5), at(5)));
+            local(&mut p);
+            let origins = surfaces.map(|s| (p.origin_at(s, at(2)), p.origin_at(s, at(9))));
+            assert_eq!(
+                origins,
+                [(Origin::Unknown, Origin::Local), (alternate, Origin::Local)],
+                "{why:?}"
+            );
+        }
+    }
+
+    /// **A resize that re-cuts the lines darkens them at once, with no
+    /// read after it**: history and window filed local, a change of
+    /// columns, and nothing fed -- the lookup a hover or a click makes is
+    /// not known on every line, history included, where the old facts
+    /// would sit on re-cut text. The control: a change of height alone
+    /// re-cuts nothing, and the lines stay lit. Named break: file the
+    /// renumbering with the next read's part rather than at the resize
+    /// (`Paths::resized` does nothing) -- the lines stay local.
+    #[test]
+    fn a_resize_that_re_cuts_darkens_every_line_with_no_read() {
+        let narrow = WinSize {
+            ws_col: 30,
+            ws_row: 6,
+        };
+        let shorter = WinSize {
+            ws_col: 60,
+            ws_row: 5,
+        };
+        for (ws, recut) in [(&narrow, true), (&shorter, false)] {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let scrolled = with_history(&mut t);
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            let all = every_line(&t, scrolled);
+            p.written_by_shell(all);
+            assert_eq!(
+                p.origin_over(Surface::Primary, (all.first, all.last)),
+                Origin::Local
+            );
+            let scrolled = resize_as_drivers_do(&mut t, &mut p, scrolled, ws);
+            if !recut {
+                let history = scrolled.line(Rows::of_count(3), baud_domain::Row::ZERO);
+                assert_eq!(p.origin(history), Origin::Local, "a history line");
+                assert_eq!(p.origin(last_line(&t, scrolled)), Origin::Local, "the last");
+                continue;
+            }
+            // Every number the old facts were filed on, now on re-cut text.
+            let mut line = all.first;
+            while line <= all.last {
+                assert_eq!(p.origin(line), Origin::Unknown, "{line:?} of {all:?}");
+                line = line.below();
+            }
+            let now = every_line(&t, scrolled);
+            assert_eq!(
+                p.origin_over(Surface::Primary, (now.first, now.last)),
+                Origin::Unknown
+            );
+        }
+    }
+
+    /// **A local write after a re-cut does not light a line the re-cut
+    /// moved**: a remote line in history, a change of columns, then the
+    /// shell's own filing over every line there is -- the prompt redrawn,
+    /// written on the numbers the remote text shifted onto -- and every
+    /// one of them stays not known. A line past them, which the re-cut
+    /// never numbered, is lit by it. Named break: drop the old facts with
+    /// no floor after them -- the local filing lights the remote text.
+    #[test]
+    fn a_local_write_after_a_re_cut_does_not_light_a_moved_line() {
+        let narrow = WinSize {
+            ws_col: 30,
+            ws_row: 6,
+        };
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let scrolled = with_history(&mut t);
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        let all = every_line(&t, scrolled);
+        p.written_by_shell(all);
+        let remote = scrolled.line(Rows::of_count(8), baud_domain::Row::ZERO);
+        p.written_remote(LineSpan::of(remote, remote));
+        let scrolled = resize_as_drivers_do(&mut t, &mut p, scrolled, &narrow);
+        let now = every_line(&t, scrolled);
+        p.written_by_shell(now);
+        let mut line = now.first;
+        while line <= now.last {
+            assert_ne!(p.origin(line), Origin::Local, "{line:?} of {now:?}");
+            line = line.below();
+        }
+        let later = now.last.below();
+        p.written_by_shell(LineSpan::of(later, later));
+        assert_eq!(
+            p.origin(later),
+            Origin::Local,
+            "a line the re-cut never numbered"
+        );
+    }
+
+    /// **Both drivers file a window resize at the resize**: in each, the
+    /// primary's last line, by its own count, is read before `Term::resize` and
+    /// [`Paths::resized`] is called after it, in the same function, so no
+    /// hover or frame between reads the old facts. The drivers' resizes
+    /// are AppKit's and Wayland's, so the source is what can fail. Named
+    /// break: drop the call from one driver.
+    #[test]
+    fn both_drivers_file_a_resize_at_the_resize() {
+        for (name, src, resized, primary) in [
+            (
+                "app.rs",
+                include_str!("app.rs"),
+                concat!("self.app.paths.", "resized("),
+                concat!("last_line(&self.app.term, ", "self.app.counts.primary())"),
+            ),
+            (
+                "linux.rs",
+                include_str!("linux.rs"),
+                concat!(
+                    ".resized(&rec, &self.term, ",
+                    "was_last, primary, alternate)"
+                ),
+                concat!("last_line(&self.term, ", "self.seat.counts().primary())"),
+            ),
+        ] {
+            let call = concat!("term.resize(", "&ws)");
+            let (before, after) = src
+                .split_once(call)
+                .unwrap_or_else(|| panic!("{name}: the resize"));
+            let opened = before.rfind("\n    fn ").expect("its function");
+            let body_before = &before[opened..];
+            let body_after = after.split_once("\n    fn ").map_or(after, |(b, _)| b);
+            assert!(
+                body_before.contains(primary),
+                "{name}: the primary's last line read before the resize"
+            );
+            assert!(
+                body_after.contains(resized),
+                "{name}: Paths::resized after the resize"
+            );
+        }
     }
 
     /// The default forms with single names read: what `[link.path] forms`
@@ -6121,7 +7217,7 @@ mod tests {
             let mut owned = Owned::new(&WS);
             let mut t = Term::new(owned.storage(), &WS);
             let mut p = in_folder(&mut t, NAMES, b"late.md\r\n");
-            p.set_front(front, first.below());
+            p.set_front(front, on_primary(first.below()));
             feed(&mut t, b"pane.md\r\n");
             let _ = p.observe(&t, at());
             assert_eq!(

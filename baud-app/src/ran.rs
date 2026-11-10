@@ -40,9 +40,15 @@
 //!
 //! It is scanned on the thread taking the reads, as the `OSC 8`
 //! introducer is (`probe::Sampler`), and runs beside the core's own reading
-//! of the same marks, which keeps none of these options.
+//! of the same marks, which keeps none of these options. **The core's
+//! reading decides**: each part's marks are checked against the core's
+//! record of it, offset for offset and letter for letter
+//! (`vouch::Matched`), and from a part where they differ the window's marks
+//! are not trusted until the shell's `D` with its token re-syncs them
+//! (`vouch::Latch`), since this scan's state carries from read to read and
+//! the reader's thread never learns the core disagreed.
 
-use baud_domain::BytePos;
+use baud_domain::{BytePos, StreamByte};
 
 /// The longest mark body kept: the core keeps no more of a control string
 /// (`baud_core::OSC_MAX`), and the token and the command's first word come
@@ -242,12 +248,13 @@ impl Ran {
     }
 }
 
-/// **Whether a read carried a folder report**, `OSC 7`, the last one ended in
-/// it, and what was running as it came: one sent while a command the shell
-/// named not local ran is the remote program's, which can name this machine
-/// as well as the shell can, and is not taken (`probe::Probes::read_taken`).
-/// The shell's own after that command's `D`, in the same read as the `D`
-/// and the prompt, is.
+/// **Whether a part fed a folder report the core acted on**, `OSC 7` or an
+/// iTerm2 `CurrentDir` (`baud_core::ReadRecord::folders`), and what was
+/// running as the last of them came ([`Timeline::open_at`]): one sent
+/// while a command the shell named not local ran is the remote program's,
+/// which can name this machine as well as the shell can, and is not taken
+/// (`probe::Probes::read_taken`). The shell's own after that command's
+/// `D`, in the same read as the `D` and the prompt, is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Folder {
     #[default]
@@ -256,121 +263,164 @@ pub enum Folder {
     FromRemote,
 }
 
-/// **Each folder report a read ended, with where it ended**: the verdict
-/// of each ([`Folder`]) and the offset just past its terminator, so a part
-/// of the read fed while the rest is held behind a delay files only the
-/// reports it fed (`reads::Part`): a remote program's forged report, a
-/// ReGIS delay, and the shell's `D` and own report in one read file the
-/// forged one, refused, when the first part goes on, and the shell's only
-/// once its bytes do. Four are kept, the last four; a part that fed one of
-/// those before them is refused. A read whose reports no scan can place
-/// ([`Reports::unvouched`]) refuses every part of it that feeds a byte.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub struct Reports {
-    kept: [Option<(BytePos, Folder)>; 4],
-    /// Where the first and the last of the reports past the kept ones
-    /// ended.
-    dropped: Option<(BytePos, BytePos)>,
-    vouched: Vouched,
-}
-
-/// Whether a read's reports are where the scan found them, or it may hold
-/// one no scan read: under `ESC % @`, an `OSC` begun with 0x9D.
+/// **What was open after a mark**, as [`Commands`] read it: nothing, a
+/// command the shell named here or naming nothing, or one named not local.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-enum Vouched {
+pub enum Left {
     #[default]
-    Placed,
-    Unplaced,
+    Closed,
+    Here,
+    Remote,
 }
 
-/// Each report as where it ended and its verdict.
-impl core::fmt::Debug for Reports {
+impl Left {
+    fn of(open: Open) -> Left {
+        match open {
+            Open::No => Left::Closed,
+            Open::Here(_) | Open::Unnamed(_) => Left::Here,
+            Open::Remote(_) => Left::Remote,
+        }
+    }
+}
+
+/// **One `OSC 133` mark the scan read**: where its terminator is in the
+/// read -- the offset the core records its own at
+/// (`baud_core::MarkEvent::at`) -- its letter, the first byte after
+/// `133;`, whether it was the shell's `D` with its token, and what was
+/// open after it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Mark {
+    at: BytePos,
+    letter: StreamByte,
+    shells: ShellsD,
+    left: Left,
+}
+
+impl Mark {
+    pub fn at(&self) -> BytePos {
+        self.at
+    }
+    pub fn letter(&self) -> StreamByte {
+        self.letter
+    }
+    /// Whether it was the shell's `D`, carrying the window's token.
+    pub fn shells_d(&self) -> ShellsD {
+        self.shells
+    }
+    /// What was open after it.
+    pub fn left(&self) -> Left {
+        self.left
+    }
+}
+
+/// The offset as a number and the letter as a character.
+impl core::fmt::Debug for Mark {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let kept: Vec<(usize, Folder)> = self
-            .kept
-            .iter()
-            .flatten()
-            .map(|(e, v)| (e.index(), *v))
-            .collect();
-        let dropped = self.dropped.map(|(a, b)| (a.index(), b.index()));
-        f.debug_struct("Reports")
+        write!(
+            f,
+            "{}{}@{}{:?}",
+            char::from(self.letter.raw_byte()),
+            match self.shells {
+                ShellsD::Yes => "*",
+                ShellsD::No => "",
+            },
+            self.at.index(),
+            self.left
+        )
+    }
+}
+
+/// How many marks a [`Timeline`] keeps: as many as the core records of a
+/// part (`baud_core::ReadRecord::marks`).
+const MARKS: usize = 8;
+
+/// **The marks a read carried, where each ended, and what was open as it
+/// began**, so a part of the read fed while the rest is held files only
+/// the marks it fed (`reads::Part`), and each is checked against the
+/// core's record of the same part offset for offset and letter for letter
+/// (`vouch::Matched`). Eight are kept; past them the scan says where the
+/// first it dropped ended, and every part reaching past it is unmatched.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct Timeline {
+    began: Left,
+    kept: [Option<Mark>; MARKS],
+    /// Where the first mark not kept ended: every part reaching past it
+    /// holds marks no timeline names.
+    over: Option<BytePos>,
+}
+
+/// Each mark, and where the first dropped one ended.
+impl core::fmt::Debug for Timeline {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let kept: Vec<Mark> = self.marks().collect();
+        f.debug_struct("Timeline")
+            .field("began", &self.began)
             .field("kept", &kept)
-            .field("dropped", &dropped)
-            .field("vouched", &self.vouched)
+            .field("over", &self.over.map(BytePos::index))
             .finish()
     }
 }
 
-impl Reports {
-    fn push(&mut self, end: BytePos, verdict: Folder) {
-        if let Some(slot) = self.kept.iter_mut().find(|s| s.is_none()) {
-            *slot = Some((end, verdict));
-            return;
-        }
-        if let Some((oldest, _)) = self.kept[0] {
-            self.dropped = Some(self.dropped.map_or((oldest, oldest), |(a, _)| (a, oldest)));
-        }
-        self.kept.rotate_left(1);
-        self.kept[self.kept.len() - 1] = Some((end, verdict));
-    }
-
-    /// **What a part from `from` to `to` files**: the verdict of the last
-    /// report it fed, refused if it fed only reports past the kept ones,
-    /// none if it fed none.
-    pub fn part(&self, from: BytePos, to: BytePos) -> Folder {
-        if self.vouched == Vouched::Unplaced && from < to {
-            return Folder::FromRemote;
-        }
-        let fed = |e: BytePos| from < e && e <= to;
-        match self.kept.iter().flatten().rev().find(|(e, _)| fed(*e)) {
-            Some(&(_, verdict)) => verdict,
-            None => match self.dropped {
-                Some((a, b)) if a <= to && from < b => Folder::FromRemote,
-                _ => Folder::Unreported,
-            },
+impl Timeline {
+    fn begun(began: Left) -> Timeline {
+        Timeline {
+            began,
+            ..Timeline::default()
         }
     }
 
-    /// **The reports of the bytes from `from` on**, counted from there.
-    pub fn rest(&self, from: BytePos) -> Reports {
-        let after = |e: BytePos| (e > from).then(|| BytePos::from_index(e.index() - from.index()));
-        let mut rest = Reports {
-            vouched: self.vouched,
-            ..Reports::default()
-        };
-        for (e, verdict) in self.kept.iter().flatten() {
-            if let Some(e) = after(*e) {
-                rest.push(e, *verdict);
+    fn push(&mut self, m: Mark) {
+        match self.kept.iter_mut().find(|s| s.is_none()) {
+            Some(slot) => *slot = Some(m),
+            None => {
+                self.over.get_or_insert(m.at);
             }
         }
-        rest.dropped = self.dropped.and_then(|(a, b)| {
-            let b = after(b)?;
-            Some((after(a).unwrap_or(BytePos::from_index(1)), b))
+    }
+
+    /// The marks, in the order the read ended them.
+    pub fn marks(&self) -> impl Iterator<Item = Mark> + '_ {
+        self.kept.iter().map_while(|m| *m)
+    }
+
+    /// Whether the read held marks past the kept ones before `to`.
+    pub fn overflowed(&self) -> bool {
+        self.over.is_some()
+    }
+
+    /// **What was open at `at`**: after the last mark that ended before
+    /// it, or as the read began.
+    pub fn open_at(&self, at: BytePos) -> Left {
+        self.marks()
+            .filter(|m| m.at < at)
+            .last()
+            .map_or(self.began, |m| m.left)
+    }
+
+    /// **The marks of the bytes from `from` to `to`**, a mark belonging to
+    /// the part that fed its terminator; overflowed if the part reaches
+    /// past the first mark dropped.
+    pub fn part(&self, from: BytePos, to: BytePos) -> Timeline {
+        let mut part = Timeline::begun(self.open_at(from));
+        self.marks()
+            .filter(|m| from <= m.at && m.at < to)
+            .for_each(|m| part.push(m));
+        part.over = self.over.filter(|&o| o < to);
+        part
+    }
+
+    /// **The marks of the bytes from `from` on**, counted from there.
+    pub fn rest(&self, from: BytePos) -> Timeline {
+        let mut rest = Timeline::begun(self.open_at(from));
+        let back = |e: BytePos| BytePos::from_index(e.index().saturating_sub(from.index()));
+        self.marks().filter(|m| m.at >= from).for_each(|m| {
+            rest.push(Mark {
+                at: back(m.at),
+                ..m
+            })
         });
+        rest.over = self.over.map(back);
         rest
-    }
-
-    /// **A read that may hold a report no scan placed**: every part of it
-    /// that feeds a byte is refused, held rests included.
-    pub fn unvouched() -> Reports {
-        Reports {
-            vouched: Vouched::Unplaced,
-            ..Reports::default()
-        }
-    }
-
-    /// The last report's verdict: the read's, fed whole.
-    pub fn last(&self) -> Folder {
-        if self.vouched == Vouched::Unplaced {
-            return Folder::FromRemote;
-        }
-        self.kept.iter().flatten().last().map_or(
-            match self.dropped {
-                Some(_) => Folder::FromRemote,
-                None => Folder::Unreported,
-            },
-            |&(_, verdict)| verdict,
-        )
     }
 }
 
@@ -394,8 +444,8 @@ pub struct Commands {
     /// and forgotten when `exec` puts another program in the shell's place;
     /// never taken from the stream.
     known: Option<Token>,
-    /// The folder reports the last read ended ([`Reports`]).
-    reports: Reports,
+    /// The marks the last read carried ([`Timeline`]).
+    marks: Timeline,
     /// Whether the read so far carried the shell's `D`, with its token.
     shells_d: ShellsD,
     /// Where in the read the sequence the scan is in began, if in it.
@@ -461,7 +511,7 @@ impl Commands {
             body: Vec::with_capacity(BODY),
             open: Open::No,
             known: token.map(|t| Token::of(t.as_str().as_bytes())),
-            reports: Reports::default(),
+            marks: Timeline::default(),
             shells_d: ShellsD::No,
             esc_at: None,
             body_esc_at: None,
@@ -479,7 +529,7 @@ impl Commands {
     /// token, and with no command open after it ([`Ran::Shell`]); any other
     /// read under none is unmarked, the samples'.
     pub fn read(&mut self, bytes: &[u8]) -> Ran {
-        self.reports = Reports::default();
+        self.marks = Timeline::begun(Left::of(self.open));
         self.shells_d = ShellsD::No;
         self.esc_at = None;
         self.body_esc_at = None;
@@ -592,14 +642,7 @@ impl Commands {
     /// output of the command running if it is another control string.
     fn ended(&mut self, out: &mut Outs, end: BytePos) {
         let body = core::mem::take(&mut self.body);
-        if body.starts_with(b"7;") {
-            let verdict = match self.open {
-                Open::Remote(_) => Folder::FromRemote,
-                Open::No | Open::Here(_) | Open::Unnamed(_) => Folder::Reported,
-            };
-            self.reports.push(end, verdict);
-        }
-        if !self.mark(&body) {
+        if !self.mark(&body, end) {
             out.saw(self.open, Wrote::Output, self.shells_d);
         }
         // From the shell's first `D` on, what the bytes say is read again,
@@ -612,21 +655,16 @@ impl Commands {
         self.body = body;
     }
 
-    /// **Whether the last read ended an `OSC 7`** ([`Folder`]): the last
-    /// one's verdict.
-    #[cfg(test)]
-    pub fn folder(&self) -> Folder {
-        self.reports.last()
+    /// **The marks the last read carried** ([`Timeline`]).
+    pub fn marks(&self) -> Timeline {
+        self.marks
     }
 
-    /// **Each folder report the last read ended, with where** ([`Reports`]).
-    pub fn reports(&self) -> Reports {
-        self.reports
-    }
-
-    /// The body of a mark, acted on if it is an `OSC 133` command mark:
+    /// The body of a mark ending just before `end`, acted on if it is an
+    /// `OSC 133` command mark and kept in the read's [`Timeline`] if it
+    /// has a letter, as the core keeps one (`baud_core::MarkEvent`):
     /// whether it is one.
-    fn mark(&mut self, body: &[u8]) -> bool {
+    fn mark(&mut self, body: &[u8], end: BytePos) -> bool {
         let Some(rest) = body.strip_prefix(b"133;") else {
             return false;
         };
@@ -648,10 +686,21 @@ impl Commands {
         let token = options(whole)
             .find(|(name, v)| *name == b"baud_token" && !v.is_empty())
             .map(|(_, v)| Token::of(v));
-        match letter {
-            b"C" => self.started(token, Named::of(fields, tail)),
+        let shells = match letter {
+            b"C" => {
+                self.started(token, Named::of(fields, tail));
+                ShellsD::No
+            }
             b"D" => self.done(token),
-            _ => {}
+            _ => ShellsD::No,
+        };
+        if let Some(&letter) = rest.first() {
+            self.marks.push(Mark {
+                at: BytePos::from_index(end.index().saturating_sub(1)),
+                letter: StreamByte::from_stream(letter),
+                shells,
+                left: Left::of(self.open),
+            });
         }
         true
     }
@@ -694,20 +743,22 @@ impl Commands {
     }
 
     /// A `D`: what is open ends if the mark carries its shell's token, or
-    /// with no token ever seen.
-    fn done(&mut self, token: Option<Token>) {
+    /// with no token ever seen. Whether it was the shell's own.
+    fn done(&mut self, token: Option<Token>) -> ShellsD {
         if self.open != Open::No && self.ends(token) {
             self.open = Open::No;
         }
-        if self.known.is_some() && token == self.known {
-            self.shells_d = ShellsD::Yes;
-            if self.d == DAt::Unseen {
-                self.d = match self.esc_at {
-                    Some(at) => DAt::At(at),
-                    None => DAt::Earlier,
-                };
-            }
+        if self.known.is_none() || token != self.known {
+            return ShellsD::No;
         }
+        self.shells_d = ShellsD::Yes;
+        if self.d == DAt::Unseen {
+            self.d = match self.esc_at {
+                Some(at) => DAt::At(at),
+                None => DAt::Earlier,
+            };
+        }
+        ShellsD::Yes
     }
 
     /// Whether a mark carrying `token` may end what is open.
@@ -1516,131 +1567,294 @@ mod tests {
         }
     }
 
-    /// The reports `(end, verdict)`, in the order the read ended them.
-    fn reports(each: &[(usize, Folder)]) -> Reports {
-        let mut r = Reports::default();
-        for &(end, verdict) in each {
-            r.push(BytePos::from_index(end), verdict);
+    /// A timeline of marks `(terminator, letter, left)`, as a read that
+    /// began with nothing open ended them.
+    fn timeline(each: &[(usize, u8, Left)]) -> Timeline {
+        let mut t = Timeline::begun(Left::Closed);
+        for &(at, letter, left) in each {
+            t.push(Mark {
+                at: BytePos::from_index(at),
+                letter: StreamByte::from_stream(letter),
+                shells: ShellsD::No,
+                left,
+            });
         }
-        r
+        t
     }
 
-    /// **A part files the last report it fed**, whichever way round the
-    /// two came: the remote program's then the shell's files the shell's,
-    /// and the other way round the program's. Named break: the first
-    /// report fed (`Reports::part` without its `.rev()`) -- both turn.
+    /// **The scan keeps each mark at its terminator, as the core does**:
+    /// `ESC ] 133 ; A BEL` ends at its `BEL`, and `ESC ] 133 ; D ESC \` at
+    /// its `\`; a mark with no letter is kept by neither; and the shell's
+    /// `D` with its token is told from a `D` without one. Named break:
+    /// keep a mark at the offset past its terminator -- every offset is one
+    /// more.
     #[test]
-    fn a_part_files_the_last_report_it_fed() {
-        let at = BytePos::from_index;
-        let up = reports(&[(10, Folder::FromRemote), (20, Folder::Reported)]);
-        assert_eq!(up.part(at(0), at(30)), Folder::Reported, "the shell's last");
-        let down = reports(&[(10, Folder::Reported), (20, Folder::FromRemote)]);
+    fn the_scan_keeps_each_mark_where_the_core_does() {
+        let mut scan = shell("t");
+        let bytes = b"\x1b]133;A\x07$ \x1b]133;\x07\x1b]133;D;0;baud_token=t\x1b\\\x1b]133;D\x07";
+        let _ = scan.read(bytes);
+        let got: Vec<(usize, u8, ShellsD)> = scan
+            .marks()
+            .marks()
+            .map(|m| (m.at().index(), m.letter().raw_byte(), m.shells_d()))
+            .collect();
+        let bel = |from: usize| from + bytes[from..].iter().position(|&b| b == 0x07).unwrap();
+        let st = 1 + bytes.windows(2).position(|w| w == b"\x1b\\").unwrap();
         assert_eq!(
-            down.part(at(0), at(30)),
-            Folder::FromRemote,
-            "the program's last"
+            got,
+            [
+                (bel(0), b'A', ShellsD::No),
+                (st, b'D', ShellsD::Yes),
+                (bel(st), b'D', ShellsD::No),
+            ]
         );
-        assert_eq!(
-            down.part(at(0), at(10)),
-            Folder::Reported,
-            "the first alone"
-        );
-        assert_eq!(down.part(at(10), at(15)), Folder::Unreported, "none fed");
+        // The same offsets the core records.
+        let ws = baud_domain::WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        let _ = t.take_record();
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, baud_domain::ReadLen::from_index(bytes.len()));
+        let core: Vec<(usize, u8)> = t
+            .take_record()
+            .marks()
+            .iter()
+            .map(|m| (m.at.index(), m.letter))
+            .collect();
+        let ours: Vec<(usize, u8)> = got.iter().map(|&(a, l, _)| (a, l)).collect();
+        assert_eq!(core, ours, "the core's marks");
     }
 
-    /// **Past four reports, a part that feeds only the ones dropped is
-    /// refused**: five reports, the first the remote program's, then the
-    /// shell's four; the part feeding the first alone is refused, and the
-    /// part feeding the rest files the shell's. Named break: a part
-    /// feeding none of the kept four files nothing (`Reports::part`
-    /// without its `dropped` arm) -- the first part files nothing.
+    /// **The shell's `D` with its token closes whatever the scan believed
+    /// open**: from every state the scan can hold under a window token --
+    /// nothing open, a remote command with no token or with the window's,
+    /// one named here, one naming nothing -- and for any token, the `D`
+    /// carrying it leaves nothing open and is the shell's. What a re-sync
+    /// rests on (`vouch::Resync`): after it the scan's state depends on
+    /// nothing before. Named break: a remote command opened with no token
+    /// ends only at a `D` naming none (`Commands::ends`) -- it stays open.
     #[test]
-    fn a_part_feeding_only_dropped_reports_is_refused() {
-        let at = BytePos::from_index;
-        let five = reports(&[
-            (1, Folder::FromRemote),
-            (2, Folder::Reported),
-            (3, Folder::Reported),
-            (4, Folder::Reported),
-            (5, Folder::Reported),
-        ]);
-        assert_eq!(
-            five.part(at(0), at(1)),
-            Folder::FromRemote,
-            "the first alone"
-        );
-        assert_eq!(five.part(at(1), at(5)), Folder::Reported, "the four kept");
-        assert_eq!(five.last(), Folder::Reported, "fed whole");
-    }
-
-    /// **The rest after a cut, cut again, is the rest after both**, for
-    /// reports kept and dropped and for a read whose reports no scan
-    /// placed, and each cut files what the uncut read files over the same
-    /// bytes, for every part that feeds one. Named break: rebase each report one byte past the cut
-    /// (`Reports::rest`) -- the rest of a rest is a byte off.
-    #[test]
-    fn the_rest_of_a_rest_is_the_rest_of_the_sum() {
-        let five = reports(&[
-            (3, Folder::FromRemote),
-            (7, Folder::Reported),
-            (9, Folder::FromRemote),
-            (12, Folder::Reported),
-            (20, Folder::Reported),
-        ]);
-        for r in [five, Reports::unvouched()] {
-            for a in 0..22 {
-                for b in 0..(22 - a) {
-                    let at = |n: usize| BytePos::from_index(n);
-                    assert_eq!(
-                        r.rest(at(a)).rest(at(b)),
-                        r.rest(at(a + b)),
-                        "{r:?} at {a} then {b}"
-                    );
-                    if b == 0 {
-                        continue;
-                    }
-                    assert_eq!(
-                        r.rest(at(a)).part(at(0), at(b)),
-                        r.part(at(a), at(a + b)),
-                        "{r:?}: {a} to {}",
-                        a + b
-                    );
-                }
+    fn the_shells_d_closes_every_state() {
+        for token in ["t", "0123456789abcdef", "x;y", ""] {
+            let k = Token::of(token.as_bytes());
+            for open in [
+                Open::No,
+                Open::Remote(None),
+                Open::Remote(Some(k)),
+                Open::Here(k),
+                Open::Unnamed(k),
+            ] {
+                let mut scan = shell(token);
+                scan.open = open;
+                assert_eq!(
+                    scan.done(Some(k)),
+                    ShellsD::Yes,
+                    "{open:?}, token {token:?}"
+                );
+                assert_eq!(scan.open, Open::No, "{open:?}, token {token:?}");
             }
         }
     }
 
-    /// **The shell's folder report at its prompt is the shell's own, and one
-    /// sent under a remote command is the program's**: after a command the
-    /// shell named here, its `D`, `A`, `OSC 7` and prompt in one read are
-    /// the shell's (`Ran::Shell`), the report taken; the control, the same
-    /// `OSC 7` while a command naming nothing runs, is that command's
-    /// output (`Ran::Command`). Under `ssh`, a report before the shell's
-    /// `D` is the remote program's, and the shell's after it, in the same
-    /// read, is the shell's. Named breaks: end a command only at the next
-    /// `C` -- the prompt's read is the command's; judge a report by the
-    /// read's verdict -- the shell's report after `ssh`'s `D` is refused.
+    /// **A part's marks match the core's only offset for offset and letter
+    /// for letter** (`vouch::Matched`): the scan's marks of a read match
+    /// the core's record of it; moved a byte either way, or with another
+    /// letter, they do not; and past the kept marks they do not. Named
+    /// breaks: compare letters alone -- the moved marks match; compare
+    /// offsets alone -- the other letter matches.
+    #[test]
+    fn marks_match_only_where_and_as_the_core_ran_them() {
+        use crate::vouch::{Matched, Vouch, Why};
+        let ws = baud_domain::WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let bytes = b"\x1b]133;A\x07$ \x1b]133;D;0;baud_token=t\x1b\\";
+        let mut owned = baud_core::Owned::new(&ws);
+        let mut t = baud_core::Term::new(owned.storage(), &ws);
+        let _ = t.take_record();
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, baud_domain::ReadLen::from_index(bytes.len()));
+        let rec = t.take_record();
+        let mut scan = shell("t");
+        let _ = scan.read(bytes);
+        let ran = scan.marks();
+        assert!(matches!(Matched::of(&rec, &ran), Vouch::Yes(_)), "as read");
+        let changed = |f: &dyn Fn(Mark) -> Mark| {
+            let mut t = Timeline::begun(ran.began);
+            ran.marks().for_each(|m| t.push(f(m)));
+            t
+        };
+        for (what, moved) in [
+            (
+                "a byte later",
+                changed(&|m| Mark {
+                    at: BytePos::from_index(m.at.index() + 1),
+                    ..m
+                }),
+            ),
+            (
+                "a byte sooner",
+                changed(&|m| Mark {
+                    at: BytePos::from_index(m.at.index() - 1),
+                    ..m
+                }),
+            ),
+            (
+                "another letter",
+                changed(&|m| Mark {
+                    letter: StreamByte::from_stream(m.letter.raw_byte() + 1),
+                    ..m
+                }),
+            ),
+        ] {
+            assert_eq!(Matched::of(&rec, &moved), Vouch::No(Why::Marks), "{what}");
+        }
+        let mut over = ran;
+        over.over = Some(BytePos::ZERO);
+        assert_eq!(
+            Matched::of(&rec, &over),
+            Vouch::No(Why::Marks),
+            "past the kept"
+        );
+    }
+
+    /// **A part keeps the marks whose terminators it fed, and begins with
+    /// what the last before it left open**. Named break: keep a mark in
+    /// the part that fed its first byte rather than its terminator
+    /// (`from < at` and `at <= to`) -- the mark at 10 moves parts.
+    #[test]
+    fn a_part_keeps_the_marks_it_fed() {
+        let at = BytePos::from_index;
+        let t = timeline(&[(10, b'C', Left::Remote), (20, b'D', Left::Closed)]);
+        let letters = |t: Timeline| t.marks().map(|m| m.letter().raw_byte()).collect::<Vec<_>>();
+        assert_eq!(letters(t.part(at(0), at(30))), [b'C', b'D'], "both");
+        assert_eq!(
+            letters(t.part(at(0), at(10))),
+            Vec::<u8>::new(),
+            "short of C's end"
+        );
+        assert_eq!(letters(t.part(at(10), at(20))), [b'C'], "C's end alone");
+        assert_eq!(
+            t.part(at(11), at(20)).open_at(at(11)),
+            Left::Remote,
+            "under C"
+        );
+        assert_eq!(
+            t.part(at(21), at(30)).open_at(at(21)),
+            Left::Closed,
+            "after D"
+        );
+    }
+
+    /// **Past the kept marks, every part reaching past the first dropped
+    /// one is overflowed**, and the parts before it are not. Named break:
+    /// a part overflowed only if it holds the dropped mark -- the part
+    /// after it reads as matched with the marks before it unknown.
+    #[test]
+    fn a_part_past_the_kept_marks_is_overflowed() {
+        let at = BytePos::from_index;
+        let each: Vec<(usize, u8, Left)> = (1..=10).map(|k| (k * 10, b'A', Left::Closed)).collect();
+        let t = timeline(&each);
+        assert_eq!(t.marks().count(), MARKS);
+        assert!(!t.part(at(0), at(85)).overflowed(), "before the ninth");
+        assert!(t.part(at(0), at(95)).overflowed(), "the ninth");
+        assert!(t.part(at(95), at(200)).overflowed(), "past it");
+    }
+
+    /// **The rest after a cut, cut again, is the rest after both**, and each
+    /// part of a rest is that part of the whole, counted from the rest.
+    /// Named break: rebase each mark one byte past the cut
+    /// (`Timeline::rest`) -- the rest of a rest is a byte off.
+    #[test]
+    fn the_rest_of_a_rest_is_the_rest_of_the_sum() {
+        let each: Vec<(usize, u8, Left)> = [3, 7, 9, 12, 20, 21, 22, 23, 24, 25]
+            .iter()
+            .enumerate()
+            .map(|(k, &e)| {
+                (
+                    e,
+                    b"ABCDEFGHIJ"[k],
+                    [Left::Here, Left::Remote, Left::Closed][k % 3],
+                )
+            })
+            .collect();
+        let whole = timeline(&each);
+        let at = BytePos::from_index;
+        for a in 0..28 {
+            for b in 0..(28 - a) {
+                assert_eq!(
+                    whole.rest(at(a)).rest(at(b)),
+                    whole.rest(at(a + b)),
+                    "{a} then {b}"
+                );
+                if b == 0 {
+                    continue;
+                }
+                let shifted = whole.rest(at(a)).part(at(0), at(b));
+                let direct = whole.part(at(a), at(a + b));
+                assert_eq!(
+                    shifted
+                        .marks()
+                        .map(|m| (m.at().index() + a, m.letter().raw_byte()))
+                        .collect::<Vec<_>>(),
+                    direct
+                        .marks()
+                        .map(|m| (m.at().index(), m.letter().raw_byte()))
+                        .collect::<Vec<_>>(),
+                    "{a} to {}",
+                    a + b
+                );
+                assert_eq!(
+                    shifted.overflowed(),
+                    direct.overflowed(),
+                    "{a} to {}",
+                    a + b
+                );
+                assert_eq!(
+                    shifted.open_at(at(0)),
+                    direct.open_at(at(a)),
+                    "{a} to {}",
+                    a + b
+                );
+            }
+        }
+    }
+
+    /// **What was open where a folder report came is what the scan read
+    /// there**: after a command the shell named here, its `D`, `A` and an
+    /// `OSC 7` in one read come with nothing open, the read the shell's;
+    /// under `ssh`, a report before the shell's `D` comes under the remote
+    /// command and one after it, in the same read, with nothing open.
+    /// Named break: judge every report by what was open as the read began
+    /// (`Timeline::open_at` returning `began`) -- the shell's report after
+    /// `ssh`'s `D` reads remote.
     #[test]
     fn a_folder_report_is_judged_by_what_ran_as_it_came() {
+        let at7 = |bytes: &[u8], from: usize| {
+            BytePos::from_index(from + bytes[from..].windows(4).position(|w| w == b"]7;f").unwrap())
+        };
         let mut scan = shell("t");
         let _ = scan.read(b"\x1b]133;C;baud_token=t;cmdline=ls\x07out\r\n");
         let prompt = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07\x1b]7;file://h/tmp\x07% ";
         assert_eq!(scan.read(prompt), Ran::Shell, "the prompt's read");
-        assert_eq!(scan.folder(), Folder::Reported);
-        let _ = scan.read(b"\x1b]133;C;baud_token=t\x07");
-        assert_eq!(
-            scan.read(b"\x1b]7;file://h/tmp\x07"),
-            Ran::Command,
-            "the control: under a command naming nothing"
-        );
+        assert_eq!(scan.marks().open_at(at7(prompt, 0)), Left::Closed);
         let mut scan = shell("t");
         let _ = scan.read(b"\x1b]133;C;baud_token=t;cmdline=ssh\\ h\x07");
-        assert_eq!(scan.read(b"\x1b]7;file://h/tmp\x07$ "), Ran::Elsewhere);
-        assert_eq!(scan.folder(), Folder::FromRemote, "the remote program's");
-        let shells = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07\x1b]7;file://h/home\x07% ";
+        let shells = b"\x1b]7;file://h/tmp\x07\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07\x1b]7;file://h/home\x07% ";
         assert_eq!(scan.read(shells), Ran::Elsewhere, "the read of ssh's D");
-        assert_eq!(scan.folder(), Folder::Reported, "the shell's, after its D");
-        assert_eq!(scan.read(b"% x"), Ran::Unmarked);
-        assert_eq!(scan.folder(), Folder::Unreported, "none in this read");
+        assert_eq!(
+            scan.marks().open_at(at7(shells, 0)),
+            Left::Remote,
+            "the remote program's"
+        );
+        assert_eq!(
+            scan.marks().open_at(at7(shells, 5)),
+            Left::Closed,
+            "the shell's, after its D"
+        );
     }
 }

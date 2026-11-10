@@ -1017,16 +1017,17 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                         ),
                         crate::probe::Asks::No => (d.groups.unasked(), crate::probe::Linked::No),
                     };
-                    let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+                    let began = d.seat.cursor_on(&d.term);
                     let took = d.feed(&bytes, (writers, linked));
-                    let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+                    let ended = d.seat.cursor_on(&d.term);
                     // Filed under the reads this feed fed, a held one's own
                     // when its bytes go on, and none still held.
+                    let lines = d.seat.counts().core_lines(&d.term);
                     d.probes.drain_taken(
                         &mut d.seat.paths,
                         &d.term,
-                        began,
-                        ended,
+                        (began, ended),
+                        lines,
                         took.iter().copied(),
                     );
                 }
@@ -1047,14 +1048,15 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
         // A ReGIS delay's held reads, at its deadline, read or not, and a
         // one-shot input's once it has ended.
         if d.pace.due(Instant::now()) || d.pace.released(&d.term) {
-            let began = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+            let began = d.seat.cursor_on(&d.term);
             let took = d.feed(&[], Default::default());
-            let ended = d.seat.scrolled().line(Rows::ZERO, d.term.cursor().0);
+            let ended = d.seat.cursor_on(&d.term);
+            let lines = d.seat.counts().core_lines(&d.term);
             d.probes.drain_taken(
                 &mut d.seat.paths,
                 &d.term,
-                began,
-                ended,
+                (began, ended),
+                lines,
                 took.iter().copied(),
             );
         }
@@ -1422,7 +1424,8 @@ impl Driver {
         // read wrote over it, switched or reset (`seat.rs`). A switch takes
         // the trail away and fades the new screen in; a reset that brought
         // a looked-back window live reveals the thumb.
-        let after = self.seat.after_read(&self.term, before);
+        let last = took.iter().rev().find_map(|(w, _)| w.record);
+        let after = self.seat.after_read(&self.term, before, last.as_ref());
         // The lines the whole screen retired ride a trail in flight up with
         // the text at the next frame, as on macOS (`timed.rs`).
         self.timed.scrolled(&self.term, before);
@@ -2788,14 +2791,15 @@ impl Driver {
                 // The line goes in behind any reads a delay held, which go on
                 // with it and are filed under their own writers, as every
                 // feed's are; the line itself, baud's own, under none.
-                let began = self.seat.scrolled().line(Rows::ZERO, self.term.cursor().0);
+                let began = self.seat.cursor_on(&self.term);
                 let took = self.feed(crate::held::written(), Default::default());
-                let ended = self.seat.scrolled().line(Rows::ZERO, self.term.cursor().0);
+                let ended = self.seat.cursor_on(&self.term);
+                let lines = self.seat.counts().core_lines(&self.term);
                 self.probes.drain_taken(
                     &mut self.seat.paths,
                     &self.term,
-                    began,
-                    ended,
+                    (began, ended),
+                    lines,
                     took.iter().copied(),
                 );
                 self.pending = Pending::Dirty;
@@ -3428,11 +3432,8 @@ impl Driver {
             },
             Rows::of_count(self.term.status_rows().index() + self.renderer.notice_rows().index()),
         );
-        let was = (
-            self.term.history_mark(),
-            self.term.geometry().0,
-            self.term.screen(),
-        );
+        let was = (self.term.geometry().0, self.term.screen());
+        let was_last = crate::paths::last_line(&self.term, self.seat.counts().primary());
         if let Resized::Truncated { cols, rows } = self.term.resize(&ws) {
             crate::warn!(
                 "the window is larger than the grid; {}x{} of it is drawn",
@@ -3443,7 +3444,17 @@ impl Driver {
         self.renderer.fit(&self.term);
         // A reflow re-cuts every line, so a selection's columns are gone;
         // a change of height alone on the primary keeps it (note V, V3).
-        self.seat.resized(&self.term, was);
+        // The core's record of the resize, taken once, moves the counts and
+        // files the paths.
+        let rec = self.term.take_record();
+        self.seat.resized(&self.term, was, &rec);
+        // The printed paths' facts, filed at once where the resize re-cut
+        // the lines (`Paths::resized`), before anything reads them.
+        let counts = self.seat.counts();
+        let (primary, alternate) = (counts.primary(), counts.alternate());
+        self.seat
+            .paths
+            .resized(&rec, &self.term, was_last, primary, alternate);
         // The find's matches on the re-laid grid, and its current match
         // selected again, as the macOS driver's resize does.
         if let Some(f) = self.finding.as_mut() {

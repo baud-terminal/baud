@@ -303,7 +303,7 @@ pub trait Reader {
 
     /// Whether the row the writer ended at `above` may be read on into the
     /// next, as `PathsAt::joins` says: yes with nothing to go by.
-    fn joins(&self, _above: AbsLine) -> Joins {
+    fn joins(&self, _screen: Screen, _above: AbsLine) -> Joins {
         Joins::Yes
     }
 
@@ -910,7 +910,7 @@ impl Lines {
             let line = scrolled.line(back, Row::from_index(y));
             match runs_on(term, scrolled, line) {
                 false => Below::Apart,
-                true => match reader.joins(line) {
+                true => match reader.joins(term.screen(), line) {
                     Joins::Yes => Below::Joined,
                     Joins::No => Below::Held,
                 },
@@ -1131,7 +1131,8 @@ impl Lines {
         let last_row = scrolled.line(back, Row::from_index(bottom));
         // Whether the line runs on from `l` into the next.
         let on = |reader: &R, l: AbsLine, wrap: Wrap| {
-            wrap == Wrap::Continues || (runs_on(term, scrolled, l) && reader.joins(l) == Joins::Yes)
+            wrap == Wrap::Continues
+                || (runs_on(term, scrolled, l) && reader.joins(term.screen(), l) == Joins::Yes)
         };
         // Past the window's top, while the rows above run into it.
         let (mut first, mut head) = (first_row, Edge::Line);

@@ -220,12 +220,13 @@ mod paths;
 mod probe;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod ran;
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
-mod reach;
 // The shell's `D` cuts a read: the bytes before it the read's, those after
-// the shell's, judged by an allowlist.
+// the shell's, where the core's record vouches for them.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod cut;
+// What a part's record vouches for: the line it ended on clean, a cut.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod vouch;
 // What baud was started with, marked close-on-exec before any thread
 // starts, so its children inherit none of it.
 #[cfg(any(target_os = "macos", target_os = "linux"))]

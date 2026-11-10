@@ -293,23 +293,28 @@ impl Tap {
     }
 
     /// **After the read was fed**: each part of it, under the writers it
-    /// was fed with, kept with the lines it wrote, from `began` to where the
-    /// cursor is now (`link_layer::fed`).
+    /// was fed with, kept with the lines it wrote, from `began`, on the
+    /// screen it was on, to where the cursor is now (`link_layer::fed`).
     pub(crate) fn fed(
         &mut self,
         term: &Term<'_>,
         scrolled: Scrolled,
-        began: AbsLine,
+        (screen, began): (baud_core::Screen, AbsLine),
+        lines: crate::paths::CoreLines,
         parts: &[(Writers, Linked)],
     ) {
         let ended = scrolled.line(Rows::ZERO, term.cursor().0);
+        let on = (
+            self.paths.line_on(screen, began),
+            self.paths.line_on(term.screen(), ended),
+        );
         crate::link_layer::fed(
             &mut self.probes,
             &mut self.paths,
             term,
             parts.iter().copied(),
-            began,
-            ended,
+            on,
+            lines,
         );
         if let Some(s) = self.step {
             let w = self.report.written.entry(s).or_insert((began, ended));

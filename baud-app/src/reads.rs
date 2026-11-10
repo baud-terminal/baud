@@ -164,10 +164,26 @@ impl<T: Copy> Pace<T> {
     }
 }
 
+/// **What the core did as a part ran, and where the primary's window stood
+/// as it ended**: the part's record (`Term::take_record`), the line at the
+/// window's top (`HistoryMark::line`), whether the cursor's row holds
+/// cells (`vouch::EndRow`) and whether the part placed an image
+/// (`vouch::Drew`), read at the same moment, so each part's lines
+/// are placed against its own top -- a page-width request between two
+/// parts of one batch re-cuts the lines under the later one -- and the
+/// line it ended on is judged by what is on it (`vouch::Below`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Taken {
+    pub record: baud_core::ReadRecord,
+    pub top: baud_domain::LineIdx,
+    pub end_row: crate::vouch::EndRow,
+    pub drew: crate::vouch::Drew,
+}
+
 /// **A read's tag, cut to a part of its bytes**: what a read carries of
-/// its bytes by where they are in it, as a folder report's verdict is
-/// carried by where the report ends (`ran::Reports`), so a part fed files
-/// only what its own bytes said, and a part held keeps the rest.
+/// its bytes by where they are in it, as the shell's marks are carried by
+/// where each ends (`ran::Timeline`), so a part fed files only what its own
+/// bytes said, and a part held keeps the rest.
 pub trait Part: Copy + PartialEq {
     /// The tag of the bytes from `from` to `to` of its read, fed.
     fn part(self, from: BytePos, to: BytePos) -> Self;
@@ -180,14 +196,60 @@ pub trait Part: Copy + PartialEq {
     fn plan(&self) -> Option<crate::cut::Plan> {
         None
     }
-    /// The tag of a part before the cut, whose bytes reach `reach`.
-    fn before_cut(self, _reach: crate::reach::Reach) -> Self {
+    /// The tag of a part before the cut, as it is pushed: no plan.
+    fn before_cut(self) -> Self {
+        self
+    }
+    /// The running tag after a part before the cut was fed, its record's
+    /// verdict folded into the plan's (`vouch::CutAt`).
+    fn pre_cut(self, _vouch: crate::vouch::Vouch<crate::vouch::CutAt>) -> Self {
         self
     }
     /// The tag from the cut on, taken with the terminal at `spot`.
     fn after_cut(self, _spot: crate::cut::Spot) -> Self {
         self
     }
+    /// The tag where the record did not vouch for the cut: no cut, the read
+    /// filed whole as it would have been without one.
+    fn uncut(self) -> Self {
+        self
+    }
+    /// **Whether the shell's marks this tag read in its part are the
+    /// core's** (`vouch::Matched`): a tag that read none matches only a
+    /// record of none.
+    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
+        crate::vouch::Matched::of(rec, &crate::ran::Timeline::default())
+    }
+    /// **The tag of a part fed, carrying what the core did as it ran the
+    /// part's bytes** ([`Taken`]), or none: each part fed has its own.
+    fn recorded(self, _taken: Option<Taken>) -> Self {
+        self
+    }
+}
+
+/// **Whether a part's record says the core did nothing a reader files**:
+/// the cursor's line unchanged, no line written off the forward path, no
+/// move, mark, folder report, clear or renumbering, every line feed moved,
+/// the parser where it was and every byte under UTF-8. Only such a part
+/// may share the tag of the part before it ([`paced`]): two parts that
+/// each moved a band by one are two moves, not one.
+fn quiet(rec: &baud_core::ReadRecord) -> bool {
+    use baud_core::{Cleared, Feeds, Fill, ReadEncoding, Screen};
+    let (began, ended) = rec.grounded();
+    rec.start() == rec.end()
+        && rec.off_path(Screen::Normal).is_none()
+        && rec.off_path(Screen::Alternate).is_none()
+        && rec.moves().iter().next().is_none()
+        && rec.moves().fill() == Fill::Room
+        && rec.marks().iter().next().is_none()
+        && rec.marks().fill() == Fill::Room
+        && rec.folders().iter().next().is_none()
+        && rec.folders().fill() == Fill::Room
+        && rec.cleared() == Cleared::No
+        && rec.renumbered().is_none()
+        && rec.feeds() == Feeds::Moved
+        && began == ended
+        && rec.encoding() == ReadEncoding::Utf8
 }
 
 /// No tag: nothing to cut.
@@ -211,11 +273,23 @@ impl<A: Part, B: Copy + PartialEq> Part for (A, B) {
     fn plan(&self) -> Option<crate::cut::Plan> {
         self.0.plan()
     }
-    fn before_cut(self, reach: crate::reach::Reach) -> (A, B) {
-        (self.0.before_cut(reach), self.1)
+    fn before_cut(self) -> (A, B) {
+        (self.0.before_cut(), self.1)
+    }
+    fn pre_cut(self, vouch: crate::vouch::Vouch<crate::vouch::CutAt>) -> (A, B) {
+        (self.0.pre_cut(vouch), self.1)
     }
     fn after_cut(self, spot: crate::cut::Spot) -> (A, B) {
         (self.0.after_cut(spot), self.1)
+    }
+    fn uncut(self) -> (A, B) {
+        (self.0.uncut(), self.1)
+    }
+    fn recorded(self, taken: Option<Taken>) -> (A, B) {
+        (self.0.recorded(taken), self.1)
+    }
+    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
+        self.0.matched(rec)
     }
 }
 
@@ -396,9 +470,11 @@ fn paced_one<T: Part>(
         return Fed::Nothing;
     }
     term.write_at(BytePos::ZERO, bytes);
-    // The tag of the part last fed: a stop that changes nothing of it, a
-    // reply hold's or a `?46` one's, pushes no tag of its own.
+    // The tag of the part last fed, without its record: a stop that
+    // changes nothing of it, a reply hold's or a `?46` one's, pushes no
+    // tag of its own unless the core did something in the part (`quiet`).
     let mut last = None;
+    let mut last_end = None;
     // The read's tag, the shell's from the cut on (`cut.rs`).
     let mut tag = tag;
     let mut next = Some(Rest {
@@ -408,13 +484,25 @@ fn paced_one<T: Part>(
     while let Some(r) = next {
         let end = r.at.index() + r.len.index();
         // **The cut, where this part begins at it**: at zsh's run if it may
-        // take it there, read from the terminal now, else at the `D`.
+        // take it there, read from the terminal now, else at the `D`; taken
+        // only where every part before it and the cut's own point vouch
+        // that the bytes before it wrote only forward (`vouch::CutAt`), the
+        // point by a record of nothing taken there, which says where the
+        // parser stands and under which encoding.
         if let Some(plan) = tag.plan() {
             let eol = plan
                 .eol()
                 .is_some_and(|e| e.at() == r.at && crate::cut::eol_holds(term, e));
             if eol || plan.d() == r.at {
-                tag = tag.after_cut(crate::cut::Spot::of(term));
+                let here = term.take_record();
+                let here = crate::vouch::CutAt::of(
+                    &here,
+                    crate::vouch::Matched::of(&here, &crate::ran::Timeline::default()),
+                );
+                tag = match plan.before().map_or(here, |b| b.and(here)) {
+                    crate::vouch::Vouch::Yes(_) => tag.after_cut(crate::cut::Spot::of(term)),
+                    crate::vouch::Vouch::No(_) => tag.uncut(),
+                };
             }
         }
         // The part stops where the cut may come inside it.
@@ -431,6 +519,7 @@ fn paced_one<T: Part>(
             .unwrap_or(end);
         let logging = term.log_mode();
         let pen = crate::paths::Pen::of(term);
+        let images = crate::vouch::ImagesAt::of(term);
         term.feed(r.at, ReadLen::from_index(stop - r.at.index()));
         owed(term, sink);
         let held = term.take_held();
@@ -450,24 +539,48 @@ fn paced_one<T: Part>(
             (None, false) => None,
         };
         let pens = crate::paths::Pens::of(pen, crate::paths::Pen::of(term));
-        // A part before the cut reaches what its own bytes reach, which
-        // only write forward (`cut::Forward`).
+        // A part before the cut is pushed with no plan; the line it ended
+        // on is judged by its own record (`vouch::Below`).
         let piece = match tag.plan() {
-            Some(_) => {
-                tag.before_cut(crate::reach::Reads::default().read(&bytes[r.at.index()..fed_to]))
-            }
+            Some(_) => tag.before_cut(),
             None => tag,
         };
-        let fed = piece.part(r.at, BytePos::from_index(fed_to)).under(pens);
-        if last != Some(fed) {
-            took.push(fed);
-            last = Some(fed);
-        }
+        let fed = piece
+            .part(r.at, BytePos::from_index(fed_to))
+            .under(pens)
+            .recorded(None);
         if logging == baud_core::LogMode::Started {
             log.take(&bytes[r.at.index()..fed_to]);
         }
         log.follow(term);
         after(term);
+        // The part's record, taken after `after`, so a resize the embedder
+        // made for the part -- a page-width request's -- is its, and the
+        // window's top with it: once per part, never per byte.
+        let rec = term.take_record();
+        let top = term.history_mark().line();
+        let end_row = crate::vouch::EndRow::of(term);
+        let drew = crate::vouch::Drew::of(images, term);
+        // A part before the cut folds its verdict into the plan's.
+        if tag.plan().is_some() {
+            tag = tag.pre_cut(crate::vouch::CutAt::of(&rec, fed.matched(&rec)));
+        }
+        // A quiet part that left text on a row the part before left empty,
+        // took the cursor to the status line or placed an image is not
+        // quiet: the part before may have vouched its row clean.
+        let filled = (last_end == Some(crate::vouch::EndRow::Empty)
+            && end_row != crate::vouch::EndRow::Empty)
+            || drew == crate::vouch::Drew::Image;
+        if last != Some(fed) || !quiet(&rec) || filled {
+            took.push(fed.recorded(Some(Taken {
+                record: rec,
+                top,
+                end_row,
+                drew,
+            })));
+            last = Some(fed);
+            last_end = Some(end_row);
+        }
         if let Some(w) = term.take_regis_wait() {
             pace.until = Some(now + Duration::from_micros(w.micros()));
             pace.why = Why::Delay;
@@ -817,6 +930,100 @@ mod tests {
         assert_eq!(took, [((), 1), ((), 2)], "one tag a read");
     }
 
+    /// A tag that keeps only the record its part was fed with.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    struct Rec(Option<baud_core::ReadRecord>);
+
+    impl Part for Rec {
+        fn part(self, _: BytePos, _: BytePos) -> Rec {
+            self
+        }
+        fn rest(self, _: BytePos) -> Rec {
+            self
+        }
+        fn under(self, _: crate::paths::Pens) -> Rec {
+            self
+        }
+        fn recorded(self, taken: Option<Taken>) -> Rec {
+            Rec(taken.map(|t| t.record))
+        }
+    }
+
+    /// The lines of the primary a record begins and ends on, as numbers.
+    fn lines_of(rec: &baud_core::ReadRecord) -> (u64, u64) {
+        (rec.start().line.value(), rec.end().line.value())
+    }
+
+    /// **Each part fed carries the record of its own bytes**: a read the
+    /// core stops at a `?46` change after `a` and a line feed is two parts,
+    /// the first from line 0 to line 1 and the second, `b` and a line feed,
+    /// from 1 to 2. Named break: push the tag without its record -- none.
+    #[test]
+    fn each_part_fed_carries_the_record_of_its_own_bytes() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_logging(baud_core::Logging::On);
+        let took = feed_parts(
+            &mut t,
+            [(&b"a\r\n\x1b[?46hb\r\n"[..], Rec(None))],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let lines: Vec<_> = took.iter().map(|r| r.0.as_ref().map(lines_of)).collect();
+        assert_eq!(lines, [Some((0, 1)), Some((1, 2))], "a record a part");
+    }
+
+    /// **Two parts the core moved lines in are two tags, though their
+    /// records are alike**: a scroll inside a region, stopped at a `?46`
+    /// change, then the same again, leaves the cursor where it was each
+    /// time, so the two parts' tags and records are equal -- and filing one
+    /// would move the band once where the core moved it twice. Named
+    /// break: share a tag on equality alone, as before records -- one tag.
+    #[test]
+    fn two_parts_that_each_moved_lines_are_two_tags() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_logging(baud_core::Logging::On);
+        let setup = b"\x1b[2;5r\x1b[3H";
+        t.write_at(BytePos::ZERO, setup);
+        t.feed(BytePos::ZERO, ReadLen::from_index(setup.len()));
+        let _ = t.take_record();
+        let took = feed_parts(
+            &mut t,
+            [(&b"\x1b[S\x1b[?46h\x1b[S\x1b[?46l"[..], Rec(None))],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        let recs: Vec<_> = took.iter().filter_map(|r| r.0).collect();
+        assert_eq!(recs.len(), 2, "a tag for each scroll: {took:?}");
+        assert_eq!(recs[0], recs[1], "the two records are alike");
+        assert!(
+            recs[0].moves().iter().next().is_some(),
+            "and each holds its move: {:?}",
+            recs[0]
+        );
+    }
+
+    /// **A stop the core did nothing in shares the tag before it**: a
+    /// `?46` change with nothing after it but another is one tag with the
+    /// part before it, the control for the test above.
+    #[test]
+    fn a_quiet_stop_shares_the_tag_before_it() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_logging(baud_core::Logging::On);
+        let took = feed_parts(
+            &mut t,
+            [(&b"x\x1b[?46h\x1b[?46l"[..], Rec(None))],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(took.len(), 1, "one tag: {took:?}");
+    }
+
     /// **What the core already owed goes ahead of a read's answers, and out
     /// of their way.** Answers left pending by an earlier writer -- 228 bytes
     /// of `DSR 5` here -- plus a read's two palette answers, 25 and 26 bytes,
@@ -882,6 +1089,39 @@ mod tests {
             row[131].content.as_codepoint().map(|c| c.value()),
             Some(u32::from(b'X'))
         );
+    }
+
+    /// **A resize the embedder makes for a part is that part's**: a read
+    /// ending in a page-width request, which `after` answers by resizing,
+    /// has nothing after it to carry the re-cut, so the part's own record
+    /// says the lines were renumbered -- else it waits for a read that may
+    /// not come. Named break: take the record before `after` -- none.
+    #[test]
+    fn a_resize_after_a_part_is_in_that_parts_record() {
+        use baud_core::{Renumbered, WidthHold};
+        let room = WinSize {
+            ws_row: 40,
+            ws_col: 132,
+        };
+        let mut s = Owned::new(&room);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_width_hold(WidthHold::On);
+        let took = feed_parts(
+            &mut t,
+            [(&b"one\r\ntwo\r\n\x1b[132$|"[..], Rec(None))],
+            |_| {},
+            |t| {
+                if t.geometry().0.index() != 132 {
+                    assert_eq!(t.resize(&room), baud_core::Resized::Ok);
+                }
+            },
+            &mut crate::hostlog::NoLog,
+        );
+        let said: Vec<_> = took
+            .iter()
+            .map(|r| r.0.and_then(|r| r.renumbered()))
+            .collect();
+        assert_eq!(said, [Some(Renumbered::Resize)], "{took:?}");
     }
 
     /// Row 0's text.

@@ -122,36 +122,19 @@ header of its own. An `https` link reaches whatever LaunchServices routes it
 to, universal-link applications included: an accepted risk rather than a
 closed one.
 
-**A `file://` link a remote program printed is not opened as a file on this
-computer.** baud notes which program wrote each row as the output is read. A
-`file://` link, given with `OSC 8` or printed as plain text, on rows a
-program on another machine wrote, or one baud could not name, is drawn
-without its line and refused on click: its look and its click are judged
-once, the same way, so a link never looks openable when a click would refuse
-it. A link a remote program opens with `OSC 8` and leaves open stays that
-program's, whatever is written under it afterwards.
-
-Known cases are still open in which text a remote program wrote, or one baud
-could not name, can be judged by a local writer and light. All of them are
-closed before baud is public, and the first five are held by tests:
-
-- A remote program writes on a row below its cursor and moves back up, and a
-  later local prompt lands on that row.
-- A full-screen program on the alternate screen, a pager say, scrolls, and
-  after it quits the rows of the main screen are looked up a few lines off.
-- A later local program moves text, by inserting or deleting lines, and the
-  text keeps the writer of the row it lands on.
-- A remote program's line feed on the bottom row, below a scrolling region
-  that ends higher, cannot move the cursor, and that row is left to the next
-  writer.
-- A resize re-wraps lines and moves text no writer was named for onto a row
-  a local program wrote.
-- A scrolling region that starts at the top sends its lines to the history,
-  and each row below the region is then judged by the writer of the row
-  beneath it.
-- A remote program shifts a column across the rows of a scrolling region
-  (`ESC 6` or `ESC 9` at a margin), moving text on rows that stay filed
-  under their local writer.
+**A `file://` link or a printed path a remote program wrote is not opened
+as a file on this computer.** baud notes which program wrote each row as the
+output is read, from the terminal core's own record of what each read wrote
+and where it moved text. A `file://` link, given with `OSC 8` or printed as
+plain text, or a printed path, on rows a program on another machine wrote,
+or one baud could not name, is drawn without its line and refused on click:
+its look and its click are judged once, the same way, so a link never looks
+openable when a click would refuse it. A link a remote program opens with
+`OSC 8` and leaves open stays that program's, whatever is written under it
+afterwards. Text moved between rows keeps the most cautious writer of the
+rows it came from, and rows whose text baud cannot follow -- re-wrapped by
+a resize, or renumbered in a way it does not count -- are taken as written
+by a program it could not name.
 
 **You can add to the schemes a click opens, or change what a click does, in
 your own config.

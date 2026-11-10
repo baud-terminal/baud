@@ -149,6 +149,7 @@ fn a_placement_holds_its_image_line_column_and_z() {
         .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
         .unwrap();
 
+    let before = store.last_serial();
     let pid = store.place(
         id,
         ImageScreen::Primary,
@@ -157,11 +158,53 @@ fn a_placement_holds_its_image_line_column_and_z() {
         ZIndex::of(-3),
     );
     assert!(!pid.is_none());
+    assert_ne!(
+        store.last_serial(),
+        before,
+        "a placement takes the next serial"
+    );
 
     let placed: Vec<PlacementSlot> = store.placements().map(|(_, p)| *p).collect();
     assert_eq!(placed.len(), 1);
     assert_eq!(placed[0].image, id);
     assert_eq!(placed[0].z, ZIndex::of(-3));
+}
+
+/// **The placement clock never goes back across a reset**: the serial
+/// read, then a reset, then one image placed, reads another serial -- so
+/// a part that resets and places as many images as before cannot read as
+/// one that placed none. Named break: a reset that zeroes the clock --
+/// the one placement after it takes the serial the first one took.
+#[test]
+fn a_reset_does_not_turn_the_placement_clock_back() {
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    let pid = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert!(!pid.is_none());
+    let before = store.last_serial();
+    store.reset();
+    assert_eq!(store.last_serial(), before, "a reset leaves it");
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    let pid = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert!(!pid.is_none());
+    assert_ne!(store.last_serial(), before, "one placement after the reset");
 }
 
 #[test]

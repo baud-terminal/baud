@@ -109,14 +109,14 @@ use std::time::Duration;
 
 use baud_core::Term;
 use baud_domain::Rows;
-use baud_render::{AbsLine, Scrolled};
+use baud_render::Scrolled;
 
 use crate::bell::Moment;
 use crate::fg::StartTime;
 use crate::lined::{Lines, Uris};
 use crate::paths::{
-    Candidate, Front, Handler, LineSpan, Links, Marks, Moved, Owed, Paths, PathsAt, Probe, Program,
-    ProgramDir, Turned,
+    Candidate, CoreLines, Front, Handler, LineOn, LineSpan, Links, Marks, Moved, Owed, PartLines,
+    Paths, PathsAt, Probe, Program, ProgramDir, Turned,
 };
 use crate::sys::Pid;
 
@@ -231,16 +231,10 @@ pub struct Sampler {
     /// ([`crate::ran::Commands`]), and what the last read was taken as.
     commands: crate::ran::Commands,
     marked: crate::ran::Ran,
-    /// The scan for what each read did to its cursor's line
-    /// ([`crate::reach::Reads`]), and the last read's, with whether it
-    /// carried a folder report.
-    reads: crate::reach::Reads,
-    reach: crate::reach::Reach,
-    folder: crate::ran::Folder,
-    reports: crate::ran::Reports,
-    /// Whether the stream stood at ground as each read began
-    /// ([`crate::cut::Stream`]), and where the last read is cut.
-    stream: crate::cut::Stream,
+    /// The marks the last read carried, where each ended
+    /// ([`crate::ran::Timeline`]).
+    marks: crate::ran::Timeline,
+    /// Where the last read is cut ([`crate::cut::Plan`]).
     cut: crate::cut::Cut,
     /// Whether the last read carried the shell's own `D`, which ends the
     /// command the group before was taken under once that read's writers
@@ -305,6 +299,83 @@ impl WatchCell {
     }
 }
 
+/// **Which surfaces' lines a part of a drain files** ([`part_spans`]): both;
+/// the primary's alone, where a later part's clear took the alternate
+/// screen's text; or both, where its own clear did, the alternate screen's
+/// from the clear on -- not the line it began on, numbered before it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Keeps {
+    Both,
+    Primary,
+    ClearedHere,
+}
+
+/// **The lines a part names on each surface, here** (N1): the hull of what
+/// its record says it wrote off its forward path there
+/// (`ReadRecord::off_path`) and the lines it began and ended on there,
+/// placed on the app's numbers by `lines`, and each band of lines its moves
+/// read and wrote there (C2), apart. The line it ended on is left out where
+/// its record vouches that line holds nothing it wrote
+/// ([`crate::vouch::Below`]): what a command's last line feed leaves to the
+/// next writer. None for a part with no record, or one the core says it
+/// renumbered -- its lines are on numbers no count says -- nor for a
+/// surface whose lines cannot be placed.
+fn part_spans(paths: &Paths, lines: &PartLines, w: &Writers, keeps: Keeps) -> Vec<LineSpan> {
+    use baud_core::Screen;
+    let Some(rec) = w.record.filter(|r| r.renumbered().is_none()) else {
+        return Vec::new();
+    };
+    let below = w
+        .end_row
+        .zip(w.drew)
+        .zip(w.matched)
+        .map(|((e, d), m)| crate::vouch::Below::of(&rec, e, d, m));
+    let mut out = Vec::new();
+    for screen in [Screen::Normal, Screen::Alternate] {
+        let alternate = screen == Screen::Alternate;
+        if alternate && keeps == Keeps::Primary {
+            continue;
+        }
+        let (start, end) = (rec.start(), rec.end());
+        let begun = (start.screen == screen && !(alternate && keeps == Keeps::ClearedHere))
+            .then_some(start.line);
+        let ended = (end.screen == screen).then_some(end.line);
+        let off = rec.off_path(screen);
+        let named = [begun, ended]
+            .into_iter()
+            .flatten()
+            .chain(off.into_iter().flat_map(|s| [s.first(), s.last()]));
+        let Some((first, mut last)) = named.fold(None, |h, l| match h {
+            None => Some((l, l)),
+            Some((a, b)) => Some((l.min(a), l.max(b))),
+        }) else {
+            continue;
+        };
+        let clean =
+            matches!(below, Some(crate::vouch::Vouch::Yes(b)) if b.line() == (screen, last));
+        if clean && ended == Some(last) && last > first {
+            last = last.minus(Rows::of_count(1)).unwrap_or(first);
+        }
+        if let (Some(a), Some(b)) = (lines.line(screen, first), lines.line(screen, last)) {
+            out.push(LineSpan::on(paths.surface(screen), a, b));
+        }
+        // The lines its moves read and wrote, each band apart (C2).
+        for m in rec.moves().iter() {
+            let (baud_core::Move::Exact { screen: s, .. }
+            | baud_core::Move::Within { screen: s, .. }) = m;
+            let band = m.band();
+            if let (true, Some(a), Some(b)) = (
+                s == screen,
+                lines.line(screen, band.first()),
+                lines.line(screen, band.last()),
+            ) {
+                out.push(LineSpan::on(paths.surface(screen), a, b));
+            }
+        }
+    }
+    out
+}
+
 /// **Who may have written a read**: the group in front at the sample before
 /// it, the group in front just after it, and whether the process watch
 /// named a program not on this machine in between. The read is local only
@@ -319,30 +390,65 @@ pub struct Writers {
     /// What the shell's marks say of the read ([`crate::ran::Ran`]): a
     /// command named not local, one named here, or the shell's own.
     pub marked: crate::ran::Ran,
-    /// What the read did to the line its cursor ended on
-    /// ([`crate::reach::Reach`]): whether that line is its.
-    pub reach: crate::reach::Reach,
-    /// Whether the read carried a folder report ([`crate::ran::Folder`]):
-    /// the last one's verdict, or, once the read is cut to the part of it
-    /// fed (`reads::Part`), the last that part fed.
+    /// Whether the part fed a folder report the core acted on
+    /// ([`crate::ran::Folder`]), judged once its record is taken by what
+    /// was open as the last of them came: none before.
     pub folder: crate::ran::Folder,
-    /// Each folder report the read ended, with where
-    /// ([`crate::ran::Reports`]).
-    pub reports: crate::ran::Reports,
+    /// The shell's marks the read carried, where each ended
+    /// ([`crate::ran::Timeline`]), cut to the part fed (`reads::Part`).
+    pub marks: crate::ran::Timeline,
+    /// Whether the part's marks are the core's (`vouch::Matched`), read
+    /// with its record, and then whether the window's are
+    /// (`vouch::Latch`, [`Probes::drain_taken`]): none before.
+    pub matched: Option<crate::vouch::Vouch<crate::vouch::Matched>>,
     /// The links the pen held as the part of it was fed
     /// ([`crate::paths::Pens`]).
     pub pens: crate::paths::Pens,
     /// Where the read is cut at the shell's `D`, or, for a part after it,
     /// where it was ([`crate::cut::Cut`]).
     pub cut: crate::cut::Cut,
+    /// What the core did as it ran the part fed, from `Term::take_record`:
+    /// none on a read before it is fed, or on a part held.
+    pub record: Option<baud_core::ReadRecord>,
+    /// The primary's window-top line as the part fed ended, read with its
+    /// record (`reads::Taken`): what its primary lines are placed against.
+    pub top: Option<baud_domain::LineIdx>,
+    /// Whether the cursor's row held cells as the part fed ended, read with
+    /// its record: what the line it ended on is judged by
+    /// (`vouch::Below`).
+    pub end_row: Option<crate::vouch::EndRow>,
+    /// Whether the part fed placed an image, read with its record.
+    pub drew: Option<crate::vouch::Drew>,
 }
 
-/// **A read's writers, cut to a part of its bytes**: the folder verdict the
-/// part fed, and the reports of a part held.
+/// **The folder verdict of a part** (`ran::Folder`): none if the core
+/// acted on no folder report in it; the last one's, judged by what the
+/// shell's marks left open as it came, where the marks are the core's
+/// (`vouch::Matched`) and the part ran under UTF-8 with no report past
+/// what the record keeps; refused otherwise, as a report sent while a
+/// command named not local ran is.
+fn folder_of(rec: &baud_core::ReadRecord, marks: &crate::ran::Timeline) -> crate::ran::Folder {
+    use crate::ran::{Folder, Left};
+    let Some(last) = rec.folders().iter().last() else {
+        return Folder::Unreported;
+    };
+    let vouched = rec.folders().fill() == baud_core::Fill::Room
+        && matches!(
+            crate::vouch::Matched::of(rec, marks),
+            crate::vouch::Vouch::Yes(_)
+        );
+    match (vouched, marks.open_at(last.at)) {
+        (true, Left::Closed | Left::Here) => Folder::Reported,
+        (true, Left::Remote) | (false, _) => Folder::FromRemote,
+    }
+}
+
+/// **A read's writers, cut to a part of its bytes**: the marks the part
+/// fed, and those of a part held.
 impl crate::reads::Part for Writers {
     fn part(self, from: baud_core::BytePos, to: baud_core::BytePos) -> Writers {
         Writers {
-            folder: self.reports.part(from, to),
+            marks: self.marks.part(from, to),
             ..self
         }
     }
@@ -354,7 +460,7 @@ impl crate::reads::Part for Writers {
             c => c,
         };
         Writers {
-            reports: self.reports.rest(from),
+            marks: self.marks.rest(from),
             cut,
             ..self
         }
@@ -362,15 +468,45 @@ impl crate::reads::Part for Writers {
     fn under(self, pens: crate::paths::Pens) -> Writers {
         Writers { pens, ..self }
     }
+    fn recorded(self, taken: Option<crate::reads::Taken>) -> Writers {
+        Writers {
+            folder: taken.map_or(crate::ran::Folder::Unreported, |t| {
+                folder_of(&t.record, &self.marks)
+            }),
+            matched: taken.map(|t| crate::vouch::Matched::of(&t.record, &self.marks)),
+            record: taken.map(|t| t.record),
+            top: taken.map(|t| t.top),
+            end_row: taken.map(|t| t.end_row),
+            drew: taken.map(|t| t.drew),
+            ..self
+        }
+    }
+    fn matched(&self, rec: &baud_core::ReadRecord) -> crate::vouch::Vouch<crate::vouch::Matched> {
+        crate::vouch::Matched::of(rec, &self.marks)
+    }
     fn plan(&self) -> Option<crate::cut::Plan> {
         match self.cut {
             crate::cut::Cut::Plan(p) => Some(p),
             crate::cut::Cut::None | crate::cut::Cut::After(_) => None,
         }
     }
-    fn before_cut(self, reach: crate::reach::Reach) -> Writers {
+    fn before_cut(self) -> Writers {
         Writers {
-            reach,
+            cut: crate::cut::Cut::None,
+            ..self
+        }
+    }
+    fn pre_cut(self, vouch: crate::vouch::Vouch<crate::vouch::CutAt>) -> Writers {
+        match self.cut {
+            crate::cut::Cut::Plan(p) => Writers {
+                cut: crate::cut::Cut::Plan(p.vouched(vouch)),
+                ..self
+            },
+            crate::cut::Cut::None | crate::cut::Cut::After(_) => self,
+        }
+    }
+    fn uncut(self) -> Writers {
+        Writers {
             cut: crate::cut::Cut::None,
             ..self
         }
@@ -408,11 +544,15 @@ impl Writers {
             at: group,
             watched: Watched::Nothing,
             marked: crate::ran::Ran::Unmarked,
-            reach: crate::reach::Reach::Anywhere,
             folder: crate::ran::Folder::Unreported,
-            reports: crate::ran::Reports::default(),
+            marks: crate::ran::Timeline::default(),
+            matched: None,
             pens: crate::paths::Pens::default(),
             cut: crate::cut::Cut::None,
+            record: None,
+            top: None,
+            end_row: None,
+            drew: None,
         }
     }
 }
@@ -455,11 +595,15 @@ impl Sampler {
             at,
             watched: watched.or(self.previous_watched),
             marked: self.marked,
-            reach: self.reach,
-            folder: self.folder,
-            reports: self.reports,
+            folder: crate::ran::Folder::Unreported,
+            marks: self.marks,
+            matched: None,
             pens: crate::paths::Pens::default(),
             cut: self.cut,
+            record: None,
+            top: None,
+            end_row: None,
+            drew: None,
         };
         self.forget_at_d();
         if at.is_some() {
@@ -480,9 +624,7 @@ impl Sampler {
         let w = Writers {
             before: self.previous,
             marked: self.marked,
-            reach: self.reach,
-            folder: self.folder,
-            reports: self.reports,
+            marks: self.marks,
             cut: self.cut,
             ..Writers::default()
         };
@@ -518,29 +660,16 @@ impl Sampler {
     /// ended on.
     pub fn read(&mut self, now: std::time::Instant, bytes: &[u8]) -> Asks {
         self.marked = self.commands.read(bytes);
-        let was = self.reads.encoding();
-        self.reach = self.reads.read(bytes);
-        // Under `ESC % @` an `OSC` can begin with 0x9D, which the marks
-        // scan does not read: a read any byte of which was scanned so and
-        // which holds one may report where no scan placed it, so every part
-        // of it that feeds a byte is refused.
-        let latin = self.reads.latin1_seen() == crate::reach::Latin1Seen::Yes;
-        self.reports = match latin && bytes.contains(&0x9d) {
-            true => crate::ran::Reports::unvouched(),
-            false => self.commands.reports(),
-        };
-        self.folder = self.reports.last();
-        // Where the read is cut at the shell's `D`: only from ground, and
-        // under UTF-8 as the read began.
-        let grounded = match was {
-            crate::reach::Encoding::Utf8 => self.stream.grounded(),
-            crate::reach::Encoding::Latin1 => crate::cut::Grounded::No,
-        };
-        self.stream.read(bytes);
+        // Where each mark ended: a part's are checked against the core's
+        // record of it, and a folder report it fed is judged by what was
+        // open as it came (`Writers::recorded`).
+        self.marks = self.commands.marks();
+        // Where the read is cut at the shell's `D`: taken as it is fed,
+        // where the core's records vouch for it (`reads::paced`).
         self.cut = self
             .commands
             .cut()
-            .and_then(|(d, after)| crate::cut::Plan::of(bytes, d, after, grounded))
+            .and_then(|(d, after)| crate::cut::Plan::of(bytes, d, after))
             .map_or(crate::cut::Cut::None, crate::cut::Cut::Plan);
         // The shell's own `D` ends the command the group sampled before was
         // taken under: what the reads after it wrote is not that program's,
@@ -570,9 +699,14 @@ impl Sampler {
         for (slot, &b) in self.tail[CARRY - kept..].iter_mut().zip(&seam[n - kept..n]) {
             *slot = Some(b);
         }
+        // A read with no group to be taken under -- the shell's `D` forgot
+        // the one sampled before, and the pace has not asked since -- asks
+        // all the same: one sample, where none would leave its lines named
+        // by nothing and filed not known (W3).
         match (self.due(now), linked) {
             (true, l) => Asks::Yes(l),
             (false, Linked::Yes) => Asks::Yes(Linked::Yes),
+            (false, Linked::No) if self.previous.is_none() => Asks::Yes(Linked::No),
             (false, Linked::No) => Asks::No,
         }
     }
@@ -1011,7 +1145,7 @@ pub struct Ask {
     pub group: Option<Pid>,
     /// The cursor's line when it was sent: rows to it were written under the
     /// program the worker names.
-    pub cursor: AbsLine,
+    pub cursor: LineOn,
     pub paths: Vec<Candidate>,
     /// Each group seen at a read since the last batch, with the lines it
     /// wrote, and the lines written past [`GROUPS`] of them.
@@ -1027,13 +1161,18 @@ pub struct Answer {
     pub id: Id,
     pub kind: Kind,
     pub group: Option<Pid>,
-    pub cursor: AbsLine,
+    pub cursor: LineOn,
     /// What is in front now; none for a batch left for a newer one before
     /// it was taken, which names nothing.
     pub front: Option<Front>,
-    /// What each group seen since the last batch was, with the lines it
-    /// wrote: named, or gone before it could be named.
-    pub seen: Vec<(crate::paths::Seen, LineSpan)>,
+    /// What each group seen since the last batch was: named, or gone
+    /// before it could be named; none for the lines past the groups kept.
+    ///
+    /// No lines: the worker's are the lines as they were read, and main
+    /// files each verdict on its own copy, carried with the text since
+    /// (`Probes::file_answered`), so a verdict has no lines as read to be
+    /// filed on.
+    pub seen: Vec<(Option<Pid>, crate::paths::Seen)>,
     pub probes: Vec<(Vec<u8>, Probe)>,
     /// For [`Kind::Programs`]: what each was found to be; none for a batch
     /// left for a newer one.
@@ -1305,7 +1444,7 @@ fn answer(
     // and so are the lines written past the groups kept: their rows fail
     // closed and touch no other row (`Paths::written_under`). The group in
     // front with no name is not known to be local, as `front_of` says.
-    let mut seen: Vec<(crate::paths::Seen, LineSpan)> = ask
+    let mut seen: Vec<(Option<Pid>, crate::paths::Seen, LineSpan)> = ask
         .seen
         .iter()
         .map(|&(g, l)| {
@@ -1314,10 +1453,10 @@ fn answer(
                 true => crate::paths::Seen::NotNamed,
                 false => crate::paths::Seen::Named(front_of(&n)),
             };
-            (wrote, l)
+            (Some(g), wrote, l)
         })
         .collect();
-    seen.extend(ask.unnamed.map(|l| (crate::paths::Seen::NotNamed, l)));
+    seen.extend(ask.unnamed.map(|l| (None, crate::paths::Seen::NotNamed, l)));
     let front = match ask.group {
         Some(g) => front_of(&names_of_group(g, &mut calls)),
         None => Front::Elsewhere,
@@ -1349,7 +1488,7 @@ fn answer(
     };
     // Whether this batch saw a writer `w` takes write the row `line`.
     let wrote_on = |line, w: &dyn Fn(crate::paths::Seen) -> bool| {
-        seen.iter().any(|&(x, s)| w(x) && s.holds(line))
+        seen.iter().any(|&(_, x, s)| w(x) && s.holds(line))
     };
     let not_local = |x: crate::paths::Seen| {
         matches!(
@@ -1389,7 +1528,7 @@ fn answer(
         group: ask.group,
         cursor: ask.cursor,
         front: Some(front),
-        seen,
+        seen: seen.into_iter().map(|(g, f, _)| (g, f)).collect(),
         probes,
         programs: None,
         folder,
@@ -1551,6 +1690,118 @@ pub struct Seen<'a, 't> {
     pub paths: &'a mut Paths,
 }
 
+impl Seen<'_, '_> {
+    /// The cursor's line, on the surface up.
+    fn cursor_on(&self) -> LineOn {
+        let line = self.scrolled.line(Rows::ZERO, self.term.cursor().0);
+        self.paths.line_on(self.term.screen(), line)
+    }
+}
+
+/// **The group whose verdict each line's facts came from** (G1): what
+/// tells a write over a line another group lit from a group's rewrite of
+/// its own. Set where a verdict is filed -- a batch's answer on its lines,
+/// a hold released, the shell's own read filed at once -- the source a
+/// line had before giving way to the new one; carried with the text
+/// through every part's moves, as the lines still to be named are; and
+/// dropped above the window, where no write reaches. Spans of one source
+/// that touch are one. `Paths`'s facts keep no group, and a fact carried
+/// keeps none of where it came from, so the group lives here.
+#[derive(Debug, Default)]
+struct Lit {
+    spans: Vec<(Option<Pid>, LineSpan)>,
+}
+
+impl Lit {
+    /// **`span` lit by `by`'s verdict**: whatever lit its lines before
+    /// gives way there, and keeps the rest of its span.
+    fn set(&mut self, by: Option<Pid>, span: LineSpan) {
+        let mut i = 0;
+        while let Some(&(g, s)) = self.spans.get(i) {
+            if s.meet(span).is_none() {
+                i += 1;
+                continue;
+            }
+            self.spans.swap_remove(i);
+            self.spans.extend(s.outside(span).map(|rest| (g, rest)));
+        }
+        self.spans.push((by, span));
+        self.merge();
+    }
+
+    /// Spans of one source that touch, joined.
+    fn merge(&mut self) {
+        let mut i = 0;
+        while i < self.spans.len() {
+            let (g, s) = self.spans[i];
+            let next = (i + 1..self.spans.len())
+                .find(|&j| self.spans[j].0 == g && self.spans[j].1.touches(s));
+            match next {
+                Some(j) => {
+                    let (_, t) = self.spans.swap_remove(j);
+                    self.spans[i].1 = s.joined(t);
+                }
+                None => i += 1,
+            }
+        }
+    }
+
+    /// Every span carried where `carry` says its text went.
+    fn carry(&mut self, carry: impl Fn(LineSpan) -> LineSpan) {
+        for e in &mut self.spans {
+            e.1 = carry(e.1);
+        }
+        self.merge();
+    }
+
+    /// **Only what a write can reach**: the lines on `surfaces`, and on
+    /// the first of them none above `top`, the window's first line.
+    fn keep_from(
+        &mut self,
+        surfaces: [crate::paths::Surface; 2],
+        top: Option<baud_render::AbsLine>,
+    ) {
+        self.spans.retain_mut(|(_, s)| {
+            if !surfaces.contains(&s.surface()) {
+                return false;
+            }
+            match top {
+                Some(top) => match s.below_or_at(surfaces[0], top) {
+                    Some(kept) => {
+                        *s = kept;
+                        true
+                    }
+                    None => false,
+                },
+                None => true,
+            }
+        });
+    }
+
+    /// The lines of `w` another source than `g` lit.
+    fn others(&self, g: Option<Pid>, w: LineSpan) -> impl Iterator<Item = LineSpan> + '_ {
+        self.spans
+            .iter()
+            .filter(move |e| e.0 != g)
+            .filter_map(move |e| e.1.meet(w))
+    }
+
+    fn clear(&mut self) {
+        self.spans.clear();
+    }
+}
+
+/// **The groups to hold a moved line under** (F3): those of the spans
+/// still to be named that covered its source, or, where none is found --
+/// `Paths`'s copy and the driver's no longer agreeing -- the lines past
+/// the groups kept's, which the next batch's answer files not known.
+fn holders(found: Vec<Option<Pid>>) -> Vec<Option<Pid>> {
+    match found.is_empty() {
+        true => vec![None],
+        false => found,
+    }
+}
+
 /// How a driver starts the worker.
 pub type Start = Box<dyn FnMut() -> std::io::Result<Worker>>;
 
@@ -1586,6 +1837,32 @@ pub struct Probes<T> {
     /// wrote, and the lines written past [`GROUPS`] of them.
     seen: Vec<(Pid, LineSpan)>,
     unnamed: Option<LineSpan>,
+    /// **The lines of each group a batch sent is to name**, by the batch,
+    /// the group (none for the lines past the groups kept) and the lines,
+    /// carried with the text through every part's moves until the answer
+    /// files on them (B10): the worker's copy is the lines as they were
+    /// read.
+    inflight: Vec<(Id, Option<Pid>, LineSpan)>,
+    /// **The lines still to be named that a local answer for another
+    /// writer was filed over**, by the group still to name them (none for
+    /// the lines past the groups kept): a span carried imprecisely -- a
+    /// hull, a band -- may cover another writer's text, which has no fact
+    /// of its own until named, so those lines read as not known
+    /// (`Paths::set_pending`) until the answer naming their own group is
+    /// filed on them as well (`Probes::file_answered`).
+    held: Vec<(Option<Pid>, LineSpan)>,
+    /// The group whose verdict each line's facts came from (G1): a group
+    /// still to be named writing over lines another lit holds them.
+    lit: Lit,
+    /// **The lines reads not kept wrote while paths were off**, carried
+    /// with their text (W3, F1): no group was asked for them, so their
+    /// facts are still those of the text before, and the turn that finds
+    /// paths on again files them not known (`Probes::floor_off`). A link's
+    /// read kept meanwhile takes its lines out, its own answer filed there.
+    off: Vec<LineSpan>,
+    /// The shell's group, as sampled at its own last read: what the lines
+    /// its read filed at once were lit by ([`Paths::written_by_shell`]).
+    shell_group: Option<Pid>,
     /// What to find a program for, the driver's list from the config, and
     /// whether it is owed an ask.
     programs: Vec<Program>,
@@ -1594,6 +1871,10 @@ pub struct Probes<T> {
     /// the compare that decides its frame allocates nothing once grown.
     before: Before,
     pub counts: Counts,
+    /// Whether the window's marks, as the reader's scan reads them, are the
+    /// core's (`vouch::Latch`): stepped part by part as each drain is
+    /// filed.
+    latch: crate::vouch::Latch,
 }
 
 /// **The runs the rows drew before a batch's scan read them again**: the
@@ -1641,10 +1922,16 @@ impl<T: Moment> Probes<T> {
             dir_dropped: Owed::No,
             seen: Vec::new(),
             unnamed: None,
+            inflight: Vec::new(),
+            held: Vec::new(),
+            lit: Lit::default(),
+            off: Vec::new(),
+            shell_group: None,
             programs: Vec::new(),
             programs_owed: Owed::No,
             before: Before::default(),
             counts: Counts::default(),
+            latch: crate::vouch::Latch::Synced,
         }
     }
 
@@ -1681,37 +1968,108 @@ impl<T: Moment> Probes<T> {
         self.started
     }
 
-    /// **A drain of reads was taken as one span**, the cursor on `began`
-    /// before the first and on `ended` after the last, as macOS feeds a
-    /// drain: the span leaves the cursor's line out only when no read could
-    /// have written on it ([`crate::reach::Reach::then`]), and every read
-    /// is filed under the most cautious verdict of the drain's
-    /// ([`crate::ran::Ran::or`]), so no read's verdict lowers rows another
-    /// read in the span wrote: a local command's read lifts nothing a read
-    /// naming nothing wrote, and the shell's own read drops no sample or
-    /// watch's verdict of a command's. Each read's groups are kept as
-    /// [`Probes::read_taken`] keeps them.
+    /// **A drain of reads was taken**, the cursor on `began` before the first
+    /// and on `ended` after the last, as macOS feeds a drain: each part is
+    /// filed over the lines the core's record of it names on each surface
+    /// ([`part_spans`]) -- what it wrote off its forward path and where it
+    /// began and ended there -- each leaving the line it ended on out where
+    /// its record vouches that line holds nothing it wrote
+    /// ([`crate::vouch::Below`]), and every read under the most
+    /// cautious verdict of the drain's ([`crate::ran::Ran::or`]), so no
+    /// read's verdict lowers rows another read in it wrote: a local
+    /// command's read lifts nothing a read naming nothing wrote, and the
+    /// shell's own read drops no sample or watch's verdict of a command's.
+    /// Each read's groups are kept as [`Probes::read_taken`] keeps them. A
+    /// read that left one surface for the other files the lines it wrote
+    /// on each, a remote one left on the alternate screen as it went
+    /// included. `lines` places the core's line numbers on the app's
+    /// (`keep::Counts`); a part the core says it renumbered, or recorded
+    /// nothing of, files nothing. Before any of it, lines renumbered in a
+    /// way no count says are left not known -- each part's renumbering up
+    /// to the window's last the numbers reached by its end
+    /// (`Paths::part_renumbered`), a take-back past the count's first line
+    /// up to the batch's (`Paths::taken_back_past_start`) -- and the text
+    /// each part moved is carried to the lines it went to
+    /// (`Paths::carried`), part by part.
     ///
     /// **A drain a read was cut in at the shell's `D` is three spans**
-    /// (`cut.rs`): the parts before the cut, from `began` to the cut's line,
-    /// that line only if they could have written on it; the parts from the
-    /// cut on over the cut's line alone, under the most cautious verdict of
-    /// their own; and the lines below it to `ended`, which the shell's bytes
-    /// moved over, under every part's verdict as it would have been uncut --
-    /// a remote program can leave text below its cursor that no span filed,
-    /// and the shell's lines feeds pass over it without writing it. So a
-    /// prompt of two lines keeps its second line dark, failing closed. A
-    /// cut whose line `term` cannot number -- the surface switched, the grid
-    /// resized, lines taken back since, or the bytes after it ending above
-    /// it -- is no cut: the drain is filed as it would have been without it.
+    /// (`cut.rs`): the parts before the cut, over their own lines; the
+    /// parts from the cut on over the cut's line alone, under the most
+    /// cautious verdict of their own; and every other line those parts
+    /// named, which the shell's bytes moved over, under every part's
+    /// verdict as it would have been uncut -- a remote program can leave
+    /// text below its cursor that no span filed, and the shell's line feeds
+    /// pass over it without writing it. So a prompt of two lines keeps its
+    /// second line dark, failing closed. A cut whose line `term` cannot
+    /// number -- the surface switched, the grid resized, lines taken back
+    /// since, or the bytes after it ending above it -- is no cut: the drain
+    /// is filed as it would have been without it.
+    ///
+    /// **A clear of the alternate screen goes first**: where a part's record
+    /// says the core cleared it, its facts go (`Paths::alternate_cleared`),
+    /// and only the lines the parts from the last clear on name on it are
+    /// filed -- the text the parts before it wrote there is gone.
     pub fn drain_taken(
         &mut self,
         paths: &mut Paths,
         term: &Term<'_>,
-        began: AbsLine,
-        ended: AbsLine,
-        reads: impl Iterator<Item = (Writers, Linked)> + Clone,
+        (began, ended): (LineOn, LineOn),
+        lines: CoreLines,
+        reads: impl Iterator<Item = (Writers, Linked)>,
     ) {
+        // Every change to the lines still to be named was handed on.
+        #[cfg(test)]
+        assert!(
+            paths.pending_is(self.pending(), self.held.iter().map(|e| e.1)),
+            "pending not published"
+        );
+        self.floor_off(paths);
+        // Each part's marks against the core's, and the window's latch
+        // stepped over them in order: a part whose marks are not trusted
+        // is filed as the shell's marks had said nothing of it.
+        let stepped: Vec<(Writers, Linked)> =
+            reads.map(|(w, linked)| (self.latched(w), linked)).collect();
+        let reads = stepped.iter().copied();
+        let clears = reads
+            .clone()
+            .filter(|(w, _)| {
+                w.record
+                    .is_some_and(|r| r.cleared() == baud_core::Cleared::Alternate)
+            })
+            .count();
+        for _ in 0..clears {
+            paths.alternate_cleared();
+        }
+        // Lines renumbered in a way no count says (N2, P1): the window
+        // taken back past the session's first line, up to the window's last
+        // the batch's numbers reached; and each part the core says
+        // renumbered them -- a page-width request's re-cut, or a core that
+        // recorded nothing -- up to the window's last the numbers reached
+        // by the end of that part, not the lines the parts after it wrote.
+        let tops = |n| reads.clone().take(n).filter_map(|(w, _)| w.top);
+        if lines.numbers() == crate::paths::Numbers::Clamped {
+            if let (Some(last), _) = lines.lasts(tops(reads.clone().count())) {
+                paths.taken_back_past_start(last);
+            }
+        }
+        for (k, (w, _)) in reads.clone().enumerate() {
+            let Some(why) = w.record.and_then(|r| r.renumbered()) else {
+                continue;
+            };
+            if let (Some(primary), alternate) = lines.lasts(tops(k + 1)) {
+                paths.part_renumbered(why, (primary, alternate));
+            }
+        }
+        // The parts before the last clear name lines of a text it took.
+        let last_clear = reads
+            .clone()
+            .enumerate()
+            .filter(|(_, (w, _))| {
+                w.record
+                    .is_some_and(|r| r.cleared() == baud_core::Cleared::Alternate)
+            })
+            .map(|(k, _)| k)
+            .next_back();
         let cut = reads
             .clone()
             .enumerate()
@@ -1719,10 +2077,12 @@ impl<T: Moment> Probes<T> {
                 crate::cut::Cut::After(m) => Some((k, m)),
                 crate::cut::Cut::None | crate::cut::Cut::Plan(_) => None,
             });
-        let line = cut.and_then(|(_, m)| {
+        let one_surface =
+            began.surface == ended.surface && paths.surface(term.screen()) == ended.surface;
+        let line = cut.filter(|_| one_surface).and_then(|(_, m)| {
             m.spot
-                .line(term, ended)
-                .filter(|l| began <= *l && *l <= ended)
+                .line(term, ended.line)
+                .filter(|l| began.line <= *l && *l <= ended.line)
         });
         // Each part after the cut as it would have been filed without it.
         let uncut = reads.clone().map(|(w, linked)| match w.cut {
@@ -1737,49 +2097,348 @@ impl<T: Moment> Probes<T> {
             ),
             crate::cut::Cut::None | crate::cut::Cut::Plan(_) => (w, linked),
         });
-        // What a run of parts reached, drained one after another.
-        let reach = |parts: &mut dyn Iterator<Item = (Writers, Linked)>| {
-            let first = parts.next()?.0.reach;
-            Some(parts.fold(first, |r, (w, _)| r.then(w.reach)))
+        // What each part keeps of what its record names: the parts before
+        // the last clear name lines of a text it took.
+        let keep = |k| match last_clear {
+            Some(c) if k < c => Keeps::Primary,
+            Some(c) if k == c => Keeps::ClearedHere,
+            _ => Keeps::Both,
+        };
+        // The text each part moved, carried to where it went, part by part
+        // from the facts as the parts before left them (`Paths::carried`).
+        for (k, (w, _)) in reads.clone().enumerate() {
+            let Some(rec) = w.record.filter(|r| r.renumbered().is_none()) else {
+                continue;
+            };
+            let screens = match keep(k) {
+                Keeps::Primary => &[baud_core::Screen::Normal][..],
+                Keeps::Both | Keeps::ClearedHere => {
+                    &[baud_core::Screen::Normal, baud_core::Screen::Alternate][..]
+                }
+            };
+            let at = lines.part(w.top);
+            let moved = paths.carried(&rec, &at, screens);
+            // Each line moved text a span still to be named covered may
+            // have gone to is held under that span's group: its text has
+            // no fact until named, and what was filed over the line was
+            // another text's. Found on the spans as they were, held after
+            // they are carried, where the line already is.
+            let mut held = Vec::new();
+            for (line, by) in moved {
+                let found: Vec<_> = self.groups_of(by).collect();
+                debug_assert!(!found.is_empty(), "a covering span with no group");
+                held.extend(holders(found).into_iter().map(|g| (g, line)));
+            }
+            self.carry_pending(paths, &rec, &at, screens);
+            for h in held {
+                if !self.held.contains(&h) {
+                    self.held.push(h);
+                }
+            }
+            self.publish(paths);
+        }
+        // What lit each line, kept to the lines a write can reach once this
+        // drain's parts have read it (G1): a line one wrote over and then
+        // scrolled into history is held first.
+        let top = reads
+            .clone()
+            .filter_map(|(w, _)| w.top)
+            .next_back()
+            .and_then(|top| lines.part(Some(top)).line(baud_core::Screen::Normal, top));
+        let surfaces =
+            [baud_core::Screen::Normal, baud_core::Screen::Alternate].map(|sc| paths.surface(sc));
+        let kept: Vec<_> = reads
+            .clone()
+            .enumerate()
+            .map(|(k, (w, linked))| (keep(k), w, linked))
+            .collect();
+        // Each part of a run with the lines its record names.
+        let spanned = |paths: &Paths, run: &[(Keeps, Writers, Linked)]| {
+            let mut out = Vec::new();
+            for &(keeps, w, linked) in run {
+                let at = lines.part(w.top);
+                for span in part_spans(paths, &at, &w, keeps) {
+                    out.push((w, linked, span));
+                }
+            }
+            out
         };
         match (cut, line) {
             (Some((k, _)), Some(line)) => {
-                if let Some(r) = reach(&mut reads.clone().take(k)) {
-                    self.drain_span(paths, LineSpan::read(began, line, r), reads.clone().take(k));
-                }
-                let Some(r) = reach(&mut reads.clone().skip(k)) else {
-                    return;
-                };
-                let after = LineSpan::read(line, ended, r);
-                self.drain_span(paths, LineSpan::of(line, line), reads.skip(k));
-                if after.last() > line {
-                    self.drain_span(paths, LineSpan::of(line.below(), after.last()), uncut);
+                let before = spanned(paths, &kept[..k]);
+                self.drain_parts(paths, &before);
+                let at_cut = LineSpan::on(ended.surface, line, line);
+                let after: Vec<_> = reads
+                    .clone()
+                    .skip(k)
+                    .map(|(w, linked)| (w, linked, at_cut))
+                    .collect();
+                self.drain_parts(paths, &after);
+                // Every other line the parts from the cut on named, under
+                // every part's verdict uncut.
+                let named = spanned(paths, &kept[k..]);
+                let rest = named
+                    .iter()
+                    .map(|&(_, _, s)| s)
+                    .reduce(LineSpan::joined)
+                    .into_iter()
+                    .flat_map(|s| s.without(line));
+                for span in rest {
+                    let all: Vec<_> = uncut.clone().map(|(w, linked)| (w, linked, span)).collect();
+                    self.drain_parts(paths, &all);
                 }
             }
             _ => {
-                if let Some(r) = reach(&mut uncut.clone()) {
-                    self.drain_span(paths, LineSpan::read(began, ended, r), uncut);
-                }
+                let uncut: Vec<_> = uncut
+                    .enumerate()
+                    .map(|(k, (w, linked))| (keep(k), w, linked))
+                    .collect();
+                let all = spanned(paths, &uncut);
+                self.drain_parts(paths, &all);
             }
+        }
+        self.lit.keep_from(surfaces, top);
+    }
+
+    /// **A part's writers, the window's latch stepped over it**
+    /// (`vouch::Latch`): as they are where its marks are trusted; else as
+    /// they would have been with the read uncut, at least a command naming
+    /// nothing's verdict, its folder report refused and its marks unmatched,
+    /// so no line of it is vouched clean.
+    fn latched(&mut self, w: Writers) -> Writers {
+        use crate::vouch::Vouch;
+        let (latch, trusted) = match w.record {
+            Some(rec) => self.latch.step(&rec, &w.marks),
+            None => (
+                crate::vouch::Latch::Drifted,
+                Vouch::No(crate::vouch::Why::Unrecorded),
+            ),
+        };
+        self.latch = latch;
+        let Vouch::No(why) = trusted else {
+            return Writers {
+                matched: Some(trusted),
+                ..w
+            };
+        };
+        let w = match w.cut {
+            crate::cut::Cut::After(m) => Writers {
+                marked: m.uncut.marked,
+                before: m.uncut.before,
+                watched: m.uncut.watched,
+                cut: crate::cut::Cut::None,
+                ..w
+            },
+            crate::cut::Cut::None | crate::cut::Cut::Plan(_) => w,
+        };
+        Writers {
+            marked: w.marked.or(crate::ran::Ran::Command),
+            folder: match w.folder {
+                crate::ran::Folder::Reported => crate::ran::Folder::FromRemote,
+                f => f,
+            },
+            matched: Some(Vouch::No(why)),
+            ..w
         }
     }
 
-    /// Parts of a drain filed over `span`, under the most cautious verdict
-    /// of them ([`Probes::drain_taken`]).
-    fn drain_span(
+    /// **Every line whose writer is still to be named**: kept to send, and
+    /// sent and not yet answered.
+    fn pending(&self) -> impl Iterator<Item = LineSpan> + Clone + '_ {
+        let kept = self.seen.iter().map(|e| e.1).chain(self.unnamed);
+        let sent = self.inflight.iter().map(|e| e.2);
+        kept.chain(sent).chain(self.held.iter().map(|e| e.1))
+    }
+
+    /// **The lines still to be named, and those held, handed to `paths`**
+    /// where they are now (`Paths::set_pending`). After everything that
+    /// changes them -- a read kept, a part's moves, a batch answered, the
+    /// same-group shortcut, a close.
+    fn publish(&self, paths: &mut Paths) {
+        paths.set_pending(self.pending(), self.held.iter().map(|e| e.1));
+    }
+
+    /// **The group of each line still to be named that is `span`**, as
+    /// handed to `Paths` (`Probes::publish`): none for the lines past the
+    /// groups kept.
+    fn groups_of(&self, span: LineSpan) -> impl Iterator<Item = Option<Pid>> + '_ {
+        let kept = self.seen.iter().map(|e| (Some(e.0), e.1));
+        kept.chain(self.unnamed.map(|l| (None, l)))
+            .chain(self.inflight.iter().map(|e| (e.1, e.2)))
+            .chain(self.held.iter().copied())
+            .filter(move |e| e.1 == span)
+            .map(|e| e.0)
+    }
+
+    /// `span` written by a read not kept with paths off, joined to what
+    /// overlaps it on its surface.
+    fn off_wrote(&mut self, span: LineSpan) {
+        let mut span = span;
+        self.off.retain(|&o| match o.meet(span) {
+            Some(_) => {
+                span = o.joined(span);
+                false
+            }
+            None => true,
+        });
+        self.off.push(span);
+    }
+
+    /// `span` written by a link's read kept with paths off: its own answer
+    /// is filed there, so no floor is.
+    fn off_kept(&mut self, span: LineSpan) {
+        let off = core::mem::take(&mut self.off);
+        self.off = off.into_iter().flat_map(|o| o.outside(span)).collect();
+    }
+
+    /// **Paths on again: what reads not kept wrote while they were off,
+    /// filed not known** (`Probes::off`); none kept once the worker is
+    /// closed, which lights nothing again.
+    fn floor_off(&mut self, paths: &mut Paths) {
+        match paths.marks() {
+            Marks::On => {
+                for span in self.off.drain(..) {
+                    paths.written_unnamed(span);
+                }
+            }
+            Marks::Closed => self.off.clear(),
+            Marks::Off => {}
+        }
+    }
+
+    /// **Holds no group still to be named will release, filed `f` and
+    /// dropped**: a hold waits for the answer naming its group, and with
+    /// none of that group's lines left to name -- a close, the same-group
+    /// shortcut, a batch whose answer did not name it -- none will come.
+    fn drop_orphan_holds(&mut self, paths: &mut Paths, f: crate::paths::Seen) {
+        let (seen, unnamed, inflight) = (&self.seen, self.unnamed, &self.inflight);
+        let named = |h: Option<Pid>| match h {
+            Some(g) => seen.iter().any(|e| e.0 == g),
+            None => unnamed.is_some(),
+        } || inflight.iter().any(|e| e.1 == h);
+        self.held.retain(|&(h, span)| {
+            let waits = named(h);
+            if !waits {
+                paths.written_under(f, span);
+            }
+            waits
+        });
+    }
+
+    /// **Every line whose writer is still to be named, carried through a
+    /// part's moves** (`Paths::carried_span`, B10).
+    fn carry_pending(
         &mut self,
         paths: &mut Paths,
-        span: LineSpan,
-        reads: impl Iterator<Item = (Writers, Linked)> + Clone,
+        rec: &baud_core::ReadRecord,
+        lines: &crate::paths::PartLines,
+        screens: &[baud_core::Screen],
     ) {
-        let Some(ran) = reads
-            .clone()
-            .map(|(w, _)| w.marked)
+        let carry = |span: LineSpan| paths.carried_span(rec, lines, screens, span);
+        for e in &mut self.seen {
+            e.1 = carry(e.1);
+        }
+        self.unnamed = self.unnamed.map(carry);
+        for e in &mut self.inflight {
+            e.2 = carry(e.2);
+        }
+        for e in &mut self.held {
+            e.1 = carry(e.1);
+        }
+        for o in &mut self.off {
+            *o = carry(*o);
+        }
+        self.lit.carry(carry);
+        self.publish(paths);
+    }
+
+    /// **Each verdict of a batch's answer filed on its group's lines as
+    /// they are now** (B10): on the lines kept for it and for every batch it
+    /// replaced, carried with the text since they were read, and any of
+    /// those lines its answer did not name left not known. A group the
+    /// answer names twice -- its lines kept in two spans, another's between
+    /// -- is filed at the first, which takes every copy of its lines. A
+    /// click's answer files nothing: the lines it was asked with are the
+    /// ones still kept to send, which their own batch names where they are
+    /// then, or which a batch sent while the click was out, or the
+    /// same-group shortcut, has taken -- never the lines as asked, whose
+    /// text may have moved. Nor do a batch to name a group, which is
+    /// answered by no answer, or one for programs, which names no group.
+    ///
+    /// **A local verdict holds the lines of another writer's still to be
+    /// named that it was filed over** (`Probes::held`): a span carried
+    /// imprecisely may cover that writer's text, which has no fact of its
+    /// own yet, and the local fact alone would light it. Each hold is
+    /// released by the verdict naming its own group, filed on it too, and
+    /// one whose group is no longer to be named is left not known.
+    fn file_answered(
+        &mut self,
+        paths: &mut Paths,
+        (id, kind): (Id, Kind),
+        seen: &[(Option<Pid>, crate::paths::Seen)],
+    ) {
+        use crate::paths::Seen;
+        if kind != Kind::Screen {
+            return;
+        }
+        for &(g, f) in seen {
+            // The holds this group's verdict releases, lit by it now.
+            let lit = &mut self.lit;
+            self.held.retain(|&(h, span)| {
+                if h == g {
+                    paths.written_under(f, span);
+                    lit.set(g, span);
+                }
+                h != g
+            });
+            let mine = |&(i, h, _): &(Id, Option<Pid>, LineSpan)| i <= id && h == g;
+            // A verdict that lights holds every other writer's lines it
+            // lands on.
+            if matches!(f, Seen::Named(Front::Local | Front::Multiplexer)) {
+                let others = self.seen.iter().map(|e| (Some(e.0), e.1));
+                let others = others
+                    .chain(self.unnamed.map(|l| (None, l)))
+                    .chain(self.inflight.iter().map(|e| (e.1, e.2)))
+                    .filter(|e| e.0 != g);
+                for &(_, _, span) in self.inflight.iter().filter(|e| mine(e)) {
+                    for (h, other) in others.clone() {
+                        if let Some(both) = span.meet(other) {
+                            self.held.push((h, both));
+                        }
+                    }
+                }
+            }
+            let lit = &mut self.lit;
+            self.inflight.retain(|e| {
+                if mine(e) {
+                    paths.written_under(f, e.2);
+                    lit.set(g, e.2);
+                }
+                !mine(e)
+            });
+        }
+        self.inflight.retain(|&(i, _, span)| {
+            let answered = i <= id;
+            if answered {
+                paths.written_under(Seen::NotNamed, span);
+            }
+            !answered
+        });
+        self.drop_orphan_holds(paths, Seen::NotNamed);
+        self.publish(paths);
+    }
+
+    /// Parts of a drain, each filed over its own span, under the most
+    /// cautious verdict of them all ([`Probes::drain_taken`]).
+    fn drain_parts(&mut self, paths: &mut Paths, parts: &[(Writers, Linked, LineSpan)]) {
+        let Some(ran) = parts
+            .iter()
+            .map(|(w, _, _)| w.marked)
             .reduce(crate::ran::Ran::or)
         else {
             return;
         };
-        for (w, linked) in reads {
+        for &(w, linked, span) in parts {
             // Every read that opened a link or wrote under it is filed
             // against its slot, whatever its rows are filed as.
             for pen in w.pens.each() {
@@ -1822,6 +2481,9 @@ impl<T: Moment> Probes<T> {
             crate::ran::Folder::Reported => paths.folder_reported(crate::paths::Report::Taken),
             crate::ran::Folder::FromRemote => paths.folder_reported(crate::paths::Report::Refused),
         }
+        if let (Ran::Shell, Some(g)) = (writers.marked, writers.at) {
+            self.shell_group = Some(g);
+        }
         if let Some(g) = writers.at {
             self.front_group = Some(g);
             // yazi handing straight to hx: the folder read for one is never
@@ -1847,15 +2509,29 @@ impl<T: Moment> Probes<T> {
         // The shell's own read with no group to name is filed as the
         // shell's, which is on this machine.
         let shell = writers.marked == Ran::Shell && groups == [None, None];
-        if groups == [None, None] && !remote && !here && !shell {
-            return;
-        }
         let kept = match paths.marks() {
             Marks::On => true,
             Marks::Off => linked == Linked::Yes,
             Marks::Closed => false,
         };
+        // A read not kept with paths off wrote its lines all the same:
+        // they are floored not known when paths come on (`Probes::off`).
         if !kept || matches!(self.slot, Slot::Closed) {
+            if paths.marks() == Marks::Off && !matches!(self.slot, Slot::Closed) {
+                self.off_wrote(span);
+            }
+            return;
+        }
+        // A link's read kept with paths off is named as with them on.
+        if paths.marks() == Marks::Off {
+            self.off_kept(span);
+        }
+        // A read nothing names -- no group sampled, no marks -- wrote its
+        // lines all the same: they are not known, and never a line with
+        // nothing filed over it, which a move carries as nothing written
+        // (W3).
+        if groups == [None, None] && !remote && !here && !shell {
+            paths.written_unnamed(span);
             return;
         }
         if remote {
@@ -1866,10 +2542,23 @@ impl<T: Moment> Probes<T> {
         }
         if shell {
             paths.written_by_shell(span);
+            self.lit.set(self.shell_group, span);
+        }
+        // A group still to be named writing over lines another group lit
+        // holds them until its own answer (G1): what lit them was another
+        // text's, and its own has no fact yet. A group's rewrite of its own
+        // keeps lighting.
+        for g in groups.into_iter().flatten() {
+            for over in self.lit.others(Some(g), span) {
+                if !self.held.contains(&(Some(g), over)) {
+                    self.held.push((Some(g), over));
+                }
+            }
         }
         for g in groups.into_iter().flatten() {
             self.group_wrote(paths, g, span);
         }
+        self.publish(paths);
     }
 
     /// `g` wrote `span`: kept with its lines, and named now if it is new.
@@ -1910,7 +2599,10 @@ impl<T: Moment> Probes<T> {
                 id: self.next_id,
                 kind: Kind::Name,
                 group: Some(g),
-                cursor: span.last(),
+                cursor: LineOn {
+                    surface: span.surface(),
+                    line: span.last(),
+                },
                 paths: Vec::new(),
                 seen: Vec::new(),
                 unnamed: None,
@@ -1970,6 +2662,14 @@ impl<T: Moment> Probes<T> {
     /// takes it on the view's `wake`, which the worker sends after each
     /// answer, and never on the display link's tick.
     pub fn answers(&mut self, s: &mut Seen<'_, '_>) -> Turn {
+        // Every change to the lines still to be named was handed on.
+        #[cfg(test)]
+        assert!(
+            s.paths
+                .pending_is(self.pending(), self.held.iter().map(|e| e.1)),
+            "pending not published"
+        );
+        self.floor_off(s.paths);
         let mut turn = Turn::default();
         if self.dir_dropped == Owed::Yes {
             self.dir_dropped = Owed::No;
@@ -2010,13 +2710,17 @@ impl<T: Moment> Probes<T> {
                     Front::Local | Front::Multiplexer => self.elsewhere = None,
                 }
                 let (before, origins) = (s.paths.generation(), s.paths.origins());
-                for &(f, span) in &a.seen {
-                    s.paths.written_under(f, span);
-                }
-                // A span gone from history is dropped as the next arrives,
-                // on the primary screen, whose history the spans number.
-                if !a.seen.is_empty() && s.term.screen() == baud_core::Screen::Normal {
-                    s.paths.trim_spans(crate::keep::oldest(s.term, s.scrolled));
+                self.file_answered(s.paths, (a.id, a.kind), &a.seen);
+                // A span gone from the surface up is dropped as the next
+                // arrives: the primary's history, and on the alternate
+                // screen, which keeps none, what scrolled off its top.
+                if !a.seen.is_empty() {
+                    let screen = s.term.screen();
+                    let oldest = match screen {
+                        baud_core::Screen::Normal => crate::keep::oldest(s.term, s.scrolled),
+                        baud_core::Screen::Alternate => s.scrolled.top(Rows::ZERO),
+                    };
+                    s.paths.trim_spans(screen, oldest);
                 }
                 s.paths.set_front(front, a.cursor);
                 // The program's folder, for the group still in front; on
@@ -2073,6 +2777,14 @@ impl<T: Moment> Probes<T> {
     /// group, a `TIOCGPGRP` on the master, only when a batch goes. No
     /// answer is taken here.
     pub fn tick(&mut self, now: T, s: Seen<'_, '_>, group: impl FnOnce() -> Option<Pid>) -> Turn {
+        // Every change to the lines still to be named was handed on.
+        #[cfg(test)]
+        assert!(
+            s.paths
+                .pending_is(self.pending(), self.held.iter().map(|e| e.1)),
+            "pending not published"
+        );
+        self.floor_off(s.paths);
         let mut turn = Turn::default();
         match s.paths.marks() {
             Marks::On => {}
@@ -2089,7 +2801,7 @@ impl<T: Moment> Probes<T> {
                     id: self.next_id,
                     kind: Kind::Screen,
                     group: group(),
-                    cursor: s.scrolled.line(Rows::ZERO, s.term.cursor().0),
+                    cursor: s.cursor_on(),
                     paths: Vec::new(),
                     seen: core::mem::take(&mut self.seen),
                     unnamed: self.unnamed.take(),
@@ -2120,7 +2832,7 @@ impl<T: Moment> Probes<T> {
                 id: self.next_id,
                 kind: Kind::Programs,
                 group: None,
-                cursor: s.scrolled.line(Rows::ZERO, s.term.cursor().0),
+                cursor: s.cursor_on(),
                 paths: Vec::new(),
                 seen: Vec::new(),
                 unnamed: None,
@@ -2139,7 +2851,7 @@ impl<T: Moment> Probes<T> {
             return turn;
         }
         self.pace.sent(now);
-        let cursor = s.scrolled.line(Rows::ZERO, s.term.cursor().0);
+        let cursor = s.cursor_on();
         let g = group();
         if g.is_some() && g == self.elsewhere {
             // The same group, not local: its rows to here stay unmarked, and
@@ -2156,6 +2868,8 @@ impl<T: Moment> Probes<T> {
                 s.paths
                     .written_under(crate::paths::Seen::Named(Front::Elsewhere), span);
             }
+            self.drop_orphan_holds(s.paths, crate::paths::Seen::Named(Front::Elsewhere));
+            self.publish(s.paths);
             return turn;
         }
         s.paths.front_moved(cursor);
@@ -2213,7 +2927,7 @@ impl<T: Moment> Probes<T> {
         if s.paths.marks() != Marks::On || matches!(self.slot, Slot::Closed) {
             return Some(Clicked::Unchecked);
         }
-        let cursor = s.scrolled.line(Rows::ZERO, s.term.cursor().0);
+        let cursor = s.cursor_on();
         let id = self.next_id;
         self.counts.asked += 1;
         let ask = Ask {
@@ -2243,6 +2957,14 @@ impl<T: Moment> Probes<T> {
         lines: &mut Lines,
         turn: &mut Turn,
     ) -> bool {
+        // A batch's lines are kept here too, carried with the text until
+        // its answer (B10); a click's are the ones still kept to send.
+        if ask.kind == Kind::Screen {
+            let lines = ask.seen.iter().map(|&(g, l)| (Some(g), l));
+            for (g, l) in lines.chain(ask.unnamed.map(|l| (None, l))) {
+                self.inflight.push((ask.id, g, l));
+            }
+        }
         if matches!(self.slot, Slot::Unstarted) {
             self.started.bump();
             self.slot = match (self.start)() {
@@ -2292,6 +3014,17 @@ impl<T: Moment> Probes<T> {
         }
         self.slot = Slot::Closed;
         self.flight = None;
+        // Lines whose writer is still to be named never will be.
+        for span in self.pending() {
+            paths.written_under(crate::paths::Seen::NotNamed, span);
+        }
+        self.seen.clear();
+        self.unnamed = None;
+        self.inflight.clear();
+        self.held.clear();
+        self.lit.clear();
+        self.off.clear();
+        self.publish(paths);
         paths.close();
         lines.forget();
         turn.frame = Owed::Yes;
@@ -2452,6 +3185,7 @@ mod tests {
     use baud_core::Owned;
     use baud_core::Screen;
     use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_render::AbsLine;
     use std::collections::HashMap;
     use std::sync::Mutex;
     use std::time::Instant;
@@ -2756,7 +3490,10 @@ mod tests {
                     id: Id::default(),
                     kind: Kind::Screen,
                     group: Some(7),
-                    cursor: AbsLine::at(Rows::ZERO),
+                    cursor: LineOn {
+                        surface: crate::paths::Surface::Primary,
+                        line: AbsLine::at(Rows::ZERO),
+                    },
                     paths: vec![
                         cand("/etc/hosts", crate::paths::Form::Absolute),
                         cand("/w/x", crate::paths::Form::Dot),
@@ -3740,12 +4477,8 @@ mod tests {
         let line = s.line(Rows::ZERO, t.cursor().0);
         // The program's first read wrote the screen from its top.
         let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
-        pr.read_taken(
-            &mut paths,
-            Writers::at(Some(read(0))),
-            LineSpan::of(top, line),
-            Linked::No,
-        );
+        let span = LineSpan::on(paths.surface(t.screen()), top, line);
+        pr.read_taken(&mut paths, Writers::at(Some(read(0))), span, Linked::No);
         let t0 = Instant::now();
         for step in 0..40 {
             let now = t0 + Duration::from_millis(100 * u64::from(step));
@@ -3755,22 +4488,14 @@ mod tests {
                 t.write_at(BytePos::ZERO, b);
                 t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
                 let line = s.line(Rows::ZERO, t.cursor().0);
-                pr.read_taken(
-                    &mut paths,
-                    Writers::at(Some(read(step))),
-                    LineSpan::of(line, line),
-                    Linked::No,
-                );
+                let span = LineSpan::on(paths.surface(t.screen()), line, line);
+                pr.read_taken(&mut paths, Writers::at(Some(read(step))), span, Linked::No);
             }
             if step_on(step, &mut t) == Moved::Yes {
                 let line = s.line(Rows::ZERO, t.cursor().0);
                 let top = s.line(Rows::ZERO, baud_domain::Row::ZERO);
-                pr.read_taken(
-                    &mut paths,
-                    Writers::at(Some(read(step))),
-                    LineSpan::of(top, line),
-                    Linked::No,
-                );
+                let span = LineSpan::on(paths.surface(t.screen()), top, line);
+                pr.read_taken(&mut paths, Writers::at(Some(read(step))), span, Linked::No);
             }
             let before = pr.counts.batches;
             let seen = Seen {
@@ -4007,7 +4732,8 @@ mod tests {
 
     /// **A read carrying an `OSC 8` introducer asks for the group even
     /// inside the pace**, its 8-bit form too and one split across reads;
-    /// a read without one, inside the pace, does not. Named breaks: ask by
+    /// a read without one, inside the pace and with a group taken before
+    /// it, does not. Named breaks: ask by
     /// the pace alone -- the link's read inside the pace asks nothing; drop
     /// the tail -- a split introducer asks nothing.
     #[test]
@@ -4021,6 +4747,8 @@ mod tests {
                 Asks::Yes(Linked::No),
                 "the pace's first read"
             );
+            // Its group taken, as the drivers take it after every ask.
+            let _ = s.writers(Some(1), Watched::Nothing);
             s
         };
         let mut s = fresh();
@@ -4336,6 +5064,8 @@ mod tests {
                 Asks::Yes(Linked::No),
                 "the pace's first read"
             );
+            // Its group taken, as the drivers take it after every ask.
+            let _ = s.writers(Some(1), Watched::Nothing);
             s
         };
         for text in [
@@ -4446,6 +5176,16 @@ mod tests {
     /// every sample -- a short job that came and went between them -- then
     /// named by the worker.
     fn clicked_after_reads(reads: &[&[u8]]) -> Result<crate::link::Click, crate::link::Refused> {
+        clicked_after_reads_turning(reads, Turned::Off)
+    }
+
+    /// [`clicked_after_reads`], with paths turned `on` once the link's
+    /// answer is filed, as a reload of the config turns them, and one turn
+    /// taken after.
+    fn clicked_after_reads_turning(
+        reads: &[&[u8]],
+        on: Turned,
+    ) -> Result<crate::link::Click, crate::link::Refused> {
         use crate::link::{Spot, Under, hovered};
         let mut f = Fake::with(&[]);
         f.groups.insert(1, vec!["zsh".into()]);
@@ -4484,6 +5224,19 @@ mod tests {
                 break;
             }
             std::thread::yield_now();
+        }
+        if on == Turned::On {
+            paths.set(Turned::On);
+            lines.forget();
+            let seen = Seen {
+                term: &t,
+                scrolled: s,
+                lines: &mut lines,
+                uris: &mut uris,
+                urls: Turned::On,
+                paths: &mut paths,
+            };
+            let _ = pr.turn(t0, seen, || Some(1));
         }
         let spot = Spot {
             scrolled: s,
@@ -4537,6 +5290,71 @@ mod tests {
             clicked_after_reads(&[link]),
             Ok(Click::Reveal),
             "no mark: the shell"
+        );
+    }
+
+    /// **A line written over while paths were off is not known once they
+    /// are on again, though nothing moves it** (W3, F1): `ls` lights
+    /// `/etc/passwd` on row 0; paths off; `ssh` writes `/etc/hosts` over
+    /// it, opening no link; paths on -- dark. The control: `ls` writes it
+    /// with paths on -- lit. Named break: no floor at the turn
+    /// (`Probes::floor_off` filing nothing) -- `ls`'s fact stays on the
+    /// line and `ssh`'s path lights.
+    #[test]
+    fn a_line_written_over_while_paths_were_off_is_not_known_after() {
+        let run = |over: Read<'static>, off: Turned| {
+            lit_driven(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Paths(Turned::On),
+                        ..read(b"", 2)
+                    },
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"/etc/passwd", 2)
+                    },
+                    Read {
+                        then: Then::Paths(off),
+                        ..read(b"\x1b[m", 2)
+                    },
+                    over,
+                    Read {
+                        then: Then::Paths(Turned::On),
+                        ..read(b"\x1b[m", 2)
+                    },
+                ],
+            )
+        };
+        assert_eq!(
+            run(read(b"\r/etc/hosts\x1b[K", 9), Turned::Off),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            run(read(b"\r/etc/hosts\x1b[K", 2), Turned::On),
+            [0],
+            "the control"
+        );
+    }
+
+    /// **A link printed with paths off keeps its own answer when they come
+    /// on** (W3, F1): a read not kept leaves the cursor's line for the
+    /// floor, a link's read then writes over it and is kept, and its answer
+    /// is filed; paths on, the floor leaves the link's lines out, and its
+    /// click is revealed. Named
+    /// break: a kept read leaving the floor whole (`Probes::off_kept`
+    /// taking nothing out) -- the link's line is floored not known and the
+    /// click refused.
+    #[test]
+    fn a_link_printed_with_paths_off_keeps_its_answer_when_they_come_on() {
+        let link: &[u8] = b"\x1b]8;;file://localhost/etc/passwd\x1b\\passwd\x1b]8;;\x1b\\\r\n";
+        assert_eq!(
+            clicked_after_reads_turning(&[b"\x1b[m", link], Turned::On),
+            Ok(crate::link::Click::Reveal)
         );
     }
 
@@ -4830,7 +5648,10 @@ mod tests {
                             id,
                             kind: Kind::Screen,
                             group: Some(me),
-                            cursor: scrolled.line(Rows::ZERO, t.cursor().0),
+                            cursor: LineOn {
+                                surface: crate::paths::Surface::Primary,
+                                line: scrolled.line(Rows::ZERO, t.cursor().0),
+                            },
                             paths: queue,
                             seen: Vec::new(),
                             unnamed: None,
@@ -4914,6 +5735,17 @@ mod tests {
         Nothing,
         /// To this many columns and rows.
         Resize(u16, u16),
+        /// The worker asked about the screen as it stands and every answer
+        /// taken, before the next read: a later read seconds after.
+        Answered,
+        /// The worker asked about the screen as it stands, its answer not
+        /// yet taken when the next read is filed.
+        Sent,
+        /// The batch still out answered and taken, nothing sent, and the
+        /// rows that draw a line then noted ([`lit_midway`]).
+        Took,
+        /// `[link] paths` turned on or off, as a reload of the config does.
+        Paths(Turned),
     }
 
     /// **How the window's lines are numbered across the reads**: held at
@@ -4975,10 +5807,9 @@ mod tests {
     /// **The rows that draw a line once `reads` are taken and a batch is
     /// answered with the shell (group 1) in front**: each fed to a terminal
     /// through a [`Sampler`] -- its marks scan included -- with its group
-    /// and the watch's verdict, and each drain's reads given the drain's
-    /// lines, from where the cursor began to where it ended
-    /// (`LineSpan::read` of its last read), as the drivers give them. `f`
-    /// names the groups.
+    /// and the watch's verdict, and each drain's reads filed over the lines
+    /// each one's record names (`Probes::drain_taken`), as the drivers file
+    /// them. `f` names the groups.
     fn lit_reads(f: Fake, reads: &[Read<'_>]) -> Vec<usize> {
         taken(f, reads).0
     }
@@ -5025,6 +5856,106 @@ mod tests {
         taken_numbered(ws, f, reads, None, Numbering::Driven, |_, _| ()).0
     }
 
+    /// **Batches a second apart from `now`, each answer taken, until the
+    /// screen has been asked about as it stands**: a row a later answer
+    /// makes readable is walked by the batch after it.
+    /// **A batch sent after `now` and its answer left untaken**: the
+    /// clock's half of a turn alone (`Probes::tick`), a second apart until
+    /// the pace sends one.
+    fn sent(
+        pr: &mut Probes<Instant>,
+        (t, s): (&Term<'_>, Scrolled),
+        (lines, uris, paths): (&mut Lines, &mut Uris, &mut Paths),
+        mut now: Instant,
+    ) {
+        for _ in 0..4 {
+            now += Duration::from_secs(1);
+            let _ = lines.scan(
+                t,
+                s,
+                &mut Links {
+                    uris: &mut *uris,
+                    urls: Turned::On,
+                    paths: &mut *paths,
+                },
+            );
+            let seen = Seen {
+                term: t,
+                scrolled: s,
+                lines: &mut *lines,
+                uris: &mut *uris,
+                urls: Turned::On,
+                paths: &mut *paths,
+            };
+            let _ = pr.tick(now, seen, || Some(1));
+            if pr.flight.is_some() {
+                return;
+            }
+        }
+        panic!("no batch went");
+    }
+
+    /// **The batch still out answered and taken**, with nothing sent
+    /// meanwhile.
+    fn took_out(
+        pr: &mut Probes<Instant>,
+        (t, s): (&Term<'_>, Scrolled),
+        (lines, uris, paths): (&mut Lines, &mut Uris, &mut Paths),
+    ) {
+        while pr.flight.is_some() {
+            std::thread::yield_now();
+            let mut seen = Seen {
+                term: t,
+                scrolled: s,
+                lines: &mut *lines,
+                uris: &mut *uris,
+                urls: Turned::On,
+                paths: &mut *paths,
+            };
+            let _ = pr.answers(&mut seen);
+        }
+    }
+
+    fn answered(
+        pr: &mut Probes<Instant>,
+        (t, s): (&Term<'_>, Scrolled),
+        (lines, uris, paths): (&mut Lines, &mut Uris, &mut Paths),
+        mut now: Instant,
+    ) {
+        // A batch still out from before (`Then::Sent`) is answered before
+        // the clock moves past its hang: the worker's answer is taken as
+        // it comes, with nothing sent meanwhile.
+        took_out(pr, (t, s), (&mut *lines, &mut *uris, &mut *paths));
+        let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
+            let _ = lines.scan(
+                t,
+                s,
+                &mut Links {
+                    uris: &mut *uris,
+                    urls: Turned::On,
+                    paths: &mut *paths,
+                },
+            );
+            let seen = Seen {
+                term: t,
+                scrolled: s,
+                lines: &mut *lines,
+                uris: &mut *uris,
+                urls: Turned::On,
+                paths: &mut *paths,
+            };
+            pr.turn(now, seen, || Some(1))
+        };
+        for _ in 0..4 {
+            now += Duration::from_secs(1);
+            let _ = turn(pr, now);
+            while pr.flight.is_some() {
+                std::thread::yield_now();
+                let _ = turn(pr, now);
+            }
+        }
+    }
+
     /// [`taken_then_on`], the lines numbered by `numbering`, the storage
     /// sized to the largest window any read resizes to.
     fn taken_numbered<R>(
@@ -5035,23 +5966,86 @@ mod tests {
         numbering: Numbering,
         look: impl FnOnce(&Term<'_>, &Paths) -> R,
     ) -> (Vec<usize>, Vec<Origin>, R) {
+        let t = taken_midway(ws, f, reads, trim, numbering, look);
+        (t.lit, t.origins, t.looked)
+    }
+
+    /// **The rows that draw a line at each [`Then::Took`], and at the
+    /// end**, the lines numbered as the drivers number them.
+    fn lit_midway(ws: WinSize, f: Fake, reads: &[Read<'_>]) -> (Vec<Vec<usize>>, Vec<usize>) {
+        let t = taken_midway(ws, f, reads, None, Numbering::Driven, |_, _| ());
+        (t.midway, t.lit)
+    }
+
+    /// **The origin of each of the primary's first sixteen lines at each
+    /// [`Then::Took`]**, the lines numbered as the drivers number them:
+    /// what a click there would be judged by before any batch after it
+    /// names a group.
+    fn origins_midway(ws: WinSize, f: Fake, reads: &[Read<'_>]) -> Vec<Vec<Origin>> {
+        taken_midway(ws, f, reads, None, Numbering::Driven, |_, _| ()).midway_origins
+    }
+
+    /// What [`taken_midway`] found: the rows that draw a line and each
+    /// row's origin at the end, what `look` read there, and the rows that
+    /// draw a line and the first lines' origins at each [`Then::Took`].
+    struct Taken<R> {
+        lit: Vec<usize>,
+        origins: Vec<Origin>,
+        looked: R,
+        midway: Vec<Vec<usize>>,
+        midway_origins: Vec<Vec<Origin>>,
+    }
+
+    /// [`taken_numbered`], with the rows that draw a line at each
+    /// [`Then::Took`].
+    fn taken_midway<R>(
+        ws: WinSize,
+        f: Fake,
+        reads: &[Read<'_>],
+        trim: Option<usize>,
+        numbering: Numbering,
+        look: impl FnOnce(&Term<'_>, &Paths) -> R,
+    ) -> Taken<R> {
+        let mut midway = Vec::new();
+        let mut midway_origins = Vec::new();
         let (mut pr, _) = probes(f);
         let most = reads
             .iter()
             .fold((ws.ws_col, ws.ws_row), |(c, r), read| match read.then {
                 Then::Resize(cols, rows) => (c.max(cols), r.max(rows)),
-                Then::Nothing => (c, r),
+                Then::Nothing | Then::Answered | Then::Sent | Then::Took | Then::Paths(_) => (c, r),
             });
+        // A page-width request (`DECSCPP`, `DECCOLM`) is resized to between
+        // the read's parts, as the app resizes to one: room for 132.
+        let asks = reads.iter().any(|r| {
+            r.bytes.windows(2).any(|w| w == b"$|")
+                || r.bytes.windows(3).any(|w| w == b"?3h" || w == b"?3l")
+        });
         let most = WinSize {
-            ws_col: most.0,
+            ws_col: match asks {
+                true => most.0.max(132),
+                false => most.0,
+            },
             ws_row: most.1,
         };
-        let mut owned = Owned::new(&most);
+        let mut owned = Owned::new(&most).with_images(baud_domain::ImageBudget::of(1 << 16));
         let mut t = Term::new(owned.storage(), &ws);
+        if asks {
+            t.set_width_hold(baud_core::WidthHold::On);
+        }
+        // A log's start or end (`?46`) stops the read there, as the app's
+        // does with logging on: each side a part of its own.
+        if reads
+            .iter()
+            .any(|r| r.bytes.windows(3).any(|w| w == b"?46"))
+        {
+            t.set_logging(baud_domain::Logging::On);
+        }
         let mut paths = Paths::new(None, Forms::DEFAULT);
         paths.set(Turned::On);
         let (mut lines, mut uris) = (Lines::default(), Uris::default());
         let mut s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
         // The shell is handed [`TOKEN`] where the session's marks carry a
         // token, as baud hands a window's shell its own at the spawn.
         let marked = reads
@@ -5062,6 +6056,7 @@ mod tests {
             false => Sampler::default(),
         };
         let t0 = Instant::now();
+        let mut shift = Duration::ZERO;
         // Fed as the macOS pump feeds a drain, ReGIS delays held
         // (`reads::paced`): each call files the reads it fed, a held one's
         // own verdict when its bytes go on.
@@ -5074,13 +6069,11 @@ mod tests {
                 .take_while(|r| r.drain == Drain::Same)
                 .count();
             let drain = &reads[i..i + n];
-            let began = s.line(Rows::ZERO, t.cursor().0);
-            let before = (numbering == Numbering::Driven)
-                .then(|| crate::keep::Before::watched(&mut t, None, s));
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let mut taken = Vec::new();
             let mut now = t0;
             for (k, r) in drain.iter().enumerate() {
-                now = t0 + GROUP_EVERY * u32::try_from(i + k + 1).expect("a count");
+                now = t0 + shift + GROUP_EVERY * u32::try_from(i + k + 1).expect("a count");
                 let _ = sampler.read(now, r.bytes);
                 taken.push(match r.sampled {
                     Sampled::Yes => sampler.writers(Some(r.group), r.watched),
@@ -5094,69 +6087,97 @@ mod tests {
                 now,
                 drain.iter().map(|r| r.bytes).zip(taken),
                 |_| {},
-                |_| {},
+                |t| page_width(t, &ws),
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            if let Some(before) = before {
-                s = match crate::keep::numbered(&t, before, None) {
-                    crate::keep::Ring::Retired(k) => s.advanced(k),
-                    crate::keep::Ring::Restored(k) => s.retreated(k).unwrap_or(Scrolled::START),
-                };
-            }
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let last = took.iter().rev().find_map(|w| w.record);
+            let numbered = counts.numbered(&t, last.as_ref()).scrolled();
+            let core = match numbering {
+                Numbering::Driven => {
+                    s = numbered;
+                    counts.core_lines(&t)
+                }
+                Numbering::Held => counts.core_lines_at(s, &t),
+            };
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             if !drain.iter().any(|r| r.sampled == Sampled::Unfiled) {
                 pr.drain_taken(
                     &mut paths,
                     &t,
-                    began,
-                    ended,
+                    (began, ended),
+                    core,
                     took.into_iter().map(|w| (w, Linked::No)),
                 );
             }
             if let Then::Resize(ws_col, ws_row) = drain[n - 1].then {
-                let was = (t.history_mark(), t.geometry().0, t.screen());
+                let was = (t.geometry().0, t.screen());
+                let was_last = crate::paths::last_line(&t, counts.primary());
                 let _ = t.resize(&WinSize { ws_col, ws_row });
                 if numbering == Numbering::Driven {
-                    s = crate::keep::kept_across_resize(&t, was, None, s).1;
+                    let rec = t.take_record();
+                    s = crate::keep::kept_across_resize(&t, was, None, &mut counts, &rec).1;
+                    let (primary, alternate) = (counts.primary(), counts.alternate());
+                    paths.resized(&rec, &t, was_last, primary, alternate);
                 }
+            }
+            if drain[n - 1].then == Then::Sent {
+                shift += Duration::from_secs(60);
+                sent(
+                    &mut pr,
+                    (&t, s),
+                    (&mut lines, &mut uris, &mut paths),
+                    t0 + shift,
+                );
+                shift += Duration::from_secs(60);
+            }
+            if let Then::Paths(on) = drain[n - 1].then {
+                paths.set(on);
+                lines.forget();
+            }
+            if drain[n - 1].then == Then::Took {
+                took_out(&mut pr, (&t, s), (&mut lines, &mut uris, &mut paths));
+                let _ = lines.scan(
+                    &t,
+                    s,
+                    &mut Links {
+                        uris: &mut uris,
+                        urls: Turned::On,
+                        paths: &mut paths,
+                    },
+                );
+                let mut rows: Vec<usize> = lines.lines().iter().map(|l| l.row.index()).collect();
+                rows.dedup();
+                midway.push(rows);
+                midway_origins.push(
+                    (0..16)
+                        .map(|n| paths.origin(AbsLine::at(Rows::of_count(n))))
+                        .collect(),
+                );
+            }
+            if drain[n - 1].then == Then::Answered {
+                shift += Duration::from_secs(60);
+                answered(
+                    &mut pr,
+                    (&t, s),
+                    (&mut lines, &mut uris, &mut paths),
+                    t0 + shift,
+                );
+                shift += Duration::from_secs(60);
             }
             i += n;
         }
-        let mut turn = |pr: &mut Probes<Instant>, now: Instant| {
-            let _ = lines.scan(
-                &t,
-                s,
-                &mut Links {
-                    uris: &mut uris,
-                    urls: Turned::On,
-                    paths: &mut paths,
-                },
-            );
-            let seen = Seen {
-                term: &t,
-                scrolled: s,
-                lines: &mut lines,
-                uris: &mut uris,
-                urls: Turned::On,
-                paths: &mut paths,
-            };
-            pr.turn(now, seen, || Some(1))
-        };
-        // Batches a second apart, each answer taken, until the screen has
-        // been asked about as it stands: a row a later answer makes
-        // readable is walked by the batch after it.
-        let mut now = t0 + Duration::from_secs(60);
-        for _ in 0..4 {
-            now += Duration::from_secs(1);
-            let _ = turn(&mut pr, now);
-            while pr.flight.is_some() {
-                std::thread::yield_now();
-                let _ = turn(&mut pr, now);
-            }
-        }
+        answered(
+            &mut pr,
+            (&t, s),
+            (&mut lines, &mut uris, &mut paths),
+            t0 + shift + Duration::from_secs(60),
+        );
         if let Some(n) = trim {
-            paths.trim_spans(s.line(Rows::ZERO, baud_domain::Row::from_index(n)));
+            paths.trim_spans(
+                t.screen(),
+                s.line(Rows::ZERO, baud_domain::Row::from_index(n)),
+            );
             lines.forget();
         }
         let _ = lines.scan(
@@ -5174,7 +6195,13 @@ mod tests {
             .map(|y| paths.origin(s.line(Rows::ZERO, baud_domain::Row::from_index(y))))
             .collect();
         let looked = look(&t, &paths);
-        (rows, origins, looked)
+        Taken {
+            lit: rows,
+            origins,
+            looked,
+            midway,
+            midway_origins,
+        }
     }
 
     /// The groups the tests below name: the shell, a local `ls`, `ssh`, and
@@ -5684,10 +6711,21 @@ mod tests {
         let t0 = Instant::now();
         let mut feed = |bytes: &[u8], k: u32| {
             let began = s.line(Rows::ZERO, t.cursor().0);
+            use crate::reads::Part;
             let _ = sampler.read(t0 + GROUP_EVERY * k, bytes);
-            let w = sampler.unasked();
+            let _ = t.take_record();
             t.write_at(BytePos::ZERO, bytes);
             t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            // The part's verdict, read with its record (`Writers::recorded`).
+            let w = sampler
+                .unasked()
+                .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
+                .recorded(Some(crate::reads::Taken {
+                    record: t.take_record(),
+                    top: t.history_mark().line(),
+                    end_row: crate::vouch::EndRow::of(&t),
+                    drew: crate::vouch::Drew::Nothing,
+                }));
             let ended = s.line(Rows::ZERO, t.cursor().0);
             pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
             let _ = paths.observe(&t, s);
@@ -5781,10 +6819,11 @@ mod tests {
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
         let mut call = |reads: &[&[u8]], ms: u64| {
             let now = t0 + Duration::from_millis(ms);
-            let began = s.line(Rows::ZERO, t.cursor().0);
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let tagged: Vec<(&[u8], Writers)> = reads
                 .iter()
                 .map(|b| {
@@ -5803,12 +6842,14 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
             pr.drain_taken(
                 &mut paths,
                 &t,
-                began,
-                ended,
+                (began, ended),
+                counts.core_lines_at(s, &t),
                 took.into_iter().map(|w| (w, Linked::No)),
             );
             let _ = paths.observe(&t, s);
@@ -5851,10 +6892,11 @@ mod tests {
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
         let mut call = |reads: &[&[u8]], ms: u64| {
             let now = t0 + Duration::from_millis(ms);
-            let began = s.line(Rows::ZERO, t.cursor().0);
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let tagged: Vec<(&[u8], Writers)> = reads
                 .iter()
                 .map(|b| {
@@ -5873,12 +6915,14 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
             pr.drain_taken(
                 &mut paths,
                 &t,
-                began,
-                ended,
+                (began, ended),
+                counts.core_lines_at(s, &t),
                 took.into_iter().map(|w| (w, Linked::No)),
             );
             let _ = paths.observe(&t, s);
@@ -5918,10 +6962,11 @@ mod tests {
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
         let mut call = |reads: &[&[u8]], ms: u64| {
             let now = t0 + Duration::from_millis(ms);
-            let began = s.line(Rows::ZERO, t.cursor().0);
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let tagged: Vec<(&[u8], Writers)> = reads
                 .iter()
                 .map(|b| {
@@ -5940,12 +6985,14 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
             pr.drain_taken(
                 &mut paths,
                 &t,
-                began,
-                ended,
+                (began, ended),
+                counts.core_lines_at(s, &t),
                 took.into_iter().map(|w| (w, Linked::No)),
             );
             let _ = paths.observe(&t, s);
@@ -5983,10 +7030,11 @@ mod tests {
         paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
         let mut sampler = shells_sampler();
         let s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
         let t0 = Instant::now();
         let mut call = |read: &[u8], ms: u64| {
             let now = t0 + Duration::from_millis(ms);
-            let began = s.line(Rows::ZERO, t.cursor().0);
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let _ = sampler.read(now, read);
             let tagged = [(read, sampler.unasked())];
             let mut took = Vec::new();
@@ -6000,12 +7048,14 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
             pr.drain_taken(
                 &mut paths,
                 &t,
-                began,
-                ended,
+                (began, ended),
+                counts.core_lines_at(s, &t),
                 took.into_iter().map(|w| (w, Linked::No)),
             );
             let _ = paths.observe(&t, s);
@@ -6108,17 +7158,6 @@ mod tests {
         ]);
         f.groups.insert(1, vec!["zsh".into()]);
         f.groups.insert(9, vec!["ssh".into()]);
-        let (mut pr, _) = probes(f);
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let mut paths = Paths::new(None, Forms::DEFAULT);
-        paths.set(Turned::On);
-        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
-        let (mut lines, mut uris) = (Lines::default(), Uris::default());
-        let mut sampler = shells_sampler();
-        let mut pace = crate::reads::Pace::new();
-        let s = Scrolled::START;
-        let t0 = Instant::now();
         let prompt = [
             prompt_after("").as_slice(),
             b"\x1b]7;file://here.example/home/u\x07",
@@ -6141,9 +7180,30 @@ mod tests {
             let at = 200 + 100 * u64::try_from(k).expect("a key");
             batches.push(vec![(at, vec![*b], 1)]);
         }
+        lit_on_a_timeline(f, &batches)
+    }
+
+    /// **The rows lit once `batches` are fed as the drivers feed them**:
+    /// each batch a drain, each read `(ms, bytes, group in front)` at its
+    /// time, asking by the pace, a frame after each drain, then frames 10
+    /// ms apart to the first batch the pace sends and the frame that takes
+    /// its answer ([`typed_after_ssh`]'s run).
+    fn lit_on_a_timeline(f: Fake, batches: &[Vec<(u64, Vec<u8>, Pid)>]) -> Vec<usize> {
+        let (mut pr, _) = probes(f);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
+        let (mut lines, mut uris) = (Lines::default(), Uris::default());
+        let mut sampler = shells_sampler();
+        let mut pace = crate::reads::Pace::new();
+        let s = Scrolled::START;
+        let mut counts = crate::keep::Counts::new(&t);
+        let t0 = Instant::now();
         let mut last = t0;
-        for batch in &batches {
-            let began = s.line(Rows::ZERO, t.cursor().0);
+        for batch in batches {
+            let began = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
             let mut tagged = Vec::new();
             for (ms, bytes, front) in batch {
                 let now = t0 + Duration::from_millis(*ms);
@@ -6165,12 +7225,14 @@ mod tests {
                 &mut crate::hostlog::NoLog,
                 &mut took,
             );
-            let ended = s.line(Rows::ZERO, t.cursor().0);
+            let ended = paths.line_on(t.screen(), s.line(Rows::ZERO, t.cursor().0));
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
             pr.drain_taken(
                 &mut paths,
                 &t,
-                began,
-                ended,
+                (began, ended),
+                counts.core_lines_at(s, &t),
                 took.into_iter().map(|w| (w, Linked::No)),
             );
             let _ = paths.observe(&t, s);
@@ -6179,10 +7241,12 @@ mod tests {
         // A frame each 10 ms after the last key, to the first batch the
         // pace sends, and the frame after it, which takes its answer.
         let mut k = 0u32;
+        let before = pr.counts.batches;
         loop {
             k += 1;
             let now = last + Duration::from_millis(10) * k;
-            if frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, now) == Owed::Yes {
+            let owed = frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, now);
+            if owed == Owed::Yes || pr.counts.batches > before {
                 let now = now + Duration::from_millis(10);
                 let _ = frame(&mut pr, &t, &mut lines, &mut uris, &mut paths, now);
                 break;
@@ -6402,11 +7466,12 @@ mod tests {
 
     /// The stages closed: the commit that closes one adds it here and turns
     /// every row pending on it green, or the row goes red.
-    const CLOSED: &[LinkStage] = &[];
+    const CLOSED: &[LinkStage] = &[LinkStage::CoreRecord];
 
     /// **A pending row's verdict**: while `stage` is open, `now` must fail
     /// exactly as `recorded`; red if it is `fixed` early, fails another
     /// way, or is still here once its stage has closed.
+    #[allow(dead_code, reason = "every stage is closed: no row is pending")]
     fn pending<T: PartialEq + core::fmt::Debug>(stage: LinkStage, now: T, recorded: T, fixed: T) {
         verdict(CLOSED, stage, now, recorded, fixed);
     }
@@ -6447,58 +7512,109 @@ mod tests {
         ]
     }
 
-    /// **Pending on the core record (F5): a row a remote read wrote below
-    /// its span, coming back up after, is filed over by the prompt that
-    /// lands there, and lights.** [`below_and_back`]'s reads, in two
-    /// shapes: `logout` in ssh's read and the prompt in a read of its own,
-    /// filed as the shell's; and `logout`, the `D` and the prompt in one
-    /// read, which the cut reaches the row through. Today the row lights in
-    /// both; once the core records the lowest line each read reached, it
-    /// stays dark. Expected-red ([`pending`]): red if either goes dark
-    /// before the core record, lights another row, or outlives that stage.
+    /// **A read is filed on the primary before any record has ended there**
+    /// (`HistoryMark::line`, taken with each part's record): `ls` prints
+    /// `/etc/hosts` on row 0 and a program it starts switches to the
+    /// alternate screen in the same read, and leaves it in the next. Row 0
+    /// lights. Named break: place no primary line until a record ends on
+    /// the primary, as a top worked back from where a record's cursor
+    /// ended did -- row 0 stays dark.
     #[test]
-    fn pending_core_record_a_row_written_below_a_remote_reads_span() {
+    fn a_read_is_filed_on_the_primary_before_a_record_ends_there() {
+        let reads = [
+            read(b"/etc/hosts\r\n\x1b[?1049h", 2),
+            read(b"\x1b[?1049l", 2),
+        ];
+        assert_eq!(lit_driven(TALL, named_groups(), &reads), [0]);
+    }
+
+    /// **A row a remote read wrote below its span, coming back up after,
+    /// stays dark under the prompt that lands there** (F5): the read is
+    /// filed over every line its record says it reached, the row below
+    /// included ([`below_and_back`]). In two shapes: `logout` in ssh's read
+    /// and the prompt in a read of its own, filed as the shell's; and
+    /// `logout`, the `D` and the prompt in one read, which the cut reaches
+    /// the row through. Named break: file each read only from the line it
+    /// began on to the line it ended on, leaving out the lines its record
+    /// says it reached off that path -- row 2 lights in both.
+    #[test]
+    fn a_row_written_below_a_remote_reads_span_stays_dark() {
         let [start, remote, logout, prompt] = below_and_back();
         let exit = [logout.as_slice(), &prompt].concat();
-        let shapes = [
-            lit_reads(
-                named_groups(),
-                &[
-                    read(&start, 1),
-                    read(&remote, 9),
-                    read(&logout, 9),
-                    read(&prompt, 1),
-                ],
-            ),
-            lit_reads(
-                named_groups(),
-                &[read(&start, 1), read(&remote, 9), read(&exit, 1)],
-            ),
+        let own = lit_reads(
+            named_groups(),
+            &[
+                read(&start, 1),
+                read(&remote, 9),
+                read(&logout, 9),
+                read(&prompt, 1),
+            ],
+        );
+        assert_eq!(own, Vec::<usize>::new(), "the prompt in a read of its own");
+        let cut = lit_reads(
+            named_groups(),
+            &[read(&start, 1), read(&remote, 9), read(&exit, 1)],
+        );
+        assert_eq!(cut, Vec::<usize>::new(), "the prompt behind the cut");
+    }
+
+    /// **A read that leaves the alternate screen is filed on the lines it
+    /// wrote there** (N1): under `ssh`, a remote read switches to the
+    /// alternate screen (`?47h`, which keeps the cursor on row 1), and the
+    /// next writes `/etc/passwd` on its row 1 and switches back (`?47l`) in
+    /// the same read; the shell then shows the alternate screen again, its
+    /// text kept, and moves to the top. Row 1 stays dark. Named break: file
+    /// a read that ends on another screen than it began on nowhere, as one
+    /// span from line to line could not -- row 1 lights.
+    #[test]
+    fn a_read_that_leaves_the_alternate_screen_files_what_it_wrote_there() {
+        let reads = [
+            read(b"$ ssh h\r\n", 1),
+            read(b"\x1b[?47h", 9),
+            read(b"/etc/passwd\r\n\x1b[?47l", 9),
+            read(b"\x1b[?47h", 1),
+            read(b"\x1b[1;1H", 1),
         ];
-        pending(
-            LinkStage::CoreRecord,
-            shapes,
-            [vec![2], vec![2]],
-            [Vec::new(), Vec::new()],
+        assert_eq!(
+            lit_driven(TALL, named_groups(), &reads),
+            Vec::<usize>::new()
         );
     }
 
-    /// **Pending on the core record (H1): after a full-screen program that
-    /// scrolled, the primary's rows are looked up lines off, and a remote
-    /// row reads a local row's writer.** `/etc/passwd` printed under `ssh`,
-    /// then a local `less` on the alternate screen scrolls it two lines and
-    /// quits, and the shell's prompt. The drivers number the window by one
-    /// count that the alternate screen's scrolling moves too, and leaving
-    /// it moves nothing back, so row 0 is looked up as a line `less` wrote,
-    /// and lights. Once each screen keeps its own count it stays dark.
-    /// Expected-red ([`pending`]).
+    /// **After a full-screen program that scrolled, the primary's rows are
+    /// looked up on their own lines** (H1): `/etc/passwd` printed under
+    /// `ssh`, then a local `less` on the alternate screen scrolls it two
+    /// lines and quits, and the shell's prompt; row 0 stays dark, numbered
+    /// as the drivers number it (`keep::Counts`). So it does with two local
+    /// lines under it before `less`, the second the one two lines down.
+    /// Named break: the primary's count moved by the alternate screen's
+    /// scrolling too, as one count for both screens was, and never moved
+    /// back -- the second shape's row 0 is looked up two lines down, on
+    /// ` x`, and lights.
     #[test]
-    fn pending_core_record_a_remote_row_after_a_scrolled_pager() {
+    fn a_remote_row_after_a_scrolled_pager_stays_dark() {
         let groups = || {
             let mut f = named_groups();
             f.groups.insert(3, vec!["less".into()]);
             f
         };
+        let pager = [
+            read(b"\x1b[?1049h", 3),
+            read(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\n", 3),
+            read(b"\x1b[?1049l", 3),
+            read(b"$ ", 1),
+        ];
+        let under = [
+            read(b"/etc/passwd\r\n", 9),
+            read(b"$ ls\r\n", 1),
+            read(b"$ less x\r\n", 1),
+        ];
+        let reads = [under.as_slice(), &pager].concat();
+        assert_eq!(
+            lit_driven(TALL, groups(), &reads),
+            Vec::<usize>::new(),
+            "two local lines under it"
+        );
         let reads = [
             read(b"/etc/passwd\r\n", 9),
             read(b"$ less x\r\n", 1),
@@ -6515,19 +7631,119 @@ mod tests {
             "the control: a count that does not drift"
         );
         let lit = lit_driven(TALL, groups(), &reads);
-        pending(LinkStage::CoreRecord, lit, vec![0], Vec::new());
+        assert_eq!(lit, Vec::<usize>::new(), "row 0 after the pager");
     }
 
-    /// **Pending on the core record (H2): text a later local program moves
-    /// keeps the writer of the row it lands on.** `ssh h` run, and
-    /// `/etc/passwd` printed under it on row 1; it ends, and the shell's
-    /// prompt follows on row 2, the shell's by its marks; then a local
-    /// program inserts a line at row 1 (`CSI L`), which moves the remote
-    /// text onto row 2, a row only the shell wrote, and it lights. Once the
-    /// core records moved rows, filed with the most cautious writer they
-    /// held, it stays dark. Expected-red ([`pending`]).
+    /// **A clear of the alternate screen takes its facts, and an answer
+    /// about the text it took is filed nowhere**: a local `less` (group 3)
+    /// writes `/etc/passwd` on the alternate screen's row 2, its group's
+    /// answer still to come; it leaves and enters again (`?1049l ?1049h`,
+    /// which clears the screen and starts its count again); then text no
+    /// read filed lands on row 2, and the answer naming group 3 local
+    /// arrives -- the row stays dark, though its number is the one the
+    /// answer's span names. The control: no clear, the cursor moved
+    /// instead, and the row keeps its local writer. Named breaks: no clear
+    /// filed (`Paths::alternate_cleared` not called) -- the row lights; an
+    /// answer of an earlier epoch filed in the store as it is now
+    /// (`Paths::store_mut` reading no epoch) -- the row lights.
     #[test]
-    fn pending_core_record_remote_text_moved_onto_a_local_row() {
+    fn an_answer_about_alternate_text_a_clear_took_is_filed_nowhere() {
+        let groups = || {
+            let mut f = named_groups();
+            f.groups.insert(3, vec!["less".into()]);
+            f
+        };
+        let then = |between: &'static [u8]| {
+            let reads = [
+                read(b"$ less x\r\n", 1),
+                read(b"\x1b[?1049h", 3),
+                read(b"\x1b[3;1H/etc/passwd", 3),
+                read(between, 3),
+                Read {
+                    sampled: Sampled::Unfiled,
+                    ..read(b"\x1b[3;1H/etc/passwd", 9)
+                },
+            ];
+            lit_driven(TALL, groups(), &reads)
+        };
+        assert_eq!(then(b"\x1b[1;1H"), [2], "the control: no clear");
+        assert_eq!(
+            then(b"\x1b[?1049l\x1b[?1049h"),
+            Vec::<usize>::new(),
+            "after a clear"
+        );
+    }
+
+    /// **Each alternate-screen row is looked up by its own text across a
+    /// change of height**: a local `less` (group 3) writes `/etc/passwd` on
+    /// row 3, `ssh` (group 9) writes `/etc/hosts` on row 4 and puts the
+    /// cursor on the bottom row; the window shrinks to five rows, then grows
+    /// back to eight. Both rows fit five whether the core cuts the bottom
+    /// rows or scrolls the top ones away, and whichever it does, the rows
+    /// lit are the rows holding the local text: the resize's record moves
+    /// the alternate screen's count (`keep::kept_across_resize`), with no
+    /// read after the resize to move it. The core cuts the bottom and moves
+    /// no row today, so the named break -- the counts moved at the resize
+    /// with no record (`Counts::numbered(term, None)`) -- turns this red only
+    /// under a core that scrolls the top rows away instead: perturbed so,
+    /// the remote row is looked up on the number the local one had, and
+    /// lights.
+    #[test]
+    fn alternate_rows_are_looked_up_by_their_text_across_a_change_of_height() {
+        let groups = || {
+            let mut f = named_groups();
+            f.groups.insert(3, vec!["less".into()]);
+            f
+        };
+        let reads = [
+            read(b"$ less x\r\n", 1),
+            read(b"\x1b[?1049h", 3),
+            read(b"\x1b[4;1H", 3),
+            read(b"/etc/passwd\r\n", 3),
+            Read {
+                then: Then::Resize(40, 5),
+                ..read(b"/etc/hosts\x1b[8;1H", 9)
+            },
+            // No byte: nothing but the resize moves the count.
+            Read {
+                then: Then::Resize(40, 8),
+                ..read(b"", 9)
+            },
+        ];
+        let holding = |t: &Term<'_>, what: &str| -> Vec<usize> {
+            (0..t.geometry().1.index())
+                .filter(|&y| {
+                    let row = t.row(baud_domain::Row::from_index(y)).expect("a row");
+                    let text: String = row
+                        .iter()
+                        .filter_map(|c| c.content.as_codepoint())
+                        .filter_map(|c| char::from_u32(c.value()))
+                        .collect();
+                    text.contains(what)
+                })
+                .collect()
+        };
+        let (lit, _, (local, remote)) =
+            taken_numbered(TALL, groups(), &reads, None, Numbering::Driven, |t, _| {
+                (holding(t, "/etc/passwd"), holding(t, "/etc/hosts"))
+            });
+        assert!(
+            !local.is_empty() && !remote.is_empty(),
+            "both texts on the screen: {local:?} {remote:?}"
+        );
+        assert_eq!(lit, local, "the local rows, and only they, light");
+    }
+
+    /// **Text a later local program moves keeps the writer of the row it
+    /// came from** (H2): `ssh h` run, and `/etc/passwd` printed under it on
+    /// row 1; it ends, and the shell's prompt follows on row 2, the shell's
+    /// by its marks; then a local program inserts a line at row 1 (`CSI
+    /// L`), which moves the remote text onto row 2, a row only the shell
+    /// wrote. The row stays dark: the line it landed on takes the most
+    /// cautious writer of the lines its text came from (`Paths::carried`).
+    /// Named break: carry nothing -- row 2 lights.
+    #[test]
+    fn remote_text_moved_onto_a_local_row_stays_dark() {
         let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
         let moved = |local: &[u8]| {
             lit_reads(
@@ -6545,68 +7761,1544 @@ mod tests {
             Vec::<usize>::new(),
             "the control: nothing moved"
         );
-        pending(
-            LinkStage::CoreRecord,
-            moved(b"\x1b[2;1H\x1b[L"),
-            vec![2],
-            Vec::new(),
-        );
+        assert_eq!(moved(b"\x1b[2;1H\x1b[L"), Vec::<usize>::new(), "moved");
     }
 
-    /// **Pending on the core record (H3): a line feed that cannot move the
-    /// cursor still leaves its row to the next writer.** Under `ssh h`, a
-    /// scrolling region over the top rows and the cursor on the row above
-    /// the last; then a read of a line feed, a path on the last row, and a
-    /// carriage return and line feed -- which, the cursor on the last row
-    /// below the region, does not move it. The read is filed as if its
-    /// final line feed had left the last row clean, so the shell's prompt
-    /// written there next, the shell's by its marks, makes the row the
-    /// shell's, and the path lights. Once the core records that the line
-    /// feed did not move, the row stays the remote read's. Expected-red
-    /// ([`pending`]).
+    /// **Each line a read's moves wrote is filed from the lines as they
+    /// stood before the read** (C2, P4). Under `IL`: `ssh h`'s
+    /// `/etc/passwd` on row 1, the shell's `% ls` on row 2 and `ls`'s
+    /// `/etc/hosts` on row 3; a local `IL` at row 1 moves each down a row,
+    /// and `/etc/hosts` lights on row 4, its text and the row's own both
+    /// local before the read. Under `DL`, the mirror: `/etc/hosts` on row
+    /// 1, `% ssh h` on row 2 and `/etc/passwd` on row 3, and a `DL` at row
+    /// 0 moves each up a row, `/etc/hosts` lighting on row 0. A local
+    /// region over rows 1-5 and an `SD` in it, the cursor below it, lights
+    /// the path on row 4 too, and the same `SD` by `ssh` leaves it dark.
+    /// Named break: file each line as it is found, so a line the move
+    /// filled is read as the next one's source with what the move put
+    /// there -- the path goes dark under `IL` walked down or under `DL`
+    /// walked up.
     #[test]
-    fn pending_core_record_a_line_feed_that_does_not_move() {
+    fn moved_lines_are_filed_from_the_lines_before_the_read() {
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let after = |line: &str, fields: &str| [d.as_slice(), &ran(line, fields)].concat();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let ls = ran("ls", ";cmdline=ls");
+        let ssh_after = after("ssh h", ";cmdline=ssh\\ h");
+        let ls_after = after("ls", ";cmdline=ls");
+        let prompt = prompt_after("");
+        let by = |reads: [(&[u8], Pid); 4], (set, edit): (&[u8], &[u8]), group: Pid| {
+            let mut all: Vec<_> = reads.iter().map(|&(b, g)| read(b, g)).collect();
+            all.push(read(&prompt, 1));
+            all.push(Read {
+                then: Then::Answered,
+                ..read(set, 2)
+            });
+            all.push(read(edit, group));
+            lit_driven(TALL, named_groups(), &all)
+        };
+        let at = |reads, edit| by(reads, (b"", edit), 2);
+        let il = [
+            (ssh.as_slice(), 1),
+            (b"/etc/passwd\r\n".as_slice(), 9),
+            (ls_after.as_slice(), 1),
+            (b"/etc/hosts\r\n".as_slice(), 2),
+        ];
+        assert_eq!(at(il, b"\x1b[9;1H"), [3], "the control: nothing moved");
+        assert_eq!(at(il, b"\x1b[2;1H\x1b[L"), [4], "IL");
+        let region = b"\x1b[1;5r\x1b[6;1H".as_slice();
+        assert_eq!(by(il, (region, b"\x1b[T"), 2), [4], "SD in a region");
+        assert_eq!(
+            by(il, (region, b"\x1b[T"), 9),
+            Vec::<usize>::new(),
+            "SD in a region by ssh"
+        );
+        let dl = [
+            (ls.as_slice(), 1),
+            (b"/etc/hosts\r\n".as_slice(), 2),
+            (ssh_after.as_slice(), 1),
+            (b"/etc/passwd\r\n".as_slice(), 9),
+        ];
+        assert_eq!(at(dl, b"\x1b[9;1H"), [1], "the control: nothing moved");
+        assert_eq!(at(dl, b"\x1b[1;1H\x1b[M"), [0], "DL");
+    }
+
+    /// **The rows under a region anchored at the top keep their writers as
+    /// it scrolls** (H5): a scroll of a region at the top retires its first
+    /// line into the history, and the rows under it keep their text and
+    /// take new numbers, each the number of the row under it. Under `ssh
+    /// h`, `/etc/passwd` on row 7; the shell's `% ls` on row 8 and `ls`'s
+    /// `/etc/hosts` on row 9; then a local program sets a region over rows
+    /// 1-5 and leaves the cursor on its last row, and a local line feed
+    /// there scrolls it a line. Row 7 stays dark and row 9 stays lit; the
+    /// same line feed by `ssh` darkens row 9, a move filed under its own
+    /// writer as well. Named breaks: carry nothing -- row 7, numbered as row 8 was,
+    /// lights; file no move's lines under the read's own writer -- `ssh`'s
+    /// line feed leaves row 9 lit.
+    #[test]
+    fn rows_under_a_top_region_keep_their_writers_as_it_scrolls() {
         let ws = WinSize {
             ws_col: 40,
-            ws_row: 10,
+            ws_row: 12,
         };
-        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
-        let at = |region: &[u8]| {
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let ls_after = [d.as_slice(), &ran("ls", ";cmdline=ls")].concat();
+        let prompt = prompt_after("");
+        let by = |edit: &[u8], group: Pid| {
             let ws = WinSize {
                 ws_col: ws.ws_col,
                 ws_row: ws.ws_row,
             };
             let reads = [
-                read(&start, 1),
-                read(region, 9),
-                read(b"\n   /etc/passwd\r\n", 9),
+                read(&ssh, 1),
+                read(b"\n\n\n\n\n\n/etc/passwd\r\n", 9),
+                read(&ls_after, 1),
+                read(b"/etc/hosts\r\n", 2),
                 read(&prompt, 1),
+                Read {
+                    then: Then::Answered,
+                    ..read(b"\x1b[1;5r\x1b[5;1H", 2)
+                },
+                read(edit, group),
             ];
-            taken_on(ws, named_groups(), &reads).0
+            let (lit, origins, ()) = taken_numbered(
+                ws,
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |_, _| (),
+            );
+            (lit, origins)
+        };
+        let at = |edit| by(edit, 2);
+        assert_eq!(at(b"").0, [9], "the control: nothing moved");
+        let (lit, origins) = at(b"\n");
+        assert_eq!(lit, [9], "{origins:?}");
+        let (lit, origins) = by(b"\n", 9);
+        assert_eq!(lit, Vec::<usize>::new(), "by ssh: {origins:?}");
+    }
+
+    /// **A local read of many lines under a region anchored at the top
+    /// keeps the history it makes lit, and a remote row it moves dark**
+    /// (M1): `ssh h`'s `/etc/passwd` on row 3 of a 10-row screen, then a
+    /// local program sets a region over rows 1-9 and prints `/etc/hosts`
+    /// on fifty lines at its last row, each line feed retiring the
+    /// region's top into the history and moving the row under it to the
+    /// next number. The rows `/etc/hosts` holds on the screen light, the
+    /// lines it left in the history are this machine's, and `ssh`'s line
+    /// in the history stays remote. Named break: carry each move as text
+    /// moved anywhere in its band (`Move::Within`), as a fold of every
+    /// move into one would -- the screen's rows go dark.
+    #[test]
+    fn many_lines_under_a_top_region_keep_their_writers() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let ls_after = [d.as_slice(), &ran("ls", ";cmdline=ls")].concat();
+        let prompt = prompt_after("");
+        let flood = [
+            b"\x1b[1;9r\x1b[9;1H".as_slice(),
+            &b"/etc/hosts\r\n".repeat(50),
+        ]
+        .concat();
+        let reads = [
+            read(&ssh, 1),
+            read(b"\n\n/etc/passwd\r\n", 9),
+            Read {
+                then: Then::Answered,
+                ..read(&prompt, 1)
+            },
+            read(&ls_after, 1),
+            read(&flood, 2),
+        ];
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let (lit, origins, history) = taken_numbered(
+            ws,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |_, paths| (paths.origin(at(3)), paths.origin(at(30))),
+        );
+        assert_eq!(lit, (0..8).collect::<Vec<_>>(), "{origins:?}");
+        assert_eq!(history, (Origin::Remote, Origin::Local));
+    }
+
+    /// **A page-width request resized to**, as the app's `after` resizes
+    /// to one (`width::Widths::poll`): the columns asked for, the rows of
+    /// `ws` kept.
+    fn page_width(t: &mut Term<'_>, ws: &WinSize) {
+        if let Some(w) = t.requested_width() {
+            if usize::from(w.ws_col()) != t.geometry().0.index() {
+                let _ = t.resize(&WinSize {
+                    ws_col: w.ws_col(),
+                    ws_row: ws.ws_row,
+                });
+            }
+        }
+    }
+
+    /// **One part of a drain on a terminal of `ws` in storage of `room`,
+    /// filed as the drivers file it**: the history fed first, `lines` of
+    /// it, and every line filed local (`Paths::all_written_here`), the
+    /// count started before the history or, `late`, after it; then
+    /// `bytes`, under a writer no one named, a page-width request resized
+    /// to as the app resizes to one (`WidthHold::On`). What the drain
+    /// leaves line 0, in the history, to read as.
+    fn renumbered_by(
+        (ws, room): (&WinSize, &WinSize),
+        (lines, late): (usize, bool),
+        bytes: &[u8],
+    ) -> Origin {
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(room);
+        let mut t = Term::new(owned.storage(), ws);
+        t.set_width_hold(baud_core::WidthHold::On);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let mut counts = crate::keep::Counts::new(&t);
+        for n in 0..lines {
+            let line = format!("line {n:02}\r\n");
+            t.write_at(BytePos::ZERO, line.as_bytes());
+            t.feed(BytePos::ZERO, ReadLen::from_index(line.len()));
+        }
+        let _ = t.take_record();
+        match late {
+            true => counts = crate::keep::Counts::new(&t),
+            false => {
+                let _ = counts.numbered(&t, None);
+            }
+        }
+        paths.all_written_here();
+        let began = paths.line_on(t.screen(), AbsLine::at(Rows::ZERO));
+        let mut pace = crate::reads::Pace::new();
+        let mut took = Vec::new();
+        let _ = crate::reads::paced(
+            &mut t,
+            &mut pace,
+            Instant::now(),
+            [(bytes, Sampler::default().unasked())],
+            |_| {},
+            |t| page_width(t, ws),
+            &mut crate::hostlog::NoLog,
+            &mut took,
+        );
+        let rec = took.iter().rev().find_map(|w| w.record);
+        let _ = counts.numbered(&t, rec.as_ref());
+        pr.drain_taken(
+            &mut paths,
+            &t,
+            (began, began),
+            counts.core_lines(&t),
+            took.into_iter().map(|w| (w, Linked::No)),
+        );
+        paths.origin(AbsLine::at(Rows::ZERO))
+    }
+
+    /// **A page-width request among a read's parts leaves every line its
+    /// re-cut renumbered not known** (N2, P1): twenty lines of history on
+    /// a 40-column window, every line filed local, then a read that asks
+    /// for 132 columns -- by `DECSCPP`, or by `DECCOLM` under `?40` --
+    /// which the app resizes to between the read's parts. Line 0, in the
+    /// history, is not known, a local fact filed over it after included.
+    /// The control: a read of text alone leaves it local. Named break: file
+    /// nothing for a part the core says renumbered the lines -- line 0
+    /// stays local, under either request.
+    #[test]
+    fn a_page_width_request_among_a_reads_parts_darkens_what_it_renumbered() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let room = WinSize {
+            ws_col: 132,
+            ws_row: 6,
         };
         assert_eq!(
-            at(b"\x1b[1;5r\x1b[8;1H"),
-            Vec::<usize>::new(),
-            "the control: a row higher, the last line feed moves"
+            renumbered_by((&ws, &room), (20, false), b"x"),
+            Origin::Local,
+            "the control: no request"
         );
-        pending(
-            LinkStage::CoreRecord,
-            at(b"\x1b[1;5r\x1b[9;1H"),
-            vec![9],
-            Vec::new(),
+        assert_eq!(
+            renumbered_by((&ws, &room), (20, false), b"one\r\n\x1b[132$|two"),
+            Origin::Unknown,
+            "DECSCPP"
+        );
+        assert_eq!(
+            renumbered_by((&ws, &room), (20, false), b"one\r\n\x1b[?40h\x1b[?3htwo"),
+            Origin::Unknown,
+            "DECCOLM"
         );
     }
 
-    /// **Pending on the core record (H4): a resize that re-wraps lines
-    /// moves text whose writer baud could not name onto a row a local
-    /// program wrote.** A local line wrapped over rows 0 and 1, then
+    /// **The parts of one drain are each placed by their own top, across
+    /// a screen switch and a re-cut between them** (D1): history, then one
+    /// drain of three reads: a switch to the alternate screen and back, a
+    /// page-width request the harness resizes to (`DECSCPP`), and eight
+    /// lines and `/etc/passwd`, which retire lines past the window the
+    /// re-cut renumbered and land on lines it numbered. `/etc/passwd`
+    /// lights where it is, and written by `ssh` it stays dark. Two re-cuts:
+    /// to 132 columns from 40 over `ls`'s `/etc/hosts`, which leaves the
+    /// window's top where it was, and to 80 from 132 over ten lines of 100
+    /// columns, which wraps each and moves the top by its own renumbering
+    /// -- checked first on a terminal of its own. The control: the same
+    /// drain with no request. Named break: number a part's top by the
+    /// batch's count as it began -- `/etc/passwd`'s line is filed off its
+    /// own, and it goes dark, after either re-cut.
+    #[test]
+    fn the_parts_of_a_drain_are_placed_across_a_switch_and_a_re_cut() {
+        let wide = [[b'x'; 100].as_slice(), b"\r\n"].concat().repeat(10);
+        // The re-cut to 80 columns moves the window's top.
+        let (ws, narrow) = (
+            WinSize {
+                ws_col: 132,
+                ws_row: 6,
+            },
+            WinSize {
+                ws_col: 80,
+                ws_row: 6,
+            },
+        );
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.write_at(BytePos::ZERO, &wide);
+        t.feed(BytePos::ZERO, ReadLen::from_index(wide.len()));
+        let mark = t.history_mark();
+        let _ = t.resize(&narrow);
+        assert!(
+            matches!(t.history_moved_since(mark), baud_core::Moved::Retired(n) if n.index() > 0),
+            "the re-cut moved the top: {:?}",
+            t.history_moved_since(mark)
+        );
+        let flood = [b"a\r\n".repeat(8).as_slice(), b"/etc/passwd\r\n"].concat();
+        let lit = |(cols, history): (u16, &[u8]), request: &[u8], group: Pid| {
+            let ws = WinSize {
+                ws_col: cols,
+                ws_row: 6,
+            };
+            let reads = [
+                read(history, 2),
+                read(b"\x1b[?1049hx\x1b[?1049l", 2),
+                Read {
+                    drain: Drain::Same,
+                    ..read(request, 2)
+                },
+                Read {
+                    drain: Drain::Same,
+                    ..read(&flood, group)
+                },
+            ];
+            lit_driven(ws, named_groups(), &reads)
+        };
+        for (from, request) in [
+            ((40, b"/etc/hosts\r\n".as_slice()), b"\x1b[132$|".as_slice()),
+            ((132, wide.as_slice()), b"\x1b[80$|".as_slice()),
+        ] {
+            let cols = from.0;
+            assert_eq!(lit(from, b"", 2), [4], "{cols}: the control, no request");
+            assert_eq!(
+                lit(from, request, 2),
+                [4],
+                "{cols}: a re-cut between the parts"
+            );
+            assert_eq!(lit(from, request, 9), Vec::<usize>::new(), "{cols}: by ssh");
+        }
+    }
+
+    /// **A full-screen scroll down that takes lines back keeps every fact
+    /// on its line, unless it takes back past the count's first line**
+    /// (Restored): ten lines on a six-row window, filed local, then `SD 3`
+    /// (`CSI 3 T`), which takes three lines back from the history. With
+    /// the count started before the history, it follows, and line 0 stays
+    /// local. With the count started over the history, at its first line,
+    /// it clamps there (`PastStart`), and every line up to the window's
+    /// last before the clamp is not known. Named break: file nothing for a
+    /// clamp -- line 0 stays local.
+    #[test]
+    fn a_take_back_keeps_its_facts_unless_it_passes_the_first_line() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        assert_eq!(
+            renumbered_by((&ws, &ws), (10, false), b"\x1b[3T"),
+            Origin::Local,
+            "followed"
+        );
+        assert_eq!(
+            renumbered_by((&ws, &ws), (10, true), b"\x1b[3T"),
+            Origin::Unknown,
+            "past the first line"
+        );
+    }
+
+    /// **A read is cut at the shell's `D` only where the records of the
+    /// parts before it vouch they wrote forward** (`vouch::CutAt`): under
+    /// `ssh h`, one read, sampled with the shell in front, of `ssh`'s last
+    /// bytes, the shell's `D` and a prompt with `/etc/hosts` typed at it.
+    /// After `logout` and a line feed the cut is taken, and the prompt's
+    /// path lights; after `logout`, a climb (`CSI A`) and two line feeds,
+    /// which leave the prompt's row below every row the climb reached, the
+    /// cut is refused and the read filed whole under `ssh`'s verdict, the
+    /// prompt with it, dark. Named break: take the cut whatever the records
+    /// vouch -- the prompt's path lights after the climb.
+    #[test]
+    fn a_read_is_cut_only_where_its_parts_before_vouch() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let prompt = prompt_after("/etc/hosts");
+        let lit = |remote: &[u8]| {
+            let read_ = [remote, &prompt].concat();
+            let reads = [read(&start, 1), read(b"x\r\n", 9), read(&read_, 1)];
+            !lit_reads(named_groups(), &reads).is_empty()
+        };
+        assert!(lit(b"logout\r\n"), "the control: forward only, cut");
+        assert!(!lit(b"logout\x1b[A\r\n\r\n"), "a climb");
+    }
+
+    /// **Text after a remote read's last line feed stays the read's**
+    /// (`vouch::Below`, its end row): under `ssh h`, a read of a line and
+    /// `/etc/passwd` after its line feed, with none after it, then the
+    /// shell's `D` and prompt on the same row, in a read of its own or
+    /// behind the cut in the same read. The row stays dark: the line the
+    /// read ended on holds what it wrote, so it is the read's. The control:
+    /// the read ending on its line feed, the path on the row above, dark,
+    /// and the prompt's row the shell's. Named break: vouch the end line
+    /// clean whatever its row holds -- the path lights after the prompt's
+    /// own read.
+    #[test]
+    fn text_after_a_remote_reads_last_line_feed_stays_the_reads() {
+        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
+        let lit = |remote: &[u8]| {
+            let both = [remote, &prompt].concat();
+            [
+                lit_reads(
+                    named_groups(),
+                    &[read(&start, 1), read(remote, 9), read(&prompt, 1)],
+                ),
+                lit_reads(named_groups(), &[read(&start, 1), read(&both, 9)]),
+            ]
+        };
+        assert_eq!(
+            lit(b"x\r\n/etc/passwd\r\n"),
+            [Vec::<usize>::new(), Vec::new()],
+            "the control"
+        );
+        assert_eq!(lit(b"x\r\n/etc/passwd"), [Vec::<usize>::new(), Vec::new()]);
+    }
+
+    /// Whether a terminal fed `bytes` whole records a `C`.
+    fn core_reads_c(bytes: &[u8]) -> bool {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let _ = t.take_record();
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        t.take_record().marks().iter().any(|m| m.letter == b'C')
+    }
+
+    /// The shell's `C` naming `cat y` here, with the window's token, ended
+    /// by `end`, `BEL` or `ST`.
+    fn cat_here(end: &[u8]) -> Vec<u8> {
+        [
+            format!("\x1b]133;C;baud_token={TOKEN};cmdline=cat\\ y").as_bytes(),
+            end,
+        ]
+        .concat()
+    }
+
+    /// **After a mark the app read and the core did not, the window's marks
+    /// are not trusted** (`vouch::Latch`): an unterminated kitty graphics
+    /// command (`ESC _ G a=d;`, as mpv leaves one at its exit), then the
+    /// shell's `C` naming `cat y` here with its token, and a `ST` -- which
+    /// the core reads inside the command's body, so it runs no `C`, where
+    /// the app's scan reads one and believes `cat` runs here -- cut into
+    /// two reads at every byte, the `C` ended by `BEL` and by `ST`; then a
+    /// writer gone before it was named prints `/etc/hosts`. The row lights
+    /// only where the core read the `C` too: what the core reads decides,
+    /// so this holds under any reading of the command's body. The control:
+    /// no graphics command, the `C` read by both, and the row lit under
+    /// `cat`. Named break: no latch (`Probes::latched` trusting every part)
+    /// -- the gone writer is lifted under the `C` the core never ran.
+    #[test]
+    fn a_mark_the_core_did_not_read_leaves_the_window_untrusted() {
+        let lit = |first: &[u8], cut: usize| {
+            !lit_reads(
+                named_groups(),
+                &[
+                    read(&first[..cut], 1),
+                    read(&first[cut..], 1),
+                    read(b"/etc/hosts", 6),
+                ],
+            )
+            .is_empty()
+        };
+        for end in [b"\x07".as_slice(), b"\x1b\\"] {
+            let st = end.len() == 2;
+            let control = cat_here(end);
+            assert!(lit(&control, control.len()), "the control, st {st}");
+            let first = [b"\x1b_Ga=d;".as_slice(), &cat_here(end), b"\x1b\\"].concat();
+            let core = core_reads_c(&first);
+            for cut in 0..=first.len() {
+                assert_eq!(lit(&first, cut), core, "st {st}, cut at {cut}");
+            }
+        }
+    }
+
+    /// **A mark both sides read does not re-sync the window unless it is the
+    /// shell's `D`** (`vouch::Resync`): after the drift above, a `C` with
+    /// no token naming `cat y` -- read by the core and the scan alike,
+    /// which leaves the scan's belief that `cat` runs here as it was --
+    /// then a writer gone before it was named prints `/etc/hosts`: dark.
+    /// Named break: re-sync on any part whose marks match and hold one --
+    /// the gone writer is lifted under the drifted `C`.
+    #[test]
+    fn a_matched_mark_that_is_not_the_shells_d_leaves_the_window_untrusted() {
+        let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\"].concat();
+        assert!(!core_reads_c(&drift), "the core runs no C here");
+        let tokenless = b"\x1b]133;C;cmdline=cat\\ y\x07";
+        let lit = lit_reads(
+            named_groups(),
+            &[read(&drift, 1), read(tokenless, 1), read(b"/etc/hosts", 6)],
+        );
+        assert_eq!(lit, Vec::<usize>::new());
+    }
+
+    /// **The shell's `D` with its token re-syncs the window** (`vouch::Resync`):
+    /// after the drift above and a line feed, the shell's `D` and a prompt,
+    /// then its `C` naming `cat y` here with its token, then a writer gone
+    /// before it was named printing `/etc/hosts`, which lights under `cat`
+    /// as it does with no drift. The rows the drifted bytes reached stay
+    /// theirs: the line they ended on is no prompt's to vouch clean. Named
+    /// break: no part re-syncs (`Resync::of` always none) -- the gone
+    /// writer is not lifted.
+    #[test]
+    fn the_shells_d_re_syncs_the_window() {
+        let lit = |first: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(&[first, b"\r\n"].concat(), 6),
+                    read(&prompt_after("x\r\n"), 1),
+                    read(&cat_here(b"\x07"), 1),
+                    read(b"/etc/hosts", 6),
+                ],
+            )
+        };
+        let control = lit(&cat_here(b"\x07"));
+        assert_eq!(control, [2], "the control: no drift");
+        let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\"].concat();
+        assert_eq!(lit(&drift), control);
+    }
+
+    /// **The shell's `D` inside a picture's body does not re-sync the
+    /// window** (`vouch::Resync`, its match first): after the drift above,
+    /// the shell's `D` with its token and its prompt inside a kitty
+    /// graphics command left open, where the core runs no mark and the
+    /// scan reads the `D` and the token, and a `ST`; then its `C` naming
+    /// `cat y` with the token, and a writer gone before it was named
+    /// printing `/etc/hosts`: dark, the window still drifted. The control:
+    /// no graphics command around the `D`, lit. Named breaks, together:
+    /// `Resync::of` without its match and `Latch::step` without its own
+    /// arm for a part that does not match -- the payload's `D` re-syncs;
+    /// either alone is held by the other. Each layer is pinned alone
+    /// elsewhere: the match by `vouch`'s
+    /// `a_tokened_d_in_a_pictures_body_does_not_re_sync`, and the latch's
+    /// arm by `a_mark_the_core_did_not_read_leaves_the_window_untrusted`.
+    #[test]
+    fn the_shells_d_in_a_pictures_body_does_not_re_sync() {
+        let drift = [b"\x1b_Ga=d;".as_slice(), &cat_here(b"\x07"), b"\x1b\\\r\n"].concat();
+        let lit = |d: &[u8]| {
+            !lit_reads(
+                named_groups(),
+                &[
+                    read(&drift, 6),
+                    read(d, 1),
+                    read(&cat_here(b"\x07"), 1),
+                    read(b"/etc/hosts", 6),
+                ],
+            )
+            .is_empty()
+        };
+        let d = prompt_after("x\r\n");
+        assert!(lit(&d), "the control");
+        let inside = [b"\x1b_Ga=d;".as_slice(), &d, b"\x1b\\"].concat();
+        assert!(!core_reads_c(&inside) && !lit(&inside));
+    }
+
+    /// **A row written below and climbed back from is off the read's
+    /// path** (E5, the climb's own line): under `ssh h`, a read that writes
+    /// `/etc/passwd` a row down, past where the prompt will draw, climbs
+    /// back (`CSI A`), and writes `logout` and a line feed onto the
+    /// `/etc/passwd` row, then the shell's `D` and prompt there -- in a
+    /// read of its own, and in the same read behind the cut. The row stays
+    /// dark: the climb recorded the row it left, so the line the read
+    /// ended on is off its path, and the cut is refused. The control: no
+    /// climb, the prompt's path lights. Named breaks, together: a climb
+    /// records only the row it lands on (`Paint::record_climb`) and
+    /// `Below::of` blind to the end row -- the `/etc/passwd` row lights
+    /// after the prompt's own read. Each alone is held by the other: the
+    /// end row holds `/etc/passwd`; and behind the cut, the climb's
+    /// landing row is off the path still, which refuses it. Each layer is
+    /// pinned alone elsewhere: the climb's record by the core's
+    /// `a_climb_records_down_to_the_lowest_row_the_cursor_reached`
+    /// (`read_record.rs`), and the end row by `vouch`'s
+    /// `below_vouches_only_where_the_record_does` (its `foo\r\nbar` case).
+    #[test]
+    fn a_row_climbed_back_from_stays_the_reads() {
+        let start = ran("ssh h", ";cmdline=ssh\\ h");
+        let lit = |remote: &[u8], typed: &str| {
+            let prompt = prompt_after(typed);
+            let both = [remote, &prompt].concat();
+            [
+                !lit_reads(
+                    named_groups(),
+                    &[read(&start, 1), read(remote, 9), read(&prompt, 1)],
+                )
+                .is_empty(),
+                !lit_reads(named_groups(), &[read(&start, 1), read(&both, 1)]).is_empty(),
+            ]
+        };
+        assert_eq!(
+            lit(b"logout\r\n", "/etc/hosts"),
+            [true, true],
+            "the control"
+        );
+        assert_eq!(
+            lit(b"\n\x1b[5G/etc/passwd\x1b[A\rlogout\r\n", ""),
+            [false, false]
+        );
+    }
+
+    /// **A column inserted across the region writes every row of it**
+    /// (H6, `DECBI` at the left margin): `ls` prints `/etc/hosts` on the
+    /// first row; then, under `ssh h`, the remote program's `ESC 6` at the
+    /// left margin of the last row shifts every row of the region right, the
+    /// first included. The first row goes dark: the remote program moved
+    /// its text. The control: the remote program writes on its own row,
+    /// and the first row keeps its line. Named break: `DECBI` records no
+    /// rows (`Paint::shift_columns_at` without `wrote_rows`) -- the first
+    /// row stays lit.
+    #[test]
+    fn a_remote_back_index_at_the_margin_writes_every_row() {
+        let lit = |remote: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(b"/etc/hosts\r\n", 2),
+                    read(&ran("ssh h", ";cmdline=ssh\\ h"), 1),
+                    read(remote, 9),
+                ],
+            )
+        };
+        assert_eq!(lit(b"\x1b[5;1Hx"), [0], "the control");
+        assert_eq!(lit(b"\x1b[5;1H\x1b6"), Vec::<usize>::new());
+    }
+
+    /// **Text a region scroll moved before its writer was named is filed
+    /// where it went** (B10): `less` (named here) writes two lines; a
+    /// writer writes a path on the third row; `less`, sampled in front
+    /// again, scrolls a region of the second and third rows by one inside
+    /// the batch's settle, so the
+    /// path moves to the second row; then the batch is answered -- or a
+    /// batch is sent before the scroll and its answer taken after it.
+    /// Written by `ls`, the path lights on its new row; written by `ssh`,
+    /// it stays dark there. Named breaks: carry no line whose writer is
+    /// still to be named (`Probes::carry_pending`), so each answer files
+    /// on its read-time span -- `ssh`'s path lights on the row it moved
+    /// to; and a moved line whose writer is still to be named read as no
+    /// writer named (`Paths::worst_over`) -- `ls`'s path stays dark. The
+    /// answer carries no lines as read to file on (`Answer::seen`), so the
+    /// sent batch's answer is filed where its lines were carried or
+    /// nowhere.
+    #[test]
+    fn text_moved_before_its_writer_is_named_is_filed_where_it_went() {
+        let lit = |group: Pid, path: &[u8]| {
+            lit_driven(
+                WS,
+                named_groups(),
+                &[
+                    read(b"a\r\nb\r\n", 2),
+                    read(path, group),
+                    read(b"\x1b[m", 2),
+                    read(b"\x1b[2;3r\x1b[3;1H\nz", 2),
+                ],
+            )
+        };
+        assert_eq!(lit(2, b"/etc/hosts"), [1], "ls's path, moved");
+        assert_eq!(
+            lit(9, b"/etc/passwd"),
+            Vec::<usize>::new(),
+            "ssh's path, moved"
+        );
+        // The batch sent before the scroll, its answer taken after it.
+        let sent = |group: Pid, path: &[u8]| {
+            lit_driven(
+                WS,
+                named_groups(),
+                &[
+                    read(b"a\r\nb\r\n", 2),
+                    read(path, group),
+                    Read {
+                        then: Then::Sent,
+                        ..read(b"\x1b[m", 2)
+                    },
+                    read(b"\x1b[2;3r\x1b[3;1H\nz", 2),
+                ],
+            )
+        };
+        assert_eq!(
+            sent(2, b"/etc/hosts"),
+            [1],
+            "ls's, answered after the scroll"
+        );
+        assert_eq!(
+            sent(9, b"/etc/passwd"),
+            Vec::<usize>::new(),
+            "ssh's, answered after the scroll"
+        );
+    }
+
+    /// **The row text left before its writer was named does not take that
+    /// writer's answer** (B10, the open side): `ls` prints a path and `ssh`
+    /// one under it, both still to be named; a region scroll moves both up
+    /// a row inside the batch's settle, so the row `ls`'s path was read on
+    /// holds `ssh`'s path now; then the batch is answered -- or sent before
+    /// the scroll and answered after it. `ls`'s path lights on the row it
+    /// moved to, and `ssh`'s stays dark on the row it moved into, which
+    /// nothing but its own writer's answer files. Named breaks: carry no
+    /// line whose writer is still to be named (`Probes::carry_pending`) --
+    /// `ls`'s answer is filed on its read-time row and lights `ssh`'s path
+    /// there; and a moved line whose writer is still to be named read as no
+    /// writer named (`Paths::worst_over`) -- `ls`'s path stays dark. The
+    /// answer carries no lines as read to file on (`Answer::seen`).
+    #[test]
+    fn the_row_text_left_does_not_take_its_writers_answer() {
+        let left = |then: Then| {
+            lit_driven(
+                WS,
+                named_groups(),
+                &[
+                    read(b"a\r\nb\r\n", 2),
+                    read(b"/etc/hosts\r\n", 2),
+                    read(b"/etc/passwd", 9),
+                    Read {
+                        then,
+                        ..read(b"\x1b[m", 2)
+                    },
+                    read(b"\x1b[2;4r\x1b[4;1H\n", 2),
+                ],
+            )
+        };
+        assert_eq!(left(Then::Nothing), [1], "answered after the scroll");
+        assert_eq!(left(Then::Sent), [1], "sent before the scroll");
+    }
+
+    /// **A local answer filed over another writer's lines still to be named
+    /// does not light them** (B10, the hull): `ls` prints `/etc/passwd`,
+    /// named and looked up; `ls` writes a row and its batch goes; `ssh`
+    /// prints `/etc/passwd` on the row under it and, sampled in front again,
+    /// scrolls a region that takes that row and the next down one, so
+    /// `ls`'s lines, carried, are
+    /// the hull of where they were and where their last went, and cover
+    /// `ssh`'s path. `ls`'s answer, taken alone, lights its own path and
+    /// not `ssh`'s; `ssh`'s answer after it leaves `ssh`'s dark. The
+    /// control: the second writer `ls` too, its path lit once both are
+    /// answered. Named break: a held line read by its facts alone
+    /// (`Paths::wrote`, `Paths::origin_over`) -- `ssh`'s path lights on
+    /// `ls`'s answer.
+    #[test]
+    fn a_local_answer_over_another_writers_lines_does_not_light_them() {
+        let run = |group: Pid| {
+            lit_midway(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"\x1b[3;6r/etc/passwd\r\n", 2)
+                    },
+                    Read {
+                        then: Then::Sent,
+                        ..read(b"x\r\ny", 2)
+                    },
+                    read(b"\r\n/etc/passwd\r\n\r\n", group),
+                    read(b"\x1b[m", group),
+                    Read {
+                        then: Then::Took,
+                        ..read(b"\x1b[3;1H\x1bM\x1b[6;1H\n", group)
+                    },
+                ],
+            )
+        };
+        assert_eq!(run(2), (vec![vec![0, 3]], vec![0, 3]), "the control");
+        assert_eq!(run(9), (vec![vec![0]], vec![0]));
+    }
+
+    /// **Text still to be named that a move puts on a line filed before
+    /// takes nothing from that line** (B10, F3): `ls` prints `/etc/passwd`
+    /// and three rows, named and looked up; `ssh`, its writer still to be
+    /// named and nothing marking it, prints `/etc/passwd` under them and,
+    /// sampled in front again, scrolls the region up a row, which moves its
+    /// path onto a row `ls` wrote. Before `ssh`'s answer the path is dark,
+    /// and after it. The control: the second writer `ls`, dark until its
+    /// answer and lit after it. Named break: a moved line whose source is
+    /// still to be named held under no group (`Probes::groups_of` naming
+    /// none) -- `ssh`'s path lights before its answer on `ls`'s fact.
+    #[test]
+    fn moved_text_still_to_be_named_takes_nothing_from_where_it_lands() {
+        let run = |group: Pid| {
+            lit_midway(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"\x1b[3;5r/etc/passwd\r\na\r\nb\r\nc", 2)
+                    },
+                    read(b"\r\n/etc/passwd", group),
+                    read(b"\x1b[m", group),
+                    Read {
+                        then: Then::Took,
+                        ..read(b"\n", group)
+                    },
+                ],
+            )
+        };
+        assert_eq!(run(9), (vec![vec![0]], vec![0]));
+        assert_eq!(run(2), (vec![vec![0]], vec![0, 3]), "the control");
+    }
+
+    /// **A group still to be named writing over lines another group lit
+    /// does not light them** (G1): `ls` prints `/etc/passwd` and three
+    /// rows, named and looked up; `ssh`, unmarked and still to be named,
+    /// climbs back to the path's row, prints `/etc/passwd` over it, and
+    /// returns below, its read ending under the rows it wrote. Before
+    /// `ssh`'s answer the path is dark, and after it. The control: `ls`
+    /// rewriting its own rows, lit before and after its answer. Named
+    /// breaks: no hold on a write (`Probes::read_taken` without
+    /// `Lit::others`) -- `ssh`'s path lights before its answer on `ls`'s
+    /// fact; and the lines a read wrote taken without what its record says
+    /// it wrote off its path (`part_spans` without `off_path`) -- the same,
+    /// since the read began and ended under the row it climbed to.
+    #[test]
+    fn a_write_over_lines_another_group_lit_does_not_light_them() {
+        let run = |group: Pid| {
+            lit_midway(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 8,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"/etc/passwd\r\na\r\nb\r\nc\r\n", 2)
+                    },
+                    Read {
+                        then: Then::Took,
+                        ..read(b"\x1b[4A/etc/passwd\x1b[4B", group)
+                    },
+                ],
+            )
+        };
+        assert_eq!(run(9), (vec![vec![]], vec![]));
+        assert_eq!(run(2), (vec![vec![0]], vec![0]), "the control");
+    }
+
+    /// **A move of lines nothing wrote carries nothing** (W3): on a fresh
+    /// screen `ls` scrolls a region of never-written rows down a row, and
+    /// then prints `/etc/passwd` on one of them -- lit. The control: `ssh`
+    /// writes the region's top row first, so the move carries a remote
+    /// writer onto the row `ls` then prints on -- dark. Named break: a line
+    /// nothing was filed over read as no writer named (`Paths::worst_over`)
+    /// -- `ls`'s path stays dark.
+    #[test]
+    fn a_move_of_lines_nothing_wrote_carries_nothing() {
+        let run = |first: &[u8], group: Pid| {
+            lit_driven(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Answered,
+                        ..read(first, group)
+                    },
+                    read(b"\x1b[2;5r\x1b[2;1H\x1bM", 2),
+                    read(b"\x1b[m", 2),
+                    read(b"\x1b[3;1H/etc/passwd", 2),
+                ],
+            )
+        };
+        assert_eq!(run(b"\x1b[m", 2), [2]);
+        assert_eq!(run(b"\x1b[2;1Hx", 9), Vec::<usize>::new(), "the control");
+    }
+
+    /// **A read nothing names leaves its own lines not known** (W3): no
+    /// group sampled for it and no marks; it rewrites a line a local fact
+    /// lit, which reads not known after, and leaves the line under it, which
+    /// it did not write, local. Named break: such a read filed nowhere (the
+    /// early return in `Probes::read_taken`) -- its line keeps the local
+    /// fact.
+    #[test]
+    fn a_read_nothing_names_leaves_its_own_lines_not_known() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        paths.written_by_shell(LineSpan::of(line(0), line(1)));
+        pr.publish(&mut paths);
+        let span = LineSpan::of(line(0), line(0));
+        pr.read_taken(&mut paths, Writers::at(None), span, Linked::No);
+        let origins = [0, 1].map(|n| paths.origin(line(n)));
+        assert_eq!(origins, [Origin::Unknown, Origin::Local]);
+    }
+
+    /// **A prompt redrawn inside the pace after a fast command's `D` keeps
+    /// a path typed on it lit** (W3, F2): `ls`'s last output read asks;
+    /// the shell's `D` and prompt come within the pace, unasked, forgetting
+    /// the group sampled before; a read that redraws the prompt line comes
+    /// within the pace too, unasked, with no group sampled; then
+    /// `/etc/passwd` typed and echoed one key a read, the shell in front,
+    /// and the batch after the last key answered -- the typed path lit.
+    #[test]
+    fn a_prompt_redrawn_inside_the_pace_keeps_its_typed_path_lit() {
+        let mut f = Fake::with(&[("/etc", Entry::Dir), ("/etc/passwd", Entry::File)]);
+        f.groups.insert(1, vec!["zsh".into()]);
+        f.groups.insert(2, vec!["ls".into()]);
+        let mut batches: Vec<Vec<(u64, Vec<u8>, Pid)>> = vec![
+            vec![(0, ran("ls", ";cmdline=ls"), 1)],
+            vec![(50, b"out\r\n".to_vec(), 2)],
+            vec![(55, prompt_after(""), 1)],
+            vec![(58, b"\r\x1b[K% ".to_vec(), 1)],
+        ];
+        for (k, b) in b"/etc/passwd".iter().enumerate() {
+            let at = 200 + 100 * u64::try_from(k).expect("a key");
+            batches.push(vec![(at, vec![*b], 1)]);
+        }
+        assert_eq!(lit_on_a_timeline(f, &batches), [2]);
+    }
+
+    /// **A line written while paths were off is not known once they are on
+    /// again** (W3, F1): `ls` prints four lines, lit; paths off; `ssh`
+    /// prints `/etc/passwd` over the second, opening no link, so no answer
+    /// is kept for it; paths on; `ls` scrolls a region that moves the path a
+    /// row down, onto a line its own text lit -- dark. The control: the same
+    /// path printed by `ls` with paths on, and the same move -- lit. Named
+    /// break: no floor at the turn (`Probes::floor_off` filing nothing) --
+    /// the path lights.
+    #[test]
+    fn a_line_written_while_paths_were_off_is_not_known_after() {
+        let run = |printed: &[Read<'static>]| {
+            let mut reads = vec![
+                Read {
+                    then: Then::Paths(Turned::On),
+                    ..read(b"", 2)
+                },
+                read(b"a\r\nb\r\nc\r\nd", 2),
+            ];
+            reads.extend_from_slice(printed);
+            reads.extend([
+                read(b"\x1b[m", 2),
+                read(b"\x1b[2;4r\x1b[2;1H\x1bM\x1b[r\x1b[6;1H", 2),
+                read(b"\x1b[m", 2),
+            ]);
+            lit_driven(
+                WinSize {
+                    ws_col: 40,
+                    ws_row: 6,
+                },
+                named_groups(),
+                &reads,
+            )
+        };
+        let ssh_while_off = [
+            Read {
+                then: Then::Paths(Turned::Off),
+                ..read(b"\x1b[m", 2)
+            },
+            read(b"\x1b[2;1H/etc/passwd\x1b[6;1H", 9),
+            Read {
+                then: Then::Paths(Turned::On),
+                ..read(b"\x1b[m", 2)
+            },
+        ];
+        assert_eq!(run(&ssh_while_off), Vec::<usize>::new());
+        // The control: `ls` prints the path, paths on throughout.
+        let ls = [read(b"\x1b[2;1H/etc/passwd\x1b[6;1H", 2)];
+        assert_eq!(run(&ls), [2], "the control");
+    }
+
+    /// **A line a still-unnamed writer overwrote and scrolled into history
+    /// in one read is held there** (G1, F-G1b): the shell's `/etc/passwd`
+    /// lit on line 1; `ssh` writes `file:///etc/hosts` over it and seven
+    /// line feeds scroll it off the window -- not known until `ssh` is
+    /// named, then remote. The control: the window not scrolled, the same
+    /// line not known as well. Named break: what lit each line kept to the
+    /// window before the drain's parts read it (`Lit::keep_from` ahead of
+    /// `drain_parts`) -- line 1 reads local in history.
+    #[test]
+    fn a_line_overwritten_and_scrolled_away_in_one_read_is_held() {
+        let ws = || WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let run = |over: &'static [u8]| {
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(b"/etc/hosts\r\n$ /etc/passwd", 1)
+                },
+                Read {
+                    then: Then::Took,
+                    ..read(over, 9)
+                },
+            ];
+            let (_, origins, ()) = taken_numbered(
+                ws(),
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |_, _| (),
+            );
+            (origins_midway(ws(), named_groups(), &reads)[0][1], origins)
+        };
+        let (midway, _) = run(b"\rfile:///etc/hosts      \r\n\r\n\r\n\r\n\r\n\r\n\r\n");
+        assert_eq!(midway, Origin::Unknown, "scrolled into history");
+        let (midway, after) = run(b"\rfile:///etc/hosts      ");
+        assert_eq!(midway, Origin::Unknown, "the control: on the window");
+        assert_eq!(after[1], Origin::Remote, "named");
+    }
+
+    /// **A read nothing names is not lifted by a command the shell named
+    /// here writing its line after** (W3, F-W3b): `ls` runs and ends, the
+    /// shell's `D` read inside the pace forgetting its group; a read inside
+    /// the pace, sampled for no group and marked by nothing, prints
+    /// `file:///etc/hosts` -- which the drivers reach only where the group
+    /// sample after an ask names none ([`Sampler::read`] asks there);
+    /// `ls` runs again from that line and is named local -- the line stays
+    /// not known. The control: the same read sampled with `ls` in front --
+    /// local. Named break: a read nothing names filed as a writer not named
+    /// (`Paths::written_unnamed` filing `Fact::NotNamed`, which the
+    /// command's lift reaches) -- local.
+    #[test]
+    fn a_read_nothing_names_is_not_lifted_by_a_local_command_after_it() {
+        let ws = || WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let (ls, end) = (ran("ls", ";cmdline=ls"), prompt_after(""));
+        let run = |third: Read<'_>| {
+            origins_midway(
+                ws(),
+                named_groups(),
+                &[
+                    read(&ls, 2),
+                    quiet(&end),
+                    third,
+                    Read {
+                        then: Then::Answered,
+                        ..read(&ls, 2)
+                    },
+                    Read {
+                        then: Then::Took,
+                        ..read(b"\x1b[m", 2)
+                    },
+                ],
+            )[0][2]
+        };
+        assert_eq!(run(quiet(b"\r\nfile:///etc/hosts")), Origin::Unknown);
+        assert_eq!(
+            run(read(b"\r\nfile:///etc/hosts", 2)),
+            Origin::Local,
+            "the control: sampled"
+        );
+    }
+
+    /// **Text a still-unnamed writer left in a scroll under side margins
+    /// stays not known** (W3, F-W3a): `ls` lights row 0; `ssh` prints
+    /// `file:///etc/hosts` on row 2; `ls` scrolls rows 1 to 5 within the
+    /// left margins, the text to row 1 -- not known before `ssh` is named,
+    /// remote after. The rows `ssh` passed and the rows below it nothing
+    /// wrote are one gap the band carries from, longer than `ssh`'s span.
+    /// The control: rows 1 to 4, a gap inside `ssh`'s span -- not known as
+    /// well. Named break: only a span that holds the whole gap counted
+    /// (`Paths::worst_over`'s gap check by containment) -- row 1 reads
+    /// local with the taller region.
+    #[test]
+    fn a_scroll_under_side_margins_keeps_an_unnamed_writers_text_dark() {
+        let ws = || WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let run = |scroll: &'static [u8]| {
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(b"\x1b[1;22H/etc/hosts /etc/passwd", 2)
+                },
+                read(b"\r\n\r\nfile:///etc/hosts", 9),
+                read(b"\x1b[m", 2),
+                Read {
+                    then: Then::Took,
+                    ..read(scroll, 2)
+                },
+            ];
+            let midway = origins_midway(ws(), named_groups(), &reads)[0][1];
+            let (_, origins, ()) = taken_numbered(
+                ws(),
+                named_groups(),
+                &reads,
+                None,
+                Numbering::Driven,
+                |_, _| (),
+            );
+            (midway, origins[1])
+        };
+        assert_eq!(
+            run(b"\x1b[?69h\x1b[1;20s\x1b[1;5r\x1b[5;1H\n"),
+            (Origin::Unknown, Origin::Remote)
+        );
+        assert_eq!(
+            run(b"\x1b[?69h\x1b[1;20s\x1b[1;4r\x1b[4;1H\n"),
+            (Origin::Unknown, Origin::Remote),
+            "the control: a gap inside the span"
+        );
+    }
+
+    /// **A link a writer left open is judged by that writer whatever the
+    /// shell writes under it** (F-Below, fails closed): `ssh` opens
+    /// `OSC 8` to `file:///etc/passwd` at the end of its read and the
+    /// shell's prompt is written under it -- the link is remote; with the
+    /// opener gone before it was named, not known; the control, `ls`
+    /// opening it, local. Two guards hold it, each enough alone: the rows
+    /// the link is drawn on carry the opener's verdict, and the slot's
+    /// record keeps the line the opener's read began on. Named break: both
+    /// dropped (`Paths::link_origin` reading neither) -- the remote link
+    /// is local.
+    #[test]
+    fn a_link_left_open_is_judged_by_its_opener() {
+        let ws = || WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let link = |opener: Pid| {
+            let reads = [
+                Read {
+                    then: Then::Answered,
+                    ..read(b"/etc/hosts", 1)
+                },
+                read(b"\r\n\x1b]8;;file:///etc/passwd\x1b\\", opener),
+                read(b"$ /etc/hosts", 1),
+            ];
+            let look = |t: &Term<'_>, p: &Paths| {
+                let spot = crate::link::Spot {
+                    scrolled: Scrolled::START,
+                    back: Rows::ZERO,
+                    row: baud_domain::Row::from_index(1),
+                    col: baud_domain::Col::at_index(1),
+                };
+                let under = crate::link::hovered(t, spot).expect("the link");
+                match p.printed(t, &under) {
+                    crate::link::Printed::Link { origin } => origin.origin(),
+                    crate::link::Printed::Path => panic!("a path"),
+                }
+            };
+            taken_numbered(ws(), named_groups(), &reads, None, Numbering::Driven, look).2
+        };
+        assert_eq!(link(9), Origin::Remote, "ssh's");
+        assert_eq!(link(7), Origin::Unknown, "gone before it was named");
+        assert_eq!(link(2), Origin::Local, "the control: ls's");
+    }
+
+    /// **A hold is released by its own group's answer, its verdict filed
+    /// there** (G1): a line held under `ssh`'s group reads not known; the
+    /// answer naming `ssh` not local files remote on it and drops the
+    /// hold, and one naming it local files local; either way its group is
+    /// what lit the line now. Named break: a release that files nothing -- the held
+    /// line reads not known after the answer.
+    #[test]
+    fn a_hold_is_released_and_filed_by_its_own_groups_answer() {
+        use crate::paths::Seen;
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        for (verdict, origin) in [
+            (Seen::Named(Front::Elsewhere), Origin::Remote),
+            (Seen::Named(Front::Local), Origin::Local),
+        ] {
+            let (mut pr, _) = probes(named_groups());
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            paths.set(Turned::On);
+            let id = Id::default();
+            pr.inflight
+                .push((id, Some(9), LineSpan::of(line(5), line(5))));
+            pr.held.push((Some(9), LineSpan::of(line(3), line(3))));
+            pr.publish(&mut paths);
+            assert_eq!(paths.origin(line(3)), Origin::Unknown, "held");
+            pr.file_answered(&mut paths, (id, Kind::Screen), &[(Some(9), verdict)]);
+            assert_eq!((paths.origin(line(3)), pr.held.len()), (origin, 0));
+            assert!(
+                pr.lit
+                    .others(Some(2), LineSpan::of(line(3), line(3)))
+                    .next()
+                    .is_some()
+            );
+        }
+    }
+
+    /// **A moved line whose covering span names no group is held all the
+    /// same** (F3's guard): with no group found, under the lines past the
+    /// groups kept, which the next batch's answer files not known.
+    #[test]
+    fn a_covering_span_with_no_group_still_holds() {
+        assert_eq!(holders(Vec::new()), [None]);
+        assert_eq!(holders(vec![Some(9)]), [Some(9)]);
+    }
+
+    /// **What lit each line splits, merges, moves with the text, and
+    /// keeps to the window** (G1, `Lit`): `ssh` lighting rows 2-3 of
+    /// `ls`'s 0-5 splits `ls`'s in two; `ls` lighting them again makes one
+    /// span; a region scroll carries a span exactly and a fold of two
+    /// takes its band; and lines above the window's first, or on a surface
+    /// gone, are dropped. Named breaks, one each: no split -- `ls`'s span
+    /// still covers rows 2-3; no merge -- three spans of `ls`; no carry --
+    /// the span stays on row 3; keep everything -- rows 0-1 stay.
+    #[test]
+    fn what_lit_each_line_splits_merges_carries_and_drops() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        };
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let span = |a, b| LineSpan::of(at(a), at(b));
+        let sorted = |lit: &Lit| {
+            let mut v = lit.spans.clone();
+            v.sort_by_key(|e| e.1.last());
+            v
+        };
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(0, 5));
+        lit.set(Some(9), span(2, 3));
+        assert_eq!(
+            sorted(&lit),
+            [
+                (Some(2), span(0, 1)),
+                (Some(9), span(2, 3)),
+                (Some(2), span(4, 5))
+            ],
+            "split"
+        );
+        lit.set(Some(2), span(2, 3));
+        assert_eq!(sorted(&lit), [(Some(2), span(0, 5))], "merged");
+        let carried = |bytes: &[u8], s: LineSpan| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let rec = t.take_record();
+            let lines =
+                crate::paths::CoreLines::of(Some((t.history_mark().line(), Scrolled::START)))
+                    .part(Some(t.history_mark().line()));
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            let screens = [baud_core::Screen::Normal, baud_core::Screen::Alternate];
+            p.carried_span(&rec, &lines, &screens, s)
+        };
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(3, 3));
+        lit.carry(|s| carried(b"\x1b[3;5r\x1b[5;1H\n", s));
+        assert_eq!(sorted(&lit), [(Some(2), span(2, 2))], "exact");
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(3, 3));
+        lit.carry(|s| carried(b"\x1b[3;5r\x1b[5;1H\n\x1b[3;1H\x1bM", s));
+        assert_eq!(sorted(&lit), [(Some(2), span(2, 4))], "within");
+        let p = Paths::new(None, Forms::DEFAULT);
+        let alt = |n| LineSpan::on(p.surface(baud_core::Screen::Alternate), at(n), at(n));
+        let mut lit = Lit::default();
+        lit.set(Some(2), span(0, 1));
+        lit.set(Some(9), span(2, 3));
+        lit.set(Some(2), alt(1));
+        let mut gone = Paths::new(None, Forms::DEFAULT);
+        gone.alternate_cleared();
+        let surfaces =
+            [baud_core::Screen::Normal, baud_core::Screen::Alternate].map(|sc| gone.surface(sc));
+        lit.keep_from(surfaces, Some(at(2)));
+        assert_eq!(sorted(&lit), [(Some(9), span(2, 3))], "dropped");
+    }
+
+    /// **An answer naming a group twice files its verdict where the
+    /// group's text is, never where it was asked** (B10): the batch named
+    /// `ls` with two spans, another writer's rows between, and both have
+    /// moved up a row since they were asked (rows 2 and 5, now 1 and 4).
+    /// `ls`'s answer names it twice; its verdict is filed on both copies at
+    /// the first, and the rows they were asked on, which hold other text
+    /// now, stay not known. Red before: the second, finding its copies
+    /// filed, filed the verdict on the lines the worker was asked -- row 5
+    /// read local.
+    #[test]
+    fn a_group_named_twice_is_filed_where_its_text_is() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let id = Id::default();
+        pr.inflight
+            .push((id, Some(2), LineSpan::of(line(1), line(1))));
+        pr.inflight
+            .push((id, Some(2), LineSpan::of(line(4), line(4))));
+        pr.publish(&mut paths);
+        let local = crate::paths::Seen::Named(Front::Local);
+        pr.file_answered(
+            &mut paths,
+            (id, Kind::Screen),
+            &[(Some(2), local), (Some(2), local)],
+        );
+        let origins = [1, 2, 4, 5].map(|n| paths.origin(line(n)));
+        assert_eq!(
+            origins,
+            [
+                Origin::Local,
+                Origin::Unknown,
+                Origin::Local,
+                Origin::Unknown
+            ]
+        );
+    }
+
+    /// **A click's answer files nothing** (B10): the lines it was asked
+    /// with were kept to send, and a batch sent while it was out took them,
+    /// carried with the text since -- asked on row 1, on row 2 now. Row 1,
+    /// holding nothing filed, stays not known when the click's local
+    /// verdict comes, and row 2 waits for its batch's answer. Red before:
+    /// with the group's lines no longer kept, the verdict was filed on the
+    /// lines as the click asked them -- row 1 read local.
+    #[test]
+    fn a_clicks_answer_files_nothing_where_its_lines_were() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        pr.inflight.push((
+            Id::default().next(),
+            Some(2),
+            LineSpan::of(line(2), line(2)),
+        ));
+        pr.publish(&mut paths);
+        pr.file_answered(
+            &mut paths,
+            (Id::default(), Kind::Click),
+            &[(Some(2), crate::paths::Seen::Named(Front::Local))],
+        );
+        let origins = [1, 2].map(|n| paths.origin(line(n)));
+        assert_eq!(origins, [Origin::Unknown, Origin::Unknown]);
+    }
+
+    /// **A worker that closes leaves every line it was still to name not
+    /// known** (B10): a line kept to send and a line a sent batch was to
+    /// name, both carried with their text, read as not known once the
+    /// worker is closed, where the facts filed before them stay. A line
+    /// whose writer is still to be named carries nothing when its text
+    /// moves, so its span is the only thing that will ever file on where
+    /// it went. Named break: close without filing them -- both read local
+    /// under the facts filed over them.
+    #[test]
+    fn a_closed_worker_leaves_the_lines_it_never_named_not_known() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        paths.written_under(
+            crate::paths::Seen::Named(Front::Local),
+            LineSpan::of(line(0), line(2)),
+        );
+        pr.seen.push((9, LineSpan::of(line(1), line(1))));
+        pr.inflight
+            .push((Id::default(), Some(9), LineSpan::of(line(2), line(2))));
+        let (mut lines, mut turn) = (Lines::default(), Turn::default());
+        pr.close(&mut paths, &mut lines, &mut turn);
+        let origins: Vec<Origin> = (0..3).map(|n| paths.origin(line(n))).collect();
+        assert_eq!(origins, [Origin::Local, Origin::Unknown, Origin::Unknown]);
+    }
+
+    /// The folder `paths` reads `./` against after each of `reads` is fed
+    /// and filed with its record, as the drivers file a part
+    /// (`Writers::recorded`).
+    fn folders_after(reads: &[&[u8]]) -> Vec<Option<Vec<u8>>> {
+        use crate::reads::Part;
+        let (mut pr, _) = probes(named_groups());
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        paths.set_names(crate::link::MachineNames::of(vec!["here.example".into()]));
+        let mut sampler = shells_sampler();
+        let s = Scrolled::START;
+        let t0 = Instant::now();
+        let mut out = Vec::new();
+        for (k, bytes) in (1..).zip(reads) {
+            let began = s.line(Rows::ZERO, t.cursor().0);
+            let _ = sampler.read(t0 + GROUP_EVERY * k, bytes);
+            let _ = t.take_record();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let w = sampler
+                .unasked()
+                .part(BytePos::ZERO, BytePos::from_index(bytes.len()))
+                .recorded(Some(crate::reads::Taken {
+                    record: t.take_record(),
+                    top: t.history_mark().line(),
+                    end_row: crate::vouch::EndRow::of(&t),
+                    drew: crate::vouch::Drew::Nothing,
+                }));
+            let ended = s.line(Rows::ZERO, t.cursor().0);
+            pr.read_taken(&mut paths, w, LineSpan::of(began, ended), Linked::No);
+            let _ = paths.observe(&t, s);
+            out.push(paths.folder_now().map(<[u8]>::to_vec));
+        }
+        out
+    }
+
+    /// **A report the core refuses after a remote program's forged one
+    /// leaves no folder, never the forged one**: the shell reports
+    /// `/home/u`; under `ssh h` a remote program reports `/tmp`, which the
+    /// core keeps and the app refuses; then, after the shell's `D`, the
+    /// shell's report the core cannot read (`file://` with no path), which
+    /// clears the core's. The app's folder is the shell's, then still the
+    /// shell's, then none -- what the core holds after its refusal, never
+    /// the forged one it held before. Named break: a report the core
+    /// refused filed as the app's refusal (`folder_of` judging the record's
+    /// `Refused` remote) -- the app keeps `/home/u`, a folder the shell
+    /// has since said it left.
+    #[test]
+    fn a_refused_report_after_a_forged_one_leaves_no_folder() {
+        let home = Some(b"/home/u".to_vec());
+        let got = folders_after(&[
+            b"\x1b]133;A;aid=1\x07\x1b]7;file://here.example/home/u\x07% ",
+            &ran("ssh h", ";cmdline=ssh\\ h"),
+            b"\x1b]7;file://here.example/tmp\x07remote$ ",
+            &[prompt_after("").as_slice(), b"\x1b]7;file://\x07"].concat(),
+        ]);
+        assert_eq!(got, [home.clone(), home.clone(), home, None]);
+    }
+
+    /// **iTerm2's `CurrentDir` is a folder report like `OSC 7`**, taken from
+    /// the shell and refused from a remote command, which the scan of `OSC
+    /// 7` alone never saw: the core records it (`ReadRecord::folders`). The
+    /// shell's `CurrentDir=/home/u`, on the host its `RemoteHost` names, is
+    /// taken; under `ssh h` a remote program's `CurrentDir=/tmp` is not. Named break: judge every report
+    /// as the shell's (`folder_of` ignoring what was open) -- the remote
+    /// one is taken.
+    #[test]
+    fn an_iterm_current_dir_is_judged_as_osc_7_is() {
+        let home = Some(b"/home/u".to_vec());
+        let got = folders_after(&[
+            b"\x1b]133;A;aid=1\x07\x1b]1337;RemoteHost=u@here.example\x07\x1b]1337;CurrentDir=/home/u\x07% ",
+            &ran("ssh h", ";cmdline=ssh\\ h"),
+            b"\x1b]1337;RemoteHost=u@here.example\x07\x1b]1337;CurrentDir=/tmp\x07remote$ ",
+        ]);
+        assert_eq!(got, [home.clone(), home.clone(), home]);
+    }
+
+    /// **An image a remote read placed after its last line feed leaves its
+    /// row the read's** (`vouch::Drew`): under `ssh h`, a read of a line,
+    /// its line feed and a Sixel there, the Sixel in a part of its own
+    /// between a log's start and end (`?46`), whose record is quiet -- the
+    /// image moves no cursor here and leaves the row's mark at 0 -- then
+    /// the shell's `D` and a prompt with `/etc/hosts` typed on that row.
+    /// The row stays dark. The control: no Sixel, the prompt's path lights.
+    /// Named breaks: a quiet part that drew pushes no tag of its own --
+    /// only the part before, which vouched the row clean, is filed; and
+    /// `Drew::of` always `Nothing`.
+    #[test]
+    fn an_image_after_a_remote_reads_last_line_feed_keeps_its_row() {
+        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after("/etc/hosts"));
+        let lit = |remote: &[u8]| {
+            !lit_reads(
+                named_groups(),
+                &[read(&start, 1), read(remote, 9), read(&prompt, 1)],
+            )
+            .is_empty()
+        };
+        assert!(lit(b"x\r\n\x1b[?46h\x1b[?46l"), "the control");
+        assert!(!lit(
+            b"x\r\n\x1b[?46h\x1bPq#0;2;100;0;0#0~~~~\x1b\\\x1b[?46l"
+        ));
+    }
+
+    /// **A line feed that cannot move the cursor leaves its row the
+    /// read's** (H3): under `ssh h`, a scrolling region over the top rows
+    /// and the cursor on the row above the last; then a read of a line
+    /// feed, a path on the last row, and a carriage return and line feed --
+    /// which, the cursor on the last row below the region, does not move it
+    /// (`Feeds::Stuck`), and leaves the path on the row it ends on. The row
+    /// stays the remote read's, so the shell's prompt written there next
+    /// does not light the path; nor do the shell's `D` and prompt in the
+    /// same read, sampled with the shell in front, where the stuck feed
+    /// refuses the cut. The control: a row higher, the last line feed
+    /// moves. Named breaks: vouch the line a read ended on clean whatever
+    /// its feeds and its row (`vouch::Below`) -- the row lights after the
+    /// prompt's own read; and with it, a cut whatever its feeds
+    /// (`vouch::CutAt`) -- the row lights behind the cut. Either verdict's
+    /// stuck feed alone is held by the row the read left the path on.
+    #[test]
+    fn a_line_feed_that_does_not_move_leaves_its_row_the_reads() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let (start, prompt) = (ran("ssh h", ";cmdline=ssh\\ h"), prompt_after(""));
+        let path = b"\n   /etc/passwd\r\n".as_slice();
+        let at = |region: &[u8], one: bool| {
+            let ws = WinSize {
+                ws_col: ws.ws_col,
+                ws_row: ws.ws_row,
+            };
+            let both = [path, &prompt].concat();
+            let mut reads = vec![read(&start, 1), read(region, 9)];
+            match one {
+                false => reads.extend([read(path, 9), read(&prompt, 1)]),
+                true => reads.push(read(&both, 1)),
+            }
+            taken_on(ws, named_groups(), &reads).0
+        };
+        for one in [false, true] {
+            assert_eq!(
+                at(b"\x1b[1;5r\x1b[8;1H", one),
+                Vec::<usize>::new(),
+                "the control: a row higher, the last line feed moves ({one})"
+            );
+            assert_eq!(
+                at(b"\x1b[1;5r\x1b[9;1H", one),
+                Vec::<usize>::new(),
+                "stuck ({one})"
+            );
+        }
+    }
+
+    /// **A resize that re-wraps lines leaves text whose writer baud could
+    /// not name dark** (H4): a local line wrapped over rows 0 and 1, then
     /// `/etc/passwd` on row 2 filed under no writer, then a local prompt;
     /// the window widened, the wrapped line takes one row and the path
-    /// moves up to row 1, which is filed local, and lights. Once a
-    /// renumbering never files a local writer over lines it did not write,
-    /// it stays dark. Expected-red ([`pending`]).
+    /// moves up to row 1, which was filed local -- and the re-cut, filed at
+    /// the resize as the drivers file it (`Paths::resized`), leaves every
+    /// line it renumbered not known. Named break: `Paths::resized` does
+    /// nothing -- row 1 lights.
     #[test]
-    fn pending_core_record_a_resize_moves_unnamed_text_onto_a_local_row() {
+    fn a_resize_moves_unnamed_text_and_it_stays_dark() {
         let narrow = WinSize {
             ws_col: 20,
             ws_row: 6,
@@ -6635,11 +9327,10 @@ mod tests {
             Vec::<usize>::new(),
             "the control: no resize"
         );
-        pending(
-            LinkStage::CoreRecord,
+        assert_eq!(
             resized(Then::Resize(40, 6)),
-            vec![1],
-            Vec::new(),
+            Vec::<usize>::new(),
+            "the path the re-cut moved"
         );
     }
 

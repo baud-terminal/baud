@@ -2835,6 +2835,17 @@ impl<'b> ImageStore<'b> {
         }
     }
 
+    /// **The serial the last placement made took**, none before the first:
+    /// two reads of it differ when a placement was made between them, a
+    /// virtual one or a kitty replacement included, so an embedder can ask
+    /// whether the bytes it fed drew an image. It never goes back, but past
+    /// `u32::MAX` placements, where it wraps: a reset leaves it, so a
+    /// reset and as many placements as were made before it cannot bring
+    /// it back to a value read before them.
+    pub fn last_serial(&self) -> PlaceSerial {
+        self.serial
+    }
+
     /// The serial the next placement made takes: [`ImageStore::place`]'s,
     /// and a virtual placement's, which the kitty stream keeps in its own
     /// table, so one clock orders both.

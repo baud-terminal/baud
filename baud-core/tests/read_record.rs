@@ -495,3 +495,128 @@ fn after_an_open_apc_g_the_marks_are_the_ones_the_core_acted_on() {
         assert_eq!(marks_of(&bytes), whole, "a byte a read {end:?}");
     }
 }
+
+/// **A change of the alternate screen's height keeps every row it keeps on
+/// its line**: ten labelled rows, the cursor on the last, shrunk to six and
+/// grown back to ten -- rows 0 to 5 keep their text on their rows, and the
+/// alternate screen's top line, the record's end less the cursor's row,
+/// does not move. An embedder numbers the alternate screen's lines by that
+/// top (the app's `keep::Counts`), and its count follows a resize by the
+/// resize's record; this is where a core that cut from the top instead
+/// would show first. Break: scroll the top rows away on a shrink (four
+/// line feeds at the bottom first) -- row 0 holds `r4`, and the top moves.
+#[test]
+fn an_alternate_height_change_keeps_each_row_it_keeps_on_its_line() {
+    support::with_term(&WS, |t| {
+        let mut setup = b"\x1b[?1049h".to_vec();
+        for y in 0..10 {
+            setup.extend(format!("\x1b[{};1Hr{y}", y + 1).into_bytes());
+        }
+        let _ = read(t, &setup);
+        let top = |t: &mut Term<'_>| {
+            let end = t.take_record().end();
+            assert_eq!(end.screen, Screen::Alternate);
+            end.line.minus(Rows::of_count(t.cursor().0.index()))
+        };
+        let was = top(t);
+        let text = |t: &Term<'_>, y: usize| -> String {
+            t.row(Row::from_index(y))
+                .expect("a row")
+                .iter()
+                .filter_map(|c| c.content.as_codepoint())
+                .filter_map(|c| char::from_u32(c.value()))
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        };
+        for rows in [6, 10] {
+            let _ = t.resize(&WinSize {
+                ws_col: WS.ws_col,
+                ws_row: rows,
+            });
+            assert_eq!(top(t), was, "the top line at {rows} rows");
+            for y in 0..6 {
+                assert_eq!(text(t, y), format!("r{y}"), "row {y} at {rows} rows");
+            }
+        }
+    });
+}
+
+/// **The mark's line is the window top a record's cursor line is counted
+/// from** (`HistoryMark::line`): after each part -- lines retired, lines
+/// taken back, a switch to the alternate screen and back, a re-cut by a
+/// change of columns, and a scroll down past the first line of a fresh
+/// terminal -- a record that ends on the primary with the primary up ends
+/// on the mark's line plus the cursor's row, read at the same moment. An
+/// embedder that places each part's lines against the mark it takes with
+/// the record places them as the record numbers them. Named break: the
+/// mark's line one past the window top -- red from the first step.
+#[test]
+fn the_mark_line_is_the_window_top_each_record_counts_from() {
+    let ws = WinSize {
+        ws_col: 20,
+        ws_row: 6,
+    };
+    enum Step {
+        Read(&'static [u8]),
+        Columns(u16),
+    }
+    let long = b"0123456789012345678901234567890123456789\r\n";
+    let steps = [
+        Step::Read(b"\x1b[2T"),
+        Step::Read(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\r\ni\r\nj\r\n"),
+        Step::Read(long),
+        Step::Read(b"\x1b[2T"),
+        Step::Read(b"\x1b[?1049hx\r\ny\r\n\x1b[?1049l"),
+        Step::Read(b"\x1b[?1049h\x1b[?1049lk\r\nl\r\n"),
+        Step::Columns(10),
+        Step::Read(b"m\r\nn\r\no\r\np\r\nq\r\nr\r\ns\r\n"),
+        Step::Columns(20),
+        Step::Read(b"\x1b[3T"),
+    ];
+    support::with_term(&ws, |t| {
+        let mut checked = 0;
+        let mut moved = Vec::new();
+        for (k, step) in steps.iter().enumerate() {
+            let was = t.history_mark();
+            let rec = match step {
+                Step::Read(bytes) => read(t, bytes),
+                Step::Columns(c) => {
+                    let _ = t.resize(&WinSize {
+                        ws_col: *c,
+                        ws_row: ws.ws_row,
+                    });
+                    t.take_record()
+                }
+            };
+            let top = t.history_mark().line();
+            moved.push(t.history_moved_since(was));
+            let row = Rows::of_count(t.cursor().0.index());
+            if rec.end().screen == Screen::Normal && t.screen() == Screen::Normal {
+                assert_eq!(rec.end().line, top.plus(row), "step {k}");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, steps.len(), "every step ended on the primary");
+        // What each step did to the window's top: the fresh terminal's
+        // scroll down moves none, and the re-cuts move it by their own
+        // renumbering.
+        let up = |n| Moved::Retired(Rows::of_count(n));
+        let back = |n| Moved::Restored(Rows::of_count(n));
+        assert_eq!(
+            moved,
+            [
+                up(0),
+                up(5),
+                up(2),
+                back(2),
+                up(0),
+                up(2),
+                up(1),
+                up(7),
+                back(1),
+                back(3)
+            ]
+        );
+    });
+}

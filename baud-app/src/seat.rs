@@ -12,11 +12,11 @@
 
 use crate::gesture::{self, Kind, Owner, Pressed, Selected, Shift, To};
 use crate::keep::{
-    Before, KeptText, Ring, followed, kept_across_resize, numbered, oldest, reset_in,
+    Before, Counts, KeptText, Numbered, followed, kept_across_resize, oldest, reset_in,
     scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
 };
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Erasure, Focus, HistoryMark, Looking, Screen, Term};
+use baud_core::{Erasure, Focus, Looking, Screen, Term};
 use baud_domain::{
     Col, Cols, EventMillis, ImagePx, LocatorAt, LocatorButtons, LocatorInput, LocatorKind,
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
@@ -226,6 +226,9 @@ pub(crate) struct Seat {
     /// (`keep::KeptText`).
     kept: KeptText,
     scrolled: Scrolled,
+    /// Each surface's count, of which `scrolled` is the live one's
+    /// (`keep::Counts`).
+    counts: Counts,
     /// A Ctrl press the link gesture took, and the link its release opens
     /// (`link::gesture`); whether the window has the keyboard, which a press
     /// must for it to arm.
@@ -258,6 +261,7 @@ impl Seat {
             selection: None,
             kept: KeptText::default(),
             scrolled: Scrolled::START,
+            counts: Counts::default(),
             armed: None,
             opening: None,
             focus: Focus::Lost,
@@ -878,6 +882,14 @@ impl Seat {
         self.scrolled
     }
 
+    /// The cursor's line on the surface up, numbered by its count: where a
+    /// read begins and ends, for its filing (`Probes::drain_taken`).
+    #[cfg(target_os = "linux")]
+    pub(crate) fn cursor_on(&self, term: &Term<'_>) -> crate::paths::LineOn {
+        let line = self.scrolled.line(Rows::ZERO, term.cursor().0);
+        self.paths.line_on(term.screen(), line)
+    }
+
     /// **Select `selection`**, numbered by [`Seat::scrolled`]: the find's
     /// current match.
     #[cfg(target_os = "linux")]
@@ -915,20 +927,42 @@ impl Seat {
     /// named no longer name cells and it goes; a change of height alone on
     /// the primary keeps it on its lines, renumbered by what the resize
     /// retired or took back (`keep::kept_across_resize`, note V, V3), as
-    /// the macOS driver's resize does. `was` is read before the resize.
-    pub(crate) fn resized(&mut self, term: &Term<'_>, was: (HistoryMark, Cols, Screen)) {
+    /// the macOS driver's resize does. `was` is read before the resize, and
+    /// `rec` is the core's record of it.
+    pub(crate) fn resized(
+        &mut self,
+        term: &Term<'_>,
+        was: (Cols, Screen),
+        rec: &baud_core::ReadRecord,
+    ) {
         let sel = self.selection;
         (self.selection, self.scrolled) =
-            kept_across_resize(term, was, self.selection.take(), self.scrolled);
+            kept_across_resize(term, was, self.selection.take(), &mut self.counts, rec);
         self.told(sel);
+    }
+
+    /// The count each surface numbers its lines by (`keep::Counts`): the
+    /// Linux driver's, and the film's tap's (`film/tap.rs`).
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn counts(&self) -> Counts {
+        self.counts
     }
 
     /// The readings a read is judged by, with the core's watches armed on
     /// the selection's lines (`keep::Before::watched`), and the selection's
     /// text taken while `?1040` would keep it (`keep::KeptText::take`).
     pub(crate) fn before_read(&mut self, term: &mut Term<'_>) -> Before {
+        self.counts.arm(term);
         self.kept.take(self.selection.as_ref(), term, self.scrolled);
         Before::watched(term, self.selection.as_ref(), self.scrolled)
+    }
+
+    /// [`Seat::after_read`] after bytes fed straight to the core, whose
+    /// record of them is the one part's, as the pump's would be.
+    #[cfg(test)]
+    pub(crate) fn after_feed(&mut self, term: &mut Term<'_>, before: Before) -> AfterRead {
+        let rec = term.take_record();
+        self.after_read(term, before, Some(&rec))
     }
 
     /// **What a read did to the selection**: dropped where it wrote, erased
@@ -939,8 +973,14 @@ impl Seat {
     /// the macOS pump's order (`app.rs`, `pump`). The text kept for it is
     /// the one taken when it was made, however the read carried it, and
     /// output that took it while `?1040` is reset gives up what SELECT
-    /// offered ([`Select`]).
-    pub(crate) fn after_read(&mut self, term: &Term<'_>, before: Before) -> AfterRead {
+    /// offered ([`Select`]). `last` is the record of the last part fed
+    /// (`reads::Part::recorded`), which numbers the alternate screen.
+    pub(crate) fn after_read(
+        &mut self,
+        term: &Term<'_>,
+        before: Before,
+        last: Option<&baud_core::ReadRecord>,
+    ) -> AfterRead {
         // The macOS pump's `restart`: a switch is a surface the trail and
         // the fade answer, and a reset made from the primary while the
         // window looked back brings it live, which reveals the thumb.
@@ -964,15 +1004,12 @@ impl Seat {
             }
         }
         let top_was = self.scrolled.top(Rows::ZERO);
-        self.scrolled = match numbered(term, before, None) {
-            Ring::Retired(n) => self.scrolled.advanced(n),
-            Ring::Restored(n) => match self.scrolled.retreated(n) {
-                Some(s) => s,
-                None => {
-                    self.selection = None;
-                    Scrolled::START
-                }
-            },
+        self.scrolled = match self.counts.numbered(term, last) {
+            Numbered::At(s) => s,
+            Numbered::PastStart(s) => {
+                self.selection = None;
+                s
+            }
         };
         let tops = (top_was, self.scrolled.top(Rows::ZERO));
         if self
@@ -1224,7 +1261,7 @@ mod tests {
         let read = |seat: &mut Seat, t: &mut Term<'_>, b: &[u8]| {
             let before = seat.before_read(t);
             feed(t, b);
-            seat.after_read(t, before)
+            seat.after_feed(t, before)
         };
         let alt = read(&mut seat, &mut t, b"\x1b[?1049h");
         assert_eq!(alt.surface, Surface::Switched);
@@ -1727,7 +1764,7 @@ mod tests {
         );
         let before = seat.before_read(&mut t);
         feed(&mut t, b"\x1bc");
-        seat.after_read(&t, before);
+        seat.after_feed(&mut t, before);
         assert_eq!(seat.highlight(&t), None, "a reset drops it");
     }
 
@@ -1745,7 +1782,7 @@ mod tests {
     fn read(seat: &mut Seat, t: &mut Term<'_>, bytes: &[u8]) {
         let before = seat.before_read(t);
         feed(t, bytes);
-        seat.after_read(t, before);
+        seat.after_feed(t, before);
     }
 
     /// **While `?1040` is set, output over a selection takes its highlight
@@ -2077,7 +2114,7 @@ mod tests {
     fn the_linux_driver_gives_up_select_where_the_seat_says() {
         const SRC: &str = include_str!("linux.rs");
         let read = SRC
-            .split("let after = self.seat.after_read(&self.term, before);")
+            .split("let after = self.seat.after_read(&self.term, before, last.as_ref());")
             .nth(1)
             .expect("the read");
         let next = read.find("let ").expect("a statement after");
@@ -2133,7 +2170,7 @@ mod tests {
             );
             let before = seat.before_read(&mut t);
             feed(&mut t, out);
-            let after = seat.after_read(&t, before);
+            let after = seat.after_feed(&mut t, before);
             assert_eq!(after.select, want, "{mode:?} {out:?}");
         }
     }
@@ -2386,14 +2423,15 @@ mod tests {
             let before = seat.before_read(&mut t);
             let lines: String = (1..=12).map(|i| format!("line {i}\r\n")).collect();
             feed(&mut t, lines.as_bytes());
-            let _ = seat.after_read(&t, before);
+            let _ = seat.after_feed(&mut t, before);
             for &(c, r) in sizes {
-                let was = (t.history_mark(), t.geometry().0, t.screen());
+                let was = (t.geometry().0, t.screen());
                 let _ = t.resize(&WinSize {
                     ws_col: c,
                     ws_row: r,
                 });
-                seat.resized(&t, was);
+                let rec = t.take_record();
+                seat.resized(&t, was, &rec);
             }
             t.set_window_back(Rows::of_index(usize::MAX));
             let back = t.window_back();
@@ -2462,9 +2500,10 @@ mod tests {
         // A size that leaves the grid as it was keeps the selection, and
         // so does a change of height alone, as the macOS driver's does; a
         // change of width drops it.
-        let mark = |t: &Term<'_>| (t.history_mark(), t.geometry().0, t.screen());
+        let mark = |t: &Term<'_>| (t.geometry().0, t.screen());
         let was = mark(&t);
-        seat.resized(&t, was);
+        let rec = t.take_record();
+        seat.resized(&t, was, &rec);
         assert!(seat.highlight(&t).is_some(), "the same grid keeps it");
         let (cols, rows) = t.geometry();
         let was = mark(&t);
@@ -2472,14 +2511,16 @@ mod tests {
             ws_col: u16::try_from(cols.index()).unwrap(),
             ws_row: u16::try_from(rows.index() + 2).unwrap(),
         });
-        seat.resized(&t, was);
+        let rec = t.take_record();
+        seat.resized(&t, was, &rec);
         assert!(seat.highlight(&t).is_some(), "a taller window keeps it");
         let was = mark(&t);
         let _ = t.resize(&WinSize {
             ws_col: u16::try_from(cols.index() - 1).unwrap(),
             ws_row: u16::try_from(rows.index()).unwrap(),
         });
-        seat.resized(&t, was);
+        let rec = t.take_record();
+        seat.resized(&t, was, &rec);
         assert_eq!(seat.highlight(&t), None, "a new width drops it");
         put(&mut seat, &mut t, Input::Left, NONE);
         assert!(!seat.inside());
@@ -2512,7 +2553,7 @@ mod tests {
         assert_eq!(copied(&seat, &t), "d", "selected before the scroll");
         let before = seat.before_read(&mut t);
         feed(&mut t, b"\x1b[5;1H\n");
-        seat.after_read(&t, before);
+        seat.after_feed(&mut t, before);
         assert_eq!(copied(&seat, &t), "d", "carried up with its row");
     }
 

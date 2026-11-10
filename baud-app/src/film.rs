@@ -603,6 +603,7 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                         .seat
                         .scrolled()
                         .line(baud_domain::Rows::ZERO, u.term.cursor().0);
+                    let began = (u.term.screen(), began);
                     (began, t.read(&b))
                 });
                 // Fed in the parts the app feeds it in, each under its own
@@ -616,7 +617,13 @@ fn record(f: &Film<'_>, stage: &Stage) -> Recorded {
                 let _answered = u.take(&b);
                 #[cfg(target_os = "macos")]
                 if let (Some(t), Some((began, _))) = (tap.as_mut(), taken) {
-                    t.fed(u.term, u.seat.scrolled(), began, &parts);
+                    t.fed(
+                        u.term,
+                        u.seat.scrolled(),
+                        began,
+                        u.seat.counts().core_lines(u.term),
+                        &parts,
+                    );
                 }
                 #[cfg(target_os = "macos")]
                 lights.read(&b, _answered, epoch.elapsed());
@@ -821,7 +828,8 @@ fn play(
                         |_| {},
                         &mut crate::hostlog::NoLog,
                     );
-                    let after = seat.after_read(&term, before);
+                    let rec = term.take_record();
+                    let after = seat.after_read(&term, before, Some(&rec));
                     timed.scrolled(&term, before);
                     if after.surface == crate::seat::Surface::Switched {
                         let form = timed.switched(when, term.screen());

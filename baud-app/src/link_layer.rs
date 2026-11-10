@@ -16,12 +16,12 @@
 //! to, and the driver acts on it.
 
 use baud_core::Term;
-use baud_render::{AbsLine, LineStyle, Scrolled};
+use baud_render::{LineStyle, Scrolled};
 
 use crate::bell::Moment;
 use crate::lined::{Lines, Uris};
 use crate::link::{Click, ClickOn, Refused, Target, Under};
-use crate::paths::{Links, Moved, Paths};
+use crate::paths::{CoreLines, LineOn, Links, Moved, Paths};
 use crate::probe::{Asks, Linked, Probes, Sampler, Seen, Turn, WatchCell, Writers};
 use crate::rules::Run;
 
@@ -75,10 +75,10 @@ pub(crate) fn fed<T: Moment>(
     paths: &mut Paths,
     term: &Term<'_>,
     parts: impl Iterator<Item = (Writers, Linked)> + Clone,
-    began: AbsLine,
-    ended: AbsLine,
+    on: (LineOn, LineOn),
+    lines: CoreLines,
 ) {
-    probes.drain_taken(paths, term, began, ended, parts);
+    probes.drain_taken(paths, term, on, lines, parts);
 }
 
 /// **The clock's half of a turn, at `now`**: the worker's hang watched and
