@@ -24,13 +24,11 @@ pub(crate) enum Holder {
     /// FS-A9: `front.tick` in the lights, until the process watch's
     /// events and a timer for its regroup.
     A9Front,
-    /// FS-A13: `link_host_check`, until a host name change notification.
-    A13Hosts,
 }
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 3] = [Holder::A5Notices, Holder::A9Front, Holder::A13Hosts];
+    pub(crate) const ALL: [Holder; 2] = [Holder::A5Notices, Holder::A9Front];
 
     /// The row's name, as the event rig prints it.
     #[cfg(any(feature = "effect-probe", test))]
@@ -38,7 +36,6 @@ impl Holder {
         match self {
             Holder::A5Notices => "FS-A5",
             Holder::A9Front => "FS-A9",
-            Holder::A13Hosts => "FS-A13",
         }
     }
 }
@@ -515,18 +512,17 @@ mod tests {
             match h {
                 Holder::A5Notices => Place(0),
                 Holder::A9Front => Place(1),
-                Holder::A13Hosts => Place(2),
             }
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=2).map(Place).collect();
+        let want: Vec<Place> = (0..=1).map(Place).collect();
         assert_eq!(places, want);
     }
 
     /// **The event rig's `HOLDERS` is every holder's name**, in `ALL`'s
     /// order: the frame rows read their holder lists against it, so a name
     /// it leaves out is a poll no row can see. Read from the test's source,
-    /// which is another binary. Break: `FS-A13` left out of `HOLDERS`.
+    /// which is another binary. Break: `FS-A9` left out of `HOLDERS`.
     #[test]
     fn the_rigs_holders_are_every_holder() {
         const RIG: &str = include_str!("../tests/event_rig.rs");

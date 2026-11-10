@@ -1139,7 +1139,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &["FS-A5", "FS-A9", "FS-A13"];
+const HOLDERS: &[&str] = &["FS-A5", "FS-A9"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1416,7 +1416,7 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 
-const FRAME_SITES: [FrameSite; 24] = [
+const FRAME_SITES: [FrameSite; 25] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1866,6 +1866,26 @@ const FRAME_SITES: [FrameSite; 24] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Handed,
+        state: RowState::Green,
+    },
+    // **A title waiting on this machine's names is set when they land,
+    // with no tick** (FS-A13): a report naming the host the rig's stalled
+    // lookup will answer with, which `gethostname` does not give, waits
+    // for every name; the lookup answered, the read's thread stores the
+    // names and wakes the window, whose turn judges the report by them
+    // and titles the window with its folder, the ticks withheld.
+    FrameSite {
+        name: SiteName("a title waiting on the names is set when they land, with no tick"),
+        setup: r#"mkdir -p named && printf '\033]7;file://baud-rig.invalid%s/named\007\033]52;c;!\007' "$PWD""#,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::HostNamed,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Titled("/named"),
         state: RowState::Green,
     },
     // **A file link under a resting pointer previews with no tick**: a

@@ -15100,7 +15100,7 @@ impl Driver {
     fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
-            Holder::A5Notices | Holder::A9Front | Holder::A13Hosts => true,
+            Holder::A5Notices | Holder::A9Front => true,
         })
     }
 
@@ -15450,7 +15450,7 @@ impl Driver {
     /// title that waited for the names is sent then too.
     fn link_host_check(&mut self) {
         // A title that waited for this machine's names, once they are read
-        // (`TitleWaits`): the names' arrival, which this poll hears.
+        // (`TitleWaits`): the turn the read's wake runs, or any after it.
         if self.title_waits == TitleWaits::Names && self.hosts.names().is_some() {
             self.title_waits = TitleWaits::No;
             self.send_title();
