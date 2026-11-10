@@ -33,7 +33,8 @@
 //! window's bottom line, where `[message.copy] place = "bar"` puts a copy's
 //! words -- and, as a copy's words do, it gives that line to a link's
 //! address while the preview shows one, since the tip slot is drawn over
-//! the preview's bar and would cover where the link goes.
+//! the preview's bar and would cover where the link goes; and to a copy's
+//! words said there, until they go ([`with_line`]).
 #![forbid(unsafe_code)]
 
 use baud_domain::{Cols, Row, Rows};
@@ -358,15 +359,33 @@ pub fn closes(key: baud_domain::KeyCode) -> bool {
 }
 
 /// **The tip slot's look with a held window's line in it**: the line's
-/// fields after `tip`'s, so on a row they share the tip's words show for
-/// their moment and the line again after. Either alone is itself.
+/// fields after `tip`'s, but none on a row the tip's words take: there the
+/// words hide the line for their moment -- a copy's words at the bar with
+/// `[message.held] place = "bar"` -- and the line comes back once they go,
+/// when the slot is the line alone. So every path draws one field a row.
+/// The area spans the tip's and the rows of the line it keeps. Either
+/// alone is itself.
 pub fn with_line(
     tip: Option<baud_render::TipLook>,
     line: Option<baud_render::TipLook>,
 ) -> Option<baud_render::TipLook> {
     match (tip, line) {
         (Some(mut t), Some(l)) => {
-            t.lines.extend(l.lines);
+            let taken: Vec<Row> = t.lines.iter().map(|f| f.row).collect();
+            let kept: Vec<baud_render::Field> = l
+                .lines
+                .into_iter()
+                .filter(|f| !taken.contains(&f.row))
+                .collect();
+            let rows = kept.iter().map(|f| f.row.index());
+            if let (Some(first), Some(last)) = (rows.clone().min(), rows.max()) {
+                let a = &mut t.area;
+                a.top = a.top.min(l.area.top.max(Row::from_index(first)));
+                a.bottom = a.bottom.max(l.area.bottom.min(Row::from_index(last + 1)));
+                a.left = a.left.min(l.area.left);
+                a.right = a.right.max(l.area.right);
+            }
+            t.lines.extend(kept);
             Some(t)
         }
         (t, l) => t.or(l),
@@ -870,6 +889,126 @@ mod tests {
         assert_eq!(both.lines[1], line.clone().expect("line").lines[0]);
         assert_eq!(with_line(None, line.clone()), line);
         assert_eq!(with_line(words.clone(), None), words);
+    }
+
+    /// **At the bar a copy's words hide the line until they go, and then
+    /// it comes back**: with `place = "bar"` both are on the bottom row,
+    /// and the slot carries only the words there, so every path draws the
+    /// words alone -- on the CPU path the bar row is pixel for pixel the
+    /// words' frame -- and once they go the line alone is the slot again,
+    /// in both looks. Named break: keep the line's field on the words'
+    /// row, and the CPU path draws it over them.
+    #[test]
+    fn a_copys_words_at_the_bar_hide_the_line_until_they_go() {
+        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use baud_core::{BytePos, Owned, ReadLen, Term};
+        use baud_domain::WinSize;
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+        let ws = WinSize {
+            ws_col: 64,
+            ws_row: 8,
+        };
+        let (cols, rows) = (Cols::of_index(64), Rows::of_index(8));
+        let words = baud_render::message_look(
+            "Copied 3 characters",
+            cols,
+            rows,
+            baud_render::MessageAt::Bar,
+        );
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let draw = |tip: Option<baud_render::TipLook>| {
+            let mut store = Owned::new(&ws);
+            let mut t = Term::new(store.storage(), &ws);
+            let b = b"\x1b[?25l$ hx missing.md\r\n";
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            let mut r = Renderer::new(
+                Stack::new(&faces).expect("a stack"),
+                PxSize::of(14.0).expect("a size"),
+                Theme::dark(),
+                Blend::Native,
+                cols,
+                rows,
+            )
+            .expect("cell metrics");
+            r.fit(&t);
+            r.set_tip(tip);
+            let (w, h) = r.pixel_size();
+            let wu = usize::try_from(w.value()).expect("a width");
+            let hu = usize::try_from(h.value()).expect("a height");
+            let mut px = vec![0u32; wu * hu];
+            {
+                let mut target = Target::new(&mut px, w, w, h).expect("a target");
+                r.render(&mut t, &mut target, Damage::Full);
+            }
+            let ch = usize::try_from(r.metrics().cell_h.value()).expect("a cell");
+            px[(rows.index() - 1) * ch * wu..rows.index() * ch * wu].to_vec()
+        };
+        let alone = draw(words.clone());
+        for look_is in [HeldLook::Box, HeldLook::Plain] {
+            let held = MessageHeld {
+                look: look_is,
+                place: HeldPlace::Bar,
+            };
+            let line = look(
+                "hx stopped with error 1. Press any key to close.",
+                Row::from_index(2),
+                cols,
+                rows,
+                held,
+            );
+            let both = with_line(words.clone(), line.clone()).expect("both");
+            let bar = Row::from_index(rows.index() - 1);
+            let on_bar: Vec<_> = both.lines.iter().filter(|f| f.row == bar).collect();
+            assert_eq!(
+                on_bar,
+                vec![&words.clone().expect("words").lines[0]],
+                "{look_is:?}: the words alone on the bar"
+            );
+            let differ = draw(Some(both))
+                .iter()
+                .zip(&alone)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(differ, 0, "{look_is:?}: the bar row is the words' alone");
+            assert_eq!(with_line(None, line.clone()), line, "{look_is:?}: back");
+        }
+    }
+
+    /// **The slot's area spans the words and the line**: the rows from the
+    /// higher's top to the lower's bottom and the columns from the leftmost
+    /// to the rightmost, so the area the pointer may cross is the whole slot
+    /// drawn. Named break: keep the words' area alone, which leaves the
+    /// line's row out.
+    #[test]
+    fn the_slots_area_spans_the_words_and_the_line() {
+        let (cols, rows) = (Cols::of_index(80), Rows::of_index(24));
+        let words = baud_render::message_look(
+            "Copied 3 characters",
+            cols,
+            rows,
+            baud_render::MessageAt::Bar,
+        )
+        .expect("words");
+        let line = look(
+            "hx stopped with error 1. Press any key to close.",
+            Row::from_index(4),
+            cols,
+            rows,
+            BOX_TIP,
+        )
+        .expect("line");
+        let both = with_line(Some(words.clone()), Some(line.clone())).expect("both");
+        let (w, l) = (words.area, line.area);
+        assert_eq!(
+            both.area,
+            baud_render::TipArea {
+                top: w.top.min(l.top),
+                bottom: w.bottom.max(l.bottom),
+                left: w.left.min(l.left),
+                right: w.right.max(l.right),
+            }
+        );
     }
 
     /// **The line takes `[message.held]`'s look and place**: `"box"` in

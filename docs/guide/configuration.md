@@ -264,7 +264,7 @@ The line a link's window shows when the program it opened fails at once, such as
 | key | values | default | what it changes |
 |---|---|---|---|
 | `look` | `"box"`, `"plain"` | `"box"` | How the line is drawn: `"box"` in `[message]`'s `box_color` and `text_color`, like every message of baud's; `"plain"` like the program's own text, in the window's colours, from the left edge. |
-| `place` | `"tip"`, `"bar"` | `"tip"` | Where it goes: `"tip"` on the row below the blank one under what the program printed, moving with it as you scroll back; `"bar"` at the bottom of the window, where a link's address shows. While Cmd (Ctrl on Linux) shows a link's address there, the address keeps its place and the line comes back after. |
+| `place` | `"tip"`, `"bar"` | `"tip"` | Where it goes: `"tip"` on the row below the blank one under what the program printed, moving with it as you scroll back; `"bar"` at the bottom of the window, where a link's address shows. While Cmd (Ctrl on Linux) shows a link's address there, the address keeps its place and the line comes back after; a copy's words said there hide it the same way until they go. |
 
 ## [link]
 

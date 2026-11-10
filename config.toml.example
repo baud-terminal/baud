@@ -606,6 +606,8 @@
 #
 # Where it goes: "tip", the row below the blank one under what the program
 # printed; or "bar", the bottom of the window, where a link's address shows.
+# At the bar, a link's address or a copy's words take the line's place while
+# they show, and it comes back after.
 # place = "tip"
 
 # How links show. A web, mail or file link is underlined as it appears, whether
