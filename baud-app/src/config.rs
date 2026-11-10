@@ -631,7 +631,8 @@ pub enum HeldLook {
     /// In `[message]`'s box, as every message of baud's is.
     #[default]
     Box,
-    /// As the program's own text: the cells' colours, from the left edge.
+    /// As the program's own text: the window's default colours, as text
+    /// written after a soft reset, from the left edge.
     Plain,
 }
 

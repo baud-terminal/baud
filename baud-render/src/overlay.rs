@@ -3211,6 +3211,12 @@ impl Hints {
     /// ([`crate::HoverPaint::Text`]): its own ground, its text in the message
     /// pair's box colour where that reads. Not one of `text-input-v3`'s either.
     pub const LINK_TEXT: Hints = Hints(256);
+    /// **Drawn in the window's default rendition**, as text a program
+    /// writes after a soft reset (`DECSTR`) is: the default colours and no
+    /// attribute, whatever the cell under it was left in -- a ground of
+    /// `SGR 41` or the concealing of `SGR 8` -- and its ground painted. Not
+    /// one of `text-input-v3`'s either.
+    pub const DEFAULT: Hints = Hints(512);
 
     pub fn with(self, h: Hints) -> Hints {
         Hints(self.0 | h.0)
@@ -3262,6 +3268,8 @@ enum Paired {
     Yes,
     /// [`Hints::LINK_TEXT`]: the pair's box colour as the text, no page.
     Text,
+    /// [`Hints::DEFAULT`]: the default rendition, its page painted.
+    Default,
 }
 
 /// The palette entry an error's curly line takes, `SGR 58:5:1`'s: red.
@@ -3283,10 +3291,15 @@ impl Drawing {
                 true => Selected::Yes,
                 false => Selected::No,
             },
-            pair: match (h.has(Hints::MESSAGE), h.has(Hints::LINK_TEXT)) {
-                (true, _) => Paired::Yes,
-                (false, true) => Paired::Text,
-                (false, false) => Paired::No,
+            pair: match (
+                h.has(Hints::MESSAGE),
+                h.has(Hints::LINK_TEXT),
+                h.has(Hints::DEFAULT),
+            ) {
+                (true, ..) => Paired::Yes,
+                (false, true, _) => Paired::Text,
+                (false, false, true) => Paired::Default,
+                (false, false, false) => Paired::No,
             },
             adds: match h.has(Hints::PREDICTION) {
                 true => Attrs::ITALIC,
@@ -4472,7 +4485,8 @@ pub(crate) fn composition_parts(
         for x in x0..x0 + n {
             let d = drawn(x);
             let left = i32::try_from(x).unwrap_or(0) * cell_w;
-            if look.selected == Selected::Yes || look.pair == Paired::Yes {
+            if look.selected == Selected::Yes || matches!(look.pair, Paired::Yes | Paired::Default)
+            {
                 pages.push(bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg));
             }
             if !d.text.draws() {
@@ -4710,6 +4724,7 @@ impl HintedBase {
         match look.pair {
             Paired::Yes => return r.message_rendition(self.resolved),
             Paired::Text => return r.link_text_rendition(self.resolved),
+            Paired::Default => return r.resolve_slot(term, StyleWord::DEFAULT),
             Paired::No => {}
         }
         let word = look.word(self.word);
@@ -4909,7 +4924,7 @@ fn sized_composition(
         for x in p.col.index()..p.col.index() + n {
             let d = drawn(x, Line::No);
             let left = i32::try_from(x).unwrap_or(0) * cell_w;
-            if look.selected == Selected::Yes {
+            if look.selected == Selected::Yes || look.pair == Paired::Default {
                 pages.extend(stretched(
                     bar(at(left), at(row_top), m.cell_w, m.cell_h, d.bg),
                     size,

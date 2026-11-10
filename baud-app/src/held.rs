@@ -27,12 +27,13 @@
 //! [`written`] carrying the text and [`look`] giving none.
 //!
 //! **`[message.held]` changes both** ([`crate::config::MessageHeld`]): its
-//! `look` draws the line as the program's own text instead, in the colours
-//! of the cells under it and from the left edge, still never in a cell; its
-//! `place` puts it on the window's bottom line, where `[message.copy] place
-//! = "bar"` puts a copy's words -- and, as a copy's words do, it gives that
-//! line to a link's address while the preview shows one, since the tip slot
-//! is drawn over the preview's bar and would cover where the link goes.
+//! `look` draws the line as the program's own text instead, in the window's
+//! default colours, as text written after a soft reset (`DECSTR`) is, and
+//! from the left edge, still never in a cell; its `place` puts it on the
+//! window's bottom line, where `[message.copy] place = "bar"` puts a copy's
+//! words -- and, as a copy's words do, it gives that line to a link's
+//! address while the preview shows one, since the tip slot is drawn over
+//! the preview's bar and would cover where the link goes.
 #![forbid(unsafe_code)]
 
 use baud_domain::{Cols, Row, Rows};
@@ -247,10 +248,12 @@ pub fn look(
 }
 
 /// **The line as the program's own text**: wrapped at the window's width as
-/// the terminal wraps a line written to it, from the left edge, each
-/// character in the rendition of the cell under it -- no hints, so neither
-/// the message pair nor the selection's colours -- and no space either
-/// side. Placed as [`baud_render::message_look`] places a message: on `at`'s
+/// the terminal wraps a line written to it, from the left edge, in the
+/// window's default rendition ([`baud_render::Hints::DEFAULT`]), as the
+/// same text written after a soft reset (`DECSTR`) is drawn -- not the
+/// rendition of the cell under it, which a program may have left in a
+/// ground (`SGR 41`) or concealed (`SGR 8`) -- and no space either side.
+/// Placed as [`baud_render::message_look`] places a message: on `at`'s
 /// row moved up as far as its lines need, or on the last rows for the bar;
 /// with too few rows the first lines that fit, and none with no room.
 fn plain(
@@ -284,7 +287,7 @@ fn plain(
             row: Row::from_index(top + i),
             col: Col::ZERO,
             text: l.iter().map(|&c| Codepoint::from_char(c)).collect(),
-            hints: vec![baud_render::Hints::NONE; l.len()],
+            hints: vec![baud_render::Hints::DEFAULT; l.len()],
             caret: Col::at_index(l.len()),
         })
         .collect();
@@ -772,6 +775,80 @@ mod tests {
         }
     }
 
+    /// **The plain line is drawn as the program's text written after a
+    /// soft reset**: over a row a program left in `SGR 41`, a red ground,
+    /// and one it left in `SGR 8`, concealed, the line drawn plain, on the
+    /// CPU path, is pixel for pixel the same text written into those cells
+    /// after `DECSTR` (`CSI ! p`), which sets the default rendition. Named
+    /// break: draw it in the rendition of the cells under it, and it takes
+    /// the red ground on one row and vanishes on the other.
+    #[test]
+    fn a_plain_held_line_is_drawn_in_the_default_rendition() {
+        use crate::config::{HeldLook, HeldPlace, MessageHeld};
+        use baud_core::{BytePos, Owned, ReadLen, Term};
+        use baud_domain::WinSize;
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let line = "hx stopped with error 1.";
+        let plain = MessageHeld {
+            look: HeldLook::Plain,
+            place: HeldPlace::Tip,
+        };
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).expect("the face")];
+        let screen: &[u8] = b"\x1b[?25l\x1b[2;1H\x1b[41mred ground under the line\x1b[K\x1b[0m\
+            \x1b[3;1H\x1b[8mconcealed under the line\x1b[K\x1b[0m";
+        // The frame's pixels, `then` fed after the screen and `tip` drawn.
+        let draw = |then: &[u8], tip: Option<baud_render::TipLook>| {
+            let mut store = Owned::new(&ws);
+            let mut t = Term::new(store.storage(), &ws);
+            for b in [screen, then] {
+                t.write_at(BytePos::ZERO, b);
+                t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            }
+            let (cols, rows) = t.geometry();
+            let mut r = Renderer::new(
+                Stack::new(&faces).expect("a stack"),
+                PxSize::of(14.0).expect("a size"),
+                Theme::dark(),
+                Blend::Native,
+                cols,
+                rows,
+            )
+            .expect("cell metrics");
+            r.fit(&t);
+            r.set_tip(tip);
+            let (w, h) = r.pixel_size();
+            let wu = usize::try_from(w.value()).expect("a width");
+            let hu = usize::try_from(h.value()).expect("a height");
+            let mut px = vec![0u32; wu * hu];
+            {
+                let mut target = Target::new(&mut px, w, w, h).expect("a target");
+                r.render(&mut t, &mut target, Damage::Full);
+            }
+            let m = r.metrics();
+            let cw = usize::try_from(m.cell_w.value()).expect("a cell");
+            let ch = usize::try_from(m.cell_h.value()).expect("a cell");
+            (px, wu, cw, ch)
+        };
+        let (cols, rows) = (Cols::of_index(40), Rows::of_index(6));
+        for (row, under) in [(1, "SGR 41"), (2, "SGR 8")] {
+            let tip = look(line, Row::from_index(row), cols, rows, plain).expect("room");
+            let (shown, wu, cw, ch) = draw(b"", Some(tip));
+            let written = format!("\x1b[!p\x1b[?25l\x1b[{};1H{line}", row + 1);
+            let (want, ..) = draw(written.as_bytes(), None);
+            let cells = (row * ch..(row + 1) * ch)
+                .flat_map(|y| (0..line.len() * cw).map(move |x| y * wu + x));
+            let differ = cells.filter(|&i| shown[i] != want[i]).count();
+            assert_eq!(
+                differ, 0,
+                "over {under}: {differ} pixels differ from the line written after DECSTR"
+            );
+        }
+    }
+
     /// **The tip slot keeps both**: a copy's words and the held line each
     /// show, the words first on a row they share, and either alone is
     /// itself. Named break: let the tip replace the line -- Command-C in a
@@ -797,7 +874,7 @@ mod tests {
 
     /// **The line takes `[message.held]`'s look and place**: `"box"` in
     /// the message pair with a space either side, `"plain"` the line alone
-    /// with no hints, so the cells' own colours; `"tip"` on the row below
+    /// in the default rendition; `"tip"` on the row below
     /// the blank one, following the view back through the history and gone
     /// once its row is below the view, and `"bar"` on the bottom line
     /// however far the view is scrolled, and gone while a link's preview
@@ -826,7 +903,11 @@ mod tests {
                 baud_render::Hints::MESSAGE,
                 format!(" {line} "),
             ),
-            (HeldLook::Plain, baud_render::Hints::NONE, line.to_string()),
+            (
+                HeldLook::Plain,
+                baud_render::Hints::DEFAULT,
+                line.to_string(),
+            ),
         ] {
             for (place, at) in [(HeldPlace::Tip, 4), (HeldPlace::Bar, 23)] {
                 let l = look(line, row, cols, rows, held(look_is, place)).expect("room");
