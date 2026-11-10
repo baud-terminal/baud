@@ -119,9 +119,17 @@ pub enum RigWindow {
     /// (`probe::Shown`), then the occlusion change AppKit would post. The
     /// window is not ordered front.
     Shown,
+    /// The act's second stage released once its first has settled -- its
+    /// pasteboard clear signed, if it has one, its frame drawn and the
+    /// printed paths it owed answered, read through the probe's doors
+    /// within the bound -- by a newline written to the FIFO `go` in the
+    /// row's folder, which the act reads: no key, nothing of the window's,
+    /// so what the act does next comes on the pty's own read and after no
+    /// wait.
+    Released,
 }
 
-const WINDOW: [(RigWindow, &str); 11] = [
+const WINDOW: [(RigWindow, &str); 12] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -133,6 +141,7 @@ const WINDOW: [(RigWindow, &str); 11] = [
     (RigWindow::Settings, "settings"),
     (RigWindow::HostNamed, "host-named"),
     (RigWindow::Shown, "shown"),
+    (RigWindow::Released, "released"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

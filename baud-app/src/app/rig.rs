@@ -283,6 +283,12 @@ const BOUND: Duration = Duration::from_secs(2);
 /// one-second ceiling (`probe::CEILING`) and a worker's answer.
 const PATHS_BOUND: Duration = Duration::from_secs(5);
 
+/// The bound on a row's first stage settling before its second is
+/// released (`RigWindow::Released`): past the paths' bound and a hang's
+/// five seconds (`probe::HANG`), whose wake, scheduled for a batch since
+/// answered, still turns once.
+const RELEASE_BOUND: Duration = Duration::from_secs(15);
+
 /// **The run loop's time between one iteration's records and the next
 /// iteration**: longer than the frame interval within which bells ring
 /// once (`bell.rs`, `Ringer::hear`), so a bell each iteration is a ring
@@ -900,7 +906,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let fed = probe::fed_turns();
     let hands = probe::hands();
     let greetings = probe::greetings();
-    let batches = probe::paths_batches();
+    let asked = probe::paths_asked();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -925,6 +931,18 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             post(view.waker());
         }
     }
+    // The run: `attempts` ticks offered, or the run loop run as long with
+    // no tick, the act's own turns.
+    let run = |n: u16| match rig.ticks {
+        RigFrameTicks::Offered => offer(n),
+        RigFrameTicks::Withheld => {
+            for _ in 0..n {
+                probe::pass(0.01);
+            }
+        }
+    };
+    // Whether the act's clear was waited for by the window's step.
+    let mut act_signed = false;
     // The window told, after the act: a key change with the focus door
     // set to agree, then the notification AppKit would post.
     match rig.window {
@@ -956,25 +974,65 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::HostNamed => {
             probe::set_host_name(probe::HostName::Answered("baud-rig.invalid".to_owned()))
         }
-    }
-    baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
-    // The run: `attempts` ticks offered, or the run loop run as long with
-    // no tick, the act's own turns.
-    let run = |n: u16| match rig.ticks {
-        RigFrameTicks::Offered => offer(n),
-        RigFrameTicks::Withheld => {
-            for _ in 0..n {
-                probe::pass(0.01);
+        // **The act's second stage, on an event**: its clear signed, if it
+        // has one, its frame drawn and the paths it owed answered, within
+        // the bound; then the newline it reads from `go`.
+        RigWindow::Released => {
+            let clears = rig.act.contains("]52;c;!");
+            let start = Instant::now();
+            let mut signed = !clears;
+            loop {
+                signed |= probe::take()
+                    .iter()
+                    .any(|r| r.kind == probe::EffectKind::Clear);
+                // Answered, and no wake the worker scheduled still to come:
+                // one turns once, whatever comes before it.
+                let answered = probe::paths_due() == probe::PathsDue::Idle;
+                // Drawn: the frame that files what the act wrote is not
+                // still owed, so its paths are owed before they are read.
+                let drawn = !probe::owes().starts_with("Frame(Owed");
+                if (signed && answered && drawn) || start.elapsed() >= RELEASE_BOUND {
+                    break;
+                }
+                run(1);
+            }
+            if !signed || probe::paths_due() != probe::PathsDue::Idle {
+                println!("the act's first stage never settled");
+                return std::process::ExitCode::from(1);
+            }
+            act_signed = clears;
+            // Written once the act has opened `go` to read it: opening the
+            // FIFO to write without blocking fails until then.
+            let start = Instant::now();
+            let released = loop {
+                use std::io::Write as _;
+                use std::os::unix::fs::OpenOptionsExt as _;
+                let fifo = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(crate::sys::O_NONBLOCK)
+                    .open("go");
+                if let Ok(mut f) = fifo {
+                    break f.write_all(b"\n").is_ok();
+                }
+                if start.elapsed() >= PATHS_BOUND {
+                    break false;
+                }
+                run(1);
+            };
+            if !released {
+                println!("the act never read its second stage");
+                return std::process::ExitCode::from(1);
             }
         }
-    };
+    }
+    baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     run(rig.attempts.0);
     // **An act that ends by clearing the pasteboard is waited for**, as the
     // setup is: the run goes on until that clear, within the bound, and
     // then as long as the setup's settle, so what the act wrote is all fed
     // and drawn whatever the machine's pace, and the row's counts are the
     // whole act's.
-    if rig.act.contains("]52;c;!") {
+    if rig.act.contains("]52;c;!") && !act_signed {
         let start = Instant::now();
         let mut signed = probe::take()
             .iter()
@@ -994,7 +1052,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (link, sends_after) = probe::link();
     let holders = probe::holders();
     println!(
-        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} batches={}",
+        "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={}",
         match link {
             baud_present_macos::display_link::LinkState::Run => "run",
             baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1046,7 +1104,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         },
         probe::hands().0.saturating_sub(hands.0),
         probe::greetings().0.saturating_sub(greetings.0),
-        probe::paths_batches().0.saturating_sub(batches.0),
+        probe::paths_asked().0.saturating_sub(asked.0),
     );
     let _ = probe::take();
     let w = window.ns_window();

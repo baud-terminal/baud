@@ -260,8 +260,8 @@ thread_local! {
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
     /// Whether the printed paths' worker owes a turn (`PathsDue`).
     static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
-    /// The printed paths' batches sent (`paths_batches`).
-    static PATHS_BATCHES: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The printed paths asked about (`paths_asked`).
+    static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether baud believes its window is on screen (`Shown`).
     static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
     /// The launch splash's starts (`greeted`).
@@ -346,10 +346,13 @@ pub fn key() -> Key {
 }
 
 /// **Whether the printed paths' worker owes a turn**: a batch due or
-/// out, its wake scheduled (baud-app's `Probes::deadline`), or nothing.
+/// out (baud-app's `Probes::deadline`); nothing owed but a wake it
+/// scheduled still to come, which turns once and changes nothing -- the
+/// hang's, for a batch answered since it was sent; or nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PathsDue {
     Idle,
+    Waking,
     Owed,
 }
 
@@ -364,15 +367,16 @@ pub fn paths_due() -> PathsDue {
     PATHS_DUE.with(Cell::get)
 }
 
-/// Set the printed paths' batches sent so far, the worker's own count.
-pub fn set_paths_batches(sent: Taken) {
-    PATHS_BATCHES.with(|b| b.set(sent));
+/// Set the printed paths asked about so far, the worker's own count.
+pub fn set_paths_asked(asked: Taken) {
+    PATHS_ASKED.with(|b| b.set(asked));
 }
 
-/// **The printed paths' batches sent so far**: the frame rig counts those
-/// an act's output owed.
-pub fn paths_batches() -> Taken {
-    PATHS_BATCHES.with(Cell::get)
+/// **The printed paths asked about so far**, in every batch: the frame rig
+/// counts those an act's output owed. A batch that names only the groups
+/// a read saw asks about none.
+pub fn paths_asked() -> Taken {
+    PATHS_ASKED.with(Cell::get)
 }
 
 /// **Whether baud believes its window is on screen**: what AppKit says,

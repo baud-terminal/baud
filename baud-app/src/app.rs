@@ -7391,14 +7391,14 @@ mod alt_window_tests {
     /// the scan that files the turn's output, and `recheck_entered` runs on
     /// the pointer's read and on a read the turn owes, not in the frame's
     /// scan. AppKit-bound, so this holds the source; the frame rig's
-    /// file-link and output rows hold the turn. **Only this test sees the
-    /// schedule's order**: on the GPU paths a frame's completion wakes the
-    /// responder (the presenter's completion handler, `baud_present_macos`),
-    /// so a turn follows each present and schedules what its scan filed;
-    /// with the schedule before the present, the rig's rows stay green on
-    /// that turn. The CPU path presents with no completion, so there the
-    /// schedule's place after the present is what times the batch; its rig
-    /// row stayed green too, on turns other wakes gave. Perturbations:
+    /// file-link and output rows hold the turn. **The schedule's order is seen
+    /// here and on the CPU path's row, not on the GPU paths'**: there a
+    /// frame's completion wakes the responder (the presenter's completion
+    /// handler, `baud_present_macos`), so a turn follows each present and
+    /// schedules what its scan filed, and the rows stay green with the
+    /// schedule before the present. The CPU path presents with no completion
+    /// (`Draw::Cpu` commits nothing), so its row, whose link is the last
+    /// turn, holds the order too. Perturbations:
     /// the call back in the tick arm; the schedule before the present; the
     /// ask back in the scan.
     #[test]
@@ -15637,7 +15637,7 @@ impl Driver {
     }
 
     /// What the frame rig reads of the worker, under the probe only: whether
-    /// it owes a turn, which the settle waits on, and the batches it sent.
+    /// it owes a turn, which the settle waits on, and the paths it asked about.
     #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
     fn record_paths_due(&self, next: Option<HostTime>) {
         #[cfg(not(feature = "effect-probe"))]
@@ -15645,12 +15645,14 @@ impl Driver {
         #[cfg(feature = "effect-probe")]
         {
             use baud_present_macos::probe;
-            probe::set_paths_due(match next {
-                Some(_) => probe::PathsDue::Owed,
-                None => probe::PathsDue::Idle,
+            let waking = self.paths_wake.pending(host_now());
+            probe::set_paths_due(match (next, waking) {
+                (Some(_), _) => probe::PathsDue::Owed,
+                (None, true) => probe::PathsDue::Waking,
+                (None, false) => probe::PathsDue::Idle,
             });
-            let sent = self.app.probes.counts.batches;
-            probe::set_paths_batches(probe::Taken(u32::try_from(sent).unwrap_or(u32::MAX)));
+            let asked = self.app.probes.counts.asked;
+            probe::set_paths_asked(probe::Taken(u32::try_from(asked).unwrap_or(u32::MAX)));
         }
     }
 
@@ -22473,6 +22475,13 @@ impl PathsWake {
         }
         self.scheduled = Some(at);
         Some(at.since(now).unwrap_or(Duration::ZERO))
+    }
+
+    /// Whether the wake scheduled last is still to come at `now`: the frame
+    /// rig's door, so a row's second stage waits past it.
+    #[cfg(feature = "effect-probe")]
+    fn pending(&self, now: HostTime) -> bool {
+        self.scheduled.is_some_and(|at| at > now)
     }
 }
 

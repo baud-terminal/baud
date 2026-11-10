@@ -1451,8 +1451,8 @@ struct Counters {
     hands: u32,
     /// The launch splash's starts.
     greeted: u32,
-    /// The printed paths' batches sent after the settle.
-    batches: u32,
+    /// The printed paths' asked about after the settle.
+    asked: u32,
 }
 
 impl Counters {
@@ -1503,7 +1503,7 @@ impl Counters {
             },
             hands: count("hands")?,
             greeted: count("greeted")?,
-            batches: count("batches")?,
+            asked: count("asked")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1584,8 +1584,8 @@ enum Settles {
     /// nothing delivered, and the read's names handed to the links.
     Handed,
     /// **Output's printed paths asked about with no tick**: the ticks
-    /// withheld, nothing delivered, and a batch sent for the paths the
-    /// act's output filed.
+    /// withheld, nothing delivered, and the path the act's output filed
+    /// asked about.
     Filed,
 }
 
@@ -1618,7 +1618,7 @@ impl Settles {
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
-            Settles::Filed => c.delivered == 0 && c.batches >= 1,
+            Settles::Filed => c.delivered == 0 && c.asked >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::ReadByFrame => {
                 c.fed > c.reads && c.reads >= 1 && u64::from(c.reads) <= c.drawn
@@ -2162,20 +2162,30 @@ const FRAME_SITES: [FrameSite; 25] = [
         expect: Settles::PreviewedUnticked,
         state: RowState::Green,
     },
-    // **Output's printed paths are asked about with no tick** (FS-A14): the
-    // act prints a `file:///usr` link and the clear that signs it, then
-    // waits on `read`, so no prompt or later output gives the window
-    // another turn; the ticks withheld and no pointer moved. The frame
-    // that draws the output files the path, and the turn that drew it
+    // **Output's printed paths are asked about with no tick** (FS-A14): on
+    // the CPU path, whose present has no completion to wake the window
+    // again. The act signs its clear and waits in the shell's own `read`
+    // on the FIFO `go` the setup made; once the clear is signed, its frame
+    // drawn and the batch its echo owes answered, the rig writes the
+    // newline it waits on (`RigWindow::Released`, through the probe's
+    // doors), and the act prints the path `/usr/bin` in a read of its own,
+    // with no effect in it (spelled in octal, so the echo of the typed line
+    // names no path), and waits on `read` again. No key, no prompt, later
+    // output, effect or process event gives the window another turn after
+    // the reader's wake whose turn drains and draws the path, and no wait
+    // decides which: a key's own turn drains what arrives within it, and
+    // the reader's wake for that read then runs a turn of its own. That
+    // turn's frame files the path, and the same turn, after its present,
     // schedules the worker's wake for the batch's deadline, a paused
-    // window's included.
+    // window's included; the ticks withheld and no pointer moved. The run
+    // is two seconds, past the batch's one-second ceiling after the echo's.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
-        setup: STILL,
-        act: r"printf '\033[2J\033[Hfile:///usr\033]52;c;!\007'; read x",
+        setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+        act: r"printf '\033]52;c;!\007'; read x <go; printf '\033[2J\033[H\057usr\057bin'; read y",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::Withheld,
-        window: RigWindow::Untold,
+        window: RigWindow::Released,
         env: &[("BAUD_GPU", "cpu")],
         config: STEADY,
         focus: RigFocus::Believed,
