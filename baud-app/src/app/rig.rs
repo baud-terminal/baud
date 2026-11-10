@@ -168,13 +168,16 @@ enum Halves {
     Rest,
 }
 
-/// **What ends an iteration**: its effects, or [`BOUND`] passing; or its
-/// effects or the program's sentinel, a clear, with
-/// [`probe_call::SENTINEL_BACKSTOP`] a backstop that says it was reached
-/// (`RigAct::TypeUntil`).
+/// **What ends an iteration**: its effects, or [`BOUND`] passing; its
+/// effects or the program's sentinel, a clear (`RigAct::TypeUntil`); or
+/// the sentinel alone, its effects checked after it
+/// (`RigAct::TypeToSentinel`). Ending on an event,
+/// [`probe_call::SENTINEL_BACKSTOP`] is a backstop that says it was
+/// reached.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ends {
     Bound,
+    EffectsOrSentinel,
     Sentinel,
 }
 
@@ -294,6 +297,10 @@ const PATHS_BOUND: Duration = Duration::from_secs(5);
 /// what every iteration waits for is its records, under [`BOUND`].
 const SPACING: Duration = Duration::from_millis(50);
 
+/// The longest pass of the floor's run loop between two ticks on a driven
+/// arm, as long as the wait's own passes.
+const TICK: Duration = Duration::from_millis(10);
+
 /// A 60 Hz display's frame, the longest a display link of the screens
 /// baud is drawn on steps by: the floor is past it whatever the view's
 /// interval, and each read's own is checked against it besides
@@ -341,11 +348,15 @@ pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
         RigAct::Path => Act::Click(arg.as_bytes().to_vec()),
         RigAct::Type => Act::Type(line()),
         RigAct::TypeUntil => {
+            ENDS.with(|e| e.set(Ends::EffectsOrSentinel));
+            Act::Type(line())
+        }
+        RigAct::TypeToSentinel => {
             ENDS.with(|e| e.set(Ends::Sentinel));
             Act::Type(line())
         }
         RigAct::TypeHeld => {
-            ENDS.with(|e| e.set(Ends::Sentinel));
+            ENDS.with(|e| e.set(Ends::EffectsOrSentinel));
             HOLDS.with(|h| h.set(Holds::Yes));
             Act::Type(line())
         }
@@ -549,6 +560,16 @@ fn run(
         // Kept, never dropped: whatever an iteration's records miss is the
         // parent's to see.
         let mut got = probe::take();
+        // **A sentinel found before this iteration's line went out** is the
+        // last iteration's, its program's end left to a frame that iteration
+        // never had: named here, the other end of the strand the check below
+        // names where it is left.
+        if ENDS.with(core::cell::Cell::get) != Ends::Bound
+            && got.iter().any(|r| r.kind == probe::EffectKind::Clear)
+        {
+            println!("a stale sentinel from the last iteration");
+            failed = true;
+        }
         match &act {
             Act::Click(file) => CLICK.with(|c| *c.borrow_mut() = Some(file.clone())),
             Act::Type(line) => TYPED.with(|c| *c.borrow_mut() = Some(line.clone())),
@@ -578,16 +599,22 @@ fn run(
         // the first record ended the wait before that iteration's own
         // effect had run.
         // A row that ends on an event ends on its effects or the program's
-        // sentinel, a clear, and its bound is a backstop that says so.
-        let (bound, ended) = match ENDS.with(core::cell::Cell::get) {
+        // sentinel, a clear, or on the sentinel alone when the program
+        // writes it last every time; its bound is a backstop that says so.
+        let ends = ENDS.with(core::cell::Cell::get);
+        let (bound, ended) = match ends {
             Ends::Bound => (BOUND, None),
-            Ends::Sentinel => (
+            Ends::EffectsOrSentinel | Ends::Sentinel => (
                 probe_call::SENTINEL_BACKSTOP,
                 Some(probe::EffectKind::Clear),
             ),
         };
         let over = |got: &[probe::Record]| {
-            holds(got, each) || ended.is_some_and(|k| got.iter().any(|r| r.kind == k))
+            let sentinel = ended.is_some_and(|k| got.iter().any(|r| r.kind == k));
+            match ends {
+                Ends::Sentinel => sentinel,
+                Ends::Bound | Ends::EffectsOrSentinel => holds(got, each) || sentinel,
+            }
         };
         while !over(&got) && start.elapsed() < bound {
             if ticks == Ticks::Driven {
@@ -605,8 +632,16 @@ fn run(
             got.extend(probe::take());
         }
         let answered = Instant::now();
-        // Whatever else is ready runs, so a second effect would be seen.
+        // Whatever else is ready runs, so a second effect would be seen; on
+        // a driven arm a frame is ticked on every pass, as a display link
+        // ticks while the link is on (`Ticker::tick` sends nothing while it
+        // is paused), the passes bounding how many: a read left to a frame
+        // -- every read, under `tick-split` -- is fed in this iteration, not
+        // by the next one's first tick.
         for _ in 0..64 {
+            if ticks == Ticks::Driven {
+                ticker.tick();
+            }
             probe::pass(0.0);
         }
         got.extend(probe::take());
@@ -614,9 +649,42 @@ fn run(
         while let (Act::Type(_) | Act::TypeTwo(..) | Act::Gesture(..), Some(left)) =
             (&act, SPACING.checked_sub(answered.elapsed()))
         {
-            probe::pass(left.as_secs_f64());
+            if ticks == Ticks::Driven {
+                ticker.tick();
+            }
+            probe::pass(left.min(TICK).as_secs_f64());
         }
         got.extend(probe::take());
+        // **Nothing left to a frame no tick fed**: an iteration ends with no
+        // read waiting for a frame, or what it left would be fed, and its
+        // records found, by the next iteration's first tick. A read still
+        // waiting is ticked for until it is fed, under the backstop, so the
+        // check fails only on frames given that never fed it, never on a
+        // read that came late. Only `tick-split` leaves reads to a frame,
+        // so off it this always holds. The link paused at the iteration's
+        // end is the other half of the same check, and it waits on the
+        // polls that still keep the link running while they exist
+        // (`held`): with them, the link never pauses, and that half would
+        // fail every driven iteration.
+        let waiting = Instant::now();
+        while TAIL.with_borrow(|t| !t.is_empty())
+            && waiting.elapsed() < probe_call::SENTINEL_BACKSTOP
+        {
+            if ticks == Ticks::Driven {
+                ticker.tick();
+            }
+            probe::pass(TICK.as_secs_f64());
+        }
+        // Checked straight after the pass that found it empty, with no
+        // pass between that could take a read in.
+        got.extend(probe::take());
+        if TAIL.with_borrow(|t| !t.is_empty()) {
+            // Every later iteration would find this one's reads: the row
+            // stops here.
+            println!("a read left to a frame no tick fed");
+            failed = true;
+            break;
+        }
         // The floor is longer than every frame this iteration's bells were
         // heard under, or the next iteration's bell may ring with this one.
         let heard = HEARD.with(core::cell::Cell::get);

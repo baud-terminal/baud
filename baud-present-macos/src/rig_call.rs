@@ -213,6 +213,11 @@ pub enum RigAct {
     /// passed and a write split on purpose, as a loaded machine and a tty
     /// make them.
     TypeHeld,
+    /// Type `arg` to the shell, each iteration ending on the program's
+    /// sentinel alone, a clear the program writes after its effect's bytes
+    /// every time, its effects checked after it; [`SENTINEL_BACKSTOP`] the
+    /// backstop, as for [`RigAct::TypeUntil`].
+    TypeToSentinel,
 }
 
 /// **How long [`RigAct::TypeHeld`] holds a reply**: past the second a
@@ -254,7 +259,7 @@ pub enum RigFocus {
     Believed,
 }
 
-const ACTS: [(RigAct, &str); 10] = [
+const ACTS: [(RigAct, &str); 11] = [
     (RigAct::Path, "path"),
     (RigAct::Type, "type"),
     (RigAct::Link, "link"),
@@ -265,6 +270,7 @@ const ACTS: [(RigAct, &str); 10] = [
     (RigAct::TypeTwo, "type-two"),
     (RigAct::TypeUntil, "type-until"),
     (RigAct::TypeHeld, "type-held"),
+    (RigAct::TypeToSentinel, "type-to-sentinel"),
 ];
 
 const TICKS: [(RigTicks, &str); 6] = [

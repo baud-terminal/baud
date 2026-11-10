@@ -114,11 +114,22 @@ enum RowState {
 }
 
 /// What makes the row's effect happen.
-/// **Whether a decode's replies are held** ([`Cause::ProgramUntil`]).
+/// **What ends an iteration of a program that ends on an event**
+/// ([`Cause::ProgramUntil`]), by what the program writes last.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Hold {
-    No,
-    Reply,
+enum Until {
+    /// Its effect or its sentinel, one or the other: a kitty reply's copy
+    /// on an answer read whole, the clear on anything else.
+    Either,
+    /// [`Until::Either`], each reply the terminal makes on a decode's turn
+    /// held `HELD_REPLY` first and written in two pieces
+    /// (`RigAct::TypeHeld`).
+    EitherHeld,
+    /// Its sentinel, written after its effect's bytes every time: the
+    /// iteration ends on it, the program's end, and its effects are
+    /// checked after it, so every read the program made has been fed
+    /// however far apart it wrote them (`RigAct::TypeToSentinel`).
+    Sentinel,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,11 +150,12 @@ enum Cause {
     /// on its effects or on the program's sentinel, a clear, and never on
     /// wall time (`RigAct::TypeUntil`): the rig's wait a backstop that,
     /// reached, reads [`Failure::TimedOut`], and the sentinel
-    /// [`Failure::Unanswered`]. With [`Hold::Reply`], each reply the
+    /// [`Failure::Unanswered`]. With [`Until::EitherHeld`], each reply the
     /// terminal makes on a decode's turn is held `HELD_REPLY` first
     /// (`RigAct::TypeHeld`), the wall time a loaded machine takes, passed
-    /// on purpose. Run as a program's row.
-    ProgramUntil(Program, Hold),
+    /// on purpose; with [`Until::Sentinel`], the iteration ends on the
+    /// sentinel alone. Run as a program's row.
+    ProgramUntil(Program, Until),
     /// A gesture sent to the view's own methods, over what `setup`, typed
     /// once first, drew; the frame never driven.
     Gesture(Gesture),
@@ -220,6 +232,14 @@ const READ: Shape = Shape {
 /// reply `HELD_REPLY`, so a hundred would hold the run four minutes an
 /// arm; four show every iteration ends on its copy, not on time.
 const HELD: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(4),
+};
+
+/// **Four iterations of a row whose program pauses**, a third of a
+/// second each: ended on the wrong event, every second iteration reads
+/// Unanswered, so four show it on every run.
+const PAUSED: Shape = Shape {
     polled: Polled::Read,
     iterations: Iterations(4),
 };
@@ -409,7 +429,7 @@ const KITTY_ERROR: &str = concat!(
     r#"case $r in *";E"*"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
 );
 
-const SITES: [Site; 31] = [
+const SITES: [Site; 32] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -525,7 +545,7 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: READ,
             },
-            Hold::No,
+            Until::Either,
         ),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -562,10 +582,10 @@ const SITES: [Site; 31] = [
         state: RowState::Green,
     },
     // **The bell's raise, `?1043`, ended on its own event**: the bell and
-    // then the sentinel, a clear, so the iteration ends on the raise, or on
-    // the clear with no raise (Unanswered: a bell lost), never on the rig's
-    // two seconds, where a lost bell and a program late to print both read
-    // NotRun.
+    // then the sentinel, a clear, written last every time, so the
+    // iteration ends on the clear and finds the raise before it, or no
+    // raise (Unanswered: a bell lost); never on the rig's two seconds,
+    // where a lost bell and a program late to print both read NotRun.
     Site {
         name: SiteName("the bell's raise, mode 1043"),
         cause: Cause::ProgramUntil(
@@ -574,7 +594,7 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: READ,
             },
-            Hold::No,
+            Until::Sentinel,
         ),
         expect: Expect::effect(&[EffectKind::Front]),
         state: RowState::Green,
@@ -591,7 +611,7 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: HELD,
             },
-            Hold::No,
+            Until::Sentinel,
         ),
         expect: Expect::effect(&[EffectKind::Front]),
         state: RowState::Green,
@@ -616,7 +636,31 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: READ,
             },
-            Hold::No,
+            Until::Sentinel,
+        ),
+        expect: Expect::effect(&[EffectKind::Front]),
+        state: RowState::Green,
+    },
+    // **The bell's sentinel written apart from its bell**: the shell pauses
+    // 200 ms between the two writes, past the floor that follows an
+    // iteration's records, so the bell and the clear are two reads and the
+    // bell's frame comes before the clear's read exists; then 100 ms more
+    // before the shell takes the next line. The iteration ends on the
+    // clear, the program's end, so the pauses can be any length. Break: the
+    // iteration ended on the raise (`Until::Either`), and the clear comes
+    // alone in the next iteration, 100 ms before that iteration's bell:
+    // Unanswered every second iteration. Without the pause after it the
+    // clear would ride with the next bell, the shell taking the next line
+    // as soon as the clear is written, and that break would pass.
+    Site {
+        name: SiteName("the bell's sentinel written apart from its bell"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: r"printf '\033[?1043h\007'; sleep 0.2; printf '\033]52;c;!\007'; sleep 0.1",
+                config: "",
+                shape: PAUSED,
+            },
+            Until::Sentinel,
         ),
         expect: Expect::effect(&[EffectKind::Front]),
         state: RowState::Green,
@@ -866,7 +910,7 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: HELD,
             },
-            Hold::Reply,
+            Until::EitherHeld,
         ),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -890,7 +934,7 @@ const SITES: [Site; 31] = [
                 config: "",
                 shape: HELD,
             },
-            Hold::Reply,
+            Until::EitherHeld,
         ),
         expect: Expect {
             each: &[EffectKind::Copy],
@@ -1029,10 +1073,11 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             (RigAct::Path, file, config(rule), RigFocus::Real)
         }
         Cause::Program(p) => (RigAct::Type, p.line.to_owned(), p.config, RigFocus::Real),
-        Cause::ProgramUntil(p, hold) => (
-            match hold {
-                Hold::No => RigAct::TypeUntil,
-                Hold::Reply => RigAct::TypeHeld,
+        Cause::ProgramUntil(p, until) => (
+            match until {
+                Until::Either => RigAct::TypeUntil,
+                Until::EitherHeld => RigAct::TypeHeld,
+                Until::Sentinel => RigAct::TypeToSentinel,
             },
             p.line.to_owned(),
             p.config,
