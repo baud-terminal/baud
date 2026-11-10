@@ -645,6 +645,61 @@ fn alive_lists_the_live_ids() {
     );
 }
 
+/// **Under `NoticeHold::On` a `p=alive` stops the read and waits for the
+/// embedder**: no answer until `Term::answer_notices_alive`, which reads
+/// the live table as the embedder left it -- here one it dropped, as a
+/// platform's list no longer showing it says -- and the rest of the read,
+/// a second `p=alive` and text, is parsed after the answer, so the replies
+/// stay in order. Answered, a second call answers nothing. Off, the answer
+/// is at once and no read stops. Breaks: the hold not taken in
+/// `Paint::str_end` -- "the read stopped at the question" fails;
+/// `NoticeDesk::answer` taking no reply -- the first answer says none
+/// went.
+#[test]
+fn a_held_alive_is_answered_from_the_table_the_embedder_leaves() {
+    with(
+        Some(all()),
+        b"\x1b]99;i=a;one\x1b\\\x1b]99;i=b;two\x1b\\",
+        Reads(4096),
+        |t| {
+            let a = t.notices().next().expect("one").token;
+            t.clear_notices();
+            t.set_notice_hold(NoticeHold::On);
+            let bytes = b"\x1b]99;i=m:p=alive;\x1b\\xy\x1b]99;i=n:p=alive;\x1b\\";
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            assert_eq!(t.reply(), b"", "nothing until the embedder answers");
+            assert_eq!(t.notices_alive_asked(), NoticeAsked::Owed);
+            let rest = t.take_held().expect("the read stopped at the question");
+            assert_eq!(rest.len.index(), bytes.len() - rest.at.index());
+            assert_eq!(
+                &bytes[rest.at.index()..],
+                b"xy\x1b]99;i=n:p=alive;\x1b\\",
+                "the rest is the text and the second question"
+            );
+            t.notice_dropped(a);
+            assert!(t.answer_notices_alive());
+            assert_eq!(t.notices_alive_asked(), NoticeAsked::No);
+            assert_eq!(t.reply(), b"\x1b]99;i=m:p=alive;b\x1b\\");
+            t.clear_reply();
+            assert!(!t.answer_notices_alive(), "answered once");
+            assert_eq!(t.reply(), b"");
+            t.feed(rest.at, rest.len);
+            assert_eq!(t.reply(), b"", "the second waits too");
+            assert_eq!(t.notices_alive_asked(), NoticeAsked::Owed, "stopped again");
+            assert_eq!(t.take_held().map_or(0, |r| r.len.index()), 0);
+            assert!(t.answer_notices_alive());
+            assert_eq!(t.reply(), b"\x1b]99;i=n:p=alive;b\x1b\\");
+            t.clear_reply();
+            t.set_notice_hold(NoticeHold::Off);
+            support::feed(t, b"\x1b]99;i=o:p=alive;\x1b\\");
+            assert_eq!(t.reply(), b"\x1b]99;i=o:p=alive;b\x1b\\");
+            assert!(t.take_held().is_none(), "no read stops");
+            assert_eq!(t.notices_alive_asked(), NoticeAsked::No);
+        },
+    );
+}
+
 /// **`p=alive` with every slot live and every id at its longest is answered
 /// whole**: 32 notifications with 128-byte ids, and the answer names all
 /// 32 and ends in `ST`. It was cut at the 4096 bytes it was composed in,

@@ -6993,6 +6993,45 @@ impl<'b> Term<'b> {
         self.store.strs.notices.dropped(token);
     }
 
+    /// **Whether a `p=alive` stops the read.** Set it only if you read
+    /// your platform's list of shown notifications again when
+    /// [`Term::notices_alive_asked`] says one is owed, drop the ones it no
+    /// longer shows ([`Term::notice_dropped`]), call
+    /// [`Term::answer_notices_alive`] -- which answers from the live table
+    /// as that left it -- and then feed the rest of the read
+    /// [`Term::take_held`] hands back: the program waits for the answer,
+    /// and the bytes after its question are parsed after it. Off, a
+    /// `p=alive` answers at once from the table as it stands.
+    pub fn set_notice_hold(&mut self, hold: NoticeHold) {
+        self.store.strs.notices.set_hold(hold);
+    }
+
+    /// Whether a `p=alive` is waiting for [`Term::answer_notices_alive`].
+    pub fn notices_alive_asked(&self) -> NoticeAsked {
+        self.store.strs.notices.asked()
+    }
+
+    /// **The held `p=alive` answered**, from the live table as it stands:
+    /// the ids of the notifications the program sent that are still
+    /// alive. Nothing when none is owed. Says whether a reply went.
+    pub fn answer_notices_alive(&mut self) -> bool {
+        let strs = &mut self.store.strs;
+        let Some(r) = strs.notices.answer(strs.notice_area) else {
+            return false;
+        };
+        // Part by part, whole or not at all, as a `p=alive` answered at
+        // once is (`Paint::notice_outcome`).
+        let mut b = self
+            .store
+            .reply
+            .lend(&self.cold)
+            .body(StringReply::osc(StringTerm::St));
+        for part in r.parts() {
+            b.put(part);
+        }
+        b.finish()
+    }
+
     /// The progress a program set with `OSC 9 ; 4`: ConEmu's states, kept
     /// until a program changes it or `RIS`.
     pub fn progress(&self) -> Progress {

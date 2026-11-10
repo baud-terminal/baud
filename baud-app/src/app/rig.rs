@@ -822,6 +822,15 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // network, and no hand of the read's names lands after a settle to owe
     // the hover a read.
     probe::set_host_name(probe::HostName::Stalled);
+    // **A Notification Center that never answers**, where the row asks for
+    // it (`BAUD_RIG_DELIVERED=stalled`): a held `p=alive` is then answered
+    // at its bound, on the wake the read's hold scheduled for it.
+    probe::set_notice_list(
+        match std::env::var_os("BAUD_RIG_DELIVERED").is_some_and(|v| v == "stalled") {
+            true => probe::NoticeList::Stalled,
+            false => probe::NoticeList::Answers,
+        },
+    );
     let shell = Shell::start(scale, size, inset, None, None);
     let Opening {
         mut driver,

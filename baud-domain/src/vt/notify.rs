@@ -1139,12 +1139,39 @@ impl NoticeRefusals {
     }
 }
 
-/// What a chunk's end did: nothing to say, a reply to write, or a refusal.
+/// **Whether a `p=alive` stops the read**, so the embedder can ask its
+/// platform which notifications it still shows before the answer goes
+/// (`Term::set_notice_hold`): macOS says nothing when one is dismissed,
+/// so the live table holds one until the platform's list is read. **Off
+/// by default**: the answer is the live table as it stands, at once.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NoticeHold {
+    #[default]
+    Off,
+    On,
+}
+
+/// Whether a `p=alive` held under [`NoticeHold::On`] waits for its answer:
+/// owed until the embedder has read its platform's list and says to answer
+/// (`Term::answer_notices_alive`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NoticeAsked {
+    #[default]
+    No,
+    Owed,
+}
+
+/// What a chunk's end did: nothing to say, a reply to write, a `p=alive`
+/// the embedder answers, or a refusal.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChunkEnd {
     Kept,
     Published,
     Replied,
+    /// A `p=alive` under [`NoticeHold::On`]: its head composed and its
+    /// answer owed ([`NoticeDesk::asked`]), the live table read when the
+    /// embedder says ([`NoticeDesk::take_reply`]).
+    Asked,
     Refused(NoticeRefusal),
 }
 
@@ -1201,6 +1228,8 @@ pub struct NoticeDesk {
     next: u32,
     age: u32,
     owed: Owed,
+    hold: NoticeHold,
+    asked: NoticeAsked,
     pub refusals: NoticeRefusals,
 }
 
@@ -1235,6 +1264,8 @@ impl NoticeDesk {
         next: 1,
         age: 0,
         owed: Owed::Nothing,
+        hold: NoticeHold::Off,
+        asked: NoticeAsked::No,
         refusals: NoticeRefusals::NONE,
     };
 
@@ -1247,6 +1278,26 @@ impl NoticeDesk {
 
     pub fn support(&self) -> Option<NoticeSupport> {
         self.support
+    }
+
+    /// Whether a `p=alive` stops for the embedder ([`NoticeHold`]).
+    pub fn set_hold(&mut self, hold: NoticeHold) {
+        self.hold = hold;
+    }
+
+    /// Whether a `p=alive` waits for the embedder's answer.
+    pub fn asked(&self) -> NoticeAsked {
+        self.asked
+    }
+
+    /// **The held `p=alive` answered**: no longer owed, and its reply,
+    /// the live table as it stands now, taken ([`NoticeDesk::take_reply`]).
+    pub fn answer<'a>(&'a mut self, area: &'a [u8]) -> Option<Owing<'a>> {
+        if self.asked == NoticeAsked::No {
+            return None;
+        }
+        self.asked = NoticeAsked::No;
+        self.take_reply(area)
     }
 
     fn refuse(&mut self, why: NoticeRefusal) -> ChunkEnd {
@@ -1732,7 +1783,12 @@ impl NoticeDesk {
     }
 
     /// Put `token` in the live table, its id beside it; an update keeps its
-    /// slot. A full table forgets its oldest.
+    /// slot. **A full table forgets its oldest**, at once: a post is a
+    /// program's ordinary output, and waiting on the platform to say which
+    /// it still shows would stall the read on every post once the table is
+    /// full, so the oldest -- the likeliest to have been dismissed -- goes.
+    /// A `p=alive` is where the platform's list is asked for
+    /// (`NoticeHold`).
     fn remember(&mut self, area: &mut [u8], l: Layout, token: NoticeToken, id: Span, s: Settings) {
         self.age = self.age.wrapping_add(1);
         let age = self.age;
@@ -1881,6 +1937,10 @@ impl NoticeDesk {
             at: l.chunk,
             len: len.index(),
         });
+        if self.hold == NoticeHold::On {
+            self.asked = NoticeAsked::Owed;
+            return ChunkEnd::Asked;
+        }
         ChunkEnd::Replied
     }
 

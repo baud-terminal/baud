@@ -519,11 +519,11 @@ impl Paint<'_, '_> {
             self.control_may_write();
         }
         match self.cold.str_kind {
-            StrKind::Osc => self.dispatch_osc(term),
+            StrKind::Osc => self.dispatch_osc(term, node),
             StrKind::Sixel => self.sixel_end(),
             StrKind::Clipboard => self.clip_end(),
             StrKind::ItermFile => self.file_end(),
-            StrKind::Notice => self.notice_end(),
+            StrKind::Notice => self.notice_end(node),
             StrKind::ColorControl => self.colour_end(),
             StrKind::Decrqss => {
                 let n = self.cold.str_len.index();
@@ -658,7 +658,7 @@ impl Paint<'_, '_> {
         }
     }
 
-    fn dispatch_osc(&mut self, term: StringTerm) {
+    fn dispatch_osc(&mut self, term: StringTerm, node: &mut crate::graph::Node) {
         let n = self.cold.str_len.index();
         // Split the borrow: `Osc::parse` holds the payload while the setters
         // want the other buffers, and an `OSC 4`'s pairs are walked while
@@ -901,7 +901,7 @@ impl Paint<'_, '_> {
             Osc::WorkingDirectory(report) => self.report_directory(report, cut),
             Osc::Notify9(o) => self.osc9(o, cut),
             Osc::Notify777(o) => self.osc777(o, cut),
-            Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload),
+            Osc::KittyNotify { meta, payload } => self.notice_whole(meta, payload, node),
             Osc::Iterm(o) => self.osc1337(o, cut, term),
             Osc::ColorControl(rest) => self.colour_whole(rest),
             // A value cut at the bound, refused: `string_truncations` counted

@@ -54,7 +54,7 @@ impl Paint<'_, '_> {
     /// The chunk's terminator.
     #[cold]
     #[inline(never)]
-    pub(crate) fn notice_end(&mut self) {
+    pub(crate) fn notice_end(&mut self, node: &mut crate::graph::Node) {
         let n = self.cold.str_len.index();
         let meta_end = n - 1;
         let mut meta = [0u8; crate::storage::OSC_MAX];
@@ -65,12 +65,25 @@ impl Paint<'_, '_> {
             .notices
             .chunk_end(self.strs.notice_area, &meta[..m]);
         self.notice_outcome(end);
+        self.notice_hold(end, node);
+    }
+
+    /// **A `p=alive` the embedder answers stops the read**
+    /// (`NoticeHold::On`): the rest is parsed after its answer, which reads
+    /// the live table as the embedder's platform left it
+    /// (`Term::answer_notices_alive`). Reached only at an `OSC 99`'s end.
+    fn notice_hold(&mut self, end: ChunkEnd, node: &mut crate::graph::Node) {
+        if end == ChunkEnd::Asked {
+            self.hold_read(node);
+        }
     }
 
     /// What a desk's step did, counted or answered.
     pub(crate) fn notice_outcome(&mut self, end: ChunkEnd) {
         match end {
-            ChunkEnd::Kept | ChunkEnd::Published => {}
+            // A held `p=alive`: the read stops at the string's end
+            // (`Paint::str_end`), and the embedder answers it.
+            ChunkEnd::Kept | ChunkEnd::Published | ChunkEnd::Asked => {}
             ChunkEnd::Replied => {
                 // **Written part by part, whole or not at all**: an alive
                 // list is longer than any room the desk composes in, and one
@@ -102,7 +115,12 @@ impl Paint<'_, '_> {
     /// `OSC 99` that arrived whole, never routed: an `OSC 99` is routed at
     /// its second `;`, so this is the shape the desk is fed by an embedder
     /// that parses without the core, kept for the same answer.
-    pub(crate) fn notice_whole(&mut self, meta: &[u8], payload: &[u8]) {
+    pub(crate) fn notice_whole(
+        &mut self,
+        meta: &[u8],
+        payload: &[u8],
+        node: &mut crate::graph::Node,
+    ) {
         let mut m = [0u8; crate::storage::OSC_MAX];
         let ml = meta.len().min(m.len());
         m[..ml].copy_from_slice(&meta[..ml]);
@@ -114,6 +132,7 @@ impl Paint<'_, '_> {
         }
         let end = self.strs.notices.chunk_end(self.strs.notice_area, &m[..ml]);
         self.notice_outcome(end);
+        self.notice_hold(end, node);
     }
 
     /// `OSC 9`: a notification, a progress report, or a ConEmu form refused.

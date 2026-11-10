@@ -658,6 +658,30 @@ pub fn fed_turns() -> FedTurns {
     FED_TURNS.with(Cell::get)
 }
 
+/// **What the notification center answers a "which are delivered" with,
+/// in a probe build**: what it sent and has not removed, or nothing, ever:
+/// the frame rig's Notification Center that never answers, so a held
+/// `p=alive` is answered at its bound (baud-app's `reads::NOTICE_WAIT`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticeList {
+    Answers,
+    Stalled,
+}
+
+thread_local! {
+    static NOTICE_LIST: Cell<NoticeList> = const { Cell::new(NoticeList::Answers) };
+}
+
+/// Set what the center answers a "which are delivered" with.
+pub fn set_notice_list(l: NoticeList) {
+    NOTICE_LIST.with(|c| c.set(l));
+}
+
+/// What the center answers a "which are delivered" with.
+pub fn notice_list() -> NoticeList {
+    NOTICE_LIST.with(Cell::get)
+}
+
 /// **What `link::host_name` answers in a probe build**: the system's
 /// `NSProcessInfo.hostName`, or the frame rig's stalled reverse lookup,
 /// which holds the window's read of every name (baud-app's `Hosts`) until

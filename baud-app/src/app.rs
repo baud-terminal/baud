@@ -884,10 +884,9 @@ struct App {
     told: baud_present_macos::notify::Told,
     /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
     fireworks: crate::fireworks::Fireworks,
-    /// When Notification Center's list was last asked for, and whether an
-    /// answer is owed.
+    /// When Notification Center's list was asked for a held `p=alive`
+    /// (`notices_alive_check`), while its answer is owed.
     delivered_asked: Option<Instant>,
-    delivered_last: Option<Instant>,
     /// When the printer list is read again, and the thread that reads it
     /// (`print.rs`, `PrinterList`).
     watch: crate::print::Watch,
@@ -1541,6 +1540,12 @@ impl App {
             _ => None,
         };
         term.set_notice_support(notice_support(center.as_deref(), notifications));
+        // **A `p=alive` waits for Notification Center's list**, asked when
+        // the question is read (`notices_alive_check`): nothing on macOS says
+        // a notification was dismissed.
+        if center.is_some() {
+            term.set_notice_hold(baud_core::NoticeHold::On);
+        }
         // A window the system gave no terminal says why (`pty::Refused`).
         crate::pty::say_refused(&mut term, &pty);
         let notes = crate::notify::Delivery::new(notifications, &term, images);
@@ -1742,7 +1747,6 @@ impl App {
             center,
             told: baud_present_macos::notify::Told::NOTHING,
             delivered_asked: None,
-            delivered_last: None,
             watch: crate::print::Watch::new(),
             printer_list: PrinterList::new(waker),
             prints: crate::print::Prints::new(),
@@ -12533,6 +12537,8 @@ impl Driver {
         if let Rings::Ring(volume) = self.app.ringer.hear(&self.app.term, Instant::now(), frame) {
             self.ring_bell(volume);
         }
+        // A `p=alive` the feed stopped at: Notification Center's list asked.
+        self.notices_alive_check();
         // Every turn that fed the core, counted for the frame rig: what a
         // read of the hover per feed would equal.
         #[cfg(feature = "effect-probe")]
@@ -15712,29 +15718,17 @@ impl Driver {
         self.app
             .notes
             .mac_refused(&mut self.app.term, &news.refused);
-        // A `w` that has passed, and every few seconds the list
-        // Notification Center holds, so `p=alive` names what is still
-        // there: nothing on macOS says one closed.
+        // A `w` that has passed; and the list Notification Center holds,
+        // asked for a held `p=alive` (`notices_alive_check`): nothing on
+        // macOS says one closed, so the ones it no longer holds are
+        // forgotten before the question is answered.
         let now = Instant::now();
         self.app.notes.mac_expired(&mut self.app.term, now);
         if let Some(present) = self.app.os.take_delivered() {
-            if let Some(asked) = self.app.delivered_asked.take() {
-                self.app
-                    .notes
-                    .mac_absent(&mut self.app.term, &present, asked);
-            }
-        }
-        let due = self.app.delivered_asked.is_none()
-            && self.app.notes.shown.any()
-            && c.allowed() == Permission::Granted
-            && self
-                .app
-                .delivered_last
-                .is_none_or(|t| now.duration_since(t) >= DELIVERED_EVERY);
-        if due {
-            self.app.delivered_asked = Some(now);
-            self.app.delivered_last = Some(now);
-            let _ = self.app.os.ask(crate::os_effect::OsEffect::AskDelivered);
+            let asked = self.app.delivered_asked.take();
+            self.app
+                .notes
+                .mac_listed(&mut self.app.term, &present, asked);
         }
         for click in c.clicks(whose) {
             let Some(token) = self.app.notes.shown.token(&click.id) else {
@@ -15757,6 +15751,40 @@ impl Driver {
                 |t| t.notice_activated(token, button),
                 |b| outbox.push(b),
             );
+        }
+    }
+
+    /// **A `p=alive` the core holds** (`NoticeHold::On`): Notification
+    /// Center's list asked for, on the effect queue's turn, its answer
+    /// taken by `notice_turn`, which forgets what the list no longer holds
+    /// and answers; or, with notifications not allowed, answered now from
+    /// the live table, and a turn owed to feed what the question held. A
+    /// list asked for within [`crate::reads::NOTICE_WAIT`] is not asked for
+    /// again: the question is answered at that wait whatever comes.
+    fn notices_alive_check(&mut self) {
+        use crate::notify::{AliveStep, Allowed};
+        use baud_present_macos::notify::Permission;
+        let now = Instant::now();
+        let allowed = match self.app.center.as_ref().map(|c| c.allowed()) {
+            Some(Permission::Granted) => Allowed::Yes,
+            _ => Allowed::No,
+        };
+        match crate::notify::alive_step(
+            self.app.term.notices_alive_asked(),
+            allowed,
+            self.app.delivered_asked,
+            now,
+            crate::reads::NOTICE_WAIT,
+        ) {
+            AliveStep::Nothing | AliveStep::Wait => {}
+            AliveStep::Answer => {
+                self.app.term.answer_notices_alive();
+                self.app.os.owe_turn();
+            }
+            AliveStep::Ask => {
+                self.app.delivered_asked = Some(now);
+                let _ = self.app.os.ask(crate::os_effect::OsEffect::AskDelivered);
+            }
         }
     }
 
@@ -18690,11 +18718,6 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
     }
     out
 }
-
-/// How often Notification Center's list is asked for while any program's
-/// notification is shown: a dismissal is out of `p=alive` at most this
-/// late.
-const DELIVERED_EVERY: Duration = Duration::from_secs(2);
 
 /// A post as the center takes it.
 fn mac_post(p: crate::notify::MacPost) -> baud_present_macos::notify::Post {

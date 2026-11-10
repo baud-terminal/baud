@@ -3,7 +3,7 @@
 //! loops are platform-bound and no test reaches them, the shape `wheel.rs`
 //! took for the wheel.
 
-use baud_core::{BytePos, PrinterAsked, ReadLen, Rest, Term};
+use baud_core::{BytePos, NoticeAsked, PrinterAsked, ReadLen, Rest, Term};
 use baud_domain::RegisInput;
 use baud_domain::{DecodeBudget, DecodeProgress};
 use std::time::{Duration, Instant};
@@ -77,6 +77,12 @@ pub fn feed_parts<'r, T: Part>(
 /// printer list off the main thread, answers it through `Term::set_printer`,
 /// or at [`PRINTER_WAIT`] are answered from the printer it last had.
 ///
+/// **And the reads behind a `p=alive` the core holds**
+/// (`Term::notices_alive_asked`, under `NoticeHold::On`): they wait until
+/// the driver, which asks its platform which notifications it still shows,
+/// answers it through `Term::answer_notices_alive`, or at [`NOTICE_WAIT`]
+/// are answered from the live table as it stands.
+///
 /// **Each read held keeps its tag**, `T`, with its bytes: what the driver
 /// took the read with (`probe::Writers`), so the read is filed under its own
 /// verdict when its bytes are fed, not under the read that released it
@@ -107,6 +113,7 @@ enum Input {
 enum Why {
     Delay,
     Printer,
+    Notices,
 }
 
 /// How long a held DSR `?15` waits for the driver's look at its printers
@@ -115,6 +122,12 @@ enum Why {
 /// print system's daemon running, and 40-78 ms, inside this wait, when
 /// that call had to start the daemon.
 pub const PRINTER_WAIT: Duration = Duration::from_millis(100);
+
+/// **How long a held `p=alive` waits for the driver's platform list**
+/// before it is answered from the live table as it stands: the list is
+/// the platform's answer to an asynchronous ask, its time unmeasured here,
+/// and this is the most a program's wait for its answer costs.
+pub const NOTICE_WAIT: Duration = Duration::from_millis(250);
 
 /// How many delays [`HELD_MAX`] ended early.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -144,6 +157,12 @@ impl<T: Copy> Pace<T> {
     #[cfg(test)]
     pub fn waits_for_printer(&self) -> bool {
         self.until.is_some() && self.why == Why::Printer
+    }
+
+    /// Whether the reads wait for the driver's answer to a `p=alive`.
+    #[cfg(test)]
+    pub fn waits_for_notices(&self) -> bool {
+        self.until.is_some() && self.why == Why::Notices
     }
 
     /// When the held reads go on, while a delay holds them.
@@ -380,6 +399,7 @@ pub fn paced<'r, T: Part>(
 ) -> Fed {
     pace.recuts.clear();
     printer_wait(term, pace, now);
+    notice_wait(term, pace, now);
     owed(term, &mut sink);
     log.follow(term);
     if pace.input == Input::Waits {
@@ -453,6 +473,22 @@ fn printer_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) 
         term.set_printer(last);
     }
     if term.printer_asked() == PrinterAsked::No {
+        pace.until = None;
+    }
+}
+
+/// **A held `p=alive`'s wait ends**: answered by the driver, or past
+/// [`NOTICE_WAIT`] or [`HELD_MAX`] answered here from the live table as it
+/// stands, so a platform whose list never comes holds nothing for long.
+fn notice_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
+    let Some(t) = pace.until.filter(|_| pace.why == Why::Notices) else {
+        return;
+    };
+    let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
+    if term.notices_alive_asked() == NoticeAsked::Owed && (now >= t || waiting > HELD_MAX) {
+        term.answer_notices_alive();
+    }
+    if term.notices_alive_asked() == NoticeAsked::No {
         pace.until = None;
     }
 }
@@ -639,6 +675,16 @@ fn paced_one<T: Part>(
         if term.printer_asked() == PrinterAsked::Owed {
             pace.until = Some(now + PRINTER_WAIT);
             pace.why = Why::Printer;
+            if let Some(r) = next.take() {
+                pace.keep(
+                    &bytes[r.at.index()..r.at.index() + r.len.index()],
+                    tag.rest(r.at),
+                );
+            }
+        } else if term.notices_alive_asked() == NoticeAsked::Owed {
+            // The driver saw the question and asked its platform's list.
+            pace.until = Some(now + NOTICE_WAIT);
+            pace.why = Why::Notices;
             if let Some(r) = next.take() {
                 pace.keep(
                     &bytes[r.at.index()..r.at.index() + r.len.index()],
@@ -1479,6 +1525,89 @@ mod tests {
             assert_eq!(row0(&t), "ABCDEF", "{answer:?}");
             assert!(!pace.waits_for_printer());
             assert_eq!(t.printer_asked(), PrinterAsked::No);
+        }
+    }
+
+    /// **A held `p=alive` waits for the driver's platform list, and the
+    /// reads behind it wait for the answer**: nothing is answered or drawn
+    /// until the driver answers, from the live table its list left -- here
+    /// with `a` dropped, as a list no longer showing it does -- and then the
+    /// answer goes out ahead of the text after the question, which lands in
+    /// order. The control: a driver that never answers is answered at
+    /// [`NOTICE_WAIT`] from the table as it stands. Break: the reads not
+    /// held behind it (`paced_one`'s arm) -- the driver is asked again
+    /// on every part after it, "the driver is asked once" fails.
+    #[test]
+    fn a_held_alive_question_waits_for_the_drivers_answer() {
+        let support = baud_core::NoticeSupport {
+            actions: baud_core::Activation::FOCUS,
+            close_events: baud_core::CloseEvents::Tracked,
+            occasions: baud_core::Occasions::UnfocusedAndInvisible,
+            urgencies: baud_core::Urgencies::All,
+            sounds: baud_core::Sounds::Standard,
+            expiry: baud_core::ExpirySupport::Expires,
+            icons: baud_core::IconSupport::NamesAndImages,
+            buttons: baud_core::ButtonSupport::Shown,
+        };
+        for answer in [true, false] {
+            let mut s = Owned::new(&WS).with_notices(baud_core::NoticeBudget::with_icon(4096));
+            let mut t = Term::new(s.storage(), &WS);
+            t.set_notice_support(Some(support));
+            let posts = b"\x1b]99;i=a;one\x1b\\\x1b]99;i=b;two\x1b\\";
+            t.write_at(BytePos::ZERO, posts);
+            t.feed(BytePos::ZERO, ReadLen::from_index(posts.len()));
+            let a = t.notices().next().expect("one").token;
+            t.clear_notices();
+            t.set_notice_hold(baud_core::NoticeHold::On);
+            let mut pace = Pace::new();
+            let mut out = Vec::new();
+            let t0 = Instant::now();
+            let reads: [&[u8]; 2] = [b"\x1b]99;i=m:p=alive;\x1b\\AB", b"CD"];
+            let mut asked = 0;
+            paced(
+                &mut t,
+                &mut pace,
+                t0,
+                reads,
+                |b| out.extend_from_slice(b),
+                |t| asked += usize::from(t.notices_alive_asked() == NoticeAsked::Owed),
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(asked, 1, "the driver is asked once");
+            assert!(pace.waits_for_notices());
+            assert_eq!((out.as_slice(), row0(&t).as_str()), (&b""[..], ""));
+            let early = t0 + NOTICE_WAIT / 2;
+            paced(
+                &mut t,
+                &mut pace,
+                early,
+                [&b"EF"[..]],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!(row0(&t), "", "{answer:?}: still waiting");
+            let (at, want): (Instant, &[u8]) = match answer {
+                true => {
+                    t.notice_dropped(a);
+                    t.answer_notices_alive();
+                    (early, b"\x1b]99;i=m:p=alive;b\x1b\\")
+                }
+                false => (t0 + NOTICE_WAIT, b"\x1b]99;i=m:p=alive;a,b\x1b\\"),
+            };
+            let fed = paced(
+                &mut t,
+                &mut pace,
+                at,
+                [],
+                |b| out.extend_from_slice(b),
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
+            assert_eq!((fed, out.as_slice()), (Fed::Some, want), "{answer:?}");
+            assert_eq!(row0(&t), "ABCDEF", "{answer:?}");
+            assert!(!pace.waits_for_notices());
+            assert_eq!(t.notices_alive_asked(), NoticeAsked::No);
         }
     }
 

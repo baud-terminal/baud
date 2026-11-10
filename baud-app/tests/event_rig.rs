@@ -1608,6 +1608,10 @@ enum Settles {
     /// **The splash started on the first frame of a window shown before
     /// it**, with nothing typed: once.
     GreetedFirst,
+    /// **A held `p=alive` answered at its bound with no tick**: the ticks
+    /// withheld, nothing delivered; the act's clear says the answer came
+    /// whole and named what is alive.
+    AliveAtBound,
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
@@ -1654,6 +1658,7 @@ impl Settles {
             Settles::Filed => c.delivered == 0 && c.asked >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
+            Settles::AliveAtBound => c.delivered == 0,
             Settles::ReadByFrame => {
                 c.reads >= 1 && u64::from(c.reads) <= c.drawn && c.reads <= c.fed
             }
@@ -1723,7 +1728,7 @@ const STILL: &str = r"printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 28] = [
+const FRAME_SITES: [FrameSite; 29] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -1930,6 +1935,37 @@ const FRAME_SITES: [FrameSite; 28] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::GreetedFirst,
+        state: RowState::Green,
+    },
+    // **A held `p=alive` is answered at its bound** (`reads::NOTICE_WAIT`)
+    // when Notification Center never answers: the read stops at the
+    // question (`NoticeHold::On`), the list is asked for, and the reply
+    // leaves on the wake the read's hold scheduled for its deadline
+    // (`pace_wake`), the ticks withheld, so nothing else brings that turn.
+    // The setup's post is the one alive, and the grant it asks for comes
+    // first. The act reads the answer to its `ST` and clears the pasteboard
+    // only on `p=alive;k`; anything else copies, so the act never signs.
+    FrameSite {
+        name: SiteName("a held p=alive is answered at its bound with no tick"),
+        setup: r"printf '\033]99;i=k;one\033\\\033]52;c;!\007'",
+        act: concat!(
+            r"stty -echo -icanon min 1 time 0; ",
+            r"printf '\033]99;i=m:p=alive;\033\\'; ",
+            to_st!(),
+            r#"case $r in *"p=alive;k$e\\") printf '\033]52;c;!\007';; *) printf '\033]52;c;aGk=\007';; esac"#,
+        ),
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_RIG_DELIVERED", "stalled")],
+        config: concat!(
+            "[cursor]\nblink = false\ntrail = \"off\"\n",
+            "[link]\nurls = \"off\"\npaths = \"off\"\n",
+            "[screen]\nprinting = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::AliveAtBound,
         state: RowState::Green,
     },
     // **FS-A2**: the window made key is heard with the link paused, from

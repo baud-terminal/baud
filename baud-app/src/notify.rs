@@ -542,7 +542,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     }
 
     /// Whether any is shown.
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    #[cfg(test)]
     pub fn any(&self) -> bool {
         !self.alive.is_empty()
     }
@@ -1169,6 +1169,18 @@ impl<T: Moment> Delivery<T, String> {
         }
     }
 
+    /// **Notification Center's list, asked for at `asked`, taken**: what it
+    /// no longer holds forgotten ([`Delivery::mac_absent`]), and then a
+    /// `p=alive` the core holds answered from what is left
+    /// (`Term::answer_notices_alive`), so a notification dismissed before
+    /// the question is not named in its answer.
+    pub fn mac_listed(&mut self, term: &mut Term<'_>, present: &[String], asked: Option<T>) {
+        if let Some(asked) = asked {
+            self.mac_absent(term, present, asked);
+        }
+        term.answer_notices_alive();
+    }
+
     /// Forget the posts the user did not allow, whose ids are `ids`.
     pub fn mac_refused(&mut self, term: &mut Term<'_>, ids: &[String]) {
         for id in ids {
@@ -1177,6 +1189,50 @@ impl<T: Moment> Delivery<T, String> {
                 term.notice_dropped(token);
             }
         }
+    }
+}
+
+/// Whether the platform lets the program's notifications be shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Allowed {
+    Yes,
+    No,
+}
+
+/// **What a `p=alive` the core holds asks of the macOS driver**
+/// ([`alive_step`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AliveStep {
+    /// None is held.
+    Nothing,
+    /// Answered now from the live table: with notifications not allowed
+    /// there is no list to ask for.
+    Answer,
+    /// Notification Center's list asked for, its answer the question's.
+    Ask,
+    /// A list asked for less than `wait` ago is still to come.
+    Wait,
+}
+
+/// **What a held `p=alive` asks for at `now`**: nothing with none held; an
+/// answer now with notifications not allowed; else the list, unless one
+/// was asked for less than `wait` before `now`, which the question waits
+/// for -- and it is answered at that wait whatever comes (`reads::NOTICE_WAIT`).
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+pub fn alive_step<T: Moment>(
+    asked: baud_core::NoticeAsked,
+    allowed: Allowed,
+    listed: Option<T>,
+    now: T,
+    wait: Duration,
+) -> AliveStep {
+    match (asked, allowed) {
+        (baud_core::NoticeAsked::No, _) => AliveStep::Nothing,
+        (baud_core::NoticeAsked::Owed, Allowed::No) => AliveStep::Answer,
+        (baud_core::NoticeAsked::Owed, Allowed::Yes) => match listed {
+            Some(t) if now.elapsed_since(t) < wait => AliveStep::Wait,
+            _ => AliveStep::Ask,
+        },
     }
 }
 
@@ -2305,6 +2361,145 @@ mod tests {
         d.mac_refused(&mut t, std::slice::from_ref(&e.id));
         assert_eq!(alive(&mut t), "\x1b]99;i=q:p=alive;\x1b\\");
         assert!(!d.shown.any());
+    }
+
+    /// **A held `p=alive` is answered after Notification Center's list**,
+    /// which no longer holds `a`, dismissed before the question: its
+    /// answer names `b` alone, and the reply after it in the read (DA) goes
+    /// after it. The control: the hold off, the question answered from the
+    /// table at once -- before the list -- names `a` too. Break: `mac_listed`
+    /// answering before it forgets what the list left out -- `a` is named.
+    #[test]
+    fn a_held_alive_names_what_notification_center_still_holds() {
+        for hold in [baud_core::NoticeHold::On, baud_core::NoticeHold::Off] {
+            let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+            let mut t = Term::new(owned.storage(), &WS);
+            t.set_notice_support(support(Setting::On, Platform::MacOs));
+            let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+            feed(&mut t, b"\x1b]99;i=a;1\x1b\\\x1b]99;i=b;2\x1b\\");
+            let posted: Vec<Posted> = t
+                .notices()
+                .map(|n| Posted::of(&n, &mut Icons::default()))
+                .collect();
+            t.clear_notices();
+            let calls = d.mac(
+                &mut t,
+                posted,
+                (Focus::Unfocused, Visible::Covered),
+                at(Secs(0)),
+                "p",
+                &mut NoFiles,
+                |_| {},
+            );
+            let ids: Vec<String> = calls
+                .iter()
+                .filter_map(|c| match c {
+                    MacCall::Post(p) => Some(p.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(ids.len(), 2, "{calls:?}");
+            t.set_notice_hold(hold);
+            t.clear_reply();
+            feed(&mut t, b"\x1b]99;i=q:p=alive;\x1b\\\x1b[c");
+            let at_once = String::from_utf8_lossy(t.reply()).into_owned();
+            match hold {
+                baud_core::NoticeHold::On => {
+                    assert_eq!(at_once, "", "nothing before the list");
+                    let rest = t.take_held().expect("the read stopped at the question");
+                    d.mac_listed(&mut t, &ids[1..], Some(at(Secs(2))));
+                    t.feed(rest.at, rest.len);
+                    let reply = String::from_utf8_lossy(t.reply()).into_owned();
+                    assert!(
+                        reply.starts_with("\x1b]99;i=q:p=alive;b\x1b\\\x1b["),
+                        "b alone, and DA after it: {reply:?}"
+                    );
+                }
+                baud_core::NoticeHold::Off => assert!(
+                    at_once.starts_with("\x1b]99;i=q:p=alive;a,b\x1b\\"),
+                    "the control names a: {at_once:?}"
+                ),
+            }
+        }
+    }
+
+    /// **Notification Center's list is asked for only by a held `p=alive`,
+    /// and only macOS holds one**: the macOS driver asks for the list in
+    /// one place, `notices_alive_check`, and keeps no clock for it -- no
+    /// `DELIVERED_EVERY`, no `delivered_last` -- and the Linux driver never
+    /// sets the hold, its server saying when one closes. Read from the
+    /// drivers' source, since no test runs them. Break: the list asked for
+    /// in `notice_turn` again.
+    #[test]
+    fn the_list_is_asked_for_only_by_a_held_alive() {
+        let mac = include_str!("app.rs");
+        let asks = concat!("OsEffect::", "AskDelivered");
+        assert_eq!(mac.matches(asks).count(), 1, "one ask");
+        let check = mac
+            .split_once(concat!("fn notices_alive_", "check(&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("notices_alive_check");
+        assert!(check.contains(asks), "the ask is the held question's");
+        for clock in [
+            concat!("DELIVERED_", "EVERY"),
+            concat!("delivered_", "last"),
+        ] {
+            assert!(!mac.contains(clock), "{clock}");
+        }
+        let linux = include_str!("linux.rs");
+        assert!(!linux.contains(concat!("set_notice_", "hold")));
+    }
+
+    /// **What a held `p=alive` asks of the macOS driver** (`alive_step`):
+    /// nothing with none held; an answer now with notifications not
+    /// allowed; the list with none asked for, or one asked for at least
+    /// the wait ago; a wait for one asked for less. Break: the not-allowed
+    /// arm asking for the list -- the second case fails.
+    #[test]
+    fn a_held_alive_asks_for_the_list_once_a_wait() {
+        let wait = Duration::from_millis(250);
+        let ms = |n| at(Secs(10)).after(Duration::from_millis(n));
+        let now = ms(1000);
+        let cases = [
+            (
+                baud_core::NoticeAsked::No,
+                Allowed::Yes,
+                None,
+                AliveStep::Nothing,
+            ),
+            (
+                baud_core::NoticeAsked::Owed,
+                Allowed::No,
+                None,
+                AliveStep::Answer,
+            ),
+            (
+                baud_core::NoticeAsked::Owed,
+                Allowed::Yes,
+                None,
+                AliveStep::Ask,
+            ),
+            (
+                baud_core::NoticeAsked::Owed,
+                Allowed::Yes,
+                Some(ms(900)),
+                AliveStep::Wait,
+            ),
+            (
+                baud_core::NoticeAsked::Owed,
+                Allowed::Yes,
+                Some(ms(750)),
+                AliveStep::Ask,
+            ),
+        ];
+        for (asked, allowed, listed, want) in cases {
+            assert_eq!(
+                alive_step(asked, allowed, listed, now, wait),
+                want,
+                "{asked:?} {allowed:?} {listed:?}"
+            );
+        }
     }
 
     /// The default action's identifier, as the framework names it.

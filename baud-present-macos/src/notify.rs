@@ -617,7 +617,9 @@ impl Center {
         // and has not removed, comes as the handler's would, from another
         // thread.
         #[cfg(feature = "effect-probe")]
-        answered_elsewhere(&into.0, Some(self.held.borrow().clone()));
+        if crate::probe::notice_list() == crate::probe::NoticeList::Answers {
+            answered_elsewhere(&into.0, Some(self.held.borrow().clone()));
+        }
         #[cfg(not(feature = "effect-probe"))]
         {
             let shared = Arc::clone(&into.0);
