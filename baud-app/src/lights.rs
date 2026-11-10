@@ -223,7 +223,7 @@ fn exact_left(columns: &Columns, led: Led, right: CGFloat, logo: NSSize) -> CGFl
 
 /// **The module in a `container` with the strip at its top**, `inset` tall,
 /// bottom-left origin, every x from the container's left. The plate's right
-/// edge [`PANEL_RIGHT`] in from the container's, on a whole device pixel at
+/// edge `right` in from the container's, on a whole device pixel at
 /// `scale`; the last lamp's letters [`PANEL_PAD`] short of it; the lockup
 /// [`PANEL_LOGO_GAP`] before the first light's letters, whole, and the
 /// plate's left [`PANEL_PAD`] before it, both on whole device pixels. The
@@ -238,6 +238,7 @@ pub(crate) fn panel(
     container: NSSize,
     inset: CGFloat,
     left: CGFloat,
+    right: CGFloat,
     scale: CGFloat,
     columns: &Columns,
     logo: NSSize,
@@ -245,9 +246,9 @@ pub(crate) fn panel(
     let scale = scale.max(1.0);
     let whole = |v: CGFloat| (v * scale).round() / scale;
     let pad = CGFloat::from(PANEL_PAD);
-    let right = whole(container.width - CGFloat::from(PANEL_RIGHT));
+    let exact_right = container.width - right;
+    let right = whole(exact_right);
     let x0 = whole(right - pad - columns.end());
-    let exact_right = container.width - CGFloat::from(PANEL_RIGHT);
     let first = Led::ALL
         .into_iter()
         .find(|&l| exact_left(columns, l, exact_right, logo) >= left)?;
@@ -549,6 +550,7 @@ impl Strip {
                 NSSize::new(edges.width, inset),
                 inset,
                 edges.left,
+                edges.right,
                 self.scale,
                 &self.columns,
                 self.logo,
@@ -638,8 +640,9 @@ fn plates(
     };
     let one = |led: Led| {
         let room = NSSize::new(10_000.0, inset);
-        let left = exact_left(columns, led, room.width - CGFloat::from(PANEL_RIGHT), logo) - 1.0;
-        let plate = panel(room, inset, left, scale, columns, logo)?;
+        let right = CGFloat::from(PANEL_RIGHT);
+        let left = exact_left(columns, led, room.width - right, logo) - 1.0;
+        let plate = panel(room, inset, left, right, scale, columns, logo)?;
         let mut img = LightsImage::new();
         draw_panel_plate(
             look,
@@ -884,11 +887,19 @@ mod tests {
     /// lights' 69 points.
     fn panel_at(width: CGFloat, scale: CGFloat) -> Option<Panel> {
         let (c, logo) = real(scale);
-        panel(NSSize::new(width, 28.0), 28.0, 69.0, scale, &c, logo)
+        panel(
+            NSSize::new(width, 28.0),
+            28.0,
+            69.0,
+            CGFloat::from(PANEL_RIGHT),
+            scale,
+            &c,
+            logo,
+        )
     }
 
     /// **The module's numbers**: the plate 221 points across, 220.97 before
-    /// rounding, and 24 tall, y 2 to 26, its right edge 5 in from the
+    /// rounding, and 24 tall, y 2 to 26, its right edge 16 in from the
     /// window's; the lockup 7 from its left, 51.37 by 12.54, centred on the
     /// strip; 10 from the lockup to HS's letters and 7 from SYN's to the
     /// plate's right, each to within a device pixel; the nine in today's
@@ -904,7 +915,7 @@ mod tests {
                 assert_eq!(p.first, Led::Hs, "{at}");
                 let px = 1.0 / scale;
                 let right = p.plate.origin.x + p.plate.size.width;
-                assert!((right - (width - 5.0)).abs() <= px / 2.0, "{at}: {right}");
+                assert!((right - (width - 16.0)).abs() <= px / 2.0, "{at}: {right}");
                 assert_eq!(right * scale, (right * scale).round(), "{at}: whole");
                 assert_eq!(p.plate.origin.y, 2.0, "{at}");
                 assert_eq!(p.plate.size.height, 24.0, "{at}");
@@ -977,15 +988,15 @@ mod tests {
     }
 
     /// **A narrow window drops the leftmost lamps, the lockup stays whole and
-    /// the plate shrinks with them**: all nine from 295 points, 294 drops HS;
-    /// 340 keeps all nine; 240 keeps RD on, 200 FAX and SYN; the plate's
+    /// the plate shrinks with them**: all nine from 306 points, 305 drops HS;
+    /// 340 keeps all nine; 251 keeps RD on, 211 FAX and SYN; the plate's
     /// left never past the traffic lights' end, 69; the plate's right where
     /// it was; the lockup whole at the plate's pad; the first lamp kept the
     /// plate's picture. At every half point from 200 to 400 fewer or the
-    /// same lamps as the next width up, and always the rightmost. Under 144
+    /// same lamps as the next width up, and always the rightmost. Under 155
     /// no lamp fits and there is no plate. Perturbation: start the plate at
     /// the first lamp whatever is kept, or test the rounded plate rather
-    /// than the exact one (200 keeps CS, 68.83 rounding up to 69), and this
+    /// than the exact one (211 keeps CS, 68.83 rounding up to 69), and this
     /// goes red.
     #[test]
     fn a_narrow_window_drops_the_leftmost_and_the_plate_shrinks() {
@@ -999,11 +1010,11 @@ mod tests {
         };
         for scale in [1.0, 2.0] {
             assert_eq!(kept(340.0, scale), Led::ALL, "340 at {scale}x");
-            assert_eq!(kept(295.0, scale), Led::ALL, "295 at {scale}x");
-            assert_eq!(kept(294.0, scale), &Led::ALL[1..], "294 at {scale}x");
-            assert_eq!(kept(240.0, scale), &Led::ALL[4..], "240 at {scale}x");
-            assert_eq!(kept(200.0, scale), &Led::ALL[7..], "200 at {scale}x");
-            assert_eq!(kept(143.0, scale), [], "143 at {scale}x");
+            assert_eq!(kept(306.0, scale), Led::ALL, "306 at {scale}x");
+            assert_eq!(kept(305.0, scale), &Led::ALL[1..], "305 at {scale}x");
+            assert_eq!(kept(251.0, scale), &Led::ALL[4..], "251 at {scale}x");
+            assert_eq!(kept(211.0, scale), &Led::ALL[7..], "211 at {scale}x");
+            assert_eq!(kept(154.0, scale), [], "154 at {scale}x");
             let mut width = 200.0;
             let mut last = 0;
             while width <= 400.0 {
@@ -1017,7 +1028,7 @@ mod tests {
                 assert_eq!(p.first, k[0], "{at}");
                 assert_eq!(p.logo.origin.x - p.plate.origin.x, 7.0, "{at}");
                 assert!(
-                    (p.plate.origin.x + p.plate.size.width - (width - 5.0)).abs() <= 0.5 / scale,
+                    (p.plate.origin.x + p.plate.size.width - (width - 16.0)).abs() <= 0.5 / scale,
                     "{at}"
                 );
                 let (c, logo) = real(scale);
@@ -1042,6 +1053,7 @@ mod tests {
             NSSize::new(960.0, 28.0),
             28.0,
             69.0,
+            CGFloat::from(PANEL_RIGHT),
             2.0,
             &c,
             NSSize::new(0.0, 0.0),
@@ -1066,7 +1078,7 @@ mod tests {
                 let edges = Edges {
                     width,
                     left: 69.0,
-                    right: 5.0,
+                    right: CGFloat::from(PANEL_RIGHT),
                 };
                 let m = plate_margin(scale);
                 let h = lights_width(edges, p.plate.size.width, m, scale);

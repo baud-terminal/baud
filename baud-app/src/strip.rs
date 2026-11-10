@@ -38,9 +38,14 @@
 //! buttons ([`lights_width`]), and the lights that do not fit are not
 //! shown, the leftmost first (`lights::panel`). The title bar's height and
 //! the buttons' places are read from the window as it is laid out, since
-//! they differ with the SDK an app links against; the plate's own numbers,
-//! its right edge's inset among them, are constants of the panel's design
-//! (`baud_render::lights::PANEL_RIGHT`).
+//! they differ with the SDK an app links against; the plate's own numbers
+//! are constants of the panel's design. **Its right edge's inset is the
+//! window's**: AppKit's safe area with corner adaptation on the horizontal
+//! axis (`NSViewLayoutRegion`, macOS 26 on), the inset that keeps clear of
+//! the window's rounded corner, 16 points on macOS 27; where AppKit gives
+//! none, `baud_render::lights::PANEL_RIGHT`, the same 16. In full screen,
+//! where the window has no corner, the windowed inset is kept, so the
+//! panel does not move on entering or leaving it ([`right_inset`]).
 //!
 //! **The grid's top follows full screen.** Windowed, the terminal's view
 //! stops the title bar's height short of the window's top, which the
@@ -82,6 +87,7 @@ use macos_liquid_glass::objc2_app_kit::{
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 use macos_liquid_glass::window::{GlassWindow, TitlebarSide};
+use std::cell::Cell;
 
 /// **The strip the panel's numbers are in**, in points
 /// (`baud_render::lights::PANEL_STRIP`).
@@ -221,9 +227,65 @@ pub(crate) fn close_gap(window: &NSWindow) -> CGFloat {
     laid(window, NSWindowButton::CloseButton).map_or(RIGHT_UNLAID, |f| f.origin.x)
 }
 
+/// **What the window says of its corner**: windowed, the right inset
+/// AppKit keeps clear of it, if it gives one; in full screen, none, since
+/// the window has no corner there.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Corner {
+    Windowed(Option<CGFloat>),
+    FullScreen,
+}
+
+impl Corner {
+    /// `window`'s now: its corner-adapted safe area's right inset, read
+    /// only where AppKit has the region (macOS 26 on).
+    fn of(window: &NSWindow) -> Corner {
+        use macos_liquid_glass::objc2::runtime::AnyClass;
+        use macos_liquid_glass::objc2_app_kit::{
+            NSViewLayoutRegion, NSViewLayoutRegionAdaptivityAxis, NSWindowStyleMask,
+        };
+        if window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            return Corner::FullScreen;
+        }
+        if AnyClass::get(c"NSViewLayoutRegion").is_none() {
+            return Corner::Windowed(None);
+        }
+        let region = NSViewLayoutRegion::safeAreaLayoutRegionWithCornerAdaptation(
+            NSViewLayoutRegionAdaptivityAxis::Horizontal,
+        );
+        Corner::Windowed(
+            window
+                .contentView()
+                .map(|v| v.edgeInsetsForLayoutRegion(&region).right),
+        )
+    }
+}
+
+thread_local! {
+    /// The last windowed inset, for full screen: one for every window, the
+    /// corner being the system's.
+    static KEPT: Cell<Option<CGFloat>> = const { Cell::new(None) };
+}
+
+/// **The plate's right inset for `corner`**: windowed, AppKit's where it
+/// gives one, else `baud_render::lights::PANEL_RIGHT`, and kept in `kept`;
+/// in full screen, the kept one, so the panel stays where it was, or
+/// `PANEL_RIGHT` before any.
+pub(crate) fn right_inset(corner: Corner, kept: &Cell<Option<CGFloat>>) -> CGFloat {
+    let none = CGFloat::from(baud_render::lights::PANEL_RIGHT);
+    match corner {
+        Corner::Windowed(read) => {
+            let inset = read.filter(|&r| r > 0.0).unwrap_or(none);
+            kept.set(Some(inset));
+            inset
+        }
+        Corner::FullScreen => kept.get().unwrap_or(none),
+    }
+}
+
 /// **The strip's edges in `window` now**: the plate starts past the
-/// traffic lights, by the gap between two of them, and ends
-/// `baud_render::lights::PANEL_RIGHT` short of the right.
+/// traffic lights, by the gap between two of them, and ends the window's
+/// [`right_inset`] short of the right.
 pub(crate) fn edges(window: &NSWindow) -> Edges {
     let left = match (
         laid(window, NSWindowButton::CloseButton),
@@ -238,7 +300,7 @@ pub(crate) fn edges(window: &NSWindow) -> Edges {
     Edges {
         width: window.frame().size.width,
         left,
-        right: CGFloat::from(baud_render::lights::PANEL_RIGHT),
+        right: KEPT.with(|kept| right_inset(Corner::of(window), kept)),
     }
 }
 
@@ -283,6 +345,25 @@ mod tests {
             left: 129.366,
             right: 9.0,
         }
+    }
+
+    /// **The plate's right inset is the window's, kept through full
+    /// screen**: windowed, AppKit's corner-adapted inset as it reads it --
+    /// 16 on macOS 27, 12 standing for a smaller corner -- else 16 where it
+    /// gives none or nothing; in full screen, the last windowed one, so the
+    /// panel does not move, and 16 before any. Named breaks: take the
+    /// region's 0 in full screen -- the plate moves to the screen's edge;
+    /// read none as the old 5.
+    #[test]
+    fn the_plates_inset_is_the_windows_and_holds_in_full_screen() {
+        let kept = Cell::new(None);
+        assert_eq!(right_inset(Corner::FullScreen, &kept), 16.0, "before any");
+        assert_eq!(right_inset(Corner::Windowed(Some(16.0)), &kept), 16.0);
+        assert_eq!(right_inset(Corner::Windowed(Some(12.0)), &kept), 12.0);
+        assert_eq!(right_inset(Corner::FullScreen, &kept), 12.0, "kept");
+        assert_eq!(right_inset(Corner::Windowed(None), &kept), 16.0, "none");
+        assert_eq!(right_inset(Corner::Windowed(Some(0.0)), &kept), 16.0, "0");
+        assert_eq!(right_inset(Corner::FullScreen, &kept), 16.0, "kept");
     }
 
     /// **In full screen the grid starts at the window's top, whatever the

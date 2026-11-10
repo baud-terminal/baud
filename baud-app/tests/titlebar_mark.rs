@@ -128,6 +128,12 @@ use macos_liquid_glass::{
     window::{GlassWindow, TitlebarSide},
 };
 
+/// **A macOS 27 window's corner**, in points: its radius, which AppKit's
+/// corner-adapted safe area keeps the plate's right edge in from the
+/// window's.
+#[cfg(target_os = "macos")]
+const CORNER: CGFloat = 16.0;
+
 /// The size a window opens at, `app.rs`'s `WINDOW_SIZE`.
 #[cfg(target_os = "macos")]
 const WINDOW_SIZE: NSSize = NSSize::new(960.0, 600.0);
@@ -675,14 +681,14 @@ fn name_yields_first(mtm: MainThreadMarker) {
     // reaches the traffic lights' end (`lights::panel`): the pad, the
     // lockup, the gap and the lamps' letters, the pad, and the right inset.
     let every = {
-        use baud_render::lights::{PANEL_LOGO_GAP, PANEL_PAD, PANEL_RIGHT};
+        use baud_render::lights::{PANEL_LOGO_GAP, PANEL_PAD};
         let c = strip.columns();
         let letters = c.letters.syn.0 + c.letters.syn.1 - c.letters.hs.0;
         let exact = 2.0 * CGFloat::from(PANEL_PAD)
             + mark.size().width
             + CGFloat::from(PANEL_LOGO_GAP)
             + letters
-            + CGFloat::from(PANEL_RIGHT);
+            + edges.right;
         (left + exact).ceil()
     };
     for (width, shown) in [
@@ -836,11 +842,14 @@ fn check_panel(
     check_panel_views(w, mark, strip, at);
     let edges = strip::edges(w);
     let width = w.frame().size.width;
-    assert_eq!(edges.right, 5.0, "{at}");
+    // AppKit's inset clear of the window's corner, read from the window
+    // never shown: 16 on macOS 27, the corner's radius.
+    assert_eq!(edges.right, CORNER, "{at}");
     let want = lights::panel(
         NSSize::new(width, inset),
         inset,
         edges.left,
+        edges.right,
         scale,
         &strip.columns(),
         mark.size(),
@@ -867,8 +876,15 @@ fn check_panel(
         NSSize::new(pw.size.width - 2.0 * margin, pw.size.height - 2.0 * margin),
     );
     assert!(
-        (inner.origin.x + inner.size.width - (width - 5.0)).abs() <= 0.5 / scale + EPS,
+        (inner.origin.x + inner.size.width - (width - CORNER)).abs() <= 0.5 / scale + EPS,
         "{at}: the plate's right {inner:?} in a {width}"
+    );
+    // Clear of the window's corner: the curve spans its rightmost CORNER
+    // points, and the plate ends left of them, to within the device pixel
+    // its edge is rounded to.
+    assert!(
+        inner.origin.x + inner.size.width <= width - CORNER + 0.5 / scale + EPS,
+        "{at}: the plate {inner:?} reaches the corner's curve in a {width}"
     );
     assert!(
         (inner.size.height - 24.0).abs() < EPS,
@@ -1175,7 +1191,7 @@ fn panel_renders(mtm: MainThreadMarker) {
         ("NSAppearanceNameAqua", "light", 0.925, Theme::light()),
     ] {
         let r = renderer_of(&face, theme);
-        for across in [960.0, 340.0, 295.0, 294.0, 240.0, 200.0] {
+        for across in [1728.0, 960.0, 340.0, 306.0, 305.0, 251.0, 211.0] {
             for (state, shown) in [("rest", Shown::DARK), ("lit", Shown::all(Light::Lit))] {
                 let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
                 let w = window.ns_window();

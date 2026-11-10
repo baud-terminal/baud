@@ -176,6 +176,7 @@ fn each_lockup_draws_inside_its_accessory() {
                     NSSize::new(width, inset),
                     inset,
                     78.0,
+                    CGFloat::from(baud_render::lights::PANEL_RIGHT),
                     scale,
                     &columns,
                     place.size(),

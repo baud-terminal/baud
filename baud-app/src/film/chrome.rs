@@ -137,6 +137,7 @@ pub(crate) fn layout(
         NSSize::new(pt_wide, INSET),
         INSET,
         place.x,
+        CGFloat::from(baud_render::lights::PANEL_RIGHT),
         scale,
         columns,
         place.size(),
@@ -643,8 +644,8 @@ mod tests {
         let across = name_across();
         let columns = columns_at(2.0);
         // All nine with the name, just; then one point short of that. The
-        // plate is 221 across and 5 in from the right; the name starts at 69.
-        let room = 69.0 + across + crate::mark::VERSION_GAP + 221.0 + 5.0;
+        // plate is 221 across and 16 in from the right; the name starts at 69.
+        let room = 69.0 + across + crate::mark::VERSION_GAP + 221.0 + 16.0;
         let px = |pt: f64| Px::of(u32::try_from((pt * 2.0).ceil() as i64).unwrap());
         let fits = layout(px(room), 2.0, &columns, across);
         assert!(fits.version.is_some(), "at {room} points");
@@ -700,6 +701,7 @@ mod tests {
                     NSSize::new(f64::from(width) / scale, INSET),
                     INSET,
                     place.x,
+                    CGFloat::from(baud_render::lights::PANEL_RIGHT),
                     scale,
                     &columns,
                     place.size(),

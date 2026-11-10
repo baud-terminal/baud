@@ -1138,7 +1138,9 @@ fn rounded<'c>(
 
 /// **The title bar's panel**, in points, of the 28-point strip it was
 /// drawn for ([`PANEL_STRIP`]): the plate 24 tall and a whole device pixel
-/// at each end, [`PANEL_RIGHT`] in from the window's right edge, its
+/// at each end, in from the window's right edge by the inset that clears
+/// the window's corner -- AppKit's, where it gives one, and [`PANEL_RIGHT`]
+/// where it gives none, the 16-point corner of a macOS 27 window -- its
 /// corners [`PANEL_RADIUS`], [`PANEL_PAD`] from either end to the first
 /// thing on it; [`PANEL_LOGO_GAP`] from the logo to the first lamp's
 /// letters; [`PANEL_LETTER_GAP`] from one lamp's letters to the next's;
@@ -1147,7 +1149,7 @@ fn rounded<'c>(
 /// [`PANEL_BEVEL`] the bevel's three lines across.
 pub const PANEL_STRIP: f32 = 28.0;
 pub const PANEL_HEIGHT: f32 = 24.0;
-pub const PANEL_RIGHT: f32 = 5.0;
+pub const PANEL_RIGHT: f32 = 16.0;
 pub const PANEL_RADIUS: f32 = 5.0;
 pub const PANEL_PAD: f32 = 7.0;
 pub const PANEL_LOGO_GAP: f32 = 10.0;
