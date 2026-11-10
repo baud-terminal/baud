@@ -163,11 +163,11 @@ pub(crate) fn layout(
     });
     // With no plate the lockup is beside the traffic lights, as the app has
     // it, and the strip the film draws never is so narrow.
-    let f = module.map_or(
-        NSRect::new(
-            NSPoint::new(place.x, (INSET - place.height) / 2.0),
-            place.size(),
-        ),
+    let f = module.map_or_else(
+        || {
+            let at = crate::mark::beside_at(INSET, place.size(), scale);
+            NSRect::new(NSPoint::new(place.x, at.origin.y), at.size)
+        },
         |p| p.logo,
     );
     let top = INSET - (f.origin.y + f.size.height);
@@ -718,13 +718,21 @@ mod tests {
                 let (lx, ly, lw, lh) = lay.lockup;
                 assert_eq!(lx, module.logo.origin.x * scale, "{at}");
                 assert!(
-                    (ly + lh / 2.0 - 14.0 * scale).abs() < 1e-9,
+                    (ly + lh / 2.0 - 14.0 * scale).abs() <= 0.5,
                     "{at}: centred on the strip: {ly} {lh}"
                 );
                 assert_eq!(
                     (lw, lh),
-                    (place.width * scale, place.height * scale),
+                    (
+                        module.logo.size.width * scale,
+                        module.logo.size.height * scale
+                    ),
                     "{at}"
+                );
+                assert!(
+                    (lw - place.width * scale).abs() <= 1.0
+                        && (lh - place.height * scale).abs() <= 1.0,
+                    "{at}: the lockup's size to a pixel: {lw} {lh}"
                 );
                 for led in Led::ALL {
                     assert_eq!(
@@ -736,6 +744,63 @@ mod tests {
                         "{at} {led:?}"
                     );
                 }
+            }
+        }
+    }
+
+    /// **The block of the mark is on whole pixels at 2x, its amber exact**:
+    /// on the plate and with none, the lockup's frame has each edge on a
+    /// whole device pixel, so the block's top row, bottom row and right
+    /// column, which are the frame's, are whole, and every pixel from the
+    /// first column wholly inside its left edge to its right is #F4A32C,
+    /// the brand amber, in the composed sRGB strip. The block's left edge
+    /// falls where the lockup's own proportions put it, 611.57 of 687.94
+    /// units across, inside a pixel; that one column is part-covered and is
+    /// not checked. Break: the frame unsnapped, the lockup at 12.544
+    /// points centred on a 28-point strip (y 15.456 pixels at 2x), and the
+    /// block's top row reads part-covered, not amber.
+    #[test]
+    fn the_blocks_edges_are_whole_pixels_and_its_amber_exact() {
+        const AMBER: u32 = 0xFF_F4_A3_2C;
+        let ((vx, _, vw, _), shapes) = shapes(Lockup::OnDark.svg()).expect("the lockup's SVG");
+        let block = shapes.last().expect("the block, drawn last");
+        assert_eq!(block.fill, Argb(AMBER), "the last shape is the block");
+        let left_unit = block
+            .segments
+            .iter()
+            .map(|s| match *s {
+                Segment::Line(a, _) | Segment::Quad(a, _, _) => a.0,
+            })
+            .fold(f32::INFINITY, f32::min);
+        let along = f64::from((left_unit - vx) / vw);
+        assert!((along - 611.57 / 687.94).abs() < 1e-4, "{along}");
+        for width in [WIDE, Px::of(400)] {
+            let s = Strip::new(width, 2.0, VERSION);
+            let (lx, ly, lw, lh) = s.layout.lockup;
+            let at = format!("{} pixels, plate {:?}", width.value(), s.layout.plate);
+            // Each pixel wholly right of the block's left edge, up to the
+            // first wholly past its right, in the rows its top and bottom
+            // reach into.
+            let left = lx + lw * along;
+            let (right, top, bottom) = ((lx + lw).ceil(), ly.floor(), (ly + lh).ceil());
+            let (sw, sh) = (width.value(), s.layout.size.1.value());
+            for row in (0..sh).filter(|&r| f64::from(r) >= top && f64::from(r) < bottom) {
+                for col in (0..sw).filter(|&c| f64::from(c) >= left && f64::from(c) < right) {
+                    assert_eq!(
+                        s.base[slots!(Px::of(row * sw + col))],
+                        AMBER,
+                        "{at}: the block's pixel at column {col}, row {row} (frame {:?})",
+                        s.layout.lockup
+                    );
+                }
+            }
+            for v in [lx, ly, lx + lw, ly + lh] {
+                assert_eq!(
+                    v,
+                    v.round(),
+                    "{at}: an edge between pixels: {:?}",
+                    s.layout.lockup
+                );
             }
         }
     }

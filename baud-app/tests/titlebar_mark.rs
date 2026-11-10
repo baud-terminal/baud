@@ -903,13 +903,26 @@ fn check_panel(
         (mw.origin.x - inner.origin.x - 7.0).abs() < EPS,
         "{at}: the lockup {mw:?} on {inner:?}"
     );
+    // Whole to a device pixel at the scale it was placed at: each edge on
+    // one (`mark::snapped`).
     assert!(
-        (mw.size.width - mark.size().width).abs() < EPS
-            && (mw.size.height - mark.size().height).abs() < EPS,
+        (mw.size.width - mark.size().width).abs() <= 1.0 / scale + EPS
+            && (mw.size.height - mark.size().height).abs() <= 1.0 / scale + EPS,
         "{at}: the lockup is not whole: {mw:?}"
     );
+    for edge in [
+        mw.origin.x,
+        mw.origin.y,
+        mw.origin.x + mw.size.width,
+        mw.origin.y + mw.size.height,
+    ] {
+        assert!(
+            (edge * scale - (edge * scale).round()).abs() < EPS,
+            "{at}: the lockup {mw:?} has an edge between device pixels at {scale}x"
+        );
+    }
     assert!(
-        (mw.origin.y + mw.size.height / 2.0 - (top + inset / 2.0)).abs() < EPS,
+        (mw.origin.y + mw.size.height / 2.0 - (top + inset / 2.0)).abs() <= 0.5 / scale + EPS,
         "{at}: the lockup is not centred on the strip: {mw:?}"
     );
     // The lamps.
@@ -1593,12 +1606,33 @@ fn check(
             v.frame().size.height
         );
     }
-    // The picture's shape, so it is drawn to the frame's edges: the
-    // frame's right is the cursor's.
+    // The frame on whole device pixels, each edge within one of
+    // the exact size centred in the accessory, and the picture scaled to
+    // it on each axis, so it is drawn to the frame's edges: the frame's
+    // right is the cursor's.
     let art = mark::Lockup::OnDark.art().expect("the lockup's size");
-    assert!(
-        (m.size.width / m.size.height - art.width / art.height).abs() < 1e-9,
-        "{at}: the frame {m:?} is not the picture's shape {art:?}"
+    let scale = w.backingScaleFactor();
+    let exact = mark.size();
+    let y = (b.size.height - exact.height) / 2.0;
+    for (got, want) in [
+        (m.origin.x, 0.0),
+        (m.origin.x + m.size.width, exact.width),
+        (m.origin.y, y),
+        (m.origin.y + m.size.height, y + exact.height),
+    ] {
+        assert!(
+            (got - want).abs() <= 1.0 / scale + EPS,
+            "{at}: the frame {m:?} is not the lockup's {exact:?} to a pixel"
+        );
+        assert!(
+            (got * scale - (got * scale).round()).abs() < EPS,
+            "{at}: the frame {m:?} has an edge between device pixels at {scale}x"
+        );
+    }
+    assert_eq!(
+        mark.view().imageScaling(),
+        macos_liquid_glass::objc2_app_kit::NSImageScaling::ScaleAxesIndependently,
+        "{at}: the picture is not scaled to the frame's edges"
     );
     assert!(
         (mark.lockup_end() - (mw.origin.x + mw.size.width)).abs() < EPS,
@@ -1645,7 +1679,7 @@ fn check(
     // size, or the bar less two points above and below where that is
     // shorter.
     let side = 22.4_f64.min(inset - 4.0).max(16.0);
-    let cell = m.size.height * 168.0 / art.height;
+    let cell = exact.height * 168.0 / art.height;
     assert!(
         (cell - side * 168.0 / 300.0).abs() < EPS,
         "{at}: the mark's cell is {cell} points, not {}",

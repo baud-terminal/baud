@@ -83,8 +83,8 @@ use std::cell::Cell;
 use macos_liquid_glass::drawable::Appearance;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSAppearanceCustomization, NSColor, NSFont, NSImage, NSImageView, NSTextField, NSView,
-    NSWindow, NSWindowButton,
+    NSAppearanceCustomization, NSColor, NSFont, NSImage, NSImageScaling, NSImageView, NSTextField,
+    NSView, NSWindow, NSWindowButton,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
@@ -273,6 +273,27 @@ impl Place {
     }
 }
 
+/// **`frame` on whole device pixels at `scale`**: its size rounded to the
+/// nearest whole pixels, and its origin to the whole pixel nearest where
+/// that size keeps the frame's centre. A lockup between pixels is drawn
+/// with its edges part-covered, so the block's top row and edge column
+/// show no pixel of its amber. The picture is scaled to fill the frame on
+/// each axis ([`Mark::put`]), so its edges are the frame's: at 2x the
+/// lockup is 103 by 25 pixels for 102.73 by 25.09, its shape 0.6% wider.
+pub(crate) fn snapped(frame: NSRect, scale: CGFloat) -> NSRect {
+    let scale = scale.max(1.0);
+    let on = |v: CGFloat| (v * scale).round() / scale;
+    let size = NSSize::new(on(frame.size.width), on(frame.size.height));
+    let at = |from: CGFloat, exact: CGFloat, whole: CGFloat| on(from + (exact - whole) / 2.0);
+    NSRect::new(
+        NSPoint::new(
+            at(frame.origin.x, frame.size.width, size.width),
+            at(frame.origin.y, frame.size.height, size.height),
+        ),
+        size,
+    )
+}
+
 /// **The gap between the lockup and the build's name**, in points: a
 /// light's gap, the strip's one spacing.
 pub(crate) const VERSION_GAP: CGFloat = baud_render::lights::PAIR as CGFloat;
@@ -285,6 +306,15 @@ pub(crate) const VERSION_POINTS: CGFloat = 11.0;
 /// **The build's name's baseline on the plate's strip**, in points down
 /// from the strip's top: 18 of the 28 it was drawn for.
 pub(crate) const VERSION_BASELINE: CGFloat = 18.0;
+
+/// **The lockup's frame in a leading accessory `h` points tall**, at
+/// `scale`: at its left, centred in the height, on whole device pixels.
+pub(crate) fn beside_at(h: CGFloat, size: NSSize, scale: CGFloat) -> NSRect {
+    snapped(
+        NSRect::new(NSPoint::new(0.0, (h - size.height) / 2.0), size),
+        scale,
+    )
+}
 
 /// How many of the lights a window has room for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -402,6 +432,9 @@ impl Mark {
                 Lockup::OnLight => &on_light,
             },
         );
+        // To the frame's edges on both axes: the frame is on whole device
+        // pixels ([`snapped`]), a hair off the picture's own shape.
+        view.setImageScaling(NSImageScaling::ScaleAxesIndependently);
         // The accessory is the lockup's width; AppKit sets its height.
         let accessory = Accessory::put(
             mtm,
@@ -444,13 +477,16 @@ impl Mark {
             return;
         }
         let h = self.accessory.view.frame().size.height;
-        self.view.setFrame(NSRect::new(
-            NSPoint::new(0.0, (h - self.place.height) / 2.0),
-            NSSize::new(self.place.width, self.place.height),
-        ));
+        let scale = self
+            .accessory
+            .view
+            .window()
+            .map_or(1.0, |w| w.backingScaleFactor());
+        let at = beside_at(h, self.place.size(), scale);
+        self.view.setFrame(at);
         self.version.setFrame(NSRect::new(
             NSPoint::new(
-                self.place.width + VERSION_GAP,
+                at.size.width + VERSION_GAP,
                 (h - self.version_size.height) / 2.0,
             ),
             self.version_size,
@@ -500,8 +536,8 @@ impl Mark {
                     self.version_size.width,
                 );
                 let width = match shows {
-                    true => self.place.width + VERSION_GAP + self.version_size.width,
-                    false => self.place.width,
+                    true => self.view.frame().size.width + VERSION_GAP + self.version_size.width,
+                    false => self.view.frame().size.width,
                 };
                 (shows, width)
             }
@@ -571,7 +607,7 @@ impl Mark {
         if at.origin.x < 1.0 {
             return self.place.end();
         }
-        at.origin.x + self.place.width
+        at.origin.x + self.view.frame().size.width
     }
 
     /// Whether the lockup is on the plate, which

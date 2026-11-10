@@ -282,9 +282,12 @@ pub(crate) fn panel(
             ),
             NSSize::new(right - plate_left, h),
         ),
-        logo: NSRect::new(
-            NSPoint::new(logo_x, strip + (inset - logo.height) / 2.0),
-            logo,
+        logo: crate::mark::snapped(
+            NSRect::new(
+                NSPoint::new(logo_x, strip + (inset - logo.height) / 2.0),
+                logo,
+            ),
+            scale,
         ),
         first,
         lamps,
@@ -907,11 +910,25 @@ mod tests {
                 assert_eq!(p.plate.size.height, 24.0, "{at}");
                 assert_eq!(p.plate.size.width, 221.0, "{at}");
                 assert_eq!(p.logo.origin.x - p.plate.origin.x, 7.0, "{at}");
-                assert_eq!(p.logo.size, logo, "{at}");
+                // The lockup's frame on whole device pixels, each edge within
+                // one of where the exact size centred on the strip
+                // puts it (`mark::snapped`).
+                let exact = (28.0 - logo.height) / 2.0;
+                for (got, want) in [
+                    (p.logo.origin.y, exact),
+                    (p.logo.origin.y + p.logo.size.height, exact + logo.height),
+                    (
+                        p.logo.origin.x + p.logo.size.width,
+                        p.logo.origin.x + logo.width,
+                    ),
+                ] {
+                    assert!((got - want).abs() <= px + 1e-9, "{at}: {:?}", p.logo);
+                    assert_eq!(got * scale, (got * scale).round(), "{at}: {:?}", p.logo);
+                }
                 assert!((logo.width - 51.366).abs() < 0.01, "{at}: {logo:?}");
                 assert!((logo.height - 12.544).abs() < 1e-9, "{at}: {logo:?}");
                 assert!(
-                    (p.logo.origin.y + logo.height / 2.0 - 14.0).abs() < 1e-9,
+                    (p.logo.origin.y + p.logo.size.height / 2.0 - 14.0).abs() <= px / 2.0,
                     "{at}: centred"
                 );
                 let (hs, _) = p.lamps.hs.unwrap();
