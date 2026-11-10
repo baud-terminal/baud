@@ -1590,7 +1590,37 @@ pub struct Probes<T> {
     /// whether it is owed an ask.
     programs: Vec<Program>,
     programs_owed: Owed,
+    /// What the rows drew before a batch's scan, kept between batches so
+    /// the compare that decides its frame allocates nothing once grown.
+    before: Before,
     pub counts: Counts,
+}
+
+/// **The runs the rows drew before a batch's scan read them again**: the
+/// scan rebuilds the lines and the struck runs in place, so telling whether
+/// it drew them otherwise needs the runs as they were; a count of runs
+/// added or taken cannot, since a batch reads every row and takes and adds
+/// every run. Held here and refilled each batch, never reallocated once
+/// grown.
+#[derive(Default)]
+struct Before {
+    lines: Vec<baud_render::LinkLine>,
+    struck: Vec<baud_render::LinkLine>,
+}
+
+impl Before {
+    /// The runs `lines` draws now, kept.
+    fn keep(&mut self, lines: &Lines) {
+        self.lines.clear();
+        self.lines.extend_from_slice(lines.lines());
+        self.struck.clear();
+        self.struck.extend_from_slice(lines.struck());
+    }
+
+    /// Whether `lines` draws other runs than those kept.
+    fn moved(&self, lines: &Lines) -> bool {
+        lines.lines() != &self.lines[..] || lines.struck() != &self.struck[..]
+    }
 }
 
 impl<T: Moment> Probes<T> {
@@ -1613,6 +1643,7 @@ impl<T: Moment> Probes<T> {
             unnamed: None,
             programs: Vec::new(),
             programs_owed: Owed::No,
+            before: Before::default(),
             counts: Counts::default(),
         }
     }
@@ -2132,7 +2163,7 @@ impl<T: Moment> Probes<T> {
         // What the rows drew before the batch's scan: a frame is owed only
         // where the scan drew them otherwise, so a batch over a still screen
         // draws nothing.
-        let drawn = (s.lines.lines().to_vec(), s.lines.struck().to_vec());
+        self.before.keep(s.lines);
         s.lines.forget();
         let _ = s.lines.scan(
             s.term,
@@ -2144,7 +2175,7 @@ impl<T: Moment> Probes<T> {
             },
         );
         let queue = s.paths.end_collect();
-        if (s.lines.lines(), s.lines.struck()) != (&drawn.0[..], &drawn.1[..]) {
+        if self.before.moved(s.lines) {
             turn.frame = Owed::Yes;
         }
         // With no path to ask about, the groups seen still go, to be named

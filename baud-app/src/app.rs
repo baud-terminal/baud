@@ -7377,9 +7377,16 @@ mod alt_window_tests {
     /// the scan that files the turn's output, and `recheck_entered` runs on
     /// the pointer's read and on a read the turn owes, not in the frame's
     /// scan. AppKit-bound, so this holds the source; the frame rig's
-    /// file-link and output rows hold the turn. Perturbations: the call back
-    /// in the tick arm; the schedule before the present; the ask back in the
-    /// scan.
+    /// file-link and output rows hold the turn. **Only this test sees the
+    /// schedule's order**: on the GPU paths a frame's completion wakes the
+    /// responder (the presenter's completion handler, `baud_present_macos`),
+    /// so a turn follows each present and schedules what its scan filed;
+    /// with the schedule before the present, the rig's rows stay green on
+    /// that turn. The CPU path presents with no completion, so there the
+    /// schedule's place after the present is what times the batch; its rig
+    /// row stayed green too, on turns other wakes gave. Perturbations:
+    /// the call back in the tick arm; the schedule before the present; the
+    /// ask back in the scan.
     #[test]
     fn the_paths_turn_runs_every_turn_and_the_hover_asks_on_its_read() {
         const SRC: &str = include_str!("app.rs");
