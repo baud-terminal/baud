@@ -301,9 +301,11 @@ fn draw_and_place(
     place_panel(w, strip, mark);
 }
 
-/// The re-place `Driver::relayout` makes.
+/// The re-place `Driver::relayout` makes, after the corner read again as
+/// the view's resize callback reads it.
 #[cfg(target_os = "macos")]
 fn place_panel(w: &NSWindow, strip: &lights::Strip, mark: &mark::Mark) {
+    strip::read_corner(w);
     w.layoutIfNeeded();
     mark.place();
     let plate = strip.place(strip::edges(w));
@@ -1168,105 +1170,276 @@ fn grey_in_a_window_not_active(mtm: MainThreadMarker) {
 }
 
 /// **The title bar as AppKit draws it, whole, for each appearance at 1x and
-/// 2x, at wide and narrow widths, at rest and with every lamp lit**, when
-/// `BAUD_PANEL_RENDERS` names a folder: the window's frame view into a bitmap,
-/// its window never shown, over a plain grey standing for the material, which
-/// only a window on screen composites.
+/// 2x, at wide and narrow widths -- each side of every step the lamps drop
+/// at -- at rest and with every lamp lit**, when `BAUD_PANEL_RENDERS` names
+/// a folder: the window's frame view into a bitmap, its window never shown,
+/// over a plain grey standing for the material, which only a window on
+/// screen composites. Then the same window drawn as key in an active app
+/// ([`Pretend`]), at rest and lit, so the colours AppKit greys in a window
+/// that is not ([`grey_in_a_window_not_active`]) can be seen, and the
+/// window in full screen at a screen's width, the plate held at the
+/// windowed inset it read before.
 #[cfg(target_os = "macos")]
 fn panel_renders(mtm: MainThreadMarker) {
     use baud_render::{ActivityLights, Light, Shown, Theme};
-    use macos_liquid_glass::objc2::AnyThread;
-    use macos_liquid_glass::objc2_app_kit::{
-        NSBitmapFormat, NSBitmapImageFileType, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace,
-    };
-    use macos_liquid_glass::objc2_foundation::NSDictionary;
+    use macos_liquid_glass::objc2_app_kit::{NSColor, NSWindowStyleMask};
     let Some(dir) = std::env::var_os("BAUD_PANEL_RENDERS") else {
         return;
     };
     let dir = std::path::PathBuf::from(dir);
     std::fs::create_dir_all(&dir).expect("the folder");
     let face = [baud_font::Face::parse(embedded::BOLD.bytes).expect("the Bold")];
+    let states = [("rest", Shown::DARK), ("lit", Shown::all(Light::Lit))];
     for (name, look, grey, theme) in [
         ("NSAppearanceNameDarkAqua", "dark", 0.227, Theme::dark()),
         ("NSAppearanceNameAqua", "light", 0.925, Theme::light()),
     ] {
         let r = renderer_of(&face, theme);
-        for across in [1728.0, 960.0, 340.0, 306.0, 305.0, 251.0, 211.0] {
-            for (state, shown) in [("rest", Shown::DARK), ("lit", Shown::all(Light::Lit))] {
-                let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+        // A window of baud's at `across`, its lockup put and its lights'
+        // accessory, never shown.
+        let open = |across: CGFloat| {
+            let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+            let w = window.ns_window();
+            let a = NSAppearance::appearanceNamed(&NSString::from_str(name)).expect("a stock one");
+            window.set_appearance(Some(&a));
+            w.setOpaque(true);
+            w.setBackgroundColor(Some(&NSColor::colorWithWhite_alpha(grey, 1.0)));
+            w.setContentSize(NSSize::new(across, WINDOW_SIZE.height));
+            let inset = strip::inset_of(w);
+            let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
+            let holder = strip::Accessory::put(
+                mtm,
+                &window,
+                TitlebarSide::Trailing,
+                NSSize::new(0.0, inset),
+            );
+            let strip = lights::Strip::new(Some(holder), None, mark.size());
+            (window, mark, strip, inset)
+        };
+        for across in [1728.0, 960.0, 340.0, 315.0, 314.0, 260.0, 220.0, 184.0] {
+            for (state, shown) in states {
+                let (window, mark, mut strip, inset) = open(across);
                 let w = window.ns_window();
-                let a =
-                    NSAppearance::appearanceNamed(&NSString::from_str(name)).expect("a stock one");
-                window.set_appearance(Some(&a));
-                w.setOpaque(true);
-                w.setBackgroundColor(Some(&NSColor::colorWithWhite_alpha(grey, 1.0)));
-                w.setContentSize(NSSize::new(across, WINDOW_SIZE.height));
-                let inset = strip::inset_of(w);
-                let mark =
-                    mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
-                let holder = strip::Accessory::put(
-                    mtm,
-                    &window,
-                    TitlebarSide::Trailing,
-                    NSSize::new(0.0, inset),
-                );
-                let mut strip = lights::Strip::new(Some(holder), None, mark.size());
                 for scale in [1.0f64, 2.0] {
-                    draw_and_place(
-                        w,
-                        &mut strip,
-                        &mark,
-                        &r,
-                        ActivityLights::TitleBar,
-                        shown,
-                        scale,
-                        inset,
-                    );
-                    // SAFETY: a view's superview, read and kept for this
-                    // block; the window that owns it lives past it.
-                    let frame = w
-                        .contentView()
-                        .and_then(|v| unsafe { v.superview() })
-                        .expect("the frame view");
-                    let top = frame.bounds().size.height - inset;
-                    let rect = NSRect::new(NSPoint::new(0.0, top), NSSize::new(across, inset));
-                    let (pw, ph) = (
-                        (across * scale).round() as isize,
-                        (inset * scale).round() as isize,
-                    );
-                    // SAFETY: no planes, so AppKit allocates; the depth and
-                    // the row bytes are a 32-bit RGBA bitmap's.
-                    let rep = unsafe {
-                        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
-                            NSBitmapImageRep::alloc(),
-                            core::ptr::null_mut(),
-                            pw,
-                            ph,
-                            8,
-                            4,
-                            true,
-                            false,
-                            NSDeviceRGBColorSpace,
-                            NSBitmapFormat::empty(),
-                            4 * pw,
-                            32,
-                        )
-                    }
-                    .expect("a bitmap");
-                    rep.setSize(NSSize::new(across, inset));
-                    frame.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
-                    // SAFETY: an empty property list, which the header allows.
-                    let png = unsafe {
-                        rep.representationUsingType_properties(
-                            NSBitmapImageFileType::PNG,
-                            &NSDictionary::new(),
-                        )
-                    }
-                    .expect("a PNG");
-                    let path = dir.join(format!("appkit-{look}-{across}-{state}-{scale}x.png"));
-                    std::fs::write(&path, png.to_vec()).expect("written");
+                    let setting = ActivityLights::TitleBar;
+                    draw_and_place(w, &mut strip, &mark, &r, setting, shown, scale, inset);
+                    let file = format!("appkit-{look}-{across}-{state}-{scale}x.png");
+                    snap(w, inset, scale, &dir.join(file));
                 }
             }
+        }
+        for (state, shown) in states {
+            let (window, mark, mut strip, inset) = open(960.0);
+            let w = window.ns_window();
+            let key = Pretend::key(w, mtm);
+            assert!(w.isKeyWindow(), "{look}: the window answers key");
+            for scale in [1.0f64, 2.0] {
+                let setting = ActivityLights::TitleBar;
+                draw_and_place(w, &mut strip, &mark, &r, setting, shown, scale, inset);
+                let file = format!("appkit-{look}-960-{state}-key-{scale}x.png");
+                snap(w, inset, scale, &dir.join(file));
+                let (_, bytes) = drawn(mark.view());
+                let amber = bytes.as_chunks::<4>().0.iter().any(|p| {
+                    p[0].abs_diff(0xF4) <= 8 && p[1].abs_diff(0xA3) <= 8 && p[2].abs_diff(0x2C) <= 8
+                });
+                assert!(amber, "{look}: the lockup's amber in a key window");
+            }
+            drop(key);
+        }
+        // Full screen at a screen's width: the corner read windowed first,
+        // as a window is before it enters, then with the window giving a
+        // style mask with full screen in it, as AppKit's does once entered.
+        let (window, mark, mut strip, inset) = open(1728.0);
+        let w = window.ns_window();
+        let setting = ActivityLights::TitleBar;
+        let lit = Shown::all(Light::Lit);
+        draw_and_place(w, &mut strip, &mark, &r, setting, lit, 2.0, inset);
+        let full = Pretend::full_screen(w);
+        assert!(
+            w.styleMask().contains(NSWindowStyleMask::FullScreen),
+            "{look}: the window's style is full screen"
+        );
+        for scale in [1.0f64, 2.0] {
+            draw_and_place(w, &mut strip, &mark, &r, setting, lit, scale, inset);
+            let edges = strip::edges(w);
+            assert_eq!(edges.right, 16.0, "{look}: full screen holds the inset");
+            let file = format!("appkit-{look}-1728-lit-full-screen-{scale}x.png");
+            snap(w, inset, scale, &dir.join(file));
+        }
+        drop(full);
+    }
+}
+
+/// **`w`'s title bar, `inset` tall, drawn into a PNG at `path`** at `scale`:
+/// the window's frame view into a bitmap, the window never shown.
+#[cfg(target_os = "macos")]
+fn snap(w: &NSWindow, inset: CGFloat, scale: CGFloat, path: &std::path::Path) {
+    use macos_liquid_glass::objc2::AnyThread;
+    use macos_liquid_glass::objc2_app_kit::{
+        NSBitmapFormat, NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace,
+    };
+    use macos_liquid_glass::objc2_foundation::NSDictionary;
+    // SAFETY: a view's superview, read and kept for this block; the window
+    // that owns it lives past it.
+    let frame = w
+        .contentView()
+        .and_then(|v| unsafe { v.superview() })
+        .expect("the frame view");
+    let across = frame.bounds().size.width;
+    let top = frame.bounds().size.height - inset;
+    let rect = NSRect::new(NSPoint::new(0.0, top), NSSize::new(across, inset));
+    let (pw, ph) = (
+        (across * scale).round() as isize,
+        (inset * scale).round() as isize,
+    );
+    // SAFETY: no planes, so AppKit allocates; the depth and the row bytes
+    // are a 32-bit RGBA bitmap's.
+    let rep = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(),
+            core::ptr::null_mut(),
+            pw,
+            ph,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            NSBitmapFormat::empty(),
+            4 * pw,
+            32,
+        )
+    }
+    .expect("a bitmap");
+    rep.setSize(NSSize::new(across, inset));
+    frame.cacheDisplayInRect_toBitmapImageRep(rect, &rep);
+    // SAFETY: an empty property list, which the header allows.
+    let png = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }
+    .expect("a PNG");
+    std::fs::write(path, png.to_vec()).expect("written");
+}
+
+/// **A window AppKit draws as it would in a state no window never shown can
+/// be in**: as the key window of an active app ([`Pretend::key`]), or in
+/// full screen ([`Pretend::full_screen`]). The window's class, and the
+/// application's for the first, are swapped in this process only for
+/// subclasses that answer `isKeyWindow`, `isMainWindow` and `isActive`
+/// yes -- and the window's own getters of its key, main and active
+/// appearance, `_hasKeyAppearance` and the rest, which its title bar reads:
+/// with the public three alone it still drew grey -- or give a style mask
+/// with full screen in it. Nothing is ordered in,
+/// activated or moved to a space -- the window is never shown and no other
+/// app loses focus -- and every class is put back when it drops.
+#[cfg(target_os = "macos")]
+struct Pretend {
+    swapped: Vec<(
+        macos_liquid_glass::objc2::rc::Retained<macos_liquid_glass::objc2::runtime::AnyObject>,
+        &'static macos_liquid_glass::objc2::runtime::AnyClass,
+    )>,
+}
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// The style mask a [`Pretend::full_screen`] window gives.
+    static MASK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(target_os = "macos")]
+impl Pretend {
+    /// `of`'s class swapped for its subclass named `prefix` and its own
+    /// name, with `methods` added, made once.
+    fn swap(
+        &mut self,
+        of: &macos_liquid_glass::objc2::runtime::AnyObject,
+        prefix: &str,
+        methods: impl Fn(&mut macos_liquid_glass::objc2::runtime::ClassBuilder),
+    ) {
+        use macos_liquid_glass::objc2::runtime::{AnyClass, AnyObject, ClassBuilder};
+        let was = of.class();
+        let name = std::ffi::CString::new(format!("{prefix}{}", was.name().to_string_lossy()))
+            .expect("a class name");
+        let class = AnyClass::get(&name).unwrap_or_else(|| {
+            let mut b = ClassBuilder::new(&name, was).expect("a new class");
+            methods(&mut b);
+            b.register()
+        });
+        // SAFETY: a subclass of the object's own class that adds no ivar,
+        // so the object's layout is unchanged.
+        unsafe { AnyObject::set_class(of, class) };
+        self.swapped.push((of.retain(), was));
+    }
+
+    fn key(window: &NSWindow, mtm: MainThreadMarker) -> Pretend {
+        use macos_liquid_glass::objc2::runtime::{AnyObject, Bool, Sel};
+        use macos_liquid_glass::objc2::sel;
+        extern "C-unwind" fn yes(_: &AnyObject, _: Sel) -> Bool {
+            Bool::YES
+        }
+        let saying_yes = |sels: Vec<Sel>| {
+            move |b: &mut macos_liquid_glass::objc2::runtime::ClassBuilder| {
+                for &s in &sels {
+                    // SAFETY: each selector a BOOL getter taking no
+                    // argument, which `yes` is.
+                    unsafe { b.add_method(s, yes as extern "C-unwind" fn(_, _) -> _) };
+                }
+            }
+        };
+        let mut p = Pretend {
+            swapped: Vec::new(),
+        };
+        let window_says = saying_yes(vec![
+            sel!(isKeyWindow),
+            sel!(isMainWindow),
+            sel!(_isKeyWindow),
+            sel!(_isKeyWindowIgnoringFocus),
+            sel!(_hasKeyAppearance),
+            sel!(_hasMainAppearance),
+            sel!(_hasActiveAppearance),
+            sel!(_hasActiveAppearanceIgnoringKeyFocus),
+            sel!(_hasActiveControls),
+        ]);
+        p.swap(window, "BaudKey", window_says);
+        let app_says = saying_yes(vec![sel!(isActive)]);
+        p.swap(
+            &NSApplication::sharedApplication(mtm),
+            "BaudActive",
+            app_says,
+        );
+        p
+    }
+
+    fn full_screen(window: &NSWindow) -> Pretend {
+        use macos_liquid_glass::objc2::runtime::{AnyObject, Sel};
+        use macos_liquid_glass::objc2::sel;
+        use macos_liquid_glass::objc2_app_kit::NSWindowStyleMask;
+        extern "C-unwind" fn mask(_: &AnyObject, _: Sel) -> NSWindowStyleMask {
+            NSWindowStyleMask(MASK.get())
+        }
+        MASK.set((window.styleMask() | NSWindowStyleMask::FullScreen).0);
+        let mut p = Pretend {
+            swapped: Vec::new(),
+        };
+        p.swap(window, "BaudFullScreen", |b| {
+            // SAFETY: `styleMask` takes no argument and returns an
+            // NSUInteger, which `mask` does.
+            unsafe {
+                b.add_method(sel!(styleMask), mask as extern "C-unwind" fn(_, _) -> _);
+            }
+        });
+        p
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Pretend {
+    fn drop(&mut self) {
+        use macos_liquid_glass::objc2::runtime::AnyObject;
+        for (of, was) in self.swapped.drain(..).rev() {
+            // SAFETY: the class the object had, which the subclass derives
+            // from without adding an ivar.
+            unsafe { AnyObject::set_class(&of, was) };
         }
     }
 }

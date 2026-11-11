@@ -883,14 +883,18 @@ mod tests {
         )
     }
 
-    /// The panel in a strip as tall as the window's, past the traffic
-    /// lights' 69 points.
+    /// Where `strip::edges` starts the plate in a window AppKit has laid
+    /// out: the zoom button's end, 69 points, and the gap between two
+    /// traffic lights, 9.
+    const LEFT: CGFloat = 78.0;
+
+    /// The panel in a strip as tall as the window's, from [`LEFT`].
     fn panel_at(width: CGFloat, scale: CGFloat) -> Option<Panel> {
         let (c, logo) = real(scale);
         panel(
             NSSize::new(width, 28.0),
             28.0,
-            69.0,
+            LEFT,
             CGFloat::from(PANEL_RIGHT),
             scale,
             &c,
@@ -988,16 +992,17 @@ mod tests {
     }
 
     /// **A narrow window drops the leftmost lamps, the lockup stays whole and
-    /// the plate shrinks with them**: all nine from 306 points, 305 drops HS;
-    /// 340 keeps all nine; 251 keeps RD on, 211 FAX and SYN; the plate's
-    /// left never past the traffic lights' end, 69; the plate's right where
-    /// it was; the lockup whole at the plate's pad; the first lamp kept the
-    /// plate's picture. At every half point from 200 to 400 fewer or the
-    /// same lamps as the next width up, and always the rightmost. Under 155
-    /// no lamp fits and there is no plate. Perturbation: start the plate at
-    /// the first lamp whatever is kept, or test the rounded plate rather
-    /// than the exact one (211 keeps CS, 68.83 rounding up to 69), and this
-    /// goes red.
+    /// the plate shrinks with them**, the plate starting where
+    /// `strip::edges` starts it, [`LEFT`]: all nine from 315 points, 314
+    /// drops HS; 340 keeps all nine; 260 keeps RD on, 220 FAX and SYN; SYN
+    /// alone from 184; the plate's left never past [`LEFT`]; the plate's
+    /// right where it was; the lockup whole at the plate's pad; the first
+    /// lamp kept the plate's picture. At every half point from 200 to 400
+    /// fewer or the same lamps as the next width up, and always the
+    /// rightmost. Under 184 no lamp fits and there is no plate.
+    /// Perturbation: start the plate at the first lamp whatever is kept, or
+    /// test the rounded plate rather than the exact one (220 keeps CS), and
+    /// this goes red.
     #[test]
     fn a_narrow_window_drops_the_leftmost_and_the_plate_shrinks() {
         let kept = |width: CGFloat, scale: CGFloat| -> Vec<Led> {
@@ -1010,11 +1015,12 @@ mod tests {
         };
         for scale in [1.0, 2.0] {
             assert_eq!(kept(340.0, scale), Led::ALL, "340 at {scale}x");
-            assert_eq!(kept(306.0, scale), Led::ALL, "306 at {scale}x");
-            assert_eq!(kept(305.0, scale), &Led::ALL[1..], "305 at {scale}x");
-            assert_eq!(kept(251.0, scale), &Led::ALL[4..], "251 at {scale}x");
-            assert_eq!(kept(211.0, scale), &Led::ALL[7..], "211 at {scale}x");
-            assert_eq!(kept(154.0, scale), [], "154 at {scale}x");
+            assert_eq!(kept(315.0, scale), Led::ALL, "315 at {scale}x");
+            assert_eq!(kept(314.0, scale), &Led::ALL[1..], "314 at {scale}x");
+            assert_eq!(kept(260.0, scale), &Led::ALL[4..], "260 at {scale}x");
+            assert_eq!(kept(220.0, scale), &Led::ALL[7..], "220 at {scale}x");
+            assert_eq!(kept(184.0, scale), &Led::ALL[8..], "184 at {scale}x");
+            assert_eq!(kept(183.75, scale), [], "183.75 at {scale}x");
             let mut width = 200.0;
             let mut last = 0;
             while width <= 400.0 {
@@ -1024,7 +1030,7 @@ mod tests {
                 last = k.len();
                 let p = panel_at(width, scale).unwrap();
                 let at = format!("{width} at {scale}x");
-                assert!(p.plate.origin.x >= 69.0, "{at}: {:?}", p.plate);
+                assert!(p.plate.origin.x >= LEFT, "{at}: {:?}", p.plate);
                 assert_eq!(p.first, k[0], "{at}");
                 assert_eq!(p.logo.origin.x - p.plate.origin.x, 7.0, "{at}");
                 assert!(
