@@ -85,6 +85,7 @@ fn as_the_role() {
         "leaves-a-sleeper" => parent_of(&["sleeper"], true, Linger::APollOrTwo),
         "sleeper" => sleeper(),
         "handles-term" => handles_term(),
+        "traps-term" => traps_term(),
         "says-its-session" => says_its_session(),
         #[cfg(target_os = "macos")]
         "parent-of-setuid" => parent_of_setuid(),
@@ -218,6 +219,33 @@ fn handles_term() -> i32 {
     HANDLED
 }
 
+/// **A program that hears `SIGTERM` and goes on running**, as one still
+/// finishing its work does: it notes the signal in `termed`, then counts in
+/// `beats` every 10 ms until it is killed, so a reader sees whether it ran
+/// on after the signal or was stopped. It ends itself after a minute.
+fn traps_term() -> i32 {
+    static TERMED: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn note(_: i32) {
+        TERMED.store(1, Ordering::SeqCst);
+    }
+    const SIGTERM: i32 = 15;
+    // SAFETY: the handler only stores to an atomic.
+    unsafe { signal(SIGTERM, note as *const ()) };
+    publish_pid("trapper");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut beats = 0usize;
+    while Instant::now() < deadline {
+        if TERMED.load(Ordering::SeqCst) != 0 {
+            if beats == 0 {
+                publish("termed", "TERM");
+            }
+            beats += 1;
+            publish("beats", &beats.to_string());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    HANDLED
+}
 /// A child this binary cannot read and the guard cannot either, for longer than
 /// the guard's limit on the program: `top` in logging mode, setuid root, drawing
 /// nothing. 77 if it turned out readable, which would make the test vacuous.
@@ -1780,6 +1808,61 @@ int main(int argc, char **argv) {
         assert_eq!(ended.status.code(), Some(HANDLED), "{}", ended.err_text());
     }
 
+    /// **The guard's kill asks first and never stops**: on the helper's
+    /// timeout, a program that traps `SIGTERM` hears it, runs on through the
+    /// grace, counting, and is killed after it. Named breaks: the old kill,
+    /// `SIGSTOP` then `SIGKILL`, and the program never hears `SIGTERM`;
+    /// `SIGTERM` then `SIGSTOP`, and it counts no beat after the signal.
+    #[test]
+    fn a_timeout_asks_with_sigterm_and_kills_after_the_grace() {
+        let scratch = Scratch::new();
+        let running = Running::start(in_role(helper(1, 1024), "traps-term", &scratch), &scratch);
+        let trapper = scratch.pid("trapper", LIMIT);
+        let ended = running.end(LIMIT);
+        assert_eq!(
+            ended.status.code(),
+            Some(EXIT_TIMED_OUT),
+            "{}",
+            ended.err_text()
+        );
+        let termed = fs::read_to_string(scratch.0.join("termed"));
+        assert_eq!(
+            termed.ok().as_deref(),
+            Some("TERM"),
+            "the program was never sent SIGTERM"
+        );
+        // 10 ms apart through a grace of seconds: three is a program that
+        // ran on after the signal, and a stopped one counts at most one.
+        let beats: usize =
+            fs::read_to_string(scratch.0.join("beats")).map_or(0, |b| b.parse().expect("a count"));
+        assert!(
+            beats >= 3,
+            "the program counted {beats} beats after SIGTERM: it was stopped or killed at once"
+        );
+        assert_gone(trapper, "the program that traps SIGTERM");
+    }
+
+    /// **No process the guard watches is ever sent `SIGSTOP`.** A stopped
+    /// Metal client holds the GPU work it was handing over until the kill,
+    /// so the guard's kill is `SIGTERM`, a grace, then `SIGKILL`, and a stop
+    /// is nowhere in the source it builds from. Named break: the old
+    /// `kill(pid, SIGSTOP)` in `kill_all`.
+    #[test]
+    fn the_guard_never_stops_a_process() {
+        let source = fs::read_to_string(the_script().with_file_name("bounded.rs"))
+            .expect("the watcher's source");
+        let code: Vec<&str> = source
+            .lines()
+            .map(|l| l.find("//").map_or(l, |at| &l[..at]))
+            .collect();
+        let code = code.join("\n");
+        assert!(
+            code.contains("kill("),
+            "the control: the source sends signals"
+        );
+        assert!(!code.contains("SIGSTOP"), "the watcher names SIGSTOP");
+    }
+
     /// The helper's command is a session's leader.
     #[test]
     fn the_helper_starts_the_command_in_a_new_session() {
@@ -1953,7 +2036,6 @@ int main(void) {
     NUMBER(SIGPIPE);
     NUMBER(SIGALRM);
     NUMBER(SIGTERM);
-    NUMBER(SIGSTOP);
     NUMBER(SIGCHLD);
     NUMBER(SIGXCPU);
     NUMBER(SIGXFSZ);

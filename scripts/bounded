@@ -39,7 +39,11 @@
 # finds its config from the current directory and not from the crate. Build
 # scripts and the compiler: cargo does not run those through a runner. A group
 # SIGKILL inside the first poll: the program dies with the watcher, and a child
-# it put in its own session has not yet been told to the sentinel.
+# it put in its own session has not yet been told to the sentinel. A child
+# started by a process the kill has asked to end with `SIGTERM`, when that
+# process ends within one walk of the grace, 10 ms: nothing is stopped to hold
+# the tree still, since a stopped Metal client holds the GPU work it was
+# handing over (`kill_all` in `bounded.rs`).
 #
 # **What it changes in what the program sees.** Nothing but its parent, and:
 # `DYLD_*` variables are gone, because macOS strips them when it runs the

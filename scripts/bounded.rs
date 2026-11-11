@@ -59,6 +59,20 @@ const RELAY_AFTER: Duration = Duration::from_secs(2);
 /// How long a killed program is waited for before this leaves anyway.
 const REAP_FOR: Duration = Duration::from_secs(5);
 
+/// **How long a process asked to end with `SIGTERM` is given before
+/// `SIGKILL`.** A test binary's default action on `SIGTERM` ends it at once,
+/// so the grace is waited out only by what handles the signal: cargo-nextest,
+/// which passes it to its tests and waits for them, and a program finishing
+/// its work. It is [`RELAY_AFTER`], the time this already gives a program to
+/// act on a signal, and it ends as soon as nothing is left. Past the bound, a
+/// tree still growing is killed at once: at 0.8 GiB/s two seconds would be
+/// 1.6 GiB more. Shorter than `REAP_FOR`, so a program the grace ends is
+/// reaped, not abandoned.
+const GRACE: Duration = RELAY_AFTER;
+
+/// How often the tree is walked during the [`GRACE`], for what it starts.
+const TICK: Duration = Duration::from_millis(10);
+
 type Pid = c_int;
 
 const RUSAGE_INFO_V0: c_int = 0;
@@ -95,7 +109,6 @@ const SIGKILL: c_int = 9;
 const SIGPIPE: c_int = 13;
 const SIGALRM: c_int = 14;
 const SIGTERM: c_int = 15;
-const SIGSTOP: c_int = 17;
 const SIGCHLD: c_int = 20;
 const SIGXCPU: c_int = 24;
 const SIGXFSZ: c_int = 25;
@@ -271,6 +284,8 @@ struct Member {
     start: u64,
     blind: u32,
     told: bool,
+    /// Sent `SIGTERM` by [`Tree::kill_all`].
+    asked: bool,
 }
 
 /// A record to the sentinel: a pid and its start time, or a last word.
@@ -306,6 +321,7 @@ impl Tree {
             start,
             blind: 0,
             told,
+            asked: false,
         });
     }
 
@@ -381,11 +397,29 @@ impl Tree {
         }
     }
 
-    /// **Kill by pid, not by group:** a child that started its own session has
-    /// left the group. Everything is stopped first and the children walked until
-    /// no new one appears, so that nothing can fork past the walk, and a pid
+    /// **Ask, then kill, by pid and not by group:** a child that started its
+    /// own session has left the group. Each process is sent `SIGTERM` and the
+    /// tree is given [`GRACE`] to end, walked every [`TICK`] meanwhile so that
+    /// what it starts is asked too; the grace ends early once nothing is left,
+    /// or at once if the tree's footprint passes `ceiling`. What is left is
+    /// sent `SIGKILL`, walking each one's children as it goes until a walk
+    /// finds nothing new. **Nothing is stopped:** a Metal client stopped
+    /// mid-submit holds the GPU work it was handing over until the kill. A pid
     /// whose start time has changed is left alone.
-    fn kill_all(&mut self) {
+    fn kill_all(&mut self, ceiling: u64) {
+        let until = Instant::now() + GRACE;
+        loop {
+            let (alive, footprint) = self.ask_all();
+            if !alive || footprint > ceiling || Instant::now() >= until {
+                break;
+            }
+            let wait = Timespec {
+                tv_sec: 0,
+                tv_nsec: TICK.subsec_nanos().into(),
+            };
+            // SAFETY: a live request and no remainder wanted.
+            unsafe { nanosleep(&raw const wait, core::ptr::null_mut()) };
+        }
         for _ in 0..64 {
             let before = self.members.len();
             let mut at = 0;
@@ -393,7 +427,7 @@ impl Tree {
                 if Self::same_process(&self.members[at]) {
                     let pid = self.members[at].pid;
                     // SAFETY: a signal to a process just checked to be this one.
-                    unsafe { kill(pid, SIGSTOP) };
+                    unsafe { kill(pid, SIGKILL) };
                     self.adopt_children(pid);
                 }
                 at += 1;
@@ -402,12 +436,43 @@ impl Tree {
                 break;
             }
         }
-        for member in &self.members {
-            if Self::same_process(member) {
-                // SAFETY: as above.
-                unsafe { kill(member.pid, SIGKILL) };
+    }
+
+    /// `SIGTERM` to each process not yet sent it, its children walked as it
+    /// goes, so one pass reaches the whole tree as it stands. Whether any
+    /// readable process is still running, and their footprint.
+    fn ask_all(&mut self) -> (bool, u64) {
+        let mut alive = false;
+        let mut footprint = 0;
+        let mut at = 0;
+        while at < self.members.len() {
+            let member = &self.members[at];
+            let pid = member.pid;
+            let running = match look(pid) {
+                Seen::Alive {
+                    footprint: f,
+                    start,
+                } if member.start == 0 || member.start == start => {
+                    alive = true;
+                    footprint += f;
+                    true
+                }
+                // Another user's process, or this one: the kill is refused if
+                // the pid was reused, and is not waited on either way.
+                Seen::Unreadable => true,
+                _ => false,
+            };
+            if running {
+                if !member.asked {
+                    // SAFETY: a signal to a process just checked to be this one.
+                    unsafe { kill(pid, SIGTERM) };
+                    self.members[at].asked = true;
+                }
+                self.adopt_children(pid);
             }
+            at += 1;
         }
+        (alive, footprint)
     }
 
     /// Tell the sentinel of what it has not heard. A full pipe is tried again at
@@ -504,7 +569,7 @@ fn sentinel(from_watcher: c_int, ready: c_int, bound: u64, log: Option<&Log>) ->
             continue;
         }
         if got != size as isize {
-            tree.kill_all();
+            tree.kill_all(bound);
             // SAFETY: ending this process.
             unsafe { _exit(0) };
         }
@@ -526,7 +591,7 @@ fn sentinel(from_watcher: c_int, ready: c_int, bound: u64, log: Option<&Log>) ->
             unsafe { _exit(0) };
         }
         if pass.footprint > bound {
-            tree.kill_all();
+            tree.kill_all(pass.footprint);
             if let Some(log) = log {
                 log.line("(what a finished program left running)", peak, 0);
             }
@@ -805,7 +870,6 @@ fn print_layouts() {
         ("SIGPIPE", SIGPIPE.into()),
         ("SIGALRM", SIGALRM.into()),
         ("SIGTERM", SIGTERM.into()),
-        ("SIGSTOP", SIGSTOP.into()),
         ("SIGCHLD", SIGCHLD.into()),
         ("SIGXCPU", SIGXCPU.into()),
         ("SIGXFSZ", SIGXFSZ.into()),
@@ -1049,6 +1113,11 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             log.line(&program_name, peak, maxrss);
         }
     };
+    // Past the bound, any growth in the grace ends it; otherwise the bound does.
+    let ceiling = match &end {
+        End::Over(footprint) => *footprint,
+        _ => bound,
+    };
     let code = match end {
         End::Exited => {
             let mut status = 0;
@@ -1059,7 +1128,7 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             peak = peak.max(pass.footprint);
             write_log(peak, usage.ru_maxrss);
             if timeout.is_some() {
-                tree.kill_all();
+                tree.kill_all(bound);
                 last_word(DONE);
             } else if tree.members.is_empty() {
                 last_word(DONE);
@@ -1101,13 +1170,13 @@ pub extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             EXIT_REFUSED
         }
         End::Signalled(signal_number) => {
-            tree.kill_all();
+            tree.kill_all(bound);
             write_log(peak, reap_killed(kq, program));
             last_word(DONE);
             raise_exactly(signal_number);
         }
     };
-    tree.kill_all();
+    tree.kill_all(ceiling);
     write_log(peak, reap_killed(kq, program));
     last_word(DONE);
     code

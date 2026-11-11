@@ -47,7 +47,8 @@ use baud_present_macos::rig_call::{
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus};
+use std::time::{Duration, Instant};
 
 /// The stage the rule's work has reached: a pending row names the stage
 /// that must clear it. `Done` is after the last.
@@ -1429,12 +1430,110 @@ fn a_pending_row_is_red_unless_it_fails_as_recorded_within_its_stage() {
     );
 }
 
+/// **How long a door child is given to exit before the rig ends it.** The
+/// door answers before any application work, so a child still running
+/// past this is a launch that fell through. The bound only has to
+/// outlast a process's start on a loaded machine: it was 1 s, killed at
+/// once, which a suite at load can spend before the door runs, and which
+/// would have ended a launch that got as far as its Metal device with
+/// `SIGKILL` mid-work. 10 s is the bound the repository's other
+/// process-ending checks give a loaded machine (`xtask/tests/bounded.rs`,
+/// `assert_gone`).
+const DOOR_BOUND: Duration = Duration::from_secs(10);
+
+/// **How long a child the rig ends is given to act on `SIGTERM`** before
+/// `SIGKILL`. A probe build is a Metal client once it is past its door,
+/// and one ended mid-submit by `SIGKILL` alone never finishes the command
+/// buffer it was handing over; `SIGTERM` lets the app end its own way.
+/// 2 s is the time `scripts/bounded` gives the programs it ends, for the
+/// same reason (`GRACE`, `scripts/bounded.rs`).
+const CHILD_GRACE: Duration = Duration::from_secs(2);
+
+unsafe extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// `SIGTERM` (`<sys/signal.h>`).
+const SIGTERM: i32 = 15;
+
+/// **`child`'s status once it has exited, or `None` if it was still running
+/// at `bound` and the rig ended it** ([`end`]).
+fn ended_within(child: &mut Child, bound: Duration) -> Option<ExitStatus> {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("its status") {
+            return Some(status);
+        }
+        if start.elapsed() > bound {
+            end(child);
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// **A child ended as the rig ends one: `SIGTERM`, then [`CHILD_GRACE`] to
+/// act on it, then `SIGKILL`**, never a stop. Its status.
+fn end(child: &mut Child) -> ExitStatus {
+    let pid = i32::try_from(child.id()).expect("a pid");
+    // SAFETY: a signal to the rig's own child, not yet reaped, so the pid
+    // is still its.
+    unsafe { kill(pid, SIGTERM) };
+    let asked = Instant::now();
+    while asked.elapsed() < CHILD_GRACE {
+        if let Some(status) = child.try_wait().expect("its status") {
+            return status;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let _ = child.kill();
+    child.wait().expect("its status")
+}
+
+/// **A child the rig ends is asked first** ([`end`]): a stand-in that
+/// traps `SIGTERM`, notes it and exits 7 ends by its own exit, not by
+/// `SIGKILL`. Named break: `end` calling `child.kill()` first; the note is
+/// never written and the status is signal 9.
+#[test]
+fn a_child_the_rig_ends_gets_sigterm_and_its_grace() {
+    use std::os::unix::process::ExitStatusExt;
+    let dir = scratch("grace");
+    let note = dir.join("termed");
+    let ready = dir.join("ready");
+    let mut child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("trap 'echo TERM > \"$1\"; exit 7' TERM; : > \"$2\"; while :; do sleep 0.01; done")
+        .arg("stand-in")
+        .arg(&note)
+        .arg(&ready)
+        .spawn()
+        .expect("the stand-in");
+    let start = Instant::now();
+    while !ready.exists() {
+        assert!(
+            start.elapsed() < DOOR_BOUND,
+            "the stand-in never set its trap"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let status = end(&mut child);
+    assert_eq!(
+        (status.code(), status.signal()),
+        (Some(7), None),
+        "the stand-in was not left to act on SIGTERM: {status:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("the stand-in's note"),
+        "TERM\n"
+    );
+}
+
 /// **A probe build that is not called as a rig exits 2 at once**, before
 /// any application, window or Dock work (`rig_door.rs`): with no
 /// arguments, a plain launch's, and with one argument too few for the
 /// event rig, which is how a by-hand runner once fell through to a plain
-/// launch and showed a window. Each child is given 1 s and killed past it
-/// -- a launch would still be running -- and only calls the door refuses
+/// launch and showed a window. Each child is given [`DOOR_BOUND`] and ended
+/// past it ([`end`]) -- a launch would still be running -- and only calls the door refuses
 /// are made, so no window can come of this test. Perturbation: the door
 /// exits 3, and both fail on the code.
 #[test]
@@ -1461,22 +1560,12 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .expect("the child");
-        let start = std::time::Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait().expect("its status") {
-                break Some(status);
-            }
-            if start.elapsed() > std::time::Duration::from_secs(1) {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        };
+        let status = ended_within(&mut child, DOOR_BOUND);
         let mut said = String::new();
         let _ =
             std::io::Read::read_to_string(&mut child.stderr.take().expect("its stderr"), &mut said);
-        let status = status.unwrap_or_else(|| panic!("{args:?}: still running after 1 s"));
+        let status =
+            status.unwrap_or_else(|| panic!("{args:?}: still running after {DOOR_BOUND:?}"));
         assert_eq!(status.code(), Some(2), "{args:?}: {said}");
         assert!(said.starts_with("baud: "), "{args:?}: {said}");
     }
