@@ -149,6 +149,20 @@ pub struct Scene<'s, 't> {
 
 use crate::renderer::PairGlyphs;
 
+/// A window's cells, each with the range of the codepoints it draws.
+type WindowCells = Vec<(usize, PackedCell, core::ops::Range<usize>)>;
+
+/// **The cells a ligature window gathers, and the codepoints each draws**:
+/// `piece` the window's cells, each with the range of `cps` that holds its
+/// codepoints, and `cell` the cell being read, before the window takes it.
+/// Emptied for each window, never freed.
+#[derive(Default)]
+struct Gather {
+    piece: WindowCells,
+    cps: Vec<Codepoint>,
+    cell: Vec<Codepoint>,
+}
+
 /// The cluster map and the walk that fills the overlay from it.
 pub struct Overlay {
     clusters: HashMap<ClusterKey, Vec<ClusterGlyph>>,
@@ -163,6 +177,10 @@ pub struct Overlay {
     /// A window's content to what each of its cells draws: `None` where
     /// the map already draws it, the glyphs where it does not.
     windows: HashMap<ClusterKey, Vec<Option<Vec<ClusterGlyph>>>>,
+    /// **A window's cells as [`Overlay::window`] gathers them**, reused
+    /// from window to window and frame to frame, so gathering one
+    /// allocates nothing once they have grown to the longest.
+    gather: Gather,
     /// The atlas generation the kept slots belong to; a grow moves them.
     grown: Tally,
     stats: OverlayStats,
@@ -649,6 +667,7 @@ impl Overlay {
             wides: HashMap::new(),
             pairs: HashMap::new(),
             windows: HashMap::new(),
+            gather: Gather::default(),
             grown: Tally::default(),
             stats: OverlayStats::default(),
             pictures: Pictures::new(),
@@ -2308,8 +2327,14 @@ impl Overlay {
         (pictures, orders): (&Pictures, &crate::bidi::Orders),
     ) {
         let row = scene.view.row(y);
-        let mut piece: Vec<(usize, PackedCell, Vec<Codepoint>)> = Vec::new();
-        let flush = |piece: &mut Vec<(usize, PackedCell, Vec<Codepoint>)>,
+        // The window's cells and their codepoints, in buffers the overlay
+        // keeps, given back at the end.
+        let Gather {
+            mut piece,
+            cps: mut all,
+            cell: mut cps,
+        } = core::mem::take(&mut self.gather);
+        let flush = |(piece, all): (&mut WindowCells, &mut Vec<Codepoint>),
                      face: Code,
                      this: &mut Overlay,
                      r: &mut Renderer<'_, '_>,
@@ -2317,6 +2342,7 @@ impl Overlay {
                      records: &mut Vec<Instance>| {
             if piece.len() < 2 {
                 piece.clear();
+                all.clear();
                 return;
             }
             this.stats.windows.bump();
@@ -2324,8 +2350,8 @@ impl Overlay {
                 this.stats.window_cells.bump();
             }
             let mut key = ClusterKey::start().word(face);
-            for (x, _, cps) in piece.iter() {
-                for c in cps {
+            for (x, _, at) in piece.iter() {
+                for c in &all[at.clone()] {
                     key = key.fold(*c);
                 }
                 if crate::cellmap::CellSpan::at(row, Col::at_index(*x))
@@ -2369,17 +2395,22 @@ impl Overlay {
                 this.stats.window_misses.bump();
                 let cells: Vec<(Vec<Codepoint>, CellSpan)> = piece
                     .iter()
-                    .map(|(x, _, cps)| (cps.clone(), CellSpan::at(row, Col::at_index(*x))))
+                    .map(|(x, _, at)| {
+                        (
+                            all[at.clone()].to_vec(),
+                            CellSpan::at(row, Col::at_index(*x)),
+                        )
+                    })
                     .collect();
                 let shaped = r.window(face, &cells);
                 let drawn: Vec<Option<Vec<ClusterGlyph>>> = piece
                     .iter()
                     .zip(shaped)
-                    .map(|((x, cell, cps), glyphs)| {
+                    .map(|((x, cell, at), glyphs)| {
                         let style = crate::cellmap::face_of(scene.styles, *cell);
                         let alone = scene
                             .map
-                            .probe(cps[0], style, CellSpan::at(row, Col::at_index(*x)))
+                            .probe(all[at.start], style, CellSpan::at(row, Col::at_index(*x)))
                             .map(|e| e.glyph());
                         let same = !cell.flags.is_marked()
                             && glyphs.len() == 1
@@ -2404,6 +2435,7 @@ impl Overlay {
                 this.windows.insert(key, drawn);
             }
             piece.clear();
+            all.clear();
         };
         // The face of the piece being gathered, from the map entries: a
         // cell on another face, a cell with no codepoint, and a cell
@@ -2449,7 +2481,7 @@ impl Overlay {
             // row of a slide, which the shader draws from the map alone
             // (`cell_glyph_vertex` reads no mask there): a marked cell there
             // draws its base, from its base's face, for that one row.
-            let mut cps: Vec<Codepoint> = Vec::new();
+            cps.clear();
             if let Some((cp, face, _)) = entry {
                 if cell.flags.is_marked() {
                     let style = crate::cellmap::face_of(scene.styles, *cell);
@@ -2474,7 +2506,7 @@ impl Overlay {
             } || matches!((first, entry), (Some(f), Some((_, face, _))) if f != face);
             if cut {
                 if let Some(f) = first {
-                    flush(&mut piece, f, self, r, mask, records);
+                    flush((&mut piece, &mut all), f, self, r, mask, records);
                 }
                 first = None;
             }
@@ -2487,11 +2519,18 @@ impl Overlay {
             if cps.is_empty() {
                 cps.push(cp);
             }
-            piece.push((x, *cell, cps));
+            let at = all.len()..all.len() + cps.len();
+            all.extend_from_slice(&cps);
+            piece.push((x, *cell, at));
         }
         if let Some(f) = first {
-            flush(&mut piece, f, self, r, mask, records);
+            flush((&mut piece, &mut all), f, self, r, mask, records);
         }
+        self.gather = Gather {
+            piece,
+            cps: all,
+            cell: cps,
+        };
     }
 
     /// A predicted echo (row 9 of note N): one cell the app draws before
@@ -2881,7 +2920,7 @@ impl Overlay {
     /// drawn by records.
     #[allow(clippy::too_many_arguments)]
     fn paint_window(
-        piece: &[(usize, PackedCell, Vec<Codepoint>)],
+        piece: &[(usize, PackedCell, core::ops::Range<usize>)],
         drawn: &[Option<Vec<ClusterGlyph>>],
         y: Row,
         geom: &Geom,

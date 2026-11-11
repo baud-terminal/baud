@@ -40,11 +40,12 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 6] = [
+const NAMES: [&str; 7] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
+    "a_ligature_window_costs_a_caret_frame_no_allocation",
     "the_cell_driver_builds_as_present_builds",
     "nothing_that_ships_counts",
 ];
@@ -78,6 +79,9 @@ fn main() {
             }
             "a_marked_cell_costs_a_caret_frame_no_allocation" => {
                 checks::a_marked_cell_costs_a_caret_frame_no_allocation();
+            }
+            "a_ligature_window_costs_a_caret_frame_no_allocation" => {
+                checks::a_ligature_window_costs_a_caret_frame_no_allocation();
             }
             "the_cell_driver_builds_as_present_builds" => {
                 checks::the_cell_driver_builds_as_present_builds();
@@ -165,8 +169,8 @@ mod checks {
     use baud_render::counters::{self, Counter, Counts};
     use baud_render::{
         Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
-        Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, PxSize, Renderer,
-        Resolved, Stack, StyleStamp, Tally, Target, Theme,
+        Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, OverlayStats, PxSize,
+        Renderer, Resolved, Stack, StyleStamp, Tally, Target, Theme,
     };
 
     const WS: WinSize = WinSize {
@@ -971,25 +975,15 @@ mod checks {
     /// the kept glyphs cloned back for each cell.
     pub fn a_marked_cell_costs_a_caret_frame_no_allocation() {
         let marked = "e\u{301}".repeat(100);
-        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
-        let frames = |more: bool| {
-            let mut out = Vec::new();
-            with_screen(Blinking::No, |t, r| {
-                if more {
-                    feed(t, format!("\x1b7\x1b[8;1H{marked}\x1b8").as_bytes());
-                }
-                let mut backing = GlyphMap::backing();
-                let mut cells = Cells::new(&mut backing, t);
-                for k in Nth::ALL.before() {
-                    let inputs = caret(t, k);
-                    Cost::take();
-                    cell_frame(r, t, &inputs, &mut cells, k.set());
-                    out.push((Cost::take(), cells.exceptions.stats().cells.value()));
-                }
-            });
-            out
-        };
-        let (base, more) = (frames(false), frames(true));
+        let (base, more) = (
+            caret_cell_frames(None),
+            caret_cell_frames(Some(format!("\x1b7\x1b[8;1H{marked}\x1b8").as_bytes())),
+        );
+        let cells = |f: &(Cost, OverlayStats)| (f.0, f.1.cells.value());
+        let (base, more): (Vec<_>, Vec<_>) = (
+            base.iter().map(cells).collect(),
+            more.iter().map(cells).collect(),
+        );
         for (k, ((b, b_cells), (m, m_cells))) in base.iter().zip(&more).enumerate() {
             println!(
                 "marked frame {k}: base allocations={} records={b_cells}, \
@@ -1003,6 +997,60 @@ mod checks {
                     m.heap.here.value(),
                     b.heap.here.value(),
                     "caret frame {k}: a marked cell allocated"
+                );
+            }
+        }
+    }
+
+    /// **The cell path's caret frames**, each read for its cost and the
+    /// overlay's stats, on the fixture with `more` written before the
+    /// first frame.
+    fn caret_cell_frames(more: Option<&[u8]>) -> Vec<(Cost, OverlayStats)> {
+        let mut out = Vec::new();
+        with_screen(Blinking::No, |t, r| {
+            if let Some(more) = more {
+                feed(t, more);
+            }
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::ALL.before() {
+                let inputs = Inputs::at(caret_at(k));
+                Cost::take();
+                cell_frame(r, t, &inputs, &mut cells, k.set());
+                out.push((Cost::take(), cells.exceptions.stats()));
+            }
+        });
+        out
+    }
+
+    /// **A ligature window costs a caret frame no allocation** (FS-C11):
+    /// the overlay gathers a window's cells and their codepoints into
+    /// buffers it keeps, so the screen with more windows -- `a->b `
+    /// written twenty times over a row of the fixture's ligature text
+    /// before the first frame -- allocates on each caret frame on the cell
+    /// path exactly what the fixture alone does: the control that the
+    /// overlay shapes more windows. Named break: a Vec of codepoints made
+    /// for each cell a window gathers.
+    pub fn a_ligature_window_costs_a_caret_frame_no_allocation() {
+        let ligatures = "a->b ".repeat(20);
+        let (base, more) = (
+            caret_cell_frames(None),
+            caret_cell_frames(Some(format!("\x1b7\x1b[7;1H{ligatures}\x1b8").as_bytes())),
+        );
+        for (k, ((b, b_stats), (m, m_stats))) in base.iter().zip(&more).enumerate() {
+            let (b_windows, m_windows) = (b_stats.windows.value(), m_stats.windows.value());
+            println!(
+                "ligature frame {k}: base allocations={} windows={b_windows}, \
+                 more ligatures allocations={} windows={m_windows}",
+                b.heap.here.value(),
+                m.heap.here.value(),
+            );
+            assert!(m_windows > b_windows, "frame {k}: the ligatures drawn");
+            if !Nth(k).warming() {
+                assert_eq!(
+                    m.heap.here.value(),
+                    b.heap.here.value(),
+                    "caret frame {k}: a ligature window allocated"
                 );
             }
         }
