@@ -668,7 +668,19 @@ pub enum Drawn {
     /// bind, so nothing was done. The caller hears about the completion
     /// through its [`Done::Notify`].
     Busy,
+    /// **The GPU is given up** ([`GpuUse::GaveUp`]), so nothing was
+    /// committed, now or ever again on this `Gpu`: the caller draws on the
+    /// CPU from here. Checked after the frame in flight is counted out,
+    /// which a handler does only after it has latched a give-up, so no
+    /// frame is committed after the one that gave the GPU up.
+    GaveUp(GaveUp),
 }
+
+/// **What a device has allocated**, in bytes: Metal's
+/// `currentAllocatedSize`, "the current size in bytes of all resources
+/// allocated by this device" (`MTLDevice.h`).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Allocated(pub usize);
 
 /// Whether the GPU is reading the shared buffers right now.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1183,10 +1195,12 @@ mod commit;
 #[cfg(feature = "gpu-fault")]
 pub use commit::Inject;
 #[cfg(all(feature = "gpu-fault", feature = "effect-probe"))]
-pub(crate) use commit::rig::{arm as rig_arm, held as rig_held, release as rig_release};
+pub(crate) use commit::rig::{
+    arm as rig_arm, held as rig_held, made_count as rig_made, release as rig_release,
+};
 pub use commit::{
     Came, Cause, CommitId, Completion, Deadline, ErrorNumber, Fault, FaultCode, Faults, Flying,
-    GaveUp, GpuUse, Landed, Landing, Late, Overdue, StatusWord, StillBusy, Waited,
+    GaveUp, GpuUse, InARow, Landed, Landing, Late, Overdue, Refusal, StatusWord, StillBusy, Waited,
 };
 use commit::{Encoded, Flight, Then};
 
@@ -1554,6 +1568,12 @@ impl Gpu {
     /// Whether the window still draws on the GPU, or gave it up.
     pub fn gpu_use(&self) -> GpuUse {
         self.flight.faults().gpu_use()
+    }
+
+    /// What the device has allocated, every resource of every `Gpu` on it
+    /// counted (`currentAllocatedSize`).
+    pub fn allocated(&self) -> Allocated {
+        Allocated(self.device.currentAllocatedSize())
     }
 
     /// **Waits until no frame is in flight, for at most `bound`**,
@@ -2380,6 +2400,9 @@ impl Gpu {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
         }
+        if let GpuUse::GaveUp(why) = self.gpu_use() {
+            return Some(Drawn::GaveUp(why));
+        }
         // Before the kept target is made: a failed kept frame before this
         // one drops the slide it was kept for.
         self.take_failures();
@@ -2401,6 +2424,9 @@ impl Gpu {
     ) -> Option<Drawn> {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
+        }
+        if let GpuUse::GaveUp(why) = self.gpu_use() {
+            return Some(Drawn::GaveUp(why));
         }
         // Before the kept target is made: a failed kept frame before this
         // one drops the slide it was kept for.
@@ -2630,6 +2656,9 @@ impl Gpu {
     ) -> Option<Drawn> {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
+        }
+        if let GpuUse::GaveUp(why) = self.gpu_use() {
+            return Some(Drawn::GaveUp(why));
         }
         self.take_failures();
         let t0 = Instant::now();
@@ -2959,6 +2988,9 @@ impl Gpu {
     ) -> Option<Drawn> {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
+        }
+        if let GpuUse::GaveUp(why) = self.gpu_use() {
+            return Some(Drawn::GaveUp(why));
         }
         self.take_failures();
         let t0 = Instant::now();

@@ -293,6 +293,7 @@ fn main() {
                         s.busy.bump();
                         false
                     }
+                    Some(Drawn::GaveUp(why)) => panic!("the GPU was given up: {why:?}"),
                     None => panic!("draw_cells made no resource"),
                 }
             };

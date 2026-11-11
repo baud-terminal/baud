@@ -317,6 +317,13 @@ thread_local! {
     static CPU_SHOWN: Cell<Option<crate::redraw::SurfaceIx>> = const { Cell::new(None) };
     /// The GPU frames committed drawn whole.
     static WHOLE: Cell<baud_render::Tally> = const { Cell::new(baud_render::Tally::ZERO) };
+    /// The GPU frames committed.
+    static COMMITTED: Cell<baud_render::Tally> = const { Cell::new(baud_render::Tally::ZERO) };
+    /// What last set the layer's contents: a frame drawn on the CPU, or a
+    /// GPU surface handed over.
+    static LAYER: Cell<Layer> = const { Cell::new(Layer::Unset) };
+    /// The frames the window had drawn when it gave the GPU up, if it did.
+    static SWITCHED: Cell<Option<baud_render::Tally>> = const { Cell::new(None) };
     /// What the window's last settle found owed, as it spells it.
     static OWED: RefCell<String> = const { RefCell::new(String::new()) };
     /// Whether the polls still the tick's hold the link (`Lift`).
@@ -1123,11 +1130,19 @@ pub fn cpu_shown_on() -> Option<crate::redraw::SurfaceIx> {
     CPU_SHOWN.with(Cell::get)
 }
 
-/// A GPU frame committed: whether it was drawn whole, counted if it was.
+/// A GPU frame committed: counted, and whether it was drawn whole, counted
+/// if it was.
 pub fn gpu_drew(whole: Whole) {
+    COMMITTED.with(|c| c.set(c.get().inc()));
     if whole == Whole::Yes {
         WHOLE.with(|w| w.set(w.get().inc()));
     }
+}
+
+/// **The GPU frames committed**, for the frame rig: a frame owed by a
+/// failure is committed after it.
+pub fn gpu_committed() -> baud_render::Tally {
+    COMMITTED.with(Cell::get)
 }
 
 /// **The GPU frames committed drawn whole**, for the frame rig: a frame
@@ -1136,14 +1151,60 @@ pub fn gpu_whole() -> baud_render::Tally {
     WHOLE.with(Cell::get)
 }
 
+/// **What last set the layer's contents**, for the frame rig: a frame
+/// drawn on the CPU ([`crate::Presenter::present_changed`],
+/// [`crate::Presenter::present_on_cpu`]), or a GPU surface (the launch's,
+/// set where it drew, and the view's `presented` for every other).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Layer {
+    Unset,
+    Cpu,
+    Gpu,
+}
+
+/// The layer's contents set from `by`.
+pub fn layer(by: Layer) {
+    LAYER.with(|l| l.set(by));
+}
+
+/// What last set the layer's contents.
+pub fn layer_by() -> Layer {
+    LAYER.with(Cell::get)
+}
+
+/// **The window gave the GPU up** with `frames` drawn, its first frame on
+/// the CPU still to come.
+pub fn switched(frames: baud_render::Tally) {
+    SWITCHED.with(|s| s.set(Some(frames)));
+}
+
+/// The frames drawn when the window gave the GPU up, if it did.
+pub fn switched_at() -> Option<baud_render::Tally> {
+    SWITCHED.with(Cell::get)
+}
+
+/// **How many `Gpu`s this process made**, for the frame rig: one, the
+/// window's, unless something made the device again.
+pub fn gpu_made() -> baud_render::Tally {
+    #[cfg(feature = "gpu-fault")]
+    return crate::metal::rig_made();
+    #[cfg(not(feature = "gpu-fault"))]
+    baud_render::Tally::ZERO
+}
+
 /// **What the frame rig asks of the GPU's fault seam** (`BAUD_RIG_GPU`):
-/// every completion reported as it was, held until released, or reported
-/// failed (`Internal`), from the next commit on.
+/// every completion reported as it was; held until released; reported
+/// failed (`Internal`) from the next commit on, for ever; the next so many
+/// frames reported failed (`Internal`), and then none; or the next frame
+/// reported as from a device that revoked this client's access
+/// (`AccessRevoked`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GpuSeam {
     Pass,
     Hold,
     Fail,
+    FailNext(baud_render::Tally),
+    Revoked,
 }
 
 /// Whether the seam took what was asked: it exists only in a build with
@@ -1165,6 +1226,11 @@ pub fn gpu_seam(seam: GpuSeam) -> Seamed {
             GpuSeam::Pass => Inject::Pass,
             GpuSeam::Hold => Inject::Hold,
             GpuSeam::Fail => Inject::Fail(Cause::Error(FaultCode::Internal)),
+            GpuSeam::FailNext(n) => Inject::FailNext(Cause::Error(FaultCode::Internal), n),
+            GpuSeam::Revoked => Inject::FailNext(
+                Cause::Error(FaultCode::AccessRevoked),
+                baud_render::Tally::of(1),
+            ),
         });
         Seamed::Armed
     }

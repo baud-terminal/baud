@@ -868,6 +868,7 @@ fn main() {
                     match drawn {
                         Some(Drawn::Frame(_)) => m.commits.bump(),
                         Some(Drawn::Busy) => panic!("built while idle, and refused as busy"),
+                        Some(Drawn::GaveUp(why)) => panic!("the GPU was given up: {why:?}"),
                         None => panic!("draw_cells through the presenter"),
                     }
                     if fin {

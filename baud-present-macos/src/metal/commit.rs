@@ -34,12 +34,21 @@
 //! to overdue by the bound, or to answered by the handler, whichever comes
 //! first, and the other reads what the first left.
 //!
+//! **The GPU is given up once, for one reason** ([`GaveUp`]): a frame
+//! still unanswered at [`Deadline::GIVE_UP`], [`GaveUp::FAILED_IN_A_ROW`]
+//! frames failed in a row, or one failed with a code the header gives for
+//! a device that will not take the process's work. The handler latches it
+//! before it counts the frame out, and a `Gpu` that has latched commits
+//! nothing more ([`crate::Drawn::GaveUp`]).
+//!
 //! **The fault seam** (`gpu-fault`, dev-dependencies only): a test may
-//! replace what the handler reports with a failure ([`Inject::Fail`]), or
-//! hold the whole completion -- the count-out, the answer and the notified
-//! closure -- until it releases it ([`Inject::Hold`]), which is what a
-//! frame the GPU never finishes looks like to every consumer. The GPU
-//! still runs every frame; only the report is replaced.
+//! replace what the handler reports with a failure, on every buffer
+//! ([`Inject::Fail`]) or on exactly the next so many frames
+//! ([`Inject::FailNext`]), or hold the whole completion -- the count-out,
+//! the answer and the notified closure -- until it releases it
+//! ([`Inject::Hold`]), which is what a frame the GPU never finishes looks
+//! like to every consumer. The GPU still runs every frame; only the report
+//! is replaced.
 
 use crate::unwind::{SiteName, guard};
 use baud_domain::HostTime;
@@ -142,9 +151,8 @@ impl Deadline {
     /// **3 s, about 100x the slowest**: a window's frame still in flight
     /// this long after its commit makes the window give up the GPU for the
     /// rest of the session ([`GpuUse::GaveUp`]), never to return to it.
-    /// Counted once and said once; the window still holds every draw
-    /// `Busy` until the frame lands, since drawing on the CPU path instead
-    /// is not built.
+    /// Counted once and said once, and the window draws on the CPU from
+    /// then on (`Presenter::give_up`), whether the frame ever lands or not.
     pub const GIVE_UP: Deadline = Deadline(Duration::from_secs(3));
     /// **3 s, about 100x the slowest**: a test's or a bench's wait on one
     /// frame ([`crate::Done::Within`]) or on the GPU going idle
@@ -212,6 +220,80 @@ pub enum GpuUse {
 pub enum GaveUp {
     /// A frame still in flight at [`Deadline::GIVE_UP`].
     Stuck,
+    /// [`GaveUp::FAILED_IN_A_ROW`] frames failed in a row, with codes the
+    /// header does not call permanent -- which is what a GPU reset looks
+    /// like to the buffers in flight, under codes the header does not
+    /// name.
+    Failing,
+    /// One frame failed with a code the header gives for a device this
+    /// process may no longer use.
+    Refused(Refusal),
+}
+
+/// **A device that will not take this process's work again**
+/// (`MTLCommandBuffer.h`, `MTLCommandBufferError`): one such frame is
+/// enough.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// "Access to this device has been revoked because this client has
+    /// been responsible for too many timeouts or hangs."
+    AccessRevoked,
+    /// "This process does not have access to use this device."
+    NotPermitted,
+}
+
+/// A count of frames that failed one after another, none landing between.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct InARow(pub u64);
+
+impl GaveUp {
+    /// **Three frames failed in a row give the GPU up.** A threshold, not
+    /// a measurement: no failure has been recorded on this machine to
+    /// measure one from. One failure owes a whole frame, which may fail
+    /// too; a third in a row is a GPU that is not drawing.
+    pub const FAILED_IN_A_ROW: InARow = InARow(3);
+
+    /// Why a frame that failed with `code` gives the GPU up by itself, if
+    /// it does.
+    fn refused(code: FaultCode) -> Option<GaveUp> {
+        match code {
+            FaultCode::AccessRevoked => Some(GaveUp::Refused(Refusal::AccessRevoked)),
+            FaultCode::NotPermitted => Some(GaveUp::Refused(Refusal::NotPermitted)),
+            _ => None,
+        }
+    }
+}
+
+/// [`GpuUse`] as the latch word holds it: [`UseWord::LIVE`], or one word a
+/// reason.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct UseWord(u8);
+
+impl UseWord {
+    const LIVE: UseWord = UseWord(0);
+}
+
+impl From<GaveUp> for UseWord {
+    fn from(why: GaveUp) -> UseWord {
+        UseWord(match why {
+            GaveUp::Stuck => 1,
+            GaveUp::Failing => 2,
+            GaveUp::Refused(Refusal::AccessRevoked) => 3,
+            GaveUp::Refused(Refusal::NotPermitted) => 4,
+        })
+    }
+}
+
+impl From<UseWord> for Option<GaveUp> {
+    fn from(w: UseWord) -> Option<GaveUp> {
+        match w.0 {
+            0 => None,
+            1 => Some(GaveUp::Stuck),
+            2 => Some(GaveUp::Failing),
+            3 => Some(GaveUp::Refused(Refusal::AccessRevoked)),
+            _ => Some(GaveUp::Refused(Refusal::NotPermitted)),
+        }
+    }
 }
 
 /// **Which commit a frame is**, numbered from one in the order a `Gpu`
@@ -351,10 +433,11 @@ impl Flying {
 
     /// **Its [`Deadline::GIVE_UP`] wake, at `now`**: if this frame is still
     /// unanswered, counted overdue if nothing counted it yet, and the GPU
-    /// given up -- counted the once a `Gpu`'s life it happens. A frame
-    /// whose handler answers between the state read here and the give-up's
-    /// step still gives the GPU up: that frame came 3 s late, and the
-    /// give-up holds for the session, as every give-up does.
+    /// given up as [`GaveUp::Stuck`] -- counted the once a `Gpu`'s life it
+    /// happens, and not at all if it was given up for another reason
+    /// first. A frame whose handler answers between the state read here
+    /// and the give-up's step still gives the GPU up: that frame came 3 s
+    /// late, and the give-up holds for the session, as every give-up does.
     pub fn give_up_due(&self, now: Instant) -> Came {
         if now < self.due(Deadline::GIVE_UP) {
             return Came::Early;
@@ -365,10 +448,7 @@ impl Flying {
         if self.mark.now() == State::Answered {
             return Came::Answered;
         }
-        let _ = self
-            .counters
-            .gave_up
-            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self.counters.give_up(GaveUp::Stuck);
         Came::GaveUp
     }
 }
@@ -585,16 +665,18 @@ pub struct Faults {
     /// Frames counted overdue and answered after: each counted once, by
     /// its handler.
     pub late: Tally,
-    /// The GPU given up ([`Deadline::GIVE_UP`]): one at most.
+    /// The GPU given up: one at most, for the first reason that came.
     pub gave_up: Tally,
+    /// Why, once it was.
+    pub why: Option<GaveUp>,
 }
 
 impl Faults {
     /// Whether the window still draws on the GPU.
     pub fn gpu_use(&self) -> GpuUse {
-        match self.gave_up == Tally::ZERO {
-            true => GpuUse::Live,
-            false => GpuUse::GaveUp(GaveUp::Stuck),
+        match self.why {
+            None => GpuUse::Live,
+            Some(why) => GpuUse::GaveUp(why),
         }
     }
 
@@ -626,6 +708,9 @@ impl fmt::Display for Faults {
             self.gave_up.value(),
             self.slowest
         )?;
+        if let Some(why) = self.why {
+            write!(f, ", given up: {why:?}")?;
+        }
         for code in FaultCode::NAMED {
             let n = self.of(code);
             if n != Tally::ZERO {
@@ -643,7 +728,6 @@ impl fmt::Display for Faults {
 /// The handlers' counters. Each is a `Relaxed` add, as the journal's are:
 /// they publish nothing, and the count-out that follows them is the
 /// release a reader acquires.
-#[derive(Default)]
 struct Counters {
     failed: [AtomicU64; FaultCode::COUNT],
     odd_status: AtomicU64,
@@ -651,31 +735,80 @@ struct Counters {
     slowest: AtomicU64,
     overdue: AtomicU64,
     late: AtomicU64,
-    gave_up: AtomicU64,
+    /// **The latch** ([`UseWord`]): live until [`Counters::give_up`] moves
+    /// it, once, and nothing moves it back.
+    gave_up: AtomicU8,
+    /// The frames failed since the last that landed.
+    streak: AtomicU64,
+}
+
+impl Default for Counters {
+    fn default() -> Counters {
+        Counters {
+            failed: Default::default(),
+            odd_status: AtomicU64::new(0),
+            warm_failed: AtomicU64::new(0),
+            slowest: AtomicU64::new(0),
+            overdue: AtomicU64::new(0),
+            late: AtomicU64::new(0),
+            gave_up: AtomicU8::new(UseWord::LIVE.0),
+            streak: AtomicU64::new(0),
+        }
+    }
 }
 
 impl Counters {
-    fn count(&self, kind: Kind, completion: &Completion, took: Duration) {
+    /// **The GPU given up for `why`**: the one write of the latch, from
+    /// live and from nowhere else, so the first reason wins, it is counted
+    /// once, and no later call changes it. Whether this call was the one.
+    fn give_up(&self, why: GaveUp) -> bool {
+        self.gave_up
+            .compare_exchange(
+                UseWord::LIVE.0,
+                UseWord::from(why).0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Counts a completion, and says whether it gives the GPU up: a frame
+    /// failed with a code no further frame can get past
+    /// ([`GaveUp::refused`]), or the [`GaveUp::FAILED_IN_A_ROW`]th frame in
+    /// a row failed. A frame that landed ends the row. The warm-up pass is
+    /// no frame and feeds no row; nor does a held completion let go
+    /// unanswered, which is the seam's and no status read.
+    fn count(&self, kind: Kind, completion: &Completion, took: Duration) -> Option<GaveUp> {
         match (kind, completion) {
             (Kind::Warm, Completion::Failed(_)) => {
                 self.warm_failed.fetch_add(1, Ordering::Relaxed);
+                None
             }
-            (Kind::Warm, Completion::Done(_)) => {}
+            (Kind::Warm, Completion::Done(_)) => None,
             (Kind::Frame, done) => {
                 self.slowest.fetch_max(
                     u64::try_from(took.as_nanos()).unwrap_or(u64::MAX),
                     Ordering::Relaxed,
                 );
+                let failed = |refused: Option<GaveUp>| {
+                    let row = InARow(self.streak.fetch_add(1, Ordering::Relaxed) + 1);
+                    refused.or((row >= GaveUp::FAILED_IN_A_ROW).then_some(GaveUp::Failing))
+                };
                 match done {
-                    Completion::Done(_) => {}
+                    Completion::Done(_) => {
+                        self.streak.store(0, Ordering::Relaxed);
+                        None
+                    }
                     Completion::Failed(f) => match f.cause {
                         Cause::Error(code) => {
                             code.pick(&self.failed).fetch_add(1, Ordering::Relaxed);
+                            failed(GaveUp::refused(code))
                         }
                         Cause::Odd(_) => {
                             self.odd_status.fetch_add(1, Ordering::Relaxed);
+                            failed(None)
                         }
-                        Cause::Unanswered => {}
+                        Cause::Unanswered => None,
                     },
                 }
             }
@@ -686,6 +819,9 @@ impl Counters {
         let tally = |a: &AtomicU64| {
             Tally::of(usize::try_from(a.load(Ordering::Relaxed)).unwrap_or(usize::MAX))
         };
+        // `Acquire`, against the latch's `AcqRel`: a reader that sees a
+        // reason sees the counts taken before it.
+        let why = Option::<GaveUp>::from(UseWord(self.gave_up.load(Ordering::Acquire)));
         Faults {
             failed: core::array::from_fn(|i| tally(&self.failed[i])),
             odd_status: tally(&self.odd_status),
@@ -693,7 +829,11 @@ impl Counters {
             slowest: Duration::from_nanos(self.slowest.load(Ordering::Relaxed)),
             overdue: tally(&self.overdue),
             late: tally(&self.late),
-            gave_up: tally(&self.gave_up),
+            gave_up: match why {
+                None => Tally::ZERO,
+                Some(_) => Tally::of(1),
+            },
+            why,
         }
     }
 }
@@ -870,7 +1010,7 @@ impl Encoded {
         };
         let counters = Arc::clone(&flight.counters);
         #[cfg(feature = "gpu-fault")]
-        let (seam, inject) = (Arc::clone(&flight.seam), flight.seam.inject());
+        let (seam, inject) = (Arc::clone(&flight.seam), flight.seam.take(kind));
         let marked = mark.as_ref().map(|f| Arc::clone(&f.mark));
         let block = RcBlock::new(move |done: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
             let took = at.elapsed();
@@ -889,7 +1029,13 @@ impl Encoded {
                 #[cfg(feature = "gpu-fault")]
                 let seam = Arc::clone(&seam);
                 move || {
-                    counters.count(kind, &completion, took);
+                    // **The give-up latched before the count-out**: a draw
+                    // that sees no frame in flight has acquired the
+                    // count-out, and with it the latch, so it never commits
+                    // after the frame that gave the GPU up.
+                    if let Some(why) = counters.count(kind, &completion, took) {
+                        let _ = counters.give_up(why);
+                    }
                     // Answered: late if a bound came first, counted before
                     // the count-out, as every count is.
                     let late = marked.is_some_and(|m| m.answer() == State::Overdue);
@@ -920,7 +1066,7 @@ impl Encoded {
                 }
             };
             #[cfg(feature = "gpu-fault")]
-            if inject == Inject::Hold {
+            if inject == Injected::Hold {
                 seam.hold(Box::new(deliver));
                 return;
             }
@@ -1074,9 +1220,16 @@ fn encoders(_: &NSError) -> Option<String> {
 pub enum Inject {
     /// The real report.
     Pass,
-    /// A failure with this cause in place of a `Completed` status; a real
-    /// failure stays as it was.
+    /// A failure with this cause in place of a `Completed` status, on every
+    /// buffer from the next on, the warm-up pass included; a real failure
+    /// stays as it was.
     Fail(Cause),
+    /// [`Inject::Fail`] on exactly the next this many frames committed,
+    /// and then [`Inject::Pass`]: counted down at each frame's commit, on
+    /// the thread that commits, so which frames fail does not depend on
+    /// when their completions come. The warm-up pass is no frame, and
+    /// neither fails nor counts.
+    FailNext(Cause, Tally),
     /// The whole completion -- the counts, the count-out, the answer and
     /// the notified closure -- held until [`crate::Gpu::release`], as a
     /// frame the GPU never finishes looks to every consumer. A waited
@@ -1084,11 +1237,22 @@ pub enum Inject {
     Hold,
 }
 
+/// **What the seam does to one buffer**, resolved at its commit: no
+/// [`Inject::FailNext`] is left to count down by the time its handler
+/// runs.
 #[cfg(feature = "gpu-fault")]
-impl Inject {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Injected {
+    Pass,
+    Fail(Cause),
+    Hold,
+}
+
+#[cfg(feature = "gpu-fault")]
+impl Injected {
     fn report(self, real: Completion) -> Completion {
         match (self, real) {
-            (Inject::Fail(cause), Completion::Done(_)) => Completion::Failed(Fault {
+            (Injected::Fail(cause), Completion::Done(_)) => Completion::Failed(Fault {
                 cause,
                 text: "injected by the fault seam".into(),
             }),
@@ -1134,8 +1298,28 @@ impl Seam {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn inject(&self) -> Inject {
-        self.lock().inject
+    /// What this buffer's completion reports: a frame counts an
+    /// [`Inject::FailNext`] down, under the lock, and the last one it
+    /// fails sets the seam to [`Inject::Pass`].
+    fn take(&self, kind: Kind) -> Injected {
+        let mut s = self.lock();
+        match (s.inject, kind) {
+            (Inject::Pass, _) | (Inject::FailNext(..), Kind::Warm) => Injected::Pass,
+            (Inject::Fail(cause), _) => Injected::Fail(cause),
+            (Inject::Hold, _) => Injected::Hold,
+            (Inject::FailNext(cause, mut left), Kind::Frame) => {
+                if left == Tally::ZERO {
+                    s.inject = Inject::Pass;
+                    return Injected::Pass;
+                }
+                left.lose();
+                s.inject = match left == Tally::ZERO {
+                    true => Inject::Pass,
+                    false => Inject::FailNext(cause, left),
+                };
+                Injected::Fail(cause)
+            }
+        }
     }
 
     fn hold(&self, deliver: Box<dyn FnOnce() + Send>) {
@@ -1172,12 +1356,15 @@ impl Seam {
 pub(crate) mod rig {
     use super::{Inject, Seam};
     use baud_render::Tally;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
     /// What every seam made from now on reports.
     static ARMED: Mutex<Inject> = Mutex::new(Inject::Pass);
     /// The last seam made: the window's.
     static LAST: Mutex<Option<Arc<Seam>>> = Mutex::new(None);
+    /// The seams made, one a `Gpu`: how many devices the window made.
+    static MADE: AtomicU64 = AtomicU64::new(0);
 
     fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
         m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -1186,17 +1373,31 @@ pub(crate) mod rig {
     /// A seam made: it reports what is armed, and is the one the doors
     /// reach.
     pub(super) fn made(seam: &Arc<Seam>) {
-        seam.lock().inject = *lock(&ARMED);
+        let armed = *lock(&ARMED);
+        seam.lock().inject = armed;
         *lock(&LAST) = Some(Arc::clone(seam));
+        MADE.fetch_add(1, Ordering::Relaxed);
     }
 
     /// What the completions of frames committed from now on report, on
-    /// the last seam made and every one after.
+    /// the last seam made and every one after. A count of frames to fail
+    /// ([`Inject::FailNext`]) is the last seam's alone once there is one,
+    /// so a device made after it fails none of them again.
     pub(crate) fn arm(inject: Inject) {
-        *lock(&ARMED) = inject;
-        if let Some(s) = lock(&LAST).as_ref() {
+        let last = lock(&LAST).clone();
+        *lock(&ARMED) = match (inject, &last) {
+            (Inject::FailNext(..), Some(_)) => Inject::Pass,
+            _ => inject,
+        };
+        if let Some(s) = last {
             s.lock().inject = inject;
         }
+    }
+
+    /// How many `Gpu`s were made in this process: the window's, and any
+    /// it made again.
+    pub(crate) fn made_count() -> Tally {
+        Tally::of(usize::try_from(MADE.load(Ordering::Relaxed)).unwrap_or(usize::MAX))
     }
 
     /// The completions the last seam made holds.
@@ -1252,7 +1453,90 @@ impl Flight {
 
 #[cfg(test)]
 mod tests {
-    use super::{ErrorNumber, FaultCode};
+    use super::{
+        Cause, Completion, Counters, ErrorNumber, Fault, FaultCode, GaveUp, Kind, Refusal,
+    };
+    use baud_render::Tally;
+    use std::time::Duration;
+
+    fn failed(code: FaultCode) -> Completion {
+        Completion::Failed(Fault {
+            cause: Cause::Error(code),
+            text: "a test's".into(),
+        })
+    }
+
+    /// **The first reason wins, and the give-up counts once** (U5): the GPU
+    /// given up as stuck, and then three frames failed in a row, which
+    /// trip the threshold, read stuck and one give-up -- the second
+    /// reason's write refused. Break: a plain store in place of the
+    /// compare, and the reason reads failing.
+    #[test]
+    fn the_first_reason_wins_and_the_give_up_counts_once() {
+        let c = Counters::default();
+        assert!(c.give_up(GaveUp::Stuck), "the first give-up is the one");
+        let mut tripped = None;
+        for _ in 0..3 {
+            tripped = c.count(Kind::Frame, &failed(FaultCode::Internal), Duration::ZERO);
+        }
+        assert_eq!(tripped, Some(GaveUp::Failing), "the third trips it");
+        assert!(!c.give_up(GaveUp::Failing), "and its write is refused");
+        let f = c.read();
+        assert_eq!((f.why, f.gave_up), (Some(GaveUp::Stuck), Tally::of(1)));
+    }
+
+    /// **What trips the give-up, as the handler counts**: a refusal at
+    /// once, three failures in a row and not two, a landing ending the row,
+    /// and neither the warm-up pass nor a held completion let go
+    /// unanswered feeding it. Breaks: the row not ended by a landing; a
+    /// threshold of two.
+    #[test]
+    fn what_trips_the_give_up() {
+        let none = Duration::ZERO;
+        let c = Counters::default();
+        assert_eq!(
+            c.count(Kind::Frame, &failed(FaultCode::AccessRevoked), none),
+            Some(GaveUp::Refused(Refusal::AccessRevoked))
+        );
+        let c = Counters::default();
+        assert_eq!(
+            c.count(Kind::Frame, &failed(FaultCode::NotPermitted), none),
+            Some(GaveUp::Refused(Refusal::NotPermitted))
+        );
+        let c = Counters::default();
+        let unanswered = Completion::Failed(Fault {
+            cause: Cause::Unanswered,
+            text: "let go".into(),
+        });
+        for _ in 0..5 {
+            assert_eq!(
+                c.count(Kind::Warm, &failed(FaultCode::Internal), none),
+                None
+            );
+            assert_eq!(c.count(Kind::Frame, &unanswered, none), None);
+        }
+        let landed = Completion::Done(super::Landing::stamped(
+            Duration::ZERO,
+            baud_domain::HostTime::ZERO,
+        ));
+        for _ in 0..2 {
+            assert_eq!(
+                c.count(Kind::Frame, &failed(FaultCode::Timeout), none),
+                None
+            );
+        }
+        assert_eq!(c.count(Kind::Frame, &landed, none), None);
+        for _ in 0..2 {
+            assert_eq!(
+                c.count(Kind::Frame, &failed(FaultCode::Timeout), none),
+                None
+            );
+        }
+        assert_eq!(
+            c.count(Kind::Frame, &failed(FaultCode::Timeout), none),
+            Some(GaveUp::Failing)
+        );
+    }
 
     /// **Every code round-trips through its number and has a counter of
     /// its own**, and every code the header does not name shares the last.

@@ -303,3 +303,10 @@ harness = false
 [[bench]]
 name = "drag"
 harness = false
+
+# What every frame costs a window that gave the GPU up: the whole frame
+# copied into a surface on the CPU, premultiplied, at the default window and
+# a whole screen. macOS only; it prints on every other target.
+[[bench]]
+name = "surface_copy"
+harness = false

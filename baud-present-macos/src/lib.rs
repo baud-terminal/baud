@@ -71,10 +71,10 @@ pub use journal::Landing;
 #[cfg(feature = "gpu-fault")]
 pub use metal::Inject;
 pub use metal::{
-    Build, Came, Cause, CellInput, CommitId, Completion, Deadline, Done, Drawn, EffectBuild,
-    EffectPipes, ErrorNumber, Fault, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame, GpuUse,
-    GridBuffer, InFlight, Landed, Late, MapBuffer, Memory, Overdue, OverlayBuffer, StatusWord,
-    StillBusy, StylesBuffer, Target, Waited,
+    Allocated, Build, Came, Cause, CellInput, CommitId, Completion, Deadline, Done, Drawn,
+    EffectBuild, EffectPipes, ErrorNumber, Fault, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame,
+    GpuUse, GridBuffer, InARow, InFlight, Landed, Late, MapBuffer, Memory, Overdue, OverlayBuffer,
+    Refusal, StatusWord, StillBusy, StylesBuffer, Target, Waited,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};
@@ -131,6 +131,88 @@ enum Draw {
     /// because a `Gpu` is a dozen words of device state beside a unit
     /// variant.
     Gpu { gpu: Box<Gpu>, targets: Vec<Target> },
+    /// **The GPU given up** ([`Presenter::give_up`]): the compositor paints,
+    /// as on [`Draw::Cpu`], and the `Gpu` is kept where nothing can draw
+    /// with it again.
+    GaveUp(Parked),
+}
+
+/// **A `Gpu` given up, kept and never drawn with**: its device, queue,
+/// pipelines, atlas and ring, and its targets, which a frame still in
+/// flight may be reading -- the header does not say a buffer in flight
+/// keeps its queue alive (`MTLCommandBuffer.h` declares `commandQueue`
+/// `readonly` and says no more), so none of it is dropped under one. The
+/// journal its frames count into, and its counts when it was given up, for
+/// the report.
+/// No method hands out the `Gpu` or a target (`tests/commit_gates.rs`).
+struct Parked {
+    gpu: Box<Gpu>,
+    /// Kept for what a frame in flight reads, never read here.
+    _targets: Vec<Target>,
+    journal: Arc<Journal>,
+    why: GaveUp,
+    before: Counts,
+}
+
+impl Parked {
+    fn faults(&self) -> Faults {
+        self.gpu.faults()
+    }
+
+    fn why(&self) -> GaveUp {
+        self.why
+    }
+
+    /// The given-up journal's counts: when it was given up, and now.
+    fn counts(&self) -> (Counts, Counts) {
+        (self.before, self.journal.counts())
+    }
+
+    fn allocated(&self) -> Allocated {
+        self.gpu.allocated()
+    }
+
+    #[cfg(feature = "gpu-fault")]
+    fn held(&self) -> baud_render::Tally {
+        self.gpu.held()
+    }
+
+    #[cfg(feature = "gpu-fault")]
+    fn release(&self) -> baud_render::Tally {
+        self.gpu.release()
+    }
+}
+
+/// What [`Presenter::give_up`] did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Switched {
+    /// The GPU given up, and a new surface set made for the CPU to draw
+    /// into, none of which a frame committed to the GPU went to.
+    Now,
+    /// The GPU given up, and the new surface set refused: the old set is
+    /// kept and nothing is drawn into it -- a frame in flight may write any
+    /// of it -- until a resize makes a set ([`Presenter::resize`]).
+    Refused,
+    /// Nothing to give up: the presenter draws on the CPU already.
+    Already,
+}
+
+/// Whether the presenter's surfaces may be drawn into: a set made for it,
+/// or one a frame in flight may still write, kept only to stay on the
+/// layer until a set is made.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Writable {
+    Yes,
+    No,
+}
+
+/// The fault seam's refusal of the next surface set
+/// ([`Presenter::refuse_next_set`]).
+#[cfg(feature = "gpu-fault")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RefuseSet {
+    No,
+    Yes,
 }
 
 /// Which of the two paths a presenter takes, for the caller that has to
@@ -169,6 +251,10 @@ pub struct Presenter {
     /// and frame size the surfaces were filled for.
     stale: Vec<Stale>,
     filled: Option<(Argb, usize, usize)>,
+    /// Whether the surfaces may be drawn into ([`Switched::Refused`]).
+    writable: Writable,
+    #[cfg(feature = "gpu-fault")]
+    refuse_set: RefuseSet,
 }
 
 /// The pixel rows of a surface that are not the last frame's: all of them,
@@ -201,7 +287,7 @@ impl Presenter {
     /// Surfaces of `width` by `height` pixels for the CPU path; `None`
     /// when the kernel declines.
     pub fn new(width: Px, height: Px, space: ColorSpace) -> Option<Presenter> {
-        Presenter::build(width, height, space, Draw::Cpu, Shared::fresh())
+        Presenter::build(width, height, space, Draw::Cpu, Shared::fresh()).ok()
     }
 
     /// Surfaces of `width` by `height` pixels with a Metal target over
@@ -223,28 +309,40 @@ impl Presenter {
             },
             Shared::fresh(),
         )
+        .ok()
     }
 
+    /// A presenter of new surfaces drawn by `draw`; `draw` handed back
+    /// when the kernel declines the surfaces or Metal their targets, so a
+    /// caller keeps what it had -- a given-up `Gpu` most of all, whose
+    /// counts the report reads.
     fn build(
         width: Px,
         height: Px,
         space: ColorSpace,
         draw: Draw,
         shared: Shared,
-    ) -> Option<Presenter> {
+    ) -> Result<Presenter, Draw> {
         let (w, h) = (slots(width), slots(height));
-        let surfaces = (0..SURFACES)
+        let Some(surfaces) = (0..SURFACES)
             .map(|_| Surface::in_space(w, h, space))
-            .collect::<Option<Vec<_>>>()?;
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Err(draw);
+        };
         let draw = match draw {
             Draw::Cpu => Draw::Cpu,
-            Draw::Gpu { gpu, .. } => {
-                let targets = surfaces
+            Draw::Gpu { gpu, targets: old } => {
+                let made = surfaces
                     .iter()
                     .map(|s| gpu.target(s.io_surface(), width, height))
-                    .collect::<Option<Vec<_>>>()?;
-                Draw::Gpu { gpu, targets }
+                    .collect::<Option<Vec<_>>>();
+                match made {
+                    Some(targets) => Draw::Gpu { gpu, targets },
+                    None => return Err(Draw::Gpu { gpu, targets: old }),
+                }
             }
+            Draw::GaveUp(parked) => Draw::GaveUp(parked),
         };
         // **The surfaces exist, so the set they belong to is new.** Every
         // frame committed against the previous one is superseded from here,
@@ -252,7 +350,7 @@ impl Presenter {
         // cannot see, since a window dragged out and back leaves two
         // different sets that are the same shape.
         shared.epoch.bump();
-        Some(Presenter {
+        Ok(Presenter {
             surfaces,
             next: Next(0),
             width,
@@ -265,6 +363,9 @@ impl Presenter {
             ages: redraw::Ages::new(),
             stale: vec![Stale::Whole; SURFACES],
             filled: None,
+            writable: Writable::Yes,
+            #[cfg(feature = "gpu-fault")]
+            refuse_set: RefuseSet::No,
         })
     }
 
@@ -272,9 +373,11 @@ impl Presenter {
         (self.width, self.height)
     }
 
+    /// The path the presenter draws on: the CPU's once the GPU is given
+    /// up, for good.
     pub fn mode(&self) -> Mode {
         match self.draw {
-            Draw::Cpu => Mode::Cpu,
+            Draw::Cpu | Draw::GaveUp(_) => Mode::Cpu,
             Draw::Gpu { .. } => Mode::Gpu,
         }
     }
@@ -282,22 +385,26 @@ impl Presenter {
     /// The device's memory arrangement, on the GPU path.
     pub fn memory(&self) -> Option<Memory> {
         match &self.draw {
-            Draw::Cpu => None,
+            Draw::Cpu | Draw::GaveUp(_) => None,
             Draw::Gpu { gpu, .. } => Some(gpu.unified_memory()),
         }
     }
 
     /// Whether the GPU is still reading a frame's buffers. The CPU path is
-    /// never in flight.
+    /// never in flight, and nor is a presenter that gave the GPU up: what
+    /// is still in flight there reads nothing it draws.
     pub fn in_flight(&self) -> InFlight {
         match &self.draw {
-            Draw::Cpu => InFlight::Idle,
+            Draw::Cpu | Draw::GaveUp(_) => InFlight::Idle,
             Draw::Gpu { gpu, .. } => gpu.in_flight(),
         }
     }
 
     /// Replaces the surfaces at a new size, keeping the path; the old ones
-    /// are released once the layer stops showing them.
+    /// are released once the layer stops showing them. **Declined, the
+    /// presenter keeps its path and its surfaces**, at the size asked, so
+    /// the asking stops until the size changes again, and draws nothing
+    /// into them until a later resize makes a set: they are the wrong size.
     pub fn resize(&mut self, width: Px, height: Px) -> Option<()> {
         let draw = core::mem::replace(&mut self.draw, Draw::Cpu);
         let shared = Shared {
@@ -305,14 +412,139 @@ impl Presenter {
             journal: Arc::clone(&self.journal),
             frame: self.frame,
         };
-        *self = Presenter::build(width, height, self.space, draw, shared)?;
-        Some(())
+        match Presenter::build(width, height, self.space, draw, shared) {
+            Ok(p) => {
+                *self = p;
+                Some(())
+            }
+            Err(draw) => {
+                self.draw = draw;
+                self.writable = Writable::No;
+                (self.width, self.height) = (width, height);
+                None
+            }
+        }
     }
 
-    /// What the GPU's completions have counted, on the GPU path: the frames
-    /// that failed, by code, the warm-up pass, and the slowest frame.
+    /// **Gives the GPU up for good** ([`GaveUp`]): the `Gpu` and its
+    /// targets parked where nothing can draw with them, and the frames
+    /// drawn on the CPU from here into a new surface set -- never into one
+    /// a frame committed to the GPU went to, which may be written at any
+    /// moment or never answer. The epoch is carried and bumped, so a frame
+    /// in flight that answers late is superseded and never shown; the
+    /// journal is new, so nothing waits on that frame landing, and the old
+    /// one is parked with it for the report. The surfaces declined, the
+    /// GPU is given up all the same and the old set kept and left alone
+    /// ([`Switched::Refused`]).
+    pub fn give_up(&mut self, why: GaveUp) -> Switched {
+        let parked = match core::mem::replace(&mut self.draw, Draw::Cpu) {
+            Draw::Gpu { gpu, targets } => Parked {
+                gpu,
+                _targets: targets,
+                journal: Arc::clone(&self.journal),
+                why,
+                before: self.journal.counts(),
+            },
+            other @ (Draw::Cpu | Draw::GaveUp(_)) => {
+                self.draw = other;
+                return Switched::Already;
+            }
+        };
+        let shared = Shared {
+            epoch: Arc::clone(&self.epoch),
+            journal: Arc::new(Journal::default()),
+            frame: self.frame,
+        };
+        #[cfg(feature = "gpu-fault")]
+        let refused = core::mem::replace(&mut self.refuse_set, RefuseSet::No) == RefuseSet::Yes;
+        #[cfg(not(feature = "gpu-fault"))]
+        let refused = false;
+        let built = match refused {
+            true => Err(Draw::GaveUp(parked)),
+            false => Presenter::build(
+                self.width,
+                self.height,
+                self.space,
+                Draw::GaveUp(parked),
+                shared.clone(),
+            ),
+        };
+        match built {
+            Ok(p) => {
+                *self = p;
+                Switched::Now
+            }
+            Err(draw) => {
+                shared.epoch.bump();
+                self.draw = draw;
+                self.journal = shared.journal;
+                self.writable = Writable::No;
+                Switched::Refused
+            }
+        }
+    }
+
+    /// Why the GPU was given up, if it was.
+    pub fn gave_up(&self) -> Option<GaveUp> {
+        match &self.draw {
+            Draw::Cpu | Draw::Gpu { .. } => None,
+            Draw::GaveUp(p) => Some(p.why()),
+        }
+    }
+
+    /// The given-up `Gpu`'s journal, as it was when the GPU was given up
+    /// and as it is now: what landed after the give-up is the difference.
+    pub fn parked_counts(&self) -> Option<(Counts, Counts)> {
+        match &self.draw {
+            Draw::Cpu | Draw::Gpu { .. } => None,
+            Draw::GaveUp(p) => Some(p.counts()),
+        }
+    }
+
+    /// What the given-up `Gpu`'s device has allocated: what giving it up
+    /// keeps.
+    pub fn parked_allocated(&self) -> Option<Allocated> {
+        match &self.draw {
+            Draw::Cpu | Draw::Gpu { .. } => None,
+            Draw::GaveUp(p) => Some(p.allocated()),
+        }
+    }
+
+    /// **The fault seam**: the next surface set [`Presenter::give_up`]
+    /// makes is refused, as the kernel would decline it. Test builds only.
+    #[cfg(feature = "gpu-fault")]
+    pub fn refuse_next_set(&mut self) {
+        self.refuse_set = RefuseSet::Yes;
+    }
+
+    /// The completions the given-up `Gpu`'s seam holds. Test builds only.
+    #[cfg(feature = "gpu-fault")]
+    pub fn parked_held(&self) -> Option<baud_render::Tally> {
+        match &self.draw {
+            Draw::Cpu | Draw::Gpu { .. } => None,
+            Draw::GaveUp(p) => Some(p.held()),
+        }
+    }
+
+    /// Delivers what the given-up `Gpu`'s seam holds, on this thread.
+    /// Test builds only.
+    #[cfg(feature = "gpu-fault")]
+    pub fn parked_release(&self) -> Option<baud_render::Tally> {
+        match &self.draw {
+            Draw::Cpu | Draw::Gpu { .. } => None,
+            Draw::GaveUp(p) => Some(p.release()),
+        }
+    }
+
+    /// What the GPU's completions have counted, on the GPU path and after
+    /// it was given up: the frames that failed, by code, the warm-up pass,
+    /// the slowest frame, the frames past their bounds, and the give-up.
     pub fn faults(&self) -> Option<Faults> {
-        self.gpu().map(Gpu::faults)
+        match &self.draw {
+            Draw::Cpu => None,
+            Draw::Gpu { gpu, .. } => Some(gpu.faults()),
+            Draw::GaveUp(p) => Some(p.faults()),
+        }
     }
 
     /// **Waits until no frame is in flight, for at most `bound`**
@@ -394,6 +626,8 @@ impl Presenter {
             return Presented::No;
         }
         view.set_surface(self.surfaces[at].io_surface());
+        #[cfg(feature = "effect-probe")]
+        crate::probe::layer(crate::probe::Layer::Cpu);
         Presented::Yes
     }
 
@@ -439,11 +673,17 @@ impl Presenter {
         view.set_surface(self.surfaces[at].io_surface());
         #[cfg(feature = "effect-probe")]
         crate::probe::cpu_shown(SurfaceIx(at));
+        #[cfg(feature = "effect-probe")]
+        crate::probe::layer(crate::probe::Layer::Cpu);
         Presented::Yes
     }
 
     /// The copy into the next surface, on either path.
     fn copy(&mut self, frame: &[u32], stride: Px, clear: Argb, changed: Changed<'_>) -> Presented {
+        // A set a frame in flight may still write is never written.
+        if self.writable == Writable::No {
+            return Presented::No;
+        }
         // The surface is the whole view; the grid frame is centred in it and
         // the margin is filled with the terminal background, so the gutter
         // is the same colour as a default cell rather than a see-through
@@ -545,12 +785,13 @@ impl Presenter {
         let done = Done::Notify(Arc::new(move |completion| {
             match completion {
                 Completion::Done(landing) => {
-                    // **Recorded, and shown anyway.** The verdict is taken
-                    // here and deliberately not acted on: a count of frames
-                    // that reached the layer after their surfaces were
-                    // replaced is only a measurement of the bug while the
-                    // bug is still happening. Acting on it is a separate
-                    // change, against these numbers.
+                    // **Recorded, and shown only if it is current.** The
+                    // journal counts every landing, superseded ones too --
+                    // the measurement of frames whose surfaces were
+                    // replaced while they were in flight -- and `admits`
+                    // keeps a superseded one off the layer: after a
+                    // resize, and after the GPU is given up, whose bump of
+                    // this epoch makes a frame answering late superseded.
                     let fate = journal.land(tag, &epoch, landing);
                     if journal::admits(fate) == journal::Show::Now {
                         waker.present(&handle);
@@ -588,7 +829,7 @@ impl Presenter {
             Draw::Gpu { gpu, targets } => targets
                 .get(self.next.0)
                 .and_then(|target| draw(gpu, target, done, missing)),
-            Draw::Cpu => None,
+            Draw::Cpu | Draw::GaveUp(_) => None,
         };
         self.settle(tag, drawn)
     }
@@ -644,8 +885,9 @@ impl Presenter {
     ) -> Option<Drawn> {
         self.take_lost();
         let slot = self.next.0;
-        let Draw::Gpu { gpu, targets } = &mut self.draw else {
-            return None;
+        let (gpu, targets) = match &mut self.draw {
+            Draw::Gpu { gpu, targets } => (gpu, targets),
+            Draw::Cpu | Draw::GaveUp(_) => return None,
         };
         let missing = self.ages.missing(SurfaceIx(slot));
         let drawn = gpu.draw_since(renderer, targets.get(slot)?, launch(view), missing)?;
@@ -654,6 +896,8 @@ impl Presenter {
         if let Drawn::Frame(f) = &drawn {
             if f.waited.landed().is_ok() {
                 view.set_surface(self.surfaces[slot].io_surface());
+                #[cfg(feature = "effect-probe")]
+                crate::probe::layer(crate::probe::Layer::Gpu);
             }
         }
         Some(self.committed(drawn))
@@ -668,8 +912,9 @@ impl Presenter {
     ) -> Option<Drawn> {
         self.take_lost();
         let slot = self.next.0;
-        let Draw::Gpu { gpu, targets } = &mut self.draw else {
-            return None;
+        let (gpu, targets) = match &mut self.draw {
+            Draw::Gpu { gpu, targets } => (gpu, targets),
+            Draw::Cpu | Draw::GaveUp(_) => return None,
         };
         let missing = self.ages.missing(SurfaceIx(slot));
         let drawn =
@@ -679,6 +924,8 @@ impl Presenter {
         if let Drawn::Frame(f) = &drawn {
             if f.waited.landed().is_ok() {
                 view.set_surface(self.surfaces[slot].io_surface());
+                #[cfg(feature = "effect-probe")]
+                crate::probe::layer(crate::probe::Layer::Gpu);
             }
         }
         Some(self.committed(drawn))
@@ -753,7 +1000,7 @@ impl Presenter {
                 .first()
                 .map(Target::size)
                 .and_then(|size| draw(gpu, size, done)),
-            Draw::Cpu => None,
+            Draw::Cpu | Draw::GaveUp(_) => None,
         };
         if !matches!(drawn, Some(Drawn::Frame(_))) {
             self.journal.abandon(tag);
@@ -764,8 +1011,9 @@ impl Presenter {
     /// Where a screen switch's slide is for the next GPU frame, or none,
     /// which ends it ([`Gpu::set_slide`]).
     pub fn set_slide(&mut self, at: Option<baud_render::ScreenSlide>) {
-        if let Draw::Gpu { gpu, .. } = &mut self.draw {
-            gpu.set_slide(at);
+        match &mut self.draw {
+            Draw::Gpu { gpu, .. } => gpu.set_slide(at),
+            Draw::Cpu | Draw::GaveUp(_) => {}
         }
     }
 
@@ -776,15 +1024,16 @@ impl Presenter {
         effect: baud_render::effect::Effect,
     ) -> Option<crate::metal::EffectBuild> {
         match &self.draw {
-            Draw::Cpu => None,
+            Draw::Cpu | Draw::GaveUp(_) => None,
             Draw::Gpu { gpu, .. } => gpu.effect_build(effect),
         }
     }
 
     /// The pipelines built off this thread, taken ([`Gpu::adopt`]).
     pub fn adopt(&mut self, built: crate::metal::EffectPipes) {
-        if let Draw::Gpu { gpu, .. } = &mut self.draw {
-            gpu.adopt(built);
+        match &mut self.draw {
+            Draw::Gpu { gpu, .. } => gpu.adopt(built),
+            Draw::Cpu | Draw::GaveUp(_) => {}
         }
     }
 
@@ -792,15 +1041,16 @@ impl Presenter {
     /// always on the CPU path, which needs none.
     pub fn effect_built(&self, effect: baud_render::effect::Effect) -> bool {
         match &self.draw {
-            Draw::Cpu => true,
+            Draw::Cpu | Draw::GaveUp(_) => true,
             Draw::Gpu { gpu, .. } => gpu.effect_built(effect),
         }
     }
 
-    /// The GPU, to lend memory from, on the GPU path.
+    /// The GPU, to lend memory from, on the GPU path; none once it is
+    /// given up.
     pub fn gpu(&self) -> Option<&Gpu> {
         match &self.draw {
-            Draw::Cpu => None,
+            Draw::Cpu | Draw::GaveUp(_) => None,
             Draw::Gpu { gpu, .. } => Some(gpu),
         }
     }
@@ -809,6 +1059,7 @@ impl Presenter {
 /// What a presenter hands to its successor across a resize: the frames it
 /// has in flight outlive it, and they name the epoch and count themselves in
 /// the journal, so neither may be rebuilt with the surfaces.
+#[derive(Clone)]
 struct Shared {
     epoch: Arc<SwapEpoch>,
     journal: Arc<Journal>,

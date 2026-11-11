@@ -276,6 +276,66 @@ pub(super) fn take_pressed() -> Option<String> {
     PRESSED.with(|c| c.borrow_mut().take())
 }
 
+/// **A geometry change the frame rig asks of the window**, taken by the
+/// next `wake` as the View menu's zoom and a window resize are: a zoom in
+/// one point (`Driver::zoom`), or the view made wider by [`WIDER`] points
+/// (`Driver::relayout`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Reshape {
+    ZoomIn,
+    Wider,
+}
+
+/// How much wider [`Reshape::Wider`] makes the view, in points.
+pub(super) const WIDER: f64 = 40.0;
+
+thread_local! {
+    /// The geometry change the next `wake` makes.
+    static RESHAPE: core::cell::Cell<Option<Reshape>> = const { core::cell::Cell::new(None) };
+    /// The window's font size and view at its last settle, as the frame
+    /// rig reads them back.
+    static SAW: core::cell::Cell<Option<(f32, (Px, Px))>> = const { core::cell::Cell::new(None) };
+    /// The screen's text when the window gave the GPU up: what its first
+    /// frame on the CPU drew.
+    static SWITCH_SCREEN: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// The geometry change a `wake` makes, if the rig asked for one.
+pub(super) fn take_reshape() -> Option<Reshape> {
+    RESHAPE.with(core::cell::Cell::take)
+}
+
+/// The window's font size in points and its view in pixels, as a settle
+/// found them.
+pub(super) fn saw(points: f32, view: (Px, Px)) {
+    SAW.with(|s| s.set(Some((points, view))));
+}
+
+/// The screen's text as the window gave the GPU up.
+pub(super) fn switch_screen(text: String) {
+    SWITCH_SCREEN.with(|s| *s.borrow_mut() = Some(text));
+}
+
+/// **The window's text**, a line a row, each cell's base read through the
+/// cluster store and a cell with none a space.
+pub(super) fn screen_text(t: &Term<'_>) -> String {
+    let v = t.window();
+    (0..v.rows().index())
+        .map(|y| {
+            v.row(Row::from_index(y))
+                .iter()
+                .map(|c| {
+                    t.base_of(*c)
+                        .as_codepoint()
+                        .and_then(|p| char::from_u32(p.value()))
+                        .unwrap_or(' ')
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The bound on one iteration: reaching it is that iteration's failure.
 const BOUND: Duration = Duration::from_secs(2);
 
@@ -778,15 +838,24 @@ const FRAME_PERIOD: Duration = Duration::from_micros(8333);
 
 /// **What a frame row asks of the GPU's fault seam** (`BAUD_RIG_GPU`, in
 /// the row's environment): nothing; the act's frame's completion held
-/// past its bound with the ticks withheld (`hold`); the act's frame
-/// reported failed (`fail`); or the launch's first frame held past its
-/// bound, drawn as the window's opening draws it (`hold-launch`).
+/// past its bound with the ticks withheld (`hold`), or held and never
+/// released (`hold-forever`); the window's next frame reported failed
+/// (`fail`), its next two (`fail-twice`), every frame from it on
+/// (`fail-forever`), or its next reported from a device that revoked the
+/// process's access (`revoked`); or the launch's first frame held past
+/// its bound, drawn as the window's opening draws it (`hold-launch`), or
+/// held and never released (`hold-launch-forever`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum GpuRow {
     Untouched,
     Hold,
+    HoldForever,
     Fail,
+    FailTwice,
+    FailForever,
+    Revoked,
     HoldLaunch,
+    HoldLaunchForever,
 }
 
 impl GpuRow {
@@ -795,9 +864,59 @@ impl GpuRow {
         match asked {
             None => Some(GpuRow::Untouched),
             Some("hold") => Some(GpuRow::Hold),
+            Some("hold-forever") => Some(GpuRow::HoldForever),
             Some("fail") => Some(GpuRow::Fail),
+            Some("fail-twice") => Some(GpuRow::FailTwice),
+            Some("fail-forever") => Some(GpuRow::FailForever),
+            Some("revoked") => Some(GpuRow::Revoked),
             Some("hold-launch") => Some(GpuRow::HoldLaunch),
+            Some("hold-launch-forever") => Some(GpuRow::HoldLaunchForever),
             Some(_) => None,
+        }
+    }
+
+    /// The launch's first frame held (`hold-launch`, `hold-launch-forever`).
+    fn holds_launch(self) -> bool {
+        matches!(self, GpuRow::HoldLaunch | GpuRow::HoldLaunchForever)
+    }
+
+    /// The window's next frames reported failed, armed before what the
+    /// window is told: how many, and how (`fail`, `fail-twice`,
+    /// `fail-forever`, `revoked`).
+    fn fails(self) -> Option<probe::GpuSeam> {
+        match self {
+            GpuRow::Fail => Some(probe::GpuSeam::FailNext(baud_render::Tally::of(1))),
+            GpuRow::FailTwice => Some(probe::GpuSeam::FailNext(baud_render::Tally::of(2))),
+            GpuRow::FailForever => Some(probe::GpuSeam::Fail),
+            GpuRow::Revoked => Some(probe::GpuSeam::Revoked),
+            GpuRow::Untouched
+            | GpuRow::Hold
+            | GpuRow::HoldForever
+            | GpuRow::HoldLaunch
+            | GpuRow::HoldLaunchForever => None,
+        }
+    }
+}
+
+/// The acts a row sends after the GPU is given up, each drawn.
+const AFTER_GIVE_UP: u32 = 3;
+
+/// **The act fed while a frame is held** (`GpuRow::HoldForever`), and what
+/// it writes: its echo spells the dash as `\055`, so only its output
+/// holds [`HELD_FED`].
+const HELD_FED_ACT: &[u8] = br"printf 'held\055fed'";
+const HELD_FED: &str = "held-fed";
+
+/// How the frame rig spells why the GPU was given up.
+fn gave_up_word(why: baud_present_macos::GaveUp) -> &'static str {
+    match why {
+        baud_present_macos::GaveUp::Stuck => "stuck",
+        baud_present_macos::GaveUp::Failing => "failing",
+        baud_present_macos::GaveUp::Refused(baud_present_macos::Refusal::AccessRevoked) => {
+            "revoked"
+        }
+        baud_present_macos::GaveUp::Refused(baud_present_macos::Refusal::NotPermitted) => {
+            "not-permitted"
         }
     }
 }
@@ -880,7 +999,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     };
     if gpu_row != GpuRow::Untouched {
         let arm = match gpu_row {
-            GpuRow::HoldLaunch => probe::GpuSeam::Hold,
+            r if r.holds_launch() => probe::GpuSeam::Hold,
             _ => probe::GpuSeam::Pass,
         };
         if probe::gpu_seam(arm) == probe::Seamed::NotBuilt {
@@ -939,18 +1058,23 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // **The launch's first frame, held** (`GpuRow::HoldLaunch`): drawn now
     // and waited for as `show` draws it, with its completion held past
     // the launch's bound, so the window opens with the frame drawn on the
-    // CPU; then the seam let go, and what it held delivered, late.
-    if gpu_row == GpuRow::HoldLaunch {
+    // CPU; then the seam let go, and what it held delivered, late. Held
+    // for ever (`GpuRow::HoldLaunchForever`), the seam stays armed and
+    // nothing is released: the window goes on from its CPU opening.
+    if gpu_row.holds_launch() {
         let v = driver.view.clone();
         driver.app.present(&v, Show::Now);
         if let Err(why) = read_back_opening(&driver.app) {
             println!("{why}");
             return std::process::ExitCode::from(1);
         }
-        let _ = probe::gpu_seam(probe::GpuSeam::Pass);
-        if probe::gpu_release() == baud_render::Tally::ZERO {
+        if probe::gpu_held() == baud_render::Tally::ZERO {
             println!("the launch's frame was never held");
             return std::process::ExitCode::from(1);
+        }
+        if gpu_row == GpuRow::HoldLaunch {
+            let _ = probe::gpu_seam(probe::GpuSeam::Pass);
+            let _ = probe::gpu_release();
         }
     }
     // The first frame owed, as `show` owes it.
@@ -1104,7 +1228,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1175,9 +1299,35 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 probe::Opened::Cpu => "cpu",
                 probe::Opened::Undrawn => "undrawn",
             },
+            match probe::gpu_faults().gpu_use() {
+                baud_present_macos::GpuUse::Live => "live",
+                baud_present_macos::GpuUse::GaveUp(why) => gave_up_word(why),
+            },
+            // The frames drawn since the window gave the GPU up, the first
+            // on the CPU among them.
+            match probe::switched_at() {
+                None => "none".to_owned(),
+                Some(at) => probe::frames()
+                    .value()
+                    .saturating_sub(at.value())
+                    .to_string(),
+            },
+            match probe::layer_by() {
+                probe::Layer::Unset => "unset",
+                probe::Layer::Cpu => "cpu",
+                probe::Layer::Gpu => "gpu",
+            },
+            probe::gpu_made().value(),
+            probe::gpu_held().value(),
         );
     };
     let mut offered_at = offered.get();
+    // A line of the rig's own to the shell, as typed keys are sent: a
+    // row's later acts, each its own text.
+    let type_line = |line: &[u8]| {
+        TYPED.with(|c| *c.borrow_mut() = Some([line, b"\n"].concat()));
+        post(view.waker());
+    };
     let send_act = || match (rig.act.is_empty(), rig.keys) {
         (true, _) => {}
         (false, RigKeys::Line) => {
@@ -1222,6 +1372,9 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         println!("{why}");
         std::process::ExitCode::from(1)
     };
+    // The GPU frames committed, and those drawn whole, as the seam was
+    // armed to fail the window's next frames.
+    let (mut committed, mut whole) = (baud_render::Tally::ZERO, baud_render::Tally::ZERO);
     match gpu_row {
         // **The act's frame held past its bound** (`GpuRow::Hold`), the
         // ticks withheld: its completion held as it came, so the frame is
@@ -1251,13 +1404,34 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 return fail("no whole frame was drawn after the late one");
             }
         }
-        // **The window's next frame failed** (`GpuRow::Fail`): armed before
-        // what the window is told, whose frame fails below.
-        GpuRow::Fail => {
-            let _ = probe::gpu_seam(probe::GpuSeam::Fail);
+        // **The act's frame held and never released**
+        // (`GpuRow::HoldForever`), the ticks withheld: its completion held
+        // as it came, the seam left armed, so a frame committed to the GPU
+        // after it would be held too. A second act is sent and fed while
+        // the frame is held; what comes after, the give-up and the frames
+        // on the CPU, is the window's to do on events alone (below).
+        GpuRow::HoldForever => {
+            let _ = probe::gpu_seam(probe::GpuSeam::Hold);
+            send_act();
+            if !until(&|| probe::gpu_held() != baud_render::Tally::ZERO, BOUND) {
+                return fail("the act's frame was never held");
+            }
+            let before = probe::fed_turns();
+            type_line(HELD_FED_ACT);
+            if !until(&|| probe::fed_turns().0 > before.0, BOUND) {
+                return fail("the second act was never fed while the frame was held");
+            }
+        }
+        // **The window's next frames failed** (`GpuRow::fails`): armed
+        // before what the window is told, whose frames fail below.
+        GpuRow::Fail | GpuRow::FailTwice | GpuRow::FailForever | GpuRow::Revoked => {
+            (committed, whole) = (probe::gpu_committed(), probe::gpu_whole());
+            if let Some(seam) = gpu_row.fails() {
+                let _ = probe::gpu_seam(seam);
+            }
             send_act();
         }
-        GpuRow::Untouched | GpuRow::HoldLaunch => {
+        GpuRow::Untouched | GpuRow::HoldLaunch | GpuRow::HoldLaunchForever => {
             if !frozen {
                 send_act();
             }
@@ -1357,21 +1531,86 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
     // **The frame the window was told to draw failed** (`GpuRow::Fail`):
-    // every frame from it on reported failed until one is counted, and
-    // then none. The row owes nothing else -- no act, no output -- so a
+    // that frame and no other reported failed (`Inject::FailNext`), at its
+    // commit. The row owes nothing else -- no act, no output -- so a
     // frame after it is drawn only because the failure owed one; the
-    // window draws it whole, within the bound.
-    if gpu_row == GpuRow::Fail {
-        let failed = || probe::gpu_faults().frames_failed() != baud_render::Tally::ZERO;
-        let came = until(&failed, BOUND);
-        let _ = probe::gpu_seam(probe::GpuSeam::Pass);
-        if !came {
-            return fail("no frame failed");
+    // window draws it whole, within the bound. Two failed (`fail-twice`),
+    // the same after the second.
+    match gpu_row {
+        GpuRow::Fail | GpuRow::FailTwice => {
+            let armed = match gpu_row {
+                GpuRow::Fail => 1,
+                _ => 2,
+            };
+            let failed = || probe::gpu_faults().frames_failed().value() >= armed;
+            if !until(&failed, BOUND) {
+                return fail("fewer frames failed than were armed");
+            }
+            // A frame committed after the last that failed -- the armed
+            // ones and one more since the seam was armed -- and each frame
+            // after a failure drawn whole: counted from the arming, not
+            // from when the failure was seen, which the frame after it can
+            // come before on a loaded machine.
+            let after = || {
+                probe::gpu_committed().value() > committed.value() + armed
+                    && probe::gpu_whole().value() >= whole.value() + armed
+            };
+            if !until(&after, BOUND) {
+                return fail("no whole frame was drawn after the failed ones");
+            }
         }
-        let whole = probe::gpu_whole();
-        if !until(&|| probe::gpu_whole() != whole, BOUND) {
-            return fail("no whole frame was drawn after the failed one");
+        // **The GPU given up, and the window going on** (`hold-forever`,
+        // `hold-launch-forever`, `fail-forever`, `revoked`): the give-up
+        // counted within its bound and the bound after it, and then
+        // [`AFTER_GIVE_UP`] more acts, each its own text, each drawn
+        // within the bound, on whatever the row's ticks are -- withheld,
+        // the frames come on the events alone. The seam is still armed: a
+        // frame committed to the GPU after the give-up would be held, or
+        // fail, and the held count is the same at the end as at the
+        // give-up. After a held frame (`hold-forever`), the screen the
+        // first frame on the CPU drew holds the act fed while the frame was
+        // held; and a zoom and a wider view after the give-up each come
+        // into force, drawn.
+        GpuRow::HoldForever | GpuRow::HoldLaunchForever | GpuRow::FailForever | GpuRow::Revoked => {
+            let gave_up = || probe::gpu_faults().gave_up != baud_render::Tally::ZERO;
+            let bound = baud_present_macos::Deadline::GIVE_UP.get() + BOUND;
+            if !until(&gave_up, bound) {
+                return fail("the GPU was never given up");
+            }
+            let held = probe::gpu_held();
+            for k in 0..AFTER_GIVE_UP {
+                let frames = probe::frames();
+                type_line(format!("printf 'after\\055{k}'").as_bytes());
+                if !until(&|| probe::frames() != frames, BOUND) {
+                    return fail("no frame was drawn after the give-up");
+                }
+            }
+            if gpu_row == GpuRow::HoldForever {
+                let screen = SWITCH_SCREEN.with(|s| s.borrow().clone());
+                if !screen.is_some_and(|s| s.contains(HELD_FED)) {
+                    return fail("the first frame on the CPU did not hold what was fed while held");
+                }
+                let saw = || SAW.with(core::cell::Cell::get);
+                let before = saw();
+                RESHAPE.with(|r| r.set(Some(Reshape::ZoomIn)));
+                post(view.waker());
+                let zoomed = || saw().map(|s| s.0) != before.map(|s| s.0);
+                if !until(&zoomed, BOUND) {
+                    return fail("a zoom after the give-up never came into force");
+                }
+                let (before, frames) = (saw(), probe::frames());
+                RESHAPE.with(|r| r.set(Some(Reshape::Wider)));
+                post(view.waker());
+                let wider = || saw().map(|s| s.1) != before.map(|s| s.1);
+                if !until(&|| wider() && probe::frames() != frames, BOUND) {
+                    return fail("a wider view after the give-up was never drawn");
+                }
+            }
+            if probe::gpu_held() != held {
+                return fail("a frame was held after the give-up: one was committed to the GPU");
+            }
         }
+        GpuRow::Untouched | GpuRow::Hold | GpuRow::HoldLaunch => {}
     }
     match rig.ticks {
         // **Until the caret has flipped**: a clock's frames come on wall

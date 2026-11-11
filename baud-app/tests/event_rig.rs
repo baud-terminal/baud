@@ -1686,11 +1686,42 @@ struct Counters {
     /// What the window's first frame was drawn with, when the rig drew it
     /// as the window's opening does.
     opened: OpenedSeen,
+    /// Whether the window still draws on the GPU, or why it gave it up.
+    gpu_use: UseSeen,
+    /// The frames drawn since the window gave the GPU up, the first on the
+    /// CPU among them; none while it has not.
+    switched: Option<u64>,
+    /// What last set the layer's contents.
+    layer: LayerSeen,
+    /// The `Gpu`s the child made: one, the window's, unless something made
+    /// the device again.
+    gpu_made: u64,
+    /// The completions the fault seam held at the end.
+    gpu_held: u64,
     /// **The printed paths' batches the act's second stage sent, by why
     /// each was due**, to its marks' frame or the end, from their own
     /// line: none for a row that releases no second stage
     /// (`RigWindow::Released`).
     by: Option<SentBy>,
+}
+
+/// Whether a frame rig's window still drew on the GPU, or why it gave it
+/// up.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum UseSeen {
+    Live,
+    Stuck,
+    Failing,
+    Revoked,
+    NotPermitted,
+}
+
+/// What last set a frame rig's window's layer contents.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LayerSeen {
+    Unset,
+    Cpu,
+    Gpu,
 }
 
 /// What a frame rig's child said its window opened with.
@@ -1735,11 +1766,16 @@ impl SentBy {
 }
 
 impl Counters {
-    /// **No frame failed, none was past its bound, and the GPU was not
-    /// given up**: what every row that injects nothing must read, on a
+    /// **No frame failed, none was past its bound or late, and the GPU was
+    /// not given up**: what every row that injects nothing must read, on a
     /// loaded machine as on an idle one.
     fn gpu_clean(&self) -> bool {
-        self.gpu_failed == 0 && self.gpu_overdue == 0 && self.gpu_gave_up == 0
+        self.gpu_failed == 0
+            && self.gpu_overdue == 0
+            && self.gpu_late == 0
+            && self.gpu_gave_up == 0
+            && self.gpu_use == UseSeen::Live
+            && self.switched.is_none()
     }
 }
 
@@ -1811,6 +1847,26 @@ impl Counters {
                 "undrawn" => OpenedSeen::Undrawn,
                 _ => return None,
             },
+            gpu_use: match field("gpu_use")? {
+                "live" => UseSeen::Live,
+                "stuck" => UseSeen::Stuck,
+                "failing" => UseSeen::Failing,
+                "revoked" => UseSeen::Revoked,
+                "not-permitted" => UseSeen::NotPermitted,
+                _ => return None,
+            },
+            switched: match field("switched")? {
+                "none" => None,
+                n => Some(n.parse().ok()?),
+            },
+            layer: match field("layer")? {
+                "unset" => LayerSeen::Unset,
+                "cpu" => LayerSeen::Cpu,
+                "gpu" => LayerSeen::Gpu,
+                _ => return None,
+            },
+            gpu_made: field("gpu_made")?.parse().ok()?,
+            gpu_held: field("gpu_held")?.parse().ok()?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1961,6 +2017,35 @@ enum Settles {
     /// the launch's GPU frame counted overdue once and late once, the GPU
     /// not given up, and no frame failed.
     OpenedOnCpu,
+    /// **A frame the GPU never answers gives the window to the CPU, which
+    /// draws every frame after** (`BAUD_RIG_GPU=hold-forever`): the ticks
+    /// withheld, the frame counted overdue once and the GPU given up once,
+    /// as stuck, and never late; at least four frames drawn from the switch
+    /// on -- the first on the CPU and one an act, the child checking each --
+    /// the layer last set from the CPU, one `Gpu` made, and the one
+    /// completion held at the end, so no frame was committed to the GPU
+    /// after it.
+    GaveUpStuck,
+    /// **The launch with the GPU stuck from its first frame**
+    /// (`BAUD_RIG_GPU=hold-launch-forever`): opened on the CPU's frame, the
+    /// launch's frame counted overdue once and the GPU given up once, as
+    /// stuck, and never late; at least three frames from the switch on, the
+    /// layer last set from the CPU, and one `Gpu` made.
+    LaunchGaveUp,
+    /// **Every frame failing gives the GPU up at the third**
+    /// (`BAUD_RIG_GPU=fail-forever`): exactly three failed, as no frame is
+    /// committed after the give-up, which says failing; frames drawn on
+    /// the CPU after it, the layer last set from the CPU.
+    GaveUpFailing,
+    /// **Two failed frames in a row are not three**
+    /// (`BAUD_RIG_GPU=fail-twice`): exactly two failed, the GPU not given
+    /// up and no switch, and the window on the GPU -- the child checks a
+    /// whole frame was drawn after the second.
+    FailedTwice,
+    /// **A device that revoked the process's access gives the GPU up at
+    /// once** (`BAUD_RIG_GPU=revoked`): one frame failed, the give-up says
+    /// revoked, and frames drawn on the CPU after it.
+    GaveUpRevoked,
     /// **A command's printed path drawn on the turns its shell's `D` started**
     /// (`RigFrameTicks::UntilMarked`, `RigWindow::Released`): asked about,
     /// a link line at rest, and every batch the act's second stage sent to
@@ -2021,11 +2106,59 @@ impl Settles {
                     && c.drawn >= 2
             }
             Settles::GpuFailed => {
-                c.gpu_failed >= 1
+                c.gpu_failed == 1
                     && c.gpu_overdue == 0
                     && c.gpu_gave_up == 0
                     && c.styled >= 1
                     && c.drawn >= 2
+            }
+            Settles::GaveUpStuck => {
+                c.gpu_overdue == 1
+                    && c.gpu_gave_up == 1
+                    && c.gpu_use == UseSeen::Stuck
+                    && c.gpu_late == 0
+                    && c.gpu_failed == 0
+                    && c.switched.is_some_and(|n| n >= 4)
+                    && c.layer == LayerSeen::Cpu
+                    && c.gpu_made == 1
+                    && c.gpu_held == 1
+            }
+            Settles::LaunchGaveUp => {
+                c.opened == OpenedSeen::Cpu
+                    && c.gpu_overdue == 1
+                    && c.gpu_gave_up == 1
+                    && c.gpu_use == UseSeen::Stuck
+                    && c.gpu_late == 0
+                    && c.gpu_failed == 0
+                    && c.switched.is_some_and(|n| n >= 3)
+                    && c.layer == LayerSeen::Cpu
+                    && c.gpu_made == 1
+            }
+            Settles::GaveUpFailing => {
+                c.gpu_failed == 3
+                    && c.gpu_gave_up == 1
+                    && c.gpu_use == UseSeen::Failing
+                    && c.gpu_overdue == 0
+                    && c.switched.is_some_and(|n| n >= 1)
+                    && c.layer == LayerSeen::Cpu
+                    && c.gpu_made == 1
+            }
+            Settles::FailedTwice => {
+                c.gpu_failed == 2
+                    && c.gpu_gave_up == 0
+                    && c.gpu_use == UseSeen::Live
+                    && c.gpu_overdue == 0
+                    && c.switched.is_none()
+                    && c.styled >= 1
+            }
+            Settles::GaveUpRevoked => {
+                c.gpu_failed == 1
+                    && c.gpu_gave_up == 1
+                    && c.gpu_use == UseSeen::Revoked
+                    && c.gpu_overdue == 0
+                    && c.switched.is_some_and(|n| n >= 1)
+                    && c.layer == LayerSeen::Cpu
+                    && c.gpu_made == 1
             }
             Settles::OpenedOnCpu => {
                 c.opened == OpenedSeen::Cpu
@@ -2129,7 +2262,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 32] = [
+const FRAME_SITES: [FrameSite; 37] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2851,6 +2984,111 @@ const FRAME_SITES: [FrameSite; 32] = [
         focus: RigFocus::Real,
         attempts: Iterations(30),
         expect: Settles::OpenedOnCpu,
+        state: RowState::Green,
+    },
+    // **A frame the GPU never answers gives the window to the CPU, which
+    // draws every frame after** (`BAUD_RIG_GPU=hold-forever`): the act's
+    // frame's completion held and never released, the ticks withheld, so
+    // only events move the window. A second act is fed while it is held;
+    // the frame's bound wake counts it overdue and its give-up wake gives
+    // the GPU up, and the window draws on the CPU from then on: the first
+    // frame there holds the second act's output, three acts after it are
+    // each drawn, and a zoom and a wider view each come into force, drawn.
+    // Red with the give-up only counted, as it was: every draw stays owed
+    // to the frame in flight, and no frame is drawn after the give-up.
+    // Breaks: the journal carried across the switch, and the zoom waits
+    // for a landing that never comes; the wanted path left as it was, and
+    // the wider view makes a second `Gpu`.
+    FrameSite {
+        name: SiteName("a frame the GPU never answers gives the window to the CPU"),
+        setup: STILL,
+        act: "printf y",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_RIG_GPU", "hold-forever")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(10),
+        expect: Settles::GaveUpStuck,
+        state: RowState::Green,
+    },
+    // **A launch whose first frame the GPU never answers opens on the CPU
+    // and goes on there** (`BAUD_RIG_GPU=hold-launch-forever`): the launch's
+    // frame held from before the window's `Gpu` is made and never
+    // released, so the window opens on its CPU frame, and the give-up wake
+    // its commit posted gives the GPU up; three acts after are each drawn.
+    // Red with the give-up only counted: the window draws nothing after its
+    // opening. Break: the switch not reached from the give-up's wake.
+    FrameSite {
+        name: SiteName("a launch the GPU never answers opens and goes on on the CPU"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Untold,
+        env: &[("BAUD_RIG_GPU", "hold-launch-forever")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::LaunchGaveUp,
+        state: RowState::Green,
+    },
+    // **Every frame failing gives the GPU up at the third**
+    // (`BAUD_RIG_GPU=fail-forever`): from the light/dark flip's frame on,
+    // every frame is reported failed, each owing the next; the third in a
+    // row gives the GPU up, no frame is committed to it after, and the
+    // window draws on the CPU. Red with no threshold: the failures never
+    // stop. Break: the `Gpu`'s own refusal and the switch at the head of
+    // `present` both removed, and frames go on failing past three.
+    FrameSite {
+        name: SiteName("every frame failing gives the GPU up at the third"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Restyled,
+        env: &[("BAUD_RIG_GPU", "fail-forever")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::GaveUpFailing,
+        state: RowState::Green,
+    },
+    // **Two failed frames in a row do not give the GPU up**
+    // (`BAUD_RIG_GPU=fail-twice`): the control at the threshold, the frame
+    // after the second drawn whole on the GPU. Break: a threshold of two.
+    FrameSite {
+        name: SiteName("two failed frames in a row do not give the GPU up"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Restyled,
+        env: &[("BAUD_RIG_GPU", "fail-twice")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::FailedTwice,
+        state: RowState::Green,
+    },
+    // **A device that revoked the process's access gives the GPU up at
+    // once** (`BAUD_RIG_GPU=revoked`): one frame reported `AccessRevoked`,
+    // which the header calls the client's for too many timeouts or hangs,
+    // and the window draws on the CPU from the next. Break: the code not
+    // read, and the window goes back to GPU frames that land.
+    FrameSite {
+        name: SiteName("a revoked device gives the GPU up at once"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Restyled,
+        env: &[("BAUD_RIG_GPU", "revoked")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::GaveUpRevoked,
         state: RowState::Green,
     },
     // **One link, paused and resumed, never made again per restart**: red

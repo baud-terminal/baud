@@ -43,8 +43,9 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::settings::{AnimatedImages, Flashing, Heard, Setting};
 use baud_present_macos::{
-    Came, CellInput, Deadline, Drawn, FaultCode, Faults, Flying, Gpu, GpuFrame, GridBuffer,
-    InFlight, MapBuffer, Mode, OverlayBuffer, Presented, Presenter, StylesBuffer, SurfaceSpace,
+    Came, CellInput, Deadline, Drawn, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame, GpuUse,
+    GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer, Presented, Presenter, Refusal,
+    StylesBuffer, SurfaceSpace, Switched,
     journal::{Reshape, Wheel},
     screens::Screens,
 };
@@ -174,14 +175,57 @@ enum Path {
 /// for the instances and their fidelity, `0` or `cpu` forces the CPU for a
 /// comparison that needs it. A bench pins the path explicitly so two arms
 /// never measure two tiers.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Request {
     Auto,
     Force(Path),
 }
 
+/// **What a window draws with**: the path its launch chose, or the GPU
+/// given up for the rest of the session ([`App::give_up_gpu`]), which no
+/// rebuild of the presenter undoes -- a resize keeps the given-up
+/// presenter, and only a path wanted on the GPU makes a `Gpu`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Wanted {
+    Path(Path),
+    GaveUp(GaveUp),
+}
+
+/// **Whether a window of this process gave the GPU up**: a device that
+/// revoked one window's access revoked the process's ("this client",
+/// "this process", `MTLCommandBuffer.h`), and a GPU that hung for one
+/// window is no better for the next, so a window opened after a give-up
+/// draws on the CPU and never probes the GPU ([`request`]). Each window's
+/// own counts stay its `Gpu`'s.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ProcessGpu {
+    Live,
+    GaveUp,
+}
+
+/// The process's latch: set by the first window to give the GPU up, and
+/// never cleared.
+static GPU_GIVEN_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a window of this process gave the GPU up.
+fn process_gpu() -> ProcessGpu {
+    match GPU_GIVEN_UP.load(Ordering::Acquire) {
+        false => ProcessGpu::Live,
+        true => ProcessGpu::GaveUp,
+    }
+}
+
 fn wanted() -> Request {
-    match std::env::var_os("BAUD_GPU") {
+    request(std::env::var_os("BAUD_GPU").as_deref(), process_gpu())
+}
+
+/// **The path a new window asks for**: `BAUD_GPU`'s, or the CPU's once a
+/// window of this process gave the GPU up, whatever `BAUD_GPU` says.
+fn request(asked: Option<&std::ffi::OsStr>, process: ProcessGpu) -> Request {
+    if process == ProcessGpu::GaveUp {
+        return Request::Force(Path::Cpu);
+    }
+    match asked {
         None => Request::Auto,
         Some(v) if v == "1" || v == "gpu" || v == "instances" => Request::Force(Path::Instances),
         Some(v) if v == "cells" => Request::Force(Path::Cells),
@@ -677,7 +721,8 @@ struct App {
     /// The GPU's counts when a turn last heard them ([`App::heard_gpu`]),
     /// so a frame failed or landed late since owes a whole frame.
     faults_heard: Faults,
-    wanted: Path,
+    /// The path the window draws with, or the GPU given up.
+    wanted: Wanted,
     /// What the surfaces' bytes mean; the presenter tags them with it.
     space: SurfaceSpace,
     /// The font size in points, for a rebuild at another backing scale,
@@ -1669,7 +1714,7 @@ impl App {
             gpu_stats: GpuFrame::default(),
             faults_said: Faults::default(),
             faults_heard: Faults::default(),
-            wanted,
+            wanted: Wanted::Path(wanted),
             space,
             font_size,
             font_base: font_size,
@@ -2283,6 +2328,13 @@ impl App {
         };
         match drawn {
             Some(Drawn::Busy) => KeptDraw::Wait,
+            // Given up as it was asked: the CPU draws the frame, and keeps
+            // no slide.
+            Some(Drawn::GaveUp(why)) => {
+                self.keep = Keep::Done;
+                self.give_up_gpu(why);
+                KeptDraw::Build
+            }
             Some(Drawn::Frame(g)) => {
                 self.keep = Keep::Done;
                 // In flight as any frame of the loop is, and heard from at
@@ -2387,6 +2439,9 @@ impl App {
         if self.pending == Pending::Clean {
             return;
         }
+        // **The GPU given up since the last turn heard it**, before anything
+        // is drawn: a tick that comes before the wake draws on the CPU too.
+        self.follow_gpu_use();
         // A screen switch's kept frame, before anything below sets what the
         // next frame draws over the renderer's state, which is still the
         // old screen's: drawn, it is in flight, and this frame is built
@@ -2661,21 +2716,40 @@ impl App {
             // in this same call.
             self.next_damage = Damage::Full;
             self.presenter = match (self.wanted, self.gpu.take(), self.presenter.take()) {
+                // **The GPU given up stays given up**: the presenter keeps
+                // its parked `Gpu` and its counts across a resize, and a
+                // set the kernel declines leaves it drawing nothing until
+                // the next; none at all is made again on the CPU. No path
+                // here makes a `Gpu`.
+                (Wanted::GaveUp(_), _, Some(mut p)) => {
+                    if p.resize(sw, sh).is_none() {
+                        crate::warn!(
+                            "the surfaces for {}x{} were declined; the window draws again at its next resize",
+                            sw.value(),
+                            sh.value()
+                        );
+                    }
+                    Some(p)
+                }
+                (Wanted::GaveUp(_), _, None) => Presenter::new(sw, sh, self.space),
                 // A presenter that exists keeps its GPU across a resize.
-                (Path::Instances | Path::Cells, _, Some(mut p)) if p.mode() == Mode::Gpu => {
+                (Wanted::Path(Path::Instances | Path::Cells), _, Some(mut p))
+                    if p.mode() == Mode::Gpu =>
+                {
                     p.resize(sw, sh).map(|()| p)
                 }
-                (Path::Instances | Path::Cells, Some(gpu), _) => {
+                (Wanted::Path(Path::Instances | Path::Cells), Some(gpu), _) => {
                     Presenter::over(gpu, sw, sh, self.space)
                 }
                 // The device was taken by a presenter that then declined
                 // its targets; probe once more, and say so if that fails.
-                (Path::Instances | Path::Cells, None, _) => Presenter::with_gpu(sw, sh, self.space)
-                    .or_else(|| {
+                (Wanted::Path(Path::Instances | Path::Cells), None, _) => {
+                    Presenter::with_gpu(sw, sh, self.space).or_else(|| {
                         crate::warn!("no Metal device, shaders or targets; drawing on the CPU");
                         Presenter::new(sw, sh, self.space)
-                    }),
-                (Path::Cpu, _, _) => Presenter::new(sw, sh, self.space),
+                    })
+                }
+                (Wanted::Path(Path::Cpu), _, _) => Presenter::new(sw, sh, self.space),
             };
             if let Some(p) = &self.presenter {
                 crate::info!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
@@ -2955,6 +3029,12 @@ impl App {
                         // presenter gave this frame's tag back, so the set
                         // stays free and no reshape waits on it.
                         Some(Drawn::Busy) => return,
+                        // Given up between the head's look and this draw:
+                        // the CPU draws the frame owed, on the next turn.
+                        Some(Drawn::GaveUp(why)) => {
+                            self.give_up_gpu(why);
+                            return;
+                        }
                         None => {}
                     }
                 }
@@ -2995,6 +3075,10 @@ impl App {
                             self.gpu_stats = g;
                         }
                         Some(Drawn::Busy) => return,
+                        Some(Drawn::GaveUp(why)) => {
+                            self.give_up_gpu(why);
+                            return;
+                        }
                         None => {}
                     }
                 }
@@ -3155,6 +3239,11 @@ impl App {
                 )
             ),
         }
+        // A window that gave the GPU up draws on the CPU, and its report
+        // still says what the GPU's frames came to.
+        if let Wanted::GaveUp(_) = self.wanted {
+            crate::info!("{}", self.present_counts());
+        }
         if let Some(line) = self.latency.report() {
             eprintln!("{line}");
         }
@@ -3294,7 +3383,11 @@ impl App {
                     wake_holding(self.waker, f.due(Deadline::GIVE_UP), due(f, Bound::GiveUp));
                 }
                 crate::warn!("the first frame was not drawn on the GPU: {}", g.waited);
-                self.open_on_cpu(screen)
+                let shown = self.open_on_cpu(screen);
+                // A failure that gave the GPU up -- a device that revoked
+                // the process -- switches the window before its first turn.
+                self.follow_gpu_use();
+                shown
             }
         }
     }
@@ -3351,6 +3444,64 @@ impl App {
         }
         self.faults_heard = now;
         self.warn_faults();
+        if let GpuUse::GaveUp(why) = now.gpu_use() {
+            self.give_up_gpu(why);
+        }
+    }
+
+    /// **The GPU given up, if its counts say so**, and the window switched
+    /// to the CPU now ([`App::give_up_gpu`]): one look at the latch the
+    /// handlers and the bound wakes set. At the head of every `present`, on
+    /// every wake ([`App::heard_gpu`]), and after the launch's frame.
+    fn follow_gpu_use(&mut self) {
+        if let Wanted::GaveUp(_) = self.wanted {
+            return;
+        }
+        let faults = self.presenter.as_ref().and_then(Presenter::faults);
+        if let Some(GpuUse::GaveUp(why)) = faults.map(|f| f.gpu_use()) {
+            self.give_up_gpu(why);
+        }
+    }
+
+    /// **The window gives the GPU up, for the rest of the session**, on
+    /// the main thread: the presenter parks the `Gpu` and draws on the CPU
+    /// into a surface set of its own ([`Presenter::give_up`]); the cell
+    /// path's memory is let go, so nothing can write a buffer a frame
+    /// still in flight reads; the window asks for no `Gpu` again
+    /// ([`Wanted::GaveUp`]), and nor does any window this process opens
+    /// after ([`ProcessGpu`]); and the next frame is owed whole, since the
+    /// CPU has drawn none of what the GPU did. The give-up is said once
+    /// ([`App::warn_faults`]), and the path after it.
+    fn give_up_gpu(&mut self, why: GaveUp) {
+        if let Wanted::GaveUp(_) = self.wanted {
+            return;
+        }
+        let Some(p) = self.presenter.as_mut() else {
+            return;
+        };
+        let switched = p.give_up(why);
+        if switched == Switched::Already {
+            return;
+        }
+        self.wanted = Wanted::GaveUp(why);
+        GPU_GIVEN_UP.store(true, Ordering::Release);
+        self.cell = None;
+        self.next_damage = Damage::Full;
+        self.owe_frame();
+        self.warn_faults();
+        if switched == Switched::Refused {
+            crate::warn!(
+                "the surfaces to draw on the CPU were declined; the window draws again at its next resize"
+            );
+        }
+        if let Some(p) = &self.presenter {
+            crate::info!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
+        }
+        #[cfg(feature = "effect-probe")]
+        {
+            baud_present_macos::probe::switched(self.frames);
+            rig::switch_screen(rig::screen_text(&self.term));
+        }
     }
 
     fn take_committed(&mut self) {
@@ -3462,6 +3613,21 @@ impl App {
         self.take.note("copy", "-", || pos);
     }
 
+    /// **What the given-up `Gpu`'s journal counted**, for the report: the
+    /// frames superseded before the give-up -- a resize's, the bug that
+    /// counter measures -- apart from those that landed after it, each one
+    /// late, superseded by the give-up and never shown.
+    fn parked_counts(&self) -> String {
+        match self.presenter.as_ref().and_then(Presenter::parked_counts) {
+            None => String::new(),
+            Some((before, now)) => format!(
+                "; given up: superseded before: {}; landed after the give-up: {}",
+                before.superseded,
+                now.landed.saturating_sub(before.landed)
+            ),
+        }
+    }
+
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
@@ -3478,6 +3644,7 @@ impl App {
                     .as_ref()
                     .and_then(Presenter::faults)
                     .map_or(String::new(), |f| format!("; {f}"))
+                    + &self.parked_counts()
             ),
             None => "present: no presenter".to_string(),
         }
@@ -3510,9 +3677,19 @@ impl App {
             self.faults_said = now;
         }
         if first(said.gave_up, now.gave_up) {
+            let why = match now.why {
+                Some(GaveUp::Stuck) | None => format!(
+                    "stuck: a frame was still in flight {:?} after its commit",
+                    Deadline::GIVE_UP.get()
+                ),
+                Some(GaveUp::Failing) => {
+                    format!("{} frames failed in a row", GaveUp::FAILED_IN_A_ROW.0)
+                }
+                Some(GaveUp::Refused(Refusal::AccessRevoked)) => "AccessRevoked".to_owned(),
+                Some(GaveUp::Refused(Refusal::NotPermitted)) => "NotPermitted".to_owned(),
+            };
             crate::warn!(
-                "the GPU is given up for this window: a frame was still in flight {:?} after its commit, and the window holds its frames until it lands; {now}",
-                Deadline::GIVE_UP.get()
+                "the GPU is given up for this window ({why}): drawing on the CPU from now on; {now}"
             );
             self.faults_said = now;
         }
@@ -8658,6 +8835,91 @@ mod drag_tests {
         );
     }
 
+    /// **A window opened after a give-up asks for the CPU** (`ProcessGpu`),
+    /// whatever `BAUD_GPU` says; before one, `BAUD_GPU` is read as it was.
+    /// Break: the latch not read, and a window opened after a give-up
+    /// probes the GPU again.
+    #[test]
+    fn a_window_opened_after_a_give_up_asks_for_the_cpu() {
+        use super::{Path, ProcessGpu, Request, request};
+        use std::ffi::OsStr;
+        for asked in [None, Some("cells"), Some("1"), Some("cpu"), Some("other")] {
+            assert_eq!(
+                request(asked.map(OsStr::new), ProcessGpu::GaveUp),
+                Request::Force(Path::Cpu),
+                "{asked:?}"
+            );
+        }
+        assert_eq!(request(None, ProcessGpu::Live), Request::Auto);
+        assert_eq!(
+            request(Some(OsStr::new("cells")), ProcessGpu::Live),
+            Request::Force(Path::Cells)
+        );
+        assert_eq!(
+            request(Some(OsStr::new("1")), ProcessGpu::Live),
+            Request::Force(Path::Instances)
+        );
+    }
+
+    /// **A `Gpu` is made only where a GPU path is wanted**: the presenter's
+    /// two ways to make one, `Presenter::with_gpu` and `Presenter::over`,
+    /// each sit in an arm of the rebuild that matches
+    /// `Wanted::Path(Path::Instances | Path::Cells)`, so a window that gave
+    /// the GPU up (`Wanted::GaveUp`) never makes one again; the probe's
+    /// `Gpu::new` is behind the request's CPU arm, and the request reads the
+    /// process's latch (`ProcessGpu`). Break: an arm that makes one for any
+    /// wanted path -- the rebuild as it was, where a resize after the
+    /// give-up made a new device.
+    #[test]
+    fn the_gpu_is_made_only_on_a_gpu_path_wanted() {
+        const SRC: &str = include_str!("app.rs");
+        let makes = [
+            concat!("Presenter::", "with_gpu("),
+            concat!("Presenter::", "over("),
+        ];
+        let lines: Vec<&str> = SRC.lines().collect();
+        let mut found = 0;
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("//") || !makes.iter().any(|m| line.contains(m)) {
+                continue;
+            }
+            found += 1;
+            let arm = lines[..=i]
+                .iter()
+                .rev()
+                .find(|a| a.trim_start().starts_with("(Wanted::"))
+                .unwrap_or_else(|| panic!("line {}: in no arm of the rebuild", i + 1));
+            assert!(
+                arm.trim_start()
+                    .starts_with(concat!("(Wanted::Path(Path::", "Instances | Path::Cells)")),
+                "line {}: a Gpu made under {arm}",
+                i + 1
+            );
+        }
+        assert_eq!(found, 2, "the control: both are called, once each");
+        let probe = SRC
+            .split_once(concat!("fn start_probe(", "request: Request)"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the probe");
+        let cpu = probe
+            .find(concat!("Request::Force(Path::Cpu) => ", "None,"))
+            .expect("the probe's CPU arm");
+        let made = probe
+            .find(concat!("Gpu::", "new()"))
+            .expect("the probe makes one");
+        assert!(cpu < made, "the CPU arm comes first");
+        let wanted = SRC
+            .split_once(concat!("fn wanted() -> ", "Request {"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(body, _)| body)
+            .expect("wanted");
+        assert!(
+            wanted.contains(concat!("process_", "gpu()")),
+            "the request reads the latch"
+        );
+    }
+
     /// **The shell is spawned before the GPU's probe and the read of the
     /// machine's names** (note AJ section 20): `fork` first takes dyld's
     /// `dlopen` lock and then runs every `pthread_atfork` handler, and
@@ -13764,6 +14026,19 @@ impl Responder for Driver {
     fn presented(&mut self) {
         self.app.layer_presented();
         self.app.presented();
+        // A GPU surface on the layer: the view's `presentSurface:` is the
+        // one caller.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::layer(baud_present_macos::probe::Layer::Gpu);
+        // **After the give-up no GPU surface belongs there**: a CPU frame
+        // is set synchronously and never through this callback, so
+        // this is a frame that answered as the GPU was given up, its
+        // present already posted. The next frame, drawn whole on the CPU,
+        // covers it.
+        if let Wanted::GaveUp(_) = self.app.wanted {
+            self.app.next_damage = Damage::Full;
+            self.app.owe_frame();
+        }
     }
 
     fn wake(&mut self) {
@@ -13786,6 +14061,18 @@ impl Responder for Driver {
         if let Some(keys) = rig::take_pressed() {
             for c in keys.chars().filter_map(|c| Codepoint::new(u32::from(c))) {
                 self.typed(KeyEvent::press(KeyCode::Char(c), Modifiers::NONE), None);
+            }
+        }
+        // The event rig's geometry change, made as the View menu's zoom
+        // and a window resize make theirs.
+        #[cfg(feature = "effect-probe")]
+        match rig::take_reshape() {
+            None => {}
+            Some(rig::Reshape::ZoomIn) => self.zoom(self.app.font_size + 1.0),
+            Some(rig::Reshape::Wider) => {
+                let size = self.view.frame().size;
+                let wider = NSSize::new(size.width + rig::WIDER, size.height);
+                let _ = self.relayout(wider, self.app.scale);
             }
         }
         if self.app.frames.value() > 0
@@ -14836,6 +15123,8 @@ impl baud_present_macos::unwind::Settles for Driver {
         );
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::drawn(self.app.frames);
+        #[cfg(feature = "effect-probe")]
+        rig::saw(self.app.font_size, self.app.view_px);
         #[cfg(feature = "effect-probe")]
         if let Some(f) = self
             .app
@@ -22407,7 +22696,8 @@ impl Held for Posted {
 enum Bound {
     /// [`Deadline::FRAME`]: overdue.
     Frame,
-    /// [`Deadline::GIVE_UP`]: the GPU given up.
+    /// [`Deadline::GIVE_UP`]: the GPU given up, and the turn the wake
+    /// runs switches the window to the CPU (`App::heard_gpu`).
     GiveUp,
 }
 
