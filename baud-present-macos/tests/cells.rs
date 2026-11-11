@@ -24,8 +24,8 @@ use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
 use baud_present_macos::screens::{Compare, Screens};
 use baud_present_macos::{
-    Cause, CellInput, Done, Drawn, FaultCode, Gpu, GpuFrame, GridBuffer, Inject, Landed, MapBuffer,
-    OverlayBuffer, StylesBuffer, premultiply,
+    Cause, CellInput, Deadline, Done, Drawn, FaultCode, Gpu, GpuFrame, GridBuffer, Inject, Landed,
+    MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use core::time::Duration;
@@ -225,6 +225,18 @@ enum Counted {
     No,
 }
 
+/// **Each test's slowest frame, said at its end**: the longest a frame
+/// of its took from commit to handler, which the waits' bounds
+/// (`Deadline`) are a stated multiple of. Each test runs in a process of
+/// its own under nextest, so the suite's slowest is the largest of these
+/// lines in its output (`--success-output final`).
+impl Drop for Arms<'_, '_> {
+    fn drop(&mut self) {
+        let f = self.gpu.faults();
+        println!("gpu slowest {} us; {f}", f.slowest.as_micros());
+    }
+}
+
 impl Arms<'_, '_> {
     /// Both arms drawn offscreen and read back.
     fn draw(&mut self, t: &mut Term<'_>) -> (Vec<u32>, Vec<u32>) {
@@ -240,7 +252,8 @@ impl Arms<'_, '_> {
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
         let b = self.with_cells(t, |gpu, renderer, input| {
-            let Some(Drawn::Frame(f)) = gpu.draw_cells(renderer, input, &target_b, Done::Wait)
+            let Some(Drawn::Frame(f)) =
+                gpu.draw_cells(renderer, input, &target_b, Done::Within(Deadline::WAIT))
             else {
                 panic!("draw_cells");
             };
@@ -249,7 +262,10 @@ impl Arms<'_, '_> {
             b
         });
         self.renderer.convert(t, self.back, Damage::Full);
-        let Some(Drawn::Frame(f)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
+        let Some(Drawn::Frame(f)) =
+            self.gpu
+                .draw(&mut self.renderer, &target_a, Done::Within(Deadline::WAIT))
+        else {
             panic!("draw");
         };
         let mut a = vec![0u32; n];
@@ -274,7 +290,9 @@ impl Arms<'_, '_> {
         let (w, h) = self.target_size();
         let target = self.gpu.offscreen(w, h).expect("target");
         self.with_cells(t, |gpu, renderer, input| {
-            let Some(Drawn::Frame(f)) = gpu.draw_cells(renderer, input, &target, Done::Wait) else {
+            let Some(Drawn::Frame(f)) =
+                gpu.draw_cells(renderer, input, &target, Done::Within(Deadline::WAIT))
+            else {
                 panic!("draw_cells");
             };
             drew(&f);
@@ -297,7 +315,10 @@ impl Arms<'_, '_> {
     fn keep_instances(&mut self, t: &Term<'_>) {
         self.renderer.hide_cursor(t);
         let size = self.target_size();
-        let Some(Drawn::Frame(f)) = self.gpu.draw_kept(&mut self.renderer, size, Done::Wait) else {
+        let Some(Drawn::Frame(f)) =
+            self.gpu
+                .draw_kept(&mut self.renderer, size, Done::Within(Deadline::WAIT))
+        else {
             panic!("the instance arm's kept frame");
         };
         drew(&f);
@@ -375,10 +396,12 @@ impl Arms<'_, '_> {
             screen: self.screens.now(),
         };
         let size = self.target_size();
-        let Some(Drawn::Frame(f)) =
-            self.gpu
-                .draw_cells_kept(&mut self.renderer, &input, size, Done::Wait)
-        else {
+        let Some(Drawn::Frame(f)) = self.gpu.draw_cells_kept(
+            &mut self.renderer,
+            &input,
+            size,
+            Done::Within(Deadline::WAIT),
+        ) else {
             panic!("the cell arm's kept frame");
         };
         drew(&f);
@@ -795,10 +818,12 @@ impl Arms<'_, '_> {
             // The screen `draw` just built from.
             screen: self.screens.now(),
         };
-        let Some(Drawn::Frame(f)) =
-            self.gpu
-                .draw_cells(&mut self.renderer, &input, &target, Done::Wait)
-        else {
+        let Some(Drawn::Frame(f)) = self.gpu.draw_cells(
+            &mut self.renderer,
+            &input,
+            &target,
+            Done::Within(Deadline::WAIT),
+        ) else {
             panic!("draw_cells over the copy");
         };
         let mut out = vec![0u32; n];
@@ -2040,11 +2065,21 @@ fn no_surface_keeps_a_slid_frame() {
                 "instances" => {
                     arms.renderer.set_images(t, arms.back);
                     arms.renderer.convert(t, arms.back, Damage::Incremental);
-                    arms.gpu
-                        .draw_since(&mut arms.renderer, rot.target(), Done::Wait, missing)
+                    arms.gpu.draw_since(
+                        &mut arms.renderer,
+                        rot.target(),
+                        Done::Within(Deadline::WAIT),
+                        missing,
+                    )
                 }
                 _ => arms.with_cells(t, |gpu, renderer, input| {
-                    gpu.draw_cells_since(renderer, input, rot.target(), Done::Wait, missing)
+                    gpu.draw_cells_since(
+                        renderer,
+                        input,
+                        rot.target(),
+                        Done::Within(Deadline::WAIT),
+                        missing,
+                    )
                 }),
             };
             let Some(Drawn::Frame(f)) = f else {
@@ -2069,7 +2104,10 @@ fn no_surface_keeps_a_slid_frame() {
         }
         // The new screen, whole and unslid: the slide is set but not begun.
         arms.renderer.convert(&t, arms.back, Damage::Full);
-        let Some(Drawn::Frame(w)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+        let Some(Drawn::Frame(w)) =
+            arms.gpu
+                .draw(&mut arms.renderer, &whole, Done::Within(Deadline::WAIT))
+        else {
             panic!("draw");
         };
         let mut settled = vec![0u32; n];
@@ -2157,7 +2195,7 @@ fn a_failed_frame_is_not_compared_against() {
         // for, or notified and then waited out as a bench does.
         let frame = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, wait: bool| -> GpuFrame {
             let done = match wait {
-                true => Done::Wait,
+                true => Done::Within(Deadline::WAIT),
                 false => Done::Notify(std::sync::Arc::new(|_| {})),
             };
             let f = match path {
@@ -2171,7 +2209,9 @@ fn a_failed_frame_is_not_compared_against() {
                     gpu.draw_cells_since(renderer, input, &target, done, Redraw::NOTHING)
                 }),
             };
-            arms.gpu.wait_idle();
+            arms.gpu
+                .idle_within(Deadline::WAIT)
+                .unwrap_or_else(|e| panic!("{e}"));
             let Some(Drawn::Frame(f)) = f else {
                 panic!("{path}: a frame");
             };
@@ -12507,14 +12547,20 @@ fn cell_oracle_lined(
         let (partial, full, drawn, changed) = arms.with_cells(&mut t, |gpu, renderer, input| {
             let target = rot.target();
             let missing = rot.ages.missing(rot.next);
-            let Some(Drawn::Frame(f)) =
-                gpu.draw_cells_since(renderer, input, target, Done::Wait, missing)
-            else {
+            let Some(Drawn::Frame(f)) = gpu.draw_cells_since(
+                renderer,
+                input,
+                target,
+                Done::Within(Deadline::WAIT),
+                missing,
+            ) else {
                 panic!("draw_cells_since");
             };
             let mut p = vec![0u32; n];
             gpu.read(target, drew(&f), &mut p).expect("read");
-            let Some(Drawn::Frame(w)) = gpu.draw_cells(renderer, input, &whole, Done::Wait) else {
+            let Some(Drawn::Frame(w)) =
+                gpu.draw_cells(renderer, input, &whole, Done::Within(Deadline::WAIT))
+            else {
                 panic!("draw_cells");
             };
             let mut q = vec![0u32; n];
@@ -12574,15 +12620,20 @@ fn instance_oracle_lined(
         arms.renderer.convert(&t, arms.back, *damage);
         let target = rot.target();
         let missing = rot.ages.missing(rot.next);
-        let Some(Drawn::Frame(f)) =
-            arms.gpu
-                .draw_since(&mut arms.renderer, target, Done::Wait, missing)
-        else {
+        let Some(Drawn::Frame(f)) = arms.gpu.draw_since(
+            &mut arms.renderer,
+            target,
+            Done::Within(Deadline::WAIT),
+            missing,
+        ) else {
             panic!("draw_since");
         };
         let mut partial = vec![0u32; n];
         arms.gpu.read(target, drew(&f), &mut partial).expect("read");
-        let Some(Drawn::Frame(w)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+        let Some(Drawn::Frame(w)) =
+            arms.gpu
+                .draw(&mut arms.renderer, &whole, Done::Within(Deadline::WAIT))
+        else {
             panic!("draw");
         };
         let mut full = vec![0u32; n];

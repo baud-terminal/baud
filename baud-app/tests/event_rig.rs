@@ -1656,6 +1656,40 @@ struct Counters {
     /// The ticks the rig offered after the settle, or after a frozen
     /// clock's counts were taken again.
     offered: u32,
+    /// What the GPU's completions had counted at the last settle, for the
+    /// window's life: frames failed, the slowest commit-to-handler time,
+    /// frames past their bound, answered late, and the GPU given up.
+    gpu_failed: u64,
+    gpu_slowest_us: u64,
+    gpu_overdue: u64,
+    gpu_late: u64,
+    gpu_gave_up: u64,
+    /// The GPU frames drawn whole, for the window's life.
+    gpu_whole: u64,
+    /// What the window's first frame was drawn with, when the rig drew it
+    /// as the window's opening does.
+    opened: OpenedSeen,
+}
+
+/// What a frame rig's child said its window opened with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum OpenedSeen {
+    /// The rig drew no opening frame.
+    Unset,
+    Gpu,
+    Cpu,
+    /// Neither path drew it: a window that would open on a surface nothing
+    /// drew.
+    Undrawn,
+}
+
+impl Counters {
+    /// **No frame failed, none was past its bound, and the GPU was not
+    /// given up**: what every row that injects nothing must read, on a
+    /// loaded machine as on an idle one.
+    fn gpu_clean(&self) -> bool {
+        self.gpu_failed == 0 && self.gpu_overdue == 0 && self.gpu_gave_up == 0
+    }
 }
 
 impl Counters {
@@ -1713,6 +1747,19 @@ impl Counters {
             flips: count("flips")?,
             first: count("first")?,
             offered: count("offered")?,
+            gpu_failed: field("gpu_failed")?.parse().ok()?,
+            gpu_slowest_us: field("gpu_slowest_us")?.parse().ok()?,
+            gpu_overdue: field("gpu_overdue")?.parse().ok()?,
+            gpu_late: field("gpu_late")?.parse().ok()?,
+            gpu_gave_up: field("gpu_gave_up")?.parse().ok()?,
+            gpu_whole: field("gpu_whole")?.parse().ok()?,
+            opened: match field("opened")? {
+                "unset" => OpenedSeen::Unset,
+                "gpu" => OpenedSeen::Gpu,
+                "cpu" => OpenedSeen::Cpu,
+                "undrawn" => OpenedSeen::Undrawn,
+                _ => return None,
+            },
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1843,6 +1890,22 @@ enum Settles {
     /// answer made the rows readable for -- and none of them held by the
     /// floor after a batch that asked about a path.
     Marked(u16),
+    /// **A frame held past its bound, counted with no tick, and late
+    /// after** (`BAUD_RIG_GPU=hold`): the ticks withheld and none
+    /// delivered, the held frame counted overdue once and late once, the
+    /// GPU not given up and no frame failed, and a frame drawn after it --
+    /// the child checks that one was drawn whole.
+    GpuHeld,
+    /// **A failed frame, and the window going on** (`BAUD_RIG_GPU=fail`):
+    /// a palette applied, the frame it owed failed, none past its bound,
+    /// and a frame drawn after it -- the child checks that one was drawn
+    /// whole.
+    GpuFailed,
+    /// **The launch's first frame past its bound, drawn on the CPU**
+    /// (`BAUD_RIG_GPU=hold-launch`): the window opened on the CPU's frame,
+    /// the launch's GPU frame counted overdue once and late once, the GPU
+    /// not given up, and no frame failed.
+    OpenedOnCpu,
 }
 
 impl Settles {
@@ -1883,6 +1946,28 @@ impl Settles {
             Settles::Marked(n) => {
                 let n = u32::from(n);
                 c.held == 0 && c.marked >= n && c.asked == n && c.batches >= 2
+            }
+            Settles::GpuHeld => {
+                c.delivered == 0
+                    && c.gpu_overdue == 1
+                    && c.gpu_late == 1
+                    && c.gpu_gave_up == 0
+                    && c.gpu_failed == 0
+                    && c.drawn >= 2
+            }
+            Settles::GpuFailed => {
+                c.gpu_failed >= 1
+                    && c.gpu_overdue == 0
+                    && c.gpu_gave_up == 0
+                    && c.styled >= 1
+                    && c.drawn >= 2
+            }
+            Settles::OpenedOnCpu => {
+                c.opened == OpenedSeen::Cpu
+                    && c.gpu_overdue == 1
+                    && c.gpu_late == 1
+                    && c.gpu_gave_up == 0
+                    && c.gpu_failed == 0
             }
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
@@ -1970,7 +2055,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 29] = [
+const FRAME_SITES: [FrameSite; 32] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2630,6 +2715,70 @@ const FRAME_SITES: [FrameSite; 29] = [
         expect: Settles::Filed,
         state: RowState::Green,
     },
+    // **A frame the GPU never answers is counted at its bound, with no
+    // tick** (`BAUD_RIG_GPU=hold`): the act's frame's completion held by
+    // the fault seam, so the frame stays in flight and the window holds
+    // every draw. The ticks withheld, nothing but the wake posted at the
+    // frame's commit runs at its bound, and it counts the frame overdue;
+    // released then, the frame is counted late and the window draws a
+    // whole frame after it, on the completion's wake. Red with no wake at
+    // the bound: the held frame is never counted, and the window stays
+    // held with nothing said. Break: the bound checked on the tick instead
+    // of the wake.
+    FrameSite {
+        name: SiteName("a frame held past its bound is counted overdue with no tick"),
+        setup: STILL,
+        act: "printf y",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_RIG_GPU", "hold")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(10),
+        expect: Settles::GpuHeld,
+        state: RowState::Green,
+    },
+    // **A failed frame is not trusted, and the window goes on**
+    // (`BAUD_RIG_GPU=fail`): the frame a light/dark flip owes, reported
+    // failed by the fault seam, is counted, and the window draws a whole
+    // frame after it, which nothing but the failure owes. Break: the
+    // failure owing no frame, and none is drawn after it.
+    FrameSite {
+        name: SiteName("a failed frame is counted and the window draws whole after it"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Restyled,
+        env: &[("BAUD_RIG_GPU", "fail")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::GpuFailed,
+        state: RowState::Green,
+    },
+    // **The launch's first frame past its bound opens drawn on the CPU**
+    // (`BAUD_RIG_GPU=hold-launch`): drawn as the window's opening draws
+    // it, its completion held past the launch's bound, so the wait returns
+    // and the window opens on the same frame drawn on the CPU, never on a
+    // surface nothing drew; released, it is counted late. Red with the
+    // wait unbounded: the launch never returns. Break: no CPU frame, and
+    // the window opens undrawn.
+    FrameSite {
+        name: SiteName("a launch frame past its bound opens drawn on the CPU"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Untold,
+        env: &[("BAUD_RIG_GPU", "hold-launch")],
+        config: STEADY,
+        focus: RigFocus::Real,
+        attempts: Iterations(30),
+        expect: Settles::OpenedOnCpu,
+        state: RowState::Green,
+    },
     // **One link, paused and resumed, never made again per restart**: red
     // while the door's backend starts a new link each run, until
     // macos-liquid-glass's pause in place is published and baud
@@ -2715,7 +2864,20 @@ fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Co
 #[test]
 fn every_frame_row_comes_to_its_state() {
     let mut red = Vec::new();
+    // **Only the rows whose names hold one of these**, `|` between them,
+    // when it is set (`BAUD_RIG_ROWS`): a row's own runs, many at a time,
+    // under load.
+    let only = std::env::var("BAUD_RIG_ROWS").ok();
+    // **A row that injects nothing reads the GPU clean** on both arms: no
+    // frame failed, none past its bound, the GPU not given up.
+    let injects = |site: &FrameSite| site.env.iter().any(|(k, _)| *k == "BAUD_RIG_GPU");
     for (i, site) in FRAME_SITES.iter().enumerate() {
+        if only
+            .as_deref()
+            .is_some_and(|o| !o.split('|').any(|p| site.name.0.contains(p)))
+        {
+            continue;
+        }
         let lifted = run_frames(site, &format!("frame{i}-lifted"), RigHolders::Lifted);
         println!("{:?}, lifted: {lifted:?}", site.name);
         let lifted = match lifted {
@@ -2725,6 +2887,13 @@ fn every_frame_row_comes_to_its_state() {
                 continue;
             }
         };
+        println!(
+            "{:?}: gpu slowest {} us, lifted",
+            site.name, lifted.gpu_slowest_us
+        );
+        if !injects(site) && !lifted.gpu_clean() {
+            red.push((site.name, format!("lifted arm's GPU: {lifted:?}")));
+        }
         if lifted.holders != holders_of(site) {
             red.push((site.name, format!("the lift hid {:?}", lifted.holders)));
         }
@@ -2753,6 +2922,13 @@ fn every_frame_row_comes_to_its_state() {
                 continue;
             }
         };
+        println!(
+            "{:?}: gpu slowest {} us, kept",
+            site.name, kept.gpu_slowest_us
+        );
+        if !injects(site) && !kept.gpu_clean() {
+            red.push((site.name, format!("kept arm's GPU: {kept:?}")));
+        }
         if kept.holders != lifted.holders {
             red.push((site.name, format!("kept {:?}", kept.holders)));
         }

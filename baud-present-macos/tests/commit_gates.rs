@@ -61,9 +61,12 @@ fn calls_commit(line: &str) -> bool {
 /// a command buffer is made, committed, given a handler and has its status
 /// and stamps read only in `src/metal/commit.rs`, which reads the status
 /// on every completion; nothing anywhere waits on one without a bound
-/// (`waitUntilCompleted` takes none); and no loop spins on a frame in
-/// flight, whose end only the commit module may wait for. Every Rust file
-/// of this crate, the app and the benches is read.
+/// (`waitUntilCompleted` takes none, nor does a bare `recv()` on the
+/// handler's answer, nor the unbounded idle wait this replaced); and no
+/// loop spins on a frame in flight, whose end only the commit module may
+/// wait for, within a bound. Every Rust file of this crate, the app and
+/// the benches is read. Breaks: a bare `recv()` back in the waiter; a
+/// bench spinning on `in_flight() == InFlight::Busy`.
 #[test]
 fn only_the_commit_module_commits_or_waits_on_the_gpu() {
     let r = root();
@@ -84,7 +87,10 @@ fn only_the_commit_module_commits_or_waits_on_the_gpu() {
         concat!("command", "Buffer()"),
         concat!("command", "BufferWithDescriptor"),
     ];
-    let nowhere = concat!("wait", "UntilCompleted");
+    let nowhere = [concat!("wait", "UntilCompleted"), concat!("wait", "_idle(")];
+    // The handler's answer, waited for with no bound: other modules' own
+    // channels are not the GPU's.
+    let unbounded = concat!(".re", "cv()");
     let spin = concat!("in_flight() == ", "InFlight::Busy");
     let files = sources(&dirs);
     let mut found = Vec::new();
@@ -96,13 +102,18 @@ fn only_the_commit_module_commits_or_waits_on_the_gpu() {
         }
         for (n, line) in code(text) {
             let at = || format!("{}:{n}", p.display());
-            if line.contains(nowhere) {
-                found.push(format!("{}: {nowhere}", at()));
+            for t in nowhere {
+                if line.contains(t) {
+                    found.push(format!("{}: {t}", at()));
+                }
             }
             if line.trim_start().starts_with("while ") && line.contains(spin) {
                 found.push(format!("{}: a spin on a frame in flight", at()));
             }
             if ours {
+                if line.contains(unbounded) {
+                    found.push(format!("{}: {unbounded}", at()));
+                }
                 continue;
             }
             if calls_commit(line) {
@@ -135,6 +146,8 @@ fn only_the_commit_module_commits_or_waits_on_the_gpu() {
         concat!("command", "Buffer"),
         concat!(".sta", "tus()"),
         concat!(".err", "or()"),
+        concat!(".recv_", "timeout("),
+        concat!("fn idle_", "within("),
     ] {
         assert!(
             lines.iter().any(|l| l.contains(t)),

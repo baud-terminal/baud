@@ -71,9 +71,10 @@ pub use journal::Landing;
 #[cfg(feature = "gpu-fault")]
 pub use metal::Inject;
 pub use metal::{
-    Build, Cause, CellInput, Completion, Done, Drawn, EffectBuild, EffectPipes, ErrorNumber, Fault,
-    FaultCode, Faults, Gpu, GpuFrame, GridBuffer, InFlight, Landed, MapBuffer, Memory,
-    OverlayBuffer, StatusWord, StylesBuffer, Target, Waited,
+    Build, Came, Cause, CellInput, CommitId, Completion, Deadline, Done, Drawn, EffectBuild,
+    EffectPipes, ErrorNumber, Fault, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame, GpuUse,
+    GridBuffer, InFlight, Landed, Late, MapBuffer, Memory, Overdue, OverlayBuffer, StatusWord,
+    StillBusy, StylesBuffer, Target, Waited,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};
@@ -112,6 +113,15 @@ use redraw::{SURFACES, SurfaceIx};
 /// Which of the surfaces is drawn next.
 #[derive(Clone, Copy)]
 struct Next(usize);
+
+/// **How the first frame at launch is waited for**: for at most
+/// [`Deadline::LAUNCH`], and an answer after that wakes `view`'s responder,
+/// whose window is open by then on a frame drawn on the CPU and draws
+/// again on the GPU once its frame is no longer in flight.
+fn launch(view: &DrawableView) -> Done {
+    let waker = view.waker();
+    Done::WithinThen(Deadline::LAUNCH, Arc::new(move || waker.wake()))
+}
 
 /// Who draws the frame into a surface.
 enum Draw {
@@ -305,11 +315,12 @@ impl Presenter {
         self.gpu().map(Gpu::faults)
     }
 
-    /// **Waits until no frame is in flight** ([`Gpu::wait_idle`]), for a
-    /// bench; at once on the CPU path.
-    pub fn wait_idle(&self) {
-        if let Some(g) = self.gpu() {
-            g.wait_idle();
+    /// **Waits until no frame is in flight, for at most `bound`**
+    /// ([`Gpu::idle_within`]), for a bench; at once on the CPU path.
+    pub fn idle_within(&self, bound: Deadline) -> Result<(), StillBusy> {
+        match self.gpu() {
+            Some(g) => g.idle_within(bound),
+            None => Ok(()),
         }
     }
 
@@ -399,6 +410,38 @@ impl Presenter {
         if self.mode() != Mode::Cpu {
             return Presented::No;
         }
+        self.copy(frame, stride, clear, changed)
+    }
+
+    /// **A frame drawn on the CPU, shown on the GPU path**: for the first
+    /// frame at launch when the GPU did not draw it by its bound
+    /// ([`Presenter::draw_now`]), so the window never opens with a surface
+    /// nothing drew. Copied whole into the next surface -- never the one
+    /// the GPU's frame went to, which [`Presenter::draw_now`] has already
+    /// passed -- which is then shown on `view`, and is missing everything
+    /// for the GPU's next frame into it, since the GPU did not draw it.
+    /// [`Presenter::present`] on the CPU path.
+    pub fn present_on_cpu(
+        &mut self,
+        view: &DrawableView,
+        frame: &[u32],
+        stride: Px,
+        clear: Argb,
+    ) -> Presented {
+        if self.mode() == Mode::Cpu {
+            return self.present(view, frame, stride, clear);
+        }
+        let at = self.next.0;
+        if self.copy(frame, stride, clear, Changed::Whole) == Presented::No {
+            return Presented::No;
+        }
+        self.ages.forget(SurfaceIx(at));
+        view.set_surface(self.surfaces[at].io_surface());
+        Presented::Yes
+    }
+
+    /// The copy into the next surface, on either path.
+    fn copy(&mut self, frame: &[u32], stride: Px, clear: Argb, changed: Changed<'_>) -> Presented {
         // The surface is the whole view; the grid frame is centred in it and
         // the margin is filled with the terminal background, so the gutter
         // is the same colour as a default cell rather than a see-through
@@ -559,13 +602,13 @@ impl Presenter {
     }
 
     /// A frame committed into the next surface, which is then the one
-    /// after; a frame waited for that failed leaves its surface missing
-    /// everything.
+    /// after; a frame waited for that failed, or is past its bound, leaves
+    /// its surface missing everything.
     fn committed(&mut self, drawn: Drawn) -> Drawn {
         if let Drawn::Frame(f) = &drawn {
             let at = SurfaceIx(self.next.0);
             self.ages.drew(at, f.changed);
-            if let Waited::Failed(_) = f.waited {
+            if let Waited::Failed(_) | Waited::Overdue(_) = f.waited {
                 self.ages.forget(at);
             }
             self.next = Next((self.next.0 + 1) % SURFACES);
@@ -584,9 +627,14 @@ impl Presenter {
         })
     }
 
-    /// The instance path drawn and shown now: the GPU waited for and the
-    /// surface set on `view` on this thread. For the first frame at launch,
-    /// before a run loop exists to carry the completion; never in the loop.
+    /// The instance path drawn and shown now: the GPU waited for, for at
+    /// most [`Deadline::LAUNCH`], and the surface set on `view` on this
+    /// thread if the frame drew. For the first frame at launch, before a run
+    /// loop exists to carry the completion; never in the loop. A frame that
+    /// did not draw by the bound, failed or unanswered, is not shown: the
+    /// caller draws that frame on the CPU instead
+    /// ([`Presenter::present_on_cpu`]); one that lands after the bound
+    /// wakes `view`'s responder.
     pub fn draw_now(
         &mut self,
         view: &DrawableView,
@@ -598,7 +646,7 @@ impl Presenter {
             return None;
         };
         let missing = self.ages.missing(SurfaceIx(slot));
-        let drawn = gpu.draw_since(renderer, targets.get(slot)?, Done::Wait, missing)?;
+        let drawn = gpu.draw_since(renderer, targets.get(slot)?, launch(view), missing)?;
         // Shown only if it drew: a frame that failed leaves the layer as
         // it was.
         if let Drawn::Frame(f) = &drawn {
@@ -623,7 +671,7 @@ impl Presenter {
         };
         let missing = self.ages.missing(SurfaceIx(slot));
         let drawn =
-            gpu.draw_cells_since(renderer, input, targets.get(slot)?, Done::Wait, missing)?;
+            gpu.draw_cells_since(renderer, input, targets.get(slot)?, launch(view), missing)?;
         // Shown only if it drew: a frame that failed leaves the layer as
         // it was.
         if let Drawn::Frame(f) = &drawn {

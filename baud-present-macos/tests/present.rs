@@ -417,15 +417,17 @@ fn a_reshape_waits_for_the_last_frame_not_the_first() {
     assert_eq!(j.reshape(), Reshape::Now);
 }
 
-/// **The layer's surface is set in three places and handed over in one**:
-/// `present_changed`, the CPU path, and `draw_now` and `draw_cells_now`, a
-/// GPU frame drawn now, set it themselves; a GPU frame drawn on an event is
-/// handed over by its completion, through the waker. The app shows the
-/// window to its launch logo at each of the four
-/// (`every_frame_on_the_layer_shows_the_window_to_the_splash`), so a fifth
+/// **The layer's surface is set in four places and handed over in one**:
+/// `present_changed`, the CPU path; `draw_now` and `draw_cells_now`, a GPU
+/// frame drawn now; and `present_on_cpu`, the launch's frame drawn on the
+/// CPU in place of a GPU frame that did not draw by its bound, which the
+/// app calls only from those two arms -- set it themselves; a GPU frame
+/// drawn on an event is handed over by its completion, through the waker.
+/// The app shows the window to its launch logo at each
+/// (`every_frame_on_the_layer_shows_the_window_to_the_splash`), so another
 /// would leave the logo waiting on the frames it draws.
 #[test]
-fn the_layer_is_set_in_three_places_and_handed_over_in_one() {
+fn the_layer_is_set_in_four_places_and_handed_over_in_one() {
     const SRC: &str = include_str!("../src/lib.rs");
     let set = concat!("view.set_", "surface(");
     let at: Vec<&str> = SRC
@@ -435,6 +437,14 @@ fn the_layer_is_set_in_three_places_and_handed_over_in_one() {
             f.split_once(['(', '<']).map_or(f, |(name, _)| name)
         })
         .collect();
-    assert_eq!(at, ["present_changed", "draw_now", "draw_cells_now"]);
+    assert_eq!(
+        at,
+        [
+            "present_changed",
+            "present_on_cpu",
+            "draw_now",
+            "draw_cells_now"
+        ]
+    );
     assert_eq!(SRC.matches(concat!("waker.", "present(")).count(), 1);
 }

@@ -82,9 +82,17 @@ fn main() {
     use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
     use baud_present_macos::screens::{Built, Compare, Screens};
     use baud_present_macos::{
-        CellInput, Completion, Done, Drawn, Gpu, InFlight, Presenter, SurfaceHandle, SurfaceSpace,
-        Wake,
+        CellInput, Completion, Deadline, Done, Drawn, Gpu, InFlight, Presenter, StillBusy,
+        SurfaceHandle, SurfaceSpace, Wake,
     };
+
+    /// **A wait for the GPU to go idle, held to its bound**: past
+    /// [`Deadline::WAIT`] the arm fails, naming every count.
+    fn went_idle(waited: Result<(), StillBusy>) {
+        if let Err(e) = waited {
+            panic!("{e}");
+        }
+    }
     use baud_render::{
         Blend, Candidate, CopyOrder, CursorPhase, Damage, GlyphMap, Instance, Leaving, Lend, Lent,
         LinkLine, Overlay, PxSize, Redraw, Renderer, Scene, Stack, StyleStamp, Tally, Target,
@@ -639,12 +647,12 @@ fn main() {
                         // The replay is done: its time is taken, and its
                         // last screen drawn once the frame in flight lands,
                         // untimed, for `FRAME_HASH`.
-                        m.presenter.wait_idle();
+                        went_idle(m.presenter.idle_within(Deadline::WAIT));
                         total = Some(t0.elapsed());
                     }
                     let fin = total.is_some();
                     if fin && !dirty && idle_left > 0 {
-                        m.presenter.wait_idle();
+                        went_idle(m.presenter.idle_within(Deadline::WAIT));
                         idle_left -= 1;
                         if let Some(pair) = caret {
                             if !shown {
@@ -873,7 +881,7 @@ fn main() {
                     copies += usize::from(held != Some(screens.now()));
                     per.push([df, dc, dd]);
                 }
-                m.presenter.wait_idle();
+                went_idle(m.presenter.idle_within(Deadline::WAIT));
                 // A frame the GPU did not draw is no frame to time.
                 if let Some(f) = m.presenter.faults() {
                     assert_eq!(f.frames_failed().value(), 0, "{f}");
@@ -1017,7 +1025,7 @@ the first cpu {:.1}, copy {:.2}",
                 let fin = idle && idle_left == 0;
                 if fin {
                     hash_left = false;
-                    gpu.wait_idle();
+                    went_idle(gpu.idle_within(Deadline::WAIT));
                     total = Some(t0.elapsed());
                 }
                 if idle && !fin {
@@ -1042,7 +1050,7 @@ the first cpu {:.1}, copy {:.2}",
                     // The bench's stand-in for the frame loop's gate: no
                     // feed while the GPU reads the grid.
                     let tw = Instant::now();
-                    gpu.wait_idle();
+                    went_idle(gpu.idle_within(Deadline::WAIT));
                     s.wait += tw.elapsed();
                 }
                 if !idle {
@@ -1220,7 +1228,7 @@ the first cpu {:.1}, copy {:.2}",
                         screen: screens.now(),
                     };
                     let done = match arm {
-                        _ if fin => Done::Wait,
+                        _ if fin => Done::Within(Deadline::WAIT),
                         Arm::Async | Arm::Slide => Done::Notify(Arc::clone(&sink)),
                         Arm::Present => {
                             // The identity the frame carries, captured the
@@ -1240,7 +1248,7 @@ the first cpu {:.1}, copy {:.2}",
                                 Completion::Failed(_) => j.fail(tag, None),
                             }))
                         }
-                        _ => Done::Wait,
+                        _ => Done::Within(Deadline::WAIT),
                     };
                     let missing = match (idle && whole) || fin {
                         true => Redraw::Whole,
@@ -1317,9 +1325,12 @@ the first cpu {:.1}, copy {:.2}",
                     match arm {
                         Arm::Gpu => {
                             let missing = ages.missing(surface);
-                            let Some(Drawn::Frame(g)) =
-                                gpu.draw_since(&mut r, &target, Done::Wait, missing)
-                            else {
+                            let Some(Drawn::Frame(g)) = gpu.draw_since(
+                                &mut r,
+                                &target,
+                                Done::Within(Deadline::WAIT),
+                                missing,
+                            ) else {
                                 panic!("draw");
                             };
                             ages.drew(surface, g.changed);
@@ -1351,7 +1362,7 @@ the first cpu {:.1}, copy {:.2}",
                     Arm::Gpu => {
                         let missing = ages.missing(surface);
                         let Some(Drawn::Frame(g)) =
-                            gpu.draw_since(&mut r, &target, Done::Wait, missing)
+                            gpu.draw_since(&mut r, &target, Done::Within(Deadline::WAIT), missing)
                         else {
                             panic!("draw");
                         };
@@ -1372,7 +1383,7 @@ the first cpu {:.1}, copy {:.2}",
                     }
                 }
             }
-            gpu.wait_idle();
+            went_idle(gpu.idle_within(Deadline::WAIT));
             let faults = gpu.faults();
             assert_eq!(faults.frames_failed().value(), 0, "{faults}");
             s.total = total.unwrap_or_else(|| t0.elapsed());

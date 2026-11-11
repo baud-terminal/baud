@@ -776,6 +776,32 @@ fn restyle(window: &NSWindow) {
 /// offers no tick before the last one's target has come.
 const FRAME_PERIOD: Duration = Duration::from_micros(8333);
 
+/// **What a frame row asks of the GPU's fault seam** (`BAUD_RIG_GPU`, in
+/// the row's environment): nothing; the act's frame's completion held
+/// past its bound with the ticks withheld (`hold`); the act's frame
+/// reported failed (`fail`); or the launch's first frame held past its
+/// bound, drawn as the window's opening draws it (`hold-launch`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GpuRow {
+    Untouched,
+    Hold,
+    Fail,
+    HoldLaunch,
+}
+
+impl GpuRow {
+    /// The row's, from its environment; `None` for a value no row spells.
+    fn of(asked: Option<&str>) -> Option<GpuRow> {
+        match asked {
+            None => Some(GpuRow::Untouched),
+            Some("hold") => Some(GpuRow::Hold),
+            Some("fail") => Some(GpuRow::Fail),
+            Some("hold-launch") => Some(GpuRow::HoldLaunch),
+            Some(_) => None,
+        }
+    }
+}
+
 /// **The frame rig** (`rig_call::FrameRig`): the window made as the event
 /// rig makes it and never shown; `setup` typed and read to its sign, the
 /// clear of the pasteboard it ends with; the display link left to settle;
@@ -796,6 +822,23 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
         return std::process::ExitCode::from(3);
     };
+    // **The fault seam, armed where the row asks** (`GpuRow`); a row that
+    // asks for it in a build without it fails rather than passing with
+    // nothing injected.
+    let Some(gpu_row) = GpuRow::of(std::env::var("BAUD_RIG_GPU").ok().as_deref()) else {
+        println!("BAUD_RIG_GPU names no row");
+        return std::process::ExitCode::from(1);
+    };
+    if gpu_row != GpuRow::Untouched {
+        let arm = match gpu_row {
+            GpuRow::HoldLaunch => probe::GpuSeam::Hold,
+            _ => probe::GpuSeam::Pass,
+        };
+        if probe::gpu_seam(arm) == probe::Seamed::NotBuilt {
+            println!("the GPU's fault seam is not built in");
+            return std::process::ExitCode::from(1);
+        }
+    }
     probe::set_key(match rig.focus {
         RigFocus::Real => probe::Key::No,
         RigFocus::Believed => probe::Key::Yes,
@@ -844,6 +887,19 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let id = crate::windows::Windows::<()>::new().open(());
     driver.window_id = Some(id);
     driver.app.os.name(id);
+    // **The launch's first frame, held** (`GpuRow::HoldLaunch`): drawn now
+    // and waited for as `show` draws it, with its completion held past
+    // the launch's bound, so the window opens with the frame drawn on the
+    // CPU; then the seam let go, and what it held delivered, late.
+    if gpu_row == GpuRow::HoldLaunch {
+        let v = driver.view.clone();
+        driver.app.present(&v, Show::Now);
+        let _ = probe::gpu_seam(probe::GpuSeam::Pass);
+        if probe::gpu_release() == baud_render::Tally::ZERO {
+            println!("the launch's frame was never held");
+            return std::process::ExitCode::from(1);
+        }
+    }
     // The first frame owed, as `show` owes it.
     driver.app.owe_tick();
     driver.pump(Trigger::Opening);
@@ -995,7 +1051,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1056,6 +1112,16 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             offered.get().saturating_sub(offered_at),
             probe::gpu_faults().frames_failed().value(),
             probe::gpu_faults().slowest.as_micros(),
+            probe::gpu_faults().overdue.value(),
+            probe::gpu_faults().late.value(),
+            probe::gpu_faults().gave_up.value(),
+            probe::gpu_whole().value(),
+            match probe::opening() {
+                probe::Opened::Unset => "unset",
+                probe::Opened::Gpu => "gpu",
+                probe::Opened::Cpu => "cpu",
+                probe::Opened::Undrawn => "undrawn",
+            },
         );
     };
     let mut offered_at = offered.get();
@@ -1080,9 +1146,6 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         rig.ticks,
         RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames
     );
-    if !frozen {
-        send_act();
-    }
     // The run: `attempts` ticks offered, or the run loop run as long with
     // no tick, the act's own turns.
     let run = |n: u16| match rig.ticks {
@@ -1093,6 +1156,60 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             }
         }
     };
+    // Until `done`, a pass at a time, within `bound`: whether it came.
+    let until = |done: &dyn Fn() -> bool, bound: Duration| {
+        let start = Instant::now();
+        while !done() && start.elapsed() < bound {
+            run(1);
+        }
+        done()
+    };
+    let fail = |why: &str| {
+        counters(reads, fed, drawn, offered_at);
+        println!("{why}");
+        std::process::ExitCode::from(1)
+    };
+    match gpu_row {
+        // **The act's frame held past its bound** (`GpuRow::Hold`), the
+        // ticks withheld: its completion held as it came, so the frame is
+        // in flight and the window holds every draw; then only the wake
+        // posted at its commit can count it, at its bound, and the window
+        // goes on holding. Released once counted, the frame lands late,
+        // and the window draws a whole frame after it on that completion's
+        // wake. Each within the bound, which is under the give-up's.
+        GpuRow::Hold => {
+            let _ = probe::gpu_seam(probe::GpuSeam::Hold);
+            send_act();
+            let held = until(&|| probe::gpu_held() != baud_render::Tally::ZERO, BOUND);
+            let _ = probe::gpu_seam(probe::GpuSeam::Pass);
+            if !held {
+                return fail("the act's frame was never held");
+            }
+            let overdue = || probe::gpu_faults().overdue != baud_render::Tally::ZERO;
+            if !until(&overdue, BOUND) {
+                let _ = probe::gpu_release();
+                return fail("the held frame was never counted overdue");
+            }
+            let whole = probe::gpu_whole();
+            if probe::gpu_release() == baud_render::Tally::ZERO {
+                return fail("nothing was held at the release");
+            }
+            if !until(&|| probe::gpu_whole() != whole, BOUND) {
+                return fail("no whole frame was drawn after the late one");
+            }
+        }
+        // **The window's next frame failed** (`GpuRow::Fail`): armed before
+        // what the window is told, whose frame fails below.
+        GpuRow::Fail => {
+            let _ = probe::gpu_seam(probe::GpuSeam::Fail);
+            send_act();
+        }
+        GpuRow::Untouched | GpuRow::HoldLaunch => {
+            if !frozen {
+                send_act();
+            }
+        }
+    }
     // Whether the act's clear was waited for by the window's step.
     let mut act_signed = false;
     // The window told, after the act: a key change with the focus door
@@ -1179,6 +1296,23 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
+    // **The frame the window was told to draw failed** (`GpuRow::Fail`):
+    // every frame from it on reported failed until one is counted, and
+    // then none. The row owes nothing else -- no act, no output -- so a
+    // frame after it is drawn only because the failure owed one; the
+    // window draws it whole, within the bound.
+    if gpu_row == GpuRow::Fail {
+        let failed = || probe::gpu_faults().frames_failed() != baud_render::Tally::ZERO;
+        let came = until(&failed, BOUND);
+        let _ = probe::gpu_seam(probe::GpuSeam::Pass);
+        if !came {
+            return fail("no frame failed");
+        }
+        let whole = probe::gpu_whole();
+        if !until(&|| probe::gpu_whole() != whole, BOUND) {
+            return fail("no whole frame was drawn after the failed one");
+        }
+    }
     match rig.ticks {
         // **Until the caret has flipped**: a clock's frames come on wall
         // time, and a pass returns after the first source it handles, so a

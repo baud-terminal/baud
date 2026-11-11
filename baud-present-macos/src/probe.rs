@@ -309,6 +309,10 @@ thread_local! {
     static DRAWN: Cell<Option<baud_render::Tally>> = const { Cell::new(None) };
     /// What the GPU's completions had counted at the window's last settle.
     static GPU: Cell<crate::metal::Faults> = Cell::new(crate::metal::Faults::default());
+    /// What the window opened with.
+    static OPENED: Cell<Opened> = const { Cell::new(Opened::Unset) };
+    /// The GPU frames committed drawn whole.
+    static WHOLE: Cell<baud_render::Tally> = const { Cell::new(baud_render::Tally::ZERO) };
     /// What the window's last settle found owed, as it spells it.
     static OWED: RefCell<String> = const { RefCell::new(String::new()) };
     /// Whether the polls still the tick's hold the link (`Lift`).
@@ -1020,6 +1024,103 @@ pub fn gpu(faults: crate::metal::Faults) {
 /// The GPU's counts at the last settle.
 pub fn gpu_faults() -> crate::metal::Faults {
     GPU.with(Cell::get)
+}
+
+/// **What the window's first frame was drawn with**, for the frame rig: the
+/// GPU, the CPU in its place ([`crate::Presenter::present_on_cpu`]), or
+/// nothing, a window that would open with a surface nothing drew.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Opened {
+    Unset,
+    Gpu,
+    Cpu,
+    Undrawn,
+}
+
+/// Whether a GPU frame was drawn whole.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Whole {
+    No,
+    Yes,
+}
+
+/// The window's first frame, as it opened with it.
+pub fn opened(with: Opened) {
+    OPENED.with(|o| o.set(with));
+}
+
+/// What the window opened with.
+pub fn opening() -> Opened {
+    OPENED.with(Cell::get)
+}
+
+/// A GPU frame committed: whether it was drawn whole, counted if it was.
+pub fn gpu_drew(whole: Whole) {
+    if whole == Whole::Yes {
+        WHOLE.with(|w| w.set(w.get().inc()));
+    }
+}
+
+/// **The GPU frames committed drawn whole**, for the frame rig: a frame
+/// after one that failed or landed late is.
+pub fn gpu_whole() -> baud_render::Tally {
+    WHOLE.with(Cell::get)
+}
+
+/// **What the frame rig asks of the GPU's fault seam** (`BAUD_RIG_GPU`):
+/// every completion reported as it was, held until released, or reported
+/// failed (`Internal`), from the next commit on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GpuSeam {
+    Pass,
+    Hold,
+    Fail,
+}
+
+/// Whether the seam took what was asked: it exists only in a build with
+/// `gpu-fault`, which a row that needs it must fail without rather than
+/// pass with nothing injected.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Seamed {
+    Armed,
+    NotBuilt,
+}
+
+/// **Arms the fault seam**: the window's GPU, and every one made after,
+/// reports what `seam` says from its next commit on.
+pub fn gpu_seam(seam: GpuSeam) -> Seamed {
+    #[cfg(feature = "gpu-fault")]
+    {
+        use crate::metal::{Cause, FaultCode, Inject};
+        crate::metal::rig_arm(match seam {
+            GpuSeam::Pass => Inject::Pass,
+            GpuSeam::Hold => Inject::Hold,
+            GpuSeam::Fail => Inject::Fail(Cause::Error(FaultCode::Internal)),
+        });
+        Seamed::Armed
+    }
+    #[cfg(not(feature = "gpu-fault"))]
+    {
+        let _ = seam;
+        Seamed::NotBuilt
+    }
+}
+
+/// The completions the seam holds.
+pub fn gpu_held() -> baud_render::Tally {
+    #[cfg(feature = "gpu-fault")]
+    return crate::metal::rig_held();
+    #[cfg(not(feature = "gpu-fault"))]
+    baud_render::Tally::ZERO
+}
+
+/// **Delivers every completion the seam holds**, on this thread, as their
+/// handlers would have: how many.
+pub fn gpu_release() -> baud_render::Tally {
+    #[cfg(feature = "gpu-fault")]
+    return crate::metal::rig_release();
+    #[cfg(not(feature = "gpu-fault"))]
+    baud_render::Tally::ZERO
 }
 
 /// **What the last settle found owed**, for the frame rig to print.

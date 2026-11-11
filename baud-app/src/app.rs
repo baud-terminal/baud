@@ -43,8 +43,8 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::settings::{AnimatedImages, Flashing, Heard, Setting};
 use baud_present_macos::{
-    CellInput, Drawn, FaultCode, Faults, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode,
-    OverlayBuffer, Presented, Presenter, StylesBuffer, SurfaceSpace,
+    Came, CellInput, Deadline, Drawn, FaultCode, Faults, Flying, Gpu, GpuFrame, GridBuffer,
+    InFlight, MapBuffer, Mode, OverlayBuffer, Presented, Presenter, StylesBuffer, SurfaceSpace,
     journal::{Reshape, Wheel},
     screens::Screens,
 };
@@ -674,6 +674,9 @@ struct App {
     /// The GPU's fault counts when a fault was last warned of, so each
     /// code is said once ([`App::warn_faults`]).
     faults_said: Faults,
+    /// The GPU's counts when a turn last heard them ([`App::heard_gpu`]),
+    /// so a frame failed or landed late since owes a whole frame.
+    faults_heard: Faults,
     wanted: Path,
     /// What the surfaces' bytes mean; the presenter tags them with it.
     space: SurfaceSpace,
@@ -1665,6 +1668,7 @@ impl App {
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
             faults_said: Faults::default(),
+            faults_heard: Faults::default(),
             wanted,
             space,
             font_size,
@@ -2279,8 +2283,21 @@ impl App {
         };
         match drawn {
             Some(Drawn::Busy) => KeptDraw::Wait,
-            Some(Drawn::Frame(_)) => {
+            Some(Drawn::Frame(g)) => {
                 self.keep = Keep::Done;
+                // In flight as any frame of the loop is, and heard from at
+                // its bounds as one is.
+                if let Some(f) = g.flying {
+                    let at = f.due(Deadline::FRAME);
+                    wake_holding(
+                        self.waker,
+                        at,
+                        FrameDue {
+                            frame: f,
+                            bound: Bound::Frame,
+                        },
+                    );
+                }
                 KeptDraw::Wait
             }
             None => {
@@ -2917,14 +2934,14 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
-                            shown = Presented::Yes;
+                            shown = self.gpu_committed(&g, show, screen);
                             self.latency.committed(|| before);
                             self.take_committed();
                             startup_first("first commit", &FIRST_COMMIT);
                             // Drawn now, the frame is on the layer and
                             // no completion follows it: marked here for
                             // the tick's splash gate (`frame`).
-                            if show == Show::Now {
+                            if show == Show::Now && shown == Presented::Yes {
                                 self.take.shown(host_now);
                                 self.layer_presented();
                                 startup_first("first present", &FIRST_PRESENT);
@@ -2960,14 +2977,14 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
-                            shown = Presented::Yes;
+                            shown = self.gpu_committed(&g, show, screen);
                             self.latency.committed(|| before);
                             self.take_committed();
                             startup_first("first commit", &FIRST_COMMIT);
                             // Drawn now, the frame is on the layer and
                             // no completion follows it: marked here for
                             // the tick's splash gate (`frame`).
-                            if show == Show::Now {
+                            if show == Show::Now && shown == Presented::Yes {
                                 self.take.shown(host_now);
                                 self.layer_presented();
                                 startup_first("first present", &FIRST_PRESENT);
@@ -3241,6 +3258,97 @@ impl App {
     }
 
     /// The frame being drawn committed, its rows at the cursor now.
+    /// **A GPU frame committed, heard from at its bounds**: a frame the
+    /// loop committed has a wake posted for its [`Deadline::FRAME`]
+    /// ([`FrameDue`]), which counts it overdue if it is still unanswered
+    /// then and posts the [`Deadline::GIVE_UP`] wake; the launch's frame
+    /// is waited for to [`Deadline::LAUNCH`], and if it did not draw by
+    /// then -- failed, or unanswered and counted overdue by the wait -- the
+    /// window opens with that frame drawn on the CPU ([`App::open_on_cpu`])
+    /// and an unanswered one's give-up wake is posted. Whether the frame
+    /// reached the layer.
+    fn gpu_committed(&mut self, g: &GpuFrame, show: Show, screen: &DrawableView) -> Presented {
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::gpu_drew(match g.drawn {
+            baud_render::Redraw::Whole => baud_present_macos::probe::Whole::Yes,
+            baud_render::Redraw::Rows(_) => baud_present_macos::probe::Whole::No,
+        });
+        let due = |frame: &Flying, bound| FrameDue {
+            frame: frame.clone(),
+            bound,
+        };
+        match show {
+            Show::Event => {
+                if let Some(f) = &g.flying {
+                    wake_holding(self.waker, f.due(Deadline::FRAME), due(f, Bound::Frame));
+                }
+                Presented::Yes
+            }
+            Show::Now => {
+                if g.waited.landed().is_ok() {
+                    #[cfg(feature = "effect-probe")]
+                    baud_present_macos::probe::opened(baud_present_macos::probe::Opened::Gpu);
+                    return Presented::Yes;
+                }
+                if let (baud_present_macos::Waited::Overdue(_), Some(f)) = (&g.waited, &g.flying) {
+                    wake_holding(self.waker, f.due(Deadline::GIVE_UP), due(f, Bound::GiveUp));
+                }
+                crate::warn!("the first frame was not drawn on the GPU: {}", g.waited);
+                self.open_on_cpu(screen)
+            }
+        }
+    }
+
+    /// **The first frame at launch, drawn on the CPU** because the GPU did
+    /// not draw it by its bound: rendered whole into the CPU frame and
+    /// shown through a surface the GPU's frame did not go to
+    /// ([`Presenter::present_on_cpu`]), so the window never opens with a
+    /// surface nothing drew; the next frame is then whole on every path.
+    /// A copy refused leaves the window with no frame, said, and the first
+    /// frame of the loop owed.
+    fn open_on_cpu(&mut self, screen: &DrawableView) -> Presented {
+        let (w, h) = (self.frame_w, self.frame_h);
+        let clear = self.renderer.clear_color();
+        let back = self.term.window_back();
+        if let Some(mut target) = Target::new(&mut self.frame, w, w, h) {
+            self.stats = self
+                .renderer
+                .render_at(&mut self.term, back, &mut target, Damage::Full);
+        }
+        self.next_damage = Damage::Full;
+        let shown = self.presenter.as_mut().map_or(Presented::No, |p| {
+            p.present_on_cpu(screen, &self.frame, w, clear)
+        });
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::opened(match shown {
+            Presented::Yes => baud_present_macos::probe::Opened::Cpu,
+            Presented::No => baud_present_macos::probe::Opened::Undrawn,
+        });
+        if shown == Presented::No {
+            crate::warn!("the first frame was not drawn on the CPU either");
+            self.owe_frame();
+        }
+        shown
+    }
+
+    /// **What the GPU's completions and bounds counted, heard on the turn
+    /// they woke**: said once a kind ([`App::warn_faults`]), and a frame
+    /// that failed or landed late since owes a whole frame -- its surface
+    /// holds nothing drawn, or what was not drawn until after its bound --
+    /// which this turn draws once no frame is in flight.
+    fn heard_gpu(&mut self) {
+        let Some(now) = self.presenter.as_ref().and_then(Presenter::faults) else {
+            return;
+        };
+        let was = self.faults_heard;
+        if now.frames_failed() != was.frames_failed() || now.late != was.late {
+            self.next_damage = Damage::Full;
+            self.owe_frame();
+        }
+        self.faults_heard = now;
+        self.warn_faults();
+    }
+
     fn take_committed(&mut self) {
         if !self.take.on() {
             return;
@@ -3372,8 +3480,9 @@ impl App {
     }
 
     /// **A GPU fault is said, once a kind**: the first frame failed with a
-    /// code, the first odd status, the first failed warm-up pass, each
-    /// with every count so far. A failed frame is not presented, and the
+    /// code, the first odd status, the first failed warm-up pass, the first
+    /// frame past its bound or late, and the GPU given up, each with every
+    /// count so far. A failed frame is not presented, and the
     /// frame after it is drawn whole (`Gpu::draw_since`), so what the
     /// window shows stays right; this is where it stops being silent.
     fn warn_faults(&mut self) {
@@ -3387,6 +3496,20 @@ impl App {
             || first(said.warm_failed, now.warm_failed);
         if new {
             crate::warn!("the GPU did not draw a frame: {now}");
+            self.faults_said = now;
+        }
+        if first(said.overdue, now.overdue) || first(said.late, now.late) {
+            crate::warn!(
+                "a GPU frame was still in flight {:?} after its commit: {now}",
+                Deadline::FRAME.get()
+            );
+            self.faults_said = now;
+        }
+        if first(said.gave_up, now.gave_up) {
+            crate::warn!(
+                "the GPU is given up for this window: a frame was still in flight {:?} after its commit, and the window holds its frames until it lands; {now}",
+                Deadline::GIVE_UP.get()
+            );
             self.faults_said = now;
         }
     }
@@ -8059,8 +8182,14 @@ mod drag_tests {
             &rest[..end]
         };
         for (call, shown) in [
-            ("p.draw_cells_now(", "if show == Show::Now {"),
-            ("p.draw_now(", "if show == Show::Now {"),
+            (
+                "p.draw_cells_now(",
+                "if show == Show::Now && shown == Presented::Yes {",
+            ),
+            (
+                "p.draw_now(",
+                "if show == Show::Now && shown == Presented::Yes {",
+            ),
             ("p.present_changed(", "== Presented::Yes {"),
         ] {
             let arm = after(call);
@@ -13667,6 +13796,10 @@ impl Responder for Driver {
         // The pointer crossing a light in the title strip, heard by its
         // tracking area since the last turn.
         self.lights_crossed();
+        // What the GPU's completions and frames' bounds counted, on the
+        // turn they woke: a frame failed or late owes a whole one, which
+        // the pump below draws.
+        self.app.heard_gpu();
         let (began, start) = (host_now(), Instant::now());
         self.pump(Trigger::Wake);
         self.app.launch_log.turn(began, start.elapsed());
@@ -16083,18 +16216,9 @@ impl Driver {
     }
 
     /// [`Driver::wake_at`], with `held` let go in the callback before the
-    /// wake, or with the callback when it is not posted: the printed paths'
-    /// worker counts its wakes still to come by it (`Posted`), so the count
-    /// holds each until its turn is posted.
-    fn wake_holding<T: Send + 'static>(&self, at: Instant, held: T) {
-        let waker = self.app.waker;
-        let after = at.saturating_duration_since(Instant::now());
-        if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
-            let _ = dispatch2::DispatchQueue::main().after(when, move || {
-                drop(held);
-                waker.wake();
-            });
-        }
+    /// wake ([`wake_holding`]).
+    fn wake_holding<T: Held>(&self, at: Instant, held: T) {
+        wake_holding(self.app.waker, at, held);
     }
 
     /// **The config read again, and what it changed applied** (`live.rs`):
@@ -22215,6 +22339,110 @@ fn judged_by<'n>(
             None
         }
         _ => Some(names),
+    }
+}
+
+/// **A turn of `pump` at `at`, from the main queue**, reached whether or
+/// not the display link is running: `held` let go in the callback, before
+/// the wake and deciding whether there is one, or with the callback when
+/// it is not posted. The printed paths' worker counts its wakes still to
+/// come by what it holds (`Posted`), so the count holds each until its
+/// turn is posted; a frame's bound is its own wake (`FrameDue`).
+fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) {
+    let after = at.saturating_duration_since(Instant::now());
+    if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            if held.let_go(waker) == Wakes::Yes {
+                waker.wake();
+            }
+        });
+    }
+}
+
+/// Whether a wake posted for a moment wakes the window once what it held
+/// is let go.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Wakes {
+    Yes,
+    No,
+}
+
+/// **What a wake posted for a moment holds** until its callback, on the
+/// main queue, lets it go -- before the window is woken, and deciding
+/// whether it is ([`wake_holding`]).
+trait Held: Send + 'static {
+    fn let_go(self, waker: Waker) -> Wakes;
+}
+
+/// A plain wake.
+impl Held for () {
+    fn let_go(self, _: Waker) -> Wakes {
+        Wakes::Yes
+    }
+}
+
+/// A printed paths' wake, counted until it is let go.
+impl Held for Posted {
+    fn let_go(self, _: Waker) -> Wakes {
+        drop(self);
+        Wakes::Yes
+    }
+}
+
+/// Which of a frame's bounds a [`FrameDue`] is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Bound {
+    /// [`Deadline::FRAME`]: overdue.
+    Frame,
+    /// [`Deadline::GIVE_UP`]: the GPU given up.
+    GiveUp,
+}
+
+/// **A frame's bound, as the wake posted at its commit carries it**: which
+/// frame -- the commit itself ([`Flying`]), not whichever is in flight
+/// when the wake runs -- and which bound. The wake is the event, on the
+/// main queue whether or not the display link runs: it counts the frame
+/// overdue only if that frame is still unanswered, and only then wakes the
+/// window, so a frame answered in time costs no turn; counting, it posts
+/// the frame's give-up wake, which gives the GPU up if the frame is still
+/// unanswered then. A wake that runs before its moment posts itself again
+/// for it.
+struct FrameDue {
+    frame: Flying,
+    bound: Bound,
+}
+
+impl Held for FrameDue {
+    fn let_go(self, waker: Waker) -> Wakes {
+        let now = Instant::now();
+        let came = match self.bound {
+            Bound::Frame => self.frame.frame_due(now),
+            Bound::GiveUp => self.frame.give_up_due(now),
+        };
+        match (came, self.bound) {
+            (Came::Early, Bound::Frame) => {
+                wake_holding(waker, self.frame.due(Deadline::FRAME), self);
+                Wakes::No
+            }
+            (Came::Early, Bound::GiveUp) => {
+                wake_holding(waker, self.frame.due(Deadline::GIVE_UP), self);
+                Wakes::No
+            }
+            (Came::Overdue, Bound::Frame) => {
+                let at = self.frame.due(Deadline::GIVE_UP);
+                wake_holding(
+                    waker,
+                    at,
+                    FrameDue {
+                        frame: self.frame,
+                        bound: Bound::GiveUp,
+                    },
+                );
+                Wakes::Yes
+            }
+            (Came::GaveUp, _) => Wakes::Yes,
+            (Came::Answered | Came::Overdue, _) => Wakes::No,
+        }
     }
 }
 

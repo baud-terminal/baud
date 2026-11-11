@@ -82,9 +82,11 @@ baud-render = { workspace = true, features = ["posed-saucer"] }
 # `macos-liquid-glass`, so these lists add nothing to what is compiled.
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 # The app's tests, and the app as a test runs it, build their pipelines
-# from the suite's binary archive (`suite-archive`): a dev-dependency's
-# feature, so the app as built and published leaves it out.
-baud-present-macos = { workspace = true, features = ["suite-archive"] }
+# from the suite's binary archive (`suite-archive`), and the event rig's
+# rows fail or hold its frames through the fault seam (`gpu-fault`):
+# dev-dependencies' features, so the app as built and published leaves
+# both out.
+baud-present-macos = { workspace = true, features = ["suite-archive", "gpu-fault"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSRunningApplication", "NSWorkspace"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFCGTypes", "CFData", "CFDate", "CFDictionary", "CFError", "CFNumber", "CFPropertyList", "CFRunLoop", "CFString"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGDirectDisplay", "CGDisplayConfiguration", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGSession", "CGWindow"] }

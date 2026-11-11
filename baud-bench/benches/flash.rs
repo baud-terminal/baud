@@ -160,7 +160,8 @@ fn main() {
     use baud_font::{Face, Px};
     use baud_present_macos::journal::SetIx;
     use baud_present_macos::{
-        CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, Target,
+        CellInput, Deadline, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
+        Target,
     };
     use baud_render::effect::Effect;
     use baud_render::{
@@ -493,10 +494,12 @@ fn main() {
                 // Drawn whole and read back every frame: a screen of its own.
                 screen: baud_present_macos::screens::ScreenGen::fresh(),
             };
-            let Some(Drawn::Frame(f)) =
-                self.gpu
-                    .draw_cells(&mut self.renderer, &input, &self.target, Done::Wait)
-            else {
+            let Some(Drawn::Frame(f)) = self.gpu.draw_cells(
+                &mut self.renderer,
+                &input,
+                &self.target,
+                Done::Within(Deadline::WAIT),
+            ) else {
                 panic!("draw_cells");
             };
             let drew = f

@@ -22,6 +22,18 @@
 //! has its answer, and a draw on the main thread that sees no frame in
 //! flight, both find the counts already taken.
 //!
+//! **Every wait has a deadline** ([`Deadline`]). A command buffer has no
+//! timed wait and no cancel (`MTLCommandBuffer.h`: `waitUntilCompleted`
+//! takes no timeout), so a frame waited for blocks on its handler's answer
+//! for at most its bound and is then [`Waited::Overdue`], still committed;
+//! a frame notified carries a [`Flying`] the window schedules its own wakes
+//! with, one at [`Deadline::FRAME`] and one at [`Deadline::GIVE_UP`] after
+//! its commit, each counting only if that frame is still unanswered. A
+//! frame counted overdue and answered after is counted late, once, by its
+//! handler: the frame's own state word ([`Mark`]) is moved from in flight
+//! to overdue by the bound, or to answered by the handler, whichever comes
+//! first, and the other reads what the first left.
+//!
 //! **The fault seam** (`gpu-fault`, dev-dependencies only): a test may
 //! replace what the handler reports with a failure ([`Inject::Fail`]), or
 //! hold the whole completion -- the count-out, the answer and the notified
@@ -43,8 +55,8 @@ use objc2_metal::{
     MTLCommandBufferStatus, MTLCommandQueue, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
 type CommandBuffer = Retained<ProtocolObject<dyn MTLCommandBuffer>>;
@@ -104,6 +116,260 @@ impl Landing {
     }
 }
 
+/// **How long a frame may be in flight before something is done about
+/// it.** No `Default` and no maximum: every wait names its bound, and the
+/// bounds are these.
+///
+/// **Where they come from.** The slowest commit-to-handler time recorded
+/// ([`Faults::slowest`]) over three runs of the whole event rig, each run
+/// alone on the GPU beside a CPU stressor, was 7.5, 12.4 and 28.8 ms: 28.8
+/// ms is the slowest any frame took. A bound that fires on a loaded but
+/// healthy machine is non-determinism, which is a defect here, so each is
+/// a stated multiple of that slowest. **Any slowest recorded over 30 ms is
+/// a finding to measure again, never a reason to raise a bound quietly**:
+/// the multiples are of 28.8 ms, and a slower frame changes what they are
+/// multiples of. The rig prints each row's slowest, and the cells suite
+/// each test's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Deadline(Duration);
+
+impl Deadline {
+    /// **300 ms, about 10x the slowest**: a window's frame still in flight
+    /// this long after its commit is overdue -- counted once and said once.
+    /// That is all it does: the window holds every draw `Busy` as before,
+    /// since the frame's set and targets may still be read.
+    pub const FRAME: Deadline = Deadline(Duration::from_millis(300));
+    /// **3 s, about 100x the slowest**: a window's frame still in flight
+    /// this long after its commit makes the window give up the GPU for the
+    /// rest of the session ([`GpuUse::GaveUp`]), never to return to it.
+    /// Counted once and said once; the window still holds every draw
+    /// `Busy` until the frame lands, since drawing on the CPU path instead
+    /// is not built.
+    pub const GIVE_UP: Deadline = Deadline(Duration::from_secs(3));
+    /// **3 s, about 100x the slowest**: a test's or a bench's wait on one
+    /// frame ([`crate::Done::Within`]) or on the GPU going idle
+    /// ([`crate::Gpu::idle_within`]). Past it the wait returns what it
+    /// found, and the caller fails naming it.
+    pub const WAIT: Deadline = Deadline(Duration::from_secs(3));
+    /// **300 ms, about 10x the slowest**: the first frame at launch, waited
+    /// for before the window opens. Past it the window opens with that
+    /// frame drawn on the CPU, never with a surface nothing drew. A launch
+    /// past it alone never gives up the GPU: only [`Deadline::GIVE_UP`]
+    /// does, counted from the same commit.
+    pub const LAUNCH: Deadline = Deadline(Duration::from_millis(300));
+
+    /// The bound as a length of time.
+    pub fn get(self) -> Duration {
+        self.0
+    }
+
+    /// A bound of the test's own, for a wait the fault seam holds past it.
+    /// Test builds only: every other wait names one of the constants.
+    #[cfg(feature = "gpu-fault")]
+    pub const fn injected(d: Duration) -> Deadline {
+        Deadline(d)
+    }
+}
+
+/// **A wait that reached its bound** with the frame still unanswered: how
+/// long it waited, and the buffer's status then. The buffer stays
+/// committed, since Metal has no cancel, and its answer, when it comes, is
+/// counted late.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Overdue {
+    pub after: Duration,
+    pub status: StatusWord,
+}
+
+/// **The GPU still busy at a wait's bound** ([`crate::Gpu::idle_within`]):
+/// how long it waited, and every count the handlers had taken.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StillBusy {
+    pub after: Duration,
+    pub faults: Box<Faults>,
+}
+
+impl fmt::Display for StillBusy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "a frame still in flight after {:?}; {}",
+            self.after, self.faults
+        )
+    }
+}
+
+/// **Whether a window still draws on the GPU**: live, or given up for the
+/// rest of the session, and why. Never back from `GaveUp`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpuUse {
+    Live,
+    GaveUp(GaveUp),
+}
+
+/// Why a window gave up the GPU.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GaveUp {
+    /// A frame still in flight at [`Deadline::GIVE_UP`].
+    Stuck,
+}
+
+/// **Which commit a frame is**, numbered from one in the order a `Gpu`
+/// committed them: what its deadline wakes carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CommitId(pub u64);
+
+/// What a frame's state word ([`Mark`]) holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum State {
+    /// Committed, its handler has not answered, and no bound has come.
+    InFlight,
+    /// A bound came first: counted overdue.
+    Overdue,
+    /// The handler answered.
+    Answered,
+}
+
+/// A [`State`] as the atomic word holds it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Word(u8);
+
+impl From<State> for Word {
+    fn from(s: State) -> Word {
+        Word(match s {
+            State::InFlight => 0,
+            State::Overdue => 1,
+            State::Answered => 2,
+        })
+    }
+}
+
+impl From<Word> for State {
+    fn from(w: Word) -> State {
+        match w.0 {
+            0 => State::InFlight,
+            1 => State::Overdue,
+            _ => State::Answered,
+        }
+    }
+}
+
+/// **One committed frame's state**, shared by its handler, its waiter and
+/// its deadline wakes: which commit, when, and where it is. A bound moves
+/// it from in flight to overdue, the handler from either to answered; each
+/// move is one atomic step, so a frame is counted overdue at most once,
+/// and late only if it was.
+struct Mark {
+    id: CommitId,
+    at: Instant,
+    state: AtomicU8,
+}
+
+impl Mark {
+    /// The bound has come: in flight becomes overdue. Whether this call
+    /// was the one that moved it, which is the one that counts it.
+    fn overdue(&self) -> bool {
+        self.state
+            .compare_exchange(
+                Word::from(State::InFlight).0,
+                Word::from(State::Overdue).0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// The handler has answered: what the state was before.
+    fn answer(&self) -> State {
+        State::from(Word(
+            self.state
+                .swap(Word::from(State::Answered).0, Ordering::AcqRel),
+        ))
+    }
+
+    fn now(&self) -> State {
+        State::from(Word(self.state.load(Ordering::Acquire)))
+    }
+}
+
+/// **A frame committed, as its deadline wakes carry it**: which commit it
+/// is, and the counts its bounds feed. Every frame a draw commits hands one
+/// back ([`crate::GpuFrame::flying`]); the window schedules a main-queue
+/// wake at each of its bounds with it, which counts only if this frame --
+/// not whichever is in flight then -- is still unanswered.
+#[derive(Clone)]
+pub struct Flying {
+    mark: Arc<Mark>,
+    counters: Arc<Counters>,
+}
+
+/// What a deadline wake found of its frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Came {
+    /// The frame was answered before the bound: nothing counted.
+    Answered,
+    /// Woken before the bound: nothing counted.
+    Early,
+    /// Still unanswered at [`Deadline::FRAME`]: counted overdue, by this
+    /// wake or by a waiter before it.
+    Overdue,
+    /// Still unanswered at [`Deadline::GIVE_UP`]: the GPU given up.
+    GaveUp,
+}
+
+impl fmt::Debug for Flying {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Flying({:?}, {:?})", self.mark.id, self.mark.now())
+    }
+}
+
+impl Flying {
+    /// Which commit this is.
+    pub fn id(&self) -> CommitId {
+        self.mark.id
+    }
+
+    /// When `bound` comes for this frame: its commit, plus the bound.
+    pub fn due(&self, bound: Deadline) -> Instant {
+        self.mark.at + bound.0
+    }
+
+    /// **Its [`Deadline::FRAME`] wake, at `now`**: counted overdue, once,
+    /// if this frame is still in flight and the bound has come.
+    pub fn frame_due(&self, now: Instant) -> Came {
+        if now < self.due(Deadline::FRAME) {
+            return Came::Early;
+        }
+        if self.mark.overdue() {
+            self.counters.overdue.fetch_add(1, Ordering::Relaxed);
+        }
+        match self.mark.now() {
+            State::Answered => Came::Answered,
+            State::InFlight | State::Overdue => Came::Overdue,
+        }
+    }
+
+    /// **Its [`Deadline::GIVE_UP`] wake, at `now`**: if this frame is still
+    /// unanswered, counted overdue if nothing counted it yet, and the GPU
+    /// given up -- counted the once a `Gpu`'s life it happens.
+    pub fn give_up_due(&self, now: Instant) -> Came {
+        if now < self.due(Deadline::GIVE_UP) {
+            return Came::Early;
+        }
+        if self.mark.overdue() {
+            self.counters.overdue.fetch_add(1, Ordering::Relaxed);
+        }
+        if self.mark.now() == State::Answered {
+            return Came::Answered;
+        }
+        let _ = self
+            .counters
+            .gave_up
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+        Came::GaveUp
+    }
+}
+
 /// **Proof that a frame waited for drew**: made only from a waited
 /// frame's [`Completion::Done`], and what [`crate::Gpu::read`] takes, so a
 /// read-back of a frame that failed, or was never waited for, does not
@@ -119,14 +385,15 @@ impl Landed {
 }
 
 /// **What a draw's wait found**: the frame drawn, with the proof a
-/// read-back takes; failed, with why; or not waited for, when the draw
-/// asked to be told instead.
+/// read-back takes; failed, with why; still unanswered at the wait's
+/// bound; or not waited for, when the draw asked to be told instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Waited {
     #[default]
     No,
     Landed(Landed),
     Failed(Fault),
+    Overdue(Overdue),
 }
 
 impl Waited {
@@ -153,6 +420,9 @@ impl fmt::Display for Waited {
             Waited::No => f.write_str("not waited for"),
             Waited::Landed(_) => f.write_str("landed"),
             Waited::Failed(fault) => write!(f, "failed, {fault}"),
+            Waited::Overdue(o) => {
+                write!(f, "unanswered after {:?}, status {}", o.after, o.status.0)
+            }
         }
     }
 }
@@ -306,9 +576,25 @@ pub struct Faults {
     /// The longest a frame took from just before its `commit()` to its
     /// handler: the time a bound on the wait has to allow.
     pub slowest: Duration,
+    /// Frames still unanswered at their bound: a waiter's, or the
+    /// window's [`Deadline::FRAME`] wake's.
+    pub overdue: Tally,
+    /// Frames counted overdue and answered after: each counted once, by
+    /// its handler.
+    pub late: Tally,
+    /// The GPU given up ([`Deadline::GIVE_UP`]): one at most.
+    pub gave_up: Tally,
 }
 
 impl Faults {
+    /// Whether the window still draws on the GPU.
+    pub fn gpu_use(&self) -> GpuUse {
+        match self.gave_up == Tally::ZERO {
+            true => GpuUse::Live,
+            false => GpuUse::GaveUp(GaveUp::Stuck),
+        }
+    }
+
     /// The frames that failed with `code`.
     pub fn of(&self, code: FaultCode) -> Tally {
         *code.pick(&self.failed)
@@ -328,10 +614,13 @@ impl fmt::Display for Faults {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "gpu: {} failed, {} odd, {} warm failed, slowest {:?}",
+            "gpu: {} failed, {} odd, {} warm failed, {} overdue, {} late, {} gave up, slowest {:?}",
             self.frames_failed().value(),
             self.odd_status.value(),
             self.warm_failed.value(),
+            self.overdue.value(),
+            self.late.value(),
+            self.gave_up.value(),
             self.slowest
         )?;
         for code in FaultCode::NAMED {
@@ -357,6 +646,9 @@ struct Counters {
     odd_status: AtomicU64,
     warm_failed: AtomicU64,
     slowest: AtomicU64,
+    overdue: AtomicU64,
+    late: AtomicU64,
+    gave_up: AtomicU64,
 }
 
 impl Counters {
@@ -396,6 +688,9 @@ impl Counters {
             odd_status: tally(&self.odd_status),
             warm_failed: tally(&self.warm_failed),
             slowest: Duration::from_nanos(self.slowest.load(Ordering::Relaxed)),
+            overdue: tally(&self.overdue),
+            late: tally(&self.late),
+            gave_up: tally(&self.gave_up),
         }
     }
 }
@@ -408,10 +703,16 @@ enum Kind {
     Warm,
 }
 
+/// A closure a late answer runs, on the GPU's completion thread: what a
+/// frame waited for and given up on at its bound wakes the window with when
+/// it does land.
+pub type Late = Arc<dyn Fn() + Send + Sync>;
+
 /// What [`Encoded::commit`] does when the buffer completes.
 pub(crate) enum Then {
-    /// Answers [`Committed::wait`].
-    Wait,
+    /// Answers [`Committed::wait`], which waits for at most the bound; an
+    /// answer after it runs the closure, if there is one.
+    Within(Deadline, Option<Late>),
     /// Runs this, on the GPU's completion thread, under
     /// [`crate::unwind::guard`] so a panic in it cannot unwind into Metal.
     Notify(Arc<dyn Fn(Completion) + Send + Sync>),
@@ -422,7 +723,7 @@ pub(crate) enum Then {
 /// Where a completion's answer goes: [`Then`] with the channel made.
 #[derive(Clone)]
 enum Answer {
-    Wait(SyncSender<Completion>),
+    Wait(SyncSender<Completion>, Option<Late>),
     Notify(Arc<dyn Fn(Completion) + Send + Sync>),
     Discard,
 }
@@ -432,17 +733,24 @@ enum Answer {
 pub(crate) struct Flight {
     in_flight: Arc<AtomicUsize>,
     counters: Arc<Counters>,
+    /// The commits made, for the next one's [`CommitId`].
+    commits: AtomicU64,
     #[cfg(feature = "gpu-fault")]
     seam: Arc<Seam>,
 }
 
 impl Flight {
     pub(crate) fn new() -> Flight {
+        #[cfg(feature = "gpu-fault")]
+        let seam = Arc::new(Seam::default());
+        #[cfg(all(feature = "gpu-fault", feature = "effect-probe"))]
+        rig::made(&seam);
         Flight {
             in_flight: Arc::new(AtomicUsize::new(0)),
             counters: Arc::new(Counters::default()),
+            commits: AtomicU64::new(0),
             #[cfg(feature = "gpu-fault")]
-            seam: Arc::new(Seam::default()),
+            seam,
         }
     }
 
@@ -457,11 +765,23 @@ impl Flight {
         self.counters.read()
     }
 
-    /// **Spins until no frame is in flight**, for a bench or a test that
-    /// must not write what a frame reads. The one loop on a frame in
-    /// flight; it has no bound yet.
-    pub(crate) fn wait_idle(&self) {
-        while self.busy() {
+    /// **Spins until no frame is in flight, for at most `bound`**, for a
+    /// bench or a test that must not write what a frame reads. The one
+    /// loop on a frame in flight; past the bound it says so with every
+    /// count, for the caller to fail on.
+    pub(crate) fn idle_within(&self, bound: Deadline) -> Result<(), StillBusy> {
+        let start = Instant::now();
+        loop {
+            if !self.busy() {
+                return Ok(());
+            }
+            let after = start.elapsed();
+            if after >= bound.0 {
+                return Err(StillBusy {
+                    after,
+                    faults: Box::new(self.faults()),
+                });
+            }
             std::hint::spin_loop();
         }
     }
@@ -509,31 +829,46 @@ impl Encoded {
 
     /// **Commits the buffer with the status-reading handler**, counting a
     /// frame in flight until the handler counts it out. The only
-    /// `commit()` in the crate.
+    /// `commit()` in the crate. A frame's [`Mark`] is made here, before the
+    /// commit, and shared with the handler, the waiter and the window's
+    /// deadline wakes ([`Committed::flying`]).
     pub(crate) fn commit(self, flight: &Flight, then: Then) -> Committed {
         let kind = match then {
             Then::Discard => Kind::Warm,
-            Then::Wait | Then::Notify(_) => Kind::Frame,
+            Then::Within(..) | Then::Notify(_) => Kind::Frame,
         };
         let (answer, rx) = match then {
-            Then::Wait => {
+            Then::Within(bound, late) => {
                 let (tx, rx) = sync_channel(1);
-                (Answer::Wait(tx), Some(rx))
+                (Answer::Wait(tx, late), Some((rx, bound)))
             }
             Then::Notify(f) => (Answer::Notify(f), None),
             Then::Discard => (Answer::Discard, None),
         };
-        let flying = match kind {
+        let at = Instant::now();
+        let (flying, mark) = match kind {
             Kind::Frame => {
                 flight.in_flight.fetch_add(1, Ordering::AcqRel);
-                Some(Arc::clone(&flight.in_flight))
+                let id = CommitId(flight.commits.fetch_add(1, Ordering::Relaxed) + 1);
+                let mark = Arc::new(Mark {
+                    id,
+                    at,
+                    state: AtomicU8::new(Word::from(State::InFlight).0),
+                });
+                (
+                    Some(Arc::clone(&flight.in_flight)),
+                    Some(Flying {
+                        mark,
+                        counters: Arc::clone(&flight.counters),
+                    }),
+                )
             }
-            Kind::Warm => None,
+            Kind::Warm => (None, None),
         };
         let counters = Arc::clone(&flight.counters);
         #[cfg(feature = "gpu-fault")]
         let (seam, inject) = (Arc::clone(&flight.seam), flight.seam.inject());
-        let at = Instant::now();
+        let marked = mark.as_ref().map(|f| Arc::clone(&f.mark));
         let block = RcBlock::new(move |done: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
             let took = at.elapsed();
             // SAFETY: Metal hands the handler the command buffer that
@@ -542,19 +877,33 @@ impl Encoded {
             #[cfg(feature = "gpu-fault")]
             let completion = inject.report(completion);
             let deliver = {
-                let (counters, flying, answer) =
-                    (Arc::clone(&counters), flying.clone(), answer.clone());
+                let (counters, flying, answer, marked) = (
+                    Arc::clone(&counters),
+                    flying.clone(),
+                    answer.clone(),
+                    marked.clone(),
+                );
                 #[cfg(feature = "gpu-fault")]
                 let seam = Arc::clone(&seam);
                 move || {
                     counters.count(kind, &completion, took);
+                    // Answered: late if a bound came first, counted before
+                    // the count-out, as every count is.
+                    let late = marked.is_some_and(|m| m.answer() == State::Overdue);
+                    if late {
+                        counters.late.fetch_add(1, Ordering::Relaxed);
+                    }
                     if let Some(f) = &flying {
                         f.fetch_sub(1, Ordering::AcqRel);
                     }
                     match answer {
-                        // A waiter that has gone takes nothing.
-                        Answer::Wait(tx) => {
+                        // A waiter that has gone takes nothing; one gone at
+                        // its bound is told the frame landed after all.
+                        Answer::Wait(tx, then_late) => {
                             let _ = tx.try_send(completion);
+                            if let (true, Some(then)) = (late, then_late) {
+                                guard(SiteName("a late frame's GPU completion"), (), || then());
+                            }
                         }
                         Answer::Notify(then) => {
                             guard(SiteName("a frame's GPU completion"), (), || {
@@ -579,26 +928,67 @@ impl Encoded {
         // after.
         unsafe { self.cmd.addCompletedHandler(RcBlock::as_ptr(&block)) };
         self.cmd.commit();
-        Committed { rx }
+        Committed {
+            rx,
+            flying: mark,
+            cmd: self.cmd,
+        }
     }
 }
 
-/// A committed buffer, which a [`Then::Wait`] commit is answered through.
+/// A committed buffer: its frame's [`Flying`], and the answer a
+/// [`Then::Within`] commit is waited for through.
 pub(crate) struct Committed {
-    rx: Option<Receiver<Completion>>,
+    rx: Option<(Receiver<Completion>, Deadline)>,
+    flying: Option<Flying>,
+    cmd: CommandBuffer,
 }
 
 impl Committed {
-    /// **Blocks until the handler answers.** Not yet bounded. A commit that
-    /// asked for no answer, or a handler let go without one, is a
+    /// The frame, as its deadline wakes carry it; none for the warm-up
+    /// pass, which is no frame.
+    pub(crate) fn flying(&self) -> Option<Flying> {
+        self.flying.clone()
+    }
+
+    /// **Blocks until the handler answers, for at most the commit's
+    /// bound** ([`Then::Within`]), from the moment it was committed. Past
+    /// it the frame is counted overdue -- by this wait, unless the answer
+    /// came in the same instant -- and is [`Waited::Overdue`], still
+    /// committed; its answer, when it comes, is counted late. A commit
+    /// that asked for no answer, or a handler let go without one, is a
     /// [`Cause::Unanswered`] failure rather than a hang.
-    pub(crate) fn wait(self) -> Completion {
-        self.rx.and_then(|rx| rx.recv().ok()).unwrap_or_else(|| {
-            Completion::Failed(Fault {
+    pub(crate) fn wait(self) -> Waited {
+        let unanswered = || {
+            Waited::Failed(Fault {
                 cause: Cause::Unanswered,
                 text: "the completion handler answered nothing".into(),
             })
-        })
+        };
+        let Some((rx, bound)) = self.rx else {
+            return unanswered();
+        };
+        let Some(flying) = self.flying else {
+            return unanswered();
+        };
+        let left = flying.due(bound).saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(c) => Waited::of(c),
+            Err(RecvTimeoutError::Disconnected) => unanswered(),
+            Err(RecvTimeoutError::Timeout) => {
+                if flying.mark.overdue() {
+                    flying.counters.overdue.fetch_add(1, Ordering::Relaxed);
+                    return Waited::Overdue(Overdue {
+                        after: flying.mark.at.elapsed(),
+                        status: StatusWord(u64::try_from(self.cmd.status().0).unwrap_or(u64::MAX)),
+                    });
+                }
+                // Answered as the bound came: the handler moved the state
+                // before it sends, so the answer is a send away.
+                rx.recv_timeout(bound.0)
+                    .map_or_else(|_| unanswered(), Waited::of)
+            }
+        }
     }
 }
 
@@ -754,6 +1144,68 @@ impl Seam {
         self.lock().delivered.bump();
         self.changed.notify_all();
     }
+
+    fn held(&self) -> Tally {
+        Tally::of(self.lock().held.len())
+    }
+
+    /// Delivers every held completion on this thread, in the order held.
+    fn release(&self) -> Tally {
+        let held = core::mem::take(&mut self.lock().held);
+        let n = Tally::of(held.len());
+        for deliver in held {
+            deliver();
+        }
+        n
+    }
+}
+
+/// **The event rig's doors to the fault seam** (`effect-probe` with
+/// `gpu-fault`): the rig's child has no `Gpu` to inject through -- the
+/// window's is made on another thread and owned by its presenter -- so the
+/// last seam made is kept here, and what the rig arms applies to it and to
+/// every one made after.
+#[cfg(all(feature = "gpu-fault", feature = "effect-probe"))]
+pub(crate) mod rig {
+    use super::{Inject, Seam};
+    use baud_render::Tally;
+    use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+    /// What every seam made from now on reports.
+    static ARMED: Mutex<Inject> = Mutex::new(Inject::Pass);
+    /// The last seam made: the window's.
+    static LAST: Mutex<Option<Arc<Seam>>> = Mutex::new(None);
+
+    fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A seam made: it reports what is armed, and is the one the doors
+    /// reach.
+    pub(super) fn made(seam: &Arc<Seam>) {
+        seam.lock().inject = *lock(&ARMED);
+        *lock(&LAST) = Some(Arc::clone(seam));
+    }
+
+    /// What the completions of frames committed from now on report, on
+    /// the last seam made and every one after.
+    pub(crate) fn arm(inject: Inject) {
+        *lock(&ARMED) = inject;
+        if let Some(s) = lock(&LAST).as_ref() {
+            s.lock().inject = inject;
+        }
+    }
+
+    /// The completions the last seam made holds.
+    pub(crate) fn held() -> Tally {
+        lock(&LAST).as_ref().map_or(Tally::ZERO, |s| s.held())
+    }
+
+    /// Delivers what the last seam made holds, on this thread.
+    pub(crate) fn release() -> Tally {
+        let seam = lock(&LAST).clone();
+        seam.map_or(Tally::ZERO, |s| s.release())
+    }
 }
 
 #[cfg(feature = "gpu-fault")]
@@ -763,17 +1215,12 @@ impl Flight {
     }
 
     pub(crate) fn held(&self) -> Tally {
-        Tally::of(self.seam.lock().held.len())
+        self.seam.held()
     }
 
     /// Delivers every held completion on this thread, in the order held.
     pub(crate) fn release(&self) -> Tally {
-        let held = core::mem::take(&mut self.seam.lock().held);
-        let n = Tally::of(held.len());
-        for deliver in held {
-            deliver();
-        }
-        n
+        self.seam.release()
     }
 
     /// Waits up to `within` until `n` completions are held; how many are.

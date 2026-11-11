@@ -11,10 +11,10 @@ use baud_domain::{Cols, Rows};
 use baud_font::Face;
 use baud_present_macos::journal::Reshape;
 use baud_present_macos::{
-    Cause, Done, Drawn, ErrorNumber, FaultCode, Gpu, InFlight, Inject, Presenter, StatusWord,
-    Waited, Wake,
+    Came, Cause, Deadline, Done, Drawn, ErrorNumber, FaultCode, GaveUp, Gpu, GpuUse, InFlight,
+    Inject, Presenter, StatusWord, Waited, Wake,
 };
-use baud_render::{Blend, PxSize, Renderer, Stack, Tally, Theme};
+use baud_render::{Blend, PxSize, Redraw, Renderer, Stack, Tally, Theme};
 use macos_liquid_glass::drawable::{ColorSpace, SurfaceHandle};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -166,7 +166,7 @@ fn every_fault_counter_is_fed() {
         .collect();
     for code in &codes {
         g.inject(Inject::Fail(Cause::Error(*code)));
-        let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Wait) else {
+        let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(Deadline::WAIT)) else {
             panic!("{code:?}: a frame");
         };
         match &f.waited {
@@ -175,7 +175,7 @@ fn every_fault_counter_is_fed() {
         }
     }
     g.inject(Inject::Fail(Cause::Odd(StatusWord(3))));
-    let Some(Drawn::Frame(_)) = g.draw(&mut r, &target, Done::Wait) else {
+    let Some(Drawn::Frame(_)) = g.draw(&mut r, &target, Done::Within(Deadline::WAIT)) else {
         panic!("the odd frame");
     };
     g.inject(Inject::Fail(Cause::Error(FaultCode::Internal)));
@@ -200,7 +200,7 @@ fn every_fault_counter_is_fed() {
     );
     assert!(faults.slowest > Duration::ZERO, "{faults}");
     // And a frame that draws counts nothing.
-    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Wait) else {
+    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(Deadline::WAIT)) else {
         panic!("a frame");
     };
     assert!(f.waited.landed().is_ok(), "{}", f.waited);
@@ -263,4 +263,193 @@ fn a_held_completion_holds_the_frame_in_flight_until_released() {
     delivered(&p, 2);
     assert_eq!(watch.seen(), (2, 2));
     assert_eq!(p.counts().landed, 2);
+}
+
+/// **A wait past its bound returns, and says so** (T2): a frame whose
+/// completion the seam holds is waited for with a bound of the test's own,
+/// 50 ms, and the wait returns `Overdue` -- the frame still committed and
+/// in flight, counted overdue once -- rather than blocking until the
+/// completion comes, which here is never. Break: the wait blocking with no
+/// bound, and the test hangs until its runner's bound kills it.
+#[test]
+fn a_wait_past_its_deadline_returns_overdue() {
+    let data = font();
+    let faces = [Face::parse(&data).expect("a face")];
+    let mut r = renderer(&faces);
+    let mut g = Gpu::new().expect("a Metal device; this test cannot skip itself");
+    let (w, h) = r.whole_size();
+    let target = g.offscreen(w, h).expect("a target");
+    g.inject(Inject::Hold);
+    let bound = Deadline::injected(Duration::from_millis(50));
+    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(bound)) else {
+        panic!("the held frame commits");
+    };
+    g.inject(Inject::Pass);
+    let Waited::Overdue(o) = &f.waited else {
+        panic!("the wait found {}", f.waited);
+    };
+    assert!(o.after >= bound.get(), "returned before its bound: {o:?}");
+    assert_eq!(
+        g.in_flight(),
+        InFlight::Busy,
+        "still committed, still in flight"
+    );
+    let faults = g.faults();
+    assert_eq!(
+        (faults.overdue.value(), faults.late.value()),
+        (1, 0),
+        "{faults}"
+    );
+    assert_eq!(g.release().value(), 1, "the one completion held");
+    assert_eq!(g.in_flight(), InFlight::Idle);
+}
+
+/// **A completion after its bound is counted out once, and counted late**
+/// (T8): the frame waited for past its bound is still in flight; released,
+/// its handler counts it late and out of flight, once, and the frame after
+/// it is compared with nothing and drawn whole, since the one before was
+/// for every consumer not drawn until it landed. Breaks: the waiter
+/// counting the frame out of flight at its bound as well as the handler,
+/// and the count wraps and reads busy for ever; the handler not counting a
+/// late answer, and `late` reads 0.
+#[test]
+fn the_late_completion_counts_out_once() {
+    let data = font();
+    let faces = [Face::parse(&data).expect("a face")];
+    let mut r = renderer(&faces);
+    let mut g = Gpu::new().expect("a Metal device; this test cannot skip itself");
+    let (w, h) = r.whole_size();
+    let target = g.offscreen(w, h).expect("a target");
+    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(Deadline::WAIT)) else {
+        panic!("the first frame");
+    };
+    assert!(f.waited.landed().is_ok(), "{}", f.waited);
+
+    g.inject(Inject::Hold);
+    let bound = Deadline::injected(Duration::from_millis(50));
+    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(bound)) else {
+        panic!("the held frame commits");
+    };
+    g.inject(Inject::Pass);
+    assert!(matches!(f.waited, Waited::Overdue(_)), "{}", f.waited);
+    assert_eq!(
+        g.in_flight(),
+        InFlight::Busy,
+        "in flight until it is answered"
+    );
+    assert_eq!(g.release().value(), 1);
+    assert_eq!(g.release().value(), 0, "delivered once");
+    assert_eq!(g.in_flight(), InFlight::Idle, "counted out of flight once");
+    let faults = g.faults();
+    assert_eq!(
+        (faults.overdue.value(), faults.late.value()),
+        (1, 1),
+        "{faults}"
+    );
+
+    let Some(Drawn::Frame(f)) = g.draw(&mut r, &target, Done::Within(Deadline::WAIT)) else {
+        panic!("the frame after");
+    };
+    assert!(f.waited.landed().is_ok(), "{}", f.waited);
+    assert_eq!(
+        f.drawn,
+        Redraw::Whole,
+        "the frame after a late one is drawn whole"
+    );
+    assert_eq!(g.faults().late.value(), 1, "a frame in time is not late");
+}
+
+/// **A notified frame's bounds, as the window's wakes meet them** (M2):
+/// the frame carries which commit it is, and its wakes count only that
+/// frame. Before its bound a wake counts nothing; at
+/// [`Deadline::FRAME`] it is counted overdue, once however many wakes come;
+/// at [`Deadline::GIVE_UP`] the GPU is given up, once for the GPU's life;
+/// answered after, it is counted late, presented and woken; and a frame
+/// answered in time is never counted by its wakes, at any bound. The
+/// instants are the frame's own commit plus each bound, so no wall time
+/// is waited. Breaks: a wake counting whatever frame is in flight rather
+/// than its own, and the frame answered in time reads overdue; the frame
+/// bound's count dropped, and `overdue` reads 0.
+#[test]
+fn a_notified_frame_is_overdue_at_its_bound_and_late_after() {
+    let data = font();
+    let faces = [Face::parse(&data).expect("a face")];
+    let mut r = renderer(&faces);
+    let mut p = presenter(&r);
+    let watch = Watcher::default();
+
+    gpu(&p).inject(Inject::Hold);
+    let Some(Drawn::Frame(f)) = p.draw(watch.clone(), &mut r) else {
+        panic!("the held frame commits");
+    };
+    gpu(&p).inject(Inject::Pass);
+    let held = f.flying.expect("a committed frame carries its commit");
+    assert_eq!(gpu(&p).await_held(Tally::of(1), OWED).value(), 1);
+
+    let frame = held.due(Deadline::FRAME);
+    let early = frame
+        .checked_sub(Duration::from_millis(1))
+        .expect("an instant");
+    assert_eq!(held.frame_due(early), Came::Early);
+    assert_eq!(p.faults().expect("gpu").overdue.value(), 0);
+    assert_eq!(held.frame_due(frame), Came::Overdue);
+    assert_eq!(held.frame_due(frame), Came::Overdue, "a second wake");
+    let faults = p.faults().expect("gpu");
+    assert_eq!(faults.overdue.value(), 1, "counted once: {faults}");
+    assert_eq!(
+        gpu(&p).gpu_use(),
+        GpuUse::Live,
+        "overdue alone gives nothing up"
+    );
+    assert_eq!(
+        p.in_flight(),
+        InFlight::Busy,
+        "and the window holds every draw"
+    );
+    assert!(matches!(p.draw(watch.clone(), &mut r), Some(Drawn::Busy)));
+
+    let give_up = held.due(Deadline::GIVE_UP);
+    assert_eq!(held.give_up_due(give_up), Came::GaveUp);
+    assert_eq!(held.give_up_due(give_up), Came::GaveUp, "a second wake");
+    let faults = p.faults().expect("gpu");
+    assert_eq!(
+        (faults.overdue.value(), faults.gave_up.value()),
+        (1, 1),
+        "{faults}"
+    );
+    assert_eq!(gpu(&p).gpu_use(), GpuUse::GaveUp(GaveUp::Stuck));
+
+    assert_eq!(gpu(&p).release().value(), 1);
+    assert_eq!(p.in_flight(), InFlight::Idle);
+    assert_eq!(watch.seen(), (1, 1), "the late frame is shown and woken");
+    let faults = p.faults().expect("gpu");
+    assert_eq!(faults.late.value(), 1, "{faults}");
+    assert_eq!(held.frame_due(frame), Came::Answered);
+
+    // A frame answered in time: its wakes count nothing, at either bound.
+    let Some(Drawn::Frame(f)) = p.draw(watch.clone(), &mut r) else {
+        panic!("the frame after");
+    };
+    delivered(&p, 2);
+    let on_time = f.flying.expect("its commit");
+    assert!(on_time.id() > held.id(), "{on_time:?} after {held:?}");
+    assert_eq!(
+        on_time.frame_due(on_time.due(Deadline::FRAME)),
+        Came::Answered
+    );
+    assert_eq!(
+        on_time.give_up_due(on_time.due(Deadline::GIVE_UP)),
+        Came::Answered
+    );
+    let after = p.faults().expect("gpu");
+    assert_eq!(
+        (after.overdue, after.late, after.gave_up),
+        (faults.overdue, faults.late, faults.gave_up),
+        "{after}"
+    );
+    assert_eq!(
+        gpu(&p).gpu_use(),
+        GpuUse::GaveUp(GaveUp::Stuck),
+        "never back"
+    );
 }

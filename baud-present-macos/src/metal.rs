@@ -195,9 +195,14 @@ pub struct GpuFrame {
     /// was missing before it, or the whole.
     pub drawn: Redraw,
     /// **What the wait found**, on a frame waited for: drawn, with the
-    /// proof [`Gpu::read`] takes, or failed, with why. [`Waited::No`] on the
-    /// asynchronous path, whose answer arrives through [`Done::Notify`].
+    /// proof [`Gpu::read`] takes, failed, with why, or unanswered at its
+    /// bound. [`Waited::No`] on the asynchronous path, whose answer arrives
+    /// through [`Done::Notify`].
     pub waited: Waited,
+    /// **The frame, as its deadline wakes carry it**: the window schedules
+    /// a wake at each of its bounds with it ([`Deadline::FRAME`],
+    /// [`Deadline::GIVE_UP`]). `None` only on a frame never committed.
+    pub flying: Option<Flying>,
 }
 
 /// Which of the ring's instance buffers is written next.
@@ -634,10 +639,16 @@ struct CursorCode(u32);
 
 /// What to do when the GPU finishes a frame.
 pub enum Done {
-    /// Block until it has: for a bench or a test that reads the target
-    /// back, and the first frame at launch. Never in a frame loop. What the
-    /// wait found is the frame's [`GpuFrame::waited`].
-    Wait,
+    /// Block until it has, for at most the bound: for a bench or a test
+    /// that reads the target back ([`Deadline::WAIT`]). Never in a frame
+    /// loop. What the wait found is the frame's [`GpuFrame::waited`]: past
+    /// the bound, [`Waited::Overdue`], the frame still committed.
+    Within(Deadline),
+    /// [`Done::Within`], and an answer that comes after the bound runs
+    /// this, on the GPU's completion thread: the first frame at launch
+    /// ([`Deadline::LAUNCH`]), whose window is open by then and is woken
+    /// to draw again.
+    WithinThen(Deadline, Late),
     /// Run this on the GPU's completion thread, and return at once. It is
     /// handed the frame's [`Completion`]: drawn, with its [`Landing`] --
     /// its own GPU time and when it ended on the host clock, which exist
@@ -650,8 +661,8 @@ pub enum Done {
 /// What a draw did.
 #[derive(Clone, Debug)]
 pub enum Drawn {
-    /// Committed; with [`Done::Wait`], completed, and what the wait found
-    /// in [`GpuFrame::waited`].
+    /// Committed; with [`Done::Within`], completed or past the bound, and
+    /// what the wait found in [`GpuFrame::waited`].
     Frame(GpuFrame),
     /// A frame is still in flight and reads the memory this one would
     /// bind, so nothing was done. The caller hears about the completion
@@ -751,10 +762,10 @@ pub struct Gpu {
     /// Frames committed and not yet completed -- zero or one -- and what
     /// every completion's handler counted ([`commit`]).
     flight: Flight,
-    /// The frames the handlers had counted failed when the last draw
-    /// looked: a count past it is a failure since, and the frame it was
-    /// is not what [`Gpu::last`] says was drawn.
-    failed_seen: Tally,
+    /// The frames the handlers had counted failed, and late, when the last
+    /// draw looked: a count past either is a frame since that is not what
+    /// [`Gpu::last`] says was drawn.
+    failed_seen: (Tally, Tally),
     /// Whether the last frame committed was a screen switch's kept frame,
     /// whose failure leaves the slide nothing defined to slide over.
     kept: Kept,
@@ -1171,8 +1182,11 @@ mod suite;
 mod commit;
 #[cfg(feature = "gpu-fault")]
 pub use commit::Inject;
+#[cfg(all(feature = "gpu-fault", feature = "effect-probe"))]
+pub(crate) use commit::rig::{arm as rig_arm, held as rig_held, release as rig_release};
 pub use commit::{
-    Cause, Completion, ErrorNumber, Fault, FaultCode, Faults, Landed, Landing, StatusWord, Waited,
+    Came, Cause, CommitId, Completion, Deadline, ErrorNumber, Fault, FaultCode, Faults, Flying,
+    GaveUp, GpuUse, Landed, Landing, Late, Overdue, StatusWord, StillBusy, Waited,
 };
 use commit::{Encoded, Flight, Then};
 
@@ -1481,7 +1495,7 @@ impl Gpu {
             images: Vec::new(),
             image_gen: ImageGen::ZERO,
             flight: Flight::new(),
-            failed_seen: Tally::ZERO,
+            failed_seen: (Tally::ZERO, Tally::ZERO),
             kept: Kept::No,
             build,
             last: Last::None,
@@ -1531,16 +1545,23 @@ impl Gpu {
     }
 
     /// What every completion's handler has counted: the frames that
-    /// failed, by code, the warm-up pass, and the slowest frame.
+    /// failed, by code, the warm-up pass, the slowest frame, and the
+    /// frames past their bounds.
     pub fn faults(&self) -> Faults {
         self.flight.faults()
     }
 
-    /// **Waits until no frame is in flight**, spinning: for a bench or a
-    /// test about to write what a frame reads. Never in a frame loop,
-    /// which its completion tells.
-    pub fn wait_idle(&self) {
-        self.flight.wait_idle();
+    /// Whether the window still draws on the GPU, or gave it up.
+    pub fn gpu_use(&self) -> GpuUse {
+        self.flight.faults().gpu_use()
+    }
+
+    /// **Waits until no frame is in flight, for at most `bound`**,
+    /// spinning: for a bench or a test about to write what a frame reads.
+    /// Never in a frame loop, which its completion tells. Past the bound,
+    /// what was counted, for the caller to fail on.
+    pub fn idle_within(&self, bound: Deadline) -> Result<(), StillBusy> {
+        self.flight.idle_within(bound)
     }
 
     /// **The fault seam**: what the completions of the frames committed
@@ -1576,16 +1597,19 @@ impl Gpu {
         self.flight.await_delivered(n, within)
     }
 
-    /// **A frame that failed since the last draw looked is not the last
-    /// frame**: its target holds undefined content, so the next frame is
-    /// compared with nothing and drawn whole, and a failed kept frame
-    /// leaves no slide. The handler counts a failure before it counts the
-    /// frame out, and the busy check before this acquires the count-out,
-    /// so a failure is never missed here.
+    /// **A frame that failed, or landed late, since the last draw looked
+    /// is not the last frame**: a failed one's target holds undefined
+    /// content, and one past its bound was for every consumer not drawn
+    /// until it landed, so the next frame is compared with nothing and
+    /// drawn whole, and a kept frame leaves no slide. The handler counts a
+    /// failure or a late answer before it counts the frame out, and the
+    /// busy check before this acquires the count-out, so neither is missed
+    /// here.
     fn take_failures(&mut self) {
-        let failed = self.flight.faults().frames_failed();
-        if failed != self.failed_seen {
-            self.failed_seen = failed;
+        let f = self.flight.faults();
+        let seen = (f.frames_failed(), f.late);
+        if seen != self.failed_seen {
+            self.failed_seen = seen;
             self.forget_last();
         }
     }
@@ -2388,11 +2412,12 @@ impl Gpu {
     }
 
     /// A kept frame committed: the last frame is a kept one, and a kept
-    /// frame waited for that failed leaves no slide now.
+    /// frame waited for that failed, or is past its bound, leaves no slide
+    /// now.
     fn kept(&mut self, drawn: Option<Drawn>) -> Option<Drawn> {
         if let Some(Drawn::Frame(f)) = &drawn {
             self.kept = Kept::Yes;
-            if let Waited::Failed(_) = f.waited {
+            if let Waited::Failed(_) | Waited::Overdue(_) = f.waited {
                 self.forget_last();
             }
         }
@@ -2544,31 +2569,34 @@ impl Gpu {
         Some((cmd, enc))
     }
 
-    /// Commits `cmd` ([`Encoded::commit`]): waits, or arms `done` and
-    /// returns. The frame is counted in flight either way, and out again by
-    /// its handler. The time is the commit's -- with the wait, on
-    /// [`Done::Wait`] -- and the wait's finding is the frame's
-    /// [`GpuFrame::waited`].
-    fn commit(&self, cmd: Encoded, done: Done) -> (Duration, Waited) {
+    /// Commits `cmd` ([`Encoded::commit`]): waits, for at most the bound,
+    /// or arms `done` and returns. The frame is counted in flight either
+    /// way, and out again by its handler. The time is the commit's -- with
+    /// the wait, on [`Done::Within`] -- and the wait's finding is the
+    /// frame's [`GpuFrame::waited`]; the frame as its deadline wakes carry
+    /// it is its [`GpuFrame::flying`].
+    fn commit(&self, cmd: Encoded, done: Done) -> (Duration, Waited, Option<Flying>) {
         let t1 = Instant::now();
-        match done {
-            Done::Wait => {
-                let waited = Waited::of(cmd.commit(&self.flight, Then::Wait).wait());
-                (t1.elapsed(), waited)
-            }
-            Done::Notify(then) => {
-                let _ = cmd.commit(&self.flight, Then::Notify(then));
-                (t1.elapsed(), Waited::No)
-            }
-        }
+        let (then, waits) = match done {
+            Done::Within(bound) => (Then::Within(bound, None), true),
+            Done::WithinThen(bound, late) => (Then::Within(bound, Some(late)), true),
+            Done::Notify(then) => (Then::Notify(then), false),
+        };
+        let committed = cmd.commit(&self.flight, then);
+        let flying = committed.flying();
+        let waited = match waits {
+            true => committed.wait(),
+            false => Waited::No,
+        };
+        (t1.elapsed(), waited, flying)
     }
 
     /// What a draw that committed `waited` leaves: the last frame, unless
-    /// a frame waited for failed, which leaves none; the frame is not a
-    /// kept one until [`Gpu::kept`] says so.
+    /// a frame waited for failed or is past its bound, which leaves none;
+    /// the frame is not a kept one until [`Gpu::kept`] says so.
     fn committed(&mut self, waited: &Waited) {
         self.kept = Kept::No;
-        if let Waited::Failed(_) = waited {
+        if let Waited::Failed(_) | Waited::Overdue(_) = waited {
             self.forget_last();
         }
     }
@@ -2875,7 +2903,7 @@ impl Gpu {
         self.clip = None;
         enc.endEncoding();
         self.compose_slide(&cmd, target, renderer.whole_size().1, Parts::of(renderer));
-        let (submit, waited) = self.commit(cmd, done);
+        let (submit, waited, flying) = self.commit(cmd, done);
         self.last = Last::Instances(key);
         self.committed(&waited);
         renderer.take_redraw();
@@ -2887,6 +2915,7 @@ impl Gpu {
             changed,
             drawn,
             waited,
+            flying,
         }))
     }
 
@@ -3538,7 +3567,7 @@ impl Gpu {
         self.clip = None;
         enc.endEncoding();
         self.compose_slide(&cmd, target, renderer.whole_size().1, Parts::of(renderer));
-        let (submit, waited) = self.commit(cmd, done);
+        let (submit, waited, flying) = self.commit(cmd, done);
         // What the next frame is compared with: this one, its buffers kept
         // where a frame alike leaves them as they are.
         let mut last = match core::mem::replace(&mut self.last, Last::None) {
@@ -3610,6 +3639,7 @@ impl Gpu {
             changed,
             drawn,
             waited,
+            flying,
         }))
     }
 
