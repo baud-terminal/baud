@@ -40,10 +40,11 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 5] = [
+const NAMES: [&str; 6] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
+    "a_marked_cell_costs_a_caret_frame_no_allocation",
     "the_cell_driver_builds_as_present_builds",
     "nothing_that_ships_counts",
 ];
@@ -74,6 +75,9 @@ fn main() {
             }
             "a_written_cell_repaints_its_row_alone" => {
                 checks::a_written_cell_repaints_its_row_alone();
+            }
+            "a_marked_cell_costs_a_caret_frame_no_allocation" => {
+                checks::a_marked_cell_costs_a_caret_frame_no_allocation();
             }
             "the_cell_driver_builds_as_present_builds" => {
                 checks::the_cell_driver_builds_as_present_builds();
@@ -955,6 +959,53 @@ mod checks {
             println!("written cell: {}", Cost::take().line());
             assert_eq!(built, Built::New, "a written cell is a new screen");
         });
+    }
+
+    /// **A marked cell costs a caret frame no allocation** (FS-C10): the
+    /// overlay draws a cell whose cluster it already keeps from the kept
+    /// glyphs, by borrow, so the screen with more marked cells -- `e` and U+0301
+    /// written over a hundred cells of a row of the fixture's marked text
+    /// before the first frame, 53 more of them drawn by records -- allocates
+    /// on each caret frame on the cell path exactly what the fixture alone
+    /// does: the control that more than forty more are records. Named break:
+    /// the kept glyphs cloned back for each cell.
+    pub fn a_marked_cell_costs_a_caret_frame_no_allocation() {
+        let marked = "e\u{301}".repeat(100);
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        let frames = |more: bool| {
+            let mut out = Vec::new();
+            with_screen(Blinking::No, |t, r| {
+                if more {
+                    feed(t, format!("\x1b7\x1b[8;1H{marked}\x1b8").as_bytes());
+                }
+                let mut backing = GlyphMap::backing();
+                let mut cells = Cells::new(&mut backing, t);
+                for k in Nth::ALL.before() {
+                    let inputs = caret(t, k);
+                    Cost::take();
+                    cell_frame(r, t, &inputs, &mut cells, k.set());
+                    out.push((Cost::take(), cells.exceptions.stats().cells.value()));
+                }
+            });
+            out
+        };
+        let (base, more) = (frames(false), frames(true));
+        for (k, ((b, b_cells), (m, m_cells))) in base.iter().zip(&more).enumerate() {
+            println!(
+                "marked frame {k}: base allocations={} records={b_cells}, \
+                 a hundred more marked allocations={} records={m_cells}",
+                b.heap.here.value(),
+                m.heap.here.value(),
+            );
+            assert!(*m_cells > b_cells + 40, "frame {k}: the marked cells drawn");
+            if !Nth(k).warming() {
+                assert_eq!(
+                    m.heap.here.value(),
+                    b.heap.here.value(),
+                    "caret frame {k}: a marked cell allocated"
+                );
+            }
+        }
     }
 
     /// The code of `name`'s body in `src`, its comment lines dropped and

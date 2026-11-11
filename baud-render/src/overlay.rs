@@ -1550,19 +1550,42 @@ impl Overlay {
         (base, key): (Codepoint, ClusterKey),
         glyphs: Vec<ClusterGlyph>,
     ) -> Vec<ClusterGlyph> {
+        let drawn = self.fitted_key(scene, r, (x, y), (base, key));
+        match (drawn == key, self.clusters.get(&drawn)) {
+            (false, Some(g)) => g.clone(),
+            _ => glyphs,
+        }
+    }
+
+    /// **The key the cluster kept under `key` is drawn by at `(x, y)`**:
+    /// the fitted one where its `base` takes forms, its glyphs overhang the
+    /// cell and the blank cells after it take them in, the fitted glyphs
+    /// shaped from the kept ones and kept the first time; `key` otherwise.
+    /// Nothing is copied once both are kept: a caret frame draws the kept
+    /// glyphs by borrow.
+    fn fitted_key(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        (x, y): (usize, usize),
+        (base, key): (Codepoint, ClusterKey),
+    ) -> ClusterKey {
         if !crate::fit::takes_forms(base) {
-            return glyphs;
+            return key;
         }
         let wide = match self.wides.get(&key) {
             Some(&w) => w,
             None => {
-                let w = r.overwide(&glyphs, Stretch::One);
+                let w = self
+                    .clusters
+                    .get(&key)
+                    .and_then(|g| r.overwide(g, Stretch::One));
                 self.wides.insert(key, w);
                 w
             }
         };
         let Some(wide) = wide else {
-            return glyphs;
+            return key;
         };
         let row = scene.view.row(Row::from_index(y));
         let end = Col::at_index(row.len().min(scene.view.cols().index()));
@@ -1572,16 +1595,15 @@ impl Overlay {
             })
         };
         let crate::fit::Fitting::Fitted(n) = wide.fitting(Col::at_index(x), end, blank) else {
-            return glyphs;
+            return key;
         };
-        let key = key.fitted();
-        if let Some(g) = self.clusters.get(&key) {
-            return g.clone();
+        let fitted = key.fitted();
+        if !self.clusters.contains_key(&fitted) {
+            let mut g = self.clusters.get(&key).cloned().unwrap_or_default();
+            r.fit_glyphs(&mut g, n, Stretch::One);
+            self.clusters.insert(fitted, g);
         }
-        let mut g = glyphs;
-        r.fit_glyphs(&mut g, n, Stretch::One);
-        self.clusters.insert(key, g.clone());
-        g
+        fitted
     }
 
     /// The cell at `at` drawn whole by records: its base and every
@@ -1605,15 +1627,17 @@ impl Overlay {
         let Some(cp) = crate::renderer::drawn_base(term, cell) else {
             return;
         };
-        let mut cps = vec![cp];
         let (lean, style) = slant_at(r, paint, at, crate::cellmap::face_of(styles, cell));
-        let mut key = ClusterKey::start().word(style.code()).fold(cp);
-        for mk in crate::renderer::drawn_marks(term, r.frame_held().words(), cell) {
-            if let Some(c) = Codepoint::new(mk) {
-                cps.push(c);
-                key = key.fold(c);
-            }
-        }
+        // The cell's codepoints, its base and every mark drawn on it: folded
+        // into the key as they are read, and gathered only to shape a
+        // cluster not yet kept.
+        let marks = || {
+            crate::renderer::drawn_marks(term, r.frame_held().words(), cell)
+                .filter_map(Codepoint::new)
+        };
+        let mut key = marks().fold(ClusterKey::start().word(style.code()).fold(cp), |k, c| {
+            k.fold(c)
+        });
         let span = CellSpan::at(row, Col::at_index(x));
         if span == CellSpan::Two {
             key = key.wide();
@@ -1621,26 +1645,24 @@ impl Overlay {
         if let Some(l) = lean {
             key = key.sheared(l);
         }
-        let glyphs = match self.clusters.get(&key) {
-            Some(g) => g.clone(),
-            None => {
-                self.stats.misses.bump();
-                let mut g = r.cluster(&cps, style, span);
-                if let Some(l) = lean {
-                    r.shear_glyphs(&mut g, l, Stretch::One, Flip::Kept);
-                }
-                self.clusters.insert(key, g.clone());
-                g
+        if !self.clusters.contains_key(&key) {
+            self.stats.misses.bump();
+            let cps: Vec<Codepoint> = core::iter::once(cp).chain(marks()).collect();
+            let mut g = r.cluster(&cps, style, span);
+            if let Some(l) = lean {
+                r.shear_glyphs(&mut g, l, Stretch::One, Flip::Kept);
             }
-        };
-        let glyphs = match lean {
-            None => self.fit(scene, r, at, (cp, key), glyphs),
-            Some(_) => glyphs,
+            self.clusters.insert(key, g);
+        }
+        let key = match lean {
+            None => self.fitted_key(scene, r, at, (cp, key)),
+            Some(_) => key,
         };
         self.stats.cells.bump();
         mask[y * geom.cols.index() + x] |= MASK_RECORD;
         let (inside, above) = (records.len(), self.over.len());
-        Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
+        let glyphs = self.clusters.get(&key).map_or(&[][..], Vec::as_slice);
+        Overlay::emit(records, &mut self.over, (x, y), glyphs, cell, paint, geom);
         self.emitted.push(Emitted::of(
             (Row::from_index(y), Col::at_index(x)),
             records,
