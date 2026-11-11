@@ -266,6 +266,8 @@ thread_local! {
     static PATHS_HELD: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The batches sent to the printed paths' worker (`paths_batches`).
     static PATHS_BATCHES: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The batches by why each was due (`paths_by`).
+    static PATHS_BY: Cell<PathsBy> = const { Cell::new(PathsBy::NONE) };
     /// The link lines at rest at the last settle (`lines_marked`).
     static LINES_MARKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether a frame is owed and not yet drawn (`FrameOwed`).
@@ -448,8 +450,8 @@ pub fn set_paths_batches(held: Taken, batches: Taken) {
 }
 
 /// **The batches that asked about a path later than their own deadline**,
-/// held by the floor after the last that did (baud-app's `Pace::floor`):
-/// the frame rig's listing row reads none.
+/// held by the floor after the last that did (baud-app's `By::Floor`): the
+/// frame rig's listing row reads none.
 pub fn paths_held() -> Taken {
     PATHS_HELD.with(Cell::get)
 }
@@ -457,6 +459,58 @@ pub fn paths_held() -> Taken {
 /// The batches sent to the printed paths' worker so far, of every kind.
 pub fn paths_batches() -> Taken {
     PATHS_BATCHES.with(Cell::get)
+}
+
+/// **The screen batches sent to the printed paths' worker, by why each was
+/// due** (baud-app's `By`), and the batches the floor held whose own
+/// deadline the window's shell's `D` set: the worker's own counts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PathsBy {
+    /// The window's shell's `D`.
+    pub ended: Taken,
+    /// The quiet after the last read.
+    pub quiet: Taken,
+    /// The ceiling after the path was met.
+    pub ceiling: Taken,
+    /// The floor after the last batch that asked about a path.
+    pub floor: Taken,
+    /// Held by the floor, a `D` having made them due.
+    pub held_granted: Taken,
+}
+
+impl PathsBy {
+    /// None sent.
+    pub const NONE: PathsBy = PathsBy {
+        ended: Taken(0),
+        quiet: Taken(0),
+        ceiling: Taken(0),
+        floor: Taken(0),
+        held_granted: Taken(0),
+    };
+
+    /// The batches sent since `earlier` was taken.
+    pub fn since(self, earlier: PathsBy) -> PathsBy {
+        let d = |a: Taken, b: Taken| Taken(a.0.saturating_sub(b.0));
+        PathsBy {
+            ended: d(self.ended, earlier.ended),
+            quiet: d(self.quiet, earlier.quiet),
+            ceiling: d(self.ceiling, earlier.ceiling),
+            floor: d(self.floor, earlier.floor),
+            held_granted: d(self.held_granted, earlier.held_granted),
+        }
+    }
+}
+
+/// Set the batches by why each was due, the worker's own counts.
+pub fn set_paths_by(by: PathsBy) {
+    PATHS_BY.with(|b| b.set(by));
+}
+
+/// **The batches sent so far, by why each was due**: the frame rig counts
+/// those after an act's release, and a listing that ended on the shell's
+/// `D` is asked about by it alone.
+pub fn paths_by() -> PathsBy {
+    PATHS_BY.with(Cell::get)
 }
 
 /// Set the link lines at rest, at a settle.

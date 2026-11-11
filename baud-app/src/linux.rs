@@ -1030,6 +1030,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                         (began, ended),
                         lines,
                         took.iter().copied(),
+                        Instant::now(),
                     );
                 }
             }
@@ -1059,6 +1060,7 @@ pub fn run(given: Option<(crate::rules::Run, Option<crate::run_arg::Grid>)>) {
                 (began, ended),
                 lines,
                 took.iter().copied(),
+                Instant::now(),
             );
         }
         // The config's files: what inotify said, when the wait says it is
@@ -2803,6 +2805,7 @@ impl Driver {
                     (began, ended),
                     lines,
                     took.iter().copied(),
+                    Instant::now(),
                 );
                 self.pending = Pending::Dirty;
                 Quit::No

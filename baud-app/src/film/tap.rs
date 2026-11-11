@@ -316,6 +316,7 @@ impl Tap {
             on,
             lines,
             &crate::paths::Recuts::NONE,
+            Instant::now(),
         );
         if let Some(s) = self.step {
             let w = self.report.written.entry(s).or_insert((began, ended));

@@ -12727,6 +12727,7 @@ impl Driver {
             (began, ended),
             self.app.counts.core_lines(&self.app.term),
             &self.app.pace.recuts,
+            host_now(),
         );
         self.app.say_copied();
         if answered == Answered::Yes {
@@ -15481,7 +15482,8 @@ impl Driver {
 
     /// What the frame rig reads of the worker, under the probe only: whether
     /// it owes a turn, which the settle waits on, the paths it asked about,
-    /// and its batches, those the floor held among them.
+    /// and its batches, those the floor held among them, and each by why it
+    /// was due.
     #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
     fn record_paths_due(&self, next: Option<HostTime>) {
         #[cfg(not(feature = "effect-probe"))]
@@ -15499,6 +15501,13 @@ impl Driver {
             let c = self.app.probes.counts;
             probe::set_paths_asked(counted(c.asked));
             probe::set_paths_batches(counted(c.held), counted(c.batches));
+            probe::set_paths_by(probe::PathsBy {
+                ended: counted(c.by_ended),
+                quiet: counted(c.by_quiet),
+                ceiling: counted(c.by_ceiling),
+                floor: counted(c.by_floor),
+                held_granted: counted(c.held_granted),
+            });
         }
     }
 

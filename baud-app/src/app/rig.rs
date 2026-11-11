@@ -1212,6 +1212,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     }
     // Whether the act's clear was waited for by the window's step.
     let mut act_signed = false;
+    // The printed paths' batches by why each was due, as the act's second
+    // stage was released (`RigWindow::Released`), and as its marks were
+    // drawn (`RigFrameTicks::UntilMarked`): what the act's output alone
+    // sent, the first stage's echo's batches left out.
+    let mut released_by: Option<probe::PathsBy> = None;
+    let mut marked_by: Option<probe::PathsBy> = None;
     // The window told, after the act: a key change with the focus door
     // set to agree, then the notification AppKit would post.
     match rig.window {
@@ -1293,6 +1299,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 println!("the act never read its second stage");
                 return std::process::ExitCode::from(1);
             }
+            released_by = Some(probe::paths_by());
         }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
@@ -1495,6 +1502,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                     text = Some((Instant::now(), probe::frames()));
                 } else if text.is_some() && drawn && probe::lines_marked().0 >= wanted {
                     marks = Some((Instant::now(), probe::frames()));
+                    marked_by = Some(probe::paths_by());
                 }
             }
             act_signed = signed;
@@ -1541,6 +1549,16 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         run(30);
     }
     counters(reads, fed, drawn, offered_at);
+    // The batches the act's second stage sent, by why each was due, to its
+    // marks' frame or the end: a line of their own, for the rows that
+    // release one.
+    if let Some(from) = released_by {
+        let by = marked_by.unwrap_or_else(probe::paths_by).since(from);
+        println!(
+            "by ended={} quiet={} ceiling={} floor={} held_granted={}",
+            by.ended.0, by.quiet.0, by.ceiling.0, by.floor.0, by.held_granted.0
+        );
+    }
     let _ = probe::take();
     let w = window.ns_window();
     // The window's title, on a line of its own: it may hold spaces.

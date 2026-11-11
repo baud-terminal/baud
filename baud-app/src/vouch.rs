@@ -333,21 +333,45 @@ pub enum Latch {
     Drifted,
 }
 
+/// **The window's own shell has ended its command and left nothing open**,
+/// in a part the core read alike and the latch trusts: a re-sync
+/// ([`Resync`]) through a trusted step ([`Latch::step`]). The shell's `D`,
+/// "End of current command" (`[[source: semantic-prompts]]`), with the
+/// token baud handed this window's shell, which no program on another
+/// machine and no nested shell holds. The shell prints it once it has
+/// waited for its foreground job, so every byte that job wrote is before
+/// it in the stream. Carries no span and no verdict: it says when, never
+/// who, and only the printed paths' pace takes it (`probe::Pace::ended`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Ended(());
+
 impl Latch {
-    /// **The latch after a part**, and whether that part's marks are
-    /// trusted: `rec` its record, `ran` the marks the scan read in it. A
-    /// part that re-syncs is trusted itself only if it begins at the
-    /// shell's `D` ([`Resync::trusts_itself`]).
-    pub fn step(self, rec: &ReadRecord, ran: &crate::ran::Timeline) -> (Latch, Vouch<Matched>) {
+    /// **The latch after a part**, whether that part's marks are trusted,
+    /// and whether the window's shell ended its command in it ([`Ended`]):
+    /// `rec` its record, `ran` the marks the scan read in it. A part that
+    /// re-syncs is trusted itself only if it begins at the shell's `D`
+    /// ([`Resync::trusts_itself`]); a drifted window re-synced by a later
+    /// mark of the part is trusted from the next part, and the part ends
+    /// nothing.
+    pub fn step(
+        self,
+        rec: &ReadRecord,
+        ran: &crate::ran::Timeline,
+    ) -> (Latch, Vouch<Matched>, Option<Ended>) {
         let matched = Matched::of(rec, ran);
         let resync = Resync::of(rec, ran);
-        match (self, matched, resync) {
+        let (latch, trusted) = match (self, matched, resync) {
             (_, Vouch::No(why), _) => (Latch::Drifted, Vouch::No(why)),
             (Latch::Synced, yes, _) => (Latch::Synced, yes),
             (Latch::Drifted, yes, Some(r)) if r.trusts_itself() => (Latch::Synced, yes),
             (Latch::Drifted, Vouch::Yes(_), Some(_)) => (Latch::Synced, Vouch::No(Why::Drifted)),
             (Latch::Drifted, Vouch::Yes(_), None) => (Latch::Drifted, Vouch::No(Why::Drifted)),
-        }
+        };
+        let ended = match (trusted, resync) {
+            (Vouch::Yes(_), Some(_)) => Some(Ended(())),
+            (Vouch::Yes(_), None) | (Vouch::No(_), _) => None,
+        };
+        (latch, trusted, ended)
     }
 }
 
@@ -485,6 +509,30 @@ mod tests {
         };
         assert!(resync(d), "the control");
         assert!(!resync(&[b"\x1b_Ga=d;".as_slice(), d].concat()));
+    }
+
+    /// **The shell's `D` ends its command for the pace only in a part the
+    /// latch trusts** (`Latch::step`'s proof, `Ended`): its `C`, output and
+    /// `D` in one part, synced, ends it; drifted, a part that begins at
+    /// the `D` ends it and re-syncs, and one whose `D` comes after its
+    /// first mark re-syncs the window from the next part and ends nothing;
+    /// a `D` inside a picture's body, where the core reads no mark, ends
+    /// nothing. Named break: the proof minted from the re-sync alone,
+    /// without the latch's verdict -- the drifted part whose `D` comes late
+    /// ends the command.
+    #[test]
+    fn a_part_that_re_syncs_after_its_first_mark_ends_nothing() {
+        let ends = |latch: Latch, bytes: &[u8]| {
+            let (rec, _, _) = taken(b"", bytes);
+            latch.step(&rec, &scanned(b"", bytes)).2.is_some()
+        };
+        let d = b"\x1b]133;D;0;baud_token=t\x07\x1b]133;A\x07";
+        let later = [b"\x1b]133;C;baud_token=t\x07x\r\n".as_slice(), d].concat();
+        assert!(ends(Latch::Synced, &later), "synced");
+        assert!(ends(Latch::Drifted, d), "drifted, the part begins at the D");
+        assert!(!ends(Latch::Drifted, &later), "drifted, the D after a mark");
+        let inside = [b"\x1b_Ga=d;".as_slice(), d].concat();
+        assert!(!ends(Latch::Synced, &inside), "inside a picture's body");
     }
 
     /// **The bytes before a `D` vouch for a cut only where the record says

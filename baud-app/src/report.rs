@@ -121,15 +121,16 @@ impl Links {
 
     /// **The printed paths' line**, once anything was asked: the paths sent
     /// to be checked, the calls the worker made for them (each `lstat`, each
-    /// link read, the mount table, the program in front), the batches, those
-    /// the floor after a batch that asked held, and the hangs. No path is
-    /// named, as none is anywhere.
+    /// link read, the mount table, the program in front), the batches and those
+    /// the window's shell's `D` made due, the asking batches the floor after a
+    /// batch that asked held, the batches of either kind it held that a `D` had
+    /// made due, and the hangs. No path is named, as none is anywhere.
     pub fn checks_line(&self) -> Option<String> {
         let c = self.checks;
         (c.asked > 0).then(|| {
             format!(
-                "paths: {} checked, {} calls, {} batches, {} held, {} hangs",
-                c.asked, c.calls, c.batches, c.held, c.hangs
+                "paths: {} checked, {} calls, {} batches, {} at a command's end, {} held, {} held at a command's end, {} hangs",
+                c.asked, c.calls, c.batches, c.by_ended, c.held, c.held_granted, c.hangs
             )
         })
     }
@@ -491,11 +492,18 @@ mod tests {
             calls: 19,
             batches: 2,
             held: 1,
+            held_granted: 1,
+            by_ended: 2,
+            by_quiet: 0,
+            by_ceiling: 0,
+            by_floor: 0,
             hangs: 0,
         };
         assert_eq!(
             l.checks_line().as_deref(),
-            Some("paths: 6 checked, 19 calls, 2 batches, 1 held, 0 hangs")
+            Some(
+                "paths: 6 checked, 19 calls, 2 batches, 2 at a command's end, 1 held, 1 held at a command's end, 0 hangs"
+            )
         );
     }
 }

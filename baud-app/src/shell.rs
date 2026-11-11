@@ -118,12 +118,18 @@ const SSH_ENV: &str = "BAUD_SSH_ENV";
 /// zsh's and bash's script, which each take it into a shell variable and
 /// unset it before the user's files run; fish's `-C` sets its variable.
 const TOKEN: &str = "BAUD_SHELL_TOKEN";
+/// **What the event rig sets for `/bin/sh` to be handed a token** (`rig_door`),
+/// read in a probe build only.
+#[cfg(feature = "effect-probe")]
+const RIG_TOKEN: &str = "BAUD_RIG_SHELL_TOKEN";
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) use inject::{Injection, inject};
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inject {
+    #[cfg(feature = "effect-probe")]
+    use super::RIG_TOKEN;
     use super::{BASH_ENV, Integration, SSH_ENV, SshEnv, TOKEN, ZSH_ZDOTDIR};
     use crate::child_env::{ChildEnv, EnvName};
     use crate::ran::ShellToken;
@@ -222,6 +228,10 @@ mod inject {
         if integration == Integration::Off {
             return None;
         }
+        #[cfg(feature = "effect-probe")]
+        if let Some(door) = rig_door(shell, parent) {
+            return Some(door);
+        }
         let kind = Kind::of(shell)?;
         if kind == Kind::Bash && apples_bash(Path::new(path)) {
             return None;
@@ -235,6 +245,27 @@ mod inject {
         };
         let token = ShellToken::mint();
         Some(injection(kind, &dir, parent, ssh_env, token.as_ref()))
+    }
+
+    /// **The event rig's door, in a probe build only**: a shell no script is
+    /// written for, `/bin/sh` as the rig runs it, handed a token of its own
+    /// all the same where the rig's environment names [`RIG_TOKEN`] -- told
+    /// in [`TOKEN`] and kept for the window's marks, so a row can print the
+    /// shell's `D` with it. Minted as every token is (`ShellToken::mint`),
+    /// never fixed. A release build has no door, and the variable does
+    /// nothing there.
+    #[cfg(feature = "effect-probe")]
+    fn rig_door(shell: &str, parent: &[(OsString, OsString)]) -> Option<Injection> {
+        let asked = var(parent, RIG_TOKEN).is_some_and(|v| v.as_bytes() == b"1");
+        if Kind::of(shell).is_some() || !asked {
+            return None;
+        }
+        let token = ShellToken::mint()?;
+        Some(Injection {
+            args: Vec::new(),
+            env: vec![(TOKEN_NAME, OsString::from(token.as_str()))],
+            token: Some(token),
+        })
     }
 
     /// The arguments and variables for `kind`, its scripts under `dir`;
@@ -819,6 +850,62 @@ mod tests {
                 &parent
             )
             .is_some()
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// **Outside a probe build the event rig's door is not there**:
+    /// `/bin/sh` with `BAUD_RIG_SHELL_TOKEN=1` in the parent's environment
+    /// gets nothing and no token, as with no variable. Named break: the
+    /// door built into every build -- `/bin/sh` is handed a token.
+    #[test]
+    #[cfg(not(feature = "effect-probe"))]
+    fn the_rigs_token_door_is_shut_outside_a_probe_build() {
+        let d = scratch("door-shut");
+        let parent = env(&[
+            ("TMPDIR", d.to_str().expect("UTF-8")),
+            ("BAUD_RIG_SHELL_TOKEN", "1"),
+        ]);
+        assert_eq!(
+            inject(Integration::On, SshEnv::Off, "/bin/sh", "/bin/sh", &parent),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// **In a probe build the event rig's door hands `/bin/sh` a token of
+    /// its own**, told in `BAUD_SHELL_TOKEN` and kept for the window's
+    /// marks, the same one, minted, and nothing else; not without the
+    /// variable, and not to a shell baud writes a script for, which is
+    /// injected as ever. Named break: tell the shell another token than
+    /// the one kept -- the told and the kept differ.
+    #[test]
+    #[cfg(feature = "effect-probe")]
+    fn the_rigs_token_door_hands_sh_its_own_token() {
+        let d = scratch("door-open");
+        let tmp = ("TMPDIR", d.to_str().expect("UTF-8"));
+        let shut = env(&[tmp]);
+        assert_eq!(
+            inject(Integration::On, SshEnv::Off, "/bin/sh", "/bin/sh", &shut),
+            None
+        );
+        let open = env(&[tmp, ("BAUD_RIG_SHELL_TOKEN", "1")]);
+        let got =
+            inject(Integration::On, SshEnv::Off, "/bin/sh", "/bin/sh", &open).expect("the door");
+        let kept = got.token.clone().expect("a token kept");
+        assert!(got.args.is_empty(), "{got:?}");
+        assert_eq!(
+            got.env,
+            vec![(
+                crate::child_env::EnvName::fixed("BAUD_SHELL_TOKEN"),
+                std::ffi::OsString::from(kept.as_str())
+            )]
+        );
+        let zsh =
+            inject(Integration::On, SshEnv::Off, "/bin/zsh", "/bin/zsh", &open).expect("zsh's own");
+        assert!(
+            zsh.env.iter().any(|(k, _)| k.as_bytes() == b"ZDOTDIR"),
+            "{zsh:?}"
         );
         let _ = std::fs::remove_dir_all(&d);
     }

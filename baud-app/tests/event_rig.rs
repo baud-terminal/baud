@@ -1669,6 +1669,11 @@ struct Counters {
     /// What the window's first frame was drawn with, when the rig drew it
     /// as the window's opening does.
     opened: OpenedSeen,
+    /// **The printed paths' batches the act's second stage sent, by why
+    /// each was due**, to its marks' frame or the end, from their own
+    /// line: none for a row that releases no second stage
+    /// (`RigWindow::Released`).
+    by: Option<SentBy>,
 }
 
 /// What a frame rig's child said its window opened with.
@@ -1681,6 +1686,35 @@ enum OpenedSeen {
     /// Neither path drew it: a window that would open on a surface nothing
     /// drew.
     Undrawn,
+}
+
+/// The printed paths' batches by why each was due (baud-app's `By`), and
+/// those the floor held whose own deadline the shell's `D` set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct SentBy {
+    ended: u32,
+    quiet: u32,
+    ceiling: u32,
+    floor: u32,
+    held_granted: u32,
+}
+
+impl SentBy {
+    fn parse(line: &str) -> Option<SentBy> {
+        let count = |name: &str| -> Option<u32> {
+            line.split(' ')
+                .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))?
+                .parse()
+                .ok()
+        };
+        Some(SentBy {
+            ended: count("ended")?,
+            quiet: count("quiet")?,
+            ceiling: count("ceiling")?,
+            floor: count("floor")?,
+            held_granted: count("held_granted")?,
+        })
+    }
 }
 
 impl Counters {
@@ -1770,6 +1804,10 @@ impl Counters {
                 .find_map(|l| l.strip_prefix("marks "))
                 .unwrap_or_default()
                 .to_owned(),
+            by: text
+                .lines()
+                .find_map(|l| l.strip_prefix("by "))
+                .and_then(SentBy::parse),
         })
     }
 
@@ -1906,6 +1944,16 @@ enum Settles {
     /// the launch's GPU frame counted overdue once and late once, the GPU
     /// not given up, and no frame failed.
     OpenedOnCpu,
+    /// **A command's printed path drawn on the turns its shell's `D` started**
+    /// (`RigFrameTicks::UntilMarked`, `RigWindow::Released`): asked about,
+    /// a link line at rest, and every batch the act's second stage sent to
+    /// its marks' frame due by the `D` -- one at least, and none by the
+    /// quiet, the ceiling or the floor. Counted, not timed.
+    MarkedOnD,
+    /// **A remote command's printed path dark under its shell's `D`**
+    /// (`RigWindow::Released`): a batch the `D` made due went, and still
+    /// nothing was asked about and no link line is at rest.
+    DarkOnD,
 }
 
 impl Settles {
@@ -1968,6 +2016,15 @@ impl Settles {
                     && c.gpu_late == 1
                     && c.gpu_gave_up == 0
                     && c.gpu_failed == 0
+            }
+            Settles::MarkedOnD => c.by.is_some_and(|by| {
+                by.ended >= 1
+                    && by.quiet + by.ceiling + by.floor == 0
+                    && c.asked >= 1
+                    && c.marked >= 1
+            }),
+            Settles::DarkOnD => {
+                c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
             }
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
@@ -3020,4 +3077,107 @@ fn a_listings_paths_are_not_held_by_the_batch_that_named_its_writer() {
         "the setup asked about a path, and a floor after it could hold the act's batch: {c:?}"
     );
     assert!(LISTING.expect.holds(&c), "{:?}: {c:?}", LISTING.name);
+}
+
+/// **The act a shell's `D` row sends**, its second stage one `printf`, so
+/// one `write(2)`: the window's shell's `C` with its token naming `cmd`,
+/// `/usr/bin` (spelled in octal, so the echo of the typed line names no
+/// path), a move back up onto its row, which refuses the read's cut at the
+/// `D`, so the `D`'s own part names that row; the shell's `D` with its
+/// token, and its `A`; a line feed and a clear that signs the second
+/// stage. `/bin/sh` is handed the token by the probe build's door
+/// (`BAUD_RIG_SHELL_TOKEN`), since the rig's shell is none baud writes a
+/// script for.
+macro_rules! shells_d_act {
+    ($cmd:literal) => {
+        concat!(
+            r"printf '\033]52;c;!\007'; read x <go; ",
+            r"printf '\033]133;C;baud_token=%s;cmdline=",
+            $cmd,
+            r"\007\057usr\057bin\n\033[A\033]133;D;0;aid=1;baud_token=%s\007",
+            r#"\033]133;A;aid=1\007\n\033]52;c;!\007' "$BAUD_SHELL_TOKEN" "$BAUD_SHELL_TOKEN"; read y"#,
+        )
+    };
+}
+
+/// **A command's printed path is asked about on the turns its shell's `D`
+/// starts**, not 150 ms after its read (baud-app's `probe::SETTLE`):
+/// FS-A14's shape, the act's first stage signed and its echo's batch
+/// answered before its second is released (`RigWindow::Released`), which
+/// is the shell's `C` naming `printf`, `/usr/bin`, and the shell's `D`, in
+/// one read. The row ends on the frame that draws the mark
+/// (`RigFrameTicks::UntilMarked`, one link line) and is judged on the
+/// counts: every batch the second stage sent to that frame was due by the
+/// `D` (`By::Ended`), none by the quiet, the ceiling or the floor. No
+/// clock decides it.
+const SHELLS_D: FrameSite = FrameSite {
+    name: SiteName("a command's printed path is asked about on its shell's D"),
+    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    act: shells_d_act!("printf"),
+    keys: RigKeys::Line,
+    ticks: RigFrameTicks::UntilMarked,
+    window: RigWindow::Released,
+    env: &[("BAUD_GPU", "cpu"), ("BAUD_RIG_SHELL_TOKEN", "1")],
+    config: STEADY,
+    focus: RigFocus::Believed,
+    attempts: Iterations(1),
+    expect: Settles::MarkedOnD,
+    state: RowState::Green,
+};
+
+/// **[`SHELLS_D`]'s remote control**: the same act with the shell's `C`
+/// naming `ssh`, run for two seconds with no tick: the `D` made a batch
+/// due, and the row it filed remote at its read stays dark, its path never
+/// asked about.
+const SHELLS_D_REMOTE: FrameSite = FrameSite {
+    name: SiteName("a remote command's printed path stays dark under its shell's D"),
+    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    act: shells_d_act!("ssh"),
+    keys: RigKeys::Line,
+    ticks: RigFrameTicks::Withheld,
+    window: RigWindow::Released,
+    env: &[("BAUD_GPU", "cpu"), ("BAUD_RIG_SHELL_TOKEN", "1")],
+    config: STEADY,
+    focus: RigFocus::Believed,
+    attempts: Iterations(200),
+    expect: Settles::DarkOnD,
+    state: RowState::Green,
+};
+
+/// **A command's printed path is asked about on the turns its shell's `D`
+/// starts** ([`SHELLS_D`]), on the lifted arm alone: the row is about the
+/// printed paths' pace. Red with no proof minted from the `D`
+/// (`vouch::Latch::step`): the path is asked about by the quiet. Red with
+/// the probe's door handing the shell another token than the window's
+/// marks are read against: no `D` is the shell's, and the same. The setup
+/// must have asked about no path, or a floor after it could hold the act's
+/// batch, and that is the harness's failure, not the row's. The time from
+/// the text's frame to the marks' is printed, not judged.
+#[test]
+fn a_commands_printed_path_is_asked_about_on_its_shells_d() {
+    let c = run_frames(&SHELLS_D, "shells-d", RigHolders::Lifted)
+        .unwrap_or_else(|e| panic!("{:?}: {e}", SHELLS_D.name));
+    println!("{:?}: {c:?}", SHELLS_D.name);
+    assert_eq!(
+        c.setup_asked(),
+        Some(0),
+        "the setup asked about a path, and a floor after it could hold the act's batch: {c:?}"
+    );
+    assert!(SHELLS_D.expect.holds(&c), "{:?}: {c:?}", SHELLS_D.name);
+}
+
+/// **A remote command's printed path stays dark under its shell's `D`**
+/// ([`SHELLS_D_REMOTE`]), on the lifted arm alone. Red with the drain where
+/// the shell ended its command filed as the shell's (`drain_recut` raising
+/// every part of it): the path's row is then asked about and marked.
+#[test]
+fn a_remote_commands_printed_path_stays_dark_under_its_shells_d() {
+    let c = run_frames(&SHELLS_D_REMOTE, "shells-d-remote", RigHolders::Lifted)
+        .unwrap_or_else(|e| panic!("{:?}: {e}", SHELLS_D_REMOTE.name));
+    println!("{:?}: {c:?}", SHELLS_D_REMOTE.name);
+    assert!(
+        SHELLS_D_REMOTE.expect.holds(&c),
+        "{:?}: {c:?}",
+        SHELLS_D_REMOTE.name
+    );
 }
