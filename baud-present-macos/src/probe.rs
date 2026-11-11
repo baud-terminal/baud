@@ -262,6 +262,12 @@ thread_local! {
     static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
     /// The printed paths asked about (`paths_asked`).
     static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The batches the floor held (`paths_held`).
+    static PATHS_HELD: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The batches sent to the printed paths' worker (`paths_batches`).
+    static PATHS_BATCHES: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The link lines at rest at the last settle (`lines_marked`).
+    static LINES_MARKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// Whether a frame is owed and not yet drawn (`FrameOwed`).
     static FRAME_OWED: Cell<FrameOwed> = const { Cell::new(FrameOwed::No) };
     /// Whether the launch splash owes frames (`Splash`).
@@ -428,6 +434,36 @@ pub fn set_paths_asked(asked: Taken) {
 /// a read saw asks about none.
 pub fn paths_asked() -> Taken {
     PATHS_ASKED.with(Cell::get)
+}
+
+/// Set the batches that asked about a path the floor held, and the batches
+/// sent, the worker's own counts.
+pub fn set_paths_batches(held: Taken, batches: Taken) {
+    PATHS_HELD.with(|h| h.set(held));
+    PATHS_BATCHES.with(|b| b.set(batches));
+}
+
+/// **The batches that asked about a path later than their own deadline**,
+/// held by the floor after the last that did (baud-app's `Pace::floor`):
+/// the frame rig's listing row reads none.
+pub fn paths_held() -> Taken {
+    PATHS_HELD.with(Cell::get)
+}
+
+/// The batches sent to the printed paths' worker so far, of every kind.
+pub fn paths_batches() -> Taken {
+    PATHS_BATCHES.with(Cell::get)
+}
+
+/// Set the link lines at rest, at a settle.
+pub fn set_lines_marked(lines: Taken) {
+    LINES_MARKED.with(|l| l.set(lines));
+}
+
+/// **The link lines at rest as the last settle found them**, each a run of
+/// one row: the frame rig's listing row ends once its names are drawn.
+pub fn lines_marked() -> Taken {
+    LINES_MARKED.with(Cell::get)
 }
 
 /// **Whether baud believes its window is on screen**: what AppKit says,

@@ -970,6 +970,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let hands = probe::hands();
     let greetings = probe::greetings();
     let asked = probe::paths_asked();
+    let (held, batches) = (probe::paths_held(), probe::paths_batches());
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -994,7 +995,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1047,6 +1048,9 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::hands().0.saturating_sub(hands.0),
             probe::greetings().0.saturating_sub(greetings.0),
             probe::paths_asked().0.saturating_sub(asked.0),
+            probe::paths_held().0.saturating_sub(held.0),
+            probe::paths_batches().0.saturating_sub(batches.0),
+            probe::lines_marked().0,
             probe::flips().0.saturating_sub(flips.0),
             first,
             offered.get().saturating_sub(offered_at),
@@ -1082,7 +1086,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The run: `attempts` ticks offered, or the run loop run as long with
     // no tick, the act's own turns.
     let run = |n: u16| match rig.ticks {
-        RigFrameTicks::Offered | RigFrameTicks::UntilFlips => offer(n),
+        RigFrameTicks::Offered | RigFrameTicks::UntilFlips | RigFrameTicks::UntilMarked => offer(n),
         RigFrameTicks::Withheld | RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames => {
             for _ in 0..n {
                 probe::pass(0.01);
@@ -1321,6 +1325,62 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 }
             }
             probe::unfreeze_gate();
+        }
+        // **Until the act's printed paths are drawn**: a tick offered once
+        // the last one's target has come, the display link's own period, as
+        // `UntilFlips` offers them, so the frames between are a real link's.
+        // The text's frame is the first with the act's clear read and no
+        // frame owed, which has drawn everything written before the clear;
+        // the marks' frame the first after it with `attempts` link lines at
+        // rest and no frame owed. The run ends on the second, never on a
+        // count of passes; the backstop, reached, says it never came. The
+        // two frames' times since the act, and the frames drawn between,
+        // are printed on a line of their own: a measurement, not the row's
+        // judgement, which is the counts'.
+        RigFrameTicks::UntilMarked => {
+            let wanted = u32::from(rig.attempts.0);
+            let start = Instant::now();
+            let mut due = host_now();
+            let mut text: Option<(Instant, baud_render::Tally)> = None;
+            let mut marks: Option<(Instant, baud_render::Tally)> = None;
+            let mut signed = false;
+            while marks.is_none() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                let now = host_now();
+                match due.since(now) {
+                    Some(left) if !left.is_zero() => probe::pass(left.as_secs_f64()),
+                    _ => {
+                        due = now.plus(FRAME_PERIOD);
+                        offer(1);
+                    }
+                }
+                signed |= probe::take()
+                    .iter()
+                    .any(|r| r.kind == probe::EffectKind::Clear);
+                let drawn = probe::frame_owed() == probe::FrameOwed::No;
+                if text.is_none() && signed && drawn {
+                    text = Some((Instant::now(), probe::frames()));
+                } else if text.is_some() && drawn && probe::lines_marked().0 >= wanted {
+                    marks = Some((Instant::now(), probe::frames()));
+                }
+            }
+            act_signed = signed;
+            let (Some((text_at, text_frames)), Some((marks_at, marks_frames))) = (text, marks)
+            else {
+                counters(reads, fed, drawn, offered_at);
+                println!("the act's marks were never drawn");
+                return std::process::ExitCode::from(1);
+            };
+            let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+            let between = marks_at.saturating_duration_since(text_at);
+            println!(
+                "marks setup_asked={} text_ms={:.1} marks_ms={:.1} text_to_marks_ms={:.1} periods={:.1} frames={}",
+                asked.0,
+                ms(text_at.saturating_duration_since(start)),
+                ms(marks_at.saturating_duration_since(start)),
+                ms(between),
+                between.as_secs_f64() / FRAME_PERIOD.as_secs_f64(),
+                marks_frames.value().saturating_sub(text_frames.value()),
+            );
         }
         RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),
     }

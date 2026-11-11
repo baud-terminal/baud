@@ -14679,6 +14679,12 @@ impl baud_present_macos::unwind::Settles for Driver {
             Pending::Dirty => baud_present_macos::probe::FrameOwed::Yes,
             Pending::Clean => baud_present_macos::probe::FrameOwed::No,
         });
+        // The link lines at rest, which the frame owed above has drawn once
+        // nothing is owed.
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::set_lines_marked(baud_present_macos::probe::Taken(
+            u32::try_from(self.app.lines.lines().len()).unwrap_or(u32::MAX),
+        ));
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::set_splash(
             match self
@@ -15341,7 +15347,8 @@ impl Driver {
     }
 
     /// What the frame rig reads of the worker, under the probe only: whether
-    /// it owes a turn, which the settle waits on, and the paths it asked about.
+    /// it owes a turn, which the settle waits on, the paths it asked about,
+    /// and its batches, those the floor held among them.
     #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
     fn record_paths_due(&self, next: Option<HostTime>) {
         #[cfg(not(feature = "effect-probe"))]
@@ -15355,8 +15362,10 @@ impl Driver {
                 (None, true) => probe::PathsDue::Waking,
                 (None, false) => probe::PathsDue::Idle,
             });
-            let asked = self.app.probes.counts.asked;
-            probe::set_paths_asked(probe::Taken(u32::try_from(asked).unwrap_or(u32::MAX)));
+            let counted = |n: u64| probe::Taken(u32::try_from(n).unwrap_or(u32::MAX));
+            let c = self.app.probes.counts;
+            probe::set_paths_asked(counted(c.asked));
+            probe::set_paths_batches(counted(c.held), counted(c.batches));
         }
     }
 

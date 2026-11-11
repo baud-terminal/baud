@@ -45,7 +45,8 @@ pub struct FrameRig {
     /// What is sent once the link has settled; empty for none.
     pub act: String,
     /// How many ticks are offered; under [`RigFrameTicks::UntilFlips`],
-    /// how many times the caret flips before the offers stop.
+    /// how many times the caret flips before the offers stop, and under
+    /// [`RigFrameTicks::UntilMarked`], how many link lines end them.
     pub attempts: Iterations,
     /// Whether baud believes the window is key (`probe::Key`).
     pub focus: RigFocus,
@@ -192,14 +193,23 @@ pub enum RigFrameTicks {
     /// own; the ticks withheld until two frames have drawn, two turns fed
     /// the core and the hover has been read twice.
     EventFrames,
+    /// **Offered until the act's printed paths are drawn**: each tick once
+    /// the last one's target has come, the display link's own period, until
+    /// the act's clear is read, its frame drawn, and then `attempts` link
+    /// lines are at rest with no frame owed (`probe::lines_marked`) -- the
+    /// frame that draws the marks; [`SENTINEL_BACKSTOP`] a backstop that,
+    /// reached, says so. The two frames' times are printed, a measurement
+    /// the row is not judged on.
+    UntilMarked,
 }
 
-const FRAME_TICKS: [(RigFrameTicks, &str); 5] = [
+const FRAME_TICKS: [(RigFrameTicks, &str); 6] = [
     (RigFrameTicks::Offered, "offered"),
     (RigFrameTicks::Withheld, "withheld"),
     (RigFrameTicks::UntilFlips, "until-flips"),
     (RigFrameTicks::OneAfterFeeds, "one-after-feeds"),
     (RigFrameTicks::EventFrames, "event-frames"),
+    (RigFrameTicks::UntilMarked, "until-marked"),
 ];
 
 /// The event rig's call.
@@ -476,7 +486,11 @@ mod tests {
             ticks: RigFrameTicks::Withheld,
         });
         assert_eq!(RigCall::parse(&frames.to_args()), Ok(frames));
-        for ticks in [RigFrameTicks::OneAfterFeeds, RigFrameTicks::EventFrames] {
+        for ticks in [
+            RigFrameTicks::OneAfterFeeds,
+            RigFrameTicks::EventFrames,
+            RigFrameTicks::UntilMarked,
+        ] {
             let frozen = RigCall::Frames(FrameRig {
                 setup: "printf x".to_owned(),
                 act: "seq 1 9".to_owned(),

@@ -1627,6 +1627,10 @@ struct Counters {
     fed: u32,
     /// The window's title at the end, from its own line.
     title: String,
+    /// A listing row's measurement, from its own line
+    /// (`RigFrameTicks::UntilMarked`): the setup's paths asked about, and
+    /// the text's and the marks' frames' times; empty for any other row.
+    marks: String,
     reaped: u32,
     /// Each followed setting's changes taken: scroller, flashing,
     /// animated.
@@ -1637,6 +1641,13 @@ struct Counters {
     greeted: u32,
     /// The printed paths' asked about after the settle.
     asked: u32,
+    /// The batches that asked about a path the floor after the last that
+    /// did held, after the settle.
+    held: u32,
+    /// The batches sent to the printed paths' worker after the settle.
+    batches: u32,
+    /// The link lines at rest at the end.
+    marked: u32,
     /// The caret's flips after the settle, on its own clock.
     flips: u32,
     /// The splash's starts on a window shown before its first frame, before
@@ -1696,6 +1707,9 @@ impl Counters {
             hands: count("hands")?,
             greeted: count("greeted")?,
             asked: count("asked")?,
+            held: count("held")?,
+            batches: count("batches")?,
+            marked: count("marked")?,
             flips: count("flips")?,
             first: count("first")?,
             offered: count("offered")?,
@@ -1704,7 +1718,21 @@ impl Counters {
                 .find_map(|l| l.strip_prefix("title "))
                 .unwrap_or_default()
                 .to_owned(),
+            marks: text
+                .lines()
+                .find_map(|l| l.strip_prefix("marks "))
+                .unwrap_or_default()
+                .to_owned(),
         })
+    }
+
+    /// The paths the setup asked about, from a listing row's own line.
+    fn setup_asked(&self) -> Option<u32> {
+        self.marks
+            .split(' ')
+            .find_map(|kv| kv.strip_prefix("setup_asked="))?
+            .parse()
+            .ok()
     }
 }
 
@@ -1807,6 +1835,14 @@ enum Settles {
     /// withheld, nothing delivered, and the path the act's output filed
     /// asked about.
     Filed,
+    /// **A listing's printed paths drawn, the batch that asked about them
+    /// held by no floor** (`RigFrameTicks::UntilMarked`): at least these
+    /// many link lines at rest and exactly these many paths asked about --
+    /// another, the echo's, would set a floor of its own -- in two batches at
+    /// least -- the one that named the listing's writer and the one its
+    /// answer made the rows readable for -- and none of them held by the
+    /// floor after a batch that asked about a path.
+    Marked(u16),
 }
 
 impl Settles {
@@ -1844,6 +1880,10 @@ impl Settles {
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
             Settles::Filed => c.delivered == 0 && c.asked >= 1,
+            Settles::Marked(n) => {
+                let n = u32::from(n);
+                c.held == 0 && c.marked >= n && c.asked == n && c.batches >= 2
+            }
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
             Settles::AliveAtBound => c.delivered == 0,
@@ -2573,7 +2613,9 @@ const FRAME_SITES: [FrameSite; 29] = [
     // turn's frame files the path, and the same turn, after its present,
     // schedules the worker's wake for the batch's deadline, a paused
     // window's included; the ticks withheld and no pointer moved. The run
-    // is two seconds, past the batch's one-second ceiling after the echo's.
+    // is two seconds, past the batch's deadline: 150 ms after the path's
+    // read, the echo's batch having asked about no path to hold it a
+    // second after.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
         setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
@@ -2623,7 +2665,11 @@ fn holders_of(_site: &FrameSite) -> Vec<&'static str> {
 
 /// One frame row's child, the holders kept or lifted.
 fn run_frames(site: &FrameSite, slug: &str, holders: RigHolders) -> Result<Counters, String> {
-    let dir = scratch(slug);
+    run_frames_in(site, &scratch(slug), holders)
+}
+
+/// One frame row's child, in its scratch directory `dir`.
+fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Counters, String> {
     let conf = dir.join("config.toml");
     std::fs::write(&conf, site.config).expect("the config");
     let call = RigCall::Frames(FrameRig {
@@ -2647,7 +2693,7 @@ fn run_frames(site: &FrameSite, slug: &str, holders: RigHolders) -> Result<Count
         .env("BAUD_CONFIG", &conf)
         .env("BAUD_TYPING", "off")
         .envs(site.env.iter().copied())
-        .current_dir(&dir)
+        .current_dir(dir)
         .output()
         .expect("the child");
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -2726,4 +2772,76 @@ fn every_frame_row_comes_to_its_state() {
         }
     }
     assert!(red.is_empty(), "{red:?}");
+}
+
+/// **The names a listing row's folder holds**: fifty, each a single name
+/// with a `.` not at its end, the form `ls` prints and a scan reads against
+/// the reported folder.
+const LISTED: u16 = 50;
+
+/// **A listing's paths, the row the link lag was found on**: the setup
+/// moves into a folder of [`LISTED`] files made before the child starts,
+/// sets a prompt with no path in it, and clears the screen before it
+/// reports the folder, so no row the setup leaves holds a path and no batch
+/// it sends asks about one -- a floor after one would hold the act's batch
+/// by how soon the act came, which the row then reads. Its echo spells `/`
+/// and `f` in octal for the same reason. The act lists the folder in a
+/// subshell, a job of its own, that signs the end of what it wrote with a
+/// clear and stays in front, reading, after a pause of a second that
+/// decides no verdict. In the runs tried, the listing then took three
+/// batches -- the echo's, one naming its writer and one asking about its
+/// paths -- and without the pause, a bare `ls` or the subshell alone, one
+/// batch with no naming batch before it, which no floor can hold. The
+/// pause is a whole second because `0.2` in the echo is a name with a `.`,
+/// asked about, whose batch's floor then held the listing's. The listing's
+/// rows are read once the batch that names their writer is answered, and
+/// the batch that asks about their paths then goes at its own deadline:
+/// the row ends on the frame that draws the fifty marks
+/// (`RigFrameTicks::UntilMarked`), and is judged on the counts alone
+/// (`Settles::Marked`). The times of the text's frame and the marks' are
+/// printed, a measurement it is not judged on.
+const LISTING: FrameSite = FrameSite {
+    name: SiteName("a listing's paths are not held by the batch that named its writer"),
+    setup: concat!(
+        r"cd list; PS1='$ '; printf '\033[2J\033[H\033]7;\146ile:\057\057%s%s\007",
+        r#"baud\033]52;c;!\007' "$(hostname)" "$PWD""#,
+    ),
+    act: r"(sleep 1; ls; printf '\033]52;c;!\007'; read x)",
+    keys: RigKeys::Line,
+    ticks: RigFrameTicks::UntilMarked,
+    window: RigWindow::Untold,
+    env: &[],
+    config: STEADY,
+    focus: RigFocus::Believed,
+    attempts: Iterations(LISTED),
+    expect: Settles::Marked(LISTED),
+    state: RowState::Green,
+};
+
+/// **A listing's printed paths are drawn at their own deadline, not held a
+/// second by the batch that named their writer**, on the lifted arm alone:
+/// the row is about the printed paths' pace, not the polls a settle names.
+/// Red with the floor armed by any batch (`Pace::sent` setting the last
+/// batch whatever it asked, or the floor set before the tick knows what
+/// goes): the batch that asks about the listing's paths is then held to a
+/// second after the batch that named `ls`, and counted held. The setup must
+/// have asked about no path, or a floor after it could hold the act's
+/// batch by timing, and that is the harness's failure, not the row's.
+#[test]
+fn a_listings_paths_are_not_held_by_the_batch_that_named_its_writer() {
+    let dir = scratch("listing");
+    let list = dir.join("list");
+    std::fs::create_dir(&list).expect("the listed folder");
+    for n in 10..10 + LISTED {
+        std::fs::write(list.join(format!("f{n}.txt")), b"").expect("a listed file");
+    }
+    let c = run_frames_in(&LISTING, &dir, RigHolders::Lifted)
+        .unwrap_or_else(|e| panic!("{:?}: {e}", LISTING.name));
+    println!("{:?}: {c:?}", LISTING.name);
+    assert_eq!(
+        c.setup_asked(),
+        Some(0),
+        "the setup asked about a path, and a floor after it could hold the act's batch: {c:?}"
+    );
+    assert!(LISTING.expect.holds(&c), "{:?}: {c:?}", LISTING.name);
 }

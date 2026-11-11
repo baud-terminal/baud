@@ -13,7 +13,14 @@
 //! answer for, [`SETTLE`] after the last read of the program's output, and at
 //! most once each [`CEILING`] while output goes on -- a spinner or a
 //! program's repaint never goes quiet, and without the ceiling its paths
-//! would never be asked about. Each batch is the window's screen as it is
+//! would never be asked about. A batch that asked about a path holds the
+//! next for [`CEILING`]; one that only named the programs that wrote holds
+//! nothing, so a listing's paths, readable once its writer is named, are
+//! asked at once. Batches that only name are bounded by the quiet instead:
+//! each waits for output after the last batch and [`SETTLE`] after it, so
+//! two are never closer than [`SETTLE`] -- at most 1 + 1 s / [`SETTLE`],
+//! 7, in any second, where batches that ask about a path go once a second.
+//! Each batch is the window's screen as it is
 //! then: one scan of every row (`Paths::begin_collect`), so a flood costs
 //! one scan of the last screen, and a batch sent replaces one not yet taken.
 //! The worker leaves a batch for a newer one between two paths.
@@ -123,7 +130,8 @@ use crate::sys::Pid;
 /// How long after the program's last output a batch is sent.
 pub const SETTLE: Duration = Duration::from_millis(150);
 
-/// The fewest seconds between two batches, while output goes on or not.
+/// The longest a path met waits for its batch while output goes on, and
+/// the shortest between two batches that ask about a path.
 pub const CEILING: Duration = Duration::from_secs(1);
 
 /// **How long the worker may go with a batch out and no call returning
@@ -1663,22 +1671,62 @@ impl<T: Moment> Pace<T> {
 
     /// **The batch's deadline**: [`SETTLE`] after the last read, but no later
     /// than [`CEILING`] after the path was met, and never sooner than
-    /// [`CEILING`] after the last batch. None while nothing is owed.
+    /// [`CEILING`] after the last batch that asked about a path. None while
+    /// nothing is owed.
     pub fn due_at(&self) -> Option<T> {
-        let since = self.owed_since?;
-        let quiet = self.last_read.map_or(since, |r| r.after(SETTLE).max(since));
-        let soon = quiet.min(since.after(CEILING));
+        let soon = self.soon()?;
         Some(match self.last_batch {
             Some(b) => soon.max(b.after(CEILING)),
             None => soon,
         })
     }
 
-    /// A batch went at `now`.
-    pub fn sent(&mut self, now: T) {
-        self.last_batch = Some(now);
+    /// [`SETTLE`] after the last read, but no later than [`CEILING`] after
+    /// the path was met: the deadline with no floor.
+    fn soon(&self) -> Option<T> {
+        let since = self.owed_since?;
+        let quiet = self.last_read.map_or(since, |r| r.after(SETTLE).max(since));
+        Some(quiet.min(since.after(CEILING)))
+    }
+
+    /// **Whether the floor set the deadline**: [`CEILING`] after the last
+    /// batch that asked about a path is later than [`SETTLE`] and the
+    /// ceiling since the path was met would send it.
+    pub fn floor(&self) -> Floor {
+        match (self.soon(), self.last_batch) {
+            (Some(soon), Some(b)) if b.after(CEILING) > soon => Floor::Held,
+            _ => Floor::Open,
+        }
+    }
+
+    /// **The deadline was met**: the screen is scanned for the batch, and
+    /// nothing is owed until a scan meets a path with no answer again.
+    pub fn scanned(&mut self) {
         self.owed_since = None;
     }
+
+    /// **A batch went at `now`, asking about `paths`**: only a batch that
+    /// asked about a path holds the next one to [`CEILING`] after it. One
+    /// that only names the programs that wrote -- the first after a
+    /// listing, whose rows are read once their writer is named, or a typed
+    /// key's echo -- holds nothing, so the batch its answer makes readable
+    /// goes at its own deadline and not a second later. Under output that
+    /// goes on, [`CEILING`] after the path was met still sends batches about
+    /// once a second; batches that only name are never closer than
+    /// [`SETTLE`], at most 7 in a second.
+    pub fn sent(&mut self, now: T, paths: &[Candidate]) {
+        if !paths.is_empty() {
+            self.last_batch = Some(now);
+        }
+    }
+}
+
+/// Whether the floor after the last batch that asked about a path set a
+/// batch's deadline ([`Pace::floor`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Floor {
+    Open,
+    Held,
 }
 
 /// Batches out, and the last beat seen with the time it was seen.
@@ -1724,6 +1772,9 @@ pub struct Counts {
     /// the program in front.
     pub calls: u64,
     pub batches: u64,
+    /// Batches that asked about a path later than their own deadline, held
+    /// by the floor after the last that did ([`Pace::floor`]).
+    pub held: u64,
     pub hangs: u64,
 }
 
@@ -3135,7 +3186,10 @@ impl<T: Moment> Probes<T> {
         if !due || matches!(self.slot, Slot::Closed) {
             return turn;
         }
-        self.pace.sent(now);
+        // Read before the scan clears what is owed: whether the floor after
+        // the last batch that asked about a path set this deadline.
+        let floor = self.pace.floor();
+        self.pace.scanned();
         let cursor = s.cursor_on();
         let g = group();
         if g.is_some() && g == self.elsewhere {
@@ -3185,6 +3239,12 @@ impl<T: Moment> Probes<T> {
         }
         self.counts.asked += u64::try_from(queue.len()).unwrap_or(u64::MAX);
         self.counts.batches += 1;
+        if floor == Floor::Held && !queue.is_empty() {
+            self.counts.held += 1;
+        }
+        // Only now is it known whether this batch asks about a path, the
+        // one kind that holds the next.
+        self.pace.sent(now, &queue);
         let ask = Ask {
             id: self.next_id,
             kind: Kind::Screen,
@@ -3846,10 +3906,173 @@ mod tests {
             Some(ms(1000)),
             "the ceiling, while output goes on"
         );
-        p.sent(ms(1000));
+        p.scanned();
+        p.sent(ms(1000), &[asked_path()]);
         p.owe(ms(1010));
         p.saw(Taken(99), ms(1020));
         assert_eq!(p.due_at(), Some(ms(2000)), "never two in a second");
+    }
+
+    /// A path a batch asks about.
+    fn asked_path() -> Candidate {
+        Candidate {
+            path: b"/w/file_01.txt".to_vec(),
+            form: crate::paths::Form::Absolute,
+            line: AbsLine::at(Rows::ZERO),
+        }
+    }
+
+    /// **A batch that only named the writer holds no floor**: a listing's
+    /// rows are read once the batch that names its writer is answered, and
+    /// the batch that asks about their paths then goes at its own deadline
+    /// -- the frame that met them, long past the listing's [`SETTLE`] --
+    /// and not [`CEILING`] after the naming one. So too after a typed key's
+    /// echo: `l` and `s` echoed, each named [`SETTLE`] after it, then the
+    /// listing. Break: the floor armed by any batch (`Pace::sent` setting
+    /// the last batch whatever it asked), under which each path batch is
+    /// held to a second after the naming batch before it.
+    #[test]
+    fn a_batch_that_only_named_its_writer_holds_no_floor() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        // Cold: the listing read, its rows not yet readable.
+        let mut p: Pace<Instant> = Pace::default();
+        p.saw(Taken(1), ms(0));
+        p.owe(ms(0));
+        assert_eq!(p.due_at(), Some(ms(150)), "quiet after the listing");
+        assert_eq!(p.floor(), Floor::Open);
+        p.scanned();
+        p.sent(ms(150), &[]);
+        // Its answer filed the rows; the next frame's scan met the paths.
+        p.owe(ms(152));
+        assert_eq!(p.floor(), Floor::Open, "nothing asked: no floor");
+        assert_eq!(p.due_at(), Some(ms(152)), "at once, not at 1150 ms");
+        // Typed: `l` at 0, `s` at 120, each echo named once quiet, then the
+        // listing at 420 and its paths met once the naming is answered.
+        let mut p: Pace<Instant> = Pace::default();
+        p.saw(Taken(1), ms(0));
+        p.owe(ms(0));
+        p.saw(Taken(2), ms(120));
+        assert_eq!(p.due_at(), Some(ms(270)));
+        p.scanned();
+        p.sent(ms(270), &[]);
+        p.saw(Taken(40), ms(420));
+        p.owe(ms(420));
+        assert_eq!(p.due_at(), Some(ms(570)), "the listing's own quiet");
+        p.scanned();
+        p.sent(ms(570), &[]);
+        p.owe(ms(572));
+        assert_eq!(p.floor(), Floor::Open);
+        assert_eq!(p.due_at(), Some(ms(572)), "at once, not at 1570 ms");
+        // A batch that asked about a path still holds the next.
+        p.scanned();
+        p.sent(ms(572), &[asked_path()]);
+        p.owe(ms(900));
+        assert_eq!(p.floor(), Floor::Held);
+        assert_eq!(p.due_at(), Some(ms(1572)), "a second after the asking");
+    }
+
+    /// **Batches that ask about a path go about once a second while output
+    /// goes on, a flood's or a spinner's**: every read rewrites a path, met
+    /// by the frame after it, and each batch asks about it. A flood, a read
+    /// every 10 ms, never goes quiet, and [`CEILING`] after the path was met
+    /// sends each; a spinner, a read every 200 ms, goes quiet [`SETTLE`]
+    /// after each, and the floor after the last batch that asked holds the
+    /// next. The control for [`a_batch_that_only_named_its_writer_holds_no_floor`]:
+    /// green with the floor armed by any batch as well. Perturbations: drop
+    /// the ceiling from `due_at`, and the flood is never asked about; drop
+    /// the floor, and the spinner is asked about five times a second.
+    #[test]
+    fn a_flood_or_a_spinner_asks_about_paths_once_a_second() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        for (name, every) in [("flood", 10_u64), ("spinner", 200)] {
+            let mut p: Pace<Instant> = Pace::default();
+            let mut sent: Vec<u64> = Vec::new();
+            let mut taken = 0_usize;
+            // Ten seconds of turns 5 ms apart.
+            for now in (0..10_000_u64).step_by(5) {
+                if now % every == 0 {
+                    taken += 1;
+                    p.saw(Taken(taken), ms(now));
+                }
+                p.owe(ms(now));
+                if p.due_at().is_some_and(|d| ms(now) >= d) {
+                    p.scanned();
+                    p.sent(ms(now), &[asked_path()]);
+                    sent.push(now);
+                }
+            }
+            assert!(
+                (9..=10).contains(&sent.len()),
+                "{name}: {} batches in ten seconds: {sent:?}",
+                sent.len()
+            );
+            for w in sent.windows(2) {
+                assert!(w[1] - w[0] >= 1000, "{name}: two in a second: {sent:?}");
+            }
+        }
+    }
+
+    /// **A spinner that prints no path is named at each pause, and never
+    /// more often than [`SETTLE`]**: a read every 160 ms for ten seconds,
+    /// each met by the frame after it, and every batch only names the
+    /// writer. It owes only at a read, where the flood control owes every
+    /// turn: a batch's collection clears what is owed, and only a changed
+    /// row owes again, which is the bound's premise. A naming batch holds
+    /// no floor, so each goes [`SETTLE`] after its read, one a read: 62 of
+    /// the 63 reads, the last one's quiet falling past ten seconds. Two are
+    /// never closer than [`SETTLE`] -- the next is owed only by a read
+    /// after this one and waits out the quiet after it -- so ten seconds
+    /// hold at most 1 + 10 s / [`SETTLE`] = 67, and no second more than
+    /// 1 + 1 s / [`SETTLE`] = 7. Under the floor armed by any batch
+    /// (`Pace::sent` setting the last batch whatever it asked) the same
+    /// spinner is named about once a second, 10.
+    #[test]
+    fn a_spinner_that_prints_no_path_is_named_never_closer_than_settle() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let settle = u64::try_from(SETTLE.as_millis()).unwrap();
+        let mut p: Pace<Instant> = Pace::default();
+        let mut sent: Vec<u64> = Vec::new();
+        let mut taken = 0_usize;
+        // Ten seconds of turns 5 ms apart.
+        for now in (0..10_000_u64).step_by(5) {
+            if now % 160 == 0 {
+                taken += 1;
+                p.saw(Taken(taken), ms(now));
+                p.owe(ms(now));
+            }
+            if p.due_at().is_some_and(|d| ms(now) >= d) {
+                p.scanned();
+                p.sent(ms(now), &[]);
+                sent.push(now);
+            }
+        }
+        for w in sent.windows(2) {
+            assert!(w[1] - w[0] >= settle, "closer than SETTLE: {sent:?}");
+        }
+        assert!(
+            sent.len() <= usize::try_from(1 + 10_000 / settle).unwrap(),
+            "{} batches in ten seconds: {sent:?}",
+            sent.len()
+        );
+        for (i, &s) in sent.iter().enumerate() {
+            let second = sent[i..].iter().take_while(|&&t| t < s + 1000).count();
+            assert!(
+                second <= usize::try_from(1 + 1000 / settle).unwrap(),
+                "{second} batches in a second from {s} ms"
+            );
+        }
+        let quiet_in_time = (0..10_000_u64)
+            .step_by(160)
+            .filter(|r| r + settle < 10_000)
+            .count();
+        assert_eq!(
+            sent.len(),
+            quiet_in_time,
+            "one a read, SETTLE after it: {sent:?}"
+        );
     }
 
     /// A probe set for a window with `fs`, the clock at `t0`.
