@@ -8571,16 +8571,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **The status line's row, converted as the instance path converts a
     /// line**, for the path that draws the grid itself: its glyphs and
     /// decorations, its cursor's shapes included, at the row below the main
-    /// display. The cell shader draws its backgrounds from the window copy's
-    /// row after the main display's and leaves the rest to these. Nothing
-    /// while no status line is shown.
+    /// display, appended to `out`, which the caller keeps, so the line
+    /// costs no buffer of its own. The cell shader draws its backgrounds
+    /// from the window copy's row after the main display's and leaves the
+    /// rest to these. Nothing while no status line is shown.
     pub fn status_records(
         &mut self,
         term: &Term<'_>,
         cursor: Option<(Row, Col, CursorStyle)>,
         out: &mut Vec<Instance>,
     ) {
-        out.clear();
         self.sized_ready(term);
         let Some(line) = term.status_line() else {
             return;

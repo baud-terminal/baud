@@ -197,6 +197,56 @@ fn the_host_writable_line_draws_its_text_and_its_cursor() {
     });
 }
 
+/// **The status line's records are appended to the caller's** (FS-C13a),
+/// which the cell path keeps across frames, so the line costs no buffer of
+/// its own: a second call into the records of a first keeps them and adds
+/// the same again. Named break: the caller's records cleared first.
+#[test]
+fn the_status_records_are_appended_to_the_callers() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let mut r = support::renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[2$~\x1b[1$}AB\x1b[0$}");
+    r.fit(&t);
+    let mut first = Vec::new();
+    r.status_records(&t, None, &mut first);
+    assert!(first.len() >= 2, "the line's two glyphs: {}", first.len());
+    let mut out = first.clone();
+    r.status_records(&t, None, &mut out);
+    assert_eq!(out.len(), 2 * first.len(), "appended");
+    assert_eq!(&out[..first.len()], &first[..], "the caller's kept");
+    assert_eq!(&out[first.len()..], &first[..], "the line's again");
+}
+
+/// **The cell path draws the status line into the frame's records**
+/// (FS-C13a): `Overlay::status` hands the renderer the records it was
+/// given and makes no buffer of its own. A source check, since both
+/// spellings draw the same. Named break: the records gathered into a Vec
+/// of their own each frame and then appended.
+#[test]
+fn the_cell_path_draws_the_status_line_into_its_records() {
+    let src = include_str!("../src/overlay.rs");
+    let at = src.find("    pub fn status(").expect("Overlay::status");
+    let end = at + src[at..].find("\n    }\n").expect("its body");
+    let code = src[at..end]
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        code.contains("r.status_records(term, cursor, records);"),
+        "{code}"
+    );
+    for made in ["Vec::new", "vec!", "Vec::with_capacity", ".to_vec()"] {
+        assert!(
+            !code.contains(made),
+            "Overlay::status makes a buffer: {made}"
+        );
+    }
+}
+
 /// **A frame a row taller than its target paints what fits**: a window
 /// that has not grown yet for the line, the frame the renderer draws for
 /// the main display and the line, and the target the old size. The main

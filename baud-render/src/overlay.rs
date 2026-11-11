@@ -2911,9 +2911,7 @@ impl Overlay {
         for b in row {
             *b |= bits;
         }
-        let mut drawn = Vec::new();
-        r.status_records(term, cursor, &mut drawn);
-        records.extend(drawn);
+        r.status_records(term, cursor, records);
     }
 
     /// A window's cells that the map does not draw: masked, counted and
