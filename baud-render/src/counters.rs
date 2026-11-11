@@ -1,7 +1,8 @@
 //! **What a frame did, counted where it does it**: the cells it compared,
 //! copied and converted, the rows it laid out for their direction, the
 //! cells the overlay built records for, the cells scanned for pictures, the
-//! link records placed and the image tables built.
+//! link records placed, the image tables built and the instances tallied
+//! for the frame's totals.
 //!
 //! The counts are kept only under the `counters` feature, which nothing
 //! that ships enables: each [`add`] is an empty function without it, so the
@@ -47,11 +48,14 @@ pub enum Counter {
     LinkInstancesBuilt,
     /// Image placements whose sampling tables were built.
     ImageTablesBuilt,
+    /// Instances tallied for the frame's totals of them -- all, coloured,
+    /// solid -- as a row's are set (`crate::per_row`).
+    InstancesTallied,
 }
 
 impl Counter {
     /// Every counter, in the order a harness prints them.
-    pub const ALL: [Counter; 8] = [
+    pub const ALL: [Counter; 9] = [
         Counter::CellsCompared,
         Counter::CellsCopied,
         Counter::CellsConverted,
@@ -60,6 +64,7 @@ impl Counter {
         Counter::PictureCellsScanned,
         Counter::LinkInstancesBuilt,
         Counter::ImageTablesBuilt,
+        Counter::InstancesTallied,
     ];
 
     /// The counter's name, as a harness prints it.
@@ -73,6 +78,7 @@ impl Counter {
             Counter::PictureCellsScanned => "picture_cells_scanned",
             Counter::LinkInstancesBuilt => "link_instances_built",
             Counter::ImageTablesBuilt => "image_tables_built",
+            Counter::InstancesTallied => "instances_tallied",
         }
     }
 }
@@ -141,6 +147,7 @@ mod on {
             Counter::PictureCellsScanned => &of[5],
             Counter::LinkInstancesBuilt => &of[6],
             Counter::ImageTablesBuilt => &of[7],
+            Counter::InstancesTallied => &of[8],
         }
     }
 

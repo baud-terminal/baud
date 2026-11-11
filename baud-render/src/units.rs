@@ -37,6 +37,11 @@ impl Tally {
     pub fn lose(&mut self) {
         self.0 = self.0.saturating_sub(1);
     }
+
+    /// `n` fewer, saturating: a count `n` of whose things went.
+    pub(crate) fn remove(&mut self, n: Tally) {
+        self.0 = self.0.saturating_sub(n.0);
+    }
 }
 
 /// A mask texel: how much of the pixel the glyph covers, 0 to 255.

@@ -2447,7 +2447,9 @@ pub struct Renderer<'f, 'a> {
     /// frame does not convert is unchanged, so its answer still holds, and
     /// `blink_seen` is the whole screen's.
     row_blinks: Vec<Blinking>,
-    per_row: Vec<Vec<Instance>>,
+    /// Per row, its instances, with the tallies a frame reports kept as
+    /// each row is written (`crate::per_row`).
+    per_row: crate::per_row::PerRow,
     /// Per row, how many of its instances are glyphs, which come first;
     /// the rest are its decorations.
     glyph_ends: Vec<usize>,
@@ -3106,7 +3108,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             laid: Vec::new(),
             row_worded: Vec::new(),
             row_blinks: Vec::new(),
-            per_row: Vec::new(),
+            per_row: crate::per_row::PerRow::default(),
             glyph_ends: Vec::new(),
             reach: Vec::new(),
             reach_was: Vec::new(),
@@ -3263,6 +3265,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     pub fn metrics(&self) -> Metrics {
         self.metrics
+    }
+
+    /// **The frame's totals of its instances counted afresh** -- all of
+    /// them, those on the colour texture, those solid -- by walking every
+    /// row's instances, as each frame did before the totals were kept as
+    /// the rows are written: the count harness holds every frame's
+    /// [`Frame`] totals to this.
+    #[cfg(feature = "counters")]
+    pub fn instances_recounted(&self) -> (Tally, Tally, Tally) {
+        let k = self.per_row.recounted();
+        (k.instances(), k.colored(), k.solids())
     }
 
     /// A new pixel size for the same faces -- the backing scale changed, or
@@ -7190,7 +7203,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.laid = vec![Vec::new(); rows.index()];
         self.row_worded = vec![crate::word::Worded::No; rows.index()];
         self.row_blinks = vec![Blinking::UNSEEN; rows.index()];
-        self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
+        self.per_row.reset(rows);
         self.glyph_ends = vec![0; rows.index()];
         self.reach = vec![Reach::NONE; rows.index()];
         self.reach_was = vec![Reach::NONE; rows.index()];
@@ -8364,7 +8377,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.sized_converted.bump();
                 self.sized_rows[y] = Some(SizedRow {
                     key,
-                    records: self.per_row[y].clone(),
+                    records: self.per_row[r].to_vec(),
                 });
             }
             if let Some(s) = &self.sized_rows[y] {
@@ -8498,7 +8511,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let kept = (
             self.cur[range.clone()].to_vec(),
             self.cur_size[0],
-            core::mem::take(&mut self.per_row[0]),
+            self.per_row.take(r0),
             self.bg[range.clone()].to_vec(),
             self.fg[range.clone()].to_vec(),
             self.curve[range.clone()].to_vec(),
@@ -8530,7 +8543,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.convert_row(term, r0, None, &mut exc);
         self.swap_leaving_layout();
         let ch = i16::try_from(self.metrics.cell_h.value()).unwrap_or(i16::MAX);
-        out.extend(self.per_row[0].iter().map(|i| Instance {
+        out.extend(self.per_row[r0].iter().map(|i| Instance {
             y: Screen(i.y.0.saturating_sub(ch)),
             ..*i
         }));
@@ -8538,7 +8551,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let (cur, size, per_row, bg, fg, curve, text, blinks, ends, reach) = kept;
         self.cur[range.clone()].copy_from_slice(&cur);
         self.cur_size[0] = size;
-        self.per_row[0] = per_row;
+        self.per_row.set(r0, per_row);
         self.bg[range.clone()].copy_from_slice(&bg);
         self.fg[range.clone()].copy_from_slice(&fg);
         self.curve[range.clone()].copy_from_slice(&curve);
@@ -8600,7 +8613,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur_size[r.index()] = line.rendition;
         let mut exc = Exceptions::default();
         self.convert_row(term, r, cursor, &mut exc);
-        out.extend_from_slice(&self.per_row[r.index()]);
+        out.extend_from_slice(&self.per_row[r]);
     }
 
     /// Reads the terminal and converts the rows that changed since the
@@ -9602,16 +9615,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.place_rows
                 .ensure(&self.image_places, self.rows, self.metrics.cell_h);
         }
+        // The screen's instances, tallied as its rows were written: no row
+        // is walked for them here.
+        let totals = self.per_row.totals();
+        (frame.instances, frame.colored, frame.solids) =
+            (totals.instances(), totals.colored(), totals.solids());
         for r in 0..self.rows.index() {
             let row = Row::from_index(r);
-            frame.instances.add(Tally::of(self.per_row[r].len()));
-            for inst in &self.per_row[r] {
-                match inst.kind {
-                    Kind::Color => frame.colored.bump(),
-                    Kind::Solid => frame.solids.bump(),
-                    Kind::Mask | Kind::Quad | Kind::Band | Kind::Particle => {}
-                }
-            }
             if !self.dirty[r] {
                 continue;
             }
@@ -9647,17 +9657,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let meets = |g: &&Instance| Reach::of(core::slice::from_ref(*g)).meets(band);
             if reaching {
                 for q in (0..r).filter(|&q| self.reach[q].meets(band)) {
-                    for inst in self.per_row[q][..self.glyph_ends[q]].iter().filter(meets) {
+                    for inst in self.per_row[Row::from_index(q)][..self.glyph_ends[q]]
+                        .iter()
+                        .filter(meets)
+                    {
                         target.over(inst, &self.atlas, self.blend, page, band);
                     }
                 }
             }
-            for inst in &self.per_row[r] {
+            for inst in &self.per_row[row] {
                 target.over(inst, &self.atlas, self.blend, page, band);
             }
             if reaching {
                 for q in (r + 1..self.rows.index()).filter(|&q| self.reach[q].meets(band)) {
-                    for inst in self.per_row[q][..self.glyph_ends[q]].iter().filter(meets) {
+                    for inst in self.per_row[Row::from_index(q)][..self.glyph_ends[q]]
+                        .iter()
+                        .filter(meets)
+                    {
                         target.over(inst, &self.atlas, self.blend, page, band);
                     }
                 }
@@ -11983,7 +11999,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(None) => false,
             None => h.selects(r, logical_of(col), content),
         };
-        let mut instances = core::mem::take(&mut self.per_row[r.index()]);
+        let mut instances = self.per_row.take(r);
         instances.clear();
         // **The line's rendition** (`[[source: dec-std-070]]` § 5.6.1): on a
         // line that is not single-width each character is drawn over two
@@ -12352,7 +12368,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.glyph_ends[r.index()] = instances.len();
         self.reach[r.index()] = Reach::of(&instances);
         instances.extend(shapes);
-        self.per_row[r.index()] = instances;
+        self.per_row.set(r, instances);
     }
 
     /// **One row's runs of cells shaped by one face**, for

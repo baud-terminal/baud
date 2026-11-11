@@ -40,12 +40,14 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 7] = [
+const NAMES: [&str; 9] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
     "a_ligature_window_costs_a_caret_frame_no_allocation",
+    "a_caret_frame_tallies_the_rows_it_converts",
+    "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
     "nothing_that_ships_counts",
 ];
@@ -82,6 +84,12 @@ fn main() {
             }
             "a_ligature_window_costs_a_caret_frame_no_allocation" => {
                 checks::a_ligature_window_costs_a_caret_frame_no_allocation();
+            }
+            "a_caret_frame_tallies_the_rows_it_converts" => {
+                checks::a_caret_frame_tallies_the_rows_it_converts();
+            }
+            "the_frames_totals_follow_every_write_of_a_row" => {
+                checks::the_frames_totals_follow_every_write_of_a_row();
             }
             "the_cell_driver_builds_as_present_builds" => {
                 checks::the_cell_driver_builds_as_present_builds();
@@ -443,6 +451,49 @@ mod checks {
         heap: Heap,
         /// The rows the CPU path repainted; none on the cell path.
         rows_dirty: Option<Tally>,
+        /// The CPU path's frame's totals of its instances; none on the
+        /// cell path.
+        totals: Option<Totals>,
+    }
+
+    /// **A frame's totals of its instances**, as it reports them: all of
+    /// them, those on the colour texture and those solid.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Totals {
+        instances: Tally,
+        colored: Tally,
+        solids: Tally,
+    }
+
+    impl Totals {
+        fn of(f: &baud_render::Frame) -> Totals {
+            Totals {
+                instances: f.instances,
+                colored: f.colored,
+                solids: f.solids,
+            }
+        }
+
+        /// `r`'s totals counted again from every row's instances, as every
+        /// frame counted them before FS-C7 kept them.
+        fn recounted(r: &Renderer<'_, '_>) -> Totals {
+            let (instances, colored, solids) = r.instances_recounted();
+            Totals {
+                instances,
+                colored,
+                solids,
+            }
+        }
+
+        /// **`f`'s totals are the ones every row's instances count**: the
+        /// totals the frame reports -- to `report.rs`, the frame bench and
+        /// the golden readers -- are those the walk over every instance
+        /// that FS-C7 removed would have reported, on the same frame.
+        fn hold(f: &baud_render::Frame, r: &Renderer<'_, '_>, what: &str) -> Totals {
+            let kept = Totals::of(f);
+            assert_eq!(kept, Totals::recounted(r), "{what}: the kept totals");
+            kept
+        }
     }
 
     impl Cost {
@@ -453,6 +504,7 @@ mod checks {
                 counts: counters::take(),
                 heap,
                 rows_dirty: None,
+                totals: None,
             }
         }
 
@@ -469,6 +521,14 @@ mod checks {
             ));
             if let Some(rows) = self.rows_dirty {
                 s.push_str(&format!(" rows_dirty={}", rows.value()));
+            }
+            if let Some(t) = self.totals {
+                s.push_str(&format!(
+                    " instances={} colored={} solids={}",
+                    t.instances.value(),
+                    t.colored.value(),
+                    t.solids.value()
+                ));
             }
             s
         }
@@ -712,9 +772,11 @@ mod checks {
                 };
                 Cost::take();
                 let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                let cost = Cost::take();
                 costs.push(Cost {
                     rows_dirty: Some(f.rows_dirty),
-                    ..Cost::take()
+                    totals: Some(Totals::hold(&f, r, &format!("cpu frame {}", k.0))),
+                    ..cost
                 });
             }
         });
@@ -1054,6 +1116,126 @@ mod checks {
                 );
             }
         }
+    }
+
+    /// **A caret frame tallies only the rows it converts** (FS-C7): the
+    /// frame's totals of its instances are kept as each row's are set, so
+    /// the CPU path's caret frame tallies the rows it converts and not the
+    /// screen -- under a tenth of what the first frame, which converts every
+    /// row, tallies, where every frame walked every instance before. Named
+    /// break: every row tallied again each frame.
+    pub fn a_caret_frame_tallies_the_rows_it_converts() {
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        let costs = cpu_costs(Blinking::No, caret, Nth::ALL);
+        let tallied = |c: &Cost| c.counts.of(Counter::InstancesTallied).value();
+        let first = tallied(&costs[0]);
+        for (k, c) in costs.iter().enumerate().skip(1) {
+            println!(
+                "tallied cpu frame {k}: {} of the first frame's {first}",
+                tallied(c)
+            );
+
+            assert!(
+                tallied(c) * 10 < first,
+                "frame {k}: {} tallied, the first frame {first}",
+                tallied(c)
+            );
+        }
+    }
+
+    /// **The frame's totals follow every write of a row**, on each path a
+    /// row's instances are written by: an incremental frame reports the
+    /// totals a full frame of the same screen reports, and draws its
+    /// pixels, and a renderer that has drawn nothing before reports them
+    /// too, after (a) a row converted with another mix of instances --
+    /// text underlined and struck, more solids -- (b) the leaving line of a
+    /// slide converted on row 0's buffers, which are saved and put back
+    /// (`Renderer::sized_leaving`, the double-width row a scroll of one
+    /// line puts into the history above the window) and (c) a resize, which
+    /// empties every row. Named breaks, one a path: the row's tally kept
+    /// when its instances are set; the saved row put back untallied; the
+    /// totals kept through a reset.
+    pub fn the_frames_totals_follow_every_write_of_a_row() {
+        let still = Inputs::at(CursorPhase::SHOWN);
+        // An incremental frame after `event`, and a full frame of the same
+        // screen: their totals and their pixels.
+        let check =
+            |what: &str, event: &dyn Fn(&mut Term<'_>, &mut Renderer<'_, '_>, &mut Pixels)| {
+                with_screen(Blinking::No, |t, r| {
+                    r.fit(t);
+                    let mut a = Pixels::of(r);
+                    cpu_frame(r, t, &still, &mut a.target(), Damage::Full);
+                    let before = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+                    event(t, r, &mut a);
+                    r.fit(t);
+                    let (mut a, mut b) = match a.px.len() == Pixels::of(r).px.len() {
+                        true => (a, Pixels::of(r)),
+                        false => (Pixels::of(r), Pixels::of(r)),
+                    };
+                    let inc = cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+                    Totals::hold(&inc, r, what);
+                    let full = cpu_frame(r, t, &still, &mut b.target(), Damage::Full);
+                    Totals::hold(&full, r, what);
+                    // The same screen drawn by a renderer that has drawn nothing
+                    // before: its totals counted from no earlier tally.
+                    let faces = [
+                        Face::parse(JETBRAINS).expect("JetBrains Mono"),
+                        Face::parse(CASCADIA).expect("Cascadia Mono"),
+                    ];
+                    let mut fresh = renderer(&faces);
+                    let lines = links(t);
+                    fresh.set_link_lines(&lines, LineStyle::Solid);
+                    fresh.set_link_strikes(&lines[..1], &[]);
+                    fresh.fit(t);
+                    let mut c = Pixels::of(&fresh);
+                    let afresh = cpu_frame(&mut fresh, t, &still, &mut c.target(), Damage::Full);
+                    println!(
+                        "totals {what}: before {:?}, incremental {:?}, full {:?}, afresh {:?}",
+                        Totals::of(&before),
+                        Totals::of(&inc),
+                        Totals::of(&full),
+                        Totals::of(&afresh)
+                    );
+                    assert_eq!(
+                        Totals::of(&inc),
+                        Totals::of(&full),
+                        "{what}: the incremental frame's totals"
+                    );
+                    assert_eq!(
+                        Totals::of(&full),
+                        Totals::of(&afresh),
+                        "{what}: the totals a fresh renderer counts"
+                    );
+                    assert!(a.px == b.px, "{what}: the incremental frame's pixels");
+                    assert_ne!(
+                        Totals::of(&before),
+                        Totals::of(&full),
+                        "{what}: the screen's totals moved"
+                    );
+                });
+            };
+        check("a row's mix", &|t, _, _| {
+            feed(
+                t,
+                b"\x1b7\x1b[25;10H\x1b[4;9munderlined and struck text\x1b[0m\x1b8",
+            );
+        });
+        check("the leaving line", &|t, r, a| {
+            // The double-width row into the history, the window scrolled
+            // one line, then its frame drawn before the leaving line is.
+            feed(t, b"\x1b7\x1b[50;1H\n\x1b8");
+            cpu_frame(r, t, &still, &mut a.target(), Damage::Incremental);
+            let mut out = Vec::new();
+            r.sized_leaving(t, Rows::ZERO, &mut out);
+            assert!(!out.is_empty(), "the leaving line is double width");
+        });
+        check("a resize", &|t, _, _| {
+            let smaller = WinSize {
+                ws_col: 160,
+                ws_row: 40,
+            };
+            assert_eq!(t.resize(&smaller), baud_core::Resized::Ok, "resized");
+        });
     }
 
     /// The code of `name`'s body in `src`, its comment lines dropped and

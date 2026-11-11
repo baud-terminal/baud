@@ -61,6 +61,7 @@ pub mod message;
 mod metrics;
 pub mod orb;
 mod overlay;
+mod per_row;
 mod picture;
 pub mod plasma;
 pub mod print;
