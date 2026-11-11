@@ -43,8 +43,8 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::settings::{AnimatedImages, Flashing, Heard, Setting};
 use baud_present_macos::{
-    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
-    Presented, Presenter, StylesBuffer, SurfaceSpace,
+    CellInput, Drawn, FaultCode, Faults, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode,
+    OverlayBuffer, Presented, Presenter, StylesBuffer, SurfaceSpace,
     journal::{Reshape, Wheel},
     screens::Screens,
 };
@@ -671,6 +671,9 @@ struct App {
     reported: crate::report::Every<std::time::Instant>,
     stats: Frame,
     gpu_stats: GpuFrame,
+    /// The GPU's fault counts when a fault was last warned of, so each
+    /// code is said once ([`App::warn_faults`]).
+    faults_said: Faults,
     wanted: Path,
     /// What the surfaces' bytes mean; the presenter tags them with it.
     space: SurfaceSpace,
@@ -1661,6 +1664,7 @@ impl App {
             reported: crate::report::Every::new(std::time::Instant::now()),
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
+            faults_said: Faults::default(),
             wanted,
             space,
             font_size,
@@ -3109,6 +3113,7 @@ impl App {
     /// driver's too (`report.rs`); the GPU line and the latency line are
     /// this app's alone.
     fn report(&mut self) {
+        self.warn_faults();
         if self.reported.due(std::time::Instant::now()) == crate::report::Due::No {
             return;
         }
@@ -3348,16 +3353,41 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded, {} deferred, {} given back, {} owed to a live frame, last gpu {:?}",
+                "present: {} landed, {} shown, {} superseded, {} deferred, {} given back, {} failed, {} owed to a live frame, last gpu {:?}{}",
                 c.landed,
                 c.shown,
                 c.superseded,
                 c.deferred,
                 c.abandoned,
+                c.failed,
                 self.owed_in_flight.value(),
-                c.gpu
+                c.gpu,
+                self.presenter
+                    .as_ref()
+                    .and_then(Presenter::faults)
+                    .map_or(String::new(), |f| format!("; {f}"))
             ),
             None => "present: no presenter".to_string(),
+        }
+    }
+
+    /// **A GPU fault is said, once a kind**: the first frame failed with a
+    /// code, the first odd status, the first failed warm-up pass, each
+    /// with every count so far. A failed frame is not presented, and the
+    /// frame after it is drawn whole (`Gpu::draw_since`), so what the
+    /// window shows stays right; this is where it stops being silent.
+    fn warn_faults(&mut self) {
+        let Some(now) = self.presenter.as_ref().and_then(Presenter::faults) else {
+            return;
+        };
+        let said = self.faults_said;
+        let first = |was: Tally, is: Tally| was == Tally::ZERO && is != Tally::ZERO;
+        let new = (0..FaultCode::COUNT).any(|i| first(said.failed[i], now.failed[i]))
+            || first(said.odd_status, now.odd_status)
+            || first(said.warm_failed, now.warm_failed);
+        if new {
+            crate::warn!("the GPU did not draw a frame: {now}");
+            self.faults_said = now;
         }
     }
 }
@@ -14662,6 +14692,15 @@ impl baud_present_macos::unwind::Settles for Driver {
         );
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::drawn(self.app.frames);
+        #[cfg(feature = "effect-probe")]
+        if let Some(f) = self
+            .app
+            .presenter
+            .as_ref()
+            .and_then(baud_present_macos::Presenter::faults)
+        {
+            baud_present_macos::probe::gpu(f);
+        }
         match crate::frames::act(owes) {
             // Whoever owed the frame may not have run the link -- a
             // deadline within one interval, a latency record open -- so the

@@ -493,13 +493,19 @@ fn main() {
                 // Drawn whole and read back every frame: a screen of its own.
                 screen: baud_present_macos::screens::ScreenGen::fresh(),
             };
-            let Some(Drawn::Frame(_)) =
+            let Some(Drawn::Frame(f)) =
                 self.gpu
                     .draw_cells(&mut self.renderer, &input, &self.target, Done::Wait)
             else {
                 panic!("draw_cells");
             };
-            self.gpu.read(&self.target, &mut self.pixels).expect("read");
+            let drew = f
+                .waited
+                .landed()
+                .unwrap_or_else(|w| panic!("a frame waited for: {w}"));
+            self.gpu
+                .read(&self.target, drew, &mut self.pixels)
+                .expect("read");
         }
     }
 

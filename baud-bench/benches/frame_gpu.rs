@@ -82,7 +82,7 @@ fn main() {
     use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
     use baud_present_macos::screens::{Built, Compare, Screens};
     use baud_present_macos::{
-        CellInput, Done, Drawn, Gpu, InFlight, Landing, Presenter, SurfaceHandle, SurfaceSpace,
+        CellInput, Completion, Done, Drawn, Gpu, InFlight, Presenter, SurfaceHandle, SurfaceSpace,
         Wake,
     };
     use baud_render::{
@@ -477,11 +477,15 @@ fn main() {
     let async_gpu = Arc::new(AtomicU64::new(0));
     let sink = {
         let acc = Arc::clone(&async_gpu);
-        let f: Arc<dyn Fn(Landing) + Send + Sync> = Arc::new(move |landed: Landing| {
-            acc.fetch_add(
-                u64::try_from(landed.gpu.as_nanos()).unwrap_or(u64::MAX),
-                Ordering::Relaxed,
-            );
+        // A failed frame has no GPU time; the arm counts it through the
+        // GPU's faults instead, and fails on any.
+        let f: Arc<dyn Fn(Completion) + Send + Sync> = Arc::new(move |c: Completion| {
+            if let Completion::Done(landed) = c {
+                acc.fetch_add(
+                    u64::try_from(landed.gpu().as_nanos()).unwrap_or(u64::MAX),
+                    Ordering::Relaxed,
+                );
+            }
         });
         f
     };
@@ -635,16 +639,12 @@ fn main() {
                         // The replay is done: its time is taken, and its
                         // last screen drawn once the frame in flight lands,
                         // untimed, for `FRAME_HASH`.
-                        while m.presenter.in_flight() == InFlight::Busy {
-                            std::hint::spin_loop();
-                        }
+                        m.presenter.wait_idle();
                         total = Some(t0.elapsed());
                     }
                     let fin = total.is_some();
                     if fin && !dirty && idle_left > 0 {
-                        while m.presenter.in_flight() == InFlight::Busy {
-                            std::hint::spin_loop();
-                        }
+                        m.presenter.wait_idle();
                         idle_left -= 1;
                         if let Some(pair) = caret {
                             if !shown {
@@ -873,8 +873,10 @@ fn main() {
                     copies += usize::from(held != Some(screens.now()));
                     per.push([df, dc, dd]);
                 }
-                while m.presenter.in_flight() == InFlight::Busy {
-                    std::hint::spin_loop();
+                m.presenter.wait_idle();
+                // A frame the GPU did not draw is no frame to time.
+                if let Some(f) = m.presenter.faults() {
+                    assert_eq!(f.frames_failed().value(), 0, "{f}");
                 }
                 m.map = Some(GlyphMap::over(map.into_entries()));
                 let total = total.unwrap_or_else(|| t0.elapsed());
@@ -1015,9 +1017,7 @@ the first cpu {:.1}, copy {:.2}",
                 let fin = idle && idle_left == 0;
                 if fin {
                     hash_left = false;
-                    while gpu.in_flight() == InFlight::Busy {
-                        std::hint::spin_loop();
-                    }
+                    gpu.wait_idle();
                     total = Some(t0.elapsed());
                 }
                 if idle && !fin {
@@ -1042,9 +1042,7 @@ the first cpu {:.1}, copy {:.2}",
                     // The bench's stand-in for the frame loop's gate: no
                     // feed while the GPU reads the grid.
                     let tw = Instant::now();
-                    while gpu.in_flight() == InFlight::Busy {
-                        std::hint::spin_loop();
-                    }
+                    gpu.wait_idle();
                     s.wait += tw.elapsed();
                 }
                 if !idle {
@@ -1235,8 +1233,11 @@ the first cpu {:.1}, copy {:.2}",
                             };
                             let j = Arc::clone(&journal);
                             let e = Arc::clone(&epoch);
-                            Done::Notify(Arc::new(move |landed| {
-                                j.land(tag, &e, landed);
+                            Done::Notify(Arc::new(move |c| match c {
+                                Completion::Done(landed) => {
+                                    j.land(tag, &e, landed);
+                                }
+                                Completion::Failed(_) => j.fail(tag, None),
                             }))
                         }
                         _ => Done::Wait,
@@ -1253,7 +1254,11 @@ the first cpu {:.1}, copy {:.2}",
                     ages.drew(surface, g.changed);
                     surface = surface.next();
                     if fin {
-                        gpu.read(&target, &mut pixels).expect("read back");
+                        let drew = g
+                            .waited
+                            .landed()
+                            .unwrap_or_else(|w| panic!("the last frame: {w}"));
+                        gpu.read(&target, drew, &mut pixels).expect("read back");
                         // FNV-1a over the words, and the pixels that are
                         // not the first's: a blank screen is its cursor.
                         let h = pixels.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
@@ -1367,9 +1372,9 @@ the first cpu {:.1}, copy {:.2}",
                     }
                 }
             }
-            while gpu.in_flight() == InFlight::Busy {
-                std::hint::spin_loop();
-            }
+            gpu.wait_idle();
+            let faults = gpu.faults();
+            assert_eq!(faults.frames_failed().value(), 0, "{faults}");
             s.total = total.unwrap_or_else(|| t0.elapsed());
             if arm == Arm::Present {
                 let c = journal.counts();

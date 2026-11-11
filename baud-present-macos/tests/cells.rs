@@ -24,7 +24,8 @@ use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
 use baud_present_macos::screens::{Compare, Screens};
 use baud_present_macos::{
-    CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
+    Cause, CellInput, Done, Drawn, FaultCode, Gpu, GpuFrame, GridBuffer, Inject, Landed, MapBuffer,
+    OverlayBuffer, StylesBuffer, premultiply,
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use core::time::Duration;
@@ -239,20 +240,20 @@ impl Arms<'_, '_> {
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
         let b = self.with_cells(t, |gpu, renderer, input| {
-            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &target_b, Done::Wait)
+            let Some(Drawn::Frame(f)) = gpu.draw_cells(renderer, input, &target_b, Done::Wait)
             else {
                 panic!("draw_cells");
             };
             let mut b = vec![0u32; n];
-            gpu.read(&target_b, &mut b).expect("read");
+            gpu.read(&target_b, drew(&f), &mut b).expect("read");
             b
         });
         self.renderer.convert(t, self.back, Damage::Full);
-        let Some(Drawn::Frame(_)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
+        let Some(Drawn::Frame(f)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
             panic!("draw");
         };
         let mut a = vec![0u32; n];
-        self.gpu.read(&target_a, &mut a).expect("read");
+        self.gpu.read(&target_a, drew(&f), &mut a).expect("read");
         assert!(
             self.map.stats().live.value() > 20,
             "the map holds the scene's glyphs"
@@ -273,9 +274,10 @@ impl Arms<'_, '_> {
         let (w, h) = self.target_size();
         let target = self.gpu.offscreen(w, h).expect("target");
         self.with_cells(t, |gpu, renderer, input| {
-            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &target, Done::Wait) else {
+            let Some(Drawn::Frame(f)) = gpu.draw_cells(renderer, input, &target, Done::Wait) else {
                 panic!("draw_cells");
             };
+            drew(&f);
         });
     }
 
@@ -295,9 +297,10 @@ impl Arms<'_, '_> {
     fn keep_instances(&mut self, t: &Term<'_>) {
         self.renderer.hide_cursor(t);
         let size = self.target_size();
-        let Some(Drawn::Frame(_)) = self.gpu.draw_kept(&mut self.renderer, size, Done::Wait) else {
+        let Some(Drawn::Frame(f)) = self.gpu.draw_kept(&mut self.renderer, size, Done::Wait) else {
             panic!("the instance arm's kept frame");
         };
+        drew(&f);
     }
 
     /// **Keeps the old screen on the cell path**, as `App::draw_kept`
@@ -372,12 +375,13 @@ impl Arms<'_, '_> {
             screen: self.screens.now(),
         };
         let size = self.target_size();
-        let Some(Drawn::Frame(_)) =
+        let Some(Drawn::Frame(f)) =
             self.gpu
                 .draw_cells_kept(&mut self.renderer, &input, size, Done::Wait)
         else {
             panic!("the cell arm's kept frame");
         };
+        drew(&f);
     }
 
     /// The cell arm's frame built as the app builds it -- the styles synced,
@@ -791,14 +795,14 @@ impl Arms<'_, '_> {
             // The screen `draw` just built from.
             screen: self.screens.now(),
         };
-        let Some(Drawn::Frame(_)) =
+        let Some(Drawn::Frame(f)) =
             self.gpu
                 .draw_cells(&mut self.renderer, &input, &target, Done::Wait)
         else {
             panic!("draw_cells over the copy");
         };
         let mut out = vec![0u32; n];
-        self.gpu.read(&target, &mut out).expect("read");
+        self.gpu.read(&target, drew(&f), &mut out).expect("read");
         out
     }
 }
@@ -1637,6 +1641,15 @@ fn status_cursor(t: &Term<'_>, rows: Rows) -> Option<(Row, Col, baud_domain::Cur
         .map(|c| (Row::from_index(rows.index()), c, t.cursor_style()))
 }
 
+/// **The proof a frame waited for drew**, or a failure naming why: a frame
+/// the GPU did not draw leaves its target as it was, and two such targets
+/// compare alike with nothing drawn.
+fn drew(f: &GpuFrame) -> &Landed {
+    f.waited
+        .landed()
+        .unwrap_or_else(|w| panic!("a frame waited for: {w}"))
+}
+
 fn differing(a: &[u32], b: &[u32]) -> usize {
     a.iter().zip(b).filter(|(x, y)| x != y).count()
 }
@@ -2038,7 +2051,7 @@ fn no_surface_keeps_a_slid_frame() {
                 panic!("{path}: a frame");
             };
             let mut p = vec![0u32; n];
-            arms.gpu.read(rot.target(), &mut p).expect("read");
+            arms.gpu.read(rot.target(), drew(&f), &mut p).expect("read");
             rot.drew(&f, Counted::No);
             p
         };
@@ -2056,11 +2069,11 @@ fn no_surface_keeps_a_slid_frame() {
         }
         // The new screen, whole and unslid: the slide is set but not begun.
         arms.renderer.convert(&t, arms.back, Damage::Full);
-        let Some(Drawn::Frame(_)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+        let Some(Drawn::Frame(w)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
             panic!("draw");
         };
         let mut settled = vec![0u32; n];
-        arms.gpu.read(&whole, &mut settled).expect("read");
+        arms.gpu.read(&whole, drew(&w), &mut settled).expect("read");
         for p in [0.2, 0.5, 0.8] {
             arms.gpu.set_slide(Some(ScreenSlide {
                 progress: p,
@@ -2078,6 +2091,132 @@ fn no_surface_keeps_a_slid_frame() {
                 "{path}: frame {k} after the slide shows a slid frame"
             );
         }
+    }
+}
+
+/// **Two arms that both failed are not two arms that agree.** A frame the
+/// GPU aborts leaves its target as it was, so two failed arms read back two
+/// untouched targets, which compare alike with nothing drawn. With every
+/// frame's completion reported failed ([`Inject::Fail`]), the comparison
+/// fails naming the code; drawn, the same comparison passes. Break: the
+/// handler not reading the status, so the injection is never seen -- what
+/// every commit did before -- and the comparison passes.
+#[test]
+fn both_arms_failing_is_not_a_pass() {
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    let renderer = partial_renderer(&faces);
+    arms!(renderer => arms, t);
+    feed(
+        &mut t,
+        b"$ ls\r\nThe quick brown fox jumps over the lazy dog 0123456789\r\n",
+    );
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the control: drawn, the arms agree");
+    arms.gpu
+        .inject(Inject::Fail(Cause::Error(FaultCode::Internal)));
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| arms.draw(&mut t)));
+    arms.gpu.inject(Inject::Pass);
+    let said = match failed {
+        Ok(_) => panic!("both arms' frames failed and the comparison passed"),
+        Err(p) => p.downcast_ref::<String>().cloned().unwrap_or_default(),
+    };
+    assert!(said.contains("Internal"), "the failure is named: {said}");
+    assert_eq!(
+        arms.gpu.faults().of(FaultCode::Internal).value(),
+        1,
+        "and counted: {}",
+        arms.gpu.faults()
+    );
+}
+
+/// **A frame that failed is not the frame the next is compared with.** Its
+/// target holds undefined content, so the frame after it is drawn whole,
+/// though only the cursor moved; on both paths, waited for and notified --
+/// the app's way, where the failure arrives on the GPU's thread after the
+/// draw has returned. The control: the same move after a frame that drew
+/// is drawn by rows. Break: keeping the last frame on a failure
+/// (`Gpu::forget_last` doing nothing), and the frame after it is drawn by
+/// rows over a target the GPU never finished.
+#[test]
+fn a_failed_frame_is_not_compared_against() {
+    use baud_render::Redraw;
+    let files = partial_faces();
+    let faces = files.each_ref().map(|f| Face::parse(f).unwrap());
+    for path in ["instances", "cells"] {
+        let renderer = partial_renderer(&faces);
+        arms!(renderer => arms, t);
+        arms.reads = Reads::Copy;
+        let size = arms.renderer.whole_size();
+        let target = arms.gpu.offscreen(size.0, size.1).expect("target");
+        feed(
+            &mut t,
+            b"\x1b[?25h$ ls\r\nbaud-app  baud-core  docs\r\n$ vim",
+        );
+        // A frame into `target`, which holds the frame before it: waited
+        // for, or notified and then waited out as a bench does.
+        let frame = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, wait: bool| -> GpuFrame {
+            let done = match wait {
+                true => Done::Wait,
+                false => Done::Notify(std::sync::Arc::new(|_| {})),
+            };
+            let f = match path {
+                "instances" => {
+                    arms.renderer.set_images(t, arms.back);
+                    arms.renderer.convert(t, arms.back, Damage::Incremental);
+                    arms.gpu
+                        .draw_since(&mut arms.renderer, &target, done, Redraw::NOTHING)
+                }
+                _ => arms.with_cells(t, |gpu, renderer, input| {
+                    gpu.draw_cells_since(renderer, input, &target, done, Redraw::NOTHING)
+                }),
+            };
+            arms.gpu.wait_idle();
+            let Some(Drawn::Frame(f)) = f else {
+                panic!("{path}: a frame");
+            };
+            f
+        };
+        let first = frame(&mut arms, &mut t, true);
+        drew(&first);
+        let at = |r: usize, c: usize| format!("\x1b[{r};{c}H");
+        for (k, wait) in [true, false].into_iter().enumerate() {
+            feed(&mut t, at(2 + k, 3).as_bytes());
+            let drawn = frame(&mut arms, &mut t, true);
+            drew(&drawn);
+            feed(&mut t, at(3 + k, 5).as_bytes());
+            let control = frame(&mut arms, &mut t, true);
+            drew(&control);
+            assert!(
+                matches!(control.changed, Redraw::Rows(_)),
+                "{path}, the control: a move after a frame that drew is drawn by rows, not {:?}",
+                control.changed
+            );
+            feed(&mut t, at(4 + k, 7).as_bytes());
+            arms.gpu
+                .inject(Inject::Fail(Cause::Error(FaultCode::PageFault)));
+            let failed = frame(&mut arms, &mut t, wait);
+            arms.gpu.inject(Inject::Pass);
+            assert!(
+                matches!(failed.changed, Redraw::Rows(_)),
+                "{path}: the failed frame was a move by rows too, not {:?}",
+                failed.changed
+            );
+            feed(&mut t, at(5 + k, 9).as_bytes());
+            let after = frame(&mut arms, &mut t, true);
+            drew(&after);
+            assert_eq!(
+                (after.changed, after.drawn),
+                (Redraw::Whole, Redraw::Whole),
+                "{path}, waited {wait}: the frame after a failed one is compared with nothing"
+            );
+        }
+        assert_eq!(
+            arms.gpu.faults().of(FaultCode::PageFault).value(),
+            2,
+            "{path}: {}",
+            arms.gpu.faults()
+        );
     }
 }
 
@@ -12374,12 +12513,12 @@ fn cell_oracle_lined(
                 panic!("draw_cells_since");
             };
             let mut p = vec![0u32; n];
-            gpu.read(target, &mut p).expect("read");
-            let Some(Drawn::Frame(_)) = gpu.draw_cells(renderer, input, &whole, Done::Wait) else {
+            gpu.read(target, drew(&f), &mut p).expect("read");
+            let Some(Drawn::Frame(w)) = gpu.draw_cells(renderer, input, &whole, Done::Wait) else {
                 panic!("draw_cells");
             };
             let mut q = vec![0u32; n];
-            gpu.read(&whole, &mut q).expect("read");
+            gpu.read(&whole, drew(&w), &mut q).expect("read");
             let count = match i < counted {
                 true => Counted::Yes,
                 false => Counted::No,
@@ -12442,12 +12581,12 @@ fn instance_oracle_lined(
             panic!("draw_since");
         };
         let mut partial = vec![0u32; n];
-        arms.gpu.read(target, &mut partial).expect("read");
-        let Some(Drawn::Frame(_)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
+        arms.gpu.read(target, drew(&f), &mut partial).expect("read");
+        let Some(Drawn::Frame(w)) = arms.gpu.draw(&mut arms.renderer, &whole, Done::Wait) else {
             panic!("draw");
         };
         let mut full = vec![0u32; n];
-        arms.gpu.read(&whole, &mut full).expect("read");
+        arms.gpu.read(&whole, drew(&w), &mut full).expect("read");
         let count = match i < counted {
             true => Counted::Yes,
             false => Counted::No,

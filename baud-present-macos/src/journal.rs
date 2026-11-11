@@ -41,29 +41,11 @@ pub struct FrameTag {
     pub set: Option<SetIx>,
 }
 
-/// What a completed frame reports: taken in the completion handler, where
-/// both numbers exist, and nowhere else.
-///
-/// `Copy` plain data, like [`FrameTag`]: it crosses from the GPU's thread
-/// to whatever the [`Journal`] hands it on to.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Landing {
-    /// The frame's own start-to-end on the GPU, `GPUEndTime - GPUStartTime`
-    /// -- what the frame report prints as its GPU time. Zero for a stamp
-    /// pair that is not ordered, never a negative.
-    pub gpu: Duration,
-    /// When the GPU finished it, on the host clock. `GPUEndTime` is "the
-    /// host time in seconds that GPU finishes executing this command
-    /// buffer" (`MTLCommandBuffer.h`), so as a [`HostTime`] it is on the
-    /// same clock as the key event that asked for the frame and the
-    /// display-link target it is shown at -- which is what lets the
-    /// keystroke instrument subtract one from the other. [`HostTime::ZERO`]
-    /// when the stamp is not a time: the header says the property "returns
-    /// zero if CPU has not received completion notification", which a
-    /// completion handler never observes, so a zero here is the conversion
-    /// refusing rather than Metal.
-    pub ended: HostTime,
-}
+/// What a completed frame reports: taken in the completion handler from a
+/// status read, and nowhere else (`crate::metal`'s commit module).
+pub use crate::metal::Landing;
+
+use crate::redraw::{SurfaceIx, Surfaces};
 
 /// Which of the per-frame buffer sets a frame is built into, named where
 /// the copy of the screen each set holds is kept (`baud_render::screens`).
@@ -218,6 +200,11 @@ pub struct Journal {
     deferred: AtomicU64,
     /// Frames tagged and then never committed: see [`Journal::abandon`].
     abandoned: AtomicU64,
+    /// Frames whose completion said they failed: see [`Journal::fail`].
+    failed: AtomicU64,
+    /// The surfaces a failed frame went to, as [`Surfaces`]' bits, until
+    /// the presenter takes them ([`Journal::take_lost`]).
+    lost: AtomicU64,
     /// The last completed frame's GPU nanoseconds.
     gpu_nanos: AtomicU64,
     /// The GPU end of every frame handed to the layer, in landing order,
@@ -259,6 +246,10 @@ pub struct Counts {
     /// still reading the last one, or a resource could not be made -- and
     /// given back, so that no reshape waits for a landing that cannot come.
     pub abandoned: u64,
+    /// Frames whose completion said the GPU did not draw them: neither
+    /// landed nor shown, their surface left to be drawn whole
+    /// ([`Journal::fail`]).
+    pub failed: u64,
     /// The last completed frame's own start-to-end on the GPU, from the
     /// stamps Metal puts on the command buffer. Recorded where it exists:
     /// on the completion, by the handler that already runs there. Nothing
@@ -321,6 +312,33 @@ impl Journal {
             .ok();
     }
 
+    /// **A frame whose completion said it failed**: its target holds
+    /// undefined content, so it is not presented, and the surface it went
+    /// to, if any, is marked for the presenter to draw whole when it comes
+    /// round ([`Journal::take_lost`]). Its set is free and it no longer
+    /// counts as flying, as [`Journal::land`] has it; it is counted failed,
+    /// not landed, and queues no end for a present to take.
+    pub fn fail(&self, tag: FrameTag, surface: Option<SurfaceIx>) {
+        if let Some(s) = surface {
+            self.lost
+                .fetch_or(Surfaces::NONE.with(s).0, Ordering::Release);
+        }
+        if tag.set.is_some() {
+            self.wheel.landed(tag.frame);
+        }
+        self.flying
+            .try_update(Ordering::Release, Ordering::Relaxed, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .ok();
+        self.failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// The surfaces failed frames went to since the last take, cleared.
+    pub fn take_lost(&self) -> Surfaces {
+        Surfaces(self.lost.swap(0, Ordering::Acquire))
+    }
+
     /// Whether the unringed memory may be written now.
     ///
     /// **Asking is what a caller does immediately before reshaping**, so an
@@ -347,7 +365,7 @@ impl Journal {
     pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch, landing: Landing) -> Fate {
         let fate = baud_domain::fate(tag.swap, epoch.current());
         self.gpu_nanos.store(
-            u64::try_from(landing.gpu.as_nanos()).unwrap_or(u64::MAX),
+            u64::try_from(landing.gpu().as_nanos()).unwrap_or(u64::MAX),
             Ordering::Relaxed,
         );
         // `Release`, against the `Acquire` in `counts`: a reader that sees
@@ -357,7 +375,7 @@ impl Journal {
         // names travels by `performSelectorOnMainThread`, which orders the
         // present after the landing on its own.
         self.ended_nanos
-            .store(landing.ended.nanos(), Ordering::Release);
+            .store(landing.ended().nanos(), Ordering::Release);
         // Whatever became of it, the buffers it was built into are no
         // longer being read, and neither is the grid or the atlas.
         if tag.set.is_some() {
@@ -380,7 +398,7 @@ impl Journal {
             // `Acquire`.
             let at = self.ends_in.load(Ordering::Relaxed);
             if let Some(slot) = self.ends.get(at % ENDS) {
-                slot.store(landing.ended.nanos(), Ordering::Relaxed);
+                slot.store(landing.ended().nanos(), Ordering::Relaxed);
             }
             self.ends_in.store(at.wrapping_add(1), Ordering::Release);
         }
@@ -415,6 +433,7 @@ impl Journal {
             superseded: self.superseded.load(Ordering::Relaxed),
             deferred: self.deferred.load(Ordering::Relaxed),
             abandoned: self.abandoned.load(Ordering::Relaxed),
+            failed: self.failed.load(Ordering::Relaxed),
             gpu: Duration::from_nanos(self.gpu_nanos.load(Ordering::Relaxed)),
             ended: HostTime::of_nanos(self.ended_nanos.load(Ordering::Acquire)),
         }
@@ -464,10 +483,7 @@ mod tests {
 
     /// A landing whose timing the test does not examine.
     fn quiet() -> Landing {
-        Landing {
-            gpu: Duration::ZERO,
-            ended: HostTime::ZERO,
-        }
+        Landing::stamped(Duration::ZERO, HostTime::ZERO)
     }
 
     /// The defect behind "zoom stopped working": a draw that committed
@@ -578,10 +594,7 @@ mod tests {
         j.land(
             next,
             &epoch,
-            Landing {
-                gpu: Duration::from_micros(30),
-                ended: HostTime::of_nanos(500),
-            },
+            Landing::stamped(Duration::from_micros(30), HostTime::of_nanos(500)),
         );
         assert_eq!(j.counts().shown, 1);
         assert_eq!(j.presented_end(), Some(HostTime::of_nanos(500)));
@@ -602,10 +615,7 @@ mod tests {
             j.land(
                 tag,
                 &epoch,
-                Landing {
-                    gpu: Duration::from_micros(50),
-                    ended: HostTime::of_nanos(end),
-                },
+                Landing::stamped(Duration::from_micros(50), HostTime::of_nanos(end)),
             );
         }
         // A superseded frame is never presented, so it queues no end.
@@ -613,10 +623,7 @@ mod tests {
         j.land(
             tag,
             &epoch,
-            Landing {
-                gpu: Duration::from_micros(50),
-                ended: HostTime::of_nanos(300),
-            },
+            Landing::stamped(Duration::from_micros(50), HostTime::of_nanos(300)),
         );
         assert_eq!(j.presented_end(), Some(HostTime::of_nanos(100)));
         assert_eq!(j.presented_end(), Some(HostTime::of_nanos(200)));
@@ -636,20 +643,15 @@ mod tests {
             swap: epoch.current(),
             set: None,
         };
-        let landing = Landing {
-            gpu: Duration::from_micros(90),
-            ended: HostTime::of_nanos(1_234_567_890),
-        };
+        let landing =
+            Landing::stamped(Duration::from_micros(90), HostTime::of_nanos(1_234_567_890));
         assert_eq!(j.land(tag, &epoch, landing), Fate::Current);
         let c = j.counts();
         assert_eq!(c.gpu, Duration::from_micros(90));
         assert_eq!(c.ended, HostTime::of_nanos(1_234_567_890));
         // The next landing replaces both, and the end never moves backwards
         // on its own: it is the last frame's, whatever the previous read.
-        let later = Landing {
-            gpu: Duration::from_micros(40),
-            ended: HostTime::of_nanos(1_234_900_000),
-        };
+        let later = Landing::stamped(Duration::from_micros(40), HostTime::of_nanos(1_234_900_000));
         j.land(tag, &epoch, later);
         assert_eq!(j.counts().ended, HostTime::of_nanos(1_234_900_000));
         assert_eq!(j.counts().gpu, Duration::from_micros(40));

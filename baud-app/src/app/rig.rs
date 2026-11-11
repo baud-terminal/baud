@@ -994,7 +994,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={} first={} offered={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1050,6 +1050,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::flips().0.saturating_sub(flips.0),
             first,
             offered.get().saturating_sub(offered_at),
+            probe::gpu_faults().frames_failed().value(),
+            probe::gpu_faults().slowest.as_micros(),
         );
     };
     let mut offered_at = offered.get();

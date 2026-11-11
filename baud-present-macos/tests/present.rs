@@ -59,10 +59,7 @@ fn showing(l: &CALayer, candidates: &[&Surface]) -> Option<usize> {
 /// is which frame reaches the layer and which set it frees, and a frame's
 /// GPU time and end stamp bear on neither.
 fn quiet() -> Landing {
-    Landing {
-        gpu: Duration::ZERO,
-        ended: HostTime::ZERO,
-    }
+    Landing::stamped(Duration::ZERO, HostTime::ZERO)
 }
 
 /// What the completion closure does, spelled once so the test exercises the

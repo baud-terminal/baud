@@ -79,15 +79,13 @@
 #![allow(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use crate::journal::Landing;
 use crate::screens::ScreenGen;
 use crate::slots;
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::themefile::CellPaint;
 use baud_domain::{
-    Col, Cols, CursorStyle, FrameNo, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows,
-    Stride,
+    Col, Cols, CursorStyle, FrameNo, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
 };
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
@@ -97,7 +95,6 @@ use baud_render::{
     Reach, Redraw, Region, Renderer, Replaced, Resolved, RowSet, Screen, Side, StyleStamp, Tally,
     Tex, TexRect,
 };
-use block2::RcBlock;
 use core::ffi::c_void;
 use core::ptr::NonNull;
 use dispatch2::DispatchData;
@@ -106,16 +103,14 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
 use objc2_io_surface::{IOSurface, IOSurfaceRef};
 use objc2_metal::{
-    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLClearColor, MTLCommandBuffer,
-    MTLCommandEncoder, MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary,
-    MTLLoadAction, MTLOrigin, MTLPixelFormat, MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder,
-    MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
-    MTLResourceOptions, MTLSamplerDescriptor, MTLSamplerMinMagFilter, MTLSamplerState,
-    MTLScissorRect, MTLSize, MTLStorageMode, MTLStoreAction, MTLTexture, MTLTextureDescriptor,
-    MTLTextureUsage, MTLViewport,
+    MTLBlendFactor, MTLBlitCommandEncoder, MTLBuffer, MTLClearColor, MTLCommandEncoder,
+    MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary, MTLLoadAction, MTLOrigin,
+    MTLPixelFormat, MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
+    MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
+    MTLSamplerMinMagFilter, MTLSamplerState, MTLScissorRect, MTLSize, MTLStorageMode,
+    MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureUsage, MTLViewport,
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// How many instance buffers rotate on the instance path: one the GPU may
@@ -164,7 +159,6 @@ const METALLIB: &[u8] = include_bytes!("baud.metallib");
 
 type Texture = Retained<ProtocolObject<dyn MTLTexture>>;
 type Buffer = Retained<ProtocolObject<dyn MTLBuffer>>;
-type CommandBuffer = Retained<ProtocolObject<dyn MTLCommandBuffer>>;
 type Encoder = Retained<ProtocolObject<dyn MTLRenderCommandEncoder>>;
 
 /// A texture the GPU draws a frame into.
@@ -184,7 +178,7 @@ impl Target {
 /// commit to completion or to the handler being armed, and the GPU's own
 /// start-to-end where the frame was waited for -- `None` when it was not,
 /// because the answer does not exist yet and arrives with the completion.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct GpuFrame {
     pub instances: Tally,
     pub upload: Duration,
@@ -200,6 +194,10 @@ pub struct GpuFrame {
     /// What was drawn into the target: that change and what the target
     /// was missing before it, or the whole.
     pub drawn: Redraw,
+    /// **What the wait found**, on a frame waited for: drawn, with the
+    /// proof [`Gpu::read`] takes, or failed, with why. [`Waited::No`] on the
+    /// asynchronous path, whose answer arrives through [`Done::Notify`].
+    pub waited: Waited,
 }
 
 /// Which of the ring's instance buffers is written next.
@@ -637,38 +635,23 @@ struct CursorCode(u32);
 /// What to do when the GPU finishes a frame.
 pub enum Done {
     /// Block until it has: for a bench or a test that reads the target
-    /// back. Never in a frame loop.
+    /// back, and the first frame at launch. Never in a frame loop. What the
+    /// wait found is the frame's [`GpuFrame::waited`].
     Wait,
     /// Run this on the GPU's completion thread, and return at once. It is
-    /// handed the frame's [`Landing`] -- its own GPU time and when it ended
-    /// on the host clock -- because that is when both numbers exist: Metal
-    /// stamps `GPUStartTime` and `GPUEndTime` on the command buffer and
-    /// they are valid once it has completed. Nothing times anything -- the
-    /// fact arrives with the event that produced it.
-    Notify(Arc<dyn Fn(Landing) + Send + Sync>),
-}
-
-/// A completed frame's landing, from the stamps Metal puts on the command
-/// buffer: its own start-to-end, and its end as a host time. Valid only
-/// once it has completed, which is why the asynchronous path reads it in
-/// the handler rather than at commit.
-///
-/// Both stamps are `CFTimeInterval` seconds of "the host time"
-/// (`MTLCommandBuffer.h`), so the end converts to a [`HostTime`] as it is;
-/// a value the conversion refuses lands as [`HostTime::ZERO`], which is the
-/// header's own "has not completed" reading rather than a time.
-fn landing(cmd: &ProtocolObject<dyn MTLCommandBuffer>) -> Landing {
-    let (start, end) = (cmd.GPUStartTime(), cmd.GPUEndTime());
-    Landing {
-        gpu: Duration::try_from_secs_f64((end - start).max(0.0)).unwrap_or(Duration::ZERO),
-        ended: HostTime::of_secs(end).unwrap_or(HostTime::ZERO),
-    }
+    /// handed the frame's [`Completion`]: drawn, with its [`Landing`] --
+    /// its own GPU time and when it ended on the host clock, which exist
+    /// only once it has completed -- or failed, with why, which every
+    /// caller has to match. Nothing times anything -- the fact arrives
+    /// with the event that produced it.
+    Notify(Arc<dyn Fn(Completion) + Send + Sync>),
 }
 
 /// What a draw did.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Drawn {
-    /// Committed; with [`Done::Wait`], completed.
+    /// Committed; with [`Done::Wait`], completed, and what the wait found
+    /// in [`GpuFrame::waited`].
     Frame(GpuFrame),
     /// A frame is still in flight and reads the memory this one would
     /// bind, so nothing was done. The caller hears about the completion
@@ -765,8 +748,16 @@ pub struct Gpu {
     /// kitty animation, so a frame shown in another's place uploads.
     images: Vec<((ImageId, u32, FrameNo), Texture)>,
     image_gen: ImageGen,
-    /// Frames committed and not yet completed: zero or one.
-    in_flight: Arc<AtomicUsize>,
+    /// Frames committed and not yet completed -- zero or one -- and what
+    /// every completion's handler counted ([`commit`]).
+    flight: Flight,
+    /// The frames the handlers had counted failed when the last draw
+    /// looked: a count past it is a failure since, and the frame it was
+    /// is not what [`Gpu::last`] says was drawn.
+    failed_seen: Tally,
+    /// Whether the last frame committed was a screen switch's kept frame,
+    /// whose failure leaves the slide nothing defined to slide over.
+    kept: Kept,
     /// What `Gpu::new` cost, step by step.
     build: Build,
     /// **What the last frame committed drew**, beside its rows, on each
@@ -785,6 +776,13 @@ pub struct Gpu {
     /// whole, though nothing on the screen moved. So does the frame after
     /// a kept one, whose change the renderer takes against the kept frame.
     settle: Settle,
+}
+
+/// Whether a frame was a screen switch's kept frame ([`Gpu::draw_kept`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kept {
+    No,
+    Yes,
 }
 
 /// Whether the next frame is the first after a slide ended.
@@ -1170,6 +1168,14 @@ impl Default for SuiteBuilds {
 #[cfg(feature = "suite-archive")]
 mod suite;
 
+mod commit;
+#[cfg(feature = "gpu-fault")]
+pub use commit::Inject;
+pub use commit::{
+    Cause, Completion, ErrorNumber, Fault, FaultCode, Faults, Landed, Landing, StatusWord, Waited,
+};
+use commit::{Encoded, Flight, Then};
+
 /// A 2D texture of `format`, `w` by `h`.
 fn texture(
     device: &ProtocolObject<dyn MTLDevice>,
@@ -1323,7 +1329,8 @@ unsafe fn lend<T>(buffer: &Buffer, n: Elems) -> Option<&'static mut [T]> {
 
 // SAFETY: every field is a Metal object -- device, queue, pipeline states,
 // sampler, buffers, textures -- which Apple documents as usable from any
-// thread with the caller ordering access, plus an `Arc<AtomicUsize>`; the
+// thread with the caller ordering access, plus the `Arc`s of atomics a
+// `Flight` shares with its handlers; the
 // bindings mark the device and queue `Send` and leave buffers and textures
 // unmarked. A `Gpu` crosses a thread exactly once, whole, when the probe
 // that built it is joined, and nothing touches it on two threads at once.
@@ -1473,7 +1480,9 @@ impl Gpu {
             uploaded: None,
             images: Vec::new(),
             image_gen: ImageGen::ZERO,
-            in_flight: Arc::new(AtomicUsize::new(0)),
+            flight: Flight::new(),
+            failed_seen: Tally::ZERO,
+            kept: Kept::No,
             build,
             last: Last::None,
             clip: None,
@@ -1492,7 +1501,9 @@ impl Gpu {
     /// first *render* pass a process runs costs ~5 ms on this box whatever
     /// it draws, an empty command buffer does not prepay it, and this one
     /// runs while the window is being made rather than inside the first
-    /// frame.
+    /// frame. Its status is read and a failure counted
+    /// ([`Faults::warm_failed`]); it is not counted in flight, since it
+    /// reads nothing a frame writes.
     pub fn warm(&self) {
         let Some(scratch) = texture(
             &self.device,
@@ -1508,15 +1519,83 @@ impl Gpu {
         att.setTexture(Some(&scratch));
         att.setLoadAction(MTLLoadAction::Clear);
         att.setStoreAction(MTLStoreAction::Store);
-        let Some(cmd) = self.queue.commandBuffer() else {
+        let Some(cmd) = self.flight.encoded(&self.queue) else {
             return;
         };
-        let Some(enc) = cmd.renderCommandEncoderWithDescriptor(&pass) else {
+        let Some(enc) = cmd.render(&pass) else {
             return;
         };
         enc.setRenderPipelineState(&self.cell_bg_pipe);
         enc.endEncoding();
-        cmd.commit();
+        let _ = cmd.commit(&self.flight, Then::Discard);
+    }
+
+    /// What every completion's handler has counted: the frames that
+    /// failed, by code, the warm-up pass, and the slowest frame.
+    pub fn faults(&self) -> Faults {
+        self.flight.faults()
+    }
+
+    /// **Waits until no frame is in flight**, spinning: for a bench or a
+    /// test about to write what a frame reads. Never in a frame loop,
+    /// which its completion tells.
+    pub fn wait_idle(&self) {
+        self.flight.wait_idle();
+    }
+
+    /// **The fault seam**: what the completions of the frames committed
+    /// from now on report ([`Inject`]). Test builds only.
+    #[cfg(feature = "gpu-fault")]
+    pub fn inject(&self, inject: Inject) {
+        self.flight.set_inject(inject);
+    }
+
+    /// How many completions [`Inject::Hold`] holds.
+    #[cfg(feature = "gpu-fault")]
+    pub fn held(&self) -> Tally {
+        self.flight.held()
+    }
+
+    /// Delivers every held completion on this thread, as its handler would
+    /// have: counted, counted out of flight, answered. How many there were.
+    #[cfg(feature = "gpu-fault")]
+    pub fn release(&self) -> Tally {
+        self.flight.release()
+    }
+
+    /// Waits up to `within` for `n` completions to be held; how many are.
+    #[cfg(feature = "gpu-fault")]
+    pub fn await_held(&self, n: Tally, within: Duration) -> Tally {
+        self.flight.await_held(n, within)
+    }
+
+    /// Waits up to `within` for `n` completions to have been delivered in
+    /// all; how many were.
+    #[cfg(feature = "gpu-fault")]
+    pub fn await_delivered(&self, n: Tally, within: Duration) -> Tally {
+        self.flight.await_delivered(n, within)
+    }
+
+    /// **A frame that failed since the last draw looked is not the last
+    /// frame**: its target holds undefined content, so the next frame is
+    /// compared with nothing and drawn whole, and a failed kept frame
+    /// leaves no slide. The handler counts a failure before it counts the
+    /// frame out, and the busy check before this acquires the count-out,
+    /// so a failure is never missed here.
+    fn take_failures(&mut self) {
+        let failed = self.flight.faults().frames_failed();
+        if failed != self.failed_seen {
+            self.failed_seen = failed;
+            self.forget_last();
+        }
+    }
+
+    /// The last frame committed did not draw.
+    fn forget_last(&mut self) {
+        self.last = Last::None;
+        if self.kept == Kept::Yes {
+            self.slide = None;
+        }
     }
 
     /// Whether the device shares memory with the CPU, which is what makes
@@ -1535,10 +1614,9 @@ impl Gpu {
     /// by the wheel until it lands, and a caller that bound the core's own
     /// grid must not feed it until this says idle.
     pub fn in_flight(&self) -> InFlight {
-        if self.in_flight.load(Ordering::Acquire) == 0 {
-            InFlight::Idle
-        } else {
-            InFlight::Busy
+        match self.flight.busy() {
+            false => InFlight::Idle,
+            true => InFlight::Busy,
         }
     }
 
@@ -2278,10 +2356,13 @@ impl Gpu {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
         }
+        // Before the kept target is made: a failed kept frame before this
+        // one drops the slide it was kept for.
+        self.take_failures();
         let target = self.kept_target(size)?;
         let drawn = self.draw_since(renderer, &target, done, Redraw::Whole);
         self.settle = Settle::Owed;
-        drawn
+        self.kept(drawn)
     }
 
     /// [`Gpu::draw_kept`] on the cell path: `input` is the last frame's,
@@ -2297,9 +2378,24 @@ impl Gpu {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
         }
+        // Before the kept target is made: a failed kept frame before this
+        // one drops the slide it was kept for.
+        self.take_failures();
         let target = self.kept_target(size)?;
         let drawn = self.draw_cells_since(renderer, input, &target, done, Redraw::Whole);
         self.settle = Settle::Owed;
+        self.kept(drawn)
+    }
+
+    /// A kept frame committed: the last frame is a kept one, and a kept
+    /// frame waited for that failed leaves no slide now.
+    fn kept(&mut self, drawn: Option<Drawn>) -> Option<Drawn> {
+        if let Some(Drawn::Frame(f)) = &drawn {
+            self.kept = Kept::Yes;
+            if let Waited::Failed(_) = f.waited {
+                self.forget_last();
+            }
+        }
         drawn
     }
 
@@ -2358,13 +2454,7 @@ impl Gpu {
     /// at the slide's offset where it lies, else from the kept frame --
     /// [`baud_render::slide_source`], the rule the CPU path copies by. Every
     /// copy is whole rows, so the left and right margins come with them.
-    fn compose_slide(
-        &self,
-        cmd: &ProtocolObject<dyn MTLCommandBuffer>,
-        target: &Target,
-        whole: Px,
-        parts: Parts,
-    ) {
+    fn compose_slide(&self, cmd: &Encoded, target: &Target, whole: Px, parts: Parts) {
         let Some((s, at)) = self.slide_at(target.size()) else {
             return;
         };
@@ -2394,7 +2484,7 @@ impl Gpu {
                 _ => bands.push((y, 1, from, r)),
             }
         }
-        let Some(blit) = cmd.blitCommandEncoder() else {
+        let Some(blit) = cmd.blit() else {
             return;
         };
         let copy = |from: &Texture, src: usize, dst: usize, n: usize| {
@@ -2437,7 +2527,7 @@ impl Gpu {
         clear: MTLClearColor,
         viewport: MTLViewport,
         drawn: &Redraw,
-    ) -> Option<(CommandBuffer, Encoder)> {
+    ) -> Option<(Encoded, Encoder)> {
         let pass = MTLRenderPassDescriptor::new();
         // SAFETY: attachment 0 exists on every pass descriptor.
         let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
@@ -2448,49 +2538,38 @@ impl Gpu {
         });
         att.setStoreAction(MTLStoreAction::Store);
         att.setClearColor(clear);
-        let cmd = self.queue.commandBuffer()?;
-        let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        let cmd = self.flight.encoded(&self.queue)?;
+        let enc = cmd.render(&pass)?;
         enc.setViewport(viewport);
         Some((cmd, enc))
     }
 
-    /// Commits `cmd`: waits, or arms `done` and returns. Counts the frame
-    /// in flight either way, and out again when it completes.
-    fn commit(
-        &self,
-        cmd: &ProtocolObject<dyn MTLCommandBuffer>,
-        done: Done,
-    ) -> (Duration, Option<Duration>) {
+    /// Commits `cmd` ([`Encoded::commit`]): waits, or arms `done` and
+    /// returns. The frame is counted in flight either way, and out again by
+    /// its handler. The time is the commit's -- with the wait, on
+    /// [`Done::Wait`] -- and the wait's finding is the frame's
+    /// [`GpuFrame::waited`].
+    fn commit(&self, cmd: Encoded, done: Done) -> (Duration, Waited) {
         let t1 = Instant::now();
-        self.in_flight.fetch_add(1, Ordering::AcqRel);
         match done {
             Done::Wait => {
-                cmd.commit();
-                cmd.waitUntilCompleted();
-                self.in_flight.fetch_sub(1, Ordering::AcqRel);
-                (t1.elapsed(), Some(landing(cmd).gpu))
+                let waited = Waited::of(cmd.commit(&self.flight, Then::Wait).wait());
+                (t1.elapsed(), waited)
             }
             Done::Notify(then) => {
-                let flying = Arc::clone(&self.in_flight);
-                let block =
-                    RcBlock::new(move |done: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                        // SAFETY: Metal hands the handler the command
-                        // buffer that completed, valid for the call.
-                        let landed = landing(unsafe { done.as_ref() });
-                        flying.fetch_sub(1, Ordering::AcqRel);
-                        crate::unwind::guard(
-                            crate::unwind::SiteName("a frame's GPU completion"),
-                            (),
-                            || then(landed),
-                        );
-                    });
-                // SAFETY: the block is a valid `MTLCommandBufferHandler`
-                // for the length of the call; Metal copies it, so the
-                // `RcBlock` may drop after.
-                unsafe { cmd.addCompletedHandler(RcBlock::as_ptr(&block)) };
-                cmd.commit();
-                (t1.elapsed(), None)
+                let _ = cmd.commit(&self.flight, Then::Notify(then));
+                (t1.elapsed(), Waited::No)
             }
+        }
+    }
+
+    /// What a draw that committed `waited` leaves: the last frame, unless
+    /// a frame waited for failed, which leaves none; the frame is not a
+    /// kept one until [`Gpu::kept`] says so.
+    fn committed(&mut self, waited: &Waited) {
+        self.kept = Kept::No;
+        if let Waited::Failed(_) = waited {
+            self.forget_last();
         }
     }
 
@@ -2524,6 +2603,7 @@ impl Gpu {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
         }
+        self.take_failures();
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
         let metrics = renderer.metrics();
@@ -2795,16 +2875,18 @@ impl Gpu {
         self.clip = None;
         enc.endEncoding();
         self.compose_slide(&cmd, target, renderer.whole_size().1, Parts::of(renderer));
-        let (submit, gpu) = self.commit(&cmd, done);
+        let (submit, waited) = self.commit(cmd, done);
         self.last = Last::Instances(key);
+        self.committed(&waited);
         renderer.take_redraw();
         Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count + marks + lights + wraps),
             upload: upload_time,
             submit,
-            gpu,
+            gpu: waited.landed().ok().map(|l| l.landing().gpu()),
             changed,
             drawn,
+            waited,
         }))
     }
 
@@ -2849,6 +2931,7 @@ impl Gpu {
         if self.in_flight() == InFlight::Busy {
             return Some(Drawn::Busy);
         }
+        self.take_failures();
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
         // Smooth scroll draws one extra row above the window; `count` is the
@@ -3455,7 +3538,7 @@ impl Gpu {
         self.clip = None;
         enc.endEncoding();
         self.compose_slide(&cmd, target, renderer.whole_size().1, Parts::of(renderer));
-        let (submit, gpu) = self.commit(&cmd, done);
+        let (submit, waited) = self.commit(cmd, done);
         // What the next frame is compared with: this one, its buffers kept
         // where a frame alike leaves them as they are.
         let mut last = match core::mem::replace(&mut self.last, Last::None) {
@@ -3512,6 +3595,7 @@ impl Gpu {
         last.grounds.clear();
         last.grounds.extend_from_slice(input.grounds);
         self.last = Last::Cells(last);
+        self.committed(&waited);
         Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count.saturating_add(
                 input.grounds.len()
@@ -3522,16 +3606,19 @@ impl Gpu {
             )),
             upload: upload_time,
             submit,
-            gpu,
+            gpu: waited.landed().ok().map(|l| l.landing().gpu()),
             changed,
             drawn,
+            waited,
         }))
     }
 
     /// Reads a target back as `0xAARRGGBB` words, premultiplied, row-major
-    /// at the target's width; `None` when `out` is too small. Only sound
-    /// after a [`Done::Wait`] draw.
-    pub fn read(&self, target: &Target, out: &mut [u32]) -> Option<()> {
+    /// at the target's width; `None` when `out` is too small. It takes the
+    /// proof that the frame drawn into it was waited for and drew
+    /// ([`GpuFrame::waited`]): a frame that failed leaves the target's
+    /// content undefined, and one not waited for may still be drawing.
+    pub fn read(&self, target: &Target, _drew: &Landed, out: &mut [u32]) -> Option<()> {
         let (w, h) = target.size();
         let (ws, hs) = (slots(w), slots(h));
         if out.len() < ws.saturating_mul(hs) {

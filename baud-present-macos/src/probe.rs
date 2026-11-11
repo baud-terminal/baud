@@ -301,6 +301,8 @@ thread_local! {
     static TARGET: Cell<Option<f64>> = const { Cell::new(None) };
     /// The frames the window had drawn at its last settle.
     static DRAWN: Cell<Option<baud_render::Tally>> = const { Cell::new(None) };
+    /// What the GPU's completions had counted at the window's last settle.
+    static GPU: Cell<crate::metal::Faults> = Cell::new(crate::metal::Faults::default());
     /// What the window's last settle found owed, as it spells it.
     static OWED: RefCell<String> = const { RefCell::new(String::new()) };
     /// Whether the polls still the tick's hold the link (`Lift`).
@@ -970,6 +972,18 @@ pub fn drawn(frames: baud_render::Tally) {
 /// The frames drawn at the last settle.
 pub fn frames() -> baud_render::Tally {
     DRAWN.with(Cell::get).unwrap_or_default()
+}
+
+/// **What the GPU's completions had counted**, as the window's last settle
+/// found them: the frames that failed and the slowest, for the frame rig
+/// to print.
+pub fn gpu(faults: crate::metal::Faults) {
+    GPU.with(|g| g.set(faults));
+}
+
+/// The GPU's counts at the last settle.
+pub fn gpu_faults() -> crate::metal::Faults {
+    GPU.with(Cell::get)
 }
 
 /// **What the last settle found owed**, for the frame rig to print.

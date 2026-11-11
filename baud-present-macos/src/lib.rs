@@ -68,9 +68,12 @@ pub mod unwind;
 pub mod window;
 
 pub use journal::Landing;
+#[cfg(feature = "gpu-fault")]
+pub use metal::Inject;
 pub use metal::{
-    Build, CellInput, Done, Drawn, EffectBuild, EffectPipes, Gpu, GpuFrame, GridBuffer, InFlight,
-    MapBuffer, Memory, OverlayBuffer, StylesBuffer, Target,
+    Build, Cause, CellInput, Completion, Done, Drawn, EffectBuild, EffectPipes, ErrorNumber, Fault,
+    FaultCode, Faults, Gpu, GpuFrame, GridBuffer, InFlight, Landed, MapBuffer, Memory,
+    OverlayBuffer, StatusWord, StylesBuffer, Target, Waited,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};
@@ -296,6 +299,20 @@ impl Presenter {
         Some(())
     }
 
+    /// What the GPU's completions have counted, on the GPU path: the frames
+    /// that failed, by code, the warm-up pass, and the slowest frame.
+    pub fn faults(&self) -> Option<Faults> {
+        self.gpu().map(Gpu::faults)
+    }
+
+    /// **Waits until no frame is in flight** ([`Gpu::wait_idle`]), for a
+    /// bench; at once on the CPU path.
+    pub fn wait_idle(&self) {
+        if let Some(g) = self.gpu() {
+            g.wait_idle();
+        }
+    }
+
     /// What the present path has done: frames landed, shown, and superseded.
     /// Survives a resize, because the frames a resize supersedes are exactly
     /// the ones worth counting.
@@ -469,24 +486,45 @@ impl Presenter {
     /// that surface to the main thread and wake the responder, through the
     /// view's waker, from the GPU's thread. The tag comes back with it, for
     /// [`Presenter::settle`] to give back if the GPU never takes the frame.
+    ///
+    /// **A frame that failed is not presented**: the layer keeps the last
+    /// surface that drew, the surface the failed frame went to is marked
+    /// to be drawn whole when it comes round ([`Journal::fail`]), and the
+    /// responder is woken so the next frame is drawn.
     fn on_done<W: Wake>(&mut self, waker: W, set: Option<SetIx>) -> (Done, FrameTag) {
-        let handle = self.surfaces[self.next.0].handle();
+        let surface = SurfaceIx(self.next.0);
+        let handle = self.surfaces[surface.0].handle();
         let tag = self.tag(set);
         let epoch = Arc::clone(&self.epoch);
         let journal = Arc::clone(&self.journal);
-        let done = Done::Notify(Arc::new(move |landing| {
-            // **Recorded, and shown anyway.** The verdict is taken here and
-            // deliberately not acted on: a count of frames that reached the
-            // layer after their surfaces were replaced is only a measurement
-            // of the bug while the bug is still happening. Acting on it is a
-            // separate change, against these numbers.
-            let fate = journal.land(tag, &epoch, landing);
-            if journal::admits(fate) == journal::Show::Now {
-                waker.present(&handle);
+        let done = Done::Notify(Arc::new(move |completion| {
+            match completion {
+                Completion::Done(landing) => {
+                    // **Recorded, and shown anyway.** The verdict is taken
+                    // here and deliberately not acted on: a count of frames
+                    // that reached the layer after their surfaces were
+                    // replaced is only a measurement of the bug while the
+                    // bug is still happening. Acting on it is a separate
+                    // change, against these numbers.
+                    let fate = journal.land(tag, &epoch, landing);
+                    if journal::admits(fate) == journal::Show::Now {
+                        waker.present(&handle);
+                    }
+                }
+                Completion::Failed(_) => journal.fail(tag, Some(surface)),
             }
             waker.wake();
         }));
         (done, tag)
+    }
+
+    /// The surfaces failed frames went to since the last draw, each left
+    /// missing everything.
+    fn take_lost(&mut self) {
+        let lost = self.journal.take_lost();
+        for s in (0..SURFACES).map(SurfaceIx).filter(|s| lost.holds(*s)) {
+            self.ages.forget(s);
+        }
     }
 
     /// A frame tagged, drawn with `draw` into the next surface, and settled:
@@ -499,6 +537,7 @@ impl Presenter {
         draw: impl FnOnce(&mut Gpu, &Target, Done, baud_render::Redraw) -> Option<Drawn>,
     ) -> Option<Drawn> {
         let (done, tag) = self.on_done(waker, set);
+        self.take_lost();
         let missing = self.ages.missing(SurfaceIx(self.next.0));
         let drawn = match &mut self.draw {
             Draw::Gpu { gpu, targets } => targets
@@ -519,9 +558,16 @@ impl Presenter {
         drawn.map(|d| self.committed(d))
     }
 
+    /// A frame committed into the next surface, which is then the one
+    /// after; a frame waited for that failed leaves its surface missing
+    /// everything.
     fn committed(&mut self, drawn: Drawn) -> Drawn {
         if let Drawn::Frame(f) = &drawn {
-            self.ages.drew(SurfaceIx(self.next.0), f.changed);
+            let at = SurfaceIx(self.next.0);
+            self.ages.drew(at, f.changed);
+            if let Waited::Failed(_) = f.waited {
+                self.ages.forget(at);
+            }
             self.next = Next((self.next.0 + 1) % SURFACES);
         }
         drawn
@@ -546,14 +592,19 @@ impl Presenter {
         view: &DrawableView,
         renderer: &mut Renderer<'_, '_>,
     ) -> Option<Drawn> {
+        self.take_lost();
         let slot = self.next.0;
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };
         let missing = self.ages.missing(SurfaceIx(slot));
         let drawn = gpu.draw_since(renderer, targets.get(slot)?, Done::Wait, missing)?;
-        if let Drawn::Frame(_) = drawn {
-            view.set_surface(self.surfaces[slot].io_surface());
+        // Shown only if it drew: a frame that failed leaves the layer as
+        // it was.
+        if let Drawn::Frame(f) = &drawn {
+            if f.waited.landed().is_ok() {
+                view.set_surface(self.surfaces[slot].io_surface());
+            }
         }
         Some(self.committed(drawn))
     }
@@ -565,6 +616,7 @@ impl Presenter {
         renderer: &mut Renderer<'_, '_>,
         input: &CellInput<'_>,
     ) -> Option<Drawn> {
+        self.take_lost();
         let slot = self.next.0;
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
@@ -572,8 +624,12 @@ impl Presenter {
         let missing = self.ages.missing(SurfaceIx(slot));
         let drawn =
             gpu.draw_cells_since(renderer, input, targets.get(slot)?, Done::Wait, missing)?;
-        if let Drawn::Frame(_) = drawn {
-            view.set_surface(self.surfaces[slot].io_surface());
+        // Shown only if it drew: a frame that failed leaves the layer as
+        // it was.
+        if let Drawn::Frame(f) = &drawn {
+            if f.waited.landed().is_ok() {
+                view.set_surface(self.surfaces[slot].io_surface());
+            }
         }
         Some(self.committed(drawn))
     }
@@ -634,8 +690,12 @@ impl Presenter {
     ) -> Option<Drawn> {
         let tag = self.tag(set);
         let journal = Arc::clone(&self.journal);
-        let done = Done::Notify(Arc::new(move |_| {
-            journal.land_kept(tag);
+        let done = Done::Notify(Arc::new(move |completion| {
+            match completion {
+                Completion::Done(_) => journal.land_kept(tag),
+                // The GPU drops the slide over it at the next draw.
+                Completion::Failed(_) => journal.fail(tag, None),
+            }
             waker.wake();
         }));
         let drawn = match &mut self.draw {

@@ -57,8 +57,9 @@ objc2-quartz-core = "0.3.2"
 objc2-core-foundation = "0.3"
 # This crate's own tests build their pipelines from the suite's binary
 # archive (`suite-archive`, `src/metal/suite.rs`): a dev-dependency's
-# feature, so the crate as built and published leaves it out.
-baud-present-macos = { path = ".", features = ["suite-archive"] }
+# feature, so the crate as built and published leaves it out. So is the
+# fault seam (`gpu-fault`, `src/metal/commit.rs`), for the same reason.
+baud-present-macos = { path = ".", features = ["suite-archive", "gpu-fault"] }
 # **The renderer's counters, on for these tests alone**
 # (`baud-render/src/counters.rs`): `tests/caret_frame.rs` reads what a
 # frame did through them, and fails to compile without them rather than
@@ -113,3 +114,9 @@ effect-probe = []
 # its files shrink under a process. Enabled only by dev-dependencies; never
 # in a build that ships.
 suite-archive = []
+# **The fault seam, test-only** (`src/metal/commit.rs`): a completion
+# reported failed, or held until a test releases it, while the GPU still
+# runs every frame; and each encoder's execution state asked for on an
+# error. Enabled only by dev-dependencies (`tests/commit_gates.rs`); never
+# in a build that ships.
+gpu-fault = []

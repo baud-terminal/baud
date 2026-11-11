@@ -27,6 +27,30 @@ impl SurfaceIx {
     }
 }
 
+/// A set of the [`SURFACES`], one bit each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Surfaces(pub(crate) u64);
+
+impl Surfaces {
+    pub const NONE: Surfaces = Surfaces(0);
+
+    /// This set and `s`.
+    pub fn with(self, s: SurfaceIx) -> Surfaces {
+        Surfaces(
+            self.0
+                | u32::try_from(s.0)
+                    .ok()
+                    .and_then(|b| 1u64.checked_shl(b))
+                    .unwrap_or(0),
+        )
+    }
+
+    /// Whether `s` is in it.
+    pub fn holds(self, s: SurfaceIx) -> bool {
+        Surfaces::NONE.with(s).0 & self.0 != 0
+    }
+}
+
 /// Which committed frame each surface holds, and what the last frames
 /// committed changed of the one before.
 #[derive(Clone, Debug)]
@@ -76,6 +100,15 @@ impl Ages {
                 .iter()
                 .filter(|(c, _)| *c > held)
                 .fold(Redraw::NOTHING, |d, &(_, r)| d.union(r)),
+        }
+    }
+
+    /// **`surface` holds no frame**: the one committed into it failed, so
+    /// its content is undefined, and it is missing everything until a
+    /// frame is drawn into it again.
+    pub fn forget(&mut self, surface: SurfaceIx) {
+        if let Some(h) = self.held.get_mut(surface.0) {
+            *h = None;
         }
     }
 
@@ -145,6 +178,22 @@ mod tests {
         assert_eq!(a.missing(S0), Redraw::NOTHING);
         a.drew(S1, Redraw::Whole);
         assert_eq!(a.missing(S2), Redraw::Whole, "a whole frame since");
+    }
+
+    /// **A surface whose frame failed misses everything**, though every
+    /// frame since changed only rows. Break: `forget` leaving `held` as it
+    /// was, and it misses row 1 alone.
+    #[test]
+    fn a_forgotten_surface_misses_everything() {
+        let mut a = Ages::new();
+        a.drew(S0, Redraw::Whole);
+        a.drew(S1, rows(&[1]));
+        a.forget(S1);
+        a.drew(S2, rows(&[1]));
+        assert_eq!(a.missing(S0), rows(&[1]), "a surface that drew");
+        assert_eq!(a.missing(S1), Redraw::Whole, "the surface that failed");
+        a.drew(S1, rows(&[2]));
+        assert_eq!(a.missing(S1), Redraw::NOTHING, "drawn into again");
     }
 
     #[test]
