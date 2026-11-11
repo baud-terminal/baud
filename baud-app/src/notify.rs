@@ -350,7 +350,7 @@ pub struct ServerCaps {
 
 impl ServerCaps {
     /// What a server is taken to have before it answers: nothing.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg(any(target_os = "linux", test))]
     pub const NONE: ServerCaps = ServerCaps {
         actions: Caps::Absent,
         markup: Caps::Absent,
@@ -416,7 +416,7 @@ pub fn support(setting: Setting, platform: Platform) -> Option<NoticeSupport> {
 /// other name -- an application's id, or `system-monitor`, which the
 /// specification has no name for -- is passed as sent, for the theme to
 /// resolve.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 pub fn icon_name(kitty: &str) -> &str {
     // A name, never a path or a URI: `app_icon` takes "a file:// URI" too,
     // and a program must not make the server open a file it names. kitty's
@@ -549,7 +549,6 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
 
     /// The ones whose deadline has passed, their deadlines spent: each is
     /// still alive until the platform says it closed.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
     pub fn due(&mut self, now: T) -> Vec<(NoticeToken, P)> {
         let mut due = Vec::new();
         for a in &mut self.alive {
@@ -562,7 +561,7 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     }
 
     /// The nearest deadline, for the driver's wait.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg(any(target_os = "linux", test))]
     pub fn next_due(&self) -> Option<T> {
         self.alive.iter().filter_map(|a| a.due).min()
     }
@@ -704,7 +703,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
     /// of at most 1024 pixels a side, decoded ([`rgba`]). Any other image
     /// -- another format, a larger one, or one that does not decode -- is
     /// not shown, and counted.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg(any(target_os = "linux", test))]
     pub fn image_data(
         &mut self,
         p: &Posted,
@@ -744,7 +743,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
 
     /// The expiry `token` asked and the buttons it shows, taken from the
     /// waiting list.
-    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    #[cfg(any(target_os = "linux", test))]
     pub fn answered(&mut self, token: NoticeToken) -> (Expiry, Vec<NoticeButton>) {
         match self.waiting.iter().position(|(t, _, _)| *t == token) {
             Some(i) => {
@@ -761,7 +760,7 @@ impl<T: Moment, P: Clone + PartialEq> Delivery<T, P> {
 /// closing one at its expiry, the Dock tile's bar and an attention
 /// request, and checking iTerm2's picture off the main thread.
 #[derive(Clone, PartialEq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum MacCall {
     Post(MacPost),
     /// Check this picture on the window's [`Checker`]; its notification
@@ -776,7 +775,7 @@ pub enum MacCall {
 
 /// A notification as the macOS center posts it.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub struct MacPost {
     pub id: String,
     pub title: String,
@@ -792,7 +791,7 @@ pub struct MacPost {
 
 /// Whether a post is silent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum Silence {
     Sound,
     Silent,
@@ -800,7 +799,7 @@ pub enum Silence {
 
 /// Whether a post is passive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum Passive {
     Passive,
     Active,
@@ -808,14 +807,14 @@ pub enum Passive {
 
 /// The Dock tile's bar.
 #[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub struct DockBar {
     pub fraction: Option<f64>,
     pub tone: DockTone,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum DockTone {
     Normal,
     Error,
@@ -826,7 +825,7 @@ pub enum DockTone {
 /// dock icon indefinitely" is a critical request, "once ... a single
 /// time" an informational one, "no" a cancel.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum AttentionCall {
     Critical,
     Informational,
@@ -834,7 +833,7 @@ pub enum AttentionCall {
 }
 
 /// The Dock tile's bar for a program's progress: none while it is hidden.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn dock_bar(p: Progress) -> Option<DockBar> {
     use baud_core::ProgressState as S;
     let tone = match p.state {
@@ -853,7 +852,7 @@ pub fn dock_bar(p: Progress) -> Option<DockBar> {
 /// the Windows taskbar's order for a group, `TBPF_ERROR`, `TBPF_PAUSED`,
 /// `TBPF_NORMAL`, `TBPF_INDETERMINATE` (see [`DockBars`]). A bar with no
 /// fraction draws as running with none, which is indeterminate's.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Urgent {
     Error,
@@ -862,7 +861,7 @@ enum Urgent {
     Indeterminate,
 }
 
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl Urgent {
     fn of(b: &DockBar) -> Urgent {
         match (b.tone, b.fraction) {
@@ -892,14 +891,14 @@ impl Urgent {
 /// wt-6676c6f-taskbarstate]]`).
 /// The least-progress tie-break is the taskbar's own. A window's close
 /// takes its bar with it.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Debug)]
 pub struct DockBars<K> {
     each: Vec<(K, DockBar)>,
     shown: Option<DockBar>,
 }
 
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl<K: PartialEq> DockBars<K> {
     pub const fn new() -> DockBars<K> {
         DockBars {
@@ -946,7 +945,7 @@ impl<K: PartialEq> DockBars<K> {
 }
 
 /// The extension an image's first bytes name: kitty's three formats.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn image_kind(b: &[u8]) -> Option<&'static str> {
     match b {
         [0x89, b'P', b'N', b'G', ..] => Some("png"),
@@ -956,7 +955,7 @@ pub fn image_kind(b: &[u8]) -> Option<&'static str> {
     }
 }
 
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl<T: Moment> Delivery<T, String> {
     /// **What the macOS driver does with a read's notices**, and the
     /// core told what became of each: shown (and a program that asked
@@ -1148,7 +1147,7 @@ impl<T: Moment> Delivery<T, String> {
     }
 }
 
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl<T: Moment> Delivery<T, String> {
     /// **The ones whose `w` has passed, forgotten by the core**: the
     /// removal itself is scheduled when it is posted (`MacCall::Expire`),
@@ -1193,6 +1192,7 @@ impl<T: Moment> Delivery<T, String> {
 }
 
 /// Whether the platform lets the program's notifications be shown.
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Allowed {
     Yes,
@@ -1201,6 +1201,7 @@ pub enum Allowed {
 
 /// **What a `p=alive` the core holds asks of the macOS driver**
 /// ([`alive_step`]).
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AliveStep {
     /// None is held.
@@ -1218,7 +1219,7 @@ pub enum AliveStep {
 /// answer now with notifications not allowed; else the list, unless one
 /// was asked for less than `wait` before `now`, which the question waits
 /// for -- and it is answered at that wait whatever comes (`reads::NOTICE_WAIT`).
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn alive_step<T: Moment>(
     asked: baud_core::NoticeAsked,
     allowed: Allowed,
@@ -1240,7 +1241,7 @@ pub fn alive_step<T: Moment>(
 /// or the button whose number follows `button-`, read back by `read`
 /// against the buttons that notification showed ([`Shown::read_back`]).
 /// `None`, and nothing reported, for an action naming no button it showed.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn clicked(
     action: &str,
     default: &str,
@@ -1279,7 +1280,7 @@ pub const BUDGET: baud_core::NoticeBudget = baud_core::NoticeBudget::with_icon(2
 /// A launcher's progress for a program's: its fraction while it has one,
 /// an empty bar while it runs with none, nothing while hidden. The
 /// launcher has no states, so an error and a pause show as their fraction.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 pub fn launcher_progress(p: Progress) -> Option<f64> {
     match (p.state, p.percent) {
         (baud_core::ProgressState::Hidden, _) => None,
@@ -1292,7 +1293,7 @@ pub fn launcher_progress(p: Progress) -> Option<f64> {
 /// at most 1024 pixels a side -- the three kitty's `p=icon` names, which
 /// baud's own decoders read, a GIF its first frame, a JPEG turned as its
 /// orientation says -- at a size an icon has.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 pub fn rgba(b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
     rgba_within(b, |s| s.width <= 1024 && s.height <= 1024)
 }
@@ -1301,7 +1302,7 @@ pub fn rgba(b: &[u8]) -> Option<(baud_domain::png::Size, Vec<u8>)> {
 /// baud's own decoders, a GIF its first frame, a JPEG turned as its
 /// orientation says: [`rgba`] for Linux's `image-data`. macOS keeps no
 /// pixels, and checks with [`decodes_within`].
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 fn rgba_within(
     b: &[u8],
     fits: impl Fn(baud_domain::png::Size) -> bool,
@@ -1362,7 +1363,7 @@ fn rgba_within(
 /// scanlines, a GIF's two canvases, a JPEG's scratch and its pixels.
 ///
 /// [`Png::decode`]: baud_domain::png::Png::decode
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn decodes_within(b: &[u8], fits: impl Fn(baud_domain::png::Size) -> bool) -> bool {
     use baud_domain::{gif::Gif, jpeg::Jpeg, png::Png};
     if Gif::sniff(b) {
@@ -1426,7 +1427,7 @@ pub fn decodes_within(b: &[u8], fits: impl Fn(baud_domain::png::Size) -> bool) -
 /// pixels while it is checked, 132,018,000 bytes, where the RGBA copy
 /// took it to 228,018,000; the file's 10 MB do not bound these, since a
 /// picture of one colour compresses to far less than a byte a pixel.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub fn attaches(b: &[u8], pixels: baud_domain::ImageBudget) -> Option<&'static str> {
     let most = u64::try_from(pixels.pixels).unwrap_or(u64::MAX);
     let fits = |s: baud_domain::png::Size| u64::from(s.width) * u64::from(s.height) <= most;
@@ -1436,7 +1437,7 @@ pub fn attaches(b: &[u8], pixels: baud_domain::ImageBudget) -> Option<&'static s
 /// iTerm2's picture to check off the main thread: its notification's
 /// token, its bytes and the pixels it may decode to.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub struct Check {
     pub token: NoticeToken,
     pub bytes: Vec<u8>,
@@ -1447,7 +1448,7 @@ pub struct Check {
 /// extension they attach as, `None` when they do not
 /// ([`Delivery::mac_checked`]).
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub struct Checked {
     pub token: NoticeToken,
     pub bytes: Vec<u8>,
@@ -1457,7 +1458,7 @@ pub struct Checked {
 /// Whether any of a window's notifications waits for its picture's
 /// check ([`Delivery::checks`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub enum Checks {
     /// None waits.
     Done,
@@ -1466,6 +1467,7 @@ pub enum Checks {
 }
 
 /// What a [`Checker`] checks a picture with: [`attaches`], or a test's.
+#[cfg(any(target_os = "macos", test))]
 type CheckWith = dyn Fn(&[u8], baud_domain::ImageBudget) -> Option<&'static str> + Send + Sync;
 
 /// **The window's checker of iTerm2's pictures, off the main thread**:
@@ -1483,7 +1485,7 @@ type CheckWith = dyn Fn(&[u8], baud_domain::ImageBudget) -> Option<&'static str>
 /// driver has posted the notifications still waiting for it
 /// ([`Delivery::mac_closing`]), it takes the channel with it, and the
 /// thread ends after the check it is on.
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 pub struct Checker {
     wake: std::sync::Arc<dyn Fn() + Send + Sync>,
     check: std::sync::Arc<CheckWith>,
@@ -1493,7 +1495,7 @@ pub struct Checker {
     done: std::sync::mpsc::Receiver<Checked>,
 }
 
-#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl Checker {
     /// A checker that checks with `check` and calls `wake` after each
     /// check, from the thread it ran on.
@@ -1569,7 +1571,7 @@ impl Checker {
 
 /// Text for a server that reads markup: "Body text may contain markup",
 /// and what a program sent is text, so `&`, `<` and `>` are escaped.
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+#[cfg(any(target_os = "linux", test))]
 pub fn escape_markup(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
