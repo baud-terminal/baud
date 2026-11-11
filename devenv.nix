@@ -30,7 +30,9 @@ let
   # the warm process builds it after the suite's build.
   rigBuild = "RUSTFLAGS='-D warnings' cargo nextest run --cargo-profile release-probe --cargo-quiet -p baud --features effect-probe --test event_rig";
   isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-  rigRun = if isDarwin then " ${rigBuild}; c=$?;" else " c=0;";
+  # The rig runs every row here: `BAUD_RIG_ROWS` set, it would run only the
+  # rows it names and pass, so `test:unit` refuses rather than run it.
+  rigRun = if isDarwin then " if [ -n \"\${BAUD_RIG_ROWS+set}\" ]; then echo 'test:unit: BAUD_RIG_ROWS is set, and the rig would run only the rows it names: the gate runs every row' >&2; c=1; else ${rigBuild}; c=$?; fi;" else " c=0;";
   warmBuild = if isDarwin then "${unitBuild} --no-run && ${rigBuild} --no-run" else "${unitBuild} --no-run";
   # The watcher, for `devenv up` and `warm-run` alike. No no-LTO arm: a
   # re-run after a small fix builds `--cargo-profile fast` in its own slot's

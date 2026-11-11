@@ -3305,20 +3305,24 @@ impl App {
     /// ([`Presenter::present_on_cpu`]), so the window never opens with a
     /// surface nothing drew; the next frame is then whole on every path.
     /// A copy refused leaves the window with no frame, said, and the first
-    /// frame of the loop owed.
+    /// frame of the loop owed; so does a CPU frame that does not fit the
+    /// frame's size, which renders nothing and is never shown.
     fn open_on_cpu(&mut self, screen: &DrawableView) -> Presented {
         let (w, h) = (self.frame_w, self.frame_h);
         let clear = self.renderer.clear_color();
         let back = self.term.window_back();
-        if let Some(mut target) = Target::new(&mut self.frame, w, w, h) {
-            self.stats = self
-                .renderer
-                .render_at(&mut self.term, back, &mut target, Damage::Full);
-        }
         self.next_damage = Damage::Full;
-        let shown = self.presenter.as_mut().map_or(Presented::No, |p| {
-            p.present_on_cpu(screen, &self.frame, w, clear)
-        });
+        let shown = match Target::new(&mut self.frame, w, w, h) {
+            None => Presented::No,
+            Some(mut target) => {
+                self.stats =
+                    self.renderer
+                        .render_at(&mut self.term, back, &mut target, Damage::Full);
+                self.presenter.as_mut().map_or(Presented::No, |p| {
+                    p.present_on_cpu(screen, &self.frame, w, clear)
+                })
+            }
+        };
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::opened(match shown {
             Presented::Yes => baud_present_macos::probe::Opened::Cpu,
@@ -22412,10 +22416,19 @@ enum Bound {
 /// when the wake runs -- and which bound. The wake is the event, on the
 /// main queue whether or not the display link runs: it counts the frame
 /// overdue only if that frame is still unanswered, and only then wakes the
-/// window, so a frame answered in time costs no turn; counting, it posts
-/// the frame's give-up wake, which gives the GPU up if the frame is still
-/// unanswered then. A wake that runs before its moment posts itself again
-/// for it.
+/// window, so a frame answered in time costs no turn of `pump`; counting,
+/// it posts the frame's give-up wake, which gives the GPU up if the frame
+/// is still unanswered then. A wake that runs before its moment posts
+/// itself again for it.
+///
+/// **It is not free**: every frame the loop commits posts one, which runs
+/// at that frame's bound whatever came of the frame, so under steady
+/// output at 120 Hz about 36 are pending. On the frame rig's scrolling row
+/// the post took 1.6-2.0 us of a frame path of 76-94 us, and the block
+/// 0.7-1.7 us on a main-queue turn of its own: under 3 us a frame, 0.04%
+/// of a 120 Hz frame's 8.3 ms, and the frame path with no post (69-87 us)
+/// did not separate from it. So it is one wake a frame, not one a window
+/// re-armed for the frame then in flight.
 struct FrameDue {
     frame: Flying,
     bound: Bound,

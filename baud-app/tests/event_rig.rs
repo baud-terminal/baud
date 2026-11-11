@@ -1299,6 +1299,7 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
 /// [`CURRENT`]: the green rows pass, and the control fails as recorded.
 #[test]
 fn every_row_comes_to_its_state() {
+    say_load("at the start");
     let mut red = Vec::new();
     for (i, site) in SITES.iter().enumerate() {
         let observed = run(site, &format!("row{i}"));
@@ -1308,6 +1309,7 @@ fn every_row_comes_to_its_state() {
             red.push((site.name, v));
         }
     }
+    say_load("at the end");
     assert!(red.is_empty(), "{red:?}");
 }
 
@@ -1451,6 +1453,21 @@ const CHILD_GRACE: Duration = Duration::from_secs(2);
 
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
+    fn getloadavg(loadavg: *mut f64, nelem: i32) -> i32;
+}
+
+/// **The 1-minute load average, said at a whole rig's start and its end**:
+/// a row's pace is the machine's, so a run, a load proof's above all, says
+/// what load it ran under. Printed, never judged.
+fn say_load(when: &str) {
+    let mut avg = [0.0_f64; 1];
+    // SAFETY: `getloadavg` writes at most `nelem` (1) samples into `avg`,
+    // which holds one.
+    let n = unsafe { getloadavg(avg.as_mut_ptr(), 1) };
+    match n {
+        1 => println!("load average, 1 minute, {when}: {:.2}", avg[0]),
+        _ => println!("load average, 1 minute, {when}: not read"),
+    }
 }
 
 /// `SIGTERM` (`<sys/signal.h>`).
@@ -2911,6 +2928,90 @@ fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Co
     }
 }
 
+/// **The frame rows a run runs, and the ones it skips**: every row, or
+/// with `BAUD_RIG_ROWS` set only those whose names hold one of its parts,
+/// `|` between them -- a row's own runs, many at a time, under load. The
+/// run says how many of the rows it ran and names each it skipped
+/// ([`Picked`]'s `Display`), so a filtered run never reads as the whole
+/// rig, and a filter that names no row is refused rather than passing with
+/// none run. The gate never runs filtered: `test:unit` refuses with it set.
+#[derive(Debug, PartialEq, Eq)]
+struct Picked {
+    /// The rows to run, as indices into the rows given.
+    run: Vec<usize>,
+    /// The names of the rows skipped.
+    skipped: Vec<&'static str>,
+    /// How many rows there are.
+    of: usize,
+}
+
+impl Picked {
+    /// The rows of `names` that `only` picks: all of them when it is
+    /// unset; otherwise those holding one of its parts, refused when one of
+    /// its parts is empty, which every name holds, or when it picks none.
+    fn of(names: &[&'static str], only: Option<&str>) -> Result<Picked, String> {
+        let Some(only) = only else {
+            return Ok(Picked {
+                run: (0..names.len()).collect(),
+                skipped: Vec::new(),
+                of: names.len(),
+            });
+        };
+        let parts: Vec<&str> = only.split('|').collect();
+        if parts.iter().any(|p| p.is_empty()) {
+            return Err(format!(
+                "BAUD_RIG_ROWS={only:?} has an empty part, which names every row"
+            ));
+        }
+        let (run, skipped): (Vec<usize>, Vec<usize>) =
+            (0..names.len()).partition(|&i| parts.iter().any(|p| names[i].contains(p)));
+        let picked = Picked {
+            run,
+            skipped: skipped.into_iter().map(|i| names[i]).collect(),
+            of: names.len(),
+        };
+        if picked.run.is_empty() {
+            return Err(format!("BAUD_RIG_ROWS={only:?} names no row: {picked}"));
+        }
+        Ok(picked)
+    }
+}
+
+impl core::fmt::Display for Picked {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "rows run {} of {}, skipped: ", self.run.len(), self.of)?;
+        match self.skipped.is_empty() {
+            true => f.write_str("none"),
+            false => f.write_str(&self.skipped.join("; ")),
+        }
+    }
+}
+
+/// **A row filter names what it skipped, and one that names no row is
+/// red**: unset, every row runs and none is skipped; a part picks the rows
+/// whose names hold it and names the rest; a filter that picks none, or
+/// has an empty part, is refused. Red with the filter as it was, a skip
+/// by `continue` that passed with no row run.
+#[test]
+fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
+    let names = ["a held frame", "a failed frame", "a still screen"];
+    let whole = Picked::of(&names, None).expect("unset runs every row");
+    assert_eq!(whole.run, [0, 1, 2]);
+    assert_eq!(whole.to_string(), "rows run 3 of 3, skipped: none");
+    let some = Picked::of(&names, Some("frame|nothing")).expect("two rows");
+    assert_eq!(some.run, [0, 1]);
+    assert_eq!(some.to_string(), "rows run 2 of 3, skipped: a still screen");
+    assert!(Picked::of(&names, Some("no such row")).is_err());
+    assert!(Picked::of(&names, Some("")).is_err());
+    assert!(Picked::of(&names, Some("frame|")).is_err());
+    // The rig's own rows: each one's name picks it.
+    let rows: Vec<&'static str> = FRAME_SITES.iter().map(|s| s.name.0).collect();
+    for (i, name) in rows.iter().enumerate() {
+        let one = Picked::of(&rows, Some(name)).expect("its own name");
+        assert!(one.run.contains(&i), "{name}: {one}");
+    }
+}
+
 /// **Each frame row, its kept arm and its lifted arm**, read like a
 /// ceiling arm: both arms' counters printed and compared, and a lifted arm
 /// whose counters equal the kept arm's is red, the lift having done
@@ -2921,20 +3022,18 @@ fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Co
 #[test]
 fn every_frame_row_comes_to_its_state() {
     let mut red = Vec::new();
-    // **Only the rows whose names hold one of these**, `|` between them,
-    // when it is set (`BAUD_RIG_ROWS`): a row's own runs, many at a time,
-    // under load.
-    let only = std::env::var("BAUD_RIG_ROWS").ok();
+    // **The rows this run runs** ([`Picked`]): said first, so a filtered
+    // run's log never reads as the whole rig.
+    let names: Vec<&'static str> = FRAME_SITES.iter().map(|s| s.name.0).collect();
+    let picked = Picked::of(&names, std::env::var("BAUD_RIG_ROWS").ok().as_deref())
+        .unwrap_or_else(|e| panic!("{e}"));
+    println!("{picked}");
+    say_load("at the start");
     // **A row that injects nothing reads the GPU clean** on both arms: no
     // frame failed, none past its bound, the GPU not given up.
     let injects = |site: &FrameSite| site.env.iter().any(|(k, _)| *k == "BAUD_RIG_GPU");
-    for (i, site) in FRAME_SITES.iter().enumerate() {
-        if only
-            .as_deref()
-            .is_some_and(|o| !o.split('|').any(|p| site.name.0.contains(p)))
-        {
-            continue;
-        }
+    for &i in &picked.run {
+        let site = &FRAME_SITES[i];
         let lifted = run_frames(site, &format!("frame{i}-lifted"), RigHolders::Lifted);
         println!("{:?}, lifted: {lifted:?}", site.name);
         let lifted = match lifted {
@@ -3004,6 +3103,7 @@ fn every_frame_row_comes_to_its_state() {
             red.push((site.name, format!("{v:?}")));
         }
     }
+    say_load("at the end");
     assert!(red.is_empty(), "{red:?}");
 }
 

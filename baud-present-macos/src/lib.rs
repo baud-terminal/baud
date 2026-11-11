@@ -437,6 +437,8 @@ impl Presenter {
         }
         self.ages.forget(SurfaceIx(at));
         view.set_surface(self.surfaces[at].io_surface());
+        #[cfg(feature = "effect-probe")]
+        crate::probe::cpu_shown(SurfaceIx(at));
         Presented::Yes
     }
 

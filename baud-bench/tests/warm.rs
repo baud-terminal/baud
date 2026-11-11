@@ -525,9 +525,11 @@ fn the_watcher_builds_what_the_gate_builds() {
         bound("warmBuild = "),
         "if isDarwin then \"${unitBuild} --no-run && ${rigBuild} --no-run\" else \"${unitBuild} --no-run\""
     );
+    // ... and runs every row of it: with `BAUD_RIG_ROWS` set, which would
+    // run only the rows it names, the step refuses.
     assert_eq!(
         bound("rigRun = "),
-        "if isDarwin then \" ${rigBuild}; c=$?;\" else \" c=0;\""
+        r#"if isDarwin then " if [ -n \"\${BAUD_RIG_ROWS+set}\" ]; then echo 'test:unit: BAUD_RIG_ROWS is set, and the rig would run only the rows it names: the gate runs every row' >&2; c=1; else ${rigBuild}; c=$?; fi;" else " c=0;""#
     );
     let rig = bound("rigBuild = ");
     for word in [

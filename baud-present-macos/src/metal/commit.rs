@@ -351,7 +351,10 @@ impl Flying {
 
     /// **Its [`Deadline::GIVE_UP`] wake, at `now`**: if this frame is still
     /// unanswered, counted overdue if nothing counted it yet, and the GPU
-    /// given up -- counted the once a `Gpu`'s life it happens.
+    /// given up -- counted the once a `Gpu`'s life it happens. A frame
+    /// whose handler answers between the state read here and the give-up's
+    /// step still gives the GPU up: that frame came 3 s late, and the
+    /// give-up holds for the session, as every give-up does.
     pub fn give_up_due(&self, now: Instant) -> Came {
         if now < self.due(Deadline::GIVE_UP) {
             return Came::Early;

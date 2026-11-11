@@ -313,6 +313,8 @@ thread_local! {
     static GPU: Cell<crate::metal::Faults> = Cell::new(crate::metal::Faults::default());
     /// What the window opened with.
     static OPENED: Cell<Opened> = const { Cell::new(Opened::Unset) };
+    /// The surface a frame drawn on the CPU in the GPU's place was shown on.
+    static CPU_SHOWN: Cell<Option<crate::redraw::SurfaceIx>> = const { Cell::new(None) };
     /// The GPU frames committed drawn whole.
     static WHOLE: Cell<baud_render::Tally> = const { Cell::new(baud_render::Tally::ZERO) };
     /// What the window's last settle found owed, as it spells it.
@@ -1106,6 +1108,19 @@ pub fn opened(with: Opened) {
 /// What the window opened with.
 pub fn opening() -> Opened {
     OPENED.with(Cell::get)
+}
+
+/// **The surface a frame drawn on the CPU in the GPU's place was shown
+/// on** ([`crate::Presenter::present_on_cpu`]), for the frame rig to read
+/// back.
+pub fn cpu_shown(at: crate::redraw::SurfaceIx) {
+    CPU_SHOWN.with(|s| s.set(Some(at)));
+}
+
+/// The surface the last frame drawn on the CPU in the GPU's place was
+/// shown on, if one was.
+pub fn cpu_shown_on() -> Option<crate::redraw::SurfaceIx> {
+    CPU_SHOWN.with(Cell::get)
 }
 
 /// A GPU frame committed: whether it was drawn whole, counted if it was.

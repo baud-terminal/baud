@@ -802,6 +802,55 @@ impl GpuRow {
     }
 }
 
+/// **The launch's frame drawn on the CPU, read back from the surface it was
+/// shown on** (`probe::cpu_shown_on`), so `opened=cpu` means the window
+/// opened on the launch's screen and not only that the copy returned: the
+/// surface's frame area, where the copy centres it, holds the CPU frame
+/// premultiplied pixel for pixel, and some of it is not the clear colour.
+/// Red on a copy that filled the surface with the clear colour alone, and
+/// on a CPU frame that was never rendered and holds only the clear colour.
+/// What it read is printed.
+fn read_back_opening(app: &App) -> Result<(), String> {
+    let at = probe::cpu_shown_on().ok_or("no frame was shown from the CPU")?;
+    let p = app.presenter.as_ref().ok_or("no presenter")?;
+    let words = p
+        .surface_pixels(at)
+        .ok_or("the shown surface could not be read")?;
+    let (sw, sh) = p.size();
+    let (sw, sh) = (slots(sw), slots(sh));
+    let (fw, fh) = (slots(app.frame_w), slots(app.frame_h));
+    if fw == 0 || fw > sw || fh > sh || words.len() < sw * sh || app.frame.len() < fw * fh {
+        return Err(format!(
+            "the shown surface ({sw}x{sh}, {} words) does not hold the frame ({fw}x{fh})",
+            words.len()
+        ));
+    }
+    let pitch = words.len() / sh;
+    let (pad_x, pad_y) = ((sw - fw) / 2, (sh - fh) / 2);
+    let clear = baud_present_macos::premultiply(app.renderer.clear_color()).0;
+    let (mut unlike, mut drawn) = (0_usize, 0_usize);
+    for y in 0..fh {
+        for x in 0..fw {
+            let want = baud_present_macos::premultiply(baud_render::Argb(app.frame[y * fw + x])).0;
+            let got = words[(y + pad_y) * pitch + pad_x + x];
+            unlike += usize::from(got != want);
+            drawn += usize::from(got != clear);
+        }
+    }
+    println!(
+        "opening read back: {unlike} of {} pixels unlike the CPU frame, {drawn} not the clear colour",
+        fw * fh
+    );
+    match (unlike, drawn) {
+        (0, 0) => Err("the shown surface holds only the clear colour".to_owned()),
+        (0, _) => Ok(()),
+        _ => Err(format!(
+            "the shown surface is not the CPU frame: {unlike} of {} pixels differ",
+            fw * fh
+        )),
+    }
+}
+
 /// **The frame rig** (`rig_call::FrameRig`): the window made as the event
 /// rig makes it and never shown; `setup` typed and read to its sign, the
 /// clear of the pasteboard it ends with; the display link left to settle;
@@ -894,6 +943,10 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     if gpu_row == GpuRow::HoldLaunch {
         let v = driver.view.clone();
         driver.app.present(&v, Show::Now);
+        if let Err(why) = read_back_opening(&driver.app) {
+            println!("{why}");
+            return std::process::ExitCode::from(1);
+        }
         let _ = probe::gpu_seam(probe::GpuSeam::Pass);
         if probe::gpu_release() == baud_render::Tally::ZERO {
             println!("the launch's frame was never held");
