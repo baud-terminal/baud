@@ -23,10 +23,35 @@ bounded-hogs = { max-threads = 1 }
 # slot. A test that opens a pty outside the group fails
 # (`baud-app/src/pty/budget.rs`).
 pty = { max-threads = 32 }
+# **The tests that make a Metal device run two at a time.** Under nextest
+# each test is a process of its own, and each of these makes its own
+# device and command queue, so unbounded a suite starts as many GPU clients
+# at once as it has test threads. The GPU firmware has taken a kernel panic
+# with ten of these processes starting at once, beside other suites and
+# the event rig. `xtask/tests/metal_group.rs` finds every test binary
+# that makes a device, or starts the app, which makes one, and holds it to
+# this group.
+metal = { max-threads = 2 }
 
 [[profile.default.overrides]]
 filter = 'package(xtask) & binary(bounded)'
 test-group = 'bounded-hogs'
+
+# The Metal tests (`metal` above). `on_screen`'s windows, never shown, make
+# one through AppKit, measured; `present` draws to IOSurfaces and makes
+# none, measured, and is held with the present path's other tests.
+[[profile.default.overrides]]
+filter = 'package(baud-present-macos) & (binary(cells) | binary(metallib) | binary(suite_archive) | binary(shader_cache_fault) | binary(on_screen) | binary(present))'
+test-group = 'metal'
+
+# The app's tests: the about window's and the title bar's windows make a
+# device through AppKit, measured, and each event rig row's child is the
+# app, which makes its device on its probe thread. The rig's two row tests
+# run one child at a time, so this group's two slots also bound the ptys
+# the rig's children hold: two children's.
+[[profile.default.overrides]]
+filter = 'package(baud) & (binary(event_rig) | binary(about_window) | binary(titlebar_mark))'
+test-group = 'metal'
 
 # 16 threads holding 4 spawned terminals each, all at once.
 [[profile.default.overrides]]
@@ -40,10 +65,10 @@ filter = 'package(baud) & test(=pty::tests::terminals_opened_at_once_all_open)'
 test-group = 'pty'
 threads-required = 12
 
-# Every other module whose tests open ptys, the app's children in the
-# event rig, and baud-bench's two suites over a pty.
+# Every other module whose tests open ptys, and baud-bench's two suites
+# over a pty. The event rig's children are bounded by `metal` instead.
 [[profile.default.overrides]]
-filter = '(package(baud) & (test(/^pty::/) | test(/^programs::/) | test(/^app::launch_tests::/) | test(/^film::/) | binary(event_rig))) | (package(baud-bench) & (binary(host) | binary(capture)))'
+filter = '(package(baud) & (test(/^pty::/) | test(/^programs::/) | test(/^app::launch_tests::/) | test(/^film::/))) | (package(baud-bench) & (binary(host) | binary(capture)))'
 test-group = 'pty'
 
 # The tests that run real programs in a pty (baud-app/src/programs.rs)
