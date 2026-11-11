@@ -37,11 +37,19 @@ metal = { max-threads = 2 }
 filter = 'package(xtask) & binary(bounded)'
 test-group = 'bounded-hogs'
 
+# **The shader-cache fault runs alone**: it takes every test thread, so
+# nothing else in the run is beside it, the `metal` group's tests included.
+# Its children fault inside Metal's shader compiler on purpose.
+[[profile.default.overrides]]
+filter = 'package(baud-present-macos) & binary(shader_cache_fault)'
+test-group = '@global'
+threads-required = 'num-test-threads'
+
 # The Metal tests (`metal` above). `on_screen`'s windows, never shown, make
 # one through AppKit, measured; `present` draws to IOSurfaces and makes
 # none, measured, and is held with the present path's other tests.
 [[profile.default.overrides]]
-filter = 'package(baud-present-macos) & (binary(cells) | binary(metallib) | binary(suite_archive) | binary(shader_cache_fault) | binary(on_screen) | binary(present))'
+filter = 'package(baud-present-macos) & (binary(cells) | binary(metallib) | binary(suite_archive) | binary(on_screen) | binary(present))'
 test-group = 'metal'
 
 # The app's tests: the about window's and the title bar's windows make a

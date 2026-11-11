@@ -1,5 +1,6 @@
 //! **Every test binary that makes a Metal device runs in nextest's `metal`
-//! group**, two tests at a time (`.config/nextest.toml`).
+//! group**, two tests at a time (`.config/nextest.toml`), **or alone**,
+//! taking every test thread.
 //!
 //! Each test of such a binary is a process of its own under nextest, with a
 //! device and a command queue of its own, so a suite unbounded here starts as
@@ -34,6 +35,10 @@ use std::path::{Path, PathBuf};
 const GROUP: &str = "metal";
 /// Its `max-threads`.
 const MAX_THREADS: i64 = 2;
+/// nextest's own group, and the `threads-required` that takes every test
+/// thread: a binary given both runs alone, with nothing beside it.
+const GLOBAL: &str = "@global";
+const ALL_THREADS: &str = "num-test-threads";
 
 /// **The calls that make a device**, or are handed one only such a call
 /// made: Metal's two, `baud-present-macos`'s wrappers over them, and the
@@ -282,6 +287,8 @@ fn device_binaries(root: &Path) -> Vec<(String, String, Vec<&'static str>)> {
 struct Override {
     filter: String,
     group: Option<String>,
+    /// `threads-required`, as written.
+    threads: Option<String>,
 }
 
 fn overrides(root: &Path) -> (toml::Table, Vec<Override>) {
@@ -298,6 +305,10 @@ fn overrides(root: &Path) -> (toml::Table, Vec<Override>) {
             group: o
                 .get("test-group")
                 .and_then(|g| g.as_str())
+                .map(str::to_owned),
+            threads: o
+                .get("threads-required")
+                .and_then(|t| t.as_str())
                 .map(str::to_owned),
         })
         .collect();
@@ -338,7 +349,11 @@ fn every_test_binary_that_makes_a_device_is_in_the_metal_group() {
             .iter()
             .find(|o| o.group.is_some() && names(&o.filter, &package, &binary));
         let group = first.and_then(|o| o.group.as_deref());
-        if group != Some(GROUP) {
+        // Or alone: the global group, every test thread taken, nothing beside it.
+        let alone = first.is_some_and(|o| {
+            o.group.as_deref() == Some(GLOBAL) && o.threads.as_deref() == Some(ALL_THREADS)
+        });
+        if group != Some(GROUP) && !alone {
             outside.push(format!(
                 "{package}'s {binary} ({sites:?}) lands in {group:?}, not `{GROUP}`"
             ));

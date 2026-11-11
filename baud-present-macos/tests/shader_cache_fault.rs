@@ -33,11 +33,15 @@
 //! **No window.** A child calls only Metal: the device, the library and
 //! pipeline states ([`SuiteBuilds`]). Nothing here reaches AppKit.
 //!
-//! **No crash report.** The control's fault would otherwise leave a crash
-//! report on every run. Just before its last build, a faulting child takes
-//! every exception from its task's exception ports, the corpse
-//! notification that reports are made from included, so the kernel's
-//! signal ends it with nothing to report (`mach`).
+//! **No crash report.** A process that dies of a signal is reported, so
+//! the control's fault would leave a crash report on every run. Clearing the
+//! task's exception ports, as this test once did, did not stop them: they
+//! kept coming, in the machine's folder, `/Library/Logs/DiagnosticReports`. So
+//! just before its last build a faulting child takes `SIGSEGV` and `SIGBUS`
+//! itself and ends by `_exit` with 128 plus the signal ([`fault`]); it never
+//! dies of the signal, and the control is judged by that code. After the
+//! children the crash report folders are read for [`REPORT_WAIT`] for a
+//! report of this run's children, and there must be none.
 //!
 //! **A Mac only**, like every test in this crate.
 #![cfg(target_os = "macos")]
@@ -80,6 +84,7 @@ fn metal_faults_on_a_shrunk_cache_and_the_archive_is_not_reached() {
     run.clear();
     let only = run.child("archive-only");
     let left = data_files(&run.cache);
+    let (name, began) = (run.name.clone(), run.began);
     drop(run);
     assert!(only.success(), "every pipeline from the archive: {only:?}");
     assert!(
@@ -97,15 +102,103 @@ fn metal_faults_on_a_shrunk_cache_and_the_archive_is_not_reached() {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
     assert!(
-        matches!(control.signal(), Some(11 | 10)),
-        "the control, compiled through the cache, must die of SIGSEGV or SIGBUS, and \
+        control.signal().is_none(),
+        "the control died of its signal, {control:?}, which files a crash report"
+    );
+    assert!(
+        matches!(control.code(), Some(c) if c == fault::exit_for(fault::SIGSEGV) || c == fault::exit_for(fault::SIGBUS)),
+        "the control, compiled through the cache, must fault, SIGSEGV or SIGBUS, and \
          ended {control:?}: Metal's cache no longer faults on {os}, the archive arm proves \
          nothing here; revisit the suite archive"
     );
+    let reports = reports_of(&name, began);
+    assert!(
+        reports.is_empty(),
+        "this run's children left crash reports: {reports:?}"
+    );
+}
+
+/// **How long the crash report folders are read after the children end.**
+/// `ReportCrash` writes a report after the process is gone, not before its
+/// parent sees it end.
+const REPORT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// **The crash reports of `name`**, the children's executable, read for
+/// [`REPORT_WAIT`]: every `.ips` in the user's report folder, its `Retired`
+/// folder and the machine's, written since `began`, whose first line names
+/// it as the app. A report does not name the bundle id: the path in it is
+/// redacted, so the name is this run's own. The user's folder
+/// is found from the account, `id -P`, not from `HOME`, which a test run
+/// may point elsewhere; it must exist, the check's control.
+fn reports_of(name: &str, began: std::time::SystemTime) -> Vec<PathBuf> {
+    let account = Command::new("/usr/bin/id")
+        .arg("-P")
+        .output()
+        .expect("id -P");
+    let account = String::from_utf8(account.stdout).expect("the account's entry");
+    // name:password:uid:gid:class:change:expire:gecos:home:shell
+    let home = account
+        .trim_end()
+        .split(':')
+        .nth(8)
+        .expect("the account's home");
+    let mine = Path::new(home).join("Library/Logs/DiagnosticReports");
+    assert!(
+        mine.is_dir(),
+        "no crash report folder at {}: the check cannot see a report",
+        mine.display()
+    );
+    let folders = [
+        mine.clone(),
+        mine.join("Retired"),
+        PathBuf::from("/Library/Logs/DiagnosticReports"),
+    ];
+    let named = format!("\"app_name\":\"{name}\"");
+    let start = std::time::Instant::now();
+    loop {
+        let mut found = Vec::new();
+        for folder in &folders {
+            let Ok(entries) = std::fs::read_dir(folder) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                let fresh = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .is_ok_and(|t| t >= began);
+                if !fresh || p.extension().is_none_or(|x| x != "ips") {
+                    continue;
+                }
+                let first = std::fs::File::open(&p)
+                    .ok()
+                    .and_then(|f| std::io::BufRead::lines(std::io::BufReader::new(f)).next())
+                    .and_then(Result::ok)
+                    .unwrap_or_default();
+                if first.contains(&named) {
+                    found.push(p);
+                }
+            }
+        }
+        if !found.is_empty() || start.elapsed() >= REPORT_WAIT {
+            eprintln!(
+                "crash reports of {name}: {} after {:?}",
+                found.len(),
+                start.elapsed()
+            );
+            return found;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// **A run's private bundle, and the cache Metal keeps for it.**
 struct Run {
+    /// The children's executable, `fault` and this process's id: the app a
+    /// crash report of theirs names.
+    name: String,
+    /// When the run began; a report older than this is another run's.
+    began: std::time::SystemTime,
     root: PathBuf,
     exe: PathBuf,
     cache: PathBuf,
@@ -113,6 +206,8 @@ struct Run {
 
 impl Run {
     fn new() -> Run {
+        let name = format!("fault{}", std::process::id());
+        let began = std::time::SystemTime::now();
         let id = format!(
             "{ID}{}.{}",
             std::process::id(),
@@ -132,13 +227,13 @@ impl Run {
                  \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
                  <plist version=\"1.0\"><dict>\
                  <key>CFBundleIdentifier</key><string>{id}</string>\
-                 <key>CFBundleExecutable</key><string>fault</string>\
+                 <key>CFBundleExecutable</key><string>{name}</string>\
                  <key>CFBundlePackageType</key><string>APPL</string>\
                  </dict></plist>\n"
             ),
         )
         .expect("the bundle's Info.plist");
-        let exe = macos.join("fault");
+        let exe = macos.join(&name);
         let me = std::env::current_exe().expect("this binary");
         if std::fs::hard_link(&me, &exe).is_err() {
             std::fs::copy(&me, &exe).expect("this binary into the bundle");
@@ -149,7 +244,13 @@ impl Run {
             "a fresh bundle id has no cache yet: {}",
             cache.display()
         );
-        Run { root, exe, cache }
+        Run {
+            name,
+            began,
+            root,
+            exe,
+            cache,
+        }
     }
 
     /// A child at `step`, its status.
@@ -246,7 +347,7 @@ fn child(step: &str) {
                 "fault-compiler" => CodeFrom::Compiler,
                 _ => CodeFrom::Archive,
             };
-            mach::no_report();
+            fault::exit_on_fault();
             builds
                 .build(TRAIL, from)
                 .expect("the trail, after the shrink");
@@ -285,126 +386,37 @@ fn sweep() {
     }
 }
 
-/// **The task's exception ports cleared** (`task_set_exception_ports`,
-/// `<mach/task.h>`), so a fault in this process is ended by its signal and
-/// reported to no one. The layouts and values are held to the headers by
-/// `the_mach_declarations_match_the_headers`.
-mod mach {
-    /// `mach_port_t`, `task_t`: `natural_t`, an `unsigned int`.
-    pub type Port = u32;
-    /// `exception_mask_t`: an `unsigned int`.
-    pub type Mask = u32;
-    /// The C ints: exception_behavior_t, thread_state_flavor_t and
-    /// kern_return_t.
-    pub type Int = i32;
+/// **A fault that ends the child by its own exit, not by the signal**, so
+/// nothing is reported: the handler only calls `_exit`, which is
+/// async-signal-safe, with 128 plus the signal, as a shell reports a death
+/// by one.
+mod fault {
+    /// `SIGBUS` on macOS (`<sys/signal.h>`).
+    pub const SIGBUS: i32 = 10;
+    /// `SIGSEGV` on macOS (`<sys/signal.h>`).
+    pub const SIGSEGV: i32 = 11;
 
-    /// `EXC_MASK_ALL | EXC_MASK_CRASH | EXC_MASK_CORPSE_NOTIFY`.
-    pub const MASK: Mask = 0x3ffe;
-    /// `MACH_PORT_NULL`.
-    pub const NULL: Port = 0;
-    /// `EXCEPTION_DEFAULT`.
-    pub const DEFAULT: Int = 1;
-    /// `THREAD_STATE_NONE` on arm64 (`<mach/arm/thread_status.h>`).
-    pub const NO_STATE_ARM64: Int = 5;
-    /// `THREAD_STATE_NONE` on x86_64 (`<mach/i386/thread_status.h>`).
-    pub const NO_STATE_X86_64: Int = 13;
-    /// `THREAD_STATE_NONE` on the architecture built for.
-    pub const NO_STATE: Int = if cfg!(target_arch = "x86_64") {
-        NO_STATE_X86_64
-    } else {
-        NO_STATE_ARM64
-    };
+    /// What a child whose build faulted with `signal` exits with.
+    pub const fn exit_for(signal: i32) -> i32 {
+        128 + signal
+    }
 
     unsafe extern "C" {
-        /// What `mach_task_self()` reads.
-        static mach_task_self_: Port;
-        fn task_set_exception_ports(
-            task: Port,
-            mask: Mask,
-            new_port: Port,
-            behavior: Int,
-            flavor: Int,
-        ) -> Int;
+        fn signal(signal: i32, handler: extern "C" fn(i32)) -> usize;
+        fn _exit(code: i32) -> !;
     }
 
-    /// Every exception this task would report, sent nowhere.
-    pub fn no_report() {
-        // SAFETY: mach_task_self_ is set before `main` and never written
-        // after; the call takes plain values, and `MACH_PORT_NULL` clears.
-        let done =
-            unsafe { task_set_exception_ports(mach_task_self_, MASK, NULL, DEFAULT, NO_STATE) };
-        assert_eq!(done, 0, "task_set_exception_ports: {done}");
+    extern "C" fn ended(signal: i32) {
+        // SAFETY: `_exit` is async-signal-safe and ends the process.
+        unsafe { _exit(exit_for(signal)) }
     }
-}
 
-/// **The declarations in [`mach`] are the headers'**: a C program built
-/// from `<mach/mach.h>` prints each size and value, and each is compared.
-#[test]
-fn the_mach_declarations_match_the_headers() {
-    let dir = std::env::temp_dir().join(format!("baud-mach-probe-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("the probe's folder");
-    let src = dir.join("probe.c");
-    std::fs::write(
-        &src,
-        "#include <mach/mach.h>\n#include <stdio.h>\n\
-         int main(void) {\n\
-         printf(\"%zu %zu %zu %zu %zu %zu\\n\", sizeof(mach_port_t), sizeof(task_t), \
-         sizeof(exception_mask_t), sizeof(exception_behavior_t), \
-         sizeof(thread_state_flavor_t), sizeof(kern_return_t));\n\
-         printf(\"%u %u %d %d\\n\", (unsigned)(EXC_MASK_ALL | EXC_MASK_CRASH | \
-         EXC_MASK_CORPSE_NOTIFY), (unsigned)MACH_PORT_NULL, EXCEPTION_DEFAULT, \
-         THREAD_STATE_NONE);\n\
-         return 0;\n}\n",
-    )
-    .expect("the probe's source");
-    let exe = dir.join("probe");
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let built = Command::new(&cc)
-        .arg(&src)
-        .arg("-o")
-        .arg(&exe)
-        .status()
-        .unwrap_or_else(|e| panic!("the C header probe needs a C compiler ({cc}): {e}"));
-    assert!(built.success(), "the probe did not build: {built:?}");
-    let out = Command::new(&exe).output().expect("the probe runs");
-    let _ = std::fs::remove_dir_all(&dir);
-    let text = String::from_utf8(out.stdout).expect("the probe's text");
-    let want = format!(
-        "{} {} {} {} {} {}\n{} {} {} {}\n",
-        size_of::<mach::Port>(),
-        size_of::<mach::Port>(),
-        size_of::<mach::Mask>(),
-        size_of::<mach::Int>(),
-        size_of::<mach::Int>(),
-        size_of::<mach::Int>(),
-        mach::MASK,
-        mach::NULL,
-        mach::DEFAULT,
-        mach::NO_STATE,
-    );
-    assert_eq!(text, want, "the declarations differ from <mach/mach.h>");
-    // `THREAD_STATE_NONE` differs by architecture, so each one's value is
-    // read from the headers as the preprocessor gives it for that target,
-    // the one this Mac does not run included.
-    for (arch, ours) in [
-        ("arm64", mach::NO_STATE_ARM64),
-        ("x86_64", mach::NO_STATE_X86_64),
-    ] {
-        let out = Command::new(&cc)
-            .args(["-arch", arch, "-dM", "-E", "-include", "mach/mach.h", "-"])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .unwrap_or_else(|e| panic!("the preprocessor for {arch}: {e}"));
-        let macros = String::from_utf8_lossy(&out.stdout);
-        let theirs = macros
-            .lines()
-            .find_map(|l| l.strip_prefix("#define THREAD_STATE_NONE "))
-            .unwrap_or_else(|| panic!("no THREAD_STATE_NONE for {arch}"));
-        assert_eq!(
-            theirs.trim(),
-            ours.to_string(),
-            "THREAD_STATE_NONE on {arch}"
-        );
+    /// From here on a fault ends this process with [`exit_for`] its signal.
+    pub fn exit_on_fault() {
+        for s in [SIGBUS, SIGSEGV] {
+            // SAFETY: the handler only calls `_exit`.
+            unsafe { signal(s, ended) };
+        }
     }
 }
 
