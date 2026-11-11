@@ -265,6 +265,32 @@ thread_local! {
     /// The last windowed inset, for full screen: one for every window, the
     /// corner being the system's.
     static KEPT: Cell<Option<CGFloat>> = const { Cell::new(None) };
+    /// The plate's right inset as the corner was last read
+    /// ([`read_corner`]), which [`edges`] gives on every tick.
+    static RIGHT: Cell<Option<CGFloat>> = const { Cell::new(None) };
+}
+
+/// **`window`'s corner read again**, on the events that move it and only
+/// there: a resize or a change of backing (the view's resize callback),
+/// full screen entered or left, and the window shown. Reading it costs
+/// AppKit calls and a region made each time, so [`edges`], which the
+/// lights reach on every display-link tick, gives the inset kept here.
+pub(crate) fn read_corner(window: &NSWindow) {
+    keep(Corner::of(window));
+}
+
+/// The plate's right inset for `corner`, kept for [`edges`].
+fn keep(corner: Corner) {
+    let right = KEPT.with(|kept| right_inset(corner, kept));
+    RIGHT.with(|r| r.set(Some(right)));
+}
+
+/// The plate's right inset as the corner was last read, or
+/// `baud_render::lights::PANEL_RIGHT` before it was.
+fn kept_right() -> CGFloat {
+    RIGHT
+        .with(Cell::get)
+        .unwrap_or(CGFloat::from(baud_render::lights::PANEL_RIGHT))
 }
 
 /// **The plate's right inset for `corner`**: windowed, AppKit's where it
@@ -285,7 +311,8 @@ pub(crate) fn right_inset(corner: Corner, kept: &Cell<Option<CGFloat>>) -> CGFlo
 
 /// **The strip's edges in `window` now**: the plate starts past the
 /// traffic lights, by the gap between two of them, and ends the window's
-/// [`right_inset`] short of the right.
+/// [`right_inset`] short of the right, as its corner was last read
+/// ([`read_corner`]).
 pub(crate) fn edges(window: &NSWindow) -> Edges {
     let left = match (
         laid(window, NSWindowButton::CloseButton),
@@ -300,7 +327,7 @@ pub(crate) fn edges(window: &NSWindow) -> Edges {
     Edges {
         width: window.frame().size.width,
         left,
-        right: KEPT.with(|kept| right_inset(Corner::of(window), kept)),
+        right: kept_right(),
     }
 }
 
@@ -364,6 +391,73 @@ mod tests {
         assert_eq!(right_inset(Corner::Windowed(None), &kept), 16.0, "none");
         assert_eq!(right_inset(Corner::Windowed(Some(0.0)), &kept), 16.0, "0");
         assert_eq!(right_inset(Corner::FullScreen, &kept), 16.0, "kept");
+    }
+
+    /// **The strip's edges give the inset kept when the corner was last
+    /// read**: 16 before any reading, then each reading's, full screen
+    /// keeping the windowed one before it. Named break: the corner read
+    /// in `edges` again -- the source check below fails.
+    #[test]
+    fn the_edges_give_the_inset_the_last_reading_kept() {
+        assert_eq!(kept_right(), 16.0, "before any reading");
+        keep(Corner::Windowed(Some(12.0)));
+        assert_eq!(kept_right(), 12.0);
+        keep(Corner::FullScreen);
+        assert_eq!(kept_right(), 12.0, "full screen keeps the windowed");
+        keep(Corner::Windowed(None));
+        assert_eq!(kept_right(), 16.0);
+    }
+
+    /// The code of the function `sig` opens in `src`, to the first line
+    /// that closes a function at `close`'s indent.
+    fn body<'s>(src: &'s str, sig: &str, close: &str) -> &'s str {
+        let at = src.find(sig).unwrap_or_else(|| panic!("{sig} is there"));
+        let end = src[at..].find(close).expect("a body");
+        &src[at..at + end]
+    }
+
+    /// **Nothing on the display-link tick reads the window's corner**:
+    /// `Corner::of`, which sends AppKit five messages and makes a region,
+    /// is called from `read_corner` alone, and `read_corner` from the
+    /// view's resize callback, the full-screen observer and the window's
+    /// showing alone -- never from the lights' tick (`show_lights`), the
+    /// strip's edges or the lights' placing, which a tick reaches. Named
+    /// break: `Corner::of` back in `edges`.
+    #[test]
+    fn nothing_on_the_tick_reads_the_corner() {
+        let strip = include_str!("strip.rs");
+        let code = strip.split_once("#[cfg(test)]").map_or(strip, |(c, _)| c);
+        let of = concat!("Corner::", "of(");
+        let edges = body(code, "pub(crate) fn edges(", "\n}\n");
+        assert!(
+            !edges.contains(of) && !edges.contains("read_corner"),
+            "edges reads the corner: {edges}"
+        );
+        assert_eq!(code.matches(of).count(), 1, "one call of {of}");
+        let read = body(code, "pub(crate) fn read_corner(", "\n}\n");
+        assert!(read.contains(of), "{read}");
+        let app = include_str!("app.rs");
+        let call = concat!("crate::strip::", "read_corner(");
+        assert_eq!(app.matches(call).count(), 3, "three readings");
+        for site in [
+            "fn resized(&mut self, size: NSSize, scale: CGFloat) {\n        // The window's corner, which a resize or a change of backing may\n        // move, read here rather than on every tick (`strip::read_corner`).\n        crate::strip::read_corner(self.window.ns_window());\n",
+            "        crate::strip::read_corner(window.ns_window());\n        driver.draw_lights();\n",
+            "crate::strip::follow(change, w.ns_window(), &v, &c);\n                crate::strip::read_corner(w.ns_window());\n",
+        ] {
+            assert!(app.contains(site), "a reading at {site}");
+        }
+        for sig in [
+            "fn show_lights(&mut self, target: f64) {",
+            "fn strip_edges(&self) -> crate::strip::Edges {",
+            "fn place_lights(&self) {",
+            "fn draw_lights(&mut self) {",
+        ] {
+            let b = body(app, sig, "\n    }\n");
+            assert!(
+                !b.contains(call) && !b.contains(of),
+                "{sig} reads the corner"
+            );
+        }
     }
 
     /// **In full screen the grid starts at the window's top, whatever the

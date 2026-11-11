@@ -13396,6 +13396,9 @@ impl Responder for Driver {
     }
 
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
+        // The window's corner, which a resize or a change of backing may
+        // move, read here rather than on every tick (`strip::read_corner`).
+        crate::strip::read_corner(self.window.ns_window());
         if scale != self.app.scale {
             // A different scale is a different pixel size for the font: the
             // renderer's metrics, scales, run cache and atlas are rebuilt,
@@ -14466,6 +14469,7 @@ impl Opening {
         // The lights are drawn now rather than at the first tick, so a
         // window with them in its title bar has the lockup on the plate from
         // the start and never shows it beside the traffic lights.
+        crate::strip::read_corner(window.ns_window());
         driver.draw_lights();
         driver.place_icon();
         driver.place_lights();
@@ -14569,6 +14573,7 @@ impl Opening {
             let (w, v, c) = (window.clone(), view.clone(), container.clone());
             baud_present_macos::full_screen::when_full_screen(window.ns_window(), move |change| {
                 crate::strip::follow(change, w.ns_window(), &v, &c);
+                crate::strip::read_corner(w.ns_window());
             })
         };
         OPEN.with_borrow_mut(|o| {
