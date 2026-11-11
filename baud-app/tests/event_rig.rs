@@ -1737,7 +1737,8 @@ enum OpenedSeen {
 }
 
 /// The printed paths' batches by why each was due (baud-app's `By`), and
-/// those the floor held whose own deadline the shell's `D` set.
+/// those the floor held whose own deadline the shell's `D` set, and the
+/// paths they asked about.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct SentBy {
     ended: u32,
@@ -1745,6 +1746,8 @@ struct SentBy {
     ceiling: u32,
     floor: u32,
     held_granted: u32,
+    /// The paths the batches asked about.
+    asked: u32,
 }
 
 impl SentBy {
@@ -1761,6 +1764,7 @@ impl SentBy {
             ceiling: count("ceiling")?,
             floor: count("floor")?,
             held_granted: count("held_granted")?,
+            asked: count("asked")?,
         })
     }
 }
@@ -2052,6 +2056,16 @@ enum Settles {
     /// its marks' frame due by the `D` -- one at least, and none by the
     /// quiet, the ceiling or the floor. Counted, not timed.
     MarkedOnD,
+    /// **A command's printed path drawn on the turns its shell's `D`
+    /// started, past the floor a command just before laid**
+    /// (`RigFrameTicks::UntilMarked`, `RigWindow::Released`): two link lines
+    /// at rest, the two commands', and every batch the second stage sent to
+    /// its marks' frame due by a `D` -- none by the quiet, the ceiling or the
+    /// floor, none the floor held under the grant (`held_granted`, the
+    /// cap's witness) -- asking about this many paths: two where the second
+    /// command's path is new, one where its answer is kept from the first's.
+    /// Counted, not timed.
+    PastFloor(u32),
     /// **A remote command's printed path dark under its shell's `D`**
     /// (`RigWindow::Released`): a batch the `D` made due went, and still
     /// nothing was asked about and no link line is at rest.
@@ -2172,6 +2186,13 @@ impl Settles {
                     && by.quiet + by.ceiling + by.floor == 0
                     && c.asked >= 1
                     && c.marked >= 1
+            }),
+            Settles::PastFloor(asks) => c.by.is_some_and(|by| {
+                by.ended >= 1
+                    && by.quiet + by.ceiling + by.floor == 0
+                    && by.held_granted == 0
+                    && by.asked == asks
+                    && c.marked >= 2
             }),
             Settles::DarkOnD => {
                 c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
@@ -3418,22 +3439,50 @@ fn a_listings_paths_are_not_held_by_the_batch_that_named_its_writer() {
 }
 
 /// **The act a shell's `D` row sends**, its second stage one `printf`, so
-/// one `write(2)`: the window's shell's `C` with its token naming `cmd`,
-/// `/usr/bin` (spelled in octal, so the echo of the typed line names no
-/// path), a move back up onto its row, which refuses the read's cut at the
-/// `D`, so the `D`'s own part names that row; the shell's `D` with its
-/// token, and its `A`; a line feed and a clear that signs the second
-/// stage. `/bin/sh` is handed the token by the probe build's door
-/// (`BAUD_RIG_SHELL_TOKEN`), since the rig's shell is none baud writes a
-/// script for.
+/// one `write(2)` ([`shells_d_command!`]) naming `/usr/bin`, then a line
+/// feed and a clear that signs the second stage. With `before`, the
+/// second stage starts with another such command naming that path, then
+/// a tenth of a second's pause: within a second of the batch that asked
+/// about it, so under the floor that batch laid; each of the two is
+/// `printf` run by `env`, not the shell's own, so its rows are a program's the
+/// shell runs, named by a batch before they are read, as a listing's are. `/bin/sh` is handed the
+/// token by the probe build's door (`BAUD_RIG_SHELL_TOKEN`), since the
+/// rig's shell is none baud writes a script for.
 macro_rules! shells_d_act {
     ($cmd:literal) => {
         concat!(
             r"printf '\033]52;c;!\007'; read x <go; ",
+            shells_d_command!($cmd, r"\057usr\057bin", r"\n\033]52;c;!\007"),
+            "; read y",
+        )
+    };
+    (before: $path:literal, $cmd:literal) => {
+        concat!(
+            r"printf '\033]52;c;!\007'; read x <go; env ",
+            shells_d_command!($cmd, $path, r"\n"),
+            "; sleep 0.1; env ",
+            shells_d_command!($cmd, r"\057usr\057bin", r"\n\033]52;c;!\007"),
+            "; read y",
+        )
+    };
+}
+
+/// **One command a shell's `D` row's act runs, in one `printf`**: the
+/// window's shell's `C` with its token naming `cmd`, `path` (spelled in
+/// octal, so the echo of the typed line names no path), a move back up
+/// onto its row, which refuses the read's cut at the `D`, so the `D`'s own
+/// part names that row; the shell's `D` with its token, its `A`, and
+/// `tail`.
+macro_rules! shells_d_command {
+    ($cmd:literal, $path:literal, $tail:literal) => {
+        concat!(
             r"printf '\033]133;C;baud_token=%s;cmdline=",
             $cmd,
-            r"\007\057usr\057bin\n\033[A\033]133;D;0;aid=1;baud_token=%s\007",
-            r#"\033]133;A;aid=1\007\n\033]52;c;!\007' "$BAUD_SHELL_TOKEN" "$BAUD_SHELL_TOKEN"; read y"#,
+            r"\007",
+            $path,
+            r"\n\033[A\033]133;D;0;aid=1;baud_token=%s\007\033]133;A;aid=1\007",
+            $tail,
+            r#"' "$BAUD_SHELL_TOKEN" "$BAUD_SHELL_TOKEN""#,
         )
     };
 }
@@ -3517,5 +3566,98 @@ fn a_remote_commands_printed_path_stays_dark_under_its_shells_d() {
         SHELLS_D_REMOTE.expect.holds(&c),
         "{:?}: {c:?}",
         SHELLS_D_REMOTE.name
+    );
+}
+
+/// **A command printing a path, then within a second another printing
+/// another, each ended by its shell's `D`**: [`SHELLS_D`]'s act with a
+/// command printing `/usr/lib` before it, a tenth of a second earlier, in
+/// the same second stage: the batches its `D` sends ask about `/usr/lib`
+/// and lay the floor, and the second command's `/usr/bin`, a path not yet
+/// asked about, and its `D` come under it -- the paused typed listing's
+/// shape, the path asked about within a second before the listing. The
+/// row ends on the frame that draws both marks
+/// (`RigFrameTicks::UntilMarked`, two link lines).
+const SHELLS_D_FLOORED: FrameSite = FrameSite {
+    name: SiteName("a path printed within a second of an asking batch is asked about on its D"),
+    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    act: shells_d_act!(before: r"\057usr\057lib", "printf"),
+    keys: RigKeys::Line,
+    ticks: RigFrameTicks::UntilMarked,
+    window: RigWindow::Released,
+    env: &[("BAUD_GPU", "cpu"), ("BAUD_RIG_SHELL_TOKEN", "1")],
+    config: STEADY,
+    focus: RigFocus::Believed,
+    attempts: Iterations(2),
+    expect: Settles::PastFloor(2),
+    state: RowState::Green,
+};
+
+/// **The same path printed again on its shell's `D`, within a second of
+/// the batch that asked about it**: [`SHELLS_D_FLOORED`]'s shape with the
+/// first command printing `/usr/bin` too, so the second command's has its
+/// answer kept from the first's batch, which laid the floor: the second
+/// `D`'s one batch only names its writer, and that makes the kept answer
+/// drawable -- a listing run again on the first one's marks. The row ends
+/// on the frame that draws both marks.
+const SHELLS_D_WARM: FrameSite = FrameSite {
+    name: SiteName("a path printed again within a second is drawn on its D"),
+    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    act: shells_d_act!(before: r"\057usr\057bin", "printf"),
+    keys: RigKeys::Line,
+    ticks: RigFrameTicks::UntilMarked,
+    window: RigWindow::Released,
+    env: &[("BAUD_GPU", "cpu"), ("BAUD_RIG_SHELL_TOKEN", "1")],
+    config: STEADY,
+    focus: RigFocus::Believed,
+    attempts: Iterations(2),
+    expect: Settles::PastFloor(1),
+    state: RowState::Green,
+};
+
+/// **A command's printed path within a second of a batch that asked is
+/// drawn on the turns its shell's `D` starts** ([`SHELLS_D_FLOORED`]), on
+/// the lifted arm alone: the second `D` passes the floor the first
+/// command's asking batch laid, for the batch naming the command's writer
+/// and the one asking about its path, and none is held under the grant.
+/// Red with no lift (the floor laid over a grant's deadline as over any
+/// other) and on the base's pace: the floor holds the second command's
+/// batches to a second after the first's, counted held under the grant,
+/// or past the row's backstop; and with the floor passed only by a batch
+/// that asks: the batch naming the second command is never sent, and its
+/// mark is not drawn. The setup must have asked about no
+/// path, or its floor would be in the row. The time from the text's frame
+/// to the marks' is printed, not judged.
+#[test]
+fn a_path_printed_within_a_second_of_an_asking_batch_is_drawn_on_its_d() {
+    let c = run_frames(&SHELLS_D_FLOORED, "shells-d-floored", RigHolders::Lifted)
+        .unwrap_or_else(|e| panic!("{:?}: {e}", SHELLS_D_FLOORED.name));
+    println!("{:?}: {c:?}", SHELLS_D_FLOORED.name);
+    assert_eq!(c.setup_asked(), Some(0), "the setup asked: {c:?}");
+    assert!(
+        SHELLS_D_FLOORED.expect.holds(&c),
+        "{:?}: {c:?}",
+        SHELLS_D_FLOORED.name
+    );
+}
+
+/// **The same path printed again within a second is drawn on the turns
+/// its shell's `D` starts** ([`SHELLS_D_WARM`]), on the lifted arm alone:
+/// the batch naming the writer passes the floor and asks about nothing,
+/// and none is held under the grant. Red with no lift and on the base's
+/// pace: the naming batch goes by the floor, a second after the first
+/// command's, counted held under the grant; and with the floor passed only
+/// by a batch that asks: it is never sent, and the mark is not drawn. The time from the text's frame to the
+/// marks' is printed, not judged.
+#[test]
+fn the_same_path_printed_again_within_a_second_is_drawn_on_its_d() {
+    let c = run_frames(&SHELLS_D_WARM, "shells-d-warm", RigHolders::Lifted)
+        .unwrap_or_else(|e| panic!("{:?}: {e}", SHELLS_D_WARM.name));
+    println!("{:?}: {c:?}", SHELLS_D_WARM.name);
+    assert_eq!(c.setup_asked(), Some(0), "the setup asked: {c:?}");
+    assert!(
+        SHELLS_D_WARM.expect.holds(&c),
+        "{:?}: {c:?}",
+        SHELLS_D_WARM.name
     );
 }

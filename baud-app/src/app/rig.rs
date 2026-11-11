@@ -1443,8 +1443,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // stage was released (`RigWindow::Released`), and as its marks were
     // drawn (`RigFrameTicks::UntilMarked`): what the act's output alone
     // sent, the first stage's echo's batches left out.
+    // And the paths asked about, at the same two moments.
     let mut released_by: Option<probe::PathsBy> = None;
     let mut marked_by: Option<probe::PathsBy> = None;
+    let mut released_asked: Option<probe::Taken> = None;
+    let mut marked_asked: Option<probe::Taken> = None;
     // The window told, after the act: a key change with the focus door
     // set to agree, then the notification AppKit would post.
     match rig.window {
@@ -1527,6 +1530,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 return std::process::ExitCode::from(1);
             }
             released_by = Some(probe::paths_by());
+            released_asked = Some(probe::paths_asked());
         }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
@@ -1795,6 +1799,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 } else if text.is_some() && drawn && probe::lines_marked().0 >= wanted {
                     marks = Some((Instant::now(), probe::frames()));
                     marked_by = Some(probe::paths_by());
+                    marked_asked = Some(probe::paths_asked());
                 }
             }
             act_signed = signed;
@@ -1841,13 +1846,17 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         run(30);
     }
     counters(reads, fed, drawn, offered_at);
-    // The batches the act's second stage sent, by why each was due, to its
-    // marks' frame or the end: a line of their own, for the rows that
-    // release one.
-    if let Some(from) = released_by {
+    // The batches the act's second stage sent, by why each was due, and the
+    // paths they asked about, to its marks' frame or the end: a line of
+    // their own, for the rows that release one.
+    if let (Some(from), Some(asked_from)) = (released_by, released_asked) {
         let by = marked_by.unwrap_or_else(probe::paths_by).since(from);
+        let asked = marked_asked
+            .unwrap_or_else(probe::paths_asked)
+            .0
+            .saturating_sub(asked_from.0);
         println!(
-            "by ended={} quiet={} ceiling={} floor={} held_granted={}",
+            "by ended={} quiet={} ceiling={} floor={} held_granted={} asked={asked}",
             by.ended.0, by.quiet.0, by.ceiling.0, by.floor.0, by.held_granted.0
         );
     }

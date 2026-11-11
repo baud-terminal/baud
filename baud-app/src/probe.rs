@@ -29,11 +29,17 @@
 //! about a path or [`SETTLE`] after the drain that read it. The shell
 //! prints it once its job has ended, so every byte the job wrote is
 //! before it. It moves when a batch goes and nothing a batch reads: a row
-//! is filed by its writers at its read, whatever the pace. The floor holds,
-//! and a batch it makes due is never closer than [`GRANT_GAP`] to the
-//! batch before, at most 20 a `D`. Output with no such `D` -- a flood, a
+//! is filed by its writers at its read, whatever the pace. **The grant
+//! serves the chain to one asking batch**: it lifts the floor after the last
+//! batch that asked for at most two scans (`Pace::scanned`), the one naming
+//! the listing's writer and the one asking about its paths, and the asking
+//! one spends it and lays the floor again. So per tokened `D` at most two
+//! scans pass the floor, at most one of them asks about a path, each at
+//! least [`GRANT_GAP`] after the scan before; one grant scans at most 20
+//! times where no floor is live; and across `D`s, a key held down, batches
+//! go at most once each [`GRANT_GAP`]. Output with no such `D` -- a flood, a
 //! spinner, a remote shell's or a nested one's marks, which carry no token
-//! or another -- is paced by the quiet.
+//! or another -- is paced by the quiet and held by the floor.
 //!
 //! Each batch is the window's screen as it is
 //! then: one scan of every row (`Paths::begin_collect`), so a flood costs
@@ -149,11 +155,11 @@ pub const SETTLE: Duration = Duration::from_millis(150);
 /// the shortest between two batches that ask about a path.
 pub const CEILING: Duration = Duration::from_secs(1);
 
-/// **The shortest between a batch the shell's `D` made due and the batch
-/// before it, of any kind**: a 120 Hz display's frame is 8.33 ms, so a
-/// grant sends at most one batch a frame there, each a scan of the screen
-/// on the main thread, and one grant, live for [`SETTLE`] from its drain,
-/// at most 20 (`Pace::sent`); and a listing's two batches, the one naming
+/// **The shortest between a batch the shell's `D` made due and the scan
+/// before it, sent or not**: a 120 Hz display's frame is 8.33 ms, so a
+/// grant scans at most once a frame there, each a scan of the screen on the
+/// main thread, and one grant, live for [`SETTLE`] from its drain, at most
+/// 20 times (`Pace::scanned`); and a listing's two batches, the one naming
 /// its writer and the one asking about its paths, still fit in two frames
 /// with the worker's answer between. The pace knows no display's rate, so
 /// it is fixed here, not read from one.
@@ -1666,19 +1672,46 @@ pub struct Pace<T> {
     owed_since: Option<T>,
     /// The last batch that asked about a path: the floor's stamp.
     last_batch: Option<T>,
-    /// The last screen batch of any kind, asking or only naming: what
-    /// [`GRANT_GAP`] is kept after.
+    /// The last screen scan a deadline met, sent or not, asking or only
+    /// naming: what [`GRANT_GAP`] is kept after.
     last_sent: Option<T>,
     /// The window's shell's `D` the next batch is due at once for.
     grant: Grant<T>,
 }
 
 /// **The shell's `D` the pace holds** ([`Pace::ended`]): none, or one
-/// minted by the drain whose clock this is.
+/// minted by the drain whose clock this is, and how much of the floor it
+/// may still lift.
 #[derive(Clone, Copy, Debug)]
 enum Grant<T> {
     None,
-    Since(T),
+    Since(T, Lift),
+}
+
+/// **How many more scans a grant may pass the floor with**: two, the one
+/// naming a listing's writer and the one asking about its paths, since
+/// one batch names every writer the screen holds. Each scan a deadline
+/// meets under the grant steps it ([`Pace::scanned`]); once spent, the
+/// floor after the last batch that asked holds the grant's deadline as it
+/// holds any other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Lift {
+    /// No scan yet: the one naming the writer may pass.
+    Open,
+    /// One scan passed: the one asking about the paths may.
+    Named,
+    /// Two passed: the floor holds the rest.
+    Spent,
+}
+
+impl Lift {
+    /// The lift after one more scan under it.
+    fn step(self) -> Lift {
+        match self {
+            Lift::Open => Lift::Named,
+            Lift::Named | Lift::Spent => Lift::Spent,
+        }
+    }
 }
 
 /// **A batch's deadline and why it is due**: no deadline exists without a
@@ -1748,9 +1781,10 @@ impl<T: Moment> Pace<T> {
     /// or [`SETTLE`] after `now`. Stamped here, by the drain, and never by
     /// a turn after it: a `D` that owed nothing would otherwise be live
     /// from the next key's turn, and send its echo's partial path at once.
-    /// A second `D` before this one is spent replaces it.
+    /// A second `D` before this one is spent replaces it, its lift whole
+    /// again: one chain to an asking batch per `D`.
     pub fn ended(&mut self, _proof: crate::vouch::Ended, now: T) {
-        self.grant = Grant::Since(now);
+        self.grant = Grant::Since(now, Lift::Open);
     }
 
     /// **A command opened after the shell's `D`, or a part's marks were
@@ -1768,13 +1802,16 @@ impl<T: Moment> Pace<T> {
     /// ([`By::Quiet`]), but no later than [`CEILING`] after the path was
     /// met ([`By::Ceiling`]); at once while the window's shell's `D` holds
     /// ([`By::Ended`]), never sooner than [`GRANT_GAP`] after the last
-    /// batch; and never sooner than [`CEILING`] after the last batch that
-    /// asked about a path ([`By::Floor`]), a grant's deadline included.
-    /// None while nothing is owed.
+    /// scan; and never sooner than [`CEILING`] after the last batch that
+    /// asked about a path ([`By::Floor`]) -- but for a grant's deadline
+    /// while its [`Lift`] is not spent, which passes the floor. None while
+    /// nothing is owed.
     pub fn due(&self) -> Option<Due<T>> {
         let soon = self.soon()?;
+        let lifts = soon.granted == Granted::Yes
+            && matches!(self.grant, Grant::Since(_, Lift::Open | Lift::Named));
         Some(match self.last_batch.map(|b| b.after(CEILING)) {
-            Some(floor) if floor > soon.at => Due {
+            Some(floor) if floor > soon.at && !lifts => Due {
                 at: floor,
                 by: By::Floor,
                 ..soon
@@ -1814,10 +1851,10 @@ impl<T: Moment> Pace<T> {
 
     /// **The grant's deadline, for a path met at `since`**: at once, but
     /// not before the drain that minted it nor sooner than [`GRANT_GAP`]
-    /// after the last batch; none once lapsed, a path met [`SETTLE`] or
+    /// after the last scan; none once lapsed, a path met [`SETTLE`] or
     /// more after the mint being the next output's and paced by its quiet.
     fn granted(&self, since: T) -> Option<T> {
-        let Grant::Since(minted) = self.grant else {
+        let Grant::Since(minted, _) = self.grant else {
             return None;
         };
         if since >= minted.after(SETTLE) {
@@ -1827,28 +1864,40 @@ impl<T: Moment> Pace<T> {
         Some(self.last_sent.map_or(at, |s| at.max(s.after(GRANT_GAP))))
     }
 
-    /// **The deadline was met**: the screen is scanned for the batch, and
-    /// nothing is owed until a scan meets a path with no answer again. The
-    /// grant is kept: a batch that only names its writer makes a listing's
-    /// rows readable, and the batch after asks about them.
-    pub fn scanned(&mut self) {
+    /// **The deadline was met at `now`**: the screen is scanned for the
+    /// batch, and nothing is owed until a scan meets a path with no answer
+    /// again. The scan is the last, which a grant's next keeps
+    /// [`GRANT_GAP`] after, and it steps the grant's [`Lift`], whether a
+    /// batch goes or the scan finds nothing to send: stamped where the
+    /// floor is passed, not where a batch is sent, so a scan that sends
+    /// nothing is spaced and capped like one that does. The grant is kept:
+    /// a batch that only names its writer makes a listing's rows readable,
+    /// and the batch after asks about them. **The bound, per tokened `D`**:
+    /// at most two scans pass the floor, at most one of them asking about a
+    /// path ([`Pace::sent`] spends the grant), each at least [`GRANT_GAP`]
+    /// after the scan before; and one grant scans at most 20 times where no
+    /// floor is live, [`SETTLE`] over [`GRANT_GAP`] after its drain.
+    pub fn scanned(&mut self, now: T) {
         self.owed_since = None;
+        self.last_sent = Some(now);
+        if let Grant::Since(minted, lift) = self.grant {
+            self.grant = Grant::Since(minted, lift.step());
+        }
     }
 
     /// **A batch went at `now`, asking about `paths`**: only a batch that
     /// asked about a path holds the next one to [`CEILING`] after it, and
-    /// spends the shell's `D`. One that only names the programs that wrote
-    /// -- the first after a listing, whose rows are read once their writer
-    /// is named, or a typed key's echo -- holds nothing and spends nothing,
-    /// so the batch its answer makes readable goes at its own deadline and
-    /// not a second later. Every batch is the last sent, which a grant's
-    /// next keeps [`GRANT_GAP`] after. Under output that goes on,
-    /// [`CEILING`] after the path was met still sends batches about once a
-    /// second; batches that only name are never closer than [`SETTLE`], at
-    /// most 7 in a second, where no grant holds, and never closer than
-    /// [`GRANT_GAP`] where one does, at most 20 for one grant.
+    /// spends the shell's `D`, its lift with it, so the next asking batch
+    /// with no new `D` is held by the floor this one lays. One that only
+    /// names the programs that wrote -- the first after a listing, whose
+    /// rows are read once their writer is named, or a typed key's echo --
+    /// holds nothing and spends nothing, so the batch its answer makes
+    /// readable goes at its own deadline and not a second later. Under
+    /// output that goes on, [`CEILING`] after the path was met still sends
+    /// batches about once a second; batches that only name are never closer
+    /// than [`SETTLE`], at most 7 in a second, where no grant holds, and
+    /// never closer than [`GRANT_GAP`] where one does ([`Pace::scanned`]).
     pub fn sent(&mut self, now: T, paths: &[Candidate]) {
-        self.last_sent = Some(now);
         if !paths.is_empty() {
             self.last_batch = Some(now);
             self.grant = Grant::None;
@@ -1903,8 +1952,12 @@ pub struct Counts {
     /// by the floor after the last that did ([`By::Floor`]).
     pub held: u64,
     /// **Batches of either kind the floor held whose own deadline the
-    /// window's shell's `D` set** ([`Granted::Yes`]): a command ended within a
-    /// second of a batch that asked about a path, whose marks the floor holds.
+    /// window's shell's `D` set** ([`Granted::Yes`]): the grant's [`Lift`]
+    /// spent, two scans having passed the floor under it with no batch
+    /// asking. A listing, a listing again on its marks' frame, and a path
+    /// typed then a listing within a second each pass the floor in at
+    /// most two scans, so each reads 0 here: the witness the rig's rows for
+    /// them hold to 0.
     pub held_granted: u64,
     /// The screen batches sent, by why each was due ([`By`]).
     pub by_ended: u64,
@@ -3374,7 +3427,7 @@ impl<T: Moment> Probes<T> {
         if matches!(self.slot, Slot::Closed) {
             return turn;
         }
-        self.pace.scanned();
+        self.pace.scanned(now);
         let cursor = s.cursor_on();
         let g = group();
         if g.is_some() && g == self.elsewhere {
@@ -4095,7 +4148,7 @@ mod tests {
             Some(ms(1000)),
             "the ceiling, while output goes on"
         );
-        p.scanned();
+        p.scanned(ms(1000));
         p.sent(ms(1000), &[asked_path()]);
         p.owe(ms(1010));
         p.saw(Taken(99), ms(1020));
@@ -4130,7 +4183,7 @@ mod tests {
         p.owe(ms(0));
         assert_eq!(p.due_at(), Some(ms(150)), "quiet after the listing");
         assert_eq!(p.due().map(|d| d.by), Some(By::Quiet));
-        p.scanned();
+        p.scanned(ms(150));
         p.sent(ms(150), &[]);
         // Its answer filed the rows; the next frame's scan met the paths.
         p.owe(ms(152));
@@ -4147,18 +4200,18 @@ mod tests {
         p.owe(ms(0));
         p.saw(Taken(2), ms(120));
         assert_eq!(p.due_at(), Some(ms(270)));
-        p.scanned();
+        p.scanned(ms(270));
         p.sent(ms(270), &[]);
         p.saw(Taken(40), ms(420));
         p.owe(ms(420));
         assert_eq!(p.due_at(), Some(ms(570)), "the listing's own quiet");
-        p.scanned();
+        p.scanned(ms(570));
         p.sent(ms(570), &[]);
         p.owe(ms(572));
         assert_eq!(p.due().map(|d| d.by), Some(By::Quiet));
         assert_eq!(p.due_at(), Some(ms(572)), "at once, not at 1570 ms");
         // A batch that asked about a path still holds the next.
-        p.scanned();
+        p.scanned(ms(572));
         p.sent(ms(572), &[asked_path()]);
         p.owe(ms(900));
         assert_eq!(p.due().map(|d| d.by), Some(By::Floor));
@@ -4191,7 +4244,7 @@ mod tests {
                 }
                 p.owe(ms(now));
                 if p.due_at().is_some_and(|d| ms(now) >= d) {
-                    p.scanned();
+                    p.scanned(ms(now));
                     p.sent(ms(now), &[asked_path()]);
                     sent.push(now);
                 }
@@ -4237,7 +4290,7 @@ mod tests {
                 p.owe(ms(now));
             }
             if p.due_at().is_some_and(|d| ms(now) >= d) {
-                p.scanned();
+                p.scanned(ms(now));
                 p.sent(ms(now), &[]);
                 sent.push(now);
             }
@@ -4327,7 +4380,7 @@ mod tests {
         p.owe(ms(0));
         p.ended(shells_d(), ms(0));
         assert_eq!(p.due(), due(ms(0), By::Ended, Granted::Yes));
-        p.scanned();
+        p.scanned(ms(0));
         p.sent(ms(0), &[]);
         p.owe(ms(1));
         assert_eq!(
@@ -4335,7 +4388,7 @@ mod tests {
             due(ms(gap), By::Ended, Granted::Yes),
             "kept, a gap after the naming batch"
         );
-        p.scanned();
+        p.scanned(ms(gap));
         p.sent(ms(gap), &[asked_path()]);
         p.owe(ms(gap + 1));
         assert_eq!(
@@ -4345,23 +4398,130 @@ mod tests {
         );
     }
 
-    /// **T3: the grant keeps fix one's floor**: a batch asked about a path
-    /// at 0; the shell's `D` at 200 ms, a path met then: due a second after
-    /// the asking, by the floor, the `D` having set the deadline it held.
-    /// Break: the grant lifts the floor -- due at 200 ms.
+    /// A pace whose last batch asked about a path at `t0`, so the floor
+    /// holds to a second after, and whose shell's `D` came at `d`.
+    fn floored_then_d(t0: Instant, d: Instant) -> Pace<Instant> {
+        let mut p: Pace<Instant> = Pace::default();
+        p.saw(Taken(1), t0);
+        p.owe(t0);
+        p.scanned(t0);
+        p.sent(t0, &[asked_path()]);
+        p.saw(Taken(2), d);
+        p.ended(shells_d(), d);
+        p
+    }
+
+    /// **T3: the grant's one asking batch lifts the floor, once**: a batch
+    /// asked about a path at 0; the shell's `D` at 200 ms, a path met then:
+    /// due at once, by the `D`, the floor a second after the asking passed.
+    /// The batch naming the listing's writer goes at 200, the one asking
+    /// about its paths [`GRANT_GAP`] after, and that one spends the grant
+    /// and lays the floor again: a path met at 300 with no new `D` is due a
+    /// second after it, by the floor and not the `D`. The same where one
+    /// batch both names and asks, the typed listing's shape: met at 300, the
+    /// floor. Breaks: no lift -- due at 1000, by the floor; the lift
+    /// outliving its asking batch (`Pace::sent` keeping the grant) -- the
+    /// one-batch path met at 300 due at once, by the `D`, and the two-batch
+    /// one held with the `D`'s mark on it.
     #[test]
-    fn the_grant_keeps_fix_ones_floor() {
+    fn the_grants_one_asking_batch_lifts_the_floor_once() {
         let t0 = Instant::now();
         let ms = |n: u64| t0 + Duration::from_millis(n);
-        let mut p: Pace<Instant> = Pace::default();
-        p.saw(Taken(1), ms(0));
-        p.owe(ms(0));
-        p.scanned();
-        p.sent(ms(0), &[asked_path()]);
-        p.saw(Taken(2), ms(200));
-        p.ended(shells_d(), ms(200));
+        let gap = u64::try_from(GRANT_GAP.as_millis()).unwrap();
+        let mut p = floored_then_d(t0, ms(200));
         p.owe(ms(200));
-        assert_eq!(p.due(), due(ms(1000), By::Floor, Granted::Yes));
+        assert_eq!(p.due(), due(ms(200), By::Ended, Granted::Yes), "lifted");
+        p.scanned(ms(200));
+        p.sent(ms(200), &[]);
+        p.owe(ms(201));
+        assert_eq!(
+            p.due(),
+            due(ms(200 + gap), By::Ended, Granted::Yes),
+            "the asking batch, a gap after the naming one"
+        );
+        p.scanned(ms(200 + gap));
+        p.sent(ms(200 + gap), &[asked_path()]);
+        p.saw(Taken(3), ms(300));
+        p.owe(ms(300));
+        assert_eq!(
+            p.due(),
+            due(ms(1200 + gap), By::Floor, Granted::No),
+            "spent: the floor the asking batch laid"
+        );
+        let mut p = floored_then_d(t0, ms(200));
+        p.owe(ms(200));
+        p.scanned(ms(200));
+        p.sent(ms(200), &[asked_path()]);
+        p.saw(Taken(3), ms(300));
+        p.owe(ms(300));
+        assert_eq!(
+            p.due(),
+            due(ms(1200), By::Floor, Granted::No),
+            "one batch named and asked: spent"
+        );
+    }
+
+    /// **W1: a grant passes the floor with two scans, and no third**: the
+    /// floor live to a second; the shell's `D` at 200 ms; two batches pass
+    /// it [`GRANT_GAP`] apart, neither asking; a path met after them, the
+    /// grant still live, is due at the floor, the `D`'s mark on it, and
+    /// counted held under it (`Counts::held_granted`). Breaks: no cap (a
+    /// [`Lift`] never spent) -- the third due at once; no lift -- the first
+    /// due at the floor.
+    #[test]
+    fn a_grant_lifts_the_floor_for_two_batches() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let gap = u64::try_from(GRANT_GAP.as_millis()).unwrap();
+        let mut p = floored_then_d(t0, ms(200));
+        p.owe(ms(200));
+        assert_eq!(p.due(), due(ms(200), By::Ended, Granted::Yes), "first");
+        p.scanned(ms(200));
+        p.sent(ms(200), &[]);
+        p.owe(ms(201));
+        assert_eq!(
+            p.due(),
+            due(ms(200 + gap), By::Ended, Granted::Yes),
+            "second"
+        );
+        p.scanned(ms(200 + gap));
+        p.sent(ms(200 + gap), &[]);
+        p.owe(ms(201 + gap));
+        assert_eq!(
+            p.due(),
+            due(ms(1000), By::Floor, Granted::Yes),
+            "the third, held"
+        );
+    }
+
+    /// **A scan that sends nothing spends its lift, and is spaced like
+    /// one that does**: the floor live; the shell's `D` at 200 ms; a scan
+    /// at 200 that finds nothing to send; a path met after it is due
+    /// [`GRANT_GAP`] after that scan; a second such scan, and the third is
+    /// held by the floor. Breaks: the gap and the step stamped in
+    /// `Pace::sent` alone -- the second due at once; no cap -- the third due
+    /// a gap after the second; no lift -- the second due at the floor.
+    #[test]
+    fn a_scan_that_sends_nothing_spends_its_lift() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let gap = u64::try_from(GRANT_GAP.as_millis()).unwrap();
+        let mut p = floored_then_d(t0, ms(200));
+        p.owe(ms(200));
+        p.scanned(ms(200));
+        p.owe(ms(201));
+        assert_eq!(
+            p.due(),
+            due(ms(200 + gap), By::Ended, Granted::Yes),
+            "spaced after the empty scan"
+        );
+        p.scanned(ms(200 + gap));
+        p.owe(ms(201 + gap));
+        assert_eq!(
+            p.due(),
+            due(ms(1000), By::Floor, Granted::Yes),
+            "two empty scans spent it"
+        );
     }
 
     /// **T4: a grant lapses [`SETTLE`] after its drain**: the `D` at 0,
@@ -4433,7 +4593,7 @@ mod tests {
             p.saw(Taken(k + 1), ms(now));
             p.owe(ms(now));
             if let Some(d) = p.due().filter(|d| ms(now) >= d.at) {
-                p.scanned();
+                p.scanned(ms(now));
                 p.sent(ms(now), &[]);
                 sent.push((now, d.by));
             }
@@ -11933,16 +12093,18 @@ mod tests {
         assert_eq!(got.counts.batches, 0, "{:?} {:?}", got.counts, got.sent);
     }
 
-    /// **P7: Enter held at a prompt holding a path keeps the asking batches
-    /// a second apart**: forty of the shell's `D`s, each a cancelled line
-    /// and a new prompt row holding a path of its own, 33 ms apart, as a key
-    /// repeats, and turns every 4 ms through them and two seconds after.
-    /// Every `D` is trusted and grants, and still no two batches that ask
-    /// about a path are closer than [`CEILING`], and none the `D`s sent
-    /// closer than [`GRANT_GAP`] to the batch before it. Break: a grant lifts the floor --
-    /// an asking batch at each `D`.
+    /// **P7: Enter held at a prompt holding a path asks at most once a
+    /// `D`**: forty of the shell's `D`s, each a cancelled line and a new
+    /// prompt row holding a path of its own, 33 ms apart, as a key repeats,
+    /// and turns every 4 ms through them and two seconds after. Every `D`
+    /// is trusted and grants, and its chain passes the floor: between one
+    /// `D` and the next, at most two batches by the `D` and at most one
+    /// batch asking about a path; none the `D`s sent closer than
+    /// [`GRANT_GAP`] to the batch before it; and no batch is held under a
+    /// grant (`Counts::held_granted`). Break: no lift -- the floor holds
+    /// batches the `D`s made due, counted held under them.
     #[test]
-    fn held_enter_keeps_one_asking_batch_a_second() {
+    fn held_enter_asks_at_most_once_a_d() {
         let enters: Vec<Vec<u8>> = (0..40)
             .map(|k| {
                 format!(
@@ -11966,7 +12128,6 @@ mod tests {
             every: 4,
         });
         let got = timed(named_groups(), shells_sampler(), &steps);
-        let ceiling = u64::try_from(CEILING.as_millis()).unwrap();
         let gap = u64::try_from(GRANT_GAP.as_millis()).unwrap();
         let mut asked_at = Vec::new();
         let mut before = 0;
@@ -11977,11 +12138,16 @@ mod tests {
             }
         }
         assert!(asked_at.len() >= 2, "{:?}", got.sent);
-        for w in asked_at.windows(2) {
-            assert!(
-                w[1] - w[0] >= ceiling,
-                "two asking within a second: {asked_at:?}"
-            );
+        for k in 0..40_u64 {
+            let within = |at: u64| 33 * k <= at && at < 33 * (k + 1);
+            let asking = asked_at.iter().filter(|&&at| within(at)).count();
+            assert!(asking <= 1, "{asking} asking after D {k}: {asked_at:?}");
+            let by_d = got
+                .sent
+                .iter()
+                .filter(|s| within(s.0) && s.2 == By::Ended)
+                .count();
+            assert!(by_d <= 2, "{by_d} by D {k}: {:?}", got.sent);
         }
         for w in got.sent.windows(2) {
             if w[1].2 == By::Ended {
@@ -11993,6 +12159,7 @@ mod tests {
             }
         }
         assert!(got.counts.by_ended >= 1, "{:?}", got.counts);
+        assert_eq!(got.counts.held_granted, 0, "{:?}", got.counts);
         println!(
             "held Enter: {} batches in {} ms, {} asking at {asked_at:?}, {:?}",
             got.sent.len(),
@@ -12002,21 +12169,14 @@ mod tests {
         );
     }
 
-    /// **A command ended within a second of a batch that asked is held by
-    /// the floor, and counted held under the `D`**: `ls` lists
-    /// `/etc/hosts`, asked about on its `D`; a tenth of a second later `ls`
-    /// lists `/etc/passwd`, whose `D` makes its next batch due at once, and
-    /// the floor a second after the first asking holds it: the batch naming
-    /// the second `ls` goes by the floor, counted in `held_granted`, and the
-    /// one asking about its path after it, the grant lapsed by then, by the
-    /// quiet -- no asking batch was held, so `held` stays 0. Both listings
-    /// are lit at the end. Break: `tick` counts no batch held under the `D`
-    /// -- `held_granted` stays 0.
-    #[test]
-    fn a_listing_the_floor_holds_under_the_d_is_counted_apart() {
+    /// `ls` listing `/etc/hosts` on its `D`, its batches answered by
+    /// 100 ms, then `ls` again at 100 ms listing `second`, and turns a
+    /// millisecond apart to 150 ms: within a second of the first listing's
+    /// asking batch, under the floor it laid.
+    fn a_listing_again(second: &[u8]) -> Timed {
         let start = ran("ls", ";cmdline=ls");
         let end = prompt_after("");
-        let got = timed(
+        timed(
             named_groups(),
             shells_sampler(),
             &[
@@ -12029,36 +12189,143 @@ mod tests {
                     every: 1,
                 },
                 Step::Drain(100, vec![(start.as_slice(), Some(1))]),
-                Step::Drain(101, vec![(b"/etc/passwd\r\n".as_slice(), Some(2))]),
+                Step::Drain(101, vec![(second, Some(2))]),
                 Step::Drain(102, vec![(end.as_slice(), Some(1))]),
                 Step::Turns {
                     from: 103,
-                    to: 1200,
+                    to: 150,
                     every: 1,
                 },
             ],
-        );
+        )
+    }
+
+    /// **A listing within a second of a batch that asked goes on its
+    /// `D`**: `ls` lists `/etc/hosts`, asked about on its `D`; a tenth of a
+    /// second later `ls` lists `/etc/passwd`. Its `D`'s grant passes the
+    /// floor the first listing's asking batch laid: the batch naming the
+    /// second `ls` and the one asking about its path both go by the `D`,
+    /// [`GRANT_GAP`] apart, and both listings are lit by 150 ms. None held:
+    /// `held` and `held_granted` stay 0. Break: no lift -- the second
+    /// listing's batch goes by the floor, a second after the first asking,
+    /// and its row is dark at 150 ms; the floor passed only by a batch that
+    /// asks -- the naming batch is never sent, and the same.
+    #[test]
+    fn a_listing_within_a_second_of_an_asking_batch_goes_on_its_d() {
+        let got = a_listing_again(b"/etc/passwd\r\n");
         let second: Vec<(u64, u64, By)> = got.sent.iter().copied().filter(|s| s.0 >= 100).collect();
+        assert_eq!(
+            second.iter().map(|s| s.2).collect::<Vec<_>>(),
+            [By::Ended, By::Ended],
+            "{:?}",
+            got.sent
+        );
+        assert_eq!(got.counts.asked, 2, "{:?}", got.counts);
+        assert_eq!(
+            (
+                got.counts.held,
+                got.counts.held_granted,
+                got.counts.by_floor
+            ),
+            (0, 0, 0),
+            "{:?}",
+            got.counts
+        );
+        assert_eq!(got.lit, [1, 3], "both listings lit by 150 ms");
+    }
+
+    /// **The same listing again, on the first one's marks, goes on its
+    /// `D`**: `ls` lists `/etc/hosts`, asked about on its `D`; a tenth of a
+    /// second later the same `ls` again. Every path it prints has its
+    /// answer kept, so its one batch only names its writer, which makes
+    /// the kept answer drawable: that batch goes by the `D`, past the floor
+    /// the first listing's asking batch laid, nothing is asked again, and
+    /// both rows are lit by 150 ms. `held_granted` stays 0. Breaks: no lift
+    /// -- the naming batch goes by the floor and the row is dark at 150 ms;
+    /// the floor passed only by a batch that asks -- the same.
+    #[test]
+    fn the_same_listing_again_goes_on_its_d() {
+        let got = a_listing_again(b"/etc/hosts\r\n");
+        let second: Vec<(u64, u64, By)> = got.sent.iter().copied().filter(|s| s.0 >= 100).collect();
+        assert_eq!(
+            second.first().map(|s| s.2),
+            Some(By::Ended),
+            "{:?}",
+            got.sent
+        );
+        assert_eq!(got.counts.asked, 1, "nothing asked again: {:?}", got.counts);
+        assert_eq!(
+            (
+                got.counts.held,
+                got.counts.held_granted,
+                got.counts.by_floor
+            ),
+            (0, 0, 0),
+            "{:?}",
+            got.counts
+        );
+        assert_eq!(got.lit, [1, 3], "both listings lit by 150 ms");
+    }
+
+    /// **A `D` that is not the window's shell's passes no floor**: `ls`
+    /// lists `/etc/hosts`, asked about on its `D`, which lays the floor;
+    /// a tenth of a second later, inside `ssh h`'s command, the remote
+    /// prints a `D` with no token, one with another token, an `A` and its
+    /// prompt, then `/etc/hosts` again on a row of its own. No batch goes
+    /// by a `D`, and the deadline is the floor's, a second after the
+    /// asking. Break: the proof minted from any `D` the core read
+    /// (`vouch::Latch::step`) -- a batch by the `D`, past the floor.
+    #[test]
+    fn a_foreign_d_lifts_nothing() {
+        let start = ran("ls", ";cmdline=ls");
+        let end = prompt_after("");
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let remote: &[u8] =
+            b"\x1b]133;D;0;aid=7\x07\x1b]133;D;0;baud_token=fedcba9876543210\x07\x1b]133;A;aid=7\x07$ \r\n";
+        let got = timed(
+            named_groups(),
+            shells_sampler(),
+            &[
+                Step::Drain(0, vec![(start.as_slice(), Some(1))]),
+                Step::Drain(1, vec![(b"/etc/hosts\r\n".as_slice(), Some(2))]),
+                Step::Drain(2, vec![(end.as_slice(), Some(1))]),
+                Step::Turns {
+                    from: 3,
+                    to: 100,
+                    every: 1,
+                },
+                Step::Drain(100, vec![(ssh.as_slice(), Some(1))]),
+                Step::Drain(101, vec![(remote, None)]),
+                Step::Drain(102, vec![(b"/etc/passwd\r\n".as_slice(), Some(1))]),
+                Step::Turns {
+                    from: 103,
+                    to: 300,
+                    every: 1,
+                },
+                Step::Look,
+            ],
+        );
         let first_ask = got
             .sent
             .iter()
             .find(|s| s.1 > 0)
             .expect("an asking batch")
             .0;
+        assert!(
+            got.sent.iter().all(|s| s.0 < 100),
+            "no batch after the foreign D by 300 ms: {:?}",
+            got.sent
+        );
+        let Some(Some((at, by))) = got.looked.first().copied() else {
+            panic!("nothing owed: {:?}", got.looked);
+        };
+        assert_eq!(by, By::Floor, "{:?}", got.looked);
         assert_eq!(
-            second.first().map(|s| s.2),
-            Some(By::Floor),
+            at,
+            Duration::from_millis(first_ask + 1000),
             "{:?}",
             got.sent
         );
-        assert!(second[0].0 >= first_ask + 1000, "{:?}", got.sent);
-        assert_eq!(
-            (got.counts.held, got.counts.held_granted),
-            (0, 1),
-            "{:?}",
-            got.counts
-        );
-        assert_eq!(got.lit, [1, 3], "both listings lit at the end");
     }
 
     /// The source of `probe.rs` before its tests, its comment lines blank.
