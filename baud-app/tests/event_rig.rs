@@ -1458,6 +1458,9 @@ struct Counters {
     /// The splash's starts on a window shown before its first frame, before
     /// anything was typed.
     first: u32,
+    /// The ticks the rig offered after the settle, or after a frozen
+    /// clock's counts were taken again.
+    offered: u32,
 }
 
 impl Counters {
@@ -1511,6 +1514,7 @@ impl Counters {
             asked: count("asked")?,
             flips: count("flips")?,
             first: count("first")?,
+            offered: count("offered")?,
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -1579,14 +1583,14 @@ enum Settles {
     ReadByFrame,
     /// **Two fed turns and one frame, one read**
     /// (`RigFrameTicks::OneAfterFeeds`): the hover read exactly once, two
-    /// turns or more having fed the core and a frame drawn, never more
-    /// often than a frame was drawn or a turn fed. A read per feed reads
-    /// once a turn, twice at least.
+    /// turns or more having fed the core and a frame drawn on a tick
+    /// offered after them, never more often than a frame was drawn or a
+    /// turn fed. A read per feed reads once a turn, twice at least.
     ReadOnce,
     /// **Its positive control, a frame a fed turn** (`EventFrames`): two
-    /// frames or more drawn on fed turns with no tick, the hover read in
-    /// each that drew, at least twice, and never more often than a frame
-    /// was drawn or a turn fed.
+    /// frames or more drawn on fed turns with no tick offered, the hover
+    /// read in each that drew, at least twice, and never more often than a
+    /// frame was drawn or a turn fed.
     ReadByEvents,
     /// **A job started with no tick, in the window's title**: the ticks
     /// withheld, nothing delivered, and the derived title names the job.
@@ -1666,11 +1670,17 @@ impl Settles {
                 c.reads == 1
                     && c.fed >= 2
                     && c.drawn >= 1
+                    && c.offered >= 1
                     && u64::from(c.reads) <= c.drawn
                     && c.reads <= c.fed
             }
             Settles::ReadByEvents => {
-                c.reads >= 2 && c.drawn >= 2 && u64::from(c.reads) <= c.drawn && c.reads <= c.fed
+                c.reads >= 2
+                    && c.drawn >= 2
+                    && c.fed >= 2
+                    && c.offered == 0
+                    && u64::from(c.reads) <= c.drawn
+                    && c.reads <= c.fed
             }
             Settles::Unread { drawn } => {
                 c.reads == 0 && c.preview == PreviewSeen::Link && c.drawn >= drawn
@@ -1717,6 +1727,14 @@ const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash
 
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
+
+/// **[`STILL`] on a full screen**, the prompt on its last row: every line
+/// the act writes, its echo's newline the first, scrolls the line under a
+/// pointer resting on the first row, so every turn that feeds the core
+/// moves what the hover's last read covered. On [`STILL`]'s screen the
+/// act's echo and its first lines are written below the line read, and a
+/// turn that feeds them owes the hover nothing.
+const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 
 /// **The ticks a blinking caret's link takes for each flip**, at
 /// most. The flip's deadline runs the link a frame early: a deadline less
@@ -2153,23 +2171,27 @@ const FRAME_SITES: [FrameSite; 29] = [
         expect: Settles::ReadByFrame,
         state: RowState::Green,
     },
-    // **M1, two feeds to a frame**: `seq` scrolls the screen under the
-    // resting pointer with the frame gate's clock frozen
-    // (`RigFrameTicks::OneAfterFeeds`), so no fed turn draws a frame for
-    // the time since the last; two turns feed the core with no tick and no
-    // frame, and one tick then draws a frame that reads the hover once.
-    // No other path owes a frame in the window: the act is written to the
-    // shell as a line, not pressed, so no key's echo or prediction is
-    // owed and no composition marked; its output is digits, so no printed
-    // path is asked about and no worker's answer owes the hover a read;
-    // the caret is steady (`blink = false`), the trail and the splash off.
+    // **M1, two feeds to a frame**: `seq` scrolls a full screen ([`FULL`])
+    // under the resting pointer, every fed turn moving the line it rests on,
+    // with the frame gate's clock frozen (`RigFrameTicks::OneAfterFeeds`), so
+    // no fed turn draws a frame for the time since the last; the act is sent
+    // once the clock is frozen, a frame owed before it drawn and the counts
+    // taken again, so all it feeds is counted; two turns feed the core with no
+    // tick and no frame, and one tick then draws a frame that reads the hover
+    // once. No other path owes a frame in the window: the act is written to
+    // the shell as a line, not pressed, so no key's echo or prediction is owed
+    // and no composition marked; its output is digits, so no printed path is
+    // asked about and no worker's answer owes the hover a read; the caret is
+    // steady (`blink = false`), the trail and the splash off, and the output
+    // jumps rather than slides (`[scroll] mode = "normal"`), so no slide's
+    // motion owes a frame.
     // Named break: read the hover on every turn that feeds the core --
     // read twice before the tick.
     FrameSite {
         name: SiteName(
             "two fed turns under a resting pointer are read once by the frame after them",
         ),
-        setup: STILL,
+        setup: FULL,
         act: "seq 1 200000",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::OneAfterFeeds,
@@ -2177,7 +2199,8 @@ const FRAME_SITES: [FrameSite; 29] = [
         env: &[],
         config: concat!(
             "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
-            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n",
+            "[scroll]\nmode = \"normal\"\n"
         ),
         focus: RigFocus::Believed,
         attempts: Iterations(1),
@@ -2188,11 +2211,15 @@ const FRAME_SITES: [FrameSite; 29] = [
     // clock moved on an hour (`RigFrameTicks::EventFrames`), so every
     // commit is an hour old and each fed turn draws a frame of its own
     // with no tick (D14), and each of those frames reads the hover: two
-    // frames, two reads at least. It shows the frozen row's one read is
-    // the clock's doing, not a read the frames never make.
+    // frames on two fed turns, two reads at least, no tick offered, on
+    // the same full screen, where every fed turn moves the line read. The
+    // slide is off as in the row above: a slide owes frames of its own,
+    // which any turn draws once the clock has moved on, fed or not. It
+    // shows the frozen row's one read is the clock's doing, not a read the
+    // frames never make.
     FrameSite {
         name: SiteName("fed turns that each draw a frame are read by each"),
-        setup: STILL,
+        setup: FULL,
         act: "seq 1 200000",
         keys: RigKeys::Line,
         ticks: RigFrameTicks::EventFrames,
@@ -2200,7 +2227,8 @@ const FRAME_SITES: [FrameSite; 29] = [
         env: &[],
         config: concat!(
             "[link.https]\ncommand = [\"/usr/bin/true\", \"{url}\"]\n",
-            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n"
+            "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n",
+            "[scroll]\nmode = \"normal\"\n"
         ),
         focus: RigFocus::Believed,
         attempts: Iterations(1),

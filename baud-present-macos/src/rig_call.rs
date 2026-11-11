@@ -179,16 +179,18 @@ pub enum RigFrameTicks {
     /// [`SENTINEL_BACKSTOP`] is a backstop that, reached, says so.
     UntilFlips,
     /// **One tick after the act fed the core twice, the frame gate's clock
-    /// frozen** (`probe::GateClock`): frozen once the act has fed, a frame
-    /// drawn after it, so the last commit is no time ago and a fed turn
-    /// draws no frame for its age; the ticks withheld until two turns have
-    /// fed the core; then ticks offered until one draws, and no more,
-    /// whatever `attempts` says.
+    /// frozen** (`probe::GateClock`): frozen at an instant before the app
+    /// was made, so every commit is no time ago and a fed turn draws no
+    /// frame for its age; a frame owed before the act drawn on offered
+    /// ticks, the counts taken again, and only then the act sent; the
+    /// ticks withheld until two turns have fed the core; then ticks offered
+    /// until one draws, and no more, whatever `attempts` says.
     OneAfterFeeds,
-    /// **[`RigFrameTicks::OneAfterFeeds`]'s positive control**: frozen the
-    /// same way and then advanced an hour, so every commit is an hour old
-    /// and a fed turn draws a frame of its own; the ticks withheld until
-    /// two frames have drawn.
+    /// **[`RigFrameTicks::OneAfterFeeds`]'s positive control**: frozen and
+    /// the act sent the same way, the clock advanced an hour before it, so
+    /// every commit is an hour old and a fed turn draws a frame of its
+    /// own; the ticks withheld until two frames have drawn, two turns fed
+    /// the core and the hover has been read twice.
     EventFrames,
 }
 

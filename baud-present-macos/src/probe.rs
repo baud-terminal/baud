@@ -592,8 +592,8 @@ pub fn preview() -> Previewed {
 /// frame rig froze -- so a turn that feeds the core draws no frame for
 /// the time since the last, a frame interval of which owes one (D14),
 /// whatever the machine's pace. Frozen at an instant, a commit after it
-/// is no time ago; advanced ([`advance_gate`]), every commit is that much
-/// older. No other clock reads it: the caret's, a synchronised update's
+/// is no time ago -- every commit, frozen at one before the app was made;
+/// advanced ([`advance_gate`]), every commit is that much older. No other clock reads it: the caret's, a synchronised update's
 /// bound, the pace's deadlines and the splash keep theirs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GateClock {
@@ -601,9 +601,9 @@ pub enum GateClock {
     Frozen(std::time::Instant),
 }
 
-/// The frame gate's clock stopped now.
-pub fn freeze_gate() {
-    GATE_CLOCK.with(|c| c.set(GateClock::Frozen(std::time::Instant::now())));
+/// The frame gate's clock stopped at `at`.
+pub fn freeze_gate(at: std::time::Instant) {
+    GATE_CLOCK.with(|c| c.set(GateClock::Frozen(at)));
 }
 
 /// The frame gate's clock live again.
