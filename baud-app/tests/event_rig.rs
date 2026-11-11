@@ -984,15 +984,110 @@ fn iterations(site: &Site) -> Iterations {
     }
 }
 
-/// The scratch directory a row's child lives in: its home, its config and
-/// the file it clicks.
+/// **This run's folder**, which every row's scratch directory is made in:
+/// `<CARGO_TARGET_TMPDIR>/event_rig/r<pid>-<n>`, made once a process with
+/// `create_dir`, `n` the first that makes a folder no other run holds, so
+/// a pid an older run's folder already carries still takes a fresh one.
+/// Two runs on one target, or a run beside an older layout's
+/// `event_rig/<row>`, never share a folder, and a run removes nothing it
+/// did not make. It is kept after the run: each row's `stdout` and
+/// `stderr` in it are what a red is read from.
+fn run_root() -> &'static Path {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        let rig = Path::new(env!("CARGO_TARGET_TMPDIR")).join("event_rig");
+        std::fs::create_dir_all(&rig).expect("the rig's folder");
+        (0..)
+            .map(|n| rig.join(format!("r{}-{n}", std::process::id())))
+            .find(|dir| match std::fs::create_dir(dir) {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+                Err(e) => panic!("this run's folder {}: {e}", dir.display()),
+            })
+            .expect("a name no run holds")
+    })
+}
+
+/// The scratch directory a row's child lives in: its home, its config,
+/// the file it clicks and the FIFO a two-stage act reads, in
+/// [`run_root`]. A name this run made before is made again empty: the
+/// folder it is removed from is this run's own.
 fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("event_rig")
-        .join(name);
+    let dir = run_root().join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("home")).expect("the scratch home");
     dir
+}
+
+/// The row name both runs of [`two_runs_on_one_target_keep_their_homes`]
+/// make a home for.
+const SHARED_ROW: &str = "shared-row";
+
+/// The test the second run is, by its exact name.
+const OTHER_RUN: &str = "the_other_run_makes_a_home_of_the_same_name";
+
+/// **Two runs on one target keep each other's homes.** This run makes the
+/// home of [`SHARED_ROW`] and marks it; a second run of this test binary,
+/// on the same target, makes a home of the same row name and marks it;
+/// then both marks must still be there, in two folders. With homes named
+/// per target, the second run's [`scratch`] removed the first's, which is
+/// how whole rigs sharing a target failed each other's rows with "the
+/// scratch home: Invalid argument", "the row's screen was never drawn" and
+/// "the act never read its second stage". The second run has exited
+/// before this one looks, so the order is the processes', not a timer's.
+/// Named break: [`run_root`] back to the target's one `event_rig` folder.
+#[test]
+fn two_runs_on_one_target_keep_their_homes() {
+    let me = std::process::id().to_string();
+    let mine = scratch(SHARED_ROW);
+    std::fs::write(mine.join("home").join("run"), &me).expect("this run's mark");
+    let out = Command::new(std::env::current_exe().expect("this test binary"))
+        .args([OTHER_RUN, "--exact", "--ignored", "--nocapture"])
+        .output()
+        .expect("the other run");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "the other run: {said}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let line = |key: &str| {
+        said.lines()
+            .find_map(|l| l.strip_prefix(key))
+            .unwrap_or_else(|| panic!("the other run printed no {key:?}: {said}"))
+            .to_owned()
+    };
+    let (them, theirs) = (line("run: "), PathBuf::from(line("home: ")));
+    // A home's mark is the pid of the run that made it: a home removed
+    // and made again by the other run has the other run's.
+    let mark = |dir: &Path| std::fs::read_to_string(dir.join("home").join("run")).ok();
+    assert_eq!(
+        mark(&mine).as_deref(),
+        Some(me.as_str()),
+        "run {me} lost its home {} when run {them} made {} on the same target",
+        mine.display(),
+        theirs.display()
+    );
+    assert_eq!(
+        mark(&theirs).as_deref(),
+        Some(them.as_str()),
+        "run {them} lost its home {}",
+        theirs.display()
+    );
+    assert_ne!(mine, theirs, "runs {me} and {them} were given one home");
+}
+
+/// **The second run of [`two_runs_on_one_target_keep_their_homes`]**,
+/// which starts it: a home of [`SHARED_ROW`], marked, and its folder and
+/// process printed.
+#[test]
+#[ignore = "the second run of two_runs_on_one_target_keep_their_homes, which starts it"]
+fn the_other_run_makes_a_home_of_the_same_name() {
+    let dir = scratch(SHARED_ROW);
+    std::fs::write(dir.join("home").join("run"), std::process::id().to_string())
+        .expect("the other run's mark");
+    println!("run: {}", std::process::id());
+    println!("home: {}", dir.display());
 }
 
 fn config(rule: Rule) -> &'static str {
