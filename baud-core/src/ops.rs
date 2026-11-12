@@ -246,13 +246,19 @@ impl Paint<'_, '_> {
     /// last column of the cursor's line, so `CUF` stops at it at no cost
     /// over stopping at the screen's (`[[source: dec-std-070]]` CUF, p. 5-46,
     /// `column < end_of_line`). Only a move that reaches it is checked, out
-    /// of line, against a fence a sized line left ([`Paint::line_fence`]).
+    /// of line, against a fence a sized line left
+    /// ([`Paint::line_move_fence`]).
+    ///
+    /// **It stops at the move fence** ([`crate::paint::MoveFence`]), never
+    /// the write fence, which on a row outside the scroll area is the
+    /// line's end (`baud-core/tests/outside_rows.rs` holds it).
     #[inline(always)]
     pub(crate) fn forward_in_margins(&self, n: Count) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
             false => {
-                let to = self.cx.raw().forward_to(n, self.cold.fence);
-                match to == self.cold.fence {
+                let stop = self.move_stop().col();
+                let to = self.cx.raw().forward_to(n, stop);
+                match to == stop {
                     false => CursorCol::moved(to),
                     true => self.forward_to_line_end(n),
                 }
@@ -265,7 +271,10 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn forward_to_line_end(&self, n: Count) -> CursorCol {
-        CursorCol::moved(self.moved_from().forward_to(n, self.line_fence()))
+        CursorCol::moved(
+            self.moved_from()
+                .forward_to(n, self.line_move_fence().col()),
+        )
     }
 
     #[cold]
@@ -330,8 +339,10 @@ impl Paint<'_, '_> {
     /// go out of line.
     #[inline(always)]
     pub(crate) fn back_in_margins(&self, n: Count) -> CursorCol {
+        // With DECLRMM reset the move fence is the stored one, which no row
+        // outside the scroll area raises past the right margin there.
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => match self.cx.raw() > self.cold.fence {
+            false => match self.cx.raw() > self.move_stop().col() {
                 false => CursorCol::moved(self.cx.raw().back(n)),
                 true => self.back_past_the_fence(n),
             },
@@ -1683,6 +1694,15 @@ impl Paint<'_, '_> {
         }
         self.cold.top = t;
         self.cold.bot = b;
+        // **The fences taken again before the home**, which lands on the
+        // page's first line, outside the new area where it starts below it:
+        // note 1, "Execution of this control causes the Active position to
+        // be set to the page origin obeying Origin Mode (DECOM): First
+        // column of first line if Origin Mode is in the reset (Absolute)
+        // state" (`[[source: dec-std-070]]` p. 5-25), the algorithm's
+        // `active_position.line = 1` (p. 5-26), and a write from there runs
+        // to the line's end (p. 5-139).
+        self.refence();
         self.home();
     }
 
@@ -1701,6 +1721,7 @@ impl Paint<'_, '_> {
     pub(crate) fn memory_lock(&mut self) {
         if self.cold.bot.index() > self.cy.index() {
             self.cold.top = self.cy;
+            self.refence();
         }
     }
 
@@ -1711,6 +1732,7 @@ impl Paint<'_, '_> {
     pub(crate) fn memory_unlock(&mut self) {
         if self.cold.bot.index() > 0 {
             self.cold.top = Row::ZERO;
+            self.refence();
         }
     }
 
@@ -2263,6 +2285,9 @@ impl Paint<'_, '_> {
             }
         }
         self.wrote_rows(Row::from_index(from.0), Row::from_index(to.0));
+        // A row it filled to its end holds a fresh mark, the area's top
+        // among them where the area runs on below the cursor.
+        self.region_top_again();
     }
 
     /// **EF**: the active field, `[[source: ecma48]]` 8.3.40 -- "the
@@ -3168,9 +3193,11 @@ impl Paint<'_, '_> {
     /// one past the edge, comes back to it, as at full width.
     pub(crate) fn tab_forward(&mut self, n: Count) {
         let last = self.cols.index() - 1;
-        // The fence: on a double line its half's last column, which goes
-        // out of line with the margins' case.
-        let end = match self.line_fence().index() == last {
+        // The move fence: on a double line its half's last column, which
+        // goes out of line with the margins' case; on a row outside the
+        // scroll area the right margin, never the write fence's line end,
+        // so the margins' case decides there ([`Paint::tab_end`]).
+        let end = match self.line_move_fence().col().index() == last {
             true => last,
             false => return self.tab_forward_fenced(n),
         };
@@ -3282,7 +3309,7 @@ impl Paint<'_, '_> {
         // A double line ends at its half, which is where `HT` stops when no
         // stop comes first: `active_position.column < end_of_line(...)`
         // (p. 5-68). Side margins and a sized line never meet (p. 5-29).
-        let fence = self.line_fence();
+        let fence = self.line_move_fence().col();
         if fence != self.cold.right {
             return fence;
         }
@@ -3330,7 +3357,9 @@ impl Paint<'_, '_> {
             };
             if let Some(row) = to {
                 self.set_row(row);
-                self.set_col(CursorCol::moved(self.line_fence()));
+                // The right margin of the line reached, outside the scroll
+                // area too: a move's stop ([`crate::paint::MoveFence`]).
+                self.set_col(CursorCol::moved(self.line_move_fence().col()));
             }
         } else if self.wraps_back() {
             let (to, x) = self.reverse_walk(Count::ONE);
@@ -3643,7 +3672,9 @@ impl Paint<'_, '_> {
                 .cold
                 .modes
                 .either_set(ModeBit::PresentationEdits, ModeBit::EditPreceding);
-        let fence = self.line_fence();
+        // The side margins, on a row outside the area too under those two
+        // modes: the move fence, never the write fence's line end there.
+        let fence = self.line_move_fence().col();
         match inside {
             true => (at >= self.cold.left && at <= fence).then(|| fence.after()),
             false => {
@@ -4064,9 +4095,11 @@ impl Paint<'_, '_> {
         let right = self.cold.right;
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
-        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
         self.cx = kept_at_margin(self.cx, right, self.cols);
         self.row_changed_to(self.cy);
+        // The right margin on the last column: every row's fence is its
+        // line's end, and the area's top is unmarked.
+        self.refence();
     }
 
     /// **`DECLRMM` set: every line single-width**, on both screens and
@@ -4129,7 +4162,11 @@ impl Paint<'_, '_> {
                 .single_width(u.rendition(), self.cold, cols);
             *u = u.with_rendition(LineRendition::Single, cols);
         }
-        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
+        // Every line single-width, and the fence the cursor's row has: the
+        // line's end outside the scroll area while the side margins stand
+        // (`Paint::refence`), where `?69h` sent while it is set changes no
+        // margin.
+        self.refence();
     }
 
     /// `DECSLRM`, `CSI Pl ; Pr s`.
@@ -4168,8 +4205,14 @@ impl Paint<'_, '_> {
         }
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
-        // Only under `DECLRMM`, which no sized line survives (p. 5-29).
-        self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
+        // Only under `DECLRMM`, which no sized line survives (p. 5-29). The
+        // fences taken again before the home, which lands on the page's
+        // first line: note 1, "Execution of this control causes the Active
+        // position to be set to the page origin obeying Origin Mode
+        // (DECOM)" (`[[source: dec-std-070]]` p. 5-27), the algorithm's
+        // `active_position.line = 1` (p. 5-28), outside an area that starts
+        // below it, where a write runs to the line's end (p. 5-139).
+        self.refence();
         self.home();
     }
 
@@ -5397,6 +5440,10 @@ impl Paint<'_, '_> {
                 }
             }
         }
+        // **The other screen's rows marked for the margins**, which both
+        // screens share, and the fence the cursor's row has there: a clear
+        // filled every row to its end, the area's top among them.
+        self.refence();
     }
 
     /// SM and RM, `CSI Pm h` and `CSI Pm l`: **every parameter, in

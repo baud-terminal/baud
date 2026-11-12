@@ -155,17 +155,28 @@ impl Paint<'_, '_> {
     fn glyph_preceding(&mut self, cp: Codepoint, w: Width, pen: Pen) {
         let need = 1 + usize::from(w == Width::WIDE);
         self.refresh_fence();
-        let fence = self.line_fence();
+        // The side margins bound PRECEDING's shift on every row, outside
+        // the scroll area too: the move fence ([`crate::paint::MoveFence`]).
+        let fence = self.line_move_fence().col();
         let map = self.edit_map();
         let see = map.is_none() && self.extent_chosen();
-        // **The active position**: a wrap waiting at the margin writes on
-        // the margin's column, and a column a move put right of the fence
-        // is the cursor's own (7.2.10, "inserted at the active
+        // **The active position**: a wrap waiting writes on the column it
+        // waits on -- the margin's for one waiting on the margin, and since
+        // 2026-11-11 the line's last for one waiting at the line's end right
+        // of the margin, where it took the margin's column -- the column
+        // DEC's Last Column Flag leaves the Active Position on
+        // (`[[source: dec-std-070]]` D.6.1). A column a move put right of
+        // the fence is the cursor's own (7.2.10, "inserted at the active
         // presentation position"; 7.3.3 b), where until 2026-11-11 the
         // character went in on the right margin's column. Under an extent
         // SEE chose, the fence's column, as before.
         let at = match (see, self.cursor_at()) {
             (false, CursorAt::Column(c) | CursorAt::Placed(c)) => c,
+            (false, CursorAt::Pending(c))
+                if !self.cx.is_waiting() && c.index() > fence.index() + 1 =>
+            {
+                c.before()
+            }
             _ => self.cx.col().min(fence),
         };
         let zone = self.preceding_zone(at);
@@ -259,7 +270,7 @@ impl Paint<'_, '_> {
     /// start. Right of the fence it is ignored, as FOLLOWING's is.
     fn delete_preceding(&mut self, n: Count) {
         let c = self.cx.col();
-        if c > self.line_fence() {
+        if c > self.line_move_fence().col() {
             return;
         }
         self.edit_reaches(crate::aligned::EditRows::Chars);
@@ -304,7 +315,7 @@ impl Paint<'_, '_> {
     /// (TR/53 note A.1 i). Right of the fence it is ignored.
     fn insert_preceding(&mut self, n: Count) {
         let c = self.cx.col();
-        if c > self.line_fence() {
+        if c > self.line_move_fence().col() {
             return;
         }
         self.edit_reaches(crate::aligned::EditRows::Chars);

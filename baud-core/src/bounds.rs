@@ -273,13 +273,16 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// The fence a write on the cursor's line tests: its own, lowered to
-    /// the line limit while it bounds implicit movement. Out of line, as
-    /// the line's own fence is, for [`Paint::refresh_fence`].
+    /// The fence a write on the cursor's line tests: its own, the line's
+    /// last column on a row outside the scroll area
+    /// ([`crate::paint::row_fence`]), lowered to the line limit while it
+    /// bounds implicit movement. Out of line, as the line's own fence is,
+    /// for [`Paint::refresh_fence`].
     #[cold]
     #[inline(never)]
     pub(crate) fn write_fence_of_line(&self) -> Col {
-        let own = crate::paint::fence_of(self.view.rendition(self.cy), self.cold.right, self.cols);
+        let r = self.view.rendition(self.cy);
+        let own = crate::paint::row_fence(r, self.cy, self.cold, self.cols);
         limited(own, self.cold, self.cols)
     }
 

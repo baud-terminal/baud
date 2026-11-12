@@ -158,6 +158,9 @@ impl Paint<'_, '_> {
     fn area_written(&mut self, top: Row, bottom: Row) {
         self.wrote_rows(top, bottom);
         self.row_changed_to(self.cy);
+        // A rectangle that ran to a row's end left it a fresh mark, the
+        // scroll area's top among them (`baud_domain::RegionTop`).
+        self.region_top_again();
     }
 
     /// DECERA, `CSI Pt ; Pl ; Pb ; Pr $ z`.
@@ -565,8 +568,18 @@ impl Paint<'_, '_> {
     /// The column DECBI and DECFI step from: a pending wrap's, the right
     /// margin, or SLL's line limit while a wrap waits there, where a
     /// report names it (`crate::bounds`).
+    ///
+    /// **Read against the line's end on a row outside the scroll area**,
+    /// where a write runs past the right margin (`crate::paint::row_fence`):
+    /// a write that ended on the margin there leaves the cursor one past
+    /// it on a column, no wrap pending, beyond the margin. Where the step
+    /// stops is the margin's, as before.
     fn index_from(&self) -> Col {
-        let fence = crate::bounds::report_fence(self.cold.right, self.cold, self.cols);
+        let own = match self.outside_region() {
+            true => self.line_fence(),
+            false => self.cold.right,
+        };
+        let fence = crate::bounds::report_fence(own, self.cold, self.cols);
         self.cx.reported(fence, self.cols)
     }
 

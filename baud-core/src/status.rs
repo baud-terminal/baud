@@ -258,7 +258,12 @@ impl Parked {
     /// column on a double-width row ([`crate::paint::fence_of`]), or the
     /// display's SLL limit while a wrap waits there.
     pub(crate) fn report_fence(&self, r: LineRendition, cold: &Cold, cols: Cols) -> Col {
-        let own = crate::paint::fence_of(r, self.right, cols);
+        // Outside its scroll area the line's end, where a write runs past
+        // the right margin (`crate::paint::row_fence`).
+        let own = match self.cy < self.top || self.cy > self.bot {
+            true => Col::at_index(r.end_of_line(cols).index() - 1),
+            false => crate::paint::fence_of(r, self.right, cols),
+        };
         match self.pinned == Pinned::AtLimit {
             true => crate::bounds::limited_by(own, self.bounds, cold, cols),
             false => own,
@@ -737,6 +742,9 @@ impl Paint<'_, '_> {
         // graph is chosen again. Parked, the fence kept the limit it was
         // left with, and the home and limit were one for both displays.
         self.refresh_presentation_edits();
+        // Whether its rows outside its scroll area write to their end, by
+        // the margins that came back with it (`Paint::fences_again`).
+        self.fences_again();
         // DECHEBM, global, may have changed while this display was parked,
         // and with it how GL's ASCII is drawn (`crate::hebrew_keys`).
         if self.gl_set() != self.charset {

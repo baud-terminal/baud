@@ -16,6 +16,7 @@
 //! back through `Term` each time would put the borrow back.
 
 use crate::storage::Storage;
+use crate::term::Fences;
 use baud_domain::*;
 
 /// A text run at or below this length goes a character at a time.
@@ -2063,11 +2064,14 @@ impl<'a, 'b> Paint<'a, 'b> {
             EraseExtent::All => {}
             e => {
                 self.erase_line(e);
-                if self.line_fence() != self.cold.right {
+                if self.line_move_fence().col() != self.cold.right {
                     self.erased_line_whole(e);
                 }
             }
         }
+        // The rows it filled to their end hold fresh marks, the area's top
+        // among them where the cursor is above it.
+        self.region_top_again();
     }
 
     /// ED on a sized cursor line: "The Line Renditions of all lines
@@ -2089,7 +2093,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if whole {
             self.view.set_rendition(self.cy, LineRendition::Single);
             self.row_changed_to(self.cy);
-            self.cold.fence = crate::bounds::limited(self.cold.right, self.cold, self.cols);
+            self.cold.fence = self.write_fence_of_line();
         }
     }
 
@@ -2220,12 +2224,29 @@ impl<'a, 'b> Paint<'a, 'b> {
         if edge {
             self.view.set_wrapped(self.cy);
         }
-        if edge && (self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index())
+        // **Outside the top and bottom margins the next line starts at its
+        // first column**, and the row wrapped at the page's edge, at no
+        // margin: "If Auto Wrap Mode is on and the Active position is
+        // outside the Vertical Scroll Margins, the Active Position will
+        // advance from the last column of the Active Line, to the first
+        // column of the next line ... No scrolling will occur"
+        // (`[[source: dec-std-070]]` p. 5-139), whose algorithm calls
+        // `carriage_return()`, which takes "the first column of the Active
+        // Line" for a line outside the top and bottom margins (p. 5-58).
+        // On the last row below the region `index` moves nothing, so the
+        // wrap takes the same line's first column.
+        let outside = self.outside_region();
+        if edge
+            && !outside
+            && (self.cold.left != Col::ZERO || self.cold.right.index() + 1 < self.cols.index())
         {
             let m = baud_domain::WrapMargins::of(self.cold.left, self.fence_of_line());
             self.view.set_margins(self.cy, m);
         }
-        self.cx = CursorCol::moved(self.cold.left);
+        self.cx = match outside {
+            true => CursorCol::moved(Col::ZERO),
+            false => CursorCol::moved(self.cold.left),
+        };
         self.index();
         if self.cold.modes.is_set(ModeBit::PathSelected) {
             self.wrapped_into_path();
@@ -2324,6 +2345,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// Column Flag (`[[source: dec-std-070]]` 070-D p. D-13). A line feed
     /// takes [`Paint::step_row`], and under DECRLM [`Paint::line_feed`]'s
     /// moded arm, which ends it.
+    ///
+    /// **While the rows outside the scroll area write to their line's end**
+    /// ([`Fences::ByRow`]), the fence is taken for the row reached, out of
+    /// line ([`Paint::fence_by_row`]): a move between a row outside the area
+    /// and one inside it changes where a write wraps.
     pub(crate) fn set_row(&mut self, r: Row) {
         #[cfg(feature = "read-record")]
         if r < self.cy {
@@ -2331,6 +2357,88 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.end_left_edge();
         self.step_row(r);
+        if self.cold.fences == Fences::ByRow {
+            self.fence_by_row();
+        }
+    }
+
+    /// **The fence of the row a move reached, while the rows outside the
+    /// scroll area write to their end** ([`Fences::ByRow`]), and the area's
+    /// top marked again ([`RegionTop`]): a fill to the end of that row since
+    /// it was marked built it a fresh mark, and a line feed from the row
+    /// above it, outside the area, reads the mark to bring the fence back to
+    /// the right margin ([`Paint::enter_row`]).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn fence_by_row(&mut self) {
+        self.cold.fence = self.write_fence_of_line();
+        self.view.set_region_top(self.cold.top, RegionTop::Marked);
+    }
+
+    /// **The area's top marked again** after an erase that can fill it to
+    /// its end while the cursor is above it: `ED`, `DECSED`, `EA` and the
+    /// rectangle operations. Nothing while the fence is the same on every
+    /// row.
+    #[inline(always)]
+    pub(crate) fn region_top_again(&mut self) {
+        if self.cold.fences == Fences::ByRow {
+            self.view.set_region_top(self.cold.top, RegionTop::Marked);
+        }
+    }
+
+    /// **Whether the cursor's row is outside the scroll area**, above its
+    /// top margin or below its bottom one.
+    pub(crate) fn outside_region(&self) -> bool {
+        self.cy < self.cold.top || self.cy > self.cold.bot
+    }
+
+    /// **The fences taken again for the margins**, wherever DECSTBM,
+    /// DECSLRM, `?69`, HP's memory lock, a screen or display swap, `RIS`,
+    /// `DECSTR` or DECCOLM changes them: [`Fences::ByRow`] while the side
+    /// margins end left of the last column and the scroll area leaves rows
+    /// outside it, so a write there runs to the line's end
+    /// (`[[source: dec-std-070]]` p. 5-139); the area's top marked then and
+    /// every other row unmarked ([`RegionTop`]); and the fence the cursor's
+    /// row has.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn refence(&mut self) {
+        self.cold.fences = self.fences_of();
+        let by_row = self.cold.fences == Fences::ByRow;
+        for y in 0..self.rows.index() {
+            let r = Row::from_index(y);
+            let t = match by_row && r == self.cold.top {
+                true => RegionTop::Marked,
+                false => RegionTop::Unmarked,
+            };
+            self.view.set_region_top(r, t);
+        }
+        self.cold.fence = self.write_fence_of_line();
+    }
+
+    /// **Which [`Fences`] the margins give** the display written: by row
+    /// while the right margin is left of the last column and the scroll
+    /// area leaves rows outside it; the status line, one row, never.
+    fn fences_of(&self) -> Fences {
+        let last = self.rows.index() - 1;
+        let by_row = !self.on_status()
+            && self.cold.right.index() + 1 < self.cols.index()
+            && (self.cold.top != Row::ZERO || self.cold.bot.index() != last);
+        match by_row {
+            true => Fences::ByRow,
+            false => Fences::Uniform,
+        }
+    }
+
+    /// **The fences of a display swapped in** (`crate::status`): its
+    /// margins came back with it, its rows kept their marks while it was
+    /// parked, and the fence is taken again where the swap reads its
+    /// bounds ([`Paint::refresh_bounds`]). The area's top marked again.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn fences_again(&mut self) {
+        self.cold.fences = self.fences_of();
+        self.region_top_again();
     }
 
     /// [`Paint::set_row`] for [`Paint::index`]: a line feed's step down,
@@ -2352,9 +2460,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     }
 
     /// The cursor is on row `r`, by a move or with the row changed under it:
-    /// read how far it is written, and **its line's rendition from the same
-    /// word**: one test of a flag in a value already loaded, and a sized
-    /// line out of line ([`Paint::enter_sized`]).
+    /// read how far it is written, and **its line's rendition and the
+    /// region-top bit from the same word**: one test of a mask in a value
+    /// already loaded ([`baud_domain::RowExtent::fenced_apart`]), and a
+    /// sized line or the scroll area's top out of line
+    /// ([`Paint::enter_apart`]).
     ///
     /// **Arriving on a single-width line writes nothing**, not even the
     /// fence back to the right margin: the fence a sized line left is too
@@ -2362,32 +2472,74 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// cold paths it reaches read the line's own ([`Paint::refresh_fence`],
     /// [`Paint::line_fence`]). A store here, and in the scroll's blank, was
     /// 0.3-0.6% more instructions retired on `cat`, `btop`, `vim` and
-    /// `less`.
+    /// `less`. **The one fence too high**, a row outside the scroll area's
+    /// line end, is left only by a move, which takes the row's fence
+    /// ([`Paint::set_row`]), or by a line feed from the row above the area,
+    /// which lands on the area's top, marked ([`RegionTop`]).
     #[inline(always)]
     fn enter_row(&mut self, r: Row, how: Arrival) {
         let e = self.view.extent(r);
         self.row_written = Col::at_index(e.index());
-        if e.rendition().is_double() {
-            self.enter_sized(e.rendition(), how);
+        if e.fenced_apart() {
+            self.enter_apart(e.rendition(), how);
         }
     }
 
-    /// **The fence of the cursor's line**, for a reader that must not see
-    /// one a sized line left behind: `right` while they agree, which is
-    /// every single-width line the cursor reached from another, and the
-    /// line's own otherwise, read from its mark.
+    /// **The write fence of the cursor's line** ([`WriteFence`]'s column),
+    /// for a reader that must not see one a sized line left behind: `right`
+    /// while they agree, which is every single-width line inside the scroll
+    /// area the cursor reached from another, and the line's own otherwise,
+    /// read from its mark and its row: the line's last column outside the
+    /// scroll area (`[[source: dec-std-070]]` p. 5-139). What a write wraps
+    /// or clamps at and a pending wrap is read against; a move's stop is
+    /// [`Paint::line_move_fence`].
     #[inline(always)]
     pub(crate) fn line_fence(&self) -> Col {
-        match self.cold.fence == self.cold.right {
+        self.write_fence().col()
+    }
+
+    /// [`Paint::line_fence`] typed ([`WriteFence`]).
+    #[inline(always)]
+    pub(crate) fn write_fence(&self) -> WriteFence {
+        WriteFence(match self.cold.fence == self.cold.right {
             true => self.cold.right,
             false => self.fence_of_line(),
-        }
+        })
     }
 
     #[cold]
     #[inline(never)]
     fn fence_of_line(&self) -> Col {
+        row_fence(self.view.rendition(self.cy), self.cy, self.cold, self.cols)
+    }
+
+    /// **Where a move on the cursor's line stops** ([`MoveFence`]): the
+    /// right margin, or the last column of a double line's half, on every
+    /// row, outside the scroll area too, where a write runs on to the line's
+    /// end. `CUF`'s note 1, "The Active Position will not move beyond the
+    /// Right Margin" (`[[source: dec-std-070]]` p. 5-45), names no row.
+    #[inline(always)]
+    pub(crate) fn line_move_fence(&self) -> MoveFence {
+        MoveFence(match self.cold.fence == self.cold.right {
+            true => self.cold.right,
+            false => self.move_fence_of_line(),
+        })
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn move_fence_of_line(&self) -> Col {
         fence_of(self.view.rendition(self.cy), self.cold.right, self.cols)
+    }
+
+    /// **The stored fence as a move's first stop** ([`MoveFence`]), capped
+    /// at the right margin: on a row outside the scroll area, whose write
+    /// fence is the line's end, the margin; on every other row the stored
+    /// column, a double line's half or SLL's limit, from which a move that
+    /// reaches it goes on out of line to [`Paint::line_move_fence`].
+    #[inline(always)]
+    pub(crate) fn move_stop(&self) -> MoveFence {
+        MoveFence(self.cold.fence.min(self.cold.right))
     }
 
     /// The fence set to the cursor's line's, for the cold paths a fit test
@@ -2399,18 +2551,20 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// The fence for a line of rendition `r`, and on a line not single-width
-    /// the cursor inside its half: every move onto one ends with
-    /// `if (column > end_of_line(line)) column = end_of_line(line)`
+    /// The fence for a line of rendition `r` on the cursor's row, a row
+    /// outside the scroll area's its line's end ([`row_fence`]), and on a
+    /// line not single-width the cursor inside its half: every move onto one
+    /// ends with `if (column > end_of_line(line)) column = end_of_line(line)`
     /// (`[[source: dec-std-070]]` CUU, CUD, CUP, IND, RI, LF, pp. 5-41 to
     /// 5-60). A move can land past the half; the sentinel a write left one
     /// past it is kept where the line changed under the cursor in place,
     /// and a move ends it, as a move resets the Last Column Flag (D.6.1,
-    /// pp. D-13 and D-14).
+    /// pp. D-13 and D-14). On the scroll area's top, marked
+    /// ([`RegionTop`]), the fence comes back to the right margin.
     #[cold]
     #[inline(never)]
-    fn enter_sized(&mut self, r: LineRendition, how: Arrival) {
-        let own = fence_of(r, self.cold.right, self.cols);
+    fn enter_apart(&mut self, r: LineRendition, how: Arrival) {
+        let own = row_fence(r, self.cy, self.cold, self.cols);
         self.cold.fence = crate::bounds::limited(own, self.cold, self.cols);
         if !r.is_double() {
             return;
@@ -2431,11 +2585,13 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// **The width of the cursor's line**, one past its last column: the
     /// screen's on a single-width line and the half on any other. `right`
-    /// less the fence is zero on a single-width line and the hidden half on
-    /// a sized one, where `right` is the screen's last column.
+    /// less the move fence is zero on a single-width line and the hidden
+    /// half on a sized one, where `right` is the screen's last column; the
+    /// write fence of a row outside the scroll area is past `right`.
     #[inline(always)]
     pub(crate) fn line_cols(&self) -> Cols {
-        Cols::of_index(self.cols.index() - (self.cold.right.index() - self.line_fence().index()))
+        let f = self.line_move_fence().col();
+        Cols::of_index(self.cols.index() - (self.cold.right.index() - f.index()))
     }
 
     /// A horizontal move's column, kept on the cursor's line: past a
@@ -2517,7 +2673,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.view.set_rendition(cy, to);
         self.row_changed_to(cy);
         let own = fence_of(to, self.cold.right, self.cols);
-        self.cold.fence = crate::bounds::limited(own, self.cold, self.cols);
+        let written = row_fence(to, self.cy, self.cold, self.cols);
+        self.cold.fence = crate::bounds::limited(written, self.cold, self.cols);
         // **And none of the four leaves a wrap pending**: D.6.1 (pp. D-13
         // and D-14) lists SINGLE_WIDTH_LINE, DOUBLE_WIDTH_LINE and both
         // DOUBLE_HEIGHT_LINE controls among those that reset the Last
@@ -2527,7 +2684,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.set_col(CursorCol::moved(on));
         }
         // Into the half, not to SLL's limit, which bounds only implicit
-        // movement (`Paint::enter_sized`).
+        // movement (`Paint::enter_apart`).
         if to.is_double() && self.cx.raw() > own {
             self.set_col(CursorCol::moved(own));
         }
@@ -2612,7 +2769,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             rot: self.view.rot(),
             row: self.cy,
         };
-        let fence = self.line_fence();
+        // The bell's margin is the right margin on every row, as before
+        // the rows outside the scroll area wrote on to the line's end.
+        let fence = self.line_move_fence().col();
         if self.cold.bell.wrote(at, start, end, fence) == crate::margin::Crossed::Rung {
             self.margin_bells += 1;
             let b = &mut self.cold.bell;
@@ -2900,6 +3059,53 @@ pub(crate) fn fence_of(r: LineRendition, right: Col, cols: Cols) -> Col {
     match r.is_double() {
         false => right,
         true => Col::at_index(r.end_of_line(cols).index() - 1).min(right),
+    }
+}
+
+/// **The write fence of row `y`, of rendition `r`**: [`fence_of`]'s inside
+/// the scroll area, and outside it the line's last column. `[[source:
+/// dec-std-070]]` INSERT OR REPLACE GRAPHIC CHARACTER, p. 5-139: "If the
+/// Active Position is within the Scroll Area, it will advance to the Right
+/// Margin. If the Active Position is outside the Scroll Area, it will
+/// advance to the last column of the Active Line"; its algorithm's boundary
+/// is the right margin only where "active_position.line" is inside the
+/// margins (p. 5-140). xterm and ghostty keep the right margin there: a
+/// source conflict, recorded in `docs/vt-coverage.md`. With the side
+/// margins at the page's edges, or on a double line, which exists only
+/// then (p. 5-29), the two agree.
+pub(crate) fn row_fence(r: LineRendition, y: Row, cold: &crate::term::Cold, cols: Cols) -> Col {
+    match y < cold.top || y > cold.bot {
+        true => Col::at_index(r.end_of_line(cols).index() - 1),
+        false => fence_of(r, cold.right, cols),
+    }
+}
+
+/// **Where a move stops on the cursor's line**: the right margin, or a
+/// double line's half, on every row.
+/// `CUF`, `CUB`, `CHT`, DECFI and DECBI read this and never the write
+/// fence ([`WriteFence`]), which on a row outside the scroll area is the
+/// line's last column: a write there runs past the right margin and a move
+/// stops at it (`[[source: dec-std-070]]` p. 5-45, CUF note 1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct MoveFence(Col);
+
+impl MoveFence {
+    pub(crate) fn col(self) -> Col {
+        self.0
+    }
+}
+
+/// **Where a write on the cursor's line wraps or clamps**, and what a
+/// pending wrap is read against: the right margin inside the scroll area,
+/// the line's last column outside it ([`row_fence`]), a double line's half.
+/// `Cold::fence` holds its column, lowered to SLL's limit where it bounds,
+/// for the per-character fit test; [`Paint::write_fence`] reads the line's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct WriteFence(Col);
+
+impl WriteFence {
+    pub(crate) fn col(self) -> Col {
+        self.0
     }
 }
 

@@ -973,6 +973,22 @@ pub(crate) enum Pinned {
     AtLimit,
 }
 
+/// **Whether a write's fence depends on the row** ([`Cold::fences`]):
+/// `[[source: dec-std-070]]` p. 5-139 sends a write outside the scroll
+/// area to the line's last column and one inside it to the right margin,
+/// which differ only while the right margin is left of the last column and
+/// the area leaves rows outside it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Fences {
+    /// The same on every row: no rows outside the area, or the right
+    /// margin on the last column.
+    Uniform,
+    /// The line's end outside the area and the right margin inside it, so
+    /// a move between the two takes the row's (`Paint::set_row`) and the
+    /// area's top is marked (`baud_domain::RegionTop`).
+    ByRow,
+}
+
 /// The host stream's parser state, which the local echo swaps for its own
 /// while it runs (`Term::echo`).
 pub(crate) struct EchoParse {
@@ -1249,11 +1265,21 @@ pub struct Cold {
     /// What the write path's fit test, the wrap and the pin read where they
     /// read `right` before, so the per-character path compares against one
     /// field as it did and a double-width line costs it nothing. Equal to
-    /// `right` on every single-width line -- a line is sized only with
-    /// `DECLRMM` reset, where `right` is the last column (p. 5-29) -- and
+    /// `right` on every single-width line inside the scroll area -- a line
+    /// is sized only with `DECLRMM` reset, where `right` is the last column
+    /// (p. 5-29) -- and on a row outside it the line's last column, where a
+    /// write runs past the right margin (p. 5-139, `crate::paint::row_fence`);
     /// set where the cursor arrives on a line or its line changes size
-    /// (`Paint::enter_row`).
+    /// (`Paint::enter_row`), and where a move or the margins change it while
+    /// the rows outside differ ([`Fences`]). The column of the write fence
+    /// (`crate::paint::WriteFence`); a move reads the move fence
+    /// (`crate::paint::MoveFence`).
     pub(crate) fence: Col,
+    /// **Whether the rows outside the scroll area take a fence of their
+    /// own**: [`Fences::ByRow`] while the right margin is left of the last
+    /// column and the scroll area leaves rows outside it, set by
+    /// `Paint::refence` wherever the margins change.
+    pub(crate) fences: Fences,
     /// `S7C1T` / `S8C1T`, how wide a `CSI` this core *writes*, and the data
     /// integrity flag `CSI ? 75 n` reports ([`Replies`]).
     ///
@@ -2241,6 +2267,7 @@ impl Cold {
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
             fence: Col::at_index(cols.index() - 1),
+            fences: Fences::Uniform,
             widths: WidthPolicy::DEFAULT,
             sixel_claim: SixelClaim::No,
             checksum_report: ChecksumReport::On,
@@ -2724,13 +2751,16 @@ impl<'b> Term<'b> {
     }
 
     /// The fence of the cursor's line, as `Paint::line_fence` reads it: the
-    /// stored one can be a sized line's the cursor has left.
+    /// stored one can be a sized line's the cursor has left, and on a row
+    /// outside the scroll area it is the line's end
+    /// (`crate::paint::row_fence`).
     pub(crate) fn line_fence(&self) -> Col {
         match self.cold.fence == self.cold.right {
             true => self.cold.right,
-            false => crate::paint::fence_of(
+            false => crate::paint::row_fence(
                 self.row_extent(self.cy).rendition(),
-                self.cold.right,
+                self.cy,
+                &self.cold,
                 self.cols,
             ),
         }
@@ -3818,6 +3848,10 @@ impl<'b> Term<'b> {
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(cols.index().saturating_sub(1));
+        // The margins at the page's edges: every row's fence is its line's
+        // end, and a region top left marked only sends an arrival there out
+        // of line to read the same.
+        self.cold.fences = Fences::Uniform;
         // The cursor's line keeps its rendition through the resize, so its
         // half is taken at the new width and the cursor kept inside it.
         let r = self.row_extent(self.cy).rendition();

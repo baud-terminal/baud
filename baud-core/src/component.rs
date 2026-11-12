@@ -853,8 +853,10 @@ impl Paint<'_, '_> {
 
     /// **The columns PRECEDING shifts within for a cursor on column `c`**
     /// ([`PrecedingZone`]).
+    /// The side margins bound it on every row, outside the scroll area too:
+    /// the move fence ([`crate::paint::MoveFence`]).
     pub(crate) fn preceding_zone(&self, c: Col) -> PrecedingZone {
-        let fence = self.line_fence();
+        let fence = self.line_move_fence().col();
         match c > fence {
             true => PrecedingZone {
                 lo: fence.after(),
@@ -955,9 +957,11 @@ impl Paint<'_, '_> {
 
     /// **Where `ICH`, `DCH` and PRECEDING's shifts end**: one past the
     /// fence, the side margins bounding them on every row, as
-    /// [`Paint::char_edit_end`] ignores them outside the margins.
+    /// [`Paint::char_edit_end`] ignores them outside the margins: the move
+    /// fence ([`crate::paint::MoveFence`]), the right margin outside the
+    /// scroll area too.
     pub(crate) fn fence_end(&self) -> ShiftEnd {
-        ShiftEnd(self.line_fence().after())
+        ShiftEnd(self.line_move_fence().col().after())
     }
 
     /// **Where a character written under IRM and FOLLOWING shifts the
@@ -970,12 +974,17 @@ impl Paint<'_, '_> {
     /// is lost" (pp. 5-139, 5-140); the write
     /// itself runs on to the line's last column there ([`Paint::overflow`]),
     /// and under DATA its gap opens to the line's end ([`Paint::open_gap`]).
-    /// A row outside the scroll area keeps the right margin for a cursor
-    /// inside it, as the write does: open, the `CSI s` row.
+    /// **On a row outside the scroll area the line's end for a cursor
+    /// inside the side margins too**, as the write runs there: the write
+    /// fence ([`crate::paint::WriteFence`]) is the line's last column, and
+    /// "the last column of the Active Line outside the Scroll Area is lost"
+    /// (p. 5-140). Until 2026-11-11 the shift there stopped at the right
+    /// margin.
     pub(crate) fn insert_end(&self) -> ShiftEnd {
-        match self.cx.raw() > self.line_fence() {
+        let fence = self.write_fence().col();
+        match self.cx.raw() > fence {
             true => ShiftEnd(Col::at_index(self.line_cols().index())),
-            false => self.fence_end(),
+            false => ShiftEnd(fence.after()),
         }
     }
 

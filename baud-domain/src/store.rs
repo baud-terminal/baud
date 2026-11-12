@@ -88,10 +88,11 @@ pub struct RunRange {
 /// (`[[source: terminal-wg-bidi-basic-modes]]`), which belong to the row the
 /// way the wrap and the rendition do and so ride where every move of a row
 /// already carries them, one byte. A field of
-/// its own rather than bits of the word, because the word has none free --
-/// its mark reaches the pitch, past 2048 columns, beside the wrap and the
-/// rendition -- and a flag above the mark would win `reached`'s bare `max`
-/// and freeze it. A write updates the word and leaves the path; a fill
+/// its own rather than bits of the word, because the word has one free,
+/// the region-top bit's ([`RowExtent::with_region_top`]), and a flag above
+/// the mark would win `reached`'s bare `max` and freeze it, which the
+/// region top pays for by a mark raised to the width, as a rendition does,
+/// and a fill would drop. A write updates the word and leaves the path; a fill
 /// keeps it (an erased line is the same paragraph, terminal-wg's "both new
 /// paragraphs receive the old one's BiDi properties"), and a fill over the
 /// whole row clears only the mark DECRLM left ([`RowExtent::erased`]); only
@@ -404,9 +405,20 @@ impl RowExtent {
     /// it. Too large is the safe direction for a mark.
     const SIZE: u16 = 0x6000;
     const SIZE_SHIFT: u32 = 13;
-    const MARK: u16 = 0x1fff;
+    /// **The row is the scroll area's top while the rows outside the area
+    /// write to their line's end** ([`RegionTop`]), in the bit under the
+    /// rendition, so the cursor's arrival on a row tests the rendition and
+    /// this in one mask, `0x7000` ([`RowExtent::fenced_apart`]). Set only
+    /// through [`RowExtent::with_region_top`], which raises the mark to the
+    /// live width first, as [`RowExtent::with_rendition`] does, so
+    /// `reached`'s bare `max` keeps it. A fill to the row's end builds a
+    /// fresh mark and drops it; the core sets it again where that matters.
+    const REGION_TOP: u16 = 0x1000;
+    /// Twelve bits: 4095 columns, past `MAX_COLS`' widest pitch, 2096.
+    const MARK: u16 = 0x0fff;
     /// The widest mark a row can carry: a pitch past it would not fit
-    /// beside the wrap and the rendition, and `Storage::new` refuses one.
+    /// beside the wrap, the rendition and the region-top bit, and
+    /// `Storage::new` refuses one.
     pub const MAX_MARK: usize = Self::MARK as usize;
     /// The mark after a write that reached column `to` (exclusive).
     ///
@@ -543,21 +555,58 @@ impl RowExtent {
             ..self
         }
     }
-    /// The mark raised to at least `n`, the wrap and the rendition kept:
-    /// the cold path's form of `reached`, for a raise that may exceed a
-    /// flagged mark.
+    /// The mark raised to at least `n`, the wrap, the rendition and the
+    /// region-top bit kept: the cold path's form of `reached`, for a raise
+    /// that may exceed a flagged mark.
     pub fn raised_to(self, n: usize) -> RowExtent {
         let n = u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK);
+        let flags = Self::WRAP | Self::SIZE | Self::REGION_TOP;
         RowExtent {
-            word: (self.word & (Self::WRAP | Self::SIZE)) | (self.word & Self::MARK).max(n),
+            word: (self.word & flags) | (self.word & Self::MARK).max(n),
             ..self
         }
     }
-    /// Whether the word carries a flag above its mark, the wrap or a
-    /// rendition other than single-width: a mark `reached` cannot raise,
-    /// which a growth past the width it was flagged at has to.
+    /// Whether the word carries a flag above its mark, the wrap, a
+    /// rendition other than single-width or the region-top bit: a mark
+    /// `reached` cannot raise, which a growth past the width it was flagged
+    /// at has to.
     pub fn flagged(self) -> bool {
-        self.word & (Self::WRAP | Self::SIZE) != 0
+        self.word & (Self::WRAP | Self::SIZE | Self::REGION_TOP) != 0
+    }
+    /// **Whether the cursor's arrival on the row takes its fence out of
+    /// line**: a rendition other than single-width, or the region-top bit
+    /// ([`RegionTop`]). One test of the word, the mask the rendition's test
+    /// was with the bit under it, `0x7000`.
+    #[inline(always)]
+    pub fn fenced_apart(self) -> bool {
+        self.word & (Self::SIZE | Self::REGION_TOP) != 0
+    }
+    /// Whether the row carries the region-top bit ([`RegionTop`]).
+    pub fn region_top(self) -> RegionTop {
+        match self.word & Self::REGION_TOP {
+            0 => RegionTop::Unmarked,
+            _ => RegionTop::Marked,
+        }
+    }
+    /// **The word with the region-top bit `t`** ([`RegionTop`]): marked,
+    /// the mark first raised to `cols`, the live width, so `reached`'s bare
+    /// `max` keeps the bit, as [`RowExtent::with_rendition`] raises it for a
+    /// rendition; unmarked, the bit cleared and the mark kept, which is
+    /// already true of the row.
+    pub fn with_region_top(self, t: RegionTop, cols: Cols) -> RowExtent {
+        match t {
+            RegionTop::Unmarked => RowExtent {
+                word: self.word & !Self::REGION_TOP,
+                ..self
+            },
+            RegionTop::Marked => {
+                let raised = self.raised_to(cols.index());
+                RowExtent {
+                    word: raised.word | Self::REGION_TOP,
+                    ..raised
+                }
+            }
+        }
     }
     /// The row's line rendition.
     pub fn rendition(self) -> LineRendition {
@@ -640,6 +689,23 @@ impl LineRendition {
             _ => Cols::of_index((cols.index() / 2).max(1)),
         }
     }
+}
+
+/// **Whether a row is marked as the scroll area's top** while the rows
+/// outside the area write to their line's end and the ones inside it to the
+/// right margin (`[[source: dec-std-070]]` INSERT OR REPLACE GRAPHIC
+/// CHARACTER, p. 5-139: "If the Active Position is within the Scroll Area,
+/// it will advance to the Right Margin. If the Active Position is outside
+/// the Scroll Area, it will advance to the last column of the Active
+/// Line"). A line feed is the one step that takes the cursor from a row
+/// outside the area to one inside it without a move's own reading of the
+/// fence, and it lands on the area's top: the mark sends that arrival out
+/// of line, where the fence comes back to the right margin
+/// (`baud-core`'s `Paint::enter_row`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegionTop {
+    Unmarked,
+    Marked,
 }
 
 /// **Whether one physical row of the primary may hold anything past the live

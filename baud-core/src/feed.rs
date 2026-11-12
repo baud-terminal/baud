@@ -504,14 +504,18 @@ impl Term<'_> {
             self.line_fence()
         );
         // **Under side margins the fence is the right margin unless SLL's
-        // limit bounds**: no line is sized while DECLRMM is set
-        // (`[[source: dec-std-070]]` p. 5-29), and a display swapped in
-        // takes its fence again (`crate::status`).
+        // limit bounds or the cursor's row is outside the scroll area**,
+        // where it is the line's end (`crate::paint::row_fence`): no line
+        // is sized while DECLRMM is set (`[[source: dec-std-070]]` p.
+        // 5-29), and a display swapped in takes its fence again
+        // (`crate::status`).
         debug_assert!(
             self.cold.fence == self.cold.right
                 || !self.cold.modes.is_set(ModeBit::SideMargins)
-                || self.cold.modes.is_set(ModeBit::LineBounded),
-            "a fence below the right margin under side margins with no line limit bounding"
+                || self.cold.modes.is_set(ModeBit::LineBounded)
+                || self.cold.fence == self.line_fence(),
+            "a fence off the right margin under side margins with no line limit bounding \
+             and the cursor's row inside the scroll area"
         );
     }
 }

@@ -68,7 +68,10 @@ impl Paint<'_, '_> {
             self.wrapped_into_path();
         }
         self.refresh_fence();
-        self.cx = CursorCol::moved(self.line_fence());
+        // The right margin on every row, as under DECRLM before the rows
+        // outside the scroll area took the line's end for a write
+        // ([`crate::paint::MoveFence`]): DECRLM's text names no row.
+        self.cx = CursorCol::moved(self.line_move_fence().col());
     }
 
     /// **One graphic character under DECRLM.**
@@ -85,7 +88,7 @@ impl Paint<'_, '_> {
         }
         // A cursor past the line's end writes at its last column.
         self.refresh_fence();
-        let fence = self.line_fence();
+        let fence = self.line_move_fence().col();
         let mut c = self.cx.col().min(fence);
         let mut left = self.left_limit(c);
         // A wide character needs a column left of the cursor.
@@ -227,7 +230,7 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn back_space_leftward(&mut self) {
         let c = self.cx.col();
-        let fence = self.line_fence();
+        let fence = self.line_move_fence().col();
         let to = match c < fence {
             true => c.after(),
             false => c.min(fence),
@@ -256,7 +259,7 @@ impl Paint<'_, '_> {
                     && y <= self.cold.bot.index()));
         let to = match inside {
             true => self.cold.right,
-            false => self.line_fence(),
+            false => self.line_move_fence().col(),
         };
         self.set_col(CursorCol::moved(to));
     }

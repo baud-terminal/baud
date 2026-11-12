@@ -1611,6 +1611,21 @@ impl<'a> View<'a> {
         self.used[p] = self.used[p].with_rendition(to, self.cols);
     }
 
+    /// **Mark screen row `r` as the scroll area's top, or unmark it**,
+    /// through [`RowExtent::with_region_top`], which raises the mark to the
+    /// live width to mark it ([`RegionTop`]).
+    #[cold]
+    #[inline(never)]
+    pub fn set_region_top(&mut self, r: Row, t: RegionTop) {
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let p = self.phys(r);
+        if self.used[p].region_top() != t {
+            self.used[p] = self.used[p].with_region_top(t, self.cols);
+        }
+    }
+
     pub fn cols(&self) -> Cols {
         self.cols
     }

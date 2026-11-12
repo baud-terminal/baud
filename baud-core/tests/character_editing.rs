@@ -522,3 +522,24 @@ fn irm_under_preceding_right_of_the_right_margin_goes_in_at_the_cursor() {
         ("aQRSTXgh..".into(), "\x1b[1;6R".into())
     );
 }
+
+/// **A wrap waiting at the line's end right of the right margin, under IRM
+/// and PRECEDING, writes on the line's last column**: `XY` written from
+/// column 9 fills the line to its last column, past the margin at 6, and
+/// leaves the wrap waiting there, on the column DEC's Last Column Flag
+/// leaves the Active Position on (`[[source: dec-std-070]]` D.6.1); `Z`
+/// goes in there, the part from one past the margin to it shifting toward
+/// the home and `g` lost, as a wrap waiting on the margin writes on the
+/// margin's column. The cursor stays, the report naming column 10. Until
+/// 2026-11-11 `Z` went in on the margin's column, the part from the left
+/// margin shifting and `b` lost: `acdefZghXY`, the exception the
+/// `CSI 10 h` row named.
+#[test]
+fn irm_under_preceding_with_a_wrap_waiting_at_the_line_end_right_of_the_margin() {
+    let s = support::with_term(&WS, |t| {
+        let setup = "abcdefgh\x1b[?69h\x1b[2;6s\x1b[10h\x1b[1;9HXY\x1b[4hZ\x1b[6n";
+        support::feed(t, setup.as_bytes());
+        (row(t, 10), String::from_utf8_lossy(t.reply()).into_owned())
+    });
+    assert_eq!(s, ("abcdefhXYZ".into(), "\x1b[1;10R".into()));
+}
