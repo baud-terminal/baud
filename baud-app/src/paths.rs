@@ -1951,7 +1951,11 @@ impl Store {
     /// **The facts over `span` gone** ([`Paths::forget_erased`]): each run
     /// it covers cut to the lines outside it, which keep theirs, and the
     /// floor left where it is -- a line renumbered in a way no count says
-    /// stays not known. Whether anything was filed there.
+    /// stays not known. Whether anything was filed there. The runs are
+    /// sorted and apart, so only the first it covers can keep lines above
+    /// it and only the last lines below: at most two pieces, put in place
+    /// of the runs from an exact two-slot iterator, so nothing is collected
+    /// and the runs' buffer grows only where one run is cut in two.
     fn forget_lines(&mut self, span: LineSpan) -> Moved {
         let from = self.runs.partition_point(|(r, _)| r.last < span.first);
         let to = from
@@ -1962,11 +1966,13 @@ impl Store {
         if from == to {
             return Moved::No;
         }
-        let kept: Vec<(LineSpan, Facts)> = self.runs[from..to]
-            .iter()
-            .flat_map(|&(r, f)| r.outside(span).map(move |p| (p, f)))
-            .collect();
-        self.runs.splice(from..to, kept);
+        let (first, above_facts) = self.runs[from];
+        let (last, below_facts) = self.runs[to - 1];
+        let above = first.outside(span).next().filter(|p| p.first < span.first);
+        let below = last.outside(span).last().filter(|p| p.last > span.last);
+        let kept = above.map(|p| (p, above_facts)).into_iter();
+        self.runs
+            .splice(from..to, kept.chain(below.map(|p| (p, below_facts))));
         Moved::Yes
     }
 }
@@ -7637,6 +7643,40 @@ mod tests {
         p.forget_erased(Erased(LineSpan::of(at(1), at(1))));
         assert!(p.generation != was.0 && p.origins != was.1, "the control");
         assert_eq!(p.origin(at(1)), Origin::Unknown, "the control");
+    }
+
+    /// **A forget that cuts one run in two keeps both pieces**
+    /// (`Store::forget_lines`): lines 0 to 9 filed remote, one run; an
+    /// erasure of lines 4 and 5 leaves two runs, lines 0 to 3 and 6 to 9,
+    /// each remote, and lines 4 and 5 not known. The control: an erasure
+    /// over the top of the upper piece, lines 0 and 1, leaves its lines 2
+    /// and 3, and the lower piece as it was. Named break: the piece below
+    /// the span never kept (`forget_lines`'s `below`) -- line 6 is not
+    /// known.
+    #[test]
+    fn a_forget_that_cuts_one_run_in_two_keeps_both_pieces() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let spans = |p: &Paths| p.primary.runs.iter().map(|&(s, _)| s).collect::<Vec<_>>();
+        p.written_remote(LineSpan::of(at(0), at(9)));
+        assert_eq!(spans(&p), [LineSpan::of(at(0), at(9))], "one run");
+        p.forget_erased(Erased(LineSpan::of(at(4), at(5))));
+        assert_eq!(
+            spans(&p),
+            [LineSpan::of(at(0), at(3)), LineSpan::of(at(6), at(9))],
+            "both pieces"
+        );
+        assert_eq!(p.origin(at(3)), Origin::Remote, "above");
+        assert_eq!(p.origin(at(6)), Origin::Remote, "below");
+        assert_eq!(p.origin(at(4)), Origin::Unknown);
+        assert_eq!(p.origin(at(5)), Origin::Unknown);
+        p.forget_erased(Erased(LineSpan::of(at(0), at(1))));
+        assert_eq!(
+            spans(&p),
+            [LineSpan::of(at(2), at(3)), LineSpan::of(at(6), at(9))],
+            "the control"
+        );
     }
 
     /// **A row's facts are found by a binary search, however long the
