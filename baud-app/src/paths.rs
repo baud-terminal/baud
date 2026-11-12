@@ -7613,6 +7613,32 @@ mod tests {
         );
     }
 
+    /// **An erasure of lines with no fact moves nothing**
+    /// (`Store::forget_lines`, `Paths::forget_erased`): lines 0 and 1 filed
+    /// remote; an erasure of lines 3 to 5, which hold no fact, as the blank
+    /// lines an `EL`-heavy redraw erases again hold none, returns
+    /// `Moved::No` and leaves the generation, the origins and the lines to
+    /// read again as they were: no row is read again for it. The control:
+    /// an erasure of line 1 moves the generation and the origins, and line
+    /// 1 is not known. Named break: refile whatever a forget found
+    /// (`Paths::forget_erased` without its `Moved::Yes` test) -- the
+    /// generation moves.
+    #[test]
+    fn an_erasure_of_lines_with_no_fact_moves_nothing() {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        p.written_remote(LineSpan::of(at(0), at(1)));
+        let was = (p.generation, p.origins, p.refiled);
+        let blank = LineSpan::of(at(3), at(5));
+        assert_eq!(p.primary.forget_lines(blank), Moved::No);
+        p.forget_erased(Erased(blank));
+        assert_eq!((p.generation, p.origins, p.refiled), was);
+        p.forget_erased(Erased(LineSpan::of(at(1), at(1))));
+        assert!(p.generation != was.0 && p.origins != was.1, "the control");
+        assert_eq!(p.origin(at(1)), Origin::Unknown, "the control");
+    }
+
     /// **A row's facts are found by a binary search, however long the
     /// session**: with 10,000 runs, writers alternating so none merge, the
     /// 50 rows of a window are looked up, for their origin and for a link

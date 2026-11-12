@@ -7695,6 +7695,19 @@ mod tests {
     /// `ls`'s lit row 0, a clear, and a program gone before it was named
     /// prints there, in the clear's read or after it. The row is dark: the
     /// local fact went with the text before.
+    ///
+    /// No wrong forget or cut can light it, because the gone writer's own
+    /// verdict, not known, is filed over the row by its answer
+    /// (`Probes::file_answered`), which comes after the erase in every
+    /// order. Forgetting nothing leaves `ls`'s local fact under it, and the
+    /// most cautious fact decides. Forgetting more can only take the local
+    /// fact. Forgetting and cutting after the drain's filing cuts the gone
+    /// writer's own span, so its answer files nothing there, and a line
+    /// with no fact reads not known (`Paths::wrote`), never local. What
+    /// lights it is a wrong writer for the read. Named break: an erasing
+    /// read's writer taken from the sample before it alone
+    /// (`Probes::read_taken`) -- in one read, `ls` is named for the gone
+    /// writer's text.
     #[test]
     fn a_writer_not_named_after_an_erase_leaves_its_line_dark() {
         let lit = Read {
@@ -7958,6 +7971,255 @@ mod tests {
         assert!(!of.contains("term") && !of.contains("row("), "no cell read");
         assert_eq!(probe.matches("Erased(").count(), 0, "none made here");
         assert_eq!(probe.matches("rec.erased(").count(), 0, "nor read here");
+    }
+
+    /// **`bytes` fed to a screen of [`WS`], and the lines its record says
+    /// it erased whole forgotten and cut out of every span `pr` keeps**
+    /// ([`Probes::erased`]), on the primary's lines as a screen with no
+    /// history numbers them, from 0 -- and nothing of the read filed: what
+    /// the erase leaves before any writer is filed after it.
+    fn erased_by(pr: &mut Probes<Instant>, paths: &mut Paths, bytes: &[u8]) {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut counts = crate::keep::Counts::new(&t);
+        let mut pace = crate::reads::Pace::new();
+        let mut took = Vec::new();
+        let _ = crate::reads::paced(
+            &mut t,
+            &mut pace,
+            Instant::now(),
+            [(bytes, Sampler::default().unasked())],
+            |_| {},
+            |t, r| page_width(t, &WS, r),
+            &mut crate::hostlog::NoLog,
+            &mut took,
+        );
+        let last = took.iter().rev().find_map(|w| w.record);
+        let _ = counts.numbered(&t, last.as_ref());
+        let lines = counts.core_lines(&t);
+        for w in &took {
+            if let Some(rec) = w.record {
+                pr.erased(paths, &rec, &lines.part(w.top), &[Screen::Normal]);
+            }
+        }
+        pr.publish(paths);
+    }
+
+    /// **A hold over a line erased whole is let go** (`Probes::cut`,
+    /// `held`): `ls`'s lit text on rows 0 and 1; a program gone before it
+    /// was named wrote over both, so they are held under its group, its
+    /// batch out; row 1 is erased whole, and `ls` prints on it again, its
+    /// own batch out. The gone writer's answer is about text the erase
+    /// took on row 1, and releases its hold on row 0 alone: row 0 stays not
+    /// known, and row 1 is `ls`'s. Named break: no cut of the holds -- the
+    /// gone writer's verdict is filed over row 1 as it releases the hold
+    /// there, and `ls`'s text reads not known.
+    #[test]
+    fn a_hold_over_a_line_erased_whole_is_let_go() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let both = LineSpan::of(line(0), line(1));
+        let id = Id::default();
+        paths.written_under(crate::paths::Seen::Named(Front::Local), both);
+        pr.held.push((Some(7), both));
+        pr.inflight.push((id, Some(7), both));
+        pr.publish(&mut paths);
+        erased_by(&mut pr, &mut paths, b"\x1b[2;1H\x1b[2K");
+        pr.inflight
+            .push((id, Some(2), LineSpan::of(line(1), line(1))));
+        pr.publish(&mut paths);
+        pr.file_answered(
+            &mut paths,
+            (id, Kind::Screen),
+            &[
+                (Some(2), crate::paths::Seen::Named(Front::Local)),
+                (Some(7), crate::paths::Seen::NotNamed),
+            ],
+        );
+        assert_eq!(
+            [0, 1].map(|n| paths.origin(line(n))),
+            [Origin::Unknown, Origin::Local]
+        );
+    }
+
+    /// **A line erased whole names no group as what lit it** (`Probes::cut`,
+    /// `Lit`; G1): `ls`'s verdict lit rows 0 and 1, the shell's row 2; row
+    /// 1 is erased whole; a move carries the shell's line onto row 1, its
+    /// local fact and what lit it with it (`Paths::carried`, `Lit::carry`);
+    /// then `ls`, still to be named, writes over rows 0 and 1. Row 0 is
+    /// `ls`'s rewrite of its own and stays local. Row 1 holds the shell's
+    /// fact, which no verdict of `ls`'s filed, so it is held until `ls`'s
+    /// answer: not known. Named break: no cut of `Lit` -- `ls` is still
+    /// named for row 1, its write there holds nothing, and its text, not
+    /// yet named, reads local on the shell's fact.
+    #[test]
+    fn a_line_erased_whole_names_no_group_as_what_lit_it() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let one = |n| LineSpan::of(line(n), line(n));
+        let local = crate::paths::Seen::Named(Front::Local);
+        paths.written_under(local, LineSpan::of(line(0), line(2)));
+        pr.lit.set(Some(2), LineSpan::of(line(0), line(1)));
+        pr.lit.set(Some(1), one(2));
+        erased_by(&mut pr, &mut paths, b"\x1b[2;1H\x1b[2K");
+        paths.written_under(local, one(1));
+        pr.lit.carry(|s| match s == one(2) {
+            true => one(1),
+            false => s,
+        });
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(2)),
+            LineSpan::of(line(0), line(1)),
+            Linked::No,
+        );
+        assert_eq!(
+            [0, 1].map(|n| paths.origin(line(n))),
+            [Origin::Local, Origin::Unknown]
+        );
+    }
+
+    /// **A line erased whole leaves the lines written past the groups
+    /// kept** (`Probes::cut`, `unnamed`): writers past the groups kept
+    /// wrote rows 0 to 2, still to be named; row 2, the last of them, is
+    /// erased whole, and `ls`'s text printed there after is named local;
+    /// then the worker closes, and every line still to be named is filed
+    /// not known, as the worker's answer files those lines
+    /// (`answer`). Rows 0 and 1 are not known, and row 2 is `ls`'s. Named
+    /// break: no cut of `unnamed` -- row 2 is filed not known over `ls`'s
+    /// text.
+    #[test]
+    fn a_line_erased_whole_leaves_the_lines_past_the_groups_kept() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        pr.unnamed = Some(LineSpan::of(line(0), line(2)));
+        pr.publish(&mut paths);
+        erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
+        paths.written_under(
+            crate::paths::Seen::Named(Front::Local),
+            LineSpan::of(line(2), line(2)),
+        );
+        let (mut lines, mut turn) = (Lines::default(), Turn::default());
+        pr.close(&mut paths, &mut lines, &mut turn);
+        assert_eq!(
+            [0, 1, 2].map(|n| paths.origin(line(n))),
+            [Origin::Unknown, Origin::Unknown, Origin::Local]
+        );
+    }
+
+    /// **An erase inside the lines written past the groups kept leaves
+    /// them all not known, and its own line dark** (`Probes::cut`, which
+    /// keeps `unnamed` one span): `ls`'s verdict lit rows 0 to 4; `ls`,
+    /// past the groups kept, rewrites them, which holds none of them, its
+    /// rewrite of its own (G1); row 2 is erased whole, and `ssh`, still to
+    /// be named, prints a path on it, dark; then the worker closes, and
+    /// every line still to be named is filed not known, as the worker's
+    /// answer files those lines (`answer`). Every row is: what `ls` wrote
+    /// past the groups kept was never named, and row 2 holds only `ssh`'s
+    /// text. Row 2 cannot light before `ssh` is named: the erase left it
+    /// no fact, and the lines past the groups kept are answered not known,
+    /// never local, so the span still covering row 2 after the erase can
+    /// only darken it -- an under-mark once `ssh`'s line is named local,
+    /// never an over-mark. Named break: the span cut to its piece above the
+    /// erase (`outside(..).next()`) -- rows 3 and 4 read local.
+    #[test]
+    fn an_erase_inside_the_lines_past_the_groups_kept_leaves_them_all_not_known() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let rows = LineSpan::of(line(0), line(4));
+        paths.written_under(crate::paths::Seen::Named(Front::Local), rows);
+        pr.lit.set(Some(2), rows);
+        pr.unnamed = Some(rows);
+        pr.publish(&mut paths);
+        erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
+        pr.read_taken(
+            &mut paths,
+            Writers::at(Some(9)),
+            LineSpan::of(line(2), line(2)),
+            Linked::No,
+        );
+        assert_eq!(paths.origin(line(2)), Origin::Unknown, "before the close");
+        let (mut lines, mut turn) = (Lines::default(), Turn::default());
+        pr.close(&mut paths, &mut lines, &mut turn);
+        assert_eq!(
+            [0, 1, 2, 3, 4].map(|n| paths.origin(line(n))),
+            [Origin::Unknown; 5]
+        );
+    }
+
+    /// **A line written while paths were off, floored when they come on and
+    /// then erased whole, takes the writer after the erase**: with paths
+    /// off, `ls` prints `/etc/passwd` on row 0, a read not kept; paths on
+    /// again; `ls` erases row 0 whole and prints `/etc/hosts` there. The
+    /// drain floors row 0 not known (`Probes::floor_off`) before its erase,
+    /// which ends that fact with the text it was about, and the row lights.
+    /// The control: `ls` prints `/etc/passwd` over it with no erase, and
+    /// the floor leaves it dark. Named break: facts kept across an erase
+    /// (`Paths::forget_erased` doing nothing) -- the floor's fact stays
+    /// under `ls`'s text.
+    #[test]
+    fn a_line_floored_when_paths_come_on_and_then_erased_whole_lights() {
+        let run = |after: &'static [u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    Read {
+                        then: Then::Paths(Turned::Off),
+                        ..read(b"\x1b[m", 2)
+                    },
+                    Read {
+                        then: Then::Paths(Turned::On),
+                        ..read(b"/etc/passwd", 2)
+                    },
+                    read(after, 2),
+                ],
+            )
+        };
+        assert_eq!(run(b"\r\x1b[2K/etc/hosts"), [0]);
+        assert_eq!(
+            run(b"\r/etc/passwd"),
+            Vec::<usize>::new(),
+            "the control: no erase"
+        );
+    }
+
+    /// **A line erased whole leaves the lines written while paths were
+    /// off** (`Probes::cut`, `off`): rows 0 to 2 written by reads not kept
+    /// while paths were off; row 2 is erased whole, and `ls`'s text written
+    /// there after is named local; then the floor files what is left of
+    /// them not known (`Probes::floor_off`). Rows 0 and 1 are not known,
+    /// and row 2 is `ls`'s. No drain reaches this order today, so the cut
+    /// is a second guard: with paths on, `Probes::drain_recut` floors
+    /// before any part's erase, which leaves nothing to cut; with paths
+    /// off, the erasing read's own lines, every line it erased among them,
+    /// are written off again after the cut (`Probes::read_taken`,
+    /// `off_wrote`). Named break: no cut of `off` -- row 2 is floored not
+    /// known over `ls`'s text.
+    #[test]
+    fn a_line_erased_whole_leaves_the_lines_written_while_paths_were_off() {
+        let (mut pr, _) = probes(named_groups());
+        let mut paths = Paths::new(None, Forms::DEFAULT);
+        paths.set(Turned::On);
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        pr.off.push(LineSpan::of(line(0), line(2)));
+        erased_by(&mut pr, &mut paths, b"\x1b[3;1H\x1b[2K");
+        paths.written_under(
+            crate::paths::Seen::Named(Front::Local),
+            LineSpan::of(line(2), line(2)),
+        );
+        pr.floor_off(&mut paths);
+        assert_eq!(
+            [0, 1, 2].map(|n| paths.origin(line(n))),
+            [Origin::Unknown, Origin::Unknown, Origin::Local]
+        );
     }
 
     /// **The prompt after a quick command is the shell's, whoever wrote the
