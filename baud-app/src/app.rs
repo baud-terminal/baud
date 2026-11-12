@@ -5098,6 +5098,64 @@ mod notice_support_tests {
     }
 }
 
+#[cfg(test)]
+mod notice_no_center_tests {
+    use crate::notify::{Delivery, ExpiryWake, Focus, Platform, Visible, support};
+    use baud_core::{NoticeBudget, Owned, Term};
+    use baud_domain::{BytePos, ReadLen, WinSize};
+    use std::time::Instant;
+
+    /// **A window with no Notification Center shows no notice, so it arms
+    /// no expiry wake** (`notice_turn`'s `ExpiryWake::fired`, which runs
+    /// only on a turn news is owed, and no center means no listener to owe
+    /// it): its core is told nothing is delivered (`notice_support`), so a
+    /// program's notification with a `w` deadline is refused, nothing is
+    /// shown, and no deadline is there to wake for. The control: the
+    /// support a center not refused gives shows it, with its deadline, and
+    /// a wake to arm. Named break: support with no center -- "nothing to
+    /// wake for" fails.
+    #[test]
+    fn a_window_with_no_center_shows_no_notice() {
+        const WS: WinSize = WinSize {
+            ws_row: 24,
+            ws_col: 80,
+        };
+        let seq = b"\x1b]99;i=j:w=3000;Build\x1b\\";
+        let due = |s| {
+            let mut owned = Owned::new(&WS).with_notices(NoticeBudget::with_icon(1 << 16));
+            let mut t = Term::new(owned.storage(), &WS);
+            t.set_notice_support(s);
+            t.write_at(BytePos::ZERO, seq);
+            t.feed(BytePos::ZERO, ReadLen::from_index(seq.len()));
+            let mut icons = crate::notify::Icons::default();
+            let posted: Vec<_> = t
+                .notices()
+                .map(|n| crate::notify::Posted::of(&n, &mut icons))
+                .collect();
+            t.clear_notices();
+            let mut d: Delivery<Instant, String> = Delivery::new(
+                crate::config::Notifications::On,
+                &t,
+                baud_domain::ImageBudget { pixels: 1 << 10 },
+            );
+            let _ = d.mac(
+                &mut t,
+                posted,
+                (Focus::Unfocused, Visible::Covered),
+                Instant::now(),
+                "baud-1",
+                &mut crate::kitty_files::LocalFiles::new(),
+                |_| {},
+            );
+            ExpiryWake::new().schedule(d.shown.next_due())
+        };
+        let none = super::notice_support(None, crate::config::Notifications::On);
+        assert_eq!(due(none), None, "nothing to wake for");
+        let center = support(crate::config::Notifications::On, Platform::MacOs);
+        assert!(due(center).is_some(), "the control: a wake to arm");
+    }
+}
+
 /// The Dock tile's bar drawn again, when the windows' progress changed it.
 fn show_dock(
     t: &baud_present_macos::turn::Turn<'_>,
@@ -16272,6 +16330,9 @@ impl Driver {
         if owed == NoticesOwed::No {
             return;
         }
+        // After the flag: a window with no center has no listener to owe
+        // it, and arms no wake to forget, for it shows nothing
+        // (`a_window_with_no_center_shows_no_notice`).
         self.notice_wake.fired();
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::notice_turned();
