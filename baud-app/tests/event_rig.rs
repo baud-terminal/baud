@@ -1593,7 +1593,7 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
 /// must pass.
-const HOLDERS: &[&str] = &["FS-A5", "FS-A9"];
+const HOLDERS: &[&str] = &["FS-A5"];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2103,6 +2103,9 @@ enum Settles {
     /// **What a read lit goes dark with no tick polling for it**: RD not
     /// lit at the end, and at least one frame of the act drawn.
     Darkened,
+    /// **A job come to the front lights OH with no tick polling for it**:
+    /// OH lit at the end.
+    OffHook,
 }
 
 impl Settles {
@@ -2235,6 +2238,7 @@ impl Settles {
             Settles::DarkOnD => {
                 c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
             }
+            Settles::OffHook => c.lit.iter().any(|l| l == "OH"),
             Settles::Darkened => !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
@@ -2322,7 +2326,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 39] = [
+const FRAME_SITES: [FrameSite; 40] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2949,6 +2953,30 @@ const FRAME_SITES: [FrameSite; 39] = [
         expect: Settles::Darkened,
         state: RowState::Green,
     },
+    // **A job come to the front lights OH with no tick polling for it**
+    // (FS-A9): the shell's line editing and the tty's echo off, so the
+    // act is typed with no echo; the shell waits a second in its own
+    // `read`, the shell's group in front, while what the typing lit goes
+    // dark (a hold and a dwell of 200 ms each) and the link pauses, then
+    // starts `cat`, which waits on the tty in front, with no output. The process watch's fork and
+    // exec wake the window, whose turn reads the shell's record and finds
+    // a job in front; the lights, fed it later in the turn, ask for the
+    // tick that shows OH lit. Before, the job in front was read only at a
+    // tick, which nothing here owes.
+    FrameSite {
+        name: SiteName("a job come to the front lights OH with no tick polling for it"),
+        setup: r"set +o emacs +o vi; stty -echo; printf 'baud\033]52;c;!\007'",
+        act: "read -t 1 x; cat",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Untold,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(200),
+        expect: Settles::OffHook,
+        state: RowState::Green,
+    },
     // **A file link under a resting pointer previews with no tick**: a
     // `file:///tmp` link, which names no host, under the pointer the window
     // is told of, with the link paused. Pending, and judged on the lifted
@@ -3006,7 +3034,7 @@ const FRAME_SITES: [FrameSite; 39] = [
     // shell the `C` that names the command here (`Fact::Here`,
     // `Paths::written_here`) lifts it. The kept
     // arm's link is run by the polls a settle names, so it never ends
-    // paused: pending as held until FS-A9's landing, with FS-A5's, leaves
+    // paused: pending as held until FS-A5's landing, FS-A9's done, leaves
     // no poll to run it.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
@@ -3401,7 +3429,7 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
 fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     let counts = |link: &str, delivered: u32, lines: &str| {
         let text = format!(
-            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5,FS-A9 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=-\n{lines}"
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=-\n{lines}"
         );
         Counters::parse(&text).expect("the counts")
     };

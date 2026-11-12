@@ -13,12 +13,13 @@
 //!   `PROC_PIDFDSOCKETINFO`'s `soi_kind` `SOCKINFO_TCP` with `tcpsi_state`
 //!   `TSI_S_ESTABLISHED` (note AH 3.3, measured on a live ssh client).
 //!
-//! **Every tick, a few microseconds**: the shell's record each tick, and
-//! each ssh member's sockets, about a microsecond each; the group's
-//! members (7.96-8.16 us measured for this build, a walk of every
+//! **Every turn, a few microseconds**: the shell's record each turn of the
+//! window, and each ssh member's sockets, about a microsecond each; the
+//! group's members (7.96-8.16 us measured for this build, a walk of every
 //! process) are listed and named only when the group in front changes,
-//! when the process watch saw a fork, an exec or an exit, and once a
-//! second otherwise, which catches a member the watch did not report. A
+//! when the process watch saw a fork, an exec or an exit, and, while a job
+//! is in front, once a second otherwise, at a wake of its own, which
+//! catches a member the watch did not report (`Front::next_listing`). A
 //! read the kernel refuses -- a root ssh under `sudo`, a shell that
 //! exec'd a set-user-ID program -- is shown as such
 //! ([`Reading::Refused`]), never as a quiet program (note AH, 3.8 and Q8).
@@ -72,7 +73,7 @@ pub(crate) trait Procs {
     fn carrier(&mut self, pid: Pid) -> Got<Carrier>;
 }
 
-/// One light's reading at a tick.
+/// One light's reading at a turn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Reading {
     Dark,
@@ -94,9 +95,11 @@ pub(crate) const RELIST: Duration = Duration::from_secs(1);
 /// words, on a display that ticks every `tick`**: 070-14's 80 ms
 /// (`line_lamps::BOUND`) less
 /// what follows an ssh joining the group just after a listing, unheard by
-/// the process watch -- up to a tick until the tick that sees the listing
-/// due, up to a tick until the frame that draws the word, since the words
-/// are read after the tick's pump has drawn, and that frame's vsync. 30
+/// the process watch -- the listing taken at its wake
+/// ([`Front::next_listing`]) and up to a tick until the tick that gives
+/// the line the word, since the line is given its words at a tick, up to a
+/// tick until the frame that draws it, since the words are read after the
+/// tick's pump has drawn, and that frame's vsync. 30
 /// ms at 60 Hz and 55 ms at 120; below 37.5 Hz nothing is left, the group
 /// is listed every tick and the bound is not met, as the printer field's
 /// is not below 38.5 Hz (`print::indicator_every`). A listing is
@@ -105,7 +108,7 @@ pub(crate) fn line_relist(tick: Duration) -> Duration {
     crate::line_lamps::BOUND.saturating_sub(tick * 3)
 }
 
-/// **Who the readings are for at a tick**: no one, and nothing is read;
+/// **Who the readings are for at a turn**: no one, and nothing is read;
 /// the lights, wherever they are drawn, listed every [`RELIST`]; or DEC's
 /// line, listed every [`line_relist`] of the display's tick, with the
 /// lights or without them.
@@ -117,6 +120,15 @@ pub(crate) enum Reads {
 }
 
 impl Reads {
+    /// How long a listing stands for these reads: none read, none.
+    pub(crate) fn relist(self) -> Option<Duration> {
+        match self {
+            Reads::None => None,
+            Reads::Lights => Some(RELIST),
+            Reads::Line(every) => Some(every),
+        }
+    }
+
     /// For the lights at `lights`, shown or off, and the line showing the
     /// words or not, on a display that ticks every `tick`.
     pub(crate) fn of(
@@ -143,12 +155,22 @@ pub(crate) fn lamp(r: Reading) -> baud_core::ReadLamp {
 }
 
 /// **The two lights' sampler**: the group listed last, its ssh members,
-/// and when it was listed.
+/// when it was listed, and who was in front at the last read.
 pub(crate) struct Front {
     listed: Option<(Pid, HostTime)>,
     ssh: Vec<Pid>,
     members: Vec<Pid>,
     stale: Stale,
+    ahead: Ahead,
+}
+
+/// **Who the last read found in front**: a job other than the shell, the
+/// shell itself, or no one the read could name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Ahead {
+    Job,
+    Shell,
+    Unread,
 }
 
 impl Front {
@@ -158,6 +180,7 @@ impl Front {
             ssh: Vec::new(),
             members: Vec::new(),
             stale: Stale::No,
+            ahead: Ahead::Unread,
         }
     }
 
@@ -166,10 +189,25 @@ impl Front {
         self.stale = Stale::Yes;
     }
 
-    /// **OH's and CD's readings on a tick**, or none and no read at all
+    /// **When the group in front is next listed again by the clock**, which
+    /// the window schedules a wake for, so no tick polls for it: the
+    /// listing's [`Reads::relist`] after it was taken, and only while a job
+    /// other than the shell is in front, where a member may join that the
+    /// process watch did not report. At the prompt, none: a job that starts
+    /// there is a fork and an exec the watch reports, and a shell that takes
+    /// the terminal back writes its prompt. None while nothing is read.
+    pub(crate) fn next_listing(&self, reads: Reads) -> Option<HostTime> {
+        let every = reads.relist()?;
+        match (self.ahead, self.listed) {
+            (Ahead::Job, Some((_, at))) => Some(at.plus(every)),
+            _ => None,
+        }
+    }
+
+    /// **OH's and CD's readings at a turn**, or none and no read at all
     /// while neither the lights nor DEC's line's words are on, or there is
     /// no shell to read.
-    pub(crate) fn tick(
+    pub(crate) fn read(
         &mut self,
         reads: Reads,
         procs: &mut impl Procs,
@@ -194,8 +232,19 @@ impl Front {
     ) -> (Reading, Reading) {
         let g = match procs.groups(shell) {
             Got::Read(g) => g,
-            Got::Refused => return (Reading::Refused, Reading::Refused),
-            Got::Gone => return (Reading::Dark, Reading::Dark),
+            Got::Refused => {
+                self.ahead = Ahead::Unread;
+                return (Reading::Refused, Reading::Refused);
+            }
+            Got::Gone => {
+                self.ahead = Ahead::Unread;
+                return (Reading::Dark, Reading::Dark);
+            }
+        };
+        self.ahead = match (g.front > 0, g.front == g.own) {
+            (false, _) => Ahead::Unread,
+            (true, true) => Ahead::Shell,
+            (true, false) => Ahead::Job,
         };
         let oh = match g.front > 0 && g.front != g.own {
             true => Reading::Lit,
@@ -637,18 +686,18 @@ mod tests {
         };
         let mut s = Front::new();
         for ms in 0..50 {
-            assert_eq!(s.tick(off, &mut f, Some(SHELL), at(MS * (ms * 8))), None);
-            assert_eq!(s.tick(on, &mut f, None, at(MS * (ms * 8))), None);
+            assert_eq!(s.read(off, &mut f, Some(SHELL), at(MS * (ms * 8))), None);
+            assert_eq!(s.read(on, &mut f, None, at(MS * (ms * 8))), None);
         }
         assert_eq!(f.calls, Calls::default(), "nothing read");
         assert_eq!(
-            s.tick(on, &mut f, Some(SHELL), at(MS * 400)),
+            s.read(on, &mut f, Some(SHELL), at(MS * 400)),
             Some((Reading::Lit, Reading::Lit))
         );
         assert_ne!(f.calls, Calls::default(), "the control: on reads");
         let mut s = Front::new();
         assert_eq!(
-            s.tick(line, &mut f, Some(SHELL), at(MS * 400)),
+            s.read(line, &mut f, Some(SHELL), at(MS * 400)),
             Some((Reading::Lit, Reading::Lit)),
             "the line's words read with the lights off"
         );
@@ -684,7 +733,7 @@ mod tests {
                 };
                 let mut s = Front::new();
                 assert!(
-                    s.tick(reads, &mut f, Some(SHELL), at(Duration::ZERO))
+                    s.read(reads, &mut f, Some(SHELL), at(Duration::ZERO))
                         .is_some()
                 );
                 // 201 joins just after the first listing, with no fork
@@ -694,7 +743,7 @@ mod tests {
                 let mut read = None;
                 for k in 1..200u32 {
                     let now = tick * k;
-                    let r = s.tick(reads, &mut f, Some(SHELL), at(now));
+                    let r = s.read(reads, &mut f, Some(SHELL), at(now));
                     if r.map(|r| r.1) == Some(Reading::Lit) {
                         read = Some(now);
                         break;
@@ -769,6 +818,76 @@ mod tests {
         f.groups = front(300);
         s.sample(&mut f, SHELL, at(MS * 1024), RELIST);
         assert_eq!(f.calls.members, Tally::of(4), "a new group in front");
+    }
+
+    /// **The group is listed again by the clock only while a job is in
+    /// front** (FS-A9), at the wake the window schedules for it: none at
+    /// the prompt, the shell's own group in front; a job's group listed at
+    /// `t`, again at `t` and the relist, the line's or the lights' second;
+    /// none with nothing read, with no group in front, or with the shell's
+    /// record refused. Perturbation: a wake whoever is in front -- the
+    /// prompt's fails.
+    #[test]
+    fn the_regroup_wake_runs_only_while_a_job_is_in_front() {
+        let mut f = Fake {
+            groups: front(SHELL),
+            members: vec![(SHELL, vec![SHELL]), (200, vec![200])],
+            ..Fake::default()
+        };
+        let mut s = Front::new();
+        assert_eq!(s.next_listing(Reads::Lights), None, "nothing read yet");
+        s.sample(&mut f, SHELL, at(Duration::ZERO), RELIST);
+        assert_eq!(s.next_listing(Reads::Lights), None, "the prompt");
+        f.groups = front(200);
+        let t = at(MS * 10);
+        s.sample(&mut f, SHELL, t, RELIST);
+        assert_eq!(s.next_listing(Reads::Lights), Some(t.plus(RELIST)));
+        let every = line_relist(Duration::from_micros(16_667));
+        assert_eq!(s.next_listing(Reads::Line(every)), Some(t.plus(every)));
+        assert_eq!(s.next_listing(Reads::None), None, "nothing read");
+        f.groups = front(0);
+        s.sample(&mut f, SHELL, at(MS * 20), RELIST);
+        assert_eq!(s.next_listing(Reads::Lights), None, "no group in front");
+        f.groups = front(200);
+        s.sample(&mut f, SHELL, at(MS * 30), RELIST);
+        assert!(s.next_listing(Reads::Lights).is_some(), "the control");
+        f.groups = Some(Got::Refused);
+        s.sample(&mut f, SHELL, at(MS * 40), RELIST);
+        assert_eq!(s.next_listing(Reads::Lights), None, "refused");
+    }
+
+    /// **A missed ssh is drawn on DEC's line within 80 ms on the wake
+    /// path**: listed at its wake ([`Front::next_listing`]), it is lit
+    /// there, then up to a tick to the tick that gives the line its word,
+    /// a tick to the frame that draws it and its vsync; 070-14's bound at
+    /// 60, 90 and 120 Hz. Perturbation: list at the lights' second under
+    /// the line -- every rate fails.
+    #[test]
+    fn the_wake_lists_a_missed_ssh_within_80_ms() {
+        let us = Duration::from_micros;
+        for tick in [us(16_667), us(8_333), us(11_111)] {
+            let reads = Reads::Line(line_relist(tick));
+            let mut f = Fake {
+                groups: front(200),
+                members: vec![(200, vec![200])],
+                ssh: vec![201],
+                up: vec![201],
+                ..Fake::default()
+            };
+            let mut s = Front::new();
+            assert!(
+                s.read(reads, &mut f, Some(SHELL), at(Duration::ZERO))
+                    .is_some()
+            );
+            f.members = vec![(200, vec![200, 201])];
+            let joined = us(1);
+            let wake = s.next_listing(reads).expect("a job in front");
+            let r = s.read(reads, &mut f, Some(SHELL), wake).expect("read");
+            assert_eq!(r.1, Reading::Lit, "{tick:?}: listed at the wake");
+            let read = wake.since(at(Duration::ZERO)).expect("after");
+            let shown = read + tick * 3 - joined;
+            assert!(shown <= Duration::from_millis(80), "{tick:?}: {shown:?}");
+        }
     }
 
     /// **The kernel's answers, against processes this test made**: the

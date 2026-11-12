@@ -4975,6 +4975,8 @@ struct Driver {
     /// OH's and CD's readings as last taken, which the lights and DEC's
     /// line are fed on every turn.
     front_read: Option<(crate::front::Reading, crate::front::Reading)>,
+    /// The wake for the job in front's next listing (`front_turn`).
+    front_wake: WakeOnce,
     /// SYN's reading of the synchronised update at the last tick, so one
     /// opened and closed between two ticks still lights it (`bell.rs`).
     synced: crate::bell::Synced,
@@ -7320,6 +7322,35 @@ mod alt_window_tests {
         assert_eq!(wait(Some(at(300)), at(400)), Some(Duration::ZERO), "past");
         assert_eq!(
             wait(Some(at(1400)), at(400)),
+            Some(Duration::from_secs(1)),
+            "a later one"
+        );
+    }
+
+    /// **The job in front's next listing is scheduled once** (`WakeOnce`,
+    /// `front_turn`): no listing owed, no wake; a new one, the wait to it;
+    /// the same one again, nothing more; one already past, at once; a later
+    /// one, its own wait. Perturbation: schedule every turn -- the third
+    /// fails.
+    #[test]
+    fn the_front_listing_is_scheduled_once() {
+        use super::{HostTime, WakeOnce};
+        use std::time::Duration;
+        let at = |ms| HostTime::ZERO.plus(Duration::from_millis(ms));
+        let mut w = WakeOnce::default();
+        assert_eq!(w.schedule(None, at(100)), None, "no listing owed");
+        assert_eq!(
+            w.schedule(Some(at(1100)), at(100)),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(w.schedule(Some(at(1100)), at(200)), None, "scheduled once");
+        assert_eq!(
+            w.schedule(Some(at(1200)), at(1300)),
+            Some(Duration::ZERO),
+            "past"
+        );
+        assert_eq!(
+            w.schedule(Some(at(2300)), at(1300)),
             Some(Duration::from_secs(1)),
             "a later one"
         );
@@ -12772,6 +12803,10 @@ impl Driver {
         // The printed paths' worker, on every turn: a batch owed goes once
         // it is due, at a wake scheduled for its deadline (`paths_wake`).
         self.paths_turn();
+        // OH's and CD's readings of the job in front, on every turn: the
+        // process watch's fork, exec or exit, the output a shell that takes
+        // the terminal back writes, and the wake for the next listing.
+        self.front_turn();
         if let Trigger::Tick = trigger {
             self.notice_turn();
             // The indicator line's printer field, read at the pace 070-14's
@@ -14741,6 +14776,7 @@ impl Opening {
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             front_read: None,
+            front_wake: WakeOnce::default(),
             synced: crate::bell::Synced::new(),
             reload: None,
             notice,
@@ -15274,7 +15310,7 @@ impl Driver {
     fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
         use crate::frames::Holder;
         Holder::ALL.into_iter().filter(|h| match h {
-            Holder::A5Notices | Holder::A9Front => true,
+            Holder::A5Notices => true,
         })
     }
 
@@ -17769,6 +17805,33 @@ impl Driver {
         a.took
     }
 
+    /// **OH's and CD's readings of the job in front, on every turn** while the
+    /// lights or DEC's line's words are on (`front.rs`): the shell's record
+    /// read, 0.16 us, and the group listed when the process watch saw a
+    /// fork, an exec or an exit, when another group is in front, and at the
+    /// wake scheduled for the next listing while a job is in front
+    /// (`Front::next_listing`, `WakeOnce`). Whoever takes or gives back the
+    /// terminal does so on a turn: a job starts and ends with a fork, an
+    /// exec and an exit the watch reports, and a shell that takes it back
+    /// writes its prompt. The lights and the line are fed the readings later
+    /// in the turn (`lights_turn`), which asks for the tick that shows a
+    /// change (`Deadline::Lights`), a paused window's included.
+    fn front_turn(&mut self) {
+        let now = host_now();
+        let clause = crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale);
+        let line = crate::line_lamps::shown(self.app.status_line_lights, &self.app.term, clause);
+        let reads = crate::front::Reads::of(self.app.activity_lights, line, self.app.interval);
+        self.front_read = self
+            .front
+            .read(reads, &mut self.procs, self.app.pty.child(), now);
+        if let Some(wait) = self
+            .front_wake
+            .schedule(self.front.next_listing(reads), now)
+        {
+            self.wake_at(Instant::now() + wait);
+        }
+    }
+
     /// **The activity lights' states, fed on every turn** (`lights.rs`): SYN
     /// at each sampling of the core, its reading taken whether or not the
     /// lights show, so showing them again lights nothing opened while they
@@ -17836,19 +17899,9 @@ impl Driver {
             return;
         };
         let setting = self.app.activity_lights;
-        // DEC's line: whether it shows the words now, at the cell drawn.
-        let clause = crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale);
-        let line = crate::line_lamps::shown(self.app.status_line_lights, &self.app.term, clause);
-        // OH and CD: the job in front, read only while the lights or the
-        // line's words are on, and listed often enough for the line's 80 ms.
-        let reads = crate::front::Reads::of(setting, line, self.app.interval);
-        let shell = self.app.pty.child();
-        self.front_read = self.front.tick(reads, &mut self.procs, shell, now);
-        // OH and CD held while what they read holds, and the line's words,
-        // as they are at this tick; SYN, FAX and CS are fed on every turn
-        // (`lights_turn`).
-        self.hold_front(now);
-        self.give_line_words(clause);
+        // What the lights show is fed on every turn: OH and CD read of the
+        // job in front (`front_turn`), SYN, FAX and CS, and DEC's line's
+        // words (`lights_turn`); the tick steps them.
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(now, pace);
         self.record_lamps_due();
@@ -22893,6 +22946,29 @@ impl PathsWake {
     #[cfg_attr(not(any(test, feature = "effect-probe")), allow(dead_code))]
     fn pending(&self) -> bool {
         self.outstanding.load(std::sync::atomic::Ordering::Acquire) > 0
+    }
+}
+
+/// **The wake scheduled for the job in front's next listing**
+/// (`front_turn`): the moment it was scheduled for, so a turn that finds
+/// the same deadline schedules nothing more. Unlike [`PathsWake`] it
+/// counts nothing posted: no door waits on the front's wakes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct WakeOnce {
+    scheduled: Option<HostTime>,
+}
+
+impl WakeOnce {
+    /// **The wait to schedule for `next`**, the listing's next deadline, at
+    /// `now`: none with no deadline or one already scheduled; else the time
+    /// to it, zero for one already past, and it is kept as scheduled.
+    fn schedule(&mut self, next: Option<HostTime>, now: HostTime) -> Option<Duration> {
+        let at = next?;
+        if self.scheduled == Some(at) {
+            return None;
+        }
+        self.scheduled = Some(at);
+        Some(at.since(now).unwrap_or(Duration::ZERO))
     }
 }
 

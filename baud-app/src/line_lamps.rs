@@ -259,8 +259,8 @@ mod tests {
     }
 
     /// **Both drivers give the line its words at each step**: macOS on
-    /// every turn and at the tick after its pump, which reads OH and CD for
-    /// the line with the lights off too (`give_line_words`), and the Linux turn after its reads, its flush and
+    /// every turn, which reads OH and CD for the line with the lights off
+    /// too (`front_turn`, `give_line_words`), and the Linux turn after its reads, its flush and
     /// the lights' own line, before it presents, OH read from who is in
     /// front while the words show and the wait bounded for it, CD
     /// unknown. Read off the files, as the lights' wiring is.
@@ -273,15 +273,11 @@ mod tests {
             let rest = &src[at..];
             rest.split_once("\n    }\n").map_or(rest, |(b, _)| b)
         };
-        let mac = body(
-            MAC,
-            concat!("    fn show_lights(&mut self, ", "target: f64) {"),
-        );
+        let mac = body(MAC, concat!("    fn front_", "turn(&mut self) {"));
         for want in [
             "crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale)",
             "crate::line_lamps::shown(self.app.status_line_lights, &self.app.term, clause)",
-            "crate::front::Reads::of(setting, line, self.app.interval)",
-            "self.give_line_words(clause);",
+            "crate::front::Reads::of(self.app.activity_lights, line, self.app.interval)",
         ] {
             assert!(mac.contains(want), "{want}");
         }

@@ -1294,7 +1294,8 @@ mod tests {
     /// driver steps the clocks on the display link's tick at the motion
     /// preference's pace and shows them through this module at the glow
     /// the Dim Flashing Lights setting gives (`glow`); the tick reads
-    /// OH and CD only through `Front::tick` and holds them as states, and
+    /// every turn reads OH and CD only through `Front::read`, scheduling
+    /// the next listing's wake (`front_turn`), and holds them as states;
     /// every turn feeds SYN from the core's state, holds FAX and CS as
     /// states and gives DEC's line its words (`lights_turn`), the lights
     /// asking for the tick that steps them (`Deadline::Lights`); a drain that brought bytes gives RD its latest read's
@@ -1318,11 +1319,16 @@ mod tests {
             "the tick shows them"
         );
         let show = body(concat!("    fn show_lights(&mut self, ", "target: f64) {"));
+        let front = body(concat!("    fn front_", "turn(&mut self) {"));
         for want in [
-            "crate::front::Reads::of(setting, line, self.app.interval)",
-            "self.front_read = self.front.tick(reads, &mut self.procs, shell, now);",
-            "self.hold_front(now);",
-            "self.give_line_words(clause);",
+            "crate::front::Reads::of(self.app.activity_lights, line, self.app.interval)",
+            ".read(reads, &mut self.procs, self.app.pty.child(), now);",
+            ".schedule(self.front.next_listing(reads), now)",
+        ] {
+            assert!(front.contains(want), "{want}\n{front}");
+        }
+        assert!(!show.contains("self.front."), "no read at the tick\n{show}");
+        for want in [
             "crate::access::lights_pace(self.app.motion)",
             "let glow = crate::lights::glow(self.app.flashing);",
             "look: self.app.renderer.lights_look(glow),",
@@ -1351,6 +1357,7 @@ mod tests {
         let pump = body(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
         for want in [
             "self.lights_turn();",
+            "self.front_turn();",
             "self.app.activity.seen(Led::Rd, last.at);",
             "self.app.activity.seen(Led::Hs, chunk.at);",
             "baud_render::lights::full(&chunk.bytes)",
