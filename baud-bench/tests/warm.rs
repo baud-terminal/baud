@@ -480,44 +480,33 @@ fn the_watcher_builds_what_the_gate_builds() {
             "noJob does not refuse without {var}: {no_job}"
         );
     }
-    // cargo-watch names what it watches: left on the root it walks the whole
-    // tree, `target/` included, for ignore files and never starts a run.
+    // cargo-watch watches the whole repository, and its walk never enters the
+    // agents' sessions, devenv's state, git or a build folder: a `target/`
+    // in the tree held its first walk past four minutes.
     assert!(
-        processes.contains("cargo watch --watch-when-idle -d 2 ${watchPaths} -s"),
+        processes.contains("cargo watch --watch-when-idle -d 5 ${watchIgnores} -s"),
         "{processes}"
     );
-    let paths = nix
-        .split_once("watchPaths = lib.concatMapStringsSep \" \" (p: \"-w ${p}\") [")
-        .expect("devenv.nix binds watchPaths")
+    assert!(
+        !nix.contains("watchPaths"),
+        "cargo-watch names no paths: it watches the repository"
+    );
+    assert!(!processes.contains(" -w "), "{processes}");
+    let ignores = nix
+        .split_once(
+            "watchIgnores = lib.concatMapStringsSep \" \" (p: \"-i ${lib.escapeShellArg p}\") [",
+        )
+        .expect("devenv.nix binds watchIgnores")
         .1
         .split_once("];")
-        .expect("watchPaths ends")
+        .expect("watchIgnores ends")
         .0;
-    let paths: Vec<&str> = paths
+    let ignores: Vec<&str> = ignores
         .lines()
         .map(|l| l.trim().trim_matches('"'))
         .filter(|l| !l.is_empty())
         .collect();
-    assert_eq!(
-        paths,
-        [
-            "baud-core",
-            "baud-domain",
-            "baud-tablegen",
-            "baud-isa",
-            "baud-isa-aarch64",
-            "baud-isa-x86-64",
-            "Cargo.toml",
-            "Cargo.lock",
-            ".config/nextest.toml",
-        ]
-    );
-    for p in &paths {
-        assert!(
-            repo.join(p).exists(),
-            "watchPaths names {p}, which is not in the tree"
-        );
-    }
+    assert_eq!(ignores, [".claude/", ".devenv*", ".git/", "target*"]);
     assert!(nix.contains("\n  scripts.warm-run.exec = watch;\n"));
     let bound = |name: &str| {
         nix.lines()
