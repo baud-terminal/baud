@@ -933,6 +933,12 @@ struct App {
     /// What this window was last told of the permission, so each window
     /// hears the answer once (`Center::news`).
     told: baud_present_macos::notify::Told,
+    /// **This window woken with the center's news** -- a click, a refusal,
+    /// the permission's answer, the delivered list's -- while it is open
+    /// (`notify::listen`), each marked owed first, so `notice_turn` takes
+    /// each on that turn and a turn with none owed does no notice work.
+    /// Dropped with the window, which takes its wake out.
+    notice_listening: Option<baud_present_macos::notify::Listening>,
     /// iTerm2's fireworks: the shows the requests started (`fireworks.rs`).
     fireworks: crate::fireworks::Fireworks,
     /// When Notification Center's list was asked for a held `p=alive`
@@ -1797,6 +1803,9 @@ impl App {
             pictures: crate::kitty_files::LocalFiles::new(),
             checker: crate::notify::Checker::new(move || waker.wake(), crate::notify::attaches),
             fireworks,
+            notice_listening: center
+                .as_ref()
+                .map(|_| baud_present_macos::notify::listen(move || waker.wake())),
             center,
             told: baud_present_macos::notify::Told::NOTHING,
             delivered_asked: None,
@@ -4823,6 +4832,13 @@ fn palette_switch(
     }
 }
 
+/// **Whether a wake was posted** to the main queue (`Driver::wake_holding`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scheduled {
+    Yes,
+    No,
+}
+
 /// The view's responder, with the view it reports to.
 struct Driver {
     app: App,
@@ -4952,6 +4968,8 @@ struct Driver {
     title_paced: TitlePaced,
     /// The wake scheduled for the printed paths' worker (`paths_turn`).
     paths_wake: PathsWake,
+    /// The wake scheduled for the notices' next timed step (`notice_schedule`).
+    notice_wake: crate::notify::ExpiryWake<Instant>,
     home: Option<Vec<u8>>,
     /// Whether a key hid the pointer, and what the core said when it was
     /// last asked (`hide.rs`).
@@ -11596,7 +11614,7 @@ mod motion_tests {
             .map(|(arm, _)| arm)
             .expect("the tick arm");
         assert!(
-            tick.contains(concat!("self.notice_", "turn();")),
+            tick.contains(concat!("crate::print::Ask::", "Indicator")),
             "the control: {tick}"
         );
         assert!(!tick.contains(concat!("self.poll_", "motion();")), "{tick}");
@@ -11669,11 +11687,11 @@ mod motion_tests {
         const SRC: &str = include_str!("app.rs");
         let tick = SRC
             .split_once(concat!("if let Trigger::", "Tick = trigger {"))
-            .and_then(|(_, rest)| rest.split_once('}'))
+            .and_then(|(_, rest)| rest.split_once("\n        }\n"))
             .map(|(arm, _)| arm)
             .expect("the tick arm");
         assert!(
-            tick.contains(concat!("self.notice_", "turn();")),
+            tick.contains(concat!("crate::print::Ask::", "Indicator")),
             "the control: {tick}"
         );
         assert!(
@@ -12807,8 +12825,12 @@ impl Driver {
         // process watch's fork, exec or exit, the output a shell that takes
         // the terminal back writes, and the wake for the next listing.
         self.front_turn();
+        // What the notification center said, on every turn: its callbacks
+        // wake the window once what they heard is stored (`notify::listen`),
+        // and a notice's timed steps on a wake of their own
+        // (`notice_schedule`).
+        self.notice_turn();
         if let Trigger::Tick = trigger {
-            self.notice_turn();
             // The indicator line's printer field, read at the pace 070-14's
             // 80 ms needs at this display's rate (`print::indicator_every`).
             if self.app.term.status_type() == baud_core::StatusType::Indicator {
@@ -13002,6 +13024,17 @@ impl Driver {
         }
         // A `p=alive` the feed stopped at: Notification Center's list asked.
         self.notices_alive_check();
+        // One the wait's end answered, for the frame rig (`reads::notice_wait`).
+        #[cfg(feature = "effect-probe")]
+        if std::mem::replace(
+            &mut self.app.pace.notices_bound,
+            crate::reads::NoticesBound::No,
+        ) == crate::reads::NoticesBound::Answered
+        {
+            baud_present_macos::probe::set_alive_answered(
+                baud_present_macos::probe::AliveAnswered::Bound,
+            );
+        }
         // Every turn that fed the core, counted for the frame rig: what a
         // read of the hover per feed would equal.
         #[cfg(feature = "effect-probe")]
@@ -13340,6 +13373,8 @@ impl Driver {
         // what this turn's output wrote.
         self.paths_schedule();
         self.record_lamps_due();
+        // The notices' next timed step, after this turn took its own.
+        self.notice_schedule();
     }
 }
 
@@ -14765,6 +14800,7 @@ impl Opening {
             title_waits: TitleWaits::No,
             title_paced: TitlePaced::default(),
             paths_wake: PathsWake::default(),
+            notice_wake: crate::notify::ExpiryWake::new(),
             home: std::env::var_os("HOME")
                 .map(|h| std::os::unix::ffi::OsStrExt::as_bytes(h.as_os_str()).to_vec()),
             hiding,
@@ -15306,12 +15342,11 @@ impl Driver {
 
     /// **The polls still the tick's** (`frames::Holder`): while any is
     /// held the link runs, so the poll keeps its pace. Each row that moves
-    /// a poll to its event takes its arm out.
+    /// a poll to its event takes its arm out; FS-A5's was the last, so
+    /// none is held.
     fn held(&self) -> impl Iterator<Item = crate::frames::Holder> + '_ {
         use crate::frames::Holder;
-        Holder::ALL.into_iter().filter(|h| match h {
-            Holder::A5Notices => true,
-        })
+        Holder::ALL.into_iter().filter(|h| match *h {})
     }
 
     /// **The display link paused**: and the tick clock forgotten, so the
@@ -15816,7 +15851,7 @@ impl Driver {
         let now = host_now();
         let next = self.app.probes.deadline(&self.app.paths, now);
         if let Some((wait, posted)) = self.paths_wake.schedule(next, now) {
-            self.wake_holding(Instant::now() + wait, posted);
+            let _ = self.wake_holding(Instant::now() + wait, posted);
         }
         self.record_paths_due(next);
     }
@@ -16218,13 +16253,28 @@ impl Driver {
         }
     }
 
-    /// **What the notification center said since the last tick**: the
-    /// answer to the permission, once to this window, the posts of this
-    /// window's it refused, and the clicks -- reported to the program where
-    /// it asked, and the window brought forward where `a` says focus. What
-    /// the answer allowed was sent on the answer's own turn.
+    /// **What the notification center said, on the turn its news woke**:
+    /// the answer to the permission, once to this window, the posts of this
+    /// window's it refused, the clicks -- reported to the program where it
+    /// asked, and the window brought forward where `a` says focus -- the
+    /// delivered list a held `p=alive` asked for, and a `w` passed. What the
+    /// answer allowed was sent on the answer's own turn. **Nothing is done
+    /// on a turn no news is owed**: each producer marks it owed before its
+    /// wake (`notify::listen`, `Listening::owe`), and a key's or a read's
+    /// turn reads that one flag and returns, before any lock or allocation.
     fn notice_turn(&mut self) {
-        use baud_present_macos::notify::{DEFAULT_ACTION, Permission};
+        use baud_present_macos::notify::{DEFAULT_ACTION, NoticesOwed, Permission};
+        let owed = self
+            .app
+            .notice_listening
+            .as_ref()
+            .map_or(NoticesOwed::No, baud_present_macos::notify::Listening::take);
+        if owed == NoticesOwed::No {
+            return;
+        }
+        self.notice_wake.fired();
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::notice_turned();
         let Some(c) = &self.app.center else {
             return;
         };
@@ -16271,12 +16321,27 @@ impl Driver {
         // macOS says one closed, so the ones it no longer holds are
         // forgotten before the question is answered.
         let now = Instant::now();
-        self.app.notes.mac_expired(&mut self.app.term, now);
+        let expired = self.app.notes.mac_expired(&mut self.app.term, now);
+        #[cfg(feature = "effect-probe")]
+        if expired == crate::notify::Went::Some {
+            baud_present_macos::probe::expired();
+        }
+        #[cfg(not(feature = "effect-probe"))]
+        let _ = expired;
         if let Some(present) = self.app.os.take_delivered() {
             let asked = self.app.delivered_asked.take();
-            self.app
+            let answered = self
+                .app
                 .notes
                 .mac_listed(&mut self.app.term, &present, asked);
+            #[cfg(feature = "effect-probe")]
+            if answered == crate::notify::Answered::Yes {
+                baud_present_macos::probe::set_alive_answered(
+                    baud_present_macos::probe::AliveAnswered::List,
+                );
+            }
+            #[cfg(not(feature = "effect-probe"))]
+            let _ = answered;
         }
         for click in c.clicks(whose) {
             let Some(token) = self.app.notes.shown.token(&click.id) else {
@@ -16333,6 +16398,28 @@ impl Driver {
                 self.app.delivered_asked = Some(now);
                 let _ = self.app.os.ask(crate::os_effect::OsEffect::AskDelivered);
             }
+        }
+    }
+
+    /// **A notice's `w` deadline, its wake scheduled once at a turn's end**
+    /// (`ExpiryWake`): at the earliest deadline a shown notice has
+    /// (`Shown::next_due`), again only when a post brings an earlier one,
+    /// that one has gone, or its wake ran with it still there (`fired`, in
+    /// `notice_turn`), and none with none; a wake not posted is not armed.
+    /// The wake marks the window's news owed and itself run in its callback
+    /// (`Listening::owe`, `Ran`), so its turn tells the core the notice went
+    /// (`notice_turn`, `mac_expired`). It changes nothing drawn, so it is the
+    /// window's own wake, not a deadline of the display link's.
+    fn notice_schedule(&mut self) {
+        let Some(at) = self.notice_wake.schedule(self.app.notes.shown.next_due()) else {
+            return;
+        };
+        let due = NoticeDue {
+            owe: self.app.notice_listening.as_ref().map(|l| l.owe()),
+            ran: self.notice_wake.arm(at),
+        };
+        if self.wake_holding(at, due) == Scheduled::No {
+            self.notice_wake.disarm();
         }
     }
 
@@ -16574,13 +16661,14 @@ impl Driver {
     /// A turn of `pump` at `at`, from the main queue: the settle's end,
     /// reached whether or not the display link is running.
     fn wake_at(&self, at: Instant) {
-        self.wake_holding(at, ());
+        let _ = self.wake_holding(at, ());
     }
 
     /// [`Driver::wake_at`], with `held` let go in the callback before the
-    /// wake ([`wake_holding`]).
-    fn wake_holding<T: Held>(&self, at: Instant, held: T) {
-        wake_holding(self.app.waker, at, held);
+    /// wake ([`wake_holding`]), and whether it was posted, which the
+    /// notices' expiry wake arms by (`notice_schedule`).
+    fn wake_holding<T: Held>(&self, at: Instant, held: T) -> Scheduled {
+        wake_holding(self.app.waker, at, held)
     }
 
     /// **The config read again, and what it changed applied** (`live.rs`):
@@ -22787,15 +22875,22 @@ fn judged_by<'n>(
 /// the wake and deciding whether there is one, or with the callback when
 /// it is not posted. The printed paths' worker counts its wakes still to
 /// come by what it holds (`Posted`), so the count holds each until its
-/// turn is posted; a frame's bound is its own wake (`FrameDue`).
-fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) {
+/// turn is posted; a frame's bound is its own wake (`FrameDue`). Says
+/// whether it was posted, which the notices' expiry wake arms by
+/// (`NoticeDue`).
+fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) -> Scheduled {
     let after = at.saturating_duration_since(Instant::now());
-    if let Ok(when) = dispatch2::DispatchTime::try_from(after) {
-        let _ = dispatch2::DispatchQueue::main().after(when, move || {
-            if held.let_go(waker) == Wakes::Yes {
-                waker.wake();
-            }
-        });
+    let Ok(when) = dispatch2::DispatchTime::try_from(after) else {
+        return Scheduled::No;
+    };
+    let posted = dispatch2::DispatchQueue::main().after(when, move || {
+        if held.let_go(waker) == Wakes::Yes {
+            waker.wake();
+        }
+    });
+    match posted {
+        Ok(()) => Scheduled::Yes,
+        Err(_) => Scheduled::No,
     }
 }
 
@@ -22825,6 +22920,25 @@ impl Held for () {
 impl Held for Posted {
     fn let_go(self, _: Waker) -> Wakes {
         drop(self);
+        Wakes::Yes
+    }
+}
+
+/// **A notice's expiry wake, as its callback lets it go**
+/// (`Driver::notice_schedule`): the window's news marked owed
+/// (`Listening::owe`), none for a window with no center, then the wake
+/// marked run (`notify::Ran`), before the window is woken, whose turn takes
+/// the news and tells the core the notice went.
+struct NoticeDue {
+    owe: Option<baud_present_macos::notify::Owe>,
+    ran: crate::notify::Ran,
+}
+
+impl Held for NoticeDue {
+    fn let_go(self, _: Waker) -> Wakes {
+        let NoticeDue { owe, ran } = self;
+        drop(owe);
+        drop(ran);
         Wakes::Yes
     }
 }

@@ -1242,6 +1242,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The paths asked about before the act, whose texts are not its.
     let asked_before = probe::paths_asked_texts().len();
     let (held, batches) = (probe::paths_held(), probe::paths_batches());
+    let expired = probe::expirations();
+    let notice_turns = probe::notice_turns();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -1266,7 +1268,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={} expired={} notices={} alive={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1363,6 +1365,13 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                     true => "-".to_owned(),
                     false => lit.join(","),
                 }
+            },
+            probe::expirations().0.saturating_sub(expired.0),
+            probe::notice_turns().0.saturating_sub(notice_turns.0),
+            match probe::alive_answered() {
+                probe::AliveAnswered::Unanswered => "unanswered",
+                probe::AliveAnswered::List => "list",
+                probe::AliveAnswered::Bound => "bound",
             },
         );
         // Each path asked about since the settle, on a line of its own: a
@@ -1575,6 +1584,19 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         RigWindow::Settings => baud_present_macos::settings::rig_post_settings(),
         RigWindow::Shown => probe::set_shown(probe::Shown::Yes),
         RigWindow::ShownFirst => {}
+        // The act's notice expired, its `w` passed, on a turn of the
+        // window's own: waited for through the probe's door, within the
+        // bound.
+        RigWindow::Expired => {
+            let start = Instant::now();
+            while probe::expirations() == expired && start.elapsed() < BOUND {
+                probe::pass(0.01);
+            }
+            if probe::expirations() == expired {
+                println!("the notice never expired");
+                return std::process::ExitCode::from(1);
+            }
+        }
         // The stalled lookup answered with a name `gethostname` does not
         // give, so the read adds one and its names are owed to the links.
         RigWindow::HostNamed => {

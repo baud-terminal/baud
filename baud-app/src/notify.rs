@@ -561,7 +561,6 @@ impl<T: Moment, P: Clone + PartialEq> Shown<T, P> {
     }
 
     /// The nearest deadline, for the driver's wait.
-    #[cfg(any(target_os = "linux", test))]
     pub fn next_due(&self) -> Option<T> {
         self.alive.iter().filter_map(|a| a.due).min()
     }
@@ -1149,13 +1148,18 @@ impl<T: Moment> Delivery<T, String> {
 
 #[cfg(any(target_os = "macos", test))]
 impl<T: Moment> Delivery<T, String> {
-    /// **The ones whose `w` has passed, forgotten by the core**: the
-    /// removal itself is scheduled when it is posted (`MacCall::Expire`),
-    /// and nothing on macOS says it happened.
-    pub fn mac_expired(&mut self, term: &mut Term<'_>, now: T) {
-        for (token, _) in self.shown.due(now) {
-            self.shown.gone(token);
-            term.notice_dropped(token);
+    /// **The ones whose `w` has passed, forgotten by the core**, and whether
+    /// any was: the removal itself is scheduled when it is posted
+    /// (`MacCall::Expire`), and nothing on macOS says it happened.
+    pub fn mac_expired(&mut self, term: &mut Term<'_>, now: T) -> Went {
+        let due = self.shown.due(now);
+        for (token, _) in &due {
+            self.shown.gone(*token);
+            term.notice_dropped(*token);
+        }
+        match due.is_empty() {
+            true => Went::Nothing,
+            false => Went::Some,
         }
     }
 
@@ -1172,12 +1176,22 @@ impl<T: Moment> Delivery<T, String> {
     /// no longer holds forgotten ([`Delivery::mac_absent`]), and then a
     /// `p=alive` the core holds answered from what is left
     /// (`Term::answer_notices_alive`), so a notification dismissed before
-    /// the question is not named in its answer.
-    pub fn mac_listed(&mut self, term: &mut Term<'_>, present: &[String], asked: Option<T>) {
+    /// the question is not named in its answer. Says whether one was.
+    pub fn mac_listed(
+        &mut self,
+        term: &mut Term<'_>,
+        present: &[String],
+        asked: Option<T>,
+    ) -> Answered {
         if let Some(asked) = asked {
             self.mac_absent(term, present, asked);
         }
+        let owed = term.notices_alive_asked();
         term.answer_notices_alive();
+        match owed {
+            baud_core::NoticeAsked::Owed => Answered::Yes,
+            baud_core::NoticeAsked::No => Answered::No,
+        }
     }
 
     /// Forget the posts the user did not allow, whose ids are `ids`.
@@ -1187,6 +1201,95 @@ impl<T: Moment> Delivery<T, String> {
                 self.shown.gone(token);
                 term.notice_dropped(token);
             }
+        }
+    }
+}
+
+/// Whether any notice went ([`Delivery::mac_expired`]).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Went {
+    Nothing,
+    Some,
+}
+
+/// Whether Notification Center's list answered a held `p=alive`
+/// ([`Delivery::mac_listed`]).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Answered {
+    Yes,
+    No,
+}
+
+/// **The wake scheduled for a notice's `w` deadline** (the macOS driver's
+/// `notice_schedule`): the deadline it was armed for and whether that
+/// wake has run ([`Ran`]), so a turn that finds the same earliest deadline
+/// arms nothing more while the wake is still to come, and arms it again
+/// once it ran -- however early -- with the deadline still there.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+pub struct ExpiryWake<T> {
+    armed: Option<(T, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
+}
+
+/// **An expiry wake's run**, marked when it is let go: in the wake's
+/// callback, before the turn it posts, or at once when the wake is not
+/// posted ([`ExpiryWake::arm`]).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug)]
+pub struct Ran(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+#[cfg(any(target_os = "macos", test))]
+impl Drop for Ran {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<T: Copy + PartialEq> ExpiryWake<T> {
+    pub fn new() -> ExpiryWake<T> {
+        ExpiryWake { armed: None }
+    }
+
+    /// **The moment to wake at for `next`**, the earliest deadline a shown
+    /// notice has: none with none, nor for the one armed and still to come;
+    /// else `next` -- an earlier one a post brought, the next once the one
+    /// armed has gone, or the same one again once its wake ran and it did
+    /// not go. Nothing is armed until [`ExpiryWake::arm`].
+    pub fn schedule(&self, next: Option<T>) -> Option<T> {
+        let at = next?;
+        match &self.armed {
+            Some((armed, _)) if *armed == at => None,
+            _ => Some(at),
+        }
+    }
+
+    /// **Armed for `at`**, and what marks its wake run, for the wake to
+    /// carry ([`Ran`]); a wake armed before it, still to come, marks only
+    /// its own.
+    pub fn arm(&mut self, at: T) -> Ran {
+        let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.armed = Some((at, std::sync::Arc::clone(&ran)));
+        Ran(ran)
+    }
+
+    /// **The armed wake forgotten**: it was never posted.
+    pub fn disarm(&mut self) {
+        self.armed = None;
+    }
+
+    /// **On a turn the window's news woke**: the armed wake forgotten if it
+    /// has run, so its deadline, still there when it ran early, is armed
+    /// again at the turn's end; a turn other news brought keeps it.
+    pub fn fired(&mut self) {
+        if self
+            .armed
+            .as_ref()
+            .is_some_and(|(_, ran)| ran.load(std::sync::atomic::Ordering::Acquire))
+        {
+            self.armed = None;
         }
     }
 }
@@ -2425,6 +2528,73 @@ mod tests {
         }
     }
 
+    /// **The list's answer wakes the turn that answers the question**: the
+    /// center stores the list and then marks and wakes every listening
+    /// window (`wake_listeners`), the framework's handler and the probe's
+    /// answer alike; the pump runs `notice_turn` on every turn, which
+    /// takes the list and answers through `mac_listed` -- the rule
+    /// `a_held_alive_names_what_notification_center_still_holds` holds.
+    /// Read from the source, since no test runs the drivers. Break: the
+    /// handler storing the list and waking no one.
+    #[test]
+    fn the_lists_answer_wakes_the_turn_that_answers() {
+        let center = include_str!("../../baud-present-macos/src/notify.rs");
+        let asks = center
+            .split_once(concat!(
+                "fn ask_delivered_",
+                "now(&self, into: &Delivered) {"
+            ))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("ask_delivered_now");
+        let stores = [
+            concat!(
+                "answered_elsewhere(&into.0, ",
+                "Some(self.held.borrow().clone()));"
+            ),
+            "*d = Some(ids);",
+        ];
+        for store in stores {
+            let at = asks.find(store).expect(store);
+            assert!(
+                asks[at..].contains(concat!("wake_", "listeners();")),
+                "{store} wakes after it stores"
+            );
+        }
+        assert_eq!(asks.matches(concat!("wake_", "listeners();")).count(), 2);
+        let mac = include_str!("app.rs");
+        let pump = mac
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("the pump");
+        let tick = pump
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .map_or("", |(_, rest)| {
+                rest.split_once('}').map_or(rest, |(arm, _)| arm)
+            });
+        assert!(
+            pump.contains(concat!("self.notice_", "turn();")),
+            "every turn"
+        );
+        assert!(
+            !tick.contains(concat!("self.notice_", "turn();")),
+            "not the tick's"
+        );
+        let turn = mac
+            .split_once(concat!("    fn notice_", "turn(&mut self) {"))
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| body)
+            .expect("notice_turn");
+        let took = turn
+            .find(concat!("os.take_", "delivered()"))
+            .expect("takes the list");
+        assert!(
+            turn[took..].contains(concat!(".mac_", "listed(")),
+            "and answers"
+        );
+    }
+
     /// **Notification Center's list is asked for only by a held `p=alive`,
     /// and only macOS holds one**: the macOS driver asks for the list in
     /// one place, `notices_alive_check`, and keeps no clock for it -- no
@@ -2451,6 +2621,72 @@ mod tests {
         }
         let linux = include_str!("linux.rs");
         assert!(!linux.contains(concat!("set_notice_", "hold")));
+    }
+
+    /// **A notice's `w` wake is scheduled once, at the earliest deadline**
+    /// (`ExpiryWake`): no deadline arms nothing (the control); the first
+    /// arms at it; a later post leaving the earliest as it was arms nothing
+    /// more; a post bringing an earlier one arms at that; once it has passed
+    /// and gone, the next earliest arms. Breaks: arming on every turn --
+    /// "the same earliest" fails; keeping the first scheduled forever -- an
+    /// earlier one is not armed.
+    #[test]
+    fn a_notices_expiry_wake_is_armed_once_at_the_earliest() {
+        let s = |n| at(Secs(n));
+        let mut w = ExpiryWake::new();
+        let arm = |w: &mut ExpiryWake<_>, next| {
+            let at = w.schedule(next);
+            at.map(|a| (a, w.arm(a)))
+        };
+        assert!(arm(&mut w, None).is_none(), "no deadline arms nothing");
+        let first = arm(&mut w, Some(s(5)));
+        assert_eq!(first.as_ref().map(|f| f.0), Some(s(5)), "the first");
+        assert!(arm(&mut w, Some(s(5))).is_none(), "the same earliest");
+        let earlier = arm(&mut w, Some(s(3)));
+        assert_eq!(earlier.as_ref().map(|e| e.0), Some(s(3)), "an earlier one");
+        assert!(arm(&mut w, Some(s(3))).is_none(), "scheduled once");
+        let next = arm(&mut w, Some(s(5)));
+        assert_eq!(
+            next.as_ref().map(|n| n.0),
+            Some(s(5)),
+            "the next, once 3 went"
+        );
+        assert!(arm(&mut w, None).is_none(), "none left");
+    }
+
+    /// **An expiry wake that expires nothing is armed again** (`ExpiryWake::
+    /// fired`): a wake that ran before its deadline -- the clock it was
+    /// posted on ahead of the one the notice is timed by -- leaves the notice
+    /// shown and the same earliest deadline, and its turn forgets it, so the
+    /// turn's end arms it again; a turn other news brought, the wake still to
+    /// come, keeps it (the control); a wake armed before, running after a
+    /// new one was armed, forgets nothing; a wake not posted is forgotten at
+    /// once (`disarm`). Break: today's `fired` forgetting nothing -- "an
+    /// early wake is armed again" fails, and the notice is never expired.
+    #[test]
+    fn an_expiry_wake_that_expires_nothing_is_armed_again() {
+        let s = |n| at(Secs(n));
+        let mut w = ExpiryWake::new();
+        let ran = w.arm(w.schedule(Some(s(5))).expect("the first"));
+        w.fired();
+        assert_eq!(w.schedule(Some(s(5))), None, "other news keeps the wake");
+        drop(ran);
+        w.fired();
+        let again = w.schedule(Some(s(5)));
+        assert_eq!(again, Some(s(5)), "an early wake is armed again");
+
+        let old = w.arm(s(5));
+        let new = w.arm(w.schedule(Some(s(3))).expect("an earlier one"));
+        drop(old);
+        w.fired();
+        assert_eq!(w.schedule(Some(s(3))), None, "a stale wake keeps the new");
+        drop(new);
+        w.fired();
+        assert_eq!(w.schedule(Some(s(3))), Some(s(3)), "its own run forgets it");
+
+        let _unposted = w.arm(s(3));
+        w.disarm();
+        assert_eq!(w.schedule(Some(s(3))), Some(s(3)), "a wake not posted");
     }
 
     /// **What a held `p=alive` asks of the macOS driver** (`alive_step`):
@@ -3190,8 +3426,10 @@ mod tests {
     /// posts, drops it and counts it, and each driver logs the
     /// notifications not posted and the images not shown, the lines said
     /// once; on macOS iTerm2's picture goes to the window's [`Checker`],
-    /// what it sends back is posted, and the driver decodes nothing. The
-    /// drivers' own code is read, since no test runs them.
+    /// what it sends back is posted, and the driver decodes nothing; and the
+    /// macOS loop delivers and takes the center's news on every turn, not
+    /// on the tick alone. The drivers' own code is read, since no test runs
+    /// them. Break: `notice_turn` back in the tick arm.
     #[test]
     fn the_drivers_drop_and_log_what_delivery_counts() {
         let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
@@ -3271,7 +3509,16 @@ mod tests {
                 })
                 .sum()
         };
-        assert_eq!(depth("self.notice_turn();"), 1, "the control: on the tick");
+        assert_eq!(
+            depth(".read_printers(crate::print::Ask::Indicator{tick});"),
+            2,
+            "the control: on the tick, under the indicator"
+        );
+        assert_eq!(
+            depth("self.notice_turn();"),
+            0,
+            "the center's news every turn"
+        );
         assert_eq!(
             depth("self.deliver_notices(posted);"),
             0,

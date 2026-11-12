@@ -141,9 +141,13 @@ pub enum RigWindow {
     /// nothing sent, counts the start (`first=`) and plays a started
     /// splash to its end on offered ticks. After the act, nothing.
     ShownFirst,
+    /// That the notice the act posted expired: its `w` passed and the
+    /// window's core was told so on a turn of its own, waited for through
+    /// the probe's door (`probe::expirations`) within the bound.
+    Expired,
 }
 
-const WINDOW: [(RigWindow, &str); 14] = [
+const WINDOW: [(RigWindow, &str); 15] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -158,6 +162,7 @@ const WINDOW: [(RigWindow, &str); 14] = [
     (RigWindow::Released, "released"),
     (RigWindow::ReleasedLate, "released-late"),
     (RigWindow::ShownFirst, "shown-first"),
+    (RigWindow::Expired, "expired"),
 ];
 
 /// **How the frame rig's act is sent**: as a line to the shell, a newline

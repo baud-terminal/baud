@@ -46,6 +46,7 @@
 #![allow(unsafe_code)]
 
 use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use block2::Block;
@@ -126,10 +127,13 @@ pub enum Whose {
 }
 
 impl Heard {
-    fn push(&self, click: Click) {
+    /// **A click heard**, kept for the window that posted it, and every
+    /// listening window woken to take its own ([`wake_listeners`]).
+    fn heard(&self, click: Click) {
         if let Ok(mut c) = self.clicks.lock() {
             c.push(click);
         }
+        wake_listeners();
     }
 
     /// The clicks `whose` says are this window's, taken in the order they
@@ -187,7 +191,7 @@ define_class!(
                     let id: Retained<NSString> = msg_send![&req, identifier];
                     (action.to_string(), id.to_string())
                 };
-                self.ivars().push(Click { id, action });
+                self.ivars().heard(Click { id, action });
             });
             // Answered whatever became of the click: the centre waits on it.
             handler.call(());
@@ -231,7 +235,7 @@ pub fn rig_click_the_last_post() -> bool {
     let Some(id) = POSTED_LAST.lock().ok().and_then(|p| p.clone()) else {
         return false;
     };
-    shared_delegate().ivars().push(Click {
+    shared_delegate().ivars().heard(Click {
         id,
         action: DEFAULT_ACTION.into(),
     });
@@ -353,6 +357,112 @@ fn with_shared(f: impl FnOnce(&Center)) {
             f(c);
         }
     });
+}
+
+/// **The windows the center's news wakes**: every open window's wake and
+/// its owed flag, by which its window's close finds and takes them out
+/// ([`Listening`]). The center and its delegate are the process's, and a
+/// click, a refusal, the permission's answer or the delivered list's may
+/// be any window's, so each marks and wakes them all and every window
+/// takes its own on that turn (`Center::news`, `Center::clicks`,
+/// `Delivered::take`). A `Mutex`, as the framework's handlers and the
+/// delegate run on queues the headers do not name.
+static LISTENERS: Mutex<Vec<Listener>> = Mutex::new(Vec::new());
+
+/// One listening window: what wakes it, and whether news is owed, its
+/// flag shared with its [`Listening`], which finds it by that flag.
+struct Listener {
+    wake: Box<dyn Fn() + Send>,
+    owed: Arc<AtomicBool>,
+}
+
+/// **Whether the center has news a window has not taken**: set just before
+/// each wake that brings it, taken by the window's turn
+/// ([`Listening::take`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticesOwed {
+    No,
+    Yes,
+}
+
+/// **A window listening to the center's news**, from its opening; dropped
+/// with the window, which takes its wake out of [`LISTENERS`].
+#[derive(Debug)]
+pub struct Listening {
+    owed: Arc<AtomicBool>,
+}
+
+impl Listening {
+    /// **Whether news is owed this window**, taken: set by each producer
+    /// just before its wake ([`wake_listeners`]) and by a timed step of the
+    /// window's own ([`Listening::owe`]); a turn with none owed reads one
+    /// flag and nothing else.
+    pub fn take(&self) -> NoticesOwed {
+        match self.owed.swap(false, Ordering::AcqRel) {
+            true => NoticesOwed::Yes,
+            false => NoticesOwed::No,
+        }
+    }
+
+    /// **What marks news owed when it is dropped**, for a wake of the
+    /// window's own -- a notice's `w` deadline -- to carry into its
+    /// callback and let go there, before the turn it posts.
+    pub fn owe(&self) -> Owe {
+        Owe(Arc::clone(&self.owed))
+    }
+}
+
+/// News owed a window once this is dropped ([`Listening::owe`]).
+#[derive(Debug)]
+pub struct Owe(Arc<AtomicBool>);
+
+impl Drop for Owe {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        if let Ok(mut l) = LISTENERS.lock() {
+            l.retain(|x| !Arc::ptr_eq(&x.owed, &self.owed));
+        }
+    }
+}
+
+/// **`wake` called with the center's news**, news marked owed first, until
+/// the [`Listening`] is dropped.
+pub fn listen(wake: impl Fn() + Send + 'static) -> Listening {
+    let owed = Arc::new(AtomicBool::new(false));
+    if let Ok(mut l) = LISTENERS.lock() {
+        l.push(Listener {
+            wake: Box::new(wake),
+            owed: Arc::clone(&owed),
+        });
+    }
+    Listening { owed }
+}
+
+/// How many windows listen: the registry empties as they close.
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Listeners(usize);
+
+/// How many windows listen now.
+#[cfg(test)]
+fn listeners() -> Listeners {
+    Listeners(LISTENERS.lock().map_or(0, |l| l.len()))
+}
+
+/// **Every listening window marked owed and woken**, once what it will
+/// take is stored.
+fn wake_listeners() {
+    if let Ok(l) = LISTENERS.lock() {
+        for x in l.iter() {
+            x.owed.store(true, Ordering::Release);
+            (x.wake)();
+        }
+    }
 }
 
 /// **What a window was last told of permission**, so each window hears
@@ -561,8 +671,11 @@ impl Center {
                     .borrow_mut()
                     .extend(waiting.into_iter().map(|post| post.id));
             }
-            Permission::NotAsked | Permission::Asked => {}
+            Permission::NotAsked | Permission::Asked => return,
         }
+        // Answered: every window hears it, and takes its refusals, on the
+        // turn this wakes (`Center::news`).
+        wake_listeners();
     }
 
     /// **A window's news since it last asked**: the answer, once to each
@@ -619,6 +732,7 @@ impl Center {
         #[cfg(feature = "effect-probe")]
         if crate::probe::notice_list() == crate::probe::NoticeList::Answers {
             answered_elsewhere(&into.0, Some(self.held.borrow().clone()));
+            wake_listeners();
         }
         #[cfg(not(feature = "effect-probe"))]
         {
@@ -645,6 +759,8 @@ impl Center {
                         if let Ok(mut d) = shared.lock() {
                             *d = Some(ids);
                         }
+                        // The asking window takes it on the turn this wakes.
+                        wake_listeners();
                     },
                 );
             });
@@ -1076,9 +1192,42 @@ mod tests {
             "the control: two made apart are two"
         );
         drop(a);
-        b.ivars().push(click("w0-1"));
+        b.ivars().heard(click("w0-1"));
         let c = shared_delegate();
         assert_eq!(c.ivars().take(|_| Whose::This), vec![click("w0-1")]);
+    }
+
+    /// **A listening window is marked owed and woken by the center's news,
+    /// and its close takes it out of the registry**: a click heard marks it
+    /// owed before its wake, which the window takes, a timed step of its
+    /// own marks it as its guard is let go, and once it is dropped
+    /// the registry is as it was and the next news wakes it no more.
+    /// Breaks: `Listening`'s drop taking nothing out -- "back to as it
+    /// was" fails; `wake_listeners` waking without marking -- "owed with
+    /// its wake" fails.
+    #[test]
+    fn a_window_listens_until_it_closes() {
+        // Other tests here wake every listener too, so nothing is asserted
+        // that another test's news could make true or false: only what this
+        // window's own news and close must do.
+        use std::sync::atomic::AtomicUsize;
+        let before = listeners();
+        let woke = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&woke);
+        let l = listen(move || {
+            counted.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(listeners(), Listeners(before.0 + 1), "listening");
+        Heard::default().heard(click("w0-1"));
+        assert!(woke.load(Ordering::Relaxed) >= 1, "woken");
+        assert_eq!(l.take(), NoticesOwed::Yes, "owed with its wake");
+        drop(l.owe());
+        assert_eq!(l.take(), NoticesOwed::Yes, "its own timed step");
+        drop(l);
+        assert_eq!(listeners(), before, "back to as it was");
+        let at_close = woke.load(Ordering::Relaxed);
+        Heard::default().heard(click("w0-2"));
+        assert_eq!(woke.load(Ordering::Relaxed), at_close, "no wake after");
     }
 
     /// **A click goes to the window that posted it**: each window takes
@@ -1088,7 +1237,7 @@ mod tests {
     fn a_click_goes_to_the_window_that_posted_it() {
         let heard = Heard::default();
         for id in ["w0-1", "w1-1", "w9-1", "w0-2"] {
-            heard.push(click(id));
+            heard.heard(click(id));
         }
         let whose = |me: &'static str| {
             move |id: &str| match id.split('-').next() {

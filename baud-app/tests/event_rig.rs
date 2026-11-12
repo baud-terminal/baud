@@ -211,13 +211,9 @@ struct Shape {
 /// What asks a row's effect.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Polled {
-    /// The read: the reader's `wake` or a tick, whichever comes first.
+    /// The read, or the event that brings the effect's turn: the reader's
+    /// `wake`, a callback's, or a tick, whichever comes first.
     Read,
-    /// The tick alone, until stage `until`: a notification's clicks are
-    /// polled by the tick (`notice_turn`) until stage 3 moves that poll to
-    /// a turn, so the row runs only with the frame driven; a row past its
-    /// stage is red ([`no_row_polls_the_tick_past_its_stage`]).
-    Tick { until: Stage },
     /// The control for `turn::after`: that door alone made inline, in the
     /// callback that asked, the frame not driven.
     AfterInline,
@@ -945,13 +941,12 @@ const SITES: [Site; 32] = [
     },
 ];
 
-/// **A notification's clicks**, polled by the tick until stage 3, and
-/// counted: under the probe the center's list is what it sent, so the
-/// notification clicked stays shown however long the iterations take.
+/// **A notification's clicks**, each heard on the turn the delegate's
+/// wake brings (`notify::listen`), the frame not driven, and counted:
+/// under the probe the center's list is what it sent, so the notification
+/// clicked stays shown however long the iterations take.
 const CLICKS: Shape = Shape {
-    polled: Polled::Tick {
-        until: Stage::Three,
-    },
+    polled: Polled::Read,
     iterations: ITERATIONS,
 };
 
@@ -1112,8 +1107,7 @@ fn config(rule: Rule) -> &'static str {
 /// on its turn, so a read on the tick that still makes it inline goes
 /// red. A pending program row runs undriven alone: with the frame driven,
 /// its recorded site would be one entry or the other by timing -- and so
-/// does the `turn::after` control, whose recorded site is the callback. A row
-/// whose effect the tick alone asks ([`Polled::Tick`]) runs driven alone.
+/// does the `turn::after` control, whose recorded site is the callback.
 /// A green program row runs undriven, driven, and driven with each read
 /// left to the frame ([`Ticks::DrivenSplit`]), as the tty's pieces can
 /// fall, its effects still each on a turn of its own.
@@ -1127,7 +1121,6 @@ fn arms(site: &Site) -> &'static [Ticks] {
         (Cause::PrintedPath(_, Ticks::UndrivenAfterInline), ..) | (_, _, Polled::AfterInline) => {
             &[Ticks::UndrivenAfterInline]
         }
-        (_, _, Polled::Tick { .. }) => &[Ticks::Driven],
         (
             Cause::Program(_) | Cause::ProgramUntil(..) | Cause::ProgramThen(..),
             RowState::Green,
@@ -1311,23 +1304,6 @@ fn every_row_comes_to_its_state() {
     }
     say_load("at the end");
     assert!(red.is_empty(), "{red:?}");
-}
-
-/// **No row polls the tick past its stage**: a row that runs driven alone
-/// because a poll is still the tick's names the stage that moves the
-/// poll, and once the work is past it the row must run both arms. Named
-/// break: `CURRENT` past a row's `until`.
-#[test]
-fn no_row_polls_the_tick_past_its_stage() {
-    for site in SITES {
-        if let Polled::Tick { until } = site.cause.shape().polled {
-            assert!(
-                CURRENT <= until,
-                "{:?} polls the tick past {until:?}",
-                site.name
-            );
-        }
-    }
 }
 
 /// **No row turns on focus reporting** (`?1004`): with it on, the focus
@@ -1592,8 +1568,9 @@ fn a_probe_build_called_as_no_rig_exits_2_at_once() {
 /// (`frames::Holder`): while any is held a real build's display link runs,
 /// and the frame rows' kept arms fail as recorded. Each row that moves a
 /// poll to its event takes its name out; with none left the kept arms
-/// must pass.
-const HOLDERS: &[&str] = &["FS-A5"];
+/// must pass. None is left: FS-A5, the notification center's news, was
+/// the last.
+const HOLDERS: &[&str] = &[];
 
 /// The focus baud last set, as a frame rig's child printed it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1610,6 +1587,15 @@ enum PreviewSeen {
     Unset,
     Link,
     Nothing,
+}
+
+/// What answered a held `p=alive`, as a frame rig's child printed it:
+/// none, Notification Center's list or the read's bound.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum AliveSeen {
+    Unanswered,
+    List,
+    Bound,
 }
 
 /// The display link's state as a frame rig's child printed it.
@@ -1712,6 +1698,12 @@ struct Counters {
     by: Option<SentBy>,
     /// The activity lights lit at their last step, by their letters.
     lit: Vec<String>,
+    /// The notices expired after the settle, their `w` passed.
+    expired: u32,
+    /// The turns that did notice work after the settle, news owed them.
+    notices: u32,
+    /// What answered the last held `p=alive`.
+    alive: AliveSeen,
 }
 
 /// Whether a frame rig's window still drew on the GPU, or why it gave it
@@ -1884,6 +1876,14 @@ impl Counters {
                 "-" => Vec::new(),
                 list => list.split(',').map(str::to_owned).collect(),
             },
+            expired: count("expired")?,
+            notices: count("notices")?,
+            alive: match field("alive")? {
+                "unanswered" => AliveSeen::Unanswered,
+                "list" => AliveSeen::List,
+                "bound" => AliveSeen::Bound,
+                _ => return None,
+            },
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -2009,9 +2009,16 @@ enum Settles {
     /// it**, with nothing typed: once.
     GreetedFirst,
     /// **A held `p=alive` answered at its bound with no tick**: the ticks
-    /// withheld, nothing delivered; the act's clear says the answer came
-    /// whole and named what is alive.
+    /// withheld, nothing delivered, the bound the answer's (`notice_wait`);
+    /// the act's clear says the answer came whole and named what is alive.
     AliveAtBound,
+    /// **A held `p=alive` answered on Notification Center's wake with no
+    /// tick**: the ticks withheld, nothing delivered, and the list's turn
+    /// answered it, not the bound.
+    AliveByList,
+    /// **A notice's `w` passed with no tick**: the ticks withheld, and the
+    /// core told on the window's own turn that it went.
+    Expired,
     /// **This machine's names handed with no tick**: the ticks withheld,
     /// nothing delivered, and the read's names handed to the links.
     Handed,
@@ -2024,8 +2031,9 @@ enum Settles {
     /// another's. **The paused link is a requirement of its own**, not a
     /// by-product: a link still running could have run the turn that
     /// asked, the tick the row says was never needed. So a kept arm, whose
-    /// link the polls a settle names keep running, never meets it, and is
-    /// pending as held (`Failure::Held`) until no poll is left to run it.
+    /// link the polls a settle names keep running, never meets it, and was
+    /// pending as held (`Failure::Held`) until no poll was left to run it,
+    /// FS-A5's landing.
     Filed(&'static str),
     /// **A listing's printed paths drawn, the batch that asked about them
     /// held by no floor** (`RigFrameTicks::UntilMarked`): at least these
@@ -2242,7 +2250,9 @@ impl Settles {
             Settles::Darkened => !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
-            Settles::AliveAtBound => c.delivered == 0,
+            Settles::AliveAtBound => c.delivered == 0 && c.alive == AliveSeen::Bound,
+            Settles::AliveByList => c.delivered == 0 && c.alive == AliveSeen::List,
+            Settles::Expired => c.expired >= 1,
             Settles::ReadByFrame => {
                 c.reads >= 1 && u64::from(c.reads) <= c.drawn && c.reads <= c.fed
             }
@@ -2326,7 +2336,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 40] = [
+const FRAME_SITES: [FrameSite; 42] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2342,10 +2352,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Still,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **R2**: a blinking caret runs the link at each flip, scheduled a
     // frame before it, and pauses between. Its flips come on wall time, so
@@ -2375,10 +2382,7 @@ const FRAME_SITES: [FrameSite; 40] = [
             flips: 4,
             per_flip: TICKS_A_FLIP,
         },
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **R3, eager start**: a read's echo owes a frame, and owing it runs
     // the link (`App::owe_frame`), which no settle starts; once drawn it
@@ -2398,10 +2402,7 @@ const FRAME_SITES: [FrameSite; 40] = [
             drawn: 1,
             delivered: 30,
         },
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **R4**: a visual bell runs the link to its end, then it pauses.
     FrameSite {
@@ -2422,10 +2423,7 @@ const FRAME_SITES: [FrameSite; 40] = [
             drawn: 2,
             delivered: 60,
         },
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **A frame no one who runs the link owes**: a key the shell does not
     // echo opens a latency record (`BAUD_KEYLAT`), and the record, owed
@@ -2443,10 +2441,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(400),
         expect: Settles::Expires,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **A light/dark flip while the link is paused** is drawn then, not at
     // the next event: the appearance owes the frame whose pump applies it.
@@ -2462,16 +2457,12 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Restyled,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **The splash's wait holds no link** (`FS-A17`): the splash on, the
     // window never shown, so the splash waits for ever, and on the lifted
     // arm the link pauses: what it waits for wakes the window
-    // (`splash_check`), and no tick polls for it. The kept arm's other
-    // holders still run the link.
+    // (`splash_check`), and no tick polls for it.
     FrameSite {
         name: SiteName("a splash waiting for its window holds no link"),
         setup: STILL,
@@ -2484,10 +2475,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Still,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A17**: the splash starts on the turn its window is shown, the
     // ticks withheld: the occlusion change AppKit posts wakes the window,
@@ -2566,6 +2554,61 @@ const FRAME_SITES: [FrameSite; 40] = [
         expect: Settles::AliveAtBound,
         state: RowState::Green,
     },
+    // **FS-A5: the list's own wake answers a held `p=alive`**, the ticks
+    // withheld: the read stops at the question, the list is asked for,
+    // and its answer marks the window's news owed and wakes it
+    // (`notify::listen`), whose turn forgets what the list left out and
+    // answers (`notice_turn`, `Delivery::mac_listed`), well before the
+    // bound. What answered is read through the probe's door
+    // (`AliveAnswered`): the list's, where the bound's row above reads
+    // the bound's, its control.
+    FrameSite {
+        name: SiteName("a held p=alive is answered on the list's wake with no tick"),
+        setup: r"printf '\033]99;i=k;one\033\\\033]52;c;!\007'",
+        act: concat!(
+            r"stty -echo -icanon min 1 time 0; ",
+            r"printf '\033]99;i=m:p=alive;\033\\'; ",
+            to_st!(),
+            r#"case $r in *"p=alive;k$e\\") printf '\033]52;c;!\007';; *) printf '\033]52;c;aGk=\007';; esac"#,
+        ),
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[],
+        config: concat!(
+            "[cursor]\nblink = false\ntrail = \"off\"\n",
+            "[link]\nurls = \"off\"\npaths = \"off\"\n",
+            "[screen]\nprinting = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::AliveByList,
+        state: RowState::Green,
+    },
+    // **FS-A5**: a program's notice whose `w` passes is forgotten by the
+    // core on a wake of the window's own, scheduled for its deadline at a
+    // turn's end (`notice_schedule`), the ticks withheld: the removal is
+    // the center's (`turn::after`), and nothing on macOS says it
+    // happened, so no other event brings that turn. The window step waits
+    // for the expiry through the probe's door (`RigWindow::Expired`). The
+    // links are off, so no paths' batch wakes the window instead.
+    FrameSite {
+        name: SiteName("a program's notice expires with no tick"),
+        setup: STILL,
+        act: r"printf '\033]99;w=300;Build\033\\'",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Expired,
+        env: &[],
+        config: concat!(
+            "[cursor]\nblink = false\ntrail = \"off\"\n",
+            "[link]\nurls = \"off\"\npaths = \"off\"\n"
+        ),
+        focus: RigFocus::Believed,
+        attempts: Iterations(100),
+        expect: Settles::Expired,
+        state: RowState::Green,
+    },
     // **FS-A2**: the window made key is heard with the link paused, from
     // its notification, and no tick polls for it.
     FrameSite {
@@ -2580,10 +2623,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Gained),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A2**: and the key window resigned, the other notification.
     FrameSite {
@@ -2598,10 +2638,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Lost),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A2, the opening's reading**: the frame rig opens as `show` does,
     // the view made first responder before its responder is set, so the
@@ -2619,10 +2656,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Lost),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A2, the view's hook**: a first-responder change heard once the
     // responder is set reads the window, not the hook's word, so a window
@@ -2639,10 +2673,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Focused(FocusSeen::Lost),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A4**: Reduce Motion and Reduce Transparency turned on are heard
     // with the link paused, from the workspace's notification, and no tick
@@ -2659,10 +2690,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Accessed,
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A3**: a link printed under a resting pointer is previewed by the
     // frame its read owes: the read runs the link for that frame, whose
@@ -2687,12 +2715,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Believed,
         attempts: Iterations(100),
         expect: Settles::Previewed,
-        // The kept arm's holders keep the link running, so it pauses only
-        // on the lifted arm until stage 3 takes them out.
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **FS-A3, the other side**: output on rows away from a resting pointer
     // reads nothing under it. The pointer rests on a URI on the first row;
@@ -3032,10 +3055,9 @@ const FRAME_SITES: [FrameSite; 40] = [
     // known, conservative under-mark of a shell with no integration: such
     // a line is left unmarked, never marked wrongly, and in an integrated
     // shell the `C` that names the command here (`Fact::Here`,
-    // `Paths::written_here`) lifts it. The kept
-    // arm's link is run by the polls a settle names, so it never ends
-    // paused: pending as held until FS-A5's landing, FS-A9's done, leaves
-    // no poll to run it.
+    // `Paths::written_here`) lifts it. The kept arm, with no poll left to
+    // run its link since FS-A5's landing, is held to the row as the lifted
+    // one is.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
         setup: STILL,
@@ -3048,10 +3070,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Believed,
         attempts: Iterations(0),
         expect: Settles::Filed("/usr/bin"),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **The same, its second stage released late**
     // (`RigWindow::ReleasedLate`): the newline written
@@ -3073,10 +3092,7 @@ const FRAME_SITES: [FrameSite; 40] = [
         focus: RigFocus::Believed,
         attempts: Iterations(0),
         expect: Settles::Filed("/usr/bin"),
-        state: RowState::Pending {
-            stage: Stage::Three,
-            recorded: Failure::Held,
-        },
+        state: RowState::Green,
     },
     // **A frame the GPU never answers is counted at its bound, with no
     // tick** (`BAUD_RIG_GPU=hold`): the act's frame's completion held by
@@ -3429,7 +3445,7 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
 fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     let counts = |link: &str, delivered: u32, lines: &str| {
         let text = format!(
-            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=-\n{lines}"
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered\n{lines}"
         );
         Counters::parse(&text).expect("the counts")
     };
@@ -3454,10 +3470,16 @@ fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     }
 }
 
+/// Whether a frame row posts a notification or asks one (`OSC 99`).
+fn mentions_notices(site: &FrameSite) -> bool {
+    [site.setup, site.act].iter().any(|s| s.contains("]99;"))
+}
+
 /// **Each frame row, its kept arm and its lifted arm**, read like a
 /// ceiling arm: both arms' counters printed and compared, and a lifted arm
-/// whose counters equal the kept arm's is red, the lift having done
-/// nothing. The lifted arm's polls must be the row's [`holders_of`], the kept
+/// whose counters equal the kept arm's is red while any poll is held, the
+/// lift having done nothing; with none held ([`HOLDERS`] empty) the arms
+/// are the same build and are each held to the row. The lifted arm's polls must be the row's [`holders_of`], the kept
 /// arm's recorded list, so the lift hides no poll off it. The lifted arm must
 /// meet the row; the kept arm is judged by [`verdict`] at [`CURRENT`], a
 /// pending row failing as [`Failure::Held`] while any poll holds the link.
@@ -3494,6 +3516,17 @@ fn every_frame_row_comes_to_its_state() {
         }
         if lifted.holders != holders_of(site) {
             red.push((site.name, format!("the lift hid {:?}", lifted.holders)));
+        }
+        // **No turn does notice work a row gave no news for**: a row that
+        // posts no notification and asks nothing of one leaves the owed
+        // flag unset, so its turns -- keys, reads, frames -- return before
+        // any of it (`notice_turn`). Every frame row is held to it, the
+        // rows judged on the lifted arm alone as well.
+        if !mentions_notices(site) && lifted.notices != 0 {
+            red.push((
+                site.name,
+                format!("notice work on {} turns", lifted.notices),
+            ));
         }
         if matches!(site.expect, Settles::OneLink | Settles::PreviewedUnticked) {
             let observed = match (site.expect.holds(&lifted), site.expect) {
@@ -3534,8 +3567,10 @@ fn every_frame_row_comes_to_its_state() {
         if kept.holders != lifted.holders {
             red.push((site.name, format!("kept {:?}", kept.holders)));
         }
+        // **The lift has nothing to lift with no poll held**: both arms
+        // then run as a real build does, and each meets the row alone.
         let seen = |c: &Counters| (c.link, c.delivered, c.sends, c.drawn);
-        if seen(&kept) == seen(&lifted) {
+        if !kept.holders.is_empty() && seen(&kept) == seen(&lifted) {
             red.push((site.name, "the lift did nothing".to_owned()));
         }
         let observed = match (site.expect.holds(&kept), kept.holders.is_empty()) {

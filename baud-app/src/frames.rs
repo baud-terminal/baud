@@ -15,24 +15,20 @@ use baud_domain::HostTime;
 /// **A poll the tick still makes**, with no event to raise it yet: while
 /// any is held the link runs, so the poll keeps its pace. Each is named
 /// for the row that moves it to its event, and removing a variant is that
-/// row's change.
+/// row's change. None is left: FS-A5, the notification center's news, was
+/// the last, and a poll added to the tick again comes back as a variant
+/// here.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Holder {
-    /// FS-A5: `notice_turn`, until the notification center's callbacks
-    /// wake the window.
-    A5Notices,
-}
+pub(crate) enum Holder {}
 
 impl Holder {
     /// Every holder, in row order.
-    pub(crate) const ALL: [Holder; 1] = [Holder::A5Notices];
+    pub(crate) const ALL: [Holder; 0] = [];
 
     /// The row's name, as the event rig prints it.
     #[cfg(any(feature = "effect-probe", test))]
     pub(crate) fn word(self) -> &'static str {
-        match self {
-            Holder::A5Notices => "FS-A5",
-        }
+        match self {}
     }
 }
 
@@ -292,24 +288,20 @@ mod tests {
     /// link pauses. Breaks: `owes` ignoring the interval, and a deadline
     /// 4 ms ahead schedules a restart that lands at once; `owes` taking the
     /// latest deadline, and the caret's flip waits for the report. Every
-    /// reason a frame is owed is in it, and a deadline exactly one interval
-    /// ahead is a frame: break `<=` to `<` and it is restarted at once.
+    /// reason a frame is owed is in it but [`Why::Held`], which no holder
+    /// is left to make, and a deadline exactly one interval ahead is a
+    /// frame: break `<=` to `<` and it is restarted at once.
     #[test]
     fn what_the_link_owes() {
         let ms = |n| HostTime::ZERO.plus(Duration::from_millis(n));
         let now = ms(1_000);
-        let cases: [Case<'_>; 13] = [
+        let cases: [Case<'_>; 12] = [
             (None, &[], Owes::Nothing),
             (None, &[(Deadline::Caret, None)], Owes::Nothing),
             (
                 Some(Why::Owed),
                 &[(Deadline::Caret, Some(ms(1_300)))],
                 Owes::Frame(Why::Owed),
-            ),
-            (
-                Some(Why::Held(Holder::A5Notices)),
-                &[],
-                Owes::Frame(Why::Held(Holder::A5Notices)),
             ),
             (
                 None,
@@ -502,18 +494,17 @@ mod tests {
     /// **`Holder::ALL` is every holder, each once**: the match below has
     /// no `_` arm, so a holder added and left out of `ALL` does not
     /// compile until it has a place here, and `ALL` must hold each place.
+    /// With no holder left the match has no arm, and `ALL` holds none.
     #[test]
     fn every_holder_is_in_all() {
         /// A holder's place.
         #[derive(PartialEq, Eq, Debug, PartialOrd, Ord, Clone, Copy)]
         struct Place(usize);
         fn place(h: Holder) -> Place {
-            match h {
-                Holder::A5Notices => Place(0),
-            }
+            match h {}
         }
         let places: Vec<Place> = Holder::ALL.iter().map(|&h| place(h)).collect();
-        let want: Vec<Place> = (0..=0).map(Place).collect();
+        let want: Vec<Place> = (0..0).map(Place).collect();
         assert_eq!(places, want);
     }
 

@@ -99,6 +99,20 @@ pub struct Pace<T = ()> {
     /// reused, each part's share named on its [`Taken`]. A window resize
     /// between calls takes its own from it as well.
     pub recuts: crate::paths::Recuts,
+    /// **A held `p=alive` answered at its wait's end**, not by the driver
+    /// ([`notice_wait`]), for the frame rig's door the macOS driver opens
+    /// (`probe::AliveAnswered::Bound`): this file names no AppKit crate.
+    #[cfg(all(feature = "effect-probe", target_os = "macos"))]
+    pub notices_bound: NoticesBound,
+}
+
+/// Whether a held `p=alive` was answered at [`NOTICE_WAIT`]'s end since the
+/// driver last took it ([`Pace::notices_bound`]).
+#[cfg(all(feature = "effect-probe", target_os = "macos"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NoticesBound {
+    No,
+    Answered,
 }
 
 /// Whether the held reads wait on a one-shot ReGIS input.
@@ -150,6 +164,8 @@ impl<T: Copy> Pace<T> {
             why: Why::Delay,
             cut: DelaysCut::NONE,
             recuts: crate::paths::Recuts::default(),
+            #[cfg(all(feature = "effect-probe", target_os = "macos"))]
+            notices_bound: NoticesBound::No,
         }
     }
 
@@ -487,6 +503,10 @@ fn notice_wait<T: Copy>(term: &mut Term<'_>, pace: &mut Pace<T>, now: Instant) {
     let waiting: usize = pace.held.iter().map(|(b, _)| b.len()).sum();
     if term.notices_alive_asked() == NoticeAsked::Owed && (now >= t || waiting > HELD_MAX) {
         term.answer_notices_alive();
+        #[cfg(all(feature = "effect-probe", target_os = "macos"))]
+        {
+            pace.notices_bound = NoticesBound::Answered;
+        }
     }
     if term.notices_alive_asked() == NoticeAsked::No {
         pace.until = None;

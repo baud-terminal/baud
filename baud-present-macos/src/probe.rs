@@ -285,6 +285,10 @@ thread_local! {
     static SHOWN: Cell<Shown> = const { Cell::new(Shown::No) };
     /// The launch splash's starts (`greeted`).
     static GREETED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The notices whose `w` passed and the core was told so (`expired`).
+    static EXPIRED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The turns that did notice work, news owed (`notice_turned`).
+    static NOTICE_TURNS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -623,6 +627,52 @@ pub fn greeted() {
 /// How many times the launch splash started.
 pub fn greetings() -> Taken {
     GREETED.with(Cell::get)
+}
+
+/// **A turn on which notices expired**: their `w` passed, and the window's
+/// core was told they went (baud-app's `Delivery::mac_expired`).
+pub fn expired() {
+    EXPIRED.with(|e| e.set(Taken(e.get().0.saturating_add(1))));
+}
+
+/// How many turns notices expired on.
+pub fn expirations() -> Taken {
+    EXPIRED.with(Cell::get)
+}
+
+/// **What answered the last held `p=alive`**: none yet; Notification
+/// Center's list, on the turn its wake brought (baud-app's
+/// `Delivery::mac_listed`); or the read's bound (`reads::NOTICE_WAIT`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AliveAnswered {
+    Unanswered,
+    List,
+    Bound,
+}
+
+thread_local! {
+    static ALIVE_ANSWERED: Cell<AliveAnswered> = const { Cell::new(AliveAnswered::Unanswered) };
+}
+
+/// Set what answered the last held `p=alive`.
+pub fn set_alive_answered(a: AliveAnswered) {
+    ALIVE_ANSWERED.with(|c| c.set(a));
+}
+
+/// What answered the last held `p=alive`.
+pub fn alive_answered() -> AliveAnswered {
+    ALIVE_ANSWERED.with(Cell::get)
+}
+
+/// **A turn did notice work**: news was owed it (baud-app's
+/// `notice_turn`, past its owed flag).
+pub fn notice_turned() {
+    NOTICE_TURNS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many turns did notice work.
+pub fn notice_turns() -> Taken {
+    NOTICE_TURNS.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before
