@@ -424,22 +424,30 @@ impl Drop for Owe {
 
 impl Drop for Listening {
     fn drop(&mut self) {
-        if let Ok(mut l) = LISTENERS.lock() {
-            l.retain(|x| !Arc::ptr_eq(&x.owed, &self.owed));
-        }
+        registry().retain(|x| !Arc::ptr_eq(&x.owed, &self.owed));
     }
+}
+
+/// **The registry, poisoned or not**: a wake that panicked while
+/// [`wake_listeners`] held it poisons the lock, and every change made to
+/// it under the lock -- a push, a retain, a read -- leaves the list whole,
+/// so a poisoned lock still holds every window's wake. Skipping on it
+/// stopped each window's news for the rest of the process and kept a
+/// closed window's wake in it.
+fn registry() -> std::sync::MutexGuard<'static, Vec<Listener>> {
+    LISTENERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// **`wake` called with the center's news**, news marked owed first, until
 /// the [`Listening`] is dropped.
 pub fn listen(wake: impl Fn() + Send + 'static) -> Listening {
     let owed = Arc::new(AtomicBool::new(false));
-    if let Ok(mut l) = LISTENERS.lock() {
-        l.push(Listener {
-            wake: Box::new(wake),
-            owed: Arc::clone(&owed),
-        });
-    }
+    registry().push(Listener {
+        wake: Box::new(wake),
+        owed: Arc::clone(&owed),
+    });
     Listening { owed }
 }
 
@@ -451,17 +459,15 @@ struct Listeners(usize);
 /// How many windows listen now.
 #[cfg(test)]
 fn listeners() -> Listeners {
-    Listeners(LISTENERS.lock().map_or(0, |l| l.len()))
+    Listeners(registry().len())
 }
 
 /// **Every listening window marked owed and woken**, once what it will
 /// take is stored.
 fn wake_listeners() {
-    if let Ok(l) = LISTENERS.lock() {
-        for x in l.iter() {
-            x.owed.store(true, Ordering::Release);
-            (x.wake)();
-        }
+    for x in registry().iter() {
+        x.owed.store(true, Ordering::Release);
+        (x.wake)();
     }
 }
 
@@ -1228,6 +1234,38 @@ mod tests {
         let at_close = woke.load(Ordering::Relaxed);
         Heard::default().heard(click("w0-2"));
         assert_eq!(woke.load(Ordering::Relaxed), at_close, "no wake after");
+    }
+
+    /// **A poisoned registry still delivers**: with the lock poisoned, as
+    /// a wake that panicked while the news was handed out leaves it, a
+    /// window still listens, is marked owed and woken by the news, and is
+    /// taken out at its close. The control: the lock is poisoned. Named
+    /// break: `wake_listeners` skipping a poisoned lock -- "woken" fails;
+    /// `listen` skipping it fails "listening", and `Listening`'s drop
+    /// skipping it "taken out at its close".
+    #[test]
+    fn a_poisoned_registry_still_delivers() {
+        use std::sync::atomic::AtomicUsize;
+        let panicked = std::thread::spawn(|| {
+            let _held = LISTENERS.lock();
+            panic!("a wake that panicked with the registry held");
+        })
+        .join();
+        assert!(panicked.is_err(), "the control: it panicked");
+        assert!(LISTENERS.is_poisoned(), "the control: poisoned");
+        let before = listeners();
+        let woke = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&woke);
+        let l = listen(move || {
+            counted.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(listeners(), Listeners(before.0 + 1), "listening");
+        wake_listeners();
+        assert!(woke.load(Ordering::Relaxed) >= 1, "woken");
+        assert_eq!(l.take(), NoticesOwed::Yes, "owed with its wake");
+        drop(l);
+        assert_eq!(listeners(), before, "taken out at its close");
+        LISTENERS.clear_poison();
     }
 
     /// **A click goes to the window that posted it**: each window takes
