@@ -88,8 +88,19 @@ pub(crate) fn clear(outbox: &crate::pty::Outbox) -> bool {
     outbox.is_empty()
 }
 
+/// **CS's light held while the line is not [`clear`]**: dark while bytes
+/// are owed, a state, and so lit at rest ([`Led::at_rest`]).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn cs_level(outbox: &crate::pty::Outbox) -> baud_render::Level {
+    match clear(outbox) {
+        true => baud_render::Level::Free,
+        false => baud_render::Level::Held,
+    }
+}
+
 /// **CS's light told what is owed at a step**: dark while the line is not
 /// [`clear`], and so lit at rest ([`Led::at_rest`]).
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn feed_cs(activity: &mut Activity, outbox: &crate::pty::Outbox, now: HostTime) {
     if !clear(outbox) {
         activity.seen(Led::Cs, now);
@@ -247,9 +258,9 @@ mod tests {
         assert_eq!(step(&mut lights, &rest, at(1_000)), Light::Lit, "clear");
     }
 
-    /// **Both drivers give the line its words at each step**: the macOS
-    /// tick after its pump, reading OH and CD for the line with the
-    /// lights off too, and the Linux turn after its reads, its flush and
+    /// **Both drivers give the line its words at each step**: macOS on
+    /// every turn and at the tick after its pump, which reads OH and CD for
+    /// the line with the lights off too (`give_line_words`), and the Linux turn after its reads, its flush and
     /// the lights' own line, before it presents, OH read from who is in
     /// front while the words show and the wait bounded for it, CD
     /// unknown. Read off the files, as the lights' wiring is.
@@ -270,11 +281,25 @@ mod tests {
             "crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale)",
             "crate::line_lamps::shown(self.app.status_line_lights, &self.app.term, clause)",
             "crate::front::Reads::of(setting, line, self.app.interval)",
-            "crate::line_lamps::given(self.app.status_line_lights, clause, lamps)",
-            "crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame",
+            "self.give_line_words(clause);",
         ] {
             assert!(mac.contains(want), "{want}");
         }
+        let words = body(
+            MAC,
+            concat!(
+                "    fn give_line_",
+                "words(&mut self, clause: baud_render::FlashClause) {"
+            ),
+        );
+        for want in [
+            "crate::line_lamps::given(self.app.status_line_lights, clause, lamps)",
+            "crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame",
+        ] {
+            assert!(words.contains(want), "{want}");
+        }
+        let turn = body(MAC, concat!("    fn lights_", "turn(&mut self) {"));
+        assert!(turn.contains("self.give_line_words(clause);"), "every turn");
         let turn = LINUX
             .split_once("        d.flush_reply();\n")
             .map(|(_, rest)| rest)

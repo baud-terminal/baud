@@ -339,8 +339,9 @@ pub(super) fn screen_text(t: &Term<'_>) -> String {
 /// The bound on one iteration: reaching it is that iteration's failure.
 const BOUND: Duration = Duration::from_secs(2);
 
-/// The bound on the setup's printed paths being answered: past the batch's
-/// one-second ceiling (`probe::CEILING`) and a worker's answer.
+/// The bound on the setup's printed paths being answered and its lights
+/// settling: past the batch's one-second ceiling (`probe::CEILING`) and a
+/// worker's answer, and far past a light's hold and dwell.
 const PATHS_BOUND: Duration = Duration::from_secs(5);
 
 /// The bound on a row's first stage settling before its second is
@@ -1200,17 +1201,31 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         println!("the row's screen was never drawn");
         return std::process::ExitCode::from(1);
     }
-    // **The setup's printed paths answered**: its batch goes at its
-    // deadline, as late as a second after the last, and its answer may owe
-    // a frame, both the setup's work and not the act's; waited for, within
-    // the bound, on the run loop.
+    // **The setup's printed paths answered and its lights settled**: its
+    // batch goes at its deadline, as late as a second after the last, and
+    // its answer may owe a frame; what its bytes lit goes dark a hold and a
+    // dwell after (`Deadline::Lights`). Both are the setup's work and not
+    // the act's; waited for, within the bound, on the run loop.
     let start = Instant::now();
-    while probe::paths_due() == probe::PathsDue::Owed && start.elapsed() < PATHS_BOUND {
+    let owed = || {
+        (
+            probe::paths_due() == probe::PathsDue::Owed,
+            probe::lamps_due() == probe::LampsDue::Owed,
+        )
+    };
+    while owed() != (false, false) && start.elapsed() < PATHS_BOUND {
         offer(1);
     }
-    if probe::paths_due() == probe::PathsDue::Owed {
-        println!("the setup's paths were never answered");
-        return std::process::ExitCode::from(1);
+    match owed() {
+        (true, _) => {
+            println!("the setup's paths were never answered");
+            return std::process::ExitCode::from(1);
+        }
+        (_, true) => {
+            println!("the setup's lights never settled");
+            return std::process::ExitCode::from(1);
+        }
+        (false, false) => {}
     }
     // Settled: what the setup owed drawn, and the link left as it then is.
     offer(30);
@@ -1251,7 +1266,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1342,6 +1357,13 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             },
             probe::gpu_made().value(),
             probe::gpu_held().value(),
+            {
+                let lit = probe::lit();
+                match lit.is_empty() {
+                    true => "-".to_owned(),
+                    false => lit.join(","),
+                }
+            },
         );
         // Each path asked about since the settle, on a line of its own: a
         // row about one path reads which, not only how many.

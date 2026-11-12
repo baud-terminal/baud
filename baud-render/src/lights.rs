@@ -1622,6 +1622,21 @@ impl Pace {
     }
 }
 
+/// **A state a light rests on while it holds**, read rather than seen as
+/// it passes: OH's job in front, CD's connection, FAX's picture placed,
+/// CS's bytes owed. While it holds, the light shows it with no hold to run
+/// out, so a light held for an hour asks for no step until it ends; once
+/// it ends the light keeps its hold from then, as a sighting would.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Level {
+    /// Nothing held: the light runs on its sightings alone.
+    Free,
+    /// Its thing holds now.
+    Held,
+    /// The read it rests on is refused now.
+    Refused,
+}
+
 /// Whether a light owes a sighting it has not shown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Owed {
@@ -1645,6 +1660,8 @@ struct Lamp {
     owed: Owed,
     /// The last time its read was refused, if ever.
     refused: Option<HostTime>,
+    /// The state it rests on, held or not.
+    level: Level,
 }
 
 impl Lamp {
@@ -1657,6 +1674,7 @@ impl Lamp {
             last: HostTime::ZERO,
             owed: Owed::Nothing,
             refused: None,
+            level: Level::Free,
         }
     }
 
@@ -1671,12 +1689,32 @@ impl Lamp {
         self.refused = Some(self.refused.map_or(at, |r| r.max(at)));
     }
 
+    /// The state it rests on is `level` from `at`: one that ends keeps its
+    /// hold from `at`, as a sighting there would; one that begins is owed.
+    fn hold(&mut self, level: Level, at: HostTime) {
+        if level == self.level {
+            return;
+        }
+        match self.level {
+            Level::Held => self.seen(at),
+            Level::Refused => self.refused(at),
+            Level::Free => {}
+        }
+        self.level = level;
+        match level {
+            Level::Held => self.seen(at),
+            Level::Refused => self.refused(at),
+            Level::Free => {}
+        }
+    }
+
     fn step(&mut self, now: HostTime, t: Timing) {
         if self.since.is_some_and(|s| now < s.plus(t.dwell)) {
             return;
         }
-        let held = now < self.last.plus(t.hold);
-        let refused = self.refused.is_some_and(|r| now < r.plus(t.hold));
+        let held = self.level == Level::Held || now < self.last.plus(t.hold);
+        let refused =
+            self.level == Level::Refused || self.refused.is_some_and(|r| now < r.plus(t.hold));
         let showing = self.light == self.shows;
         let want = match (self.owed, showing, held, refused) {
             (Owed::Seen, _, _, _) | (_, true, true, _) => self.shows,
@@ -1738,6 +1776,28 @@ impl Activity {
         self.lamps.get_mut(led).refused(at);
     }
 
+    /// **The state `led` rests on is `level` from `at`**: held, refused, or
+    /// neither. A light held asks for no step while it holds
+    /// ([`Activity::next_change`]); fed again with the same level, nothing
+    /// changes.
+    pub fn hold(&mut self, led: Led, level: Level, at: HostTime) {
+        self.lamps.get_mut(led).hold(level, at);
+    }
+
+    /// **Whether a step at `now` would change a light**: a sighting not yet
+    /// shown, a state begun or ended, a hold or dwell already run out. A
+    /// driver that steps only on a display link's tick asks for one at
+    /// once while this holds, and at [`Activity::next_change`] otherwise.
+    pub fn due(&self, now: HostTime, pace: Pace) -> bool {
+        let t = pace.timing();
+        Led::ALL.iter().any(|&l| {
+            let mut lamp = *self.lamps.get(l);
+            let was = lamp.light;
+            lamp.step(now, t);
+            lamp.light != was
+        })
+    }
+
     /// What the lights show at `now`, each changed at most once, at `pace`.
     pub fn step(&mut self, now: HostTime, pace: Pace) -> Shown {
         let t = pace.timing();
@@ -1757,7 +1817,8 @@ impl Activity {
     /// hold, the soonest of any light's still ahead. A driver with no
     /// display link wakes for it, so a light goes dark when its hold ends
     /// and not at the next event; a wake at a moment that changes nothing
-    /// costs one step. Stepped at `now` first, so nothing owed is behind.
+    /// costs one step. Stepped at `now` first, so nothing owed is behind. A
+    /// state held ([`Level`]) has no hold to run out while it holds.
     pub fn next_change(&self, now: HostTime, pace: Pace) -> Option<HostTime> {
         let t = pace.timing();
         Led::ALL
@@ -1766,8 +1827,11 @@ impl Activity {
                 let lamp = self.lamps.get(l);
                 [
                     lamp.since.map(|s| s.plus(t.dwell)),
-                    (lamp.light == lamp.shows).then(|| lamp.last.plus(t.hold)),
-                    lamp.refused.map(|r| r.plus(t.hold)),
+                    (lamp.light == lamp.shows && lamp.level != Level::Held)
+                        .then(|| lamp.last.plus(t.hold)),
+                    lamp.refused
+                        .filter(|_| lamp.level != Level::Refused)
+                        .map(|r| r.plus(t.hold)),
                 ]
             })
             .flatten()

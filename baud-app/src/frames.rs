@@ -84,6 +84,9 @@ pub(crate) enum Deadline {
     Indicator,
     /// The five-second report, while the log shows it.
     Report,
+    /// The activity lights' next step: a light to change at once, or a
+    /// hold or dwell ending.
+    Lights,
 }
 
 /// Why the link runs.

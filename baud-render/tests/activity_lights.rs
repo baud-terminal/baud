@@ -16,9 +16,9 @@ use baud_domain::{Chan, HostTime};
 use baud_domain::{Cols, Rows};
 use baud_font::{Face, Px};
 use baud_render::lights::{
-    DOT, GAP, HALO, HALO_GAP, LIT_CONTRAST, PAIR, PLATE_PAD, PLATE_RADIUS_TITLE, PLATE_TITLE, TEXT,
-    TEXT_CONTRAST, draw, draw_led, draw_panel_led, draw_panel_plate, draw_plate, full, layout,
-    panel_layout, panel_letters, panel_margin, ring_entry, width,
+    DOT, GAP, HALO, HALO_GAP, LIT_CONTRAST, Level, PAIR, PLATE_PAD, PLATE_RADIUS_TITLE,
+    PLATE_TITLE, TEXT, TEXT_CONTRAST, draw, draw_led, draw_panel_led, draw_panel_plate, draw_plate,
+    full, layout, panel_layout, panel_letters, panel_margin, ring_entry, width,
 };
 use baud_render::{
     AREA_LIMIT, Activity, Ansi, Argb, Backdrop, Blend, ByLed, ByLight, DEFAULT_GLOW, Glow, Half,
@@ -1913,4 +1913,106 @@ fn every_panel_lamp_changing_at_once_flashes_under_the_area_clause() {
         }
     }
     assert!(most < AREA_LIMIT / 10.0, "the most, {most} WCAG pixels");
+}
+
+/// **A state held asks for no step while it holds** (`Level`): OH held
+/// from 0 is owed a step at once and lit by it, then asks for none, not at
+/// its hold's end and not an hour later; ended at 3600 s it keeps its hold
+/// from there and goes dark at its end. A refused read held is unread with
+/// no step asked for while it holds. The control: OH seen once at 0 asks
+/// for a step at the hold's end. Perturbations: a held light's hold runs
+/// out in the step as a sighting's does -- an hour on fails; or in
+/// `next_change` -- held and seen fails.
+#[test]
+fn a_state_held_asks_for_no_step_while_it_holds() {
+    let ms = |m: u64| t(Duration::from_millis(m));
+    let mut seen = Activity::new();
+    seen.step(ms(0), Pace::Full);
+    seen.seen(Led::Oh, ms(0));
+    assert!(seen.due(ms(0), Pace::Full), "the control: owed at once");
+    assert_eq!(seen.step(ms(0), Pace::Full).oh, Light::Lit);
+    assert_eq!(
+        seen.next_change(ms(1), Pace::Full),
+        Some(ms(200)),
+        "the control: a sighting's hold ends"
+    );
+    let mut a = Activity::new();
+    a.step(ms(0), Pace::Full);
+    a.hold(Led::Oh, Level::Held, ms(0));
+    assert!(a.due(ms(0), Pace::Full), "owed at once");
+    assert_eq!(a.step(ms(0), Pace::Full).oh, Light::Lit);
+    assert!(!a.due(ms(1), Pace::Full));
+    assert_eq!(
+        a.next_change(ms(300), Pace::Full),
+        None,
+        "held: no hold to end"
+    );
+    // A sighting while held, as CS takes on a short write: still none.
+    a.seen(Led::Oh, ms(1_000));
+    assert_eq!(a.next_change(ms(1_001), Pace::Full), None, "held, seen");
+    let hour = 3_600_000;
+    assert!(!a.due(ms(hour), Pace::Full), "an hour on");
+    assert_eq!(a.step(ms(hour), Pace::Full).oh, Light::Lit);
+    a.hold(Led::Oh, Level::Held, ms(hour));
+    assert!(
+        !a.due(ms(hour), Pace::Full),
+        "the same level again: nothing"
+    );
+    a.hold(Led::Oh, Level::Free, ms(hour + 10));
+    assert!(
+        !a.due(ms(hour + 10), Pace::Full),
+        "ended: its hold from then"
+    );
+    assert_eq!(
+        a.next_change(ms(hour + 10), Pace::Full),
+        Some(ms(hour + 210))
+    );
+    assert_eq!(a.step(ms(hour + 210), Pace::Full).oh, Light::Dark);
+    let mut r = Activity::new();
+    r.step(ms(0), Pace::Full);
+    r.hold(Led::Cd, Level::Refused, ms(0));
+    assert!(r.due(ms(0), Pace::Full));
+    assert_eq!(r.step(ms(0), Pace::Full).cd, Light::Unread);
+    assert_eq!(r.next_change(ms(300), Pace::Full), None, "refused, held");
+}
+
+/// **A state held wakes a driver with no display link twice, and a
+/// sighting fed at every wake wakes it every 200 ms** (`Level`): a driver
+/// that wakes only at [`Activity::due`] and [`Activity::next_change`],
+/// counting its wakes over an hour of OH held. Held, it wakes to light it
+/// and once at the dwell's end; the control, OH fed as a sighting at each
+/// wake, as the lights were fed at every tick, wakes at each hold's end
+/// for the whole hour. Counted, not timed. Perturbation: a held light's
+/// hold run out as a sighting's -- held wakes as often as the control.
+#[test]
+fn a_state_held_wakes_twice_in_an_hour() {
+    let ms = |m: u64| t(Duration::from_millis(m));
+    let hour = ms(3_600_000);
+    let wakes = |held: bool| {
+        let mut a = Activity::new();
+        a.step(ms(0), Pace::Full);
+        let mut now = ms(0);
+        let mut woke = 0u32;
+        if held {
+            a.hold(Led::Oh, Level::Held, now);
+        }
+        loop {
+            if !held {
+                a.seen(Led::Oh, now);
+            }
+            woke += 1;
+            if a.due(now, Pace::Full) {
+                a.step(now, Pace::Full);
+            }
+            match a.next_change(now, Pace::Full) {
+                Some(next) if next <= hour => now = next,
+                _ => break,
+            }
+        }
+        (woke, a.step(now, Pace::Full).oh)
+    };
+    assert_eq!(wakes(true), (2, Light::Lit), "held");
+    let (fed, oh) = wakes(false);
+    assert_eq!(oh, Light::Lit, "the control: lit too");
+    assert!(fed > 10_000, "the control: a wake each hold, {fed}");
 }

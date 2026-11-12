@@ -260,6 +260,10 @@ thread_local! {
     static KEY: Cell<Key> = const { Cell::new(Key::No) };
     /// Whether the printed paths' worker owes a turn (`PathsDue`).
     static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
+    /// Whether the activity lights ask for a step (`LampsDue`).
+    static LAMPS_DUE: Cell<LampsDue> = const { Cell::new(LampsDue::Idle) };
+    /// The activity lights lit at their last step, by their letters (`lit`).
+    static LIT: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     /// The printed paths asked about (`paths_asked`).
     static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The text of each printed path asked about, in order
@@ -440,6 +444,37 @@ pub fn set_splash(splash: Splash) {
 /// plays a started splash to its end before it types.
 pub fn splash() -> Splash {
     SPLASH.with(Cell::get)
+}
+
+/// **Whether the activity lights ask for a step**: a light to change at
+/// once or a hold or dwell still to end (baud-app's `Deadline::Lights`), or
+/// nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LampsDue {
+    Idle,
+    Owed,
+}
+
+/// Set whether the activity lights ask for a step.
+pub fn set_lamps_due(due: LampsDue) {
+    LAMPS_DUE.with(|d| d.set(due));
+}
+
+/// Whether the activity lights ask for a step: the frame rig's settle
+/// waits for what the setup lit to go dark.
+pub fn lamps_due() -> LampsDue {
+    LAMPS_DUE.with(Cell::get)
+}
+
+/// Set the activity lights lit at a step, by their letters.
+pub fn set_lit(letters: Vec<&'static str>) {
+    LIT.with(|l| *l.borrow_mut() = letters);
+}
+
+/// **The activity lights lit at their last step**, by their letters: the
+/// frame rig prints them.
+pub fn lit() -> Vec<&'static str> {
+    LIT.with(|l| l.borrow().clone())
 }
 
 /// Set the printed paths asked about so far, the worker's own count.

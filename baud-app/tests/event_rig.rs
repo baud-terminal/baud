@@ -1710,6 +1710,8 @@ struct Counters {
     /// line: none for a row that releases no second stage
     /// (`RigWindow::Released`).
     by: Option<SentBy>,
+    /// The activity lights lit at their last step, by their letters.
+    lit: Vec<String>,
 }
 
 /// Whether a frame rig's window still drew on the GPU, or why it gave it
@@ -1878,6 +1880,10 @@ impl Counters {
             },
             gpu_made: field("gpu_made")?.parse().ok()?,
             gpu_held: field("gpu_held")?.parse().ok()?,
+            lit: match field("lit")? {
+                "-" => Vec::new(),
+                list => list.split(',').map(str::to_owned).collect(),
+            },
             title: text
                 .lines()
                 .find_map(|l| l.strip_prefix("title "))
@@ -2094,6 +2100,9 @@ enum Settles {
     /// (`RigWindow::Released`): a batch the `D` made due went, and still
     /// nothing was asked about and no link line is at rest.
     DarkOnD,
+    /// **What a read lit goes dark with no tick polling for it**: RD not
+    /// lit at the end, and at least one frame of the act drawn.
+    Darkened,
 }
 
 impl Settles {
@@ -2226,6 +2235,7 @@ impl Settles {
             Settles::DarkOnD => {
                 c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
             }
+            Settles::Darkened => !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1,
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
             Settles::AliveAtBound => c.delivered == 0,
@@ -2312,7 +2322,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 38] = [
+const FRAME_SITES: [FrameSite; 39] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2918,6 +2928,27 @@ const FRAME_SITES: [FrameSite; 38] = [
         expect: Settles::Titled("/named"),
         state: RowState::Green,
     },
+    // **What a read lit goes dark with no tick polling for it**: the act's
+    // bytes light RD, and its hold and dwell run out with the link paused;
+    // the lights ask for the tick that steps them at each
+    // (`Deadline::Lights`), so RD goes dark and the link pauses again.
+    // Before, the lights stepped only on a tick something else owed, and
+    // RD stayed lit once the act's frame was drawn. The run is a second
+    // and a half, against a hold and a dwell of 200 ms each.
+    FrameSite {
+        name: SiteName("what a read lit goes dark with no tick polling for it"),
+        setup: STILL,
+        act: r"printf 'lit\033]52;c;!\007'",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Offered,
+        window: RigWindow::Untold,
+        env: &[],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(150),
+        expect: Settles::Darkened,
+        state: RowState::Green,
+    },
     // **A file link under a resting pointer previews with no tick**: a
     // `file:///tmp` link, which names no host, under the pointer the window
     // is told of, with the link paused. Pending, and judged on the lifted
@@ -3370,7 +3401,7 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
 fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     let counts = |link: &str, delivered: u32, lines: &str| {
         let text = format!(
-            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5,FS-A9 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0\n{lines}"
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5,FS-A9 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=-\n{lines}"
         );
         Counters::parse(&text).expect("the counts")
     };

@@ -4972,6 +4972,9 @@ struct Driver {
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
     procs: crate::front::Live,
+    /// OH's and CD's readings as last taken, which the lights and DEC's
+    /// line are fed on every turn.
+    front_read: Option<(crate::front::Reading, crate::front::Reading)>,
     /// SYN's reading of the synchronised update at the last tick, so one
     /// opened and closed between two ticks still lights it (`bell.rs`).
     synced: crate::bell::Synced,
@@ -13241,6 +13244,9 @@ impl Driver {
                 self.ended();
             }
         }
+        // The activity lights' states, as this turn's reads and writes left
+        // them (`lights_turn`).
+        self.lights_turn();
         // Hold the frame while the application is mid synchronised update, so
         // a partial redraw is never shown -- btop wraps its menu redraw in
         // one, and presenting between the `?2026h` and the `?2026l` flickered
@@ -13298,6 +13304,7 @@ impl Driver {
         // The printed paths' worker's next turn, after the frame's scan filed
         // what this turn's output wrote.
         self.paths_schedule();
+        self.record_lamps_due();
     }
 }
 
@@ -14733,6 +14740,7 @@ impl Opening {
             lights: crate::lights::Strip::new(None, None, NSSize::new(0.0, 0.0)),
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
+            front_read: None,
             synced: crate::bell::Synced::new(),
             reload: None,
             notice,
@@ -15244,6 +15252,7 @@ impl Driver {
                 crate::log::enabled(crate::log::Level::Info)
                     .then(|| host(instant + app.reported.until(instant))),
             ),
+            (Deadline::Lights, lamps_next(app, now)),
         ];
         crate::frames::owes(frame, &deadlines, now, app.interval)
     }
@@ -15774,6 +15783,17 @@ impl Driver {
             self.wake_holding(Instant::now() + wait, posted);
         }
         self.record_paths_due(next);
+    }
+
+    /// What the frame rig reads of the lights, under the probe only: whether
+    /// they ask for a step (`lamps_next`), which the settle waits on.
+    #[cfg_attr(not(feature = "effect-probe"), allow(clippy::unused_self))]
+    fn record_lamps_due(&self) {
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::set_lamps_due(match lamps_next(&self.app, host_now()) {
+            Some(_) => baud_present_macos::probe::LampsDue::Owed,
+            None => baud_present_macos::probe::LampsDue::Idle,
+        });
     }
 
     /// What the frame rig reads of the worker, under the probe only: whether
@@ -17749,6 +17769,64 @@ impl Driver {
         a.took
     }
 
+    /// **The activity lights' states, fed on every turn** (`lights.rs`): SYN
+    /// at each sampling of the core, its reading taken whether or not the
+    /// lights show, so showing them again lights nothing opened while they
+    /// were away; FAX held while a picture is placed and CS while bytes are
+    /// owed the program that the kernel has not taken (`Level`); OH and CD
+    /// as the job in front was last read; and DEC's line's words. Fed on
+    /// the turn that changed them, a paused window's included, the lights
+    /// ask for the tick that steps them (`Deadline::Lights`), and a state
+    /// that holds asks for none while it holds.
+    fn lights_turn(&mut self) {
+        let now = host_now();
+        let synced = self.synced.seen(&self.app.term);
+        if self.app.activity_lights.shown() {
+            if synced {
+                self.app.activity.seen(Led::Syn, now);
+            }
+            let fax = match self.app.term.images().any_placed() {
+                true => baud_render::Level::Held,
+                false => baud_render::Level::Free,
+            };
+            self.app.activity.hold(Led::Fax, fax, now);
+            let cs = crate::line_lamps::cs_level(&self.app.outbox);
+            self.app.activity.hold(Led::Cs, cs, now);
+        }
+        self.hold_front(now);
+        let clause = crate::line_lamps::clause(self.app.metrics_cell(), self.app.scale);
+        self.give_line_words(clause);
+    }
+
+    /// **OH and CD held as the job in front was last read**
+    /// (`lights::level`), while the lights show.
+    fn hold_front(&mut self, now: HostTime) {
+        if !self.app.activity_lights.shown() {
+            return;
+        }
+        let (oh, cd) = self.front_read.map_or(
+            (baud_render::Level::Free, baud_render::Level::Free),
+            |(oh, cd)| (crate::lights::level(oh), crate::lights::level(cd)),
+        );
+        self.app.activity.hold(Led::Oh, oh, now);
+        self.app.activity.hold(Led::Cd, cd, now);
+    }
+
+    /// **DEC's line's words, given as the lamps are now** (`line_lamps.rs`),
+    /// a frame owed when they change.
+    fn give_line_words(&mut self, clause: baud_render::FlashClause) {
+        let (oh, cd) = self
+            .front_read
+            .map_or((ReadLamp::default(), ReadLamp::default()), |(oh, cd)| {
+                (crate::front::lamp(oh), crate::front::lamp(cd))
+            });
+        let lamps = crate::line_lamps::read(&self.app.term, &self.app.outbox, cd, oh);
+        let given = crate::line_lamps::given(self.app.status_line_lights, clause, lamps);
+        if crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame {
+            self.app.owe_frame();
+        }
+    }
+
     /// **The activity lights at the tick's target**: the clocks stepped,
     /// and the view shown, swapped or taken down as `[window]
     /// activity_lights`, the scale, the appearance and Dim Flashing Lights
@@ -17765,36 +17843,23 @@ impl Driver {
         // line's words are on, and listed often enough for the line's 80 ms.
         let reads = crate::front::Reads::of(setting, line, self.app.interval);
         let shell = self.app.pty.child();
-        let readings = self.front.tick(reads, &mut self.procs, shell, now);
-        if let (Some((oh, cd)), true) = (readings, setting.shown()) {
-            crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);
-            crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);
-        }
-        // The line's words, as they are at this tick (`line_lamps.rs`).
-        let (oh, cd) = readings.map_or((ReadLamp::default(), ReadLamp::default()), |(oh, cd)| {
-            (crate::front::lamp(oh), crate::front::lamp(cd))
-        });
-        let lamps = crate::line_lamps::read(&self.app.term, &self.app.outbox, cd, oh);
-        let given = crate::line_lamps::given(self.app.status_line_lights, clause, lamps);
-        if crate::line_lamps::give(&mut self.app.term, given) == crate::line_lamps::Owes::Frame {
-            self.app.owe_frame();
-        }
-        // SYN and FAX: the core's state at the tick, SYN's reading taken
-        // whether or not the lights show, so showing them again lights
-        // nothing opened while they were away. CS: dark while bytes are
-        // owed the program that the kernel has not taken.
-        let synced = self.synced.seen(&self.app.term);
-        if setting.shown() {
-            if synced {
-                self.app.activity.seen(Led::Syn, now);
-            }
-            if self.app.term.images().any_placed() {
-                self.app.activity.seen(Led::Fax, now);
-            }
-            crate::line_lamps::feed_cs(&mut self.app.activity, &self.app.outbox, now);
-        }
+        self.front_read = self.front.tick(reads, &mut self.procs, shell, now);
+        // OH and CD held while what they read holds, and the line's words,
+        // as they are at this tick; SYN, FAX and CS are fed on every turn
+        // (`lights_turn`).
+        self.hold_front(now);
+        self.give_line_words(clause);
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(now, pace);
+        self.record_lamps_due();
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::set_lit(
+            Led::ALL
+                .iter()
+                .filter(|&&l| *shown.get(l) == baud_render::lights::Light::Lit)
+                .map(|l| l.letters())
+                .collect(),
+        );
         self.app.take.lamps(
             || {
                 Led::ALL
@@ -22625,6 +22690,22 @@ impl Hosts {
     fn judging(&mut self, cwd: Option<baud_core::WorkingDirectory<'_>>) -> Option<&[String]> {
         let read = self.ended();
         judged_by(self.given(), read, cwd)
+    }
+}
+
+/// **When the activity lights next ask for a step** (`Deadline::Lights`),
+/// while they show: at once for a step that would change a light -- a
+/// sighting not yet shown, a state begun or ended -- and otherwise a
+/// hold's or a dwell's end ahead (`Activity::next_change`). A state that
+/// holds asks for none while it holds (`baud_render::Level`).
+fn lamps_next(app: &App, now: HostTime) -> Option<HostTime> {
+    if !app.activity_lights.shown() {
+        return None;
+    }
+    let pace = crate::access::lights_pace(app.motion);
+    match app.activity.due(now, pace) {
+        true => Some(now),
+        false => app.activity.next_change(now, pace),
     }
 }
 

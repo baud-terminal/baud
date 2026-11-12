@@ -125,9 +125,10 @@ pub(crate) fn glow(flashing: baud_present_macos::settings::Flashing) -> Glow {
     }
 }
 
-/// **What OH's or CD's reading tells its clock**: a lit reading is the
-/// light's thing seen, a refused one its read refused, a dark one
-/// nothing.
+/// **What OH's or CD's reading tells its clock as a sighting**: a lit
+/// reading is the light's thing seen, a refused one its read refused, a
+/// dark one nothing; for a sampler that feeds it at every step (the film).
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn feed(
     activity: &mut baud_render::Activity,
     led: Led,
@@ -138,6 +139,17 @@ pub(crate) fn feed(
         crate::front::Reading::Lit => activity.seen(led, now),
         crate::front::Reading::Refused => activity.refused(led, now),
         crate::front::Reading::Dark => {}
+    }
+}
+
+/// **What OH's or CD's reading holds its light at**: a lit reading the
+/// light's thing held, a refused one its read refused, a dark one nothing;
+/// a state, held until a reading says otherwise (`baud_render::Level`).
+pub(crate) fn level(reading: crate::front::Reading) -> baud_render::Level {
+    match reading {
+        crate::front::Reading::Lit => baud_render::Level::Held,
+        crate::front::Reading::Refused => baud_render::Level::Refused,
+        crate::front::Reading::Dark => baud_render::Level::Free,
     }
 }
 
@@ -1282,12 +1294,14 @@ mod tests {
     /// driver steps the clocks on the display link's tick at the motion
     /// preference's pace and shows them through this module at the glow
     /// the Dim Flashing Lights setting gives (`glow`); the tick reads
-    /// OH and CD only through `Front::tick`, and SYN and FAX from the
-    /// core's state at the tick, the frame baud holds or shows; a drain that brought bytes gives RD its latest read's
+    /// OH and CD only through `Front::tick` and holds them as states, and
+    /// every turn feeds SYN from the core's state, holds FAX and CS as
+    /// states and gives DEC's line its words (`lights_turn`), the lights
+    /// asking for the tick that steps them (`Deadline::Lights`); a drain that brought bytes gives RD its latest read's
     /// stamp and HS each full read's; a reply the core queued during a feed,
     /// or one nobody typed at a flush, lights AA; a write the kernel took
-    /// any of stamps SD, and one it refused any of, or bytes still owed at
-    /// the tick, darken CS; the process
+    /// any of stamps SD, and one it refused any of, or bytes still owed,
+    /// darken CS; the process
     /// watch tells the sampler; the window's appearance makes the pictures
     /// stale, and a resize re-places them.
     #[test]
@@ -1306,14 +1320,9 @@ mod tests {
         let show = body(concat!("    fn show_lights(&mut self, ", "target: f64) {"));
         for want in [
             "crate::front::Reads::of(setting, line, self.app.interval)",
-            "self.front.tick(reads, &mut self.procs, shell, now)",
-            "crate::line_lamps::read(&self.app.term, &self.app.outbox, cd, oh)",
-            "crate::line_lamps::give(&mut self.app.term, given)",
-            "crate::lights::feed(&mut self.app.activity, Led::Oh, oh, now);",
-            "crate::lights::feed(&mut self.app.activity, Led::Cd, cd, now);",
-            "let synced = self.synced.seen(&self.app.term);",
-            "self.app.term.images().any_placed()",
-            "crate::line_lamps::feed_cs(&mut self.app.activity, &self.app.outbox, now);",
+            "self.front_read = self.front.tick(reads, &mut self.procs, shell, now);",
+            "self.hold_front(now);",
+            "self.give_line_words(clause);",
             "crate::access::lights_pace(self.app.motion)",
             "let glow = crate::lights::glow(self.app.flashing);",
             "look: self.app.renderer.lights_look(glow),",
@@ -1321,8 +1330,27 @@ mod tests {
         ] {
             assert!(show.contains(want), "{want}\n{show}");
         }
+        let turn = body(concat!("    fn lights_", "turn(&mut self) {"));
+        for want in [
+            "let synced = self.synced.seen(&self.app.term);",
+            "self.app.term.images().any_placed()",
+            "self.app.activity.hold(Led::Fax, fax, now);",
+            "crate::line_lamps::cs_level(&self.app.outbox)",
+            "self.hold_front(now);",
+            "self.give_line_words(clause);",
+        ] {
+            assert!(turn.contains(want), "{want}\n{turn}");
+        }
+        let held = body(concat!("    fn hold_", "front(&mut self, now: HostTime) {"));
+        for want in [
+            "self.app.activity.hold(Led::Oh, oh, now);",
+            "self.app.activity.hold(Led::Cd, cd, now);",
+        ] {
+            assert!(held.contains(want), "{want}\n{held}");
+        }
         let pump = body(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
         for want in [
+            "self.lights_turn();",
             "self.app.activity.seen(Led::Rd, last.at);",
             "self.app.activity.seen(Led::Hs, chunk.at);",
             "baud_render::lights::full(&chunk.bytes)",
