@@ -379,8 +379,8 @@ pub const SIG_DFL: SigHandler = SigHandler(0);
 
 /// **One past the highest signal number**, `NSIG`: 32 on Darwin, 65 under
 /// glibc, whose numbers run on into the real-time signals. The probe holds
-/// it. A pty's child sets every number below it to its default action
-/// (`pty::fork_terminal`); `signal` refuses the two whose action cannot
+/// it. A child baud starts sets every number below it to its default
+/// action ([`child_signals`]); `signal` refuses the two whose action cannot
 /// change, and glibc the ones it keeps for itself, and nothing else moves.
 #[cfg(target_os = "macos")]
 pub const NSIG: c_int = 32;
@@ -449,42 +449,133 @@ pub const SIGUSR2: c_int = 31;
 #[cfg(all(test, not(target_os = "macos")))]
 pub const SIGUSR2: c_int = 12;
 
-// **The signal mask**: `sigprocmask` in a pty's child, single-threaded
-// after the fork, which empties the mask the forking thread had
-// (`pty::fork_terminal`); `pthread_sigmask` in a test, which blocks a
-// signal on its own thread alone.
+/// `SIGHUP`, `SIGINT` and `SIGQUIT`: 1, 2 and 3 on Darwin and on Linux;
+/// the probe holds them. What [`as_a_runner_launches`] blocks and ignores.
+#[cfg(test)]
+pub const SIGHUP: c_int = 1;
+#[cfg(test)]
+pub const SIGINT: c_int = 2;
+#[cfg(test)]
+pub const SIGQUIT: c_int = 3;
+
+/// `signal`'s disposition that ignores a signal: `SIG_IGN`, 1 on both
+/// platforms; the probe holds it.
+#[cfg(test)]
+pub const SIG_IGN: SigHandler = SigHandler(1);
+
+// **The signal mask**: `sigprocmask` in a child, single-threaded after the
+// fork, which empties the mask the forking thread had ([`child_signals`]);
+// `pthread_sigmask` in a test, which blocks a signal on its own thread
+// alone.
 unsafe extern "C" {
     pub fn sigprocmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
     #[cfg(test)]
     pub fn pthread_sigmask(how: c_int, set: *const SigSet, old: *mut SigSet) -> c_int;
 }
 
-/// **`cmd`'s child starts with each of `signals` at its default action**,
-/// whatever this process inherited. A signal ignored stays ignored across
-/// `exec` ("signals set to be ignored (SIG_IGN) by the calling process image
-/// shall be set to be ignored by the new process image", `[[source:
-/// posix-exec]]`), and a non-interactive shell can neither trap nor reset
-/// one ignored on
-/// entry, so a child started from a runner that ignores `SIGINT` -- a
-/// background job of a non-interactive shell does -- is not ended by one.
+/// **Every signal at its default action, then none blocked**: what every
+/// program baud starts begins with, whatever baud inherited or set -- a
+/// window's shell (`pty::fork_terminal`) and every other ([`child`]).
+///
+/// A signal ignored stays ignored across the `exec` ("signals set to be
+/// ignored (SIG_IGN) by the calling process image shall be set to be
+/// ignored by the new process image", `[[source: posix-exec]]`), and a
+/// shell cannot undo one ignored on its entry. baud ignores `SIGPIPE` from
+/// its start, as Rust's runtime does in every program it starts
+/// (`[[source: rust-std-unix-sigpipe]]` 33-34, 168); a baud started with
+/// `SIGINT` ignored, as a background job of a non-interactive shell is,
+/// would hand what it starts a Control-C that does nothing. The mask
+/// crosses the `exec` too, and the forking thread's may hold signals a
+/// launcher blocked -- cargo-watch hands its command `SIGHUP` blocked --
+/// and `std::process::Command` resets neither: on macOS a child it starts,
+/// by `posix_spawn` or by `fork`, from a process with `SIGHUP` blocked and
+/// `SIGINT` ignored survives a `kill -HUP` and a `kill -INT` of itself.
+///
+/// **The actions first and the mask last**: a signal held by the mask and
+/// delivered once it is emptied -- a `SIGWINCH` from a resize's
+/// `TIOCSWINSZ` in the parent, say -- then finds its default action, never
+/// a handler inherited from baud, which emptying the mask first would
+/// leave a moment to run; baud installs none today, so the order costs
+/// nothing and closes that moment. `signal` refuses the two numbers whose
+/// action cannot change, and glibc the ones it keeps for itself.
+///
+/// # Safety
+///
+/// Only in a child between its `fork` and its `exec`, which has one
+/// thread: it changes every signal's action for the whole process.
+/// `signal` and `sigprocmask` are on XSH 2.4.3's table of
+/// async-signal-safe functions (`[[source: posix-xsh-chap02]]`), all a
+/// child of a multi-threaded process may call before its `exec`
+/// (`[[source: posix-fork]]`).
+pub unsafe fn child_signals() {
+    // SAFETY: the caller's: a child before its `exec`; the set lives for
+    // the call.
+    unsafe {
+        for sig in 1..NSIG {
+            signal(sig, SIG_DFL);
+        }
+        sigprocmask(SIG_SETMASK, &SigSet::default(), core::ptr::null_mut());
+    }
+}
+
+/// **A program baud starts, as a [`std::process::Command`] whose child
+/// begins with [`child_signals`]**: every one baud starts outside a
+/// window's terminal -- a `[link.*]` rule's command, `xdg-open`, a new
+/// window's baud on Linux -- is made here, and nowhere else
+/// (`a_program_baud_starts_is_made_only_here`). The closure makes `std`
+/// start it by `fork` and `exec` rather than `posix_spawn`.
+pub fn child(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(program);
+    // SAFETY: between the fork and the exec the closure calls only
+    // `child_signals`, which calls only what XSH 2.4.3's table lists.
+    unsafe {
+        cmd.pre_exec(|| {
+            child_signals();
+            Ok(())
+        })
+    };
+    cmd
+}
+
+/// **`cmd` started as a runner can start a test**: `SIGHUP` blocked, as
+/// cargo-watch hands its command, and `SIGINT` and `SIGQUIT` ignored, as a
+/// background job of a non-interactive shell has them. A test that sends
+/// signals runs under this to show its result does not depend on who
+/// launched it.
 #[cfg(test)]
-pub fn default_signals<'c>(
-    cmd: &'c mut std::process::Command,
-    signals: &'static [c_int],
-) -> &'c mut std::process::Command {
+pub fn as_a_runner_launches(cmd: &mut std::process::Command) -> &mut std::process::Command {
     use std::os::unix::process::CommandExt;
     // SAFETY: between the fork and the exec the closure calls only
-    // `signal`, which XSH 2.4.3's table lists as async-signal-safe
-    // (`[[source: posix-xsh-chap02]]`), over a slice that lives for the
-    // program.
+    // `sigprocmask` and `signal`, on XSH 2.4.3's table (`[[source:
+    // posix-xsh-chap02]]`), over a set that lives for the call.
     unsafe {
-        cmd.pre_exec(move || {
-            for &s in signals {
-                signal(s, SIG_DFL);
-            }
+        cmd.pre_exec(|| {
+            let hup = SigSet::default().with(SIGHUP);
+            sigprocmask(SIG_BLOCK, &hup, core::ptr::null_mut());
+            signal(SIGINT, SIG_IGN);
+            signal(SIGQUIT, SIG_IGN);
             Ok(())
         })
     }
+}
+
+/// **`f` run with `sig` blocked on this thread alone**, as a launcher's
+/// mask would hold it, and the thread's mask as it was after: a test's way
+/// to start a child from a blocked mask without blocking it for the
+/// process.
+#[cfg(test)]
+pub fn blocking_on_this_thread<T>(sig: c_int, f: impl FnOnce() -> T) -> T {
+    let set = SigSet::default().with(sig);
+    let mut was = SigSet::default();
+    // SAFETY: this thread's own mask, from a set and into one that live for
+    // the call.
+    let blocked = unsafe { pthread_sigmask(SIG_BLOCK, &set, &mut was) };
+    assert_eq!(blocked, 0, "{sig} blocked on this thread");
+    let out = f();
+    // SAFETY: as above, the mask this thread had.
+    unsafe { pthread_sigmask(SIG_SETMASK, &was, core::ptr::null_mut()) };
+    out
 }
 
 /// **An `errno` value** as a call left it, for a failure kept past the
@@ -2049,6 +2140,10 @@ int main(void) {
     printf("SIG_SETMASK=%lld\n", (long long)SIG_SETMASK);
     printf("SIG_BLOCK=%lld\n", (long long)SIG_BLOCK);
     printf("SIGUSR2=%lld\n", (long long)SIGUSR2);
+    printf("SIG_IGN=%lld\n", (long long)(intptr_t)SIG_IGN);
+    printf("SIGHUP=%lld\n", (long long)SIGHUP);
+    printf("SIGINT=%lld\n", (long long)SIGINT);
+    printf("SIGQUIT=%lld\n", (long long)SIGQUIT);
     {
         // Zeroed first: under glibc, sigemptyset left bytes past the
         // signals it numbers as the stack had them (byte 125 read 0xff).
@@ -2472,6 +2567,10 @@ int main(void) {
         assert_eq!(h["SIG_SETMASK"], i128::from(SIG_SETMASK));
         assert_eq!(h["SIG_BLOCK"], i128::from(SIG_BLOCK));
         assert_eq!(h["SIGUSR2"], i128::from(SIGUSR2));
+        assert_eq!(h["SIG_IGN"], SIG_IGN.0 as i128);
+        assert_eq!(h["SIGHUP"], i128::from(SIGHUP));
+        assert_eq!(h["SIGINT"], i128::from(SIGINT));
+        assert_eq!(h["SIGQUIT"], i128::from(SIGQUIT));
         // **A set holding one signal is `sigaddset`'s, byte for byte**: one
         // byte set, at the same place, to the same bit.
         let ours = SigSet::default().with(SIGUSR2);
@@ -2631,6 +2730,85 @@ int main(void) {
             assert_eq!(h["IN_DELETE_SELF"], i128::from(IN_DELETE_SELF));
             assert_eq!(h["IN_MOVE_SELF"], i128::from(IN_MOVE_SELF));
             assert_eq!(h["PR_SET_THP_DISABLE"], i128::from(PR_SET_THP_DISABLE));
+        }
+    }
+
+    /// **A program baud starts is made only by [`child`]**: no code of the
+    /// app outside this file calls `Command::new`, past its tests and the
+    /// modules the app as built leaves out, so no program it starts
+    /// inherits a blocked mask or an ignored signal. Each module named here
+    /// is declared under `cfg(test)`, `cfg(all(test, ..))` or the probe
+    /// build's feature, or inside a module that is, and each still calls
+    /// `Command::new`, so none outlives its reason. Red with `Command::new`
+    /// in `rules::command_of`, `opener::command` or `windows::new_baud`.
+    #[test]
+    fn a_program_baud_starts_is_made_only_here() {
+        use crate::no_appkit::{bare_code, without_tests};
+        // A module the app as built leaves out, by its file, and the file
+        // and line that declare it.
+        const LEFT_OUT: [(&str, &str, &str); 5] = [
+            ("app/launch_tests.rs", "app.rs", "mod launch_tests;"),
+            ("app/rig.rs", "app.rs", "pub(crate) mod rig;"),
+            ("film.rs", "main.rs", "mod film;"),
+            ("film/session.rs", "film.rs", "pub(crate) mod session;"),
+            ("programs.rs", "main.rs", "mod programs;"),
+        ];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        let mut dirs = vec![src.clone()];
+        while let Some(d) = dirs.pop() {
+            for e in std::fs::read_dir(&d).expect("the source") {
+                let p = e.expect("an entry").path();
+                if p.is_dir() {
+                    dirs.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    files.push(p);
+                }
+            }
+        }
+        files.sort();
+        let calls = |name: &str| {
+            let text = std::fs::read_to_string(src.join(name)).expect("a source file");
+            without_tests(&bare_code(&text)).contains("Command::new(")
+        };
+        let mut found = Vec::new();
+        for f in &files {
+            let name = f.strip_prefix(&src).expect("under src");
+            let name = name.to_string_lossy().into_owned();
+            let left_out = LEFT_OUT.iter().any(|(m, _, _)| *m == name);
+            if name != "sys.rs" && !left_out && calls(&name) {
+                found.push(name);
+            }
+        }
+        assert_eq!(
+            found,
+            Vec::<String>::new(),
+            "Command::new outside sys::child"
+        );
+        for (m, by, decl) in LEFT_OUT {
+            assert!(
+                calls(m),
+                "{m} no longer calls Command::new: take it off the list"
+            );
+            let text = std::fs::read_to_string(src.join(by)).expect("the declaring file");
+            let lines: Vec<&str> = text.lines().collect();
+            let at = lines.iter().position(|l| l.trim() == decl);
+            let at = at.unwrap_or_else(|| panic!("{m}: {by} has no {decl:?}"));
+            let marked = lines[..at]
+                .iter()
+                .rev()
+                .map(|l| l.trim())
+                .take_while(|l| l.starts_with("#[") || l.starts_with("//"))
+                .any(|l| {
+                    l == "#[cfg(test)]"
+                        || l.starts_with("#[cfg(all(test,")
+                        || l == "#[cfg(feature = \"effect-probe\")]"
+                });
+            let inside = LEFT_OUT.iter().any(|(o, _, _)| *o == by);
+            assert!(
+                marked || inside,
+                "{m}: {by}'s {decl:?} is in the app as built"
+            );
         }
     }
 }

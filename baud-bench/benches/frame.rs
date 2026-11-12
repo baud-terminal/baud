@@ -197,6 +197,10 @@ mod paths;
 #[allow(dead_code, unused_imports)]
 #[path = "../../baud-app/src/rules.rs"]
 mod rules;
+// What a rule's command is started with (`sys::child`).
+#[allow(dead_code, unused_imports)]
+#[path = "../../baud-app/src/sys.rs"]
+mod sys;
 
 /// `FRAME_LINKS`: what each frame does about links.
 #[derive(Clone, Copy, PartialEq, Eq)]

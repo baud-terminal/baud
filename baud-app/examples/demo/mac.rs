@@ -79,10 +79,17 @@ const SIGHUP: i32 = 1;
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 
+/// `SIG_UNBLOCK` in `<sys/signal.h>`; the probe holds it.
+const SIG_UNBLOCK: i32 = 2;
+
 extern "C" {
     /// `void (*signal(int, void (*)(int)))(int)`; the probe holds the type
     /// to `<signal.h>`.
     fn signal(sig: i32, handler: extern "C" fn(i32)) -> usize;
+    /// `int pthread_sigmask(int, const sigset_t *, sigset_t *)`, a
+    /// `sigset_t` a 32-bit word on Darwin with a bit a signal from the
+    /// lowest; the probes hold the type, the size and the bit.
+    fn pthread_sigmask(how: i32, set: *const u32, old: *mut u32) -> i32;
 }
 
 /// **Ctrl-C's handler**: it stores to a lock-free atomic and does nothing
@@ -96,14 +103,23 @@ extern "C" fn on_interrupt(_: i32) {
 /// remove the container and delete its VM. A handler, not `SIG_IGN`:
 /// a caught signal is reset to its default in a program the demo starts
 /// (`[[source: posix-exec]]`), so zsh, ssh and baud still take Ctrl-C.
+///
+/// **And none of the three blocked** on the calling thread, whose mask the
+/// threads and programs it starts after take: a handler never runs for a
+/// signal held blocked, and cargo-watch hands its command `SIGHUP` blocked.
 pub fn catch_interrupt() {
+    let three: u32 = [SIGINT, SIGHUP, SIGTERM]
+        .iter()
+        .fold(0, |set, s| set | 1 << (s - 1));
     // SAFETY: `on_interrupt` is `void (int)`, the type the probe holds
-    // `signal`'s handler to, and touches only an atomic.
+    // `signal`'s handler to, and touches only an atomic; the set lives for
+    // the call, of the type the probe holds.
     unsafe {
         signal(SIGINT, on_interrupt);
         // A closed terminal and a harness stopping it, as likely as Ctrl-C.
         signal(SIGHUP, on_interrupt);
         signal(SIGTERM, on_interrupt);
+        pthread_sigmask(SIG_UNBLOCK, &three, null_mut());
     }
 }
 
@@ -913,8 +929,9 @@ mod tests {
     /// **Ctrl-C, a closed terminal and `SIGTERM` set the flag and the process
     /// lives**: the handler installed, each real signal raised against this
     /// process sets [`crate::container::INTERRUPTED`]. Without the handler the
-    /// signal's default ends the test binary. The signals and `signal`'s type
-    /// are `<signal.h>`'s, by a C probe that refuses to compile otherwise.
+    /// signal's default ends the test binary. The signals, `SIG_UNBLOCK` and
+    /// the types of `signal` and `pthread_sigmask` are `<signal.h>`'s, by a C
+    /// probe that refuses to compile otherwise.
     #[test]
     fn ctrl_c_sets_the_flag_and_the_process_lives() {
         let src = format!(
@@ -924,6 +941,9 @@ mod tests {
              _Static_assert(SIGTERM == {SIGTERM}, \"SIGTERM\");\n\
              _Static_assert(__builtin_types_compatible_p(__typeof__(signal), \
              void (*(int, void (*)(int)))(int)), \"signal's type\");\n\
+             _Static_assert(SIG_UNBLOCK == {SIG_UNBLOCK}, \"SIG_UNBLOCK\");\n\
+             _Static_assert(__builtin_types_compatible_p(__typeof__(pthread_sigmask), \
+             int (int, const sigset_t *, sigset_t *)), \"pthread_sigmask's type\");\n\
              int main(void) {{ return 0; }}\n"
         );
         let dir = std::env::temp_dir().join(format!("baud-demo-sig-{}", std::process::id()));
@@ -956,6 +976,102 @@ mod tests {
                 "{sig}"
             );
         }
+    }
+
+    /// **The handler runs whoever launched the demo**: the test above, run
+    /// again from this binary with `SIGHUP` blocked, as cargo-watch hands
+    /// its command, and `SIGINT` and `SIGQUIT` ignored, as a background job
+    /// of a non-interactive shell has them, passes, and ran. The control: a
+    /// shell under the same launch survives its own `kill -HUP`, `kill -INT`
+    /// and `kill -QUIT`, so the launch is what it says. `sigprocmask`'s type,
+    /// `sigset_t`'s size and `SIG_BLOCK` are `<signal.h>`'s, by a C probe
+    /// that refuses to compile otherwise. Red without the unblock in
+    /// [`catch_interrupt`]: a `SIGHUP` raised while blocked stays pending
+    /// and the flag is never set.
+    #[test]
+    fn the_handler_runs_whoever_launched_the_demo() {
+        use std::os::unix::process::CommandExt;
+        extern "C" {
+            /// `int sigprocmask(int, const sigset_t *, sigset_t *)`, a
+            /// `sigset_t` a 32-bit word on Darwin with a bit a signal from
+            /// the lowest; the probe holds the type and the size.
+            fn sigprocmask(how: i32, set: *const u32, old: *mut u32) -> i32;
+        }
+        /// `SIG_BLOCK` in `<sys/signal.h>`; the probe holds it.
+        const SIG_BLOCK: i32 = 1;
+        let src = format!(
+            "#include <signal.h>\n\
+             _Static_assert(SIG_BLOCK == {SIG_BLOCK}, \"SIG_BLOCK\");\n\
+             _Static_assert(sizeof(sigset_t) == 4, \"sigset_t\");\n\
+             _Static_assert(sigmask(SIGHUP) == 1u << ({SIGHUP} - 1), \"a signal's bit\");\n\
+             _Static_assert(__builtin_types_compatible_p(__typeof__(sigprocmask), \
+             int (int, const sigset_t *, sigset_t *)), \"sigprocmask's type\");\n\
+             int main(void) {{ return 0; }}\n"
+        );
+        let dir = std::env::temp_dir().join(format!("baud-demo-mask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let (c, bin) = (dir.join("probe.c"), dir.join("probe"));
+        std::fs::write(&c, src).expect("write the probe");
+        let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+        let out = Command::new(&cc)
+            .arg("-o")
+            .arg(&bin)
+            .arg(&c)
+            .output()
+            .expect("cc");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            out.status.success(),
+            "the probe did not compile:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // `SIGINT` and `SIGQUIT` ignored by a shell's `trap ''`, which its
+        // `exec` keeps; `SIGHUP` blocked before the shell starts.
+        let launched = |program: &std::ffi::OsStr, args: &[&str]| {
+            let mut cmd = Command::new("/bin/sh");
+            cmd.args(["-c", "trap '' INT QUIT; exec \"$0\" \"$@\""])
+                .arg(program)
+                .args(args);
+            // SAFETY: between the fork and the exec the closure calls only
+            // `sigprocmask`, on XSH 2.4.3's table of async-signal-safe
+            // functions (`[[source: posix-xsh-chap02]]`), over a set that
+            // lives for the call.
+            unsafe {
+                cmd.pre_exec(|| {
+                    let hup: u32 = 1 << (SIGHUP - 1);
+                    sigprocmask(SIG_BLOCK, &hup, null_mut());
+                    Ok(())
+                })
+            };
+            cmd
+        };
+        let control = launched(
+            std::ffi::OsStr::new("/bin/sh"),
+            &[
+                "-c",
+                "ulimit -c 0; kill -HUP $$; kill -INT $$; kill -QUIT $$; exit 7",
+            ],
+        )
+        .status()
+        .expect("sh");
+        assert_eq!(control.code(), Some(7), "the control: {control:?}");
+        let exe = std::env::current_exe().expect("this binary");
+        let out = launched(
+            exe.as_os_str(),
+            &[
+                "--exact",
+                "mac::tests::ctrl_c_sets_the_flag_and_the_process_lives",
+            ],
+        )
+        .output()
+        .expect("the test");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success(), "{said}");
+        assert!(said.contains("1 passed; 0 failed"), "it ran: {said}");
     }
 
     /// **The key codes, and the trust call's type, are the SDK headers'

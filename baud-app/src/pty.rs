@@ -2155,35 +2155,11 @@ fn fork_terminal(ws: crate::sys::Winsize) -> Result<Fork, NoTerminal> {
                 // and keeps its close-on-exec; the others never have it.
                 crate::sys::fcntl(fd, crate::sys::F_SETFD, 0);
             }
-            // **Every signal at its default action.** One ignored here stays
-            // ignored across the `exec` ("signals set to be ignored
-            // (SIG_IGN) by the calling process image shall be set to be
-            // ignored by the new process image", `[[source: posix-exec]]`),
-            // and a shell cannot undo one ignored on its entry. baud ignores
-            // `SIGPIPE` from its start, as Rust's runtime does in every
-            // program it starts (`[[source: rust-std-unix-sigpipe]]` 33-34,
-            // 168), so without this every shell and what it ran did too; a
-            // baud started with `SIGINT` ignored, as a background job is,
-            // would hand its shells a Control-C that does nothing. `signal`
-            // is on XSH 2.4.3's table.
-            // **And none blocked.** The mask crosses the `exec` too, and the
-            // forking thread's may hold signals a launcher or wrapper
-            // blocked. **The actions first and the mask last**: a signal
-            // held by the mask and delivered once it is emptied -- a
-            // `SIGWINCH` from a resize's `TIOCSWINSZ` in the parent, say --
-            // then finds its default action, never a handler inherited from
-            // baud, which emptying the mask first would leave a moment to
-            // run. baud installs none today, so the order costs nothing and
-            // closes that moment. `sigprocmask` is on the same table, and the
-            // child has one thread.
-            for sig in 1..crate::sys::NSIG {
-                crate::sys::signal(sig, crate::sys::SIG_DFL);
-            }
-            crate::sys::sigprocmask(
-                crate::sys::SIG_SETMASK,
-                &crate::sys::SigSet::default(),
-                core::ptr::null_mut(),
-            );
+            // **Every signal at its default action, and none blocked**,
+            // whatever baud inherited, as every program baud starts begins
+            // (`sys::child_signals`, which says why). Without it every shell
+            // and what it ran would ignore `SIGPIPE`, as baud does.
+            crate::sys::child_signals();
             // **Then nothing of baud's but the terminal.** A descriptor open
             // without close-on-exec at the fork -- one a library on another
             // thread held for a moment -- would cross the `exec` and stay
@@ -7733,6 +7709,49 @@ mod tests {
             survived,
             ["USR1 survived"],
             "only the control's: a signal the child started ignoring or blocking: {out:?}"
+        );
+    }
+
+    /// **The tests that send signals pass whoever launched them**: run
+    /// again from this binary as a runner launches them
+    /// (`sys::as_a_runner_launches`: `SIGHUP` blocked, `SIGINT` and
+    /// `SIGQUIT` ignored), each passes, and all of them ran. The control: a
+    /// child started by a plain `Command` under the same launch survives its
+    /// own `kill -HUP`, `kill -INT` and `kill -QUIT`, so the launch is what
+    /// it says. Here because the window's test opens a pty, in this
+    /// module's nextest group. Red with `Command::new` for `sys::child` in
+    /// `held.rs` and in `rules::command_of`, and with the `sigprocmask` of
+    /// `sys::child_signals` taken out.
+    #[test]
+    fn the_signal_tests_pass_as_a_runner_launches_them() {
+        const TESTS: [&str; 3] = [
+            "held::tests::a_status_is_decoded_as_waitpid_gives_it",
+            "rules::tests::a_rules_command_starts_with_its_signals_at_their_default",
+            "pty::tests::a_windows_child_starts_with_its_signals_at_their_default",
+        ];
+        let mut control = std::process::Command::new("/bin/sh");
+        control.args([
+            "-c",
+            "ulimit -c 0; kill -HUP $$; kill -INT $$; kill -QUIT $$; exit 7",
+        ]);
+        let survived = crate::sys::as_a_runner_launches(&mut control)
+            .status()
+            .expect("sh");
+        assert_eq!(survived.code(), Some(7), "the control: {survived:?}");
+        let mut tests = std::process::Command::new(std::env::current_exe().expect("this binary"));
+        tests.args(["--exact", "--test-threads=1"]).args(TESTS);
+        let out = crate::sys::as_a_runner_launches(&mut tests)
+            .output()
+            .expect("the tests");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success(), "{said}");
+        assert!(
+            said.contains(&format!("{} passed; 0 failed", TESTS.len())),
+            "each ran: {said}"
         );
     }
 

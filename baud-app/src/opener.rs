@@ -22,7 +22,7 @@ use std::process::{Child, Command, Stdio};
 /// The command that opens `uri`.
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn command(uri: &str) -> Command {
-    let mut c = Command::new("xdg-open");
+    let mut c = crate::sys::child("xdg-open");
     c.arg(uri)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

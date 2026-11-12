@@ -509,17 +509,19 @@ mod tests {
     /// **The status is decoded as this platform's `waitpid` gives it**,
     /// against real children's: `exit 3` and a `kill -9` of itself; and the
     /// two signal numbers the rule names are this platform's. Each child
-    /// starts with the signals it sends itself at their default action: a
-    /// runner that ignores `SIGINT` or `SIGHUP`, as a background job of a
-    /// non-interactive shell ignores `SIGINT`, passes that on through `exec`,
-    /// and the child's `kill -INT $$` then ended nothing, read `Code(0)`.
+    /// starts as every program baud starts, with every signal at its default
+    /// action and none blocked (`sys::child`): a runner that ignores
+    /// `SIGINT`, as a background job of a non-interactive shell does, or
+    /// blocks `SIGHUP`, as cargo-watch does, passes that on through `exec`,
+    /// and the child's `kill -INT $$` or `kill -HUP $$` then ended nothing,
+    /// read `Code(0)` (`pty::tests::the_signal_tests_pass_as_a_runner_launches_them`).
     /// Named break: take every status as an exit code -- the signal reads as
     /// a code.
     #[test]
     fn a_status_is_decoded_as_waitpid_gives_it() {
         let run = |script: &str| {
-            let mut sh = std::process::Command::new("/bin/sh");
-            crate::sys::default_signals(sh.args(["-c", script]), &[SIGHUP, SIGINT, SIGSEGV])
+            crate::sys::child("/bin/sh")
+                .args(["-c", script])
                 .status()
                 .expect("sh")
         };

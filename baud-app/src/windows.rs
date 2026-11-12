@@ -418,7 +418,7 @@ pub fn spawn_window(dir: Option<&std::path::Path>) {
 /// [`running_window`]'s one start.
 #[cfg(any(target_os = "linux", test))]
 fn new_baud(exe: &std::path::Path, dir: Option<&std::path::Path>) -> std::process::Command {
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = crate::sys::child(exe);
     // A directory that has gone since would fail the spawn, so the new
     // window starts where a launch starts instead.
     if let Some(d) = dir.filter(|d| d.is_dir()) {

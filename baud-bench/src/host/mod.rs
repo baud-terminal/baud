@@ -139,18 +139,26 @@ extern "C" fn note_interrupt(_: libc::c_int) {
 /// `SA_RESTART` the blocked `read` returns `EINTR` and [`Host::interrupted`]
 /// says why. `SIGTERM` and `SIGHUP`,
 /// which `timeout`, `kill` and a closed terminal send, count as one.
+///
+/// **And none of the three blocked** on the calling thread, whose mask the
+/// threads and programs it starts after take: a handler never runs for a
+/// signal held blocked, and cargo-watch hands its command `SIGHUP` blocked.
 pub fn catch_interrupt() {
-    // SAFETY: an all-zero `sigaction` is a valid value of the type, the
-    // handler only stores to an atomic, and both pointers are live for the
-    // call.
+    // SAFETY: an all-zero `sigaction` and `sigset_t` are valid values of
+    // their types, the handler only stores to an atomic, and every pointer
+    // is live for its call.
     unsafe {
         let mut action: libc::sigaction = core::mem::zeroed();
         let handler: extern "C" fn(libc::c_int) = note_interrupt;
         action.sa_sigaction = handler as libc::sighandler_t;
         libc::sigemptyset(&raw mut action.sa_mask);
+        let mut caught: libc::sigset_t = core::mem::zeroed();
+        libc::sigemptyset(&raw mut caught);
         for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
             libc::sigaction(signal, &raw const action, core::ptr::null_mut());
+            libc::sigaddset(&raw mut caught, signal);
         }
+        libc::pthread_sigmask(libc::SIG_UNBLOCK, &raw const caught, core::ptr::null_mut());
     }
 }
 

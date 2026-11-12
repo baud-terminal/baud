@@ -900,12 +900,14 @@ fn bidi_control(c: char) -> bool {
 }
 
 /// `run` as a [`Command`] with no shell and null standard streams: what a
-/// rule's command starts, with no terminal.
+/// rule's command starts, with no terminal, and with every signal at its
+/// default action and none blocked, as every program baud starts
+/// (`sys::child`).
 fn command_of(run: Run) -> Command {
     let mut argv = run.into_argv().into_iter();
     // `filled` never returns an empty argv: the reader refused a command
     // naming no program.
-    let mut c = Command::new(argv.next().unwrap_or_default());
+    let mut c = crate::sys::child(argv.next().unwrap_or_default());
     c.args(argv)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1823,6 +1825,50 @@ mod tests {
         assert!(status.success());
         assert!(mark.exists(), "a stream was not the null device");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// **A rule's command starts with every signal at its default action,
+    /// and none blocked**, whatever baud inherited, as a window's shell
+    /// does: each of `SIGPIPE`, which Rust's runtime ignores in this very
+    /// process, `SIGINT`, `SIGHUP`, `SIGTERM` and `SIGQUIT`, which a runner
+    /// can hand on ignored or blocked, and `SIGUSR2`, which this test blocks
+    /// on its own thread before the spawns as a launcher's mask would, ends
+    /// the command that sends it to itself. Red with `Command::new` in
+    /// [`command_of`]: the `SIGUSR2` line here, and the `SIGINT`, `SIGHUP`
+    /// and `SIGQUIT` lines when the tests run as a runner launches them
+    /// (`pty::tests::the_signal_tests_pass_as_a_runner_launches_them`).
+    #[test]
+    fn a_rules_command_starts_with_its_signals_at_their_default() {
+        use std::os::unix::process::ExitStatusExt;
+        // The signal's name is the printed path's last component.
+        let script = "ulimit -c 0; kill -$(basename $1) $$";
+        let cmd = format!("[\"/bin/sh\", \"-c\", \"{script}\", \"sh\", \"{{path}}\"]");
+        let (r, said) = rules(&[section("path", &[("command", &cmd)])]);
+        assert_eq!(said, Vec::<String>::new());
+        // `SIGPIPE` and `SIGTERM` are 13 and 15 on Darwin and on Linux.
+        let signals = [
+            ("PIPE", 13),
+            ("INT", crate::sys::SIGINT),
+            ("HUP", crate::sys::SIGHUP),
+            ("TERM", 15),
+            ("QUIT", crate::sys::SIGQUIT),
+            ("USR2", crate::sys::SIGUSR2),
+        ];
+        let ended: Vec<(&str, Option<i32>)> =
+            crate::sys::blocking_on_this_thread(crate::sys::SIGUSR2, || {
+                signals
+                    .iter()
+                    .map(|&(name, _)| {
+                        let mut c = r
+                            .path_command(format!("/signal/{name}").as_bytes(), "", "")
+                            .expect("a command")
+                            .expect("built");
+                        (name, c.status().expect("it starts").signal())
+                    })
+                    .collect()
+            });
+        let want: Vec<(&str, Option<i32>)> = signals.iter().map(|&(n, s)| (n, Some(s))).collect();
+        assert_eq!(ended, want, "a signal the command ignored or blocked");
     }
 
     /// **E4: a placeholder in a shell's or interpreter's script is refused at

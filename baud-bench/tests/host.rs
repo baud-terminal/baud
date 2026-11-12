@@ -1374,6 +1374,58 @@ fn a_real_interrupt_ends_the_sleep_and_stops_the_child() {
     }
 }
 
+/// **A real interrupt is caught whoever launched the driver**: the test
+/// above, run again from this binary with `SIGHUP` blocked, as cargo-watch
+/// hands its command, and `SIGINT` and `SIGQUIT` ignored, as a background
+/// job of a non-interactive shell has them, passes, and ran; its drivers
+/// start as it was started. The control: a shell under the same launch
+/// survives its own `kill -HUP`, `kill -INT` and `kill -QUIT`, so the launch
+/// is what it says. Red without the unblock in `host::catch_interrupt`: a
+/// blocked `SIGHUP` stays pending and the driver sleeps on.
+#[test]
+fn a_real_interrupt_is_caught_whoever_launched_the_driver() {
+    use std::os::unix::process::CommandExt;
+    let launched = |cmd: &mut Command| {
+        // SAFETY: between the fork and the exec the closure calls only
+        // `sigemptyset`, `sigaddset`, `sigprocmask` and `signal`, on XSH
+        // 2.4.3's table of async-signal-safe functions, over a set that
+        // lives for the calls.
+        unsafe {
+            cmd.pre_exec(|| {
+                let mut hup: libc::sigset_t = core::mem::zeroed();
+                libc::sigemptyset(&raw mut hup);
+                libc::sigaddset(&raw mut hup, libc::SIGHUP);
+                libc::sigprocmask(libc::SIG_BLOCK, &raw const hup, core::ptr::null_mut());
+                libc::signal(libc::SIGINT, libc::SIG_IGN);
+                libc::signal(libc::SIGQUIT, libc::SIG_IGN);
+                Ok(())
+            })
+        };
+    };
+    let mut control = Command::new("/bin/sh");
+    control.args([
+        "-c",
+        "ulimit -c 0; kill -HUP $$; kill -INT $$; kill -QUIT $$; exit 7",
+    ]);
+    launched(&mut control);
+    let survived = control.status().expect("sh");
+    assert_eq!(survived.code(), Some(7), "the control: {survived:?}");
+    let mut test = Command::new(std::env::current_exe().expect("this test"));
+    test.args([
+        "--exact",
+        "a_real_interrupt_ends_the_sleep_and_stops_the_child",
+    ]);
+    launched(&mut test);
+    let out = test.output().expect("the test");
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "{said}");
+    assert!(said.contains("1 passed; 0 failed"), "it ran: {said}");
+}
+
 /// **The kernel's ticks are not nanoseconds**: the same CPU read through
 /// `getrusage`. Read as nanoseconds it would be 24 times too small.
 #[cfg(target_os = "macos")]
