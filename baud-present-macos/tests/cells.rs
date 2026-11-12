@@ -12399,9 +12399,283 @@ fn a_light_change_on_its_line_draws_the_frame_whole_on_both_paths() {
         steps
     };
     for edge in [LineEdge::Bottom, LineEdge::Top] {
-        cell_oracle_lined((Reads::Copy, Px::of(0)), Some(edge), steps(), Counting(0));
-        instance_oracle_lined(Px::of(0), Some(edge), steps(), Counting(0));
+        cell_oracle_lined(
+            (Reads::Copy, Px::of(0)),
+            Some(edge),
+            bare,
+            steps(),
+            Counting(0),
+        );
+        instance_oracle_lined(Px::of(0), Some(edge), bare, steps(), Counting(0));
     }
+}
+
+/// The strip's marks on, before the oracle sizes the frame.
+fn strip_on(r: &mut Renderer<'_, '_>) {
+    r.set_status_marks(StatusMarks::On);
+}
+
+/// A band lent each side for the word wrap's marks, as the wrap marks'
+/// gate lends it, before the oracle sizes the frame.
+fn margins_lent(r: &mut Renderer<'_, '_>) {
+    r.set_margins(Px::of(16));
+}
+
+/// The strip's marks on and the margins lent.
+fn strip_and_margins(r: &mut Renderer<'_, '_>) {
+    strip_on(r);
+    margins_lent(r);
+}
+
+/// How many marks the window holds now, the strip's and the margins',
+/// placed as every frame places them: what a step's premise reads.
+fn marks_now(a: &mut Arms<'_, '_>, t: &Term<'_>) -> (usize, usize) {
+    a.renderer
+        .place_marks(t, a.back, baud_render::Leaving::None, Px::of(0));
+    (
+        a.renderer.strip_records().len(),
+        a.renderer.margin_records().len(),
+    )
+}
+
+/// Two commands at marked prompts, the first ended in failure and the
+/// second still running: one mark in the strip, a cross on the first
+/// prompt's row.
+const TWO_COMMANDS: &[u8] = b"\x1b[H\x1b[2J\
+    \x1b]133;A\x07$ \x1b]133;B\x07bad\x1b]133;C\x07\r\nerr\r\n\x1b]133;D;1\x07\
+    \x1b]133;A\x07$ \x1b]133;B\x07bad\x1b]133;C\x07\r\nerr\r\n";
+
+/// **An exit status that arrives between two frames draws the frame
+/// whole, and a cursor move beside the strip only its rows**, on both
+/// paths, every frame against a whole draw. The status (`OSC 133 ; D`)
+/// writes no cell and moves no cursor, so only the strip's records change,
+/// and the strip is outside every row's band: a frame drawn by rows would
+/// keep the target's strip, the command still running. The control: the
+/// same frames with the strip off draw the status's by rows on both
+/// paths, so with it on the strip's records alone draw that frame whole.
+///
+/// The second command fails as the first did, so its cross's mask is
+/// already in the atlas (`Atlas::status_mark` memoises it per mark): a
+/// mask placed for the first time moves the atlas's generation
+/// (`Atlas::place_cell_mask`, `touched`), which the cell path's key holds
+/// (`l.atlas == atlas_gen` in `Gpu::draw_cells_since`), and that frame
+/// would draw the cell path whole whatever the strip held. The premise
+/// holds the generation still across the status. Perturbation: the key's
+/// strip compared with itself, on either path -- the status's frame is
+/// drawn by rows -- and this goes red.
+#[test]
+fn an_exit_status_draws_the_frame_whole_on_both_paths() {
+    let steps = |marks: StatusMarks| -> Vec<Step> {
+        let inc = Damage::Incremental;
+        let (ended, premise) = match marks {
+            StatusMarks::On => (Want::Whole, (1, 2)),
+            StatusMarks::Off => (Want::Rows, (0, 0)),
+        };
+        vec![
+            (
+                "two commands, the first ended, the second running",
+                inc,
+                Box::new(|_, t| feed(t, TWO_COMMANDS)),
+                Want::Any,
+            ),
+            ("the cursor moved", inc, at(6, 4), Want::Rows),
+            (
+                "the second command failed",
+                inc,
+                Box::new(move |a, t| {
+                    let was = marks_now(a, t).0;
+                    let atlas = a.renderer.atlas().generation();
+                    feed(t, b"\x1b]133;D;2\x07");
+                    let now = marks_now(a, t).0;
+                    assert_eq!((was, now), premise, "the premise: the strip's marks");
+                    assert_eq!(
+                        a.renderer.atlas().generation(),
+                        atlas,
+                        "the premise: the mark's mask was held, so the atlas did not move"
+                    );
+                }),
+                ended,
+            ),
+            (
+                "the cursor moved beside the strip",
+                inc,
+                at(7, 9),
+                Want::Rows,
+            ),
+            ("and again", inc, at(5, 2), Want::Rows),
+        ]
+    };
+    for (marks, setup) in [
+        (StatusMarks::Off, bare as Setup),
+        (StatusMarks::On, strip_on as Setup),
+    ] {
+        cell_oracle_lined(
+            (Reads::Copy, Px::of(0)),
+            None,
+            setup,
+            steps(marks),
+            Counting(0),
+        );
+        instance_oracle_lined(Px::of(0), None, setup, steps(marks), Counting(0));
+    }
+}
+
+/// A paragraph the terminal cuts inside a word, its 120th column the
+/// third letter of the fourteenth: drawn as the terminal cut it until a
+/// prompt marked after it finishes it.
+const CUT_PARAGRAPH: &str = "\
+    alphabet alphabet alphabet alphabet alphabet alphabet alphabet \
+    alphabet alphabet alphabet alphabet alphabet alphabet alphabet \
+    alphabet alphabet alphabet alphabet alphabet alphabet \r\n";
+
+/// **A word wrap's mark that comes or goes between two frames draws the
+/// frame whole, and a cursor move beside the margins only its rows**, on
+/// both paths, every frame against a whole draw. A paragraph the terminal
+/// cut inside a word is finished once the shell marks its prompt, and the
+/// display draws it at its words, its second line marked in the left
+/// margin; the output zone that follows makes it live again, and the mark
+/// goes. The margins are outside every row's band.
+///
+/// A mark comes and goes here with its paragraph re-cut, and the re-cut
+/// moves cells in the same frame, so each such frame is drawn whole
+/// whatever the key holds of the margins, and this holds its pixels
+/// against a whole draw:
+///
+/// - the instance path: a changed cell's row is dirty beyond the cursor
+///   (`beyond` in `Renderer::convert_with`, baud-render renderer.rs:9942),
+///   and `beyond_cursor` makes the redraw `Whole` (renderer.rs:10078);
+/// - the cell path: the display's re-cut cells are what `Screens::take`
+///   compares, so the frame's screen is new (`ScreenGen::fresh`,
+///   baud-render screens.rs:408) and `l.screen == input.screen` fails in
+///   `Gpu::draw_cells_since` (metal.rs:3230); the first mark also places
+///   its mask (`Atlas::wrap_mark`), which moves the atlas's generation,
+///   and `l.atlas == atlas_gen` fails (metal.rs:3225);
+/// - an atlas that starts over clears the marks' masks (`Atlas::reset`,
+///   atlas.rs:775), and every caller converts every row again
+///   (`known = Prev::Unknown`): `Renderer::restack` (renderer.rs:4088),
+///   `Renderer::set_emoji_default` (4106), `Renderer::rescale` through
+///   `Atlas::at`'s restart past its sizes (4033, atlas.rs:825) and
+///   `Renderer::build_badge`'s third size (6896); on the cell path the
+///   reset moves the generation too (atlas.rs:784).
+///
+/// The invariant: **a wrap mark moves only with the cells of the line it
+/// marks, or with a frame drawn whole**. No type holds it -- the marks
+/// are placed in `baud-render`, the keys kept in `baud-present-macos` --
+/// so both keys keep the margins' records with the strip's
+/// (`.chain(margin)`, metal.rs:2805 and 3214), and a key that dropped them
+/// does not turn this red.
+#[test]
+fn a_wrap_mark_draws_the_frame_whole_on_both_paths() {
+    let steps = || -> Vec<Step> {
+        let inc = Damage::Incremental;
+        vec![
+            (
+                "a paragraph cut inside a word, no prompt marked",
+                inc,
+                Box::new(|_, t| {
+                    feed(t, b"\x1b[H\x1b[2J");
+                    feed(t, CUT_PARAGRAPH.as_bytes());
+                }),
+                Want::Any,
+            ),
+            ("the cursor moved", inc, at(6, 4), Want::Rows),
+            (
+                "the prompt marked, the paragraph above it finished",
+                inc,
+                Box::new(|a, t| {
+                    let was = marks_now(a, t).1;
+                    feed(t, b"\x1b]133;A\x07");
+                    let now = marks_now(a, t).1;
+                    assert!(
+                        was == 0 && now > 0,
+                        "the premise: the margin marked, {was} marks then {now}"
+                    );
+                }),
+                Want::Whole,
+            ),
+            (
+                "the cursor moved beside the margin",
+                inc,
+                at(7, 9),
+                Want::Rows,
+            ),
+            (
+                "the output zone, the paragraph live again",
+                inc,
+                Box::new(|a, t| {
+                    let was = marks_now(a, t).1;
+                    feed(t, b"\x1b]133;C\x07");
+                    let now = marks_now(a, t).1;
+                    assert!(
+                        was > 0 && now == 0,
+                        "the premise: the margin's mark gone, {was} marks then {now}"
+                    );
+                }),
+                Want::Whole,
+            ),
+            ("and the cursor again", inc, at(5, 2), Want::Rows),
+        ]
+    };
+    cell_oracle_lined(
+        (Reads::Copy, Px::of(0)),
+        None,
+        margins_lent,
+        steps(),
+        Counting(0),
+    );
+    instance_oracle_lined(Px::of(0), None, margins_lent, steps(), Counting(0));
+}
+
+/// **A strip and a margin that hold marks and do not change draw a cursor
+/// move by its rows**, on both paths, every frame against a whole draw: a
+/// command ended at a marked prompt, a paragraph cut inside a word after
+/// it and finished by the next prompt, so the strip holds a mark and the
+/// margin another, the two compared as one run each frame. A key that
+/// kept the run other than it reads it would draw every frame whole.
+#[test]
+fn a_steady_strip_and_margin_draw_by_rows_on_both_paths() {
+    let steps = || -> Vec<Step> {
+        let inc = Damage::Incremental;
+        vec![
+            (
+                "a command ended, a finished paragraph, the next prompt",
+                inc,
+                Box::new(|_, t| {
+                    feed(
+                        t,
+                        b"\x1b[H\x1b[2J\x1b]133;A\x07$ \x1b]133;B\x07cat\x1b]133;C\x07\r\n",
+                    );
+                    feed(t, CUT_PARAGRAPH.as_bytes());
+                    feed(t, b"\x1b]133;D;0\x07\x1b]133;A\x07$ ");
+                }),
+                Want::Any,
+            ),
+            (
+                "the cursor moved",
+                inc,
+                Box::new(|a, t| {
+                    feed(t, b"\x1b[6;4H");
+                    let (strip, margin) = marks_now(a, t);
+                    assert!(
+                        strip > 0 && margin > 0,
+                        "the premise: both hold marks, {strip} and {margin}"
+                    );
+                }),
+                Want::Rows,
+            ),
+            ("and again", inc, at(7, 9), Want::Rows),
+            ("and again", inc, at(5, 2), Want::Rows),
+            ("and again", inc, at(8, 30), Want::Rows),
+        ]
+    };
+    cell_oracle_lined(
+        (Reads::Copy, Px::of(0)),
+        None,
+        strip_and_margins,
+        steps(),
+        Counting(0),
+    );
+    instance_oracle_lined(Px::of(0), None, strip_and_margins, steps(), Counting(0));
 }
 
 /// **A guide across a legacy scroller's gutter is drawn whole**, on both
@@ -12474,17 +12748,27 @@ fn gutter_steps() -> Vec<Step> {
 /// whole draw, and each against its [`Want`]. The rotation, its first
 /// `counted` frames counted.
 fn cell_oracle(reads: Reads, gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
-    cell_oracle_lined((reads, gutter), None, steps, Counting(counted))
+    cell_oracle_lined((reads, gutter), None, bare, steps, Counting(counted))
 }
 
 /// How many of an oracle's first frames count toward the rows-drawn bound.
 #[derive(Clone, Copy)]
 struct Counting(usize);
 
-/// [`cell_oracle`] with the activity lights' own line at `line`.
+/// What an oracle gives its renderer before it sizes the frame: what
+/// widens the whole frame, the strip and the margins, cannot be turned on
+/// in a step, whose targets are already that size.
+type Setup = fn(&mut Renderer<'_, '_>);
+
+/// Nothing beyond the oracle's own.
+fn bare(_: &mut Renderer<'_, '_>) {}
+
+/// [`cell_oracle`] with the activity lights' own line at `line`, and the
+/// renderer given `setup`.
 fn cell_oracle_lined(
     (reads, gutter): (Reads, Px),
     line: Option<baud_render::LineEdge>,
+    setup: Setup,
     steps: Vec<Step>,
     counted: Counting,
 ) -> Rotation {
@@ -12494,6 +12778,7 @@ fn cell_oracle_lined(
     let mut renderer = partial_renderer(&faces);
     renderer.set_gutter(gutter);
     renderer.set_lights_line(line, 1.0);
+    setup(&mut renderer);
     arms!(renderer => arms, t);
     let size = arms.renderer.whole_size();
     let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
@@ -12550,13 +12835,15 @@ fn cell_oracle_lined(
 
 /// The partial oracle on the instance path, as [`cell_oracle`].
 fn instance_oracle(gutter: Px, steps: Vec<Step>, counted: usize) -> Rotation {
-    instance_oracle_lined(gutter, None, steps, Counting(counted))
+    instance_oracle_lined(gutter, None, bare, steps, Counting(counted))
 }
 
-/// [`instance_oracle`] with the activity lights' own line at `line`.
+/// [`instance_oracle`] with the activity lights' own line at `line`, and
+/// the renderer given `setup`.
 fn instance_oracle_lined(
     gutter: Px,
     line: Option<baud_render::LineEdge>,
+    setup: Setup,
     steps: Vec<Step>,
     counted: Counting,
 ) -> Rotation {
@@ -12566,6 +12853,7 @@ fn instance_oracle_lined(
     let mut renderer = partial_renderer(&faces);
     renderer.set_gutter(gutter);
     renderer.set_lights_line(line, 1.0);
+    setup(&mut renderer);
     arms!(renderer => arms, t);
     let size = arms.renderer.whole_size();
     let n = usize::try_from(size.0.value() * size.1.value()).unwrap();
@@ -12578,6 +12866,11 @@ fn instance_oracle_lined(
         arms.renderer.set_cursor_guide(arms.guide);
         arms.renderer.set_badge(arms.badge.clone());
         arms.renderer.set_images(&t, arms.back);
+        // The exit-status marks and the word wrap's on this window, then
+        // the activity lights, as the app places them for every path: none
+        // while the strip is off and no margin is lent.
+        arms.renderer
+            .place_marks(&t, arms.back, baud_render::Leaving::None, Px::of(0));
         arms.renderer.place_lights(&t);
         arms.renderer.convert(&t, arms.back, *damage);
         let target = rot.target();
