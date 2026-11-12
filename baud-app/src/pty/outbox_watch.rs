@@ -45,6 +45,30 @@ const EMPTY: Kevent = Kevent {
 /// it opened.
 pub struct OutboxWatch {
     heard: Option<Heard>,
+    /// Whether a registration the kernel refused was said: once a window,
+    /// not once a short write -- a flood the kernel takes in many pieces
+    /// would say it after each.
+    refused: core::cell::Cell<Said>,
+}
+
+/// Whether the window has said a refused registration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Said {
+    Not,
+    Once,
+}
+
+/// What [`OutboxWatch::arm`] did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Armed {
+    /// The kernel took the registration.
+    Registered,
+    /// No kqueue to register in, or no descriptor to register.
+    Deaf,
+    /// The kernel refused it, and this call said so.
+    RefusedSaid,
+    /// The kernel refused it, already said for this window.
+    RefusedAgain,
 }
 
 /// The kqueue and the source on it.
@@ -155,7 +179,10 @@ impl OutboxWatch {
                  kernel takes in part waits for the window's next turn",
                 std::io::Error::last_os_error()
             );
-            return OutboxWatch { heard: None };
+            return OutboxWatch {
+                heard: None,
+                refused: core::cell::Cell::new(Said::Not),
+            };
         };
         // SAFETY: a descriptor just made, owned by nothing else.
         let kq = Arc::new(unsafe { OwnedFd::from_raw_fd(fd) });
@@ -182,6 +209,7 @@ impl OutboxWatch {
         source.activate();
         OutboxWatch {
             heard: Some(Heard { kq, source }),
+            refused: core::cell::Cell::new(Said::Not),
         }
     }
 
@@ -202,7 +230,9 @@ impl OutboxWatch {
     fn write_to(&self, master: crate::sys::Fd, out: &mut Outbox) -> Wrote {
         let wrote = write_some(master, out);
         match out.owed() {
-            Owed::Bytes => self.arm(master),
+            Owed::Bytes => {
+                let _ = self.arm(master);
+            }
             Owed::Nothing => {}
         }
         wrote
@@ -212,13 +242,13 @@ impl OutboxWatch {
     /// comes when the kernel will take bytes, and is deleted as the handler
     /// takes it. Registered on a master that already has room, it comes at
     /// once, so a child that read between the write and this call is not
-    /// missed.
-    fn arm(&self, master: crate::sys::Fd) {
+    /// missed. A refusal is said once a window ([`Said`]).
+    fn arm(&self, master: crate::sys::Fd) -> Armed {
         let Some(heard) = &self.heard else {
-            return;
+            return Armed::Deaf;
         };
         let Ok(ident) = core::ffi::c_ulong::try_from(master) else {
-            return;
+            return Armed::Deaf;
         };
         let change = Kevent {
             ident,
@@ -241,20 +271,26 @@ impl OutboxWatch {
                 &raw const zero,
             )
         };
-        if r != 0 {
-            crate::warn!(
-                "pty: the master's room to write was not registered ({}): what \
-                 is owed waits for the window's next turn",
-                std::io::Error::last_os_error()
-            );
+        if r == 0 {
+            return Armed::Registered;
         }
+        // The kernel's reason, read before anything else can set errno.
+        let why = std::io::Error::last_os_error();
+        if self.refused.replace(Said::Once) == Said::Once {
+            return Armed::RefusedAgain;
+        }
+        crate::warn!(
+            "pty: the master's room to write was not registered ({why}): what \
+             is owed waits for the window's next turn"
+        );
+        Armed::RefusedSaid
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{nonblocking, open_terminal};
-    use super::{EMPTY, OutboxWatch};
+    use super::{Armed, EMPTY, OutboxWatch};
     use crate::pty::{Outbox, Owed, Wrote};
     use crate::sys::{EV_ADD, EV_ONESHOT, EVFILT_WRITE, Kevent};
     use std::os::fd::{AsRawFd, OwnedFd};
@@ -595,5 +631,27 @@ mod tests {
             .expect("the closed stream's arm")
             .0;
         assert!(closed.contains("self.app.outbox.let_go();"), "{closed}");
+    }
+
+    /// **A refused registration is said once a window, not once a short
+    /// write** (W-2): a flood the kernel takes in many pieces arms after
+    /// each, and a kernel that refuses every registration would otherwise
+    /// put a line in the log for each piece. A descriptor no process has
+    /// open, `0x7fff_fff0`, is refused (`EBADF`) on every call: the first
+    /// says it, every later one does not. The control: an open master is
+    /// registered, and says nothing. Break: the warn on every refusal, and
+    /// the second call says it again.
+    #[test]
+    fn a_refused_registration_is_said_once_a_window() {
+        let queue = dispatch2::DispatchQueue::new("baud.outbox.refused", None);
+        let (w, _rx) = watch(&queue);
+        let (master, _replica) = pair();
+        assert_eq!(w.arm(master.as_raw_fd()), Armed::Registered, "the control");
+        let none: crate::sys::Fd = 0x7fff_fff0;
+        assert_eq!(w.arm(none), Armed::RefusedSaid, "the first refusal is said");
+        for _ in 0..3 {
+            assert_eq!(w.arm(none), Armed::RefusedAgain, "said again");
+        }
+        assert_eq!(w.arm(master.as_raw_fd()), Armed::Registered, "still heard");
     }
 }
