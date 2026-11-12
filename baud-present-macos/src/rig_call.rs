@@ -46,7 +46,8 @@ pub struct FrameRig {
     pub act: String,
     /// How many ticks are offered; under [`RigFrameTicks::UntilFlips`],
     /// how many times the caret flips before the offers stop, and under
-    /// [`RigFrameTicks::UntilMarked`], how many link lines end them.
+    /// [`RigFrameTicks::UntilMarked`], how many link lines end them; under
+    /// [`RigFrameTicks::UntilAsked`], none: its run ends on its events.
     pub attempts: Iterations,
     /// Whether baud believes the window is key (`probe::Key`).
     pub focus: RigFocus,
@@ -129,6 +130,11 @@ pub enum RigWindow {
     /// so what the act does next comes on the pty's own read and after no
     /// wait.
     Released,
+    /// [`RigWindow::Released`], the newline written no sooner than
+    /// [`LATE_RELEASE`] after the first stage settled, inside the run: a
+    /// second stage that comes late, as a loaded machine's shell may write
+    /// it, which a run that ends on a count of passes ends before.
+    ReleasedLate,
     /// That it is shown, as [`RigWindow::Shown`] tells it, before anything
     /// is typed and before its first frame: the frame rig then waits for
     /// that frame, the shell's prompt, and for the splash to start, with
@@ -137,7 +143,7 @@ pub enum RigWindow {
     ShownFirst,
 }
 
-const WINDOW: [(RigWindow, &str); 13] = [
+const WINDOW: [(RigWindow, &str); 14] = [
     (RigWindow::Untold, "untold"),
     (RigWindow::Restyled, "restyled"),
     (RigWindow::BecameKey, "became-key"),
@@ -150,6 +156,7 @@ const WINDOW: [(RigWindow, &str); 13] = [
     (RigWindow::HostNamed, "host-named"),
     (RigWindow::Shown, "shown"),
     (RigWindow::Released, "released"),
+    (RigWindow::ReleasedLate, "released-late"),
     (RigWindow::ShownFirst, "shown-first"),
 ];
 
@@ -201,15 +208,24 @@ pub enum RigFrameTicks {
     /// reached, says so. The two frames' times are printed, a measurement
     /// the row is not judged on.
     UntilMarked,
+    /// **Withheld until the act's second stage is asked about**
+    /// ([`RigWindow::Released`]): the run loop run with no tick until a
+    /// turn has fed the core after the newline that releases it, and then
+    /// until a batch has asked about a printed path -- the path's batch, the
+    /// first stage having left nothing owed; [`SENTINEL_BACKSTOP`] past
+    /// each is a bound that, reached, says which never came: the feed or
+    /// the batch.
+    UntilAsked,
 }
 
-const FRAME_TICKS: [(RigFrameTicks, &str); 6] = [
+const FRAME_TICKS: [(RigFrameTicks, &str); 7] = [
     (RigFrameTicks::Offered, "offered"),
     (RigFrameTicks::Withheld, "withheld"),
     (RigFrameTicks::UntilFlips, "until-flips"),
     (RigFrameTicks::OneAfterFeeds, "one-after-feeds"),
     (RigFrameTicks::EventFrames, "event-frames"),
     (RigFrameTicks::UntilMarked, "until-marked"),
+    (RigFrameTicks::UntilAsked, "until-asked"),
 ];
 
 /// The event rig's call.
@@ -284,6 +300,12 @@ pub const HELD_REPLY: std::time::Duration = std::time::Duration::from_millis(250
 /// which the rig stops waiting and says it timed out, never that the
 /// effect did not run.
 pub const SENTINEL_BACKSTOP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// **How long [`RigWindow::ReleasedLate`] holds the newline** after the
+/// first stage settled: past the two seconds the printed paths' row's run
+/// once was, two hundred passes of the run loop at most 10 ms each, so a
+/// run that ends on that count ends before the second stage is written.
+pub const LATE_RELEASE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Whether the frame is driven, and whether a turn runs inline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -490,6 +512,7 @@ mod tests {
             RigFrameTicks::OneAfterFeeds,
             RigFrameTicks::EventFrames,
             RigFrameTicks::UntilMarked,
+            RigFrameTicks::UntilAsked,
         ] {
             let frozen = RigCall::Frames(FrameRig {
                 setup: "printf x".to_owned(),

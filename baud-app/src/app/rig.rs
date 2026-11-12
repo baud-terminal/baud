@@ -363,6 +363,27 @@ const RELEASE_BOUND: Duration = Duration::from_secs(15);
 /// what every iteration waits for is its records, under [`BOUND`].
 const SPACING: Duration = Duration::from_millis(50);
 
+/// **A frame row's second stage** (`RigWindow::Released`): none asked
+/// for; due at a time, and written on the first pass after it that finds
+/// `go` open -- before the run when due at once, on the run's passes when
+/// late; written, with when, and the turns fed, the paths asked about, the
+/// batches sent and those by why each was due just before it, from which
+/// the run counts what the act wrote after it; or never read, `go` never
+/// opened within [`PATHS_BOUND`] of its time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Second {
+    Unasked,
+    Due(Instant),
+    Written {
+        at: Instant,
+        fed: probe::FedTurns,
+        asked: probe::Taken,
+        batches: probe::Taken,
+        by: probe::PathsBy,
+    },
+    Unread,
+}
+
 /// The longest pass of the floor's run loop between two ticks on a driven
 /// arm, as long as the wait's own passes.
 const TICK: Duration = Duration::from_millis(10);
@@ -1203,6 +1224,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let hands = probe::hands();
     let greetings = probe::greetings();
     let asked = probe::paths_asked();
+    // The paths asked about before the act, whose texts are not its.
+    let asked_before = probe::paths_asked_texts().len();
     let (held, batches) = (probe::paths_held(), probe::paths_batches());
     let followed = || {
         [
@@ -1320,6 +1343,11 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
             probe::gpu_made().value(),
             probe::gpu_held().value(),
         );
+        // Each path asked about since the settle, on a line of its own: a
+        // row about one path reads which, not only how many.
+        for path in probe::paths_asked_texts().iter().skip(asked_before) {
+            println!("asked {path}");
+        }
     };
     let mut offered_at = offered.get();
     // A line of the rig's own to the shell, as typed keys are sent: a
@@ -1349,12 +1377,64 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         rig.ticks,
         RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames
     );
+    // The act's second stage, once the window's step has made it due
+    // (`RigWindow::Released`).
+    let second = core::cell::Cell::new(Second::Unasked);
+    // **The second stage written once it is due**, on the run loop's
+    // passes, so a run that ends on its own event waits for it however
+    // late it comes: once the act has opened `go` to read it, since
+    // opening the FIFO to write without blocking fails until then, and
+    // never read once [`PATHS_BOUND`] past its time has passed without.
+    let release = || {
+        let Second::Due(due) = second.get() else {
+            return;
+        };
+        let now = Instant::now();
+        if now < due {
+            return;
+        }
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let fifo = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(crate::sys::O_NONBLOCK)
+            .open("go");
+        // Taken before the newline goes: nothing the act writes after it
+        // is fed before this pass returns to the run loop.
+        let (fed, asked, batches, by) = (
+            probe::fed_turns(),
+            probe::paths_asked(),
+            probe::paths_batches(),
+            probe::paths_by(),
+        );
+        match fifo {
+            Ok(mut f) => second.set(match f.write_all(b"\n") {
+                Ok(()) => Second::Written {
+                    at: now,
+                    fed,
+                    asked,
+                    batches,
+                    by,
+                },
+                Err(_) => Second::Unread,
+            }),
+            Err(_) if now >= due + PATHS_BOUND => second.set(Second::Unread),
+            Err(_) => {}
+        }
+    };
     // The run: `attempts` ticks offered, or the run loop run as long with
-    // no tick, the act's own turns.
+    // no tick, the act's own turns; a second stage due written on the way.
     let run = |n: u16| match rig.ticks {
-        RigFrameTicks::Offered | RigFrameTicks::UntilFlips | RigFrameTicks::UntilMarked => offer(n),
-        RigFrameTicks::Withheld | RigFrameTicks::OneAfterFeeds | RigFrameTicks::EventFrames => {
+        RigFrameTicks::Offered | RigFrameTicks::UntilFlips | RigFrameTicks::UntilMarked => {
+            release();
+            offer(n);
+        }
+        RigFrameTicks::Withheld
+        | RigFrameTicks::OneAfterFeeds
+        | RigFrameTicks::EventFrames
+        | RigFrameTicks::UntilAsked => {
             for _ in 0..n {
+                release();
                 probe::pass(0.01);
             }
         }
@@ -1439,14 +1519,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     }
     // Whether the act's clear was waited for by the window's step.
     let mut act_signed = false;
-    // The printed paths' batches by why each was due, as the act's second
-    // stage was released (`RigWindow::Released`), and as its marks were
-    // drawn (`RigFrameTicks::UntilMarked`): what the act's output alone
-    // sent, the first stage's echo's batches left out.
+    // The printed paths' batches by why each was due as the act's marks
+    // were drawn (`RigFrameTicks::UntilMarked`), counted from those as its
+    // second stage was written (`Second::Written`): what the act's output
+    // alone sent, the first stage's echo's batches left out.
     // And the paths asked about, at the same two moments.
-    let mut released_by: Option<probe::PathsBy> = None;
     let mut marked_by: Option<probe::PathsBy> = None;
-    let mut released_asked: Option<probe::Taken> = None;
     let mut marked_asked: Option<probe::Taken> = None;
     // The window told, after the act: a key change with the focus door
     // set to agree, then the notification AppKit would post.
@@ -1482,8 +1560,10 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         }
         // **The act's second stage, on an event**: its clear signed, if it
         // has one, its frame drawn and the paths it owed answered, within
-        // the bound; then the newline it reads from `go`.
-        RigWindow::Released => {
+        // the bound; then the newline it reads from `go` made due, now or
+        // [`probe_call::LATE_RELEASE`] from now, and written on the run's
+        // passes (`release`).
+        RigWindow::Released | RigWindow::ReleasedLate => {
             let clears = rig.act.contains("]52;c;!");
             let start = Instant::now();
             let mut signed = !clears;
@@ -1507,30 +1587,27 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 return std::process::ExitCode::from(1);
             }
             act_signed = clears;
-            // Written once the act has opened `go` to read it: opening the
-            // FIFO to write without blocking fails until then.
-            let start = Instant::now();
-            let released = loop {
-                use std::io::Write as _;
-                use std::os::unix::fs::OpenOptionsExt as _;
-                let fifo = std::fs::OpenOptions::new()
-                    .write(true)
-                    .custom_flags(crate::sys::O_NONBLOCK)
-                    .open("go");
-                if let Ok(mut f) = fifo {
-                    break f.write_all(b"\n").is_ok();
-                }
-                if start.elapsed() >= PATHS_BOUND {
-                    break false;
-                }
-                run(1);
+            let hold = match rig.window {
+                RigWindow::ReleasedLate => probe_call::LATE_RELEASE,
+                _ => Duration::ZERO,
             };
-            if !released {
-                println!("the act never read its second stage");
-                return std::process::ExitCode::from(1);
+            second.set(Second::Due(Instant::now() + hold));
+            // Due now, it is written before the window is told and the row
+            // run: once the act has opened `go`, or never read. Only a late
+            // release is left to the run's passes.
+            if hold.is_zero() {
+                loop {
+                    release();
+                    match second.get() {
+                        Second::Written { .. } => break,
+                        Second::Unread => {
+                            println!("the act never read its second stage");
+                            return std::process::ExitCode::from(1);
+                        }
+                        Second::Unasked | Second::Due(_) => run(1),
+                    }
+                }
             }
-            released_by = Some(probe::paths_by());
-            released_asked = Some(probe::paths_asked());
         }
     }
     baud_present_macos::closing::rig_post(window.ns_window(), rig.window);
@@ -1616,6 +1693,9 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         }
         GpuRow::Untouched | GpuRow::Hold | GpuRow::HoldLaunch => {}
     }
+    // The bound a run that ends on its event reached, if it did: which
+    // event never came (`RigFrameTicks::UntilAsked`).
+    let mut bound: Option<&str> = None;
     match rig.ticks {
         // **Until the caret has flipped**: a clock's frames come on wall
         // time, and a pass returns after the first source it handles, so a
@@ -1821,7 +1901,52 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 marks_frames.value().saturating_sub(text_frames.value()),
             );
         }
+        // **Until the act's second stage is asked about**, the ticks
+        // withheld: a turn fed after the newline that releases it, and then
+        // a batch that asked about a path, the path's, the first stage
+        // having left nothing owed and the second writing nothing else. The
+        // run ends on the batch, never on a count of passes; past
+        // [`probe_call::SENTINEL_BACKSTOP`] from the newline with no feed,
+        // or from the feed with no batch, a bound that says which never
+        // came, on a line of its own after the counts, which the row reads
+        // as a failure of its own.
+        RigFrameTicks::UntilAsked => {
+            let mut path_fed: Option<Instant> = None;
+            if second.get() == Second::Unasked {
+                println!("the act has no second stage to release");
+                return std::process::ExitCode::from(1);
+            }
+            bound = loop {
+                run(1);
+                let (at, fed_then, asked_then) = match second.get() {
+                    Second::Unasked | Second::Unread => break None,
+                    Second::Due(_) => continue,
+                    Second::Written { at, fed, asked, .. } => (at, fed, asked),
+                };
+                if path_fed.is_none() && probe::fed_turns().0 > fed_then.0 {
+                    path_fed = Some(Instant::now());
+                }
+                let Some(fed_at) = path_fed else {
+                    if at.elapsed() >= probe_call::SENTINEL_BACKSTOP {
+                        break Some("bound passed before the path was fed");
+                    }
+                    continue;
+                };
+                if probe::paths_asked().0 > asked_then.0 {
+                    break None;
+                }
+                if fed_at.elapsed() >= probe_call::SENTINEL_BACKSTOP {
+                    break Some("bound passed before the path's batch");
+                }
+            };
+        }
         RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),
+    }
+    // A late second stage still due here was never written before the run
+    // ended: the row reads that from its counts, as a path it missed.
+    if second.get() == Second::Unread {
+        println!("the act never read its second stage");
+        return std::process::ExitCode::from(1);
     }
     // **An act that ends by clearing the pasteboard is waited for**, as the
     // setup is: the run goes on until that clear, within the bound, and
@@ -1849,7 +1974,12 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // The batches the act's second stage sent, by why each was due, and the
     // paths they asked about, to its marks' frame or the end: a line of
     // their own, for the rows that release one.
-    if let (Some(from), Some(asked_from)) = (released_by, released_asked) {
+    if let Second::Written {
+        by: from,
+        asked: asked_from,
+        ..
+    } = second.get()
+    {
         let by = marked_by.unwrap_or_else(probe::paths_by).since(from);
         let asked = marked_asked
             .unwrap_or_else(probe::paths_asked)
@@ -1858,6 +1988,25 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         println!(
             "by ended={} quiet={} ceiling={} floor={} held_granted={} asked={asked}",
             by.ended.0, by.quiet.0, by.ceiling.0, by.floor.0, by.held_granted.0
+        );
+    }
+    // The bound a run that ends on its event reached, after the counts:
+    // the row's own failure, said apart from a count it missed, with what
+    // the worker and the frame owed then and the batches sent and the paths
+    // asked since the newline, so a red says where it stood.
+    if let Some(why) = bound {
+        let (batches, asked) = match second.get() {
+            Second::Written { batches, asked, .. } => (
+                probe::paths_batches().0.saturating_sub(batches.0),
+                probe::paths_asked().0.saturating_sub(asked.0),
+            ),
+            _ => (0, 0),
+        };
+        println!(
+            "{why}: paths {:?}, frame owed {:?}, owes {}, batches since the newline {batches}, paths asked since {asked}",
+            probe::paths_due(),
+            probe::frame_owed(),
+            probe::owes().replace(' ', ""),
         );
     }
     let _ = probe::take();

@@ -262,6 +262,9 @@ thread_local! {
     static PATHS_DUE: Cell<PathsDue> = const { Cell::new(PathsDue::Idle) };
     /// The printed paths asked about (`paths_asked`).
     static PATHS_ASKED: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The text of each printed path asked about, in order
+    /// (`paths_asked_texts`).
+    static PATHS_ASKED_TEXTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// The batches the floor held (`paths_held`).
     static PATHS_HELD: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The batches sent to the printed paths' worker (`paths_batches`).
@@ -449,6 +452,28 @@ pub fn set_paths_asked(asked: Taken) {
 /// a read saw asks about none.
 pub fn paths_asked() -> Taken {
     PATHS_ASKED.with(Cell::get)
+}
+
+/// **Set the text of every printed path asked about so far**, in the order
+/// asked: the worker's log, which only grows, so a list as long as the one
+/// kept is the one kept and nothing is copied.
+pub fn set_paths_asked_texts(texts: &[Vec<u8>]) {
+    PATHS_ASKED_TEXTS.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.len() != texts.len() {
+            *t = texts
+                .iter()
+                .map(|p| String::from_utf8_lossy(p).into_owned())
+                .collect();
+        }
+    });
+}
+
+/// **The text of every printed path asked about so far**, in the order
+/// asked: the frame rig prints those an act's output asked about, so a
+/// row can say which path its batch asked about, not only how many.
+pub fn paths_asked_texts() -> Vec<String> {
+    PATHS_ASKED_TEXTS.with(|t| t.borrow().clone())
 }
 
 /// Set the batches that asked about a path the floor held, and the batches

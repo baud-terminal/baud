@@ -1658,6 +1658,13 @@ struct Counters {
     greeted: u32,
     /// The printed paths' asked about after the settle.
     asked: u32,
+    /// The text of each printed path asked about after the settle, each
+    /// from a line of its own.
+    asked_paths: Vec<String>,
+    /// **The bound a run that ends on its event reached**
+    /// (`RigFrameTicks::UntilAsked`), from its own line: which event never
+    /// came; none when the run ended on it.
+    bound: Option<String>,
     /// The batches that asked about a path the floor after the last that
     /// did held, after the settle.
     held: u32,
@@ -1885,6 +1892,15 @@ impl Counters {
                 .lines()
                 .find_map(|l| l.strip_prefix("by "))
                 .and_then(SentBy::parse),
+            asked_paths: text
+                .lines()
+                .filter_map(|l| l.strip_prefix("asked "))
+                .map(str::to_owned)
+                .collect(),
+            bound: text
+                .lines()
+                .find(|l| l.starts_with("bound passed before"))
+                .map(str::to_owned),
         })
     }
 
@@ -1994,9 +2010,17 @@ enum Settles {
     /// nothing delivered, and the read's names handed to the links.
     Handed,
     /// **Output's printed paths asked about with no tick**: the ticks
-    /// withheld, nothing delivered, and the path the act's output filed
-    /// asked about.
-    Filed,
+    /// withheld, nothing delivered, the run ended on its event and not at
+    /// its bound, this path -- the act's own -- among the paths asked about
+    /// after the settle, and the link paused at the end, so nothing ran it
+    /// for the ask. A count of paths asked is not enough: any path asked
+    /// would meet it, and a row whose path was never fed would pass on
+    /// another's. **The paused link is a requirement of its own**, not a
+    /// by-product: a link still running could have run the turn that
+    /// asked, the tick the row says was never needed. So a kept arm, whose
+    /// link the polls a settle names keep running, never meets it, and is
+    /// pending as held (`Failure::Held`) until no poll is left to run it.
+    Filed(&'static str),
     /// **A listing's printed paths drawn, the batch that asked about them
     /// held by no floor** (`RigFrameTicks::UntilMarked`): at least these
     /// many link lines at rest and exactly these many paths asked about --
@@ -2106,7 +2130,12 @@ impl Settles {
             Settles::Reaped => c.delivered == 0 && c.reaped >= 1,
             Settles::Followed => c.delivered == 0 && c.followed.iter().all(|&n| n >= 1),
             Settles::Handed => c.delivered == 0 && c.hands >= 1,
-            Settles::Filed => c.delivered == 0 && c.asked >= 1,
+            Settles::Filed(path) => {
+                c.delivered == 0
+                    && c.bound.is_none()
+                    && c.asked_paths.iter().any(|p| p == path)
+                    && c.link == LinkSeen::Pause
+            }
             Settles::Marked(n) => {
                 let n = u32::from(n);
                 c.held == 0 && c.marked >= n && c.asked == n && c.batches >= 2
@@ -2283,7 +2312,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 37] = [
+const FRAME_SITES: [FrameSite; 38] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2913,7 +2942,7 @@ const FRAME_SITES: [FrameSite; 37] = [
     // **Output's printed paths are asked about with no tick** (FS-A14): on
     // the CPU path, whose present has no completion to wake the window
     // again. The act signs its clear and waits in the shell's own `read`
-    // on the FIFO `go` the setup made; once the clear is signed, its frame
+    // on the FIFO `go` the rig made; once the clear is signed, its frame
     // drawn and the batch its echo owes answered, the rig writes the
     // newline it waits on (`RigWindow::Released`, through the probe's
     // doors), and the act prints the path `/usr/bin` in a read of its own,
@@ -2925,23 +2954,70 @@ const FRAME_SITES: [FrameSite; 37] = [
     // the reader's wake for that read then runs a turn of its own. That
     // turn's frame files the path, and the same turn, after its present,
     // schedules the worker's wake for the batch's deadline, a paused
-    // window's included; the ticks withheld and no pointer moved. The run
-    // is two seconds, past the batch's deadline: 150 ms after the path's
-    // read, the echo's batch having asked about no path to hold it a
-    // second after.
+    // window's included; the ticks withheld and no pointer moved. The
+    // echo's batch asked about no path and so set no floor (`Pace::sent`),
+    // so the path's batch goes at its own deadline: by the quiet
+    // (`By::Quiet`), 150 ms after its read, since the rig's `sh` is handed
+    // no token here (`BAUD_RIG_SHELL_TOKEN` unset) and so no `D` of its
+    // makes the batch due sooner; the counts' `by` line says which.
+    // The run ends on events (`RigFrameTicks::UntilAsked`): a turn fed
+    // after the newline, then the batch that asked about the path, whose
+    // text the row reads (`Settles::Filed`); a count of turns is no sign of
+    // the path, since the echo, its newline and the clear come in one read
+    // or several. Its bound, reached, is a failure of its own. The FIFO is
+    // made before the child starts (`run_frames_in`), not by the setup:
+    // an external command the setup ran, `mkfifo`, could be sampled as the
+    // writer of the line the path is later printed on, and a writer gone
+    // before it is named leaves its line unmarked whoever writes it after
+    // (`Facts::provenance`), so the path was never asked about. That is a
+    // known, conservative under-mark of a shell with no integration: such
+    // a line is left unmarked, never marked wrongly, and in an integrated
+    // shell the `C` that names the command here (`Fact::Here`,
+    // `Paths::written_here`) lifts it. The kept
+    // arm's link is run by the polls a settle names, so it never ends
+    // paused: pending as held until FS-A9's landing, with FS-A5's, leaves
+    // no poll to run it.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
-        setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+        setup: STILL,
         act: r"printf '\033]52;c;!\007'; read x <go; printf '\033[2J\033[H\057usr\057bin'; read y",
         keys: RigKeys::Line,
-        ticks: RigFrameTicks::Withheld,
+        ticks: RigFrameTicks::UntilAsked,
         window: RigWindow::Released,
         env: &[("BAUD_GPU", "cpu")],
         config: STEADY,
         focus: RigFocus::Believed,
-        attempts: Iterations(200),
-        expect: Settles::Filed,
-        state: RowState::Green,
+        attempts: Iterations(0),
+        expect: Settles::Filed("/usr/bin"),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
+    },
+    // **The same, its second stage released late**
+    // (`RigWindow::ReleasedLate`): the newline written
+    // `probe_call::LATE_RELEASE` after the first stage settled, past the
+    // two seconds this row's run once was, as a loaded machine's shell may
+    // come to it. The run waits for it and ends on the path's batch, so the
+    // row holds however late the path comes. Red with the run's end put
+    // back to two seconds of passes: the path is never fed before it ends
+    // and its batch never asked.
+    FrameSite {
+        name: SiteName("output's printed paths released late are asked about with no tick"),
+        setup: STILL,
+        act: r"printf '\033]52;c;!\007'; read x <go; printf '\033[2J\033[H\057usr\057bin'; read y",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::UntilAsked,
+        window: RigWindow::ReleasedLate,
+        env: &[("BAUD_GPU", "cpu")],
+        config: STEADY,
+        focus: RigFocus::Believed,
+        attempts: Iterations(0),
+        expect: Settles::Filed("/usr/bin"),
+        state: RowState::Pending {
+            stage: Stage::Three,
+            recorded: Failure::Held,
+        },
     },
     // **A frame the GPU never answers is counted at its bound, with no
     // tick** (`BAUD_RIG_GPU=hold`): the act's frame's completion held by
@@ -3154,6 +3230,17 @@ fn run_frames(site: &FrameSite, slug: &str, holders: RigHolders) -> Result<Count
 fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Counters, String> {
     let conf = dir.join("config.toml");
     std::fs::write(&conf, site.config).expect("the config");
+    // **The FIFO a released row's act reads its second stage from**, made
+    // here before the child starts and not on the screen: an external
+    // command the setup ran could be sampled as a line's writer and, gone
+    // before it is named, leave that line unmarked for good.
+    if matches!(site.window, RigWindow::Released | RigWindow::ReleasedLate) {
+        let made = Command::new("/usr/bin/mkfifo")
+            .arg(dir.join("go"))
+            .status()
+            .expect("mkfifo");
+        assert!(made.success(), "the FIFO go: {made:?}");
+    }
     let call = RigCall::Frames(FrameRig {
         setup: site.setup.to_owned(),
         act: site.act.to_owned(),
@@ -3271,6 +3358,43 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
     }
 }
 
+/// **A row about its own printed path is met by that path and no other**
+/// (`Settles::Filed`): read from the counts' own lines, as the frame rig's
+/// child prints them. Met by the path asked about, with nothing delivered,
+/// the link paused and no bound reached; not by a count of one whose path
+/// is another's -- the act's never fed, another asked -- nor by its own
+/// path asked at a bound, a delivered tick or a link still run. Break:
+/// `Settles::Filed` back to a count of paths asked, and another's path
+/// meets it.
+#[test]
+fn a_row_about_its_own_path_is_met_by_that_path_alone() {
+    let counts = |link: &str, delivered: u32, lines: &str| {
+        let text = format!(
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=FS-A5,FS-A9 owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0\n{lines}"
+        );
+        Counters::parse(&text).expect("the counts")
+    };
+    let filed = Settles::Filed("/usr/bin");
+    let met = counts("pause", 0, "asked /usr/bin");
+    assert_eq!(met.asked_paths, ["/usr/bin"]);
+    assert!(filed.holds(&met), "{met:?}");
+    for (why, c) in [
+        ("another's path", counts("pause", 0, "asked /usr/lib")),
+        (
+            "its own at the bound",
+            counts(
+                "pause",
+                0,
+                "asked /usr/bin\nbound passed before the path's batch",
+            ),
+        ),
+        ("a tick delivered", counts("pause", 1, "asked /usr/bin")),
+        ("the link run", counts("run", 0, "asked /usr/bin")),
+    ] {
+        assert!(!filed.holds(&c), "{why}: {c:?}");
+    }
+}
+
 /// **Each frame row, its kept arm and its lifted arm**, read like a
 /// ceiling arm: both arms' counters printed and compared, and a lifted arm
 /// whose counters equal the kept arm's is red, the lift having done
@@ -3325,7 +3449,11 @@ fn every_frame_row_comes_to_its_state() {
             }
             continue;
         }
-        if !site.expect.holds(&lifted) {
+        // A run that ends on its event and reached its bound instead says
+        // which event never came, apart from a count the row missed.
+        if let Some(bound) = &lifted.bound {
+            red.push((site.name, format!("lifted arm: {bound}: {lifted:?}")));
+        } else if !site.expect.holds(&lifted) {
             red.push((site.name, format!("lifted arm missed the row: {lifted:?}")));
         }
         let kept = run_frames(site, &format!("frame{i}-kept"), RigHolders::Kept);
@@ -3499,7 +3627,7 @@ macro_rules! shells_d_command {
 /// clock decides it.
 const SHELLS_D: FrameSite = FrameSite {
     name: SiteName("a command's printed path is asked about on its shell's D"),
-    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    setup: r"printf 'baud\033]52;c;!\007'",
     act: shells_d_act!("printf"),
     keys: RigKeys::Line,
     ticks: RigFrameTicks::UntilMarked,
@@ -3518,7 +3646,7 @@ const SHELLS_D: FrameSite = FrameSite {
 /// asked about.
 const SHELLS_D_REMOTE: FrameSite = FrameSite {
     name: SiteName("a remote command's printed path stays dark under its shell's D"),
-    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    setup: r"printf 'baud\033]52;c;!\007'",
     act: shells_d_act!("ssh"),
     keys: RigKeys::Line,
     ticks: RigFrameTicks::Withheld,
@@ -3580,7 +3708,7 @@ fn a_remote_commands_printed_path_stays_dark_under_its_shells_d() {
 /// (`RigFrameTicks::UntilMarked`, two link lines).
 const SHELLS_D_FLOORED: FrameSite = FrameSite {
     name: SiteName("a path printed within a second of an asking batch is asked about on its D"),
-    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    setup: r"printf 'baud\033]52;c;!\007'",
     act: shells_d_act!(before: r"\057usr\057lib", "printf"),
     keys: RigKeys::Line,
     ticks: RigFrameTicks::UntilMarked,
@@ -3602,7 +3730,7 @@ const SHELLS_D_FLOORED: FrameSite = FrameSite {
 /// on the frame that draws both marks.
 const SHELLS_D_WARM: FrameSite = FrameSite {
     name: SiteName("a path printed again within a second is drawn on its D"),
-    setup: r"mkfifo go; printf 'baud\033]52;c;!\007'",
+    setup: r"printf 'baud\033]52;c;!\007'",
     act: shells_d_act!(before: r"\057usr\057bin", "printf"),
     keys: RigKeys::Line,
     ticks: RigFrameTicks::UntilMarked,

@@ -2200,6 +2200,11 @@ pub struct Probes<T> {
     /// the compare that decides its frame allocates nothing once grown.
     before: Before,
     pub counts: Counts,
+    /// **The text of every path a batch asked about**, in order, for the
+    /// frame rig under the probe only: [`Counts::asked`] says how many, and
+    /// a row about one path must see that path among them.
+    #[cfg(feature = "effect-probe")]
+    pub asked_texts: Vec<Vec<u8>>,
     /// Whether the window's marks, as the reader's scan reads them, are the
     /// core's (`vouch::Latch`): stepped part by part as each drain is
     /// filed.
@@ -2261,6 +2266,8 @@ impl<T: Moment> Probes<T> {
             programs_owed: Owed::No,
             before: Before::default(),
             counts: Counts::default(),
+            #[cfg(feature = "effect-probe")]
+            asked_texts: Vec::new(),
             latch: crate::vouch::Latch::Synced,
         }
     }
@@ -3497,6 +3504,9 @@ impl<T: Moment> Probes<T> {
             return turn;
         }
         self.counts.asked += u64::try_from(queue.len()).unwrap_or(u64::MAX);
+        #[cfg(feature = "effect-probe")]
+        self.asked_texts
+            .extend(queue.iter().map(|c| c.path.clone()));
         self.counts.batches += 1;
         self.counts.sent_by(due.by);
         if due.by == By::Floor && !queue.is_empty() {
@@ -3538,6 +3548,8 @@ impl<T: Moment> Probes<T> {
         let cursor = s.cursor_on();
         let id = self.next_id;
         self.counts.asked += 1;
+        #[cfg(feature = "effect-probe")]
+        self.asked_texts.push(path.path.clone());
         let ask = Ask {
             id,
             kind: Kind::Click,

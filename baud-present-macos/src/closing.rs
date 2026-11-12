@@ -126,6 +126,7 @@ pub fn rig_post(window: &NSWindow, told: crate::rig_call::RigWindow) {
         | RigWindow::Settings
         | RigWindow::HostNamed
         | RigWindow::Released
+        | RigWindow::ReleasedLate
         | RigWindow::ShownFirst => return,
         RigWindow::BecameKey => unsafe { NSWindowDidBecomeKeyNotification },
         RigWindow::ResignedKey => unsafe { NSWindowDidResignKeyNotification },
