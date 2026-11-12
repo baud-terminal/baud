@@ -4931,6 +4931,10 @@ struct Driver {
     /// What a resize or a zoom asked for while a frame was in flight,
     /// applied by the next `pump` the completion wakes.
     deferred: Deferred,
+    /// Whether a relayout re-cut the grid since the pump took its readings
+    /// before the feed ([`Relaid`]): set where the re-cut numbers the
+    /// window's count, taken at the pump's gate.
+    relaid: Relaid,
     /// What the style observer last saw, for `pump` to apply.
     style: PendingStyle,
     /// Whether the palette follows the appearance at all: a config that
@@ -7901,7 +7905,7 @@ mod alt_window_tests {
         assert!(
             SRC.contains(concat!(
                 "if erased(&self.app.term, before) {\n",
-                "            self.app.slide.snap();"
+                "                self.app.slide.snap();"
             )),
             "the pump settles the slide on an erase"
         );
@@ -10684,7 +10688,7 @@ mod restart_tests {
         assert!(at("if erased(&self.app.term, before) {") < call);
         assert!(call < at("if thumb == Thumb::Reveal {"));
         let reveal = &pump[at("if thumb == Thumb::Reveal {")..];
-        let reveal = &reveal[..reveal.find("\n        }\n").expect("the arm ends")];
+        let reveal = &reveal[..reveal.find("\n            }\n").expect("the arm ends")];
         assert!(
             reveal.contains("self.app.reveal.reveal(self.app.effects_now());"),
             "the reveal arm reveals the thumb"
@@ -10754,7 +10758,7 @@ mod restart_tests {
         };
         assert!(at("self.app.kept.take(") < at("let before = Before::watched("));
         let stale = at("if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {");
-        let drop = &pump[stale..stale + pump[stale..].find("\n        }\n").expect("ends")];
+        let drop = &pump[stale..stale + pump[stale..].find("\n            }\n").expect("ends")];
         assert!(
             drop.contains("self.app.kept.dropped(&self.app.term);"),
             "kept where the watch drops it: {drop}"
@@ -10764,7 +10768,8 @@ mod restart_tests {
         let carried = at("followed(&self.app.term, &mut self.app.selection, self.app.scrolled);");
         assert!(renumbered < off && off < carried);
         let clipped = at(".is_some_and(|s| s.clip(oldest) == Clip::Cleared);");
-        let gone = &pump[clipped..clipped + pump[clipped..].find("\n        }\n").expect("ends")];
+        let gone =
+            &pump[clipped..clipped + pump[clipped..].find("\n            }\n").expect("ends")];
         assert!(
             gone.contains("self.app.kept.dropped(&self.app.term);"),
             "kept where the clip cuts it away: {gone}"
@@ -12611,6 +12616,419 @@ enum Answered {
     Yes,
 }
 
+/// **Whether a turn moved what the window keeps over the screen**: the
+/// selection and the count that numbers it, a slide, a trail's ride, a
+/// switch's fade and the clip, which the pump's block after the feed
+/// follows. A turn that fed nothing, took no read, honoured no resize,
+/// renumbered no line and re-cut no grid leaves each where it stood -- the
+/// block compares the core with readings taken on the same turn, before a
+/// feed that did not come -- so its reads of the core are skipped; any one
+/// of the five runs it. The renumbering is a fact of its own: the live
+/// surface's count can move with nothing fed this turn ([`Renumbered`]),
+/// and the block is what numbers the window's count by it. So is a
+/// relayout inside the turn ([`Relaid`]): it resizes the core after the
+/// readings, and the block reads what that resize rotated.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Moved {
+    Still,
+    Moved,
+}
+
+/// Whether a turn's drain brought a read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Drain {
+    Empty,
+    Reads,
+}
+
+/// Whether the live surface's count ([`Counts::numbered`]) stands where the
+/// window's does, or moved: lines retired or taken back since the count
+/// was last read, or a count taken back past the session's first line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Renumbered {
+    No,
+    Yes,
+}
+
+impl Drain {
+    fn of(chunks: &[crate::pty::Read]) -> Drain {
+        match chunks.is_empty() {
+            true => Drain::Empty,
+            false => Drain::Reads,
+        }
+    }
+}
+
+impl Renumbered {
+    fn of(numbered: Numbered, scrolled: Scrolled) -> Renumbered {
+        match numbered {
+            Numbered::At(s) if s == scrolled => Renumbered::No,
+            Numbered::At(_) | Numbered::PastStart(_) => Renumbered::Yes,
+        }
+    }
+}
+
+/// **Whether a relayout re-cut the grid inside the turn**, after the
+/// readings the pump took before its feed (`Driver::relayout`): the status
+/// line's row given up or taken back, the scrollbar's gutter, a program's
+/// font, each where the window keeps its size. The re-cut resizes the core
+/// and numbers the window's count itself (`kept_across_resize`), so the
+/// block after the feed runs, reads what the resize rotated, and takes the
+/// count it left ([`Relaid::numbered`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Relaid {
+    No,
+    Yes,
+}
+
+impl Relaid {
+    /// **The count the block numbers the window by**: the feed's reading
+    /// (`Counts::numbered`, taken once a turn, before the batch's lines are
+    /// filed, which they are on it), or, after a re-cut, `scrolled`, the
+    /// window's count `kept_across_resize` left. That count is the re-cut's
+    /// own reading of the counts, which moves on from where the feed's
+    /// reading left them, so it holds both renumberings, the feed's and the
+    /// resize's; the block taking the feed's reading instead put the
+    /// window back by the lines the re-cut retired. Not a second reading:
+    /// it would find nothing moved and lose a `PastStart` the feed's found,
+    /// which drops the selection; that is carried.
+    fn numbered(self, fed: Numbered, scrolled: Scrolled) -> Numbered {
+        match (self, fed) {
+            (Relaid::No, _) => fed,
+            (Relaid::Yes, Numbered::At(_)) => Numbered::At(scrolled),
+            (Relaid::Yes, Numbered::PastStart(_)) => Numbered::PastStart(scrolled),
+        }
+    }
+}
+
+impl Moved {
+    /// The turn's five facts: what it fed, what it read, the resize a
+    /// program asked for in it, whether the count moved, and whether a
+    /// relayout re-cut the grid.
+    fn of(
+        fed: crate::reads::Fed,
+        drain: Drain,
+        resized: Option<crate::width::Grid>,
+        renumbered: Renumbered,
+        relaid: Relaid,
+    ) -> Moved {
+        match (fed, drain, resized, renumbered, relaid) {
+            (crate::reads::Fed::Nothing, Drain::Empty, None, Renumbered::No, Relaid::No) => {
+                Moved::Still
+            }
+            _ => Moved::Moved,
+        }
+    }
+}
+
+#[cfg(test)]
+mod moved_tests {
+    use super::{Counts, Drain, Moved, Numbered, Relaid, Renumbered, kept_across_resize};
+    use crate::reads::Fed;
+    use crate::width::Grid;
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, ReadLen, Rows, WinSize};
+    use baud_render::Scrolled;
+
+    /// **Any one of a turn's five facts moves it, and only all five quiet
+    /// leave it still**: over the thirty-two turns, `Still` is the one that
+    /// fed nothing, read nothing, honoured no resize, renumbered no line
+    /// and re-cut no grid.
+    #[test]
+    fn a_turn_moves_on_any_of_its_five_facts() {
+        let grid = Grid { cols: 20, rows: 10 };
+        let mut still = 0;
+        for fed in [Fed::Nothing, Fed::Some] {
+            for drain in [Drain::Empty, Drain::Reads] {
+                for resized in [None, Some(grid)] {
+                    for renumbered in [Renumbered::No, Renumbered::Yes] {
+                        for relaid in [Relaid::No, Relaid::Yes] {
+                            let facts = (fed, drain, resized, renumbered, relaid);
+                            let turn = Moved::of(fed, drain, resized, renumbered, relaid);
+                            let quiet = facts
+                                == (Fed::Nothing, Drain::Empty, None, Renumbered::No, Relaid::No);
+                            let want = match quiet {
+                                true => Moved::Still,
+                                false => Moved::Moved,
+                            };
+                            assert_eq!(turn, want, "{facts:?}");
+                            still += usize::from(turn == Moved::Still);
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(still, 1, "one still turn of thirty-two");
+    }
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **A relayout inside the turn leaves the window's count where it
+    /// numbered it**: forty lines on a ten-row screen, the window looking
+    /// five lines back; a read retires a line and selects the status line
+    /// (DECSSDT), and the feed's reading of the count moves by one. The
+    /// status line's relayout, where the window keeps its size, gives the
+    /// row up -- the core shrunk to nine rows, as `Driver::relayout` does,
+    /// its record numbering the counts through `kept_across_resize` -- and
+    /// retires another. The block takes that count, both lines counted, and
+    /// not the feed's, which put the window back by the line the re-cut
+    /// retired; with no re-cut it takes the feed's; a `PastStart` the
+    /// feed's reading found is carried, so the selection still goes.
+    /// Break: the block takes the feed's reading after a re-cut.
+    #[test]
+    fn a_relayout_in_the_turn_leaves_the_count_it_numbered() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i:02}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        let mut counts = Counts::starting(
+            &t,
+            Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+        );
+        let start = counts.numbered(&t, None).scrolled();
+        t.set_window_back(Rows::of_count(5));
+        assert_ne!(t.window_back(), Rows::ZERO, "the control: looking back");
+        feed(&mut t, b"more\r\n\x1b[2$~");
+        assert_eq!(
+            t.status_rows(),
+            Rows::of_count(1),
+            "the control: the status line is up"
+        );
+        let fed = counts.numbered(&t, None);
+        assert_eq!(
+            fed,
+            Numbered::At(start.advanced(Rows::of_count(1))),
+            "the control: the read retired a line"
+        );
+        let was = (t.geometry().0, t.screen());
+        let _ = t.resize(&WinSize {
+            ws_col: 20,
+            ws_row: 9,
+        });
+        let rec = t.take_record();
+        let (_, recut) = kept_across_resize(&t, was, None, &mut counts, &rec);
+        assert_eq!(
+            recut,
+            start.advanced(Rows::of_count(2)),
+            "the control: the re-cut retired another"
+        );
+        assert_eq!(
+            Relaid::Yes.numbered(fed, recut),
+            Numbered::At(recut),
+            "the block takes the count the re-cut left"
+        );
+        assert_eq!(
+            Relaid::No.numbered(fed, start),
+            fed,
+            "no re-cut: the feed's reading"
+        );
+        assert_eq!(
+            Relaid::Yes.numbered(Numbered::PastStart(Scrolled::START), recut),
+            Numbered::PastStart(recut),
+            "the feed's PastStart carried"
+        );
+    }
+
+    /// **A count that moved with nothing fed moves the turn**: forty lines
+    /// on a ten-row screen, the window's count where the core's stands; then
+    /// the core alone shrinks the screen to six rows -- no read, no
+    /// program's resize, and no `kept_across_resize` to number it -- which
+    /// retires four lines into the history and moves the live surface's
+    /// count. The next turn fed nothing and read nothing, and still moves,
+    /// so the block numbers the window's count on that turn. The control: a
+    /// turn before the shrink is still. Break: `Moved::of` without the
+    /// renumbering.
+    #[test]
+    fn a_count_moved_with_nothing_fed_moves_the_turn() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i:02}\r\n").into_bytes())
+            .collect();
+        t.write_at(BytePos::ZERO, &lines);
+        t.feed(BytePos::ZERO, ReadLen::from_index(lines.len()));
+        let mut counts = Counts::starting(
+            &t,
+            Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+        );
+        let scrolled = counts.numbered(&t, None).scrolled();
+        let quiet = |n| {
+            Moved::of(
+                Fed::Nothing,
+                Drain::Empty,
+                None,
+                Renumbered::of(n, scrolled),
+                Relaid::No,
+            )
+        };
+        assert_eq!(
+            quiet(counts.numbered(&t, None)),
+            Moved::Still,
+            "the control"
+        );
+        let _ = t.resize(&WinSize {
+            ws_col: 20,
+            ws_row: 6,
+        });
+        let numbered = counts.numbered(&t, None);
+        assert_eq!(
+            numbered.scrolled(),
+            scrolled.advanced(Rows::of_count(4)),
+            "the control: the shrink retired four lines and moved the count"
+        );
+        assert_eq!(
+            quiet(numbered),
+            Moved::Moved,
+            "a count moved with nothing fed"
+        );
+    }
+
+    /// **The block after the feed runs under the turn's gate, and what
+    /// follows it on every turn**: the pump is AppKit-bound, so the source
+    /// is held. The gate reads the renumbering; the block holds the reads
+    /// of the core that follow the feed, from `read_moved` through the
+    /// count, the carry, the restart and the clip to the text kept; the
+    /// hover, the derived title, the pace's wake and the flush of what the
+    /// child is owed follow it, outside it -- a wake of the master's room
+    /// feeds nothing, and its flush is the turn's whole purpose.
+    #[test]
+    fn the_block_after_the_feed_runs_under_the_turns_gate() {
+        let pump = crate::no_appkit::fn_body(
+            include_str!("app.rs"),
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let gate = concat!("\n        if turn == Moved", "::Moved {\n");
+        assert_eq!(pump.matches(gate).count(), 1, "one gate");
+        let from = pump.find(gate).expect("the gate");
+        let held = &pump[from..];
+        let held = &held[..held.find("\n        }\n").expect("the gate ends")];
+        // Each needle spelled apart, so this test's own text is not what a
+        // count of it elsewhere finds.
+        for inside in [
+            concat!(
+                "let moved = ",
+                "read_moved(&self.app.term, before, resized);"
+            ),
+            concat!("stale_in_moved_rows", "(&self.app.term)"),
+            concat!("self.app.scrolled = ", "match numbered {"),
+            concat!(
+                "followed(&self.app.term, ",
+                "&mut self.app.selection, self.app.scrolled);"
+            ),
+            concat!("crate::effects::", "trail_rides("),
+            concat!("let (surface, thumb) = ", "restart("),
+            concat!(".is_some_and(|s| s.clip(oldest) ", "== Clip::Cleared);"),
+            concat!("self.app.kept.", "carried(self.app.selection.as_ref());"),
+        ] {
+            assert!(held.contains(inside), "under the gate: {inside}");
+            assert_eq!(
+                pump.matches(inside).count(),
+                1,
+                "once in the pump: {inside}"
+            );
+        }
+        let after = &pump[from + held.len()..];
+        for outside in [
+            concat!("self.poll_", "hover();"),
+            concat!("self.title_", "check();"),
+            concat!("self.pace_", "wake();"),
+            concat!("self.app.flush_", "reply(Asked::Unasked);"),
+        ] {
+            assert!(after.contains(outside), "after the gate: {outside}");
+            assert!(!held.contains(outside), "not under it: {outside}");
+        }
+        assert!(
+            pump[..from].contains(concat!("Renumbered::of(numbered, ", "self.app.scrolled)")),
+            "the gate reads the renumbering"
+        );
+    }
+
+    /// **The gate reads the turn's count after every relayout the turn
+    /// can make, and the re-cut is a fact of it**: the pump is AppKit-bound,
+    /// so the source is held. The pump clears `Relaid` before its readings,
+    /// `relayout` sets it where its re-cut numbers the window's count, and
+    /// the gate takes it after the status line's, the scrollbar's and a
+    /// program's font's relayouts, the count the block takes read from it
+    /// immediately before `Moved::of`, which is given it.
+    #[test]
+    fn the_gate_reads_the_count_after_the_turns_relayouts() {
+        let src = include_str!("app.rs");
+        let pump = crate::no_appkit::fn_body(
+            src,
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let once = |needle: &str| {
+            assert_eq!(
+                pump.matches(needle).count(),
+                1,
+                "once in the pump: {needle}"
+            );
+            pump.find(needle).expect("found")
+        };
+        let cleared = once(concat!("self.relaid = ", "Relaid::No;"));
+        assert!(cleared < once(concat!("let before = ", "Before::watched(")));
+        let taken = once(concat!(
+            "let relaid = std::mem::replace(",
+            "&mut self.relaid, Relaid::No);"
+        ));
+        for relayout in [
+            concat!("self.status_", "line();"),
+            concat!("self.scrollbar_", "mode();"),
+            concat!("self.font_", "requests(&fonts_asked);"),
+        ] {
+            assert!(once(relayout) < taken, "the gate after {relayout}");
+        }
+        let read = once(concat!(
+            "let numbered = relaid.",
+            "numbered(numbered, self.app.scrolled);"
+        ));
+        let gate = once(concat!("let turn = ", "Moved::of("));
+        assert!(taken < read, "the re-cut taken before the count");
+        assert_eq!(
+            pump[read..gate].split_once('\n').map(|(_, gap)| gap.trim()),
+            Some(""),
+            "the count read immediately before the gate"
+        );
+        assert!(
+            pump[gate..].starts_with(concat!(
+                "let turn = Moved::of(\n            fed,\n            ",
+                "Drain::of(&drained.chunks),\n            resized,\n            ",
+                "Renumbered::of(numbered, self.app.scrolled),\n            relaid,\n        );"
+            )),
+            "the gate given the re-cut: {}",
+            &pump[gate..gate + 240]
+        );
+        let relayout = crate::no_appkit::fn_body(
+            src,
+            concat!(
+                "    fn relayout(&mut self, ",
+                "size: NSSize, scale: CGFloat) -> Drew {"
+            ),
+        );
+        let numbered = relayout
+            .find(concat!("&mut self.app.", "counts,"))
+            .expect("the re-cut numbers the count");
+        let set = relayout
+            .find(concat!("self.relaid = ", "Relaid::Yes;"))
+            .expect("the re-cut said");
+        assert!(numbered < set, "said where the count is numbered");
+        assert_eq!(relayout.matches(concat!("Relaid::", "Yes")).count(), 1);
+    }
+}
+
 impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
@@ -12992,6 +13410,10 @@ impl Driver {
             &self.app.term,
             self.app.scrolled,
         );
+        // A re-cut from here to the gate is the turn's ([`Relaid`]); one
+        // before -- the change a frame held, above, or a window's resize
+        // between turns -- is in what `before` reads.
+        self.relaid = Relaid::No;
         let before = Before::watched(
             &mut self.app.term,
             self.app.selection.as_ref(),
@@ -13202,152 +13624,175 @@ impl Driver {
             // key hid (`hide.rs`).
             hide_pointer(self.hiding.read(&self.app.term));
         }
-        // Looking back while output scrolls, the window stays on the lines
-        // it was showing: the core holds it there, byte by byte, and sends
-        // it live where a scroll down, `RI` at the top or a redraw mark took
-        // its line back, or an erasure took the lines (note V, V2).
-        let moved = read_moved(&self.app.term, before, resized);
-        // The selection names absolute lines; the count that numbers them
-        // moves with the screen, by the core's count of the lines the read
-        // retired or took back (`numbered`). A surface switch is another
-        // ring, and a line the ring recycled is clipped away. A line taken
-        // back is renumbered with the rest: the core reaches the watch on
-        // every line a take-back erases, so a selection still here holds
-        // its text.
-        let screen = self.app.term.screen();
-        // A move that left nothing of it, a move under side margins, `IL`
-        // or `DL` reaching it, a write or an erase on a selected line, a
-        // line taken back over one: the selection names text that went
-        // elsewhere or is gone. Every other move carries it (`followed`).
-        if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {
-            self.app.selection = None;
-            self.app.kept.dropped(&self.app.term);
-        }
-        let top_was = self.app.scrolled.top(Rows::ZERO);
-        self.app.scrolled = match numbered {
-            Numbered::At(s) => s,
-            // Taken back past the session's first line: a fresh terminal's
-            // scroll down, which no count can number.
-            Numbered::PastStart(s) => {
-                self.app.selection = None;
-                s
-            }
-        };
-        // While `?1040` is reset, a selection the screen's scroll took off
-        // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`).
-        let tops = (top_was, self.app.scrolled.top(Rows::ZERO));
-        if self
-            .app
-            .selection
-            .is_some_and(|s| scrolled_off_the_top(&self.app.term, &s, tops))
-        {
-            self.app.selection = None;
-        }
-        followed(&self.app.term, &mut self.app.selection, self.app.scrolled);
-        match moved {
-            Ring::Retired(n) => {
-                // Smooth scroll: output scrolled the live screen up on the
-                // primary surface, so start (or extend) a slide. The offset
-                // is capped at one row inside `retire`, so a fast burst never
-                // builds a backlog -- the whole latency argument. Only at the
-                // live screen (`back == 0`): looking back, the window follows
-                // the content up and the visible lines do not move. And only
-                // when the cell path is drawing (`cell.is_some()`): the pan is
-                // applied in the cell branch of `present` alone, so on the
-                // instance and CPU paths a slide would force frames the way
-                // the tick does while nothing on screen moved. And never when
-                // a region retired a line: the rows under it did not move,
-                // and a slide in flight is settled rather than left panning
-                // them.
-                if !whole_screen_scrolled(&self.app.term, before) {
-                    self.app.slide.snap();
-                } else if self.app.scroll == crate::config::ScrollMode::Smooth
-                    && self.app.term.window_back().index() == 0
-                    && screen == Screen::Normal
-                    && self.app.cell.is_some()
-                    && self.app.term.status_rows() == Rows::ZERO
-                {
-                    self.app.slide.retire(n);
-                }
-            }
-            Ring::Restored(_) => {}
-        }
-        // A trail in flight rides every line the whole screen retired at the
-        // live window, whether the grid slides or jumps, on every path and
-        // either screen (`trail_rides`); where it slides, the slide has
-        // taken the lines first and the trail is lifted by its pan.
-        let rides =
-            crate::effects::trail_rides(&self.app.term, before, moved, self.app.trail_scroll);
-        if let Some(n) = rides {
-            self.ride_trail(n);
-        }
-        // An erased history has no saved line for a slide to draw above the
-        // screen as it pans, and the clamp would draw the screen's own first
-        // row there instead -- so a slide settles, whichever way the erase
-        // and the lines fell in the read. The selection needs nothing here:
-        // the clip below drops what named an erased line, because the lines
-        // that refill the history are numbered after them. A selection on
-        // the screen a reset cleared is `restart`'s, below.
-        if erased(&self.app.term, before) {
-            self.app.slide.snap();
-        }
-        // A switch of surface, or a full reset: what the app keeps over the
-        // screen names cells that are gone (note V, V1).
-        let (surface, thumb) = restart(
-            &self.app.term,
-            before,
-            Kept {
-                selection: &mut self.app.selection,
-                predictions: &mut self.app.predictions,
-                guess: &mut self.app.guess,
-                slide: &mut self.app.slide,
-                travel: &mut self.app.travel,
-                latency: &mut self.app.latency,
-            },
+        // **The block below follows what the turn moved** ([`Moved`]): a
+        // turn that fed nothing, read nothing, honoured no resize,
+        // renumbered no line and re-cut no grid leaves the selection, its
+        // count, a slide, a ride and the clip where they stood, and the
+        // block's reads of the core are skipped. The renumbering counts on
+        // its own: the live surface's count can move with nothing fed this
+        // turn. So does a re-cut since the readings -- the status line's,
+        // the scrollbar's or a program's font's relayout, above -- whose
+        // count, the feed's renumbering and the re-cut's both, is the one
+        // the block takes (`Relaid::numbered`), read here, after them all.
+        // What follows the block -- the find, the hover, the title and the
+        // flush of what the child is owed -- runs on every turn.
+        let relaid = std::mem::replace(&mut self.relaid, Relaid::No);
+        let numbered = relaid.numbered(numbered, self.app.scrolled);
+        let turn = Moved::of(
+            fed,
+            Drain::of(&drained.chunks),
+            resized,
+            Renumbered::of(numbered, self.app.scrolled),
+            relaid,
         );
-        if thumb == Thumb::Reveal {
-            // A programmatic scroll, which AppKit reveals, as `snap_to_live`
-            // does for a key.
-            self.app.owe_frame();
-            self.app.reveal.reveal(self.app.effects_now());
-        }
-        if surface == Surface::Switched {
-            // A trail does not cross a switch: the cursor it would come from
-            // was the other screen's. The ghost forgets its last cell and any
-            // sweep in flight for the same reason; it never did, and a
-            // placement made helix reach it from the prompt.
-            self.app.chase.snap();
-            self.app.last_cursor_cell = None;
-            self.app.trail = None;
-            self.app.carried.forget();
-            // The alternate screen swapped: slide the new one in over the
-            // old one, kept now with its cursor hidden, off the effects' clock
-            // the way the trail is spawned -- or veil it, under Reduce Motion.
-            if self.app.screen_transition == crate::config::ScreenTransition::On {
-                let form = switch_form(self.app.term.screen(), self.app.motion);
-                if let SwitchForm::Slide(_) = form {
-                    self.app.keep_frame();
-                }
-                self.app.transition = Some(TransitionState {
-                    start: self.app.effects_secs(),
-                    form,
-                });
+        if turn == Moved::Moved {
+            // Looking back while output scrolls, the window stays on the lines
+            // it was showing: the core holds it there, byte by byte, and sends
+            // it live where a scroll down, `RI` at the top or a redraw mark took
+            // its line back, or an erasure took the lines (note V, V2).
+            let moved = read_moved(&self.app.term, before, resized);
+            // The selection names absolute lines; the count that numbers them
+            // moves with the screen, by the core's count of the lines the read
+            // retired or took back (`numbered`). A surface switch is another
+            // ring, and a line the ring recycled is clipped away. A line taken
+            // back is renumbered with the rest: the core reaches the watch on
+            // every line a take-back erases, so a selection still here holds
+            // its text.
+            let screen = self.app.term.screen();
+            // A move that left nothing of it, a move under side margins, `IL`
+            // or `DL` reaching it, a write or an erase on a selected line, a
+            // line taken back over one: the selection names text that went
+            // elsewhere or is gone. Every other move carries it (`followed`).
+            if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {
+                self.app.selection = None;
+                self.app.kept.dropped(&self.app.term);
             }
+            let top_was = self.app.scrolled.top(Rows::ZERO);
+            self.app.scrolled = match numbered {
+                Numbered::At(s) => s,
+                // Taken back past the session's first line: a fresh terminal's
+                // scroll down, which no count can number.
+                Numbered::PastStart(s) => {
+                    self.app.selection = None;
+                    s
+                }
+            };
+            // While `?1040` is reset, a selection the screen's scroll took off
+            // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`).
+            let tops = (top_was, self.app.scrolled.top(Rows::ZERO));
+            if self
+                .app
+                .selection
+                .is_some_and(|s| scrolled_off_the_top(&self.app.term, &s, tops))
+            {
+                self.app.selection = None;
+            }
+            followed(&self.app.term, &mut self.app.selection, self.app.scrolled);
+            match moved {
+                Ring::Retired(n) => {
+                    // Smooth scroll: output scrolled the live screen up on the
+                    // primary surface, so start (or extend) a slide. The offset
+                    // is capped at one row inside `retire`, so a fast burst never
+                    // builds a backlog -- the whole latency argument. Only at the
+                    // live screen (`back == 0`): looking back, the window follows
+                    // the content up and the visible lines do not move. And only
+                    // when the cell path is drawing (`cell.is_some()`): the pan is
+                    // applied in the cell branch of `present` alone, so on the
+                    // instance and CPU paths a slide would force frames the way
+                    // the tick does while nothing on screen moved. And never when
+                    // a region retired a line: the rows under it did not move,
+                    // and a slide in flight is settled rather than left panning
+                    // them.
+                    if !whole_screen_scrolled(&self.app.term, before) {
+                        self.app.slide.snap();
+                    } else if self.app.scroll == crate::config::ScrollMode::Smooth
+                        && self.app.term.window_back().index() == 0
+                        && screen == Screen::Normal
+                        && self.app.cell.is_some()
+                        && self.app.term.status_rows() == Rows::ZERO
+                    {
+                        self.app.slide.retire(n);
+                    }
+                }
+                Ring::Restored(_) => {}
+            }
+            // A trail in flight rides every line the whole screen retired at the
+            // live window, whether the grid slides or jumps, on every path and
+            // either screen (`trail_rides`); where it slides, the slide has
+            // taken the lines first and the trail is lifted by its pan.
+            let rides =
+                crate::effects::trail_rides(&self.app.term, before, moved, self.app.trail_scroll);
+            if let Some(n) = rides {
+                self.ride_trail(n);
+            }
+            // An erased history has no saved line for a slide to draw above the
+            // screen as it pans, and the clamp would draw the screen's own first
+            // row there instead -- so a slide settles, whichever way the erase
+            // and the lines fell in the read. The selection needs nothing here:
+            // the clip below drops what named an erased line, because the lines
+            // that refill the history are numbered after them. A selection on
+            // the screen a reset cleared is `restart`'s, below.
+            if erased(&self.app.term, before) {
+                self.app.slide.snap();
+            }
+            // A switch of surface, or a full reset: what the app keeps over the
+            // screen names cells that are gone (note V, V1).
+            let (surface, thumb) = restart(
+                &self.app.term,
+                before,
+                Kept {
+                    selection: &mut self.app.selection,
+                    predictions: &mut self.app.predictions,
+                    guess: &mut self.app.guess,
+                    slide: &mut self.app.slide,
+                    travel: &mut self.app.travel,
+                    latency: &mut self.app.latency,
+                },
+            );
+            if thumb == Thumb::Reveal {
+                // A programmatic scroll, which AppKit reveals, as `snap_to_live`
+                // does for a key.
+                self.app.owe_frame();
+                self.app.reveal.reveal(self.app.effects_now());
+            }
+            if surface == Surface::Switched {
+                // A trail does not cross a switch: the cursor it would come from
+                // was the other screen's. The ghost forgets its last cell and any
+                // sweep in flight for the same reason; it never did, and a
+                // placement made helix reach it from the prompt.
+                self.app.chase.snap();
+                self.app.last_cursor_cell = None;
+                self.app.trail = None;
+                self.app.carried.forget();
+                // The alternate screen swapped: slide the new one in over the
+                // old one, kept now with its cursor hidden, off the effects' clock
+                // the way the trail is spawned -- or veil it, under Reduce Motion.
+                if self.app.screen_transition == crate::config::ScreenTransition::On {
+                    let form = switch_form(self.app.term.screen(), self.app.motion);
+                    if let SwitchForm::Slide(_) = form {
+                        self.app.keep_frame();
+                    }
+                    self.app.transition = Some(TransitionState {
+                        start: self.app.effects_secs(),
+                        form,
+                    });
+                }
+            }
+            let oldest = oldest(&self.app.term, self.app.scrolled);
+            let gone = self
+                .app
+                .selection
+                .as_mut()
+                .is_some_and(|s| s.clip(oldest) == Clip::Cleared);
+            if gone {
+                // Clipped away: `?1040` keeps its text, as the seat does.
+                self.app.selection = None;
+                self.app.kept.dropped(&self.app.term);
+            }
+            // Carried or clipped, the text kept is the one it was made with
+            // (`keep::KeptText::carried`).
+            self.app.kept.carried(self.app.selection.as_ref());
         }
-        let oldest = oldest(&self.app.term, self.app.scrolled);
-        let gone = self
-            .app
-            .selection
-            .as_mut()
-            .is_some_and(|s| s.clip(oldest) == Clip::Cleared);
-        if gone {
-            // Clipped away: `?1040` keeps its text, as the seat does.
-            self.app.selection = None;
-            self.app.kept.dropped(&self.app.term);
-        }
-        // Carried or clipped, the text kept is the one it was made with
-        // (`keep::KeptText::carried`).
-        self.app.kept.carried(self.app.selection.as_ref());
         // The find's matches after the read: the lines it retired dropped,
         // the lines it wrote read again, and the current match selected
         // again when it moved -- after reads a ReGIS delay held too, fed
@@ -14878,6 +15323,7 @@ impl Opening {
             bar_hold: crate::bar::Hold::FREE,
             owner: Owner::Free,
             deferred: Deferred::Nothing,
+            relaid: Relaid::No,
             style: style.clone(),
             theme_choice,
             glass_cfg,
@@ -18622,6 +19068,9 @@ impl Driver {
                 &mut self.app.counts,
                 &rec,
             );
+            // Inside a pump, after its feed: the block after the feed reads
+            // what this re-cut rotated and takes the count it numbered.
+            self.relaid = Relaid::Yes;
             // The printed paths' facts and a link's origin, carried at once
             // where the resize re-cut the lines (`Probes::resized`): a quiet
             // shell sends no read to file it with, and the hover and the
