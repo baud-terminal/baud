@@ -1,6 +1,6 @@
 //! **A measurement does not share the machine with a warm build.**
 //! `scripts/warm.sh` keeps the release test build warm while you work:
-//! `devenv up` starts a watcher, and the watcher a build at each save.
+//! `warm-run` starts a watcher, and the watcher a build at each save.
 //! Every bench and timing example calls [`refuse_while_warm`] before it
 //! measures anything, and refuses while a watcher or a build of one is
 //! running and that checkout has not been paused (`warm-pause`), and on
@@ -13,6 +13,10 @@
 //! which has no `.devenv/` of its own. The watcher and each build carry the
 //! words `<root>/scripts/warm.sh build` in their command lines, and `<root>`
 //! is where the pause is read.
+//!
+//! The watchers `devenv up` runs now are bacon and cargo-watch; `warm` is
+//! started by `warm-run` alone. They are read through `BAUD_WATCH`, their
+//! folder, which holds `.paused` while they are paused ([`watch_refusal`]).
 //!
 //! `bench-others/multibench` is a workspace of its own and links nothing
 //! from this one, so it takes this file by `#[path]`.
@@ -171,10 +175,37 @@ fn environs() -> Vec<(Pid, Vec<u8>)> {
     }
 }
 
+/// The variable naming the watchers' folder: bacon's and cargo-watch's
+/// (devenv.nix `processes`), where `watch-pause.sh on` writes `.paused`.
+pub const WATCH: &str = "BAUD_WATCH";
+
+/// Why a measurement must not start beside the watchers, or `None`. They
+/// are paused only while their folder holds `.paused`, which
+/// `watch-pause.sh on` writes once it has stopped them. An idle watcher
+/// counts, with no job running, since the next save starts one halfway
+/// through the measurement: so the test is the pause, never a live pid.
+/// With no folder named (`BAUD_WATCH` unset: another machine, CI) there is
+/// nothing to read.
+pub fn watch_refusal(watch: Option<&Path>) -> Option<String> {
+    let dir = watch?;
+    if dir.join(".paused").exists() {
+        return None;
+    }
+    Some(format!(
+        "the watchers (bacon, cargo-watch) are not paused, and a measurement must not share the CPU with them: \
+         {} holds no .paused; run `watch-pause.sh on` and start again",
+        dir.display()
+    ))
+}
+
 /// Why a measurement must not start now, or `None`. A machine whose
 /// processes cannot be listed is a reason: what cannot be seen is not known
 /// to be quiet.
 pub fn refusal() -> Option<String> {
+    let named = std::env::var_os(WATCH).map(PathBuf::from);
+    if let Some(why) = watch_refusal(named.as_deref()) {
+        return Some(why);
+    }
     let listing = match listing() {
         Ok(listing) => listing,
         Err(e) => {

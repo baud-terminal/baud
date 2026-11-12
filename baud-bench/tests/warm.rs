@@ -447,16 +447,39 @@ fn the_watcher_builds_what_the_gate_builds() {
         "test:unit: {exec}"
     );
 
-    // `devenv up`'s process and `warm-run` are one watcher.
+    // `warm-run` runs the watcher in the foreground. `devenv up` no longer
+    // starts it: its processes are bacon and cargo-watch, each refusing to
+    // start without `BAUD_WATCH`, the folder whose `.paused` the benches read.
     let processes = nix
         .split_once("processes = lib.mkIf (!config.devenv.isTesting) {")
         .expect("the processes are left out of devenv test, which starts them")
-        .1;
-    let warm = processes
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("warm.exec = "))
-        .expect("processes has warm");
-    assert_eq!(warm, "watch;");
+        .1
+        .split_once("\n  };")
+        .expect("the processes block ends")
+        .0;
+    assert!(!processes.contains("warm.exec"), "{processes}");
+    for job in [
+        "bacon.exec = noJob \"bacon\"",
+        "cargo-watch.exec = noJob \"cargo-watch\"",
+    ] {
+        assert!(
+            processes.contains(job),
+            "processes lacks {job}: {processes}"
+        );
+    }
+    let no_job = nix
+        .split_once("noJob = name: ''")
+        .expect("devenv.nix binds noJob")
+        .1
+        .split_once("'';")
+        .expect("noJob ends")
+        .0;
+    for var in ["BAUD_WATCH_JOB", "BAUD_WATCH:-"] {
+        assert!(
+            no_job.contains(var),
+            "noJob does not refuse without {var}: {no_job}"
+        );
+    }
     assert!(nix.contains("\n  scripts.warm-run.exec = watch;\n"));
     let bound = |name: &str| {
         nix.lines()
@@ -517,4 +540,40 @@ fn the_watcher_builds_what_the_gate_builds() {
     let nextest = read(&repo.join(".config/nextest.toml"));
     assert!(nextest.contains("slow-timeout = { period = \"60s\", terminate-after = 20 }"));
     assert!(sh.contains("\ntimeout=1200\n"));
+}
+
+/// A fresh, empty folder for one test, under the system's temporary folder.
+fn watch_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("baud-watch-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    dir
+}
+
+/// The watchers (bacon, cargo-watch) are not paused unless their folder holds
+/// `.paused`. An idle watcher counts, with no job pid in the folder at all:
+/// the next save starts a run halfway through the measurement, so a check of
+/// a live pid would pass exactly the case that must refuse.
+#[test]
+fn an_unpaused_watch_folder_refuses_even_with_no_job_running() {
+    let dir = watch_dir("unpaused");
+    assert!(!dir.join("clippy.pid").exists() && !dir.join("test.pid").exists());
+    let why = warm::watch_refusal(Some(&dir)).expect("an unpaused watcher refuses");
+    assert!(why.contains("watch-pause.sh on"), "{why}");
+    assert!(why.contains(&dir.display().to_string()), "{why}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_paused_watch_folder_lets_a_measurement_run() {
+    let dir = watch_dir("paused");
+    std::fs::write(dir.join(".paused"), "").expect("write .paused");
+    assert_eq!(warm::watch_refusal(Some(&dir)), None);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// With no `BAUD_WATCH` (another machine, CI) there is nothing to read.
+#[test]
+fn no_watch_folder_named_is_no_refusal() {
+    assert_eq!(warm::watch_refusal(None), None);
 }

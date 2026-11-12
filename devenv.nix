@@ -46,8 +46,8 @@ let
     on_change_strategy = "wait_then_restart"
   '';
   noJob = name: ''
-    if [ -z "''${BAUD_WATCH_JOB:-}" ]; then
-      echo "${name}: BAUD_WATCH_JOB is unset (devenv.local.nix names the job script); not watching"
+    if [ -z "''${BAUD_WATCH_JOB:-}" ] || [ -z "''${BAUD_WATCH:-}" ]; then
+      echo "${name}: BAUD_WATCH_JOB or BAUD_WATCH is unset (devenv.local.nix names the job script and the folder the benches read); not watching"
       exec sleep 2147483647
     fi
   '';
@@ -130,8 +130,9 @@ in
   # own clone and target, so a warm build here only took CPU from the work.
   # `warm-run`, `warm-pause` and `warm-status` stay for a foreground use and
   # for the benches' refusal beside a watcher. Each watcher runs ONE job
-  # script, named by `BAUD_WATCH_JOB` (set in the untracked
-  # `devenv.local.nix`): it builds in its own target outside this tree,
+  # script, named by `BAUD_WATCH_JOB`, and its folder is `BAUD_WATCH`, both
+  # set in the untracked `devenv.local.nix` (a bench refuses while that folder
+  # holds no `.paused`, baud-bench/src/warm.rs): it builds in its own target outside this tree,
   # runs under `scripts/bounded`, honours a pause, never runs a Metal test,
   # and writes its result outside the tree. Unset, a watcher says so and
   # idles. bacon 3.26: headless, no `.bacon-locations` export, and a change
