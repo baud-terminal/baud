@@ -37,6 +37,20 @@ let
   # target directory, which cargo keys on that path, so a build here would
   # warm nothing it reads.
   watch = "exec bash \"$DEVENV_ROOT/scripts/warm.sh\" watch ${lib.escapeShellArg warmBuild}";
+  baconConfig = ''
+    default_job = "watch"
+    [jobs.watch]
+    command = ["bash", "-c", "exec bash \"$BAUD_WATCH_JOB\" clippy"]
+    need_stdout = true
+    allow_warnings = true
+    on_change_strategy = "wait_then_restart"
+  '';
+  noJob = name: ''
+    if [ -z "''${BAUD_WATCH_JOB:-}" ]; then
+      echo "${name}: BAUD_WATCH_JOB is unset (devenv.local.nix names the job script); not watching"
+      exec sleep 2147483647
+    fi
+  '';
 
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`
@@ -91,10 +105,13 @@ in
     # config (`baud-app/src/programs.rs`), which a machine without kitten
     # skips. kitty's package carries `kitten`.
     pkgs.kitty
+    # The two watchers `devenv up` runs (`processes` below).
+    pkgs.bacon
+    pkgs.cargo-watch
   ];
 
-  # **The release test build, kept warm while you work.** `devenv up` starts
-  # a watcher, and `warm-run` the same one in the foreground, that runs
+  # **The release test build, kept warm while you work.** `warm-run` runs a
+  # watcher in the foreground that runs
   # `test:unit`'s builds, `--no-run`, through `scripts/bounded` at nice 10,
   # 2 s after the last save, so the gate finds nothing left to compile in this
   # checkout's `./target`. `warm-pause`
@@ -107,8 +124,28 @@ in
   # `enterTest` and stops them all after (devenv 2.4.0, `test` in
   # devenv/src/devenv/mod.rs): the gate would start a build beside its own,
   # and stop the `devenv up` already running.
+  # **The two watchers, bacon (clippy) and cargo-watch (core and domain
+  # tests), replace `warm` under `devenv up`.** `warm` kept this checkout's
+  # release test build warm for a gate run here; the gate now builds in its
+  # own clone and target, so a warm build here only took CPU from the work.
+  # `warm-run`, `warm-pause` and `warm-status` stay for a foreground use and
+  # for the benches' refusal beside a watcher. Each watcher runs ONE job
+  # script, named by `BAUD_WATCH_JOB` (set in the untracked
+  # `devenv.local.nix`): it builds in its own target outside this tree,
+  # runs under `scripts/bounded`, honours a pause, never runs a Metal test,
+  # and writes its result outside the tree. Unset, a watcher says so and
+  # idles. bacon 3.26: headless, no `.bacon-locations` export, and a change
+  # during a run waits for it to end (`wait_then_restart`), so a run is never
+  # killed half way. cargo-watch 8.5: `.gitignore` keeps `target/` and
+  # `.devenv*` out, `--watch-when-idle` drops the events a run makes, and a
+  # 2 s debounce as `warm` had.
   processes = lib.mkIf (!config.devenv.isTesting) {
-    warm.exec = watch;
+    bacon.exec = noJob "bacon" + ''
+      exec bacon --headless --no-export-locations --config-toml ${lib.escapeShellArg baconConfig}
+    '';
+    cargo-watch.exec = noJob "cargo-watch" + ''
+      exec cargo watch --watch-when-idle -d 2 -s 'exec bash "$BAUD_WATCH_JOB" test'
+    '';
   };
 
   scripts.warm-run.exec = watch;
