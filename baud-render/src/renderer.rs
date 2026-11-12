@@ -1202,6 +1202,459 @@ mod row_scratch {
     }
 }
 
+use veils::{Force, VeilKind, VeilNow, VeilReach, VeilRest, Veiled};
+
+/// **baud's veils over the screen, and the records they were drawn as**
+/// (FS-C16): the fields the link under the pointer is drawn as, the find
+/// field, the link preview's bar, the hover tip's lines and the notice,
+/// which every path draws over the images after the text, each composed
+/// on its own row as it shows ([`crate::overlay::Laid::OnScreen`]). A
+/// frame whose veils, and everything their records are drawn from, are
+/// the last one's draws the records it kept, read in place, and composes
+/// none: the pointer at rest over a link costs a caret frame no
+/// allocation, where every frame composed its fields again before.
+///
+/// **What the records are drawn from** ([`VeilKey`]): each veil -- its
+/// composition, the cell its ground is read from -- and the row it lies
+/// on, cell for cell as a composition's records read it, the live
+/// screen's in the row's visual order; the width and the main display's
+/// rows; the metrics; the selection; the blink's phases, the video, the
+/// fields' selection colours and the message pair; where the rendition
+/// table stands (its lending among it); the cluster store's epoch; and how
+/// many times the atlas grew, as a sized line's key counts it. And the
+/// input method's composition, which a later row's records draw beside
+/// them: the key covers every veil, so a change of any composes them
+/// again.
+///
+/// **Kept only under its key, by type**: [`Veiled::records`] is the one
+/// way to the records, and it composes them again whenever the last
+/// [`Veiled::hold`] found the key moved, or the frame is full -- so no
+/// frame draws records another veil was composed into.
+mod veils {
+    use super::{BlinkPhases, Composition, HoverBar, Instance, PackedCell, StyleStamp, Tally};
+    use crate::cellmap::Hilite;
+    use crate::color::Video;
+    use crate::find::Field;
+    use crate::message::MessageColours;
+    use crate::metrics::Metrics;
+    use crate::overlay::{Caret, Hints, Measure};
+    use crate::select::Highlight;
+    use baud_domain::{ClusterEpoch, Codepoint, Col, Cols, Row, Rows, Viewport};
+
+    /// Which veil a kept one is, in the order a frame draws them.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum VeilKind {
+        /// A field of the link under the pointer.
+        Hover,
+        /// The find field, its caret drawn after it.
+        Find,
+        /// The link preview's bar.
+        LinkBar,
+        /// A line of the hover tip.
+        Tip,
+        /// The embedder's notice, on its own row.
+        Notice,
+    }
+
+    /// **One veil as it was drawn**: its composition, the cell its ground
+    /// is read from, and the columns it covers on the width it was kept at.
+    pub(super) struct VeilPart {
+        pub(super) kind: VeilKind,
+        pub(super) comp: Composition,
+        pub(super) under: PackedCell,
+        pub(super) span: (Col, Col),
+    }
+
+    /// One veil as the frame has it, borrowed where it is kept.
+    #[derive(Clone, Copy)]
+    enum VeilSource<'a> {
+        Hover(&'a HoverBar),
+        /// The find field, the link preview's bar or a line of the tip.
+        Field(VeilKind, &'a Field),
+        /// The notice's text, and the row it is drawn on.
+        Notice(&'a [Codepoint], Row),
+    }
+
+    /// The notice's text as its field shows it on a screen `cols` wide:
+    /// cut to the width, or padded to it with spaces.
+    pub(super) fn notice_text(
+        text: &[Codepoint],
+        cols: Cols,
+    ) -> impl Iterator<Item = Codepoint> + '_ {
+        text.iter()
+            .copied()
+            .chain(core::iter::repeat(Codepoint::from_char(' ')))
+            .take(cols.index())
+    }
+
+    impl VeilSource<'_> {
+        fn kind(self) -> VeilKind {
+            match self {
+                VeilSource::Hover(_) => VeilKind::Hover,
+                VeilSource::Field(kind, _) => kind,
+                VeilSource::Notice(..) => VeilKind::Notice,
+            }
+        }
+
+        /// Whether `part` is this veil, drawn on a screen `cols` wide.
+        fn is(self, part: &VeilPart, cols: Cols) -> bool {
+            let c = &part.comp;
+            // A field and the notice are drawn as the overlay draws any
+            // field: measured as the core measures at power-on, its caret
+            // its own ([`Field::composition`]), its ground the default cell.
+            let field = c.measure == Measure::default()
+                && c.caret == Caret::Hidden
+                && part.under == PackedCell::EMPTY;
+            part.kind == self.kind()
+                && match self {
+                    VeilSource::Hover(b) => *c == b.comp && part.under == b.under,
+                    VeilSource::Field(_, f) => {
+                        field
+                            && c.row == f.row
+                            && c.col == f.col
+                            && c.text == f.text
+                            && c.hints == f.hints
+                    }
+                    VeilSource::Notice(text, row) => {
+                        field
+                            && c.row == row
+                            && c.col == Col::ZERO
+                            && c.text.iter().copied().eq(notice_text(text, cols))
+                            && c.hints.len() == cols.index()
+                            && c.hints.iter().all(|&h| h == Hints::MESSAGE)
+                    }
+                }
+        }
+
+        /// This veil, drawn on a screen `cols` wide, into `part`'s buffers.
+        fn copy_into(self, part: &mut VeilPart, cols: Cols) {
+            part.kind = self.kind();
+            let c = &mut part.comp;
+            match self {
+                VeilSource::Hover(b) => {
+                    c.row = b.comp.row;
+                    c.col = b.comp.col;
+                    c.text.clone_from(&b.comp.text);
+                    c.measure = b.comp.measure;
+                    c.hints.clone_from(&b.comp.hints);
+                    c.caret = b.comp.caret;
+                    part.under = b.under;
+                }
+                VeilSource::Field(_, f) => {
+                    c.row = f.row;
+                    c.col = f.col;
+                    c.text.clone_from(&f.text);
+                    c.measure = Measure::default();
+                    c.hints.clone_from(&f.hints);
+                    c.caret = Caret::Hidden;
+                    part.under = PackedCell::EMPTY;
+                }
+                VeilSource::Notice(text, row) => {
+                    c.row = row;
+                    c.col = Col::ZERO;
+                    c.text.clear();
+                    c.text.extend(notice_text(text, cols));
+                    c.measure = Measure::default();
+                    c.hints.clear();
+                    c.hints.resize(cols.index(), Hints::MESSAGE);
+                    c.caret = Caret::Hidden;
+                    part.under = PackedCell::EMPTY;
+                }
+            }
+            let (start, end) = c.columns(cols);
+            part.span = (Col::at_index(start), Col::at_index(end));
+        }
+
+        /// This veil, drawn on a screen `cols` wide, new.
+        fn made(self, cols: Cols) -> VeilPart {
+            let mut part = VeilPart {
+                kind: self.kind(),
+                comp: Composition {
+                    row: Row::from_index(0),
+                    col: Col::ZERO,
+                    text: Vec::new(),
+                    measure: Measure::default(),
+                    hints: Vec::new(),
+                    caret: Caret::Hidden,
+                },
+                under: PackedCell::EMPTY,
+                span: (Col::ZERO, Col::ZERO),
+            };
+            self.copy_into(&mut part, cols);
+            part
+        }
+    }
+
+    /// The rest of a [`VeilKey`], each part a value.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub(super) struct VeilRest {
+        pub(super) cols: Cols,
+        pub(super) main: Rows,
+        pub(super) metrics: Metrics,
+        pub(super) selection: Option<Highlight>,
+        pub(super) blink: BlinkPhases,
+        pub(super) video: Video,
+        pub(super) hilite: Hilite,
+        pub(super) message: MessageColours,
+        pub(super) styles: StyleStamp,
+        pub(super) clusters: ClusterEpoch,
+        pub(super) atlas: Tally,
+    }
+
+    /// **The frame's veils as it has them, borrowed**: each where the
+    /// renderer keeps it, the live screen its records read the rows of,
+    /// and the layout that orders them.
+    pub(super) struct VeilNow<'a> {
+        pub(super) bars: &'a [HoverBar],
+        pub(super) find: Option<&'a Field>,
+        pub(super) link_bar: Option<&'a Field>,
+        pub(super) tips: &'a [Field],
+        pub(super) notice: Option<(&'a [Codepoint], Row)>,
+        pub(super) composition: Option<&'a Composition>,
+        pub(super) screen: Viewport<'a>,
+        pub(super) orders: &'a crate::bidi::Orders,
+        pub(super) rest: VeilRest,
+    }
+
+    impl<'a> VeilNow<'a> {
+        /// Every veil, in the order a frame draws them.
+        fn sources(&self) -> impl Iterator<Item = VeilSource<'a>> + use<'a> {
+            let (bars, tips): (&'a [HoverBar], &'a [Field]) = (self.bars, self.tips);
+            let field = |kind: VeilKind| move |f: &'a Field| VeilSource::Field(kind, f);
+            bars.iter()
+                .map(VeilSource::Hover)
+                .chain(self.find.map(field(VeilKind::Find)))
+                .chain(self.link_bar.map(field(VeilKind::LinkBar)))
+                .chain(tips.iter().map(field(VeilKind::Tip)))
+                .chain(self.notice.map(|(text, row)| VeilSource::Notice(text, row)))
+        }
+
+        /// Row `row` as a veil's records read it: the live screen's cell
+        /// each visual column shows, none past its cells
+        /// (`crate::overlay::composition_parts`).
+        fn cells(&self, row: Row) -> impl Iterator<Item = Option<PackedCell>> + '_ {
+            let cells = self.screen.row(row);
+            (0..self.rest.cols.index()).map(move |v| {
+                cells
+                    .get(self.orders.logical_col(row, Col::at_index(v)).index())
+                    .copied()
+            })
+        }
+    }
+
+    /// **What a frame's veils were composed from**, compared where each
+    /// stands ([`VeilKey::holds`]) and copied into the kept buffers only
+    /// when they differ ([`VeilKey::take`]), so a steady veil costs a frame
+    /// no buffer.
+    struct VeilKey {
+        parts: Vec<VeilPart>,
+        composition: Option<Composition>,
+        /// Each part's row, as its records read it, one after another.
+        cells: Vec<Option<PackedCell>>,
+        rest: VeilRest,
+    }
+
+    impl VeilKey {
+        /// Whether the veils composed under this key are the ones `now`
+        /// draws: every part compared, the rows they lie on among them.
+        fn holds(&self, now: &VeilNow<'_>) -> bool {
+            let cols = now.rest.cols;
+            self.rest == now.rest
+                && self.composition.as_ref() == now.composition
+                && self.parts.len() == now.sources().count()
+                && self
+                    .parts
+                    .iter()
+                    .zip(now.sources())
+                    .all(|(p, s)| s.is(p, cols))
+                && self.cells.len() == self.parts.len() * cols.index()
+                && self
+                    .parts
+                    .iter()
+                    .zip(self.cells.chunks(cols.index().max(1)))
+                    .all(|(p, kept)| now.cells(p.comp.row).eq(kept.iter().copied()))
+        }
+
+        /// The key `now` makes, into this key's buffers.
+        fn take(&mut self, now: &VeilNow<'_>) {
+            let cols = now.rest.cols;
+            self.parts.truncate(now.sources().count());
+            for (i, s) in now.sources().enumerate() {
+                match self.parts.get_mut(i) {
+                    Some(p) => s.copy_into(p, cols),
+                    None => self.parts.push(s.made(cols)),
+                }
+            }
+            match (&mut self.composition, now.composition) {
+                (Some(kept), Some(c)) => kept.clone_from(c),
+                (kept, c) => *kept = c.cloned(),
+            }
+            self.cells.clear();
+            for p in &self.parts {
+                self.cells.extend(now.cells(p.comp.row));
+            }
+            self.rest = now.rest;
+        }
+
+        /// The key `now` makes, new.
+        fn of(now: &VeilNow<'_>) -> VeilKey {
+            let mut key = VeilKey {
+                parts: Vec::new(),
+                composition: None,
+                cells: Vec::new(),
+                rest: now.rest,
+            };
+            key.take(now);
+            key
+        }
+    }
+
+    /// Which veils a path draws: the CPU and instance paths those on the
+    /// main display's rows and the notice on its own; the cell path every
+    /// one.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum VeilReach {
+        Main,
+        Every,
+    }
+
+    impl VeilReach {
+        fn takes(self, part: &VeilPart, main: Rows) -> bool {
+            match self {
+                VeilReach::Every => true,
+                VeilReach::Main => {
+                    part.kind == VeilKind::Notice || part.comp.row.index() < main.index()
+                }
+            }
+        }
+    }
+
+    /// Whether a frame composes every veil again whatever the key says:
+    /// the CPU path's full frame does.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Force {
+        No,
+        Full,
+    }
+
+    /// Whether the kept records were composed under the key held.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Drawn {
+        Stale,
+        Kept,
+    }
+
+    /// Whether the find field is among the veils drawn, so its caret goes
+    /// after it.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum FindDrawn {
+        No,
+        Yes,
+    }
+
+    /// **One path's veils and the records they were composed into**: the
+    /// fields of the link under the pointer and the find field's before the
+    /// find field's caret, and the link preview's bar, the tip's lines and
+    /// the notice's after it, as a frame draws them.
+    pub(super) struct Veiled {
+        reach: VeilReach,
+        key: Option<VeilKey>,
+        drawn: Drawn,
+        before: Vec<Instance>,
+        after: Vec<Instance>,
+        find: FindDrawn,
+        /// Every veil composed, over the renderer's life.
+        composed: Tally,
+    }
+
+    impl Veiled {
+        /// None held, for a path that draws the veils `reach` takes.
+        pub(super) fn reaching(reach: VeilReach) -> Veiled {
+            Veiled {
+                reach,
+                key: None,
+                drawn: Drawn::Stale,
+                before: Vec::new(),
+                after: Vec::new(),
+                find: FindDrawn::No,
+                composed: Tally::default(),
+            }
+        }
+
+        /// **Holds the key `now` makes**: the records kept stay drawn only
+        /// where it is the key they were composed under.
+        pub(super) fn hold(&mut self, now: &VeilNow<'_>) {
+            if self.key.as_ref().is_some_and(|k| k.holds(now)) {
+                return;
+            }
+            match &mut self.key {
+                Some(k) => k.take(now),
+                None => self.key = Some(VeilKey::of(now)),
+            }
+            self.drawn = Drawn::Stale;
+        }
+
+        /// The veils this path draws, each its kind, its row and the
+        /// columns it covers, `start..end`.
+        pub(super) fn spans(&self) -> impl Iterator<Item = (VeilKind, Row, Col, Col)> + '_ {
+            let reach = self.reach;
+            self.key.iter().flat_map(move |k| {
+                let main = k.rest.main;
+                k.parts
+                    .iter()
+                    .filter(move |p| reach.takes(p, main))
+                    .map(|p| (p.kind, p.comp.row, p.span.0, p.span.1))
+            })
+        }
+
+        /// **The veils' records, appended to `out`**: composed again --
+        /// `compose` appending a veil's records to the buffer it is handed
+        /// -- where the last [`Veiled::hold`] found the key moved or
+        /// `force` asks it, else the records kept, read in place; the find
+        /// field's `caret` after its field.
+        pub(super) fn records(
+            &mut self,
+            force: Force,
+            caret: &[Instance],
+            mut compose: impl FnMut(&VeilPart, &mut Vec<Instance>),
+            out: &mut Vec<Instance>,
+        ) {
+            if self.drawn == Drawn::Stale || force == Force::Full {
+                self.before.clear();
+                self.after.clear();
+                self.find = FindDrawn::No;
+                let reach = self.reach;
+                if let Some(k) = &self.key {
+                    let main = k.rest.main;
+                    for p in k.parts.iter().filter(|p| reach.takes(p, main)) {
+                        match p.kind {
+                            VeilKind::Hover | VeilKind::Find => compose(p, &mut self.before),
+                            VeilKind::LinkBar | VeilKind::Tip | VeilKind::Notice => {
+                                compose(p, &mut self.after)
+                            }
+                        }
+                        if p.kind == VeilKind::Find {
+                            self.find = FindDrawn::Yes;
+                        }
+                        self.composed.bump();
+                    }
+                }
+                self.drawn = Drawn::Kept;
+            }
+            out.extend_from_slice(&self.before);
+            if self.find == FindDrawn::Yes {
+                out.extend_from_slice(caret);
+            }
+            out.extend_from_slice(&self.after);
+        }
+
+        /// Every veil this path composed, over the renderer's life.
+        pub(super) fn composed(&self) -> Tally {
+            self.composed
+        }
+    }
+}
+
 /// **The most cells of its word either side a joined cell is shaped with**,
 /// whatever a face's rules reach: twice the 8 the widest face measured
 /// reaches ([`baud_font::joined_reach`]: Noto Sans Mongolian 8, Noto Sans
@@ -2895,6 +3348,11 @@ pub struct Renderer<'f, 'a> {
     /// ([`Renderer::chrome`]), so a program's picture can neither hide the
     /// address the bar shows nor show one of its own in its place.
     chrome_inst: Vec<Instance>,
+    /// **baud's veils as the instance and CPU paths drew them last, and as
+    /// the cell path did** (FS-C16), each with the records they were
+    /// composed into, drawn again while their key holds ([`Veiled`]).
+    cpu_veils: Veiled,
+    cell_veils: Veiled,
     /// What the cursor is filled with, which a quad trail is drawn in: the
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
@@ -3445,6 +3903,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_notice: None,
             link_inst: Vec::new(),
             chrome_inst: Vec::new(),
+            cpu_veils: Veiled::reaching(VeilReach::Main),
+            cell_veils: Veiled::reaching(VeilReach::Every),
             cursor_fill: Argb::default(),
             block_paint: BlockPaint::SWAP,
             bauds: (Argb::default(), BaudCursor::dark()),
@@ -4010,9 +4470,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// left to the selection the driver sets ([`Renderer::set_highlight`]),
     /// and the field drawn over its cells in the selection's colours with
     /// its caret. The instance and CPU paths draw it in their convert; the
-    /// cell path draws the field through [`crate::Overlay::composed`] and
-    /// appends [`Renderer::find_solids`] to its records with the content
-    /// and [`Renderer::find_caret`] after the field, over the images.
+    /// cell path appends [`Renderer::find_solids`] to its records with the
+    /// content, and draws the field and its caret among baud's veils
+    /// ([`Renderer::veils_onto`]), over the images.
     pub fn set_find(&mut self, term: &Term<'_>, look: Option<FindLook>) {
         self.find_wash = self
             .theme
@@ -4329,17 +4789,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// text.
     pub fn find_solids(&self) -> &[Instance] {
         &self.find_inst
-    }
-
-    /// The find field's caret, for a path that draws records of its own:
-    /// after the field's records, over the images.
-    pub fn find_caret(&self) -> &[Instance] {
-        &self.find_caret
-    }
-
-    /// The find field as the cell path draws it, or none.
-    pub fn find_field(&self) -> Option<Composition> {
-        self.find.as_ref().map(|f| f.field.composition())
     }
 
     /// **The link preview for the next frame**, or none: the link's cells
@@ -4748,8 +5197,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }));
     }
 
-    /// The fields the link under the pointer is drawn as, for the cell path,
-    /// with the cell each reads its ground from.
+    /// The fields the link under the pointer is drawn as, with the cell
+    /// each reads its ground from, copied out for a caller to read: every
+    /// path draws them where they are kept ([`Renderer::veils_onto`] on
+    /// the cell path).
     pub fn hover_bars(&self) -> Vec<(Composition, PackedCell)> {
         self.hover_bars
             .iter()
@@ -4902,17 +5353,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// The link preview's bar as the cell path draws it, or none.
-    pub fn link_bar(&self) -> Option<Composition> {
-        self.link.as_ref().map(|l| l.bar.composition())
-    }
-
     /// **The hover tip for the next frame**, or none: a word's meaning,
     /// its lines fields in the selection's colours over the main
     /// display's last rows (`tip::tip_look`). The instance and CPU paths
     /// draw it in their convert over the link preview's bar and the
-    /// images; the cell path draws [`Renderer::tip_bars`] through
-    /// [`crate::Overlay::composed`] after the images, as it draws the bar.
+    /// images; the cell path draws its lines among baud's veils
+    /// ([`Renderer::veils_onto`]) after the images, as it draws the bar.
     pub fn set_tip(&mut self, look: Option<crate::tip::TipLook>) {
         self.tip = look;
     }
@@ -4954,23 +5400,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         Resolved::fixed(pair.page, pair.text)
     }
 
-    /// The hover tip's lines as the cell path draws them, none while no
-    /// tip shows.
-    pub fn tip_bars(&self) -> Vec<Composition> {
-        self.tip
-            .iter()
-            .flat_map(|t| t.lines.iter().map(crate::find::Field::composition))
-            .collect()
-    }
-
     /// **The embedder's notice for the next frames**, or none: `baud-app`'s
     /// config reload says here what a file it read again could not act on.
     /// A row of its own, below the main display and the status line, which
     /// [`Renderer::fit`] adds while one is set -- the embedder gives the
     /// terminal one row fewer -- and which every path draws as a field
     /// across the width: the instance and CPU paths
-    /// in their convert, the cell path through [`Renderer::notice_bar`] over
-    /// a blank row of its window copy. In the message pair
+    /// in their convert, the cell path among baud's veils
+    /// ([`Renderer::veils_onto`]) over a blank row of its window copy
+    /// ([`Renderer::notice_shown`]). In the message pair
     /// ([`crate::message`]), so a program cannot make it unreadable.
     pub fn set_notice(&mut self, text: Option<Vec<Codepoint>>) {
         self.notice = text;
@@ -4987,21 +5425,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The notice as a field on the last row, padded or cut to the width,
     /// once [`Renderer::fit`] has made that row; none otherwise.
     fn notice_field(&self) -> Option<crate::find::Field> {
-        let text = self.notice.as_ref()?;
-        let row = self.rows.index().checked_sub(1)?;
-        if row < self.main.index() {
-            return None;
-        }
+        let (text, row) = self.notice_at()?;
         let cols = self.cols.index();
-        let mut text: Vec<Codepoint> = text.iter().copied().take(cols).collect();
-        text.resize(cols, Codepoint::from_char(' '));
         Some(crate::find::Field {
-            row: Row::from_index(row),
+            row,
             col: Col::ZERO,
             hints: vec![crate::overlay::Hints::MESSAGE; cols],
             caret: Col::at_index(cols),
-            text,
+            text: veils::notice_text(text, self.cols).collect(),
         })
+    }
+
+    /// The notice's text and the last row, its own, once
+    /// [`Renderer::fit`] has made that row; none otherwise.
+    fn notice_at(&self) -> Option<(&[Codepoint], Row)> {
+        let text = self.notice.as_deref()?;
+        let row = self.rows.index().checked_sub(1)?;
+        (row >= self.main.index()).then_some((text, Row::from_index(row)))
+    }
+
+    /// **The row the notice is drawn on**, while one shows: the cell
+    /// path blanks that row of its window copy under the notice's field.
+    pub fn notice_shown(&self) -> Option<Row> {
+        self.notice_at().map(|(_, row)| row)
     }
 
     /// The notice as the cell path draws it, over the blank row the window
@@ -5009,6 +5455,100 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// no notice is set.
     pub fn notice_bar(&self) -> Option<Composition> {
         self.notice_field().map(|f| f.composition())
+    }
+
+    /// **The frame's veils, as their key reads them** (`veils`): each
+    /// where this renderer keeps it, the input method's `composition`,
+    /// the live screen, and the rest of what their records are drawn from,
+    /// the rendition table as `styles` stands and the width `cols` among it.
+    fn veils_now<'s>(
+        &'s self,
+        term: &'s Term<'_>,
+        (styles, cols): (StyleStamp, Cols),
+        composition: Option<&'s Composition>,
+    ) -> VeilNow<'s> {
+        VeilNow {
+            bars: &self.hover_bars,
+            find: self.find.as_ref().map(|f| &f.field),
+            link_bar: self.link.as_ref().map(|l| &l.bar),
+            tips: self.tip.as_ref().map_or(&[][..], |t| &t.lines[..]),
+            notice: self.notice_at(),
+            composition,
+            screen: term.viewport(),
+            orders: self.bidi.orders(),
+            rest: VeilRest {
+                cols,
+                main: self.main,
+                metrics: self.metrics,
+                selection: self.highlight,
+                blink: self.blink,
+                video: self.video,
+                hilite: self.field_hilite,
+                message: self.message_colours,
+                styles,
+                clusters: term.cluster_epoch(),
+                atlas: self.atlas.stats().grown,
+            },
+        }
+    }
+
+    /// **baud's veils over the cell path's frame** (FS-C16): the fields of
+    /// the link under the pointer, the find field and its caret, the link
+    /// preview's bar, the hover tip's lines and the notice, each its cells
+    /// masked off the shader on a screen `cols` wide and its records
+    /// appended, in that order, read through `styles`, the set's table,
+    /// whose stamp is `stamp`. Composed again only when something they are
+    /// drawn from moved ([`Veiled`]); a frame whose veils hold appends the
+    /// records the last one composed, and allocates nothing for them.
+    /// `composition` is the input method's, which their key covers too.
+    pub fn veils_onto(
+        &mut self,
+        term: &Term<'_>,
+        (styles, stamp): (&[Resolved], StyleStamp),
+        composition: Option<&Composition>,
+        cols: Cols,
+        (mask, records): (&mut [u8], &mut Vec<Instance>),
+    ) {
+        let mut veils =
+            core::mem::replace(&mut self.cell_veils, Veiled::reaching(VeilReach::Every));
+        veils.hold(&self.veils_now(term, (stamp, cols), composition));
+        for (_, row, start, end) in veils.spans() {
+            for x in start.index()..end.index() {
+                if let Some(slot) = mask.get_mut(row.index() * cols.index() + x) {
+                    *slot |= crate::overlay::MASK_RECORD;
+                }
+            }
+        }
+        let caret = core::mem::take(&mut self.find_caret);
+        veils.records(
+            Force::No,
+            &caret,
+            |v, out| {
+                crate::overlay::composition_records(
+                    self,
+                    term,
+                    (&v.comp, crate::overlay::Laid::OnScreen),
+                    v.under,
+                    styles,
+                    None,
+                    cols,
+                    LineRendition::Single,
+                    Px::of(0),
+                    out,
+                );
+            },
+            records,
+        );
+        (self.find_caret, self.cell_veils) = (caret, veils);
+    }
+
+    /// **Every veil composed** over this renderer's life, on every path: a
+    /// frame whose veils and what they are drawn from hold composes none
+    /// (FS-C16).
+    pub fn veils_composed(&self) -> Tally {
+        let mut n = self.cpu_veils.composed();
+        n.add(self.cell_veils.composed());
+        n
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
@@ -9092,69 +9632,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
-        // The find field, on whatever view the window shows: the cells
-        // under it converted blank in their renditions, as under a
-        // composition, and drawn over by its records below in the
-        // selection's colours.
-        let field = self
-            .find
-            .as_ref()
-            .map(|f| f.field.composition())
-            .filter(|c| c.row.index() < main.index());
-        if let Some(c) = &field {
-            let (start, end) = c.columns(cols);
-            let at = c.row.index() * ncols;
-            for cell in &mut self.cur[at + start..at + end] {
-                *cell = PackedCell {
-                    content: baud_domain::Content::EMPTY,
-                    style: cell.style,
-                    flags: baud_domain::CellFlags::NONE,
-                };
-            }
-        }
-        // The link preview's bar, the same way, over the find's.
-        let link_bar = self
-            .link
-            .as_ref()
-            .map(|l| l.bar.composition())
-            .filter(|c| c.row.index() < main.index());
-        if let Some(c) = &link_bar {
-            let (start, end) = c.columns(cols);
-            let at = c.row.index() * ncols;
-            for cell in &mut self.cur[at + start..at + end] {
-                *cell = PackedCell {
-                    content: baud_domain::Content::EMPTY,
-                    style: cell.style,
-                    flags: baud_domain::CellFlags::NONE,
-                };
-            }
-        }
-        // The link under the pointer, the same way, its ground kept.
-        for b in &self.hover_bars {
-            if b.comp.row.index() >= main.index() {
-                continue;
-            }
-            let (start, end) = b.comp.columns(cols);
-            let at = b.comp.row.index() * ncols;
-            for cell in &mut self.cur[at + start..at + end] {
-                *cell = PackedCell {
-                    content: baud_domain::Content::EMPTY,
-                    style: cell.style,
-                    flags: baud_domain::CellFlags::NONE,
-                };
-            }
-        }
-        // The hover tip's lines, the same way, over the bar's.
-        let tip_bars: Vec<Composition> = self
-            .tip
-            .iter()
-            .flat_map(|t| t.lines.iter().map(crate::find::Field::composition))
-            .filter(|c| c.row.index() < main.index())
-            .collect();
-        for c in &tip_bars {
-            let (start, end) = c.columns(cols);
-            let at = c.row.index() * ncols;
-            for cell in &mut self.cur[at + start..at + end] {
+        // **baud's veils, held against the last frame's** (FS-C16): the
+        // find field, the link preview's bar, the fields of the link under
+        // the pointer and the hover tip's lines, on whatever view the window
+        // shows, each the cells under it converted blank in their
+        // renditions, as under a composition, and drawn over by its records
+        // below -- kept while nothing they are drawn from moved. The
+        // notice's row is blank already.
+        let mut veils = core::mem::replace(&mut self.cpu_veils, Veiled::reaching(VeilReach::Main));
+        veils.hold(&self.veils_now(term, (self.styles_stamp, cols), composition.as_ref()));
+        for (_, row, start, end) in veils.spans().filter(|v| v.0 != VeilKind::Notice) {
+            let at = row.index() * ncols;
+            for cell in &mut self.cur[at + start.index()..at + end.index()] {
                 *cell = PackedCell {
                     content: baud_domain::Content::EMPTY,
                     style: cell.style,
@@ -9527,53 +10016,39 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.compose_inst.extend_from_slice(&self.link_inst);
         self.compose_inst.extend_from_slice(&self.line_inst);
         self.chrome_inst.clear();
-        // The link under the pointer, under baud's fields, over the images.
-        let over = core::mem::take(&mut self.hover_bars);
-        for b in over.iter().filter(|b| b.comp.row.index() < main.index()) {
-            let styles = core::mem::take(&mut self.styles);
-            let mut records = core::mem::take(&mut self.chrome_inst);
-            crate::overlay::composition_records(
-                self,
-                term,
-                (&b.comp, crate::overlay::Laid::OnScreen),
-                b.under,
-                &styles,
-                None,
-                cols,
-                LineRendition::Single,
-                Px::of(0),
-                &mut records,
-            );
-            (self.styles, self.chrome_inst) = (styles, records);
-        }
-        self.hover_bars = over;
-        // The find field with its caret, then the link's bar with none.
-        let carets = self.find_caret.len();
-        let fields = field.iter().map(|c| (c, carets));
-        let notice_bar = notice.as_ref().map(crate::find::Field::composition);
-        for (c, carets) in fields
-            .chain(link_bar.iter().map(|c| (c, 0)))
-            .chain(tip_bars.iter().map(|c| (c, 0)))
-            .chain(notice_bar.iter().map(|c| (c, 0)))
-        {
-            let styles = core::mem::take(&mut self.styles);
-            let mut records = core::mem::take(&mut self.chrome_inst);
-            crate::overlay::composition_records(
-                self,
-                term,
-                (c, crate::overlay::Laid::OnScreen),
-                PackedCell::EMPTY,
-                &styles,
-                None,
-                cols,
-                LineRendition::Single,
-                Px::of(0),
-                &mut records,
-            );
-            (self.styles, self.chrome_inst) = (styles, records);
-            self.chrome_inst
-                .extend_from_slice(&self.find_caret[..carets]);
-        }
+        // baud's veils over the images: the link under the pointer's
+        // fields under baud's own, the find field with its caret, the
+        // link's bar, the tip's lines and the notice -- the records kept
+        // while their key holds, composed again when it moved or the frame
+        // is full.
+        let force = match full {
+            true => Force::Full,
+            false => Force::No,
+        };
+        let styles = core::mem::take(&mut self.styles);
+        let caret = core::mem::take(&mut self.find_caret);
+        let mut records = core::mem::take(&mut self.chrome_inst);
+        veils.records(
+            force,
+            &caret,
+            |v, out| {
+                crate::overlay::composition_records(
+                    self,
+                    term,
+                    (&v.comp, crate::overlay::Laid::OnScreen),
+                    v.under,
+                    &styles,
+                    None,
+                    cols,
+                    LineRendition::Single,
+                    Px::of(0),
+                    out,
+                );
+            },
+            &mut records,
+        );
+        (self.styles, self.find_caret, self.chrome_inst) = (styles, caret, records);
+        self.cpu_veils = veils;
         self.reach_was.clone_from(&self.reach);
         for r in 0..rows.index() {
             if self.dirty[r] {

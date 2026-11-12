@@ -538,8 +538,6 @@ mod tests {
         for want in [
             "if self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes {",
             "self.renderer.set_tip(self.line_tip.look().cloned());",
-            ".tip_bars()",
-            ".chain(tips)",
             "self.line_tip.refresh(&self.term) == crate::line_tip::Changed::Yes",
             "self.seat.line_over(g, self.term.status_rows())",
             "self.line_tip.dismiss(&self.term)",
@@ -549,6 +547,28 @@ mod tests {
                 "{want}"
             );
         }
+        // The tip's lines are among the veils the renderer keeps
+        // (`veils_now`), and the cell path draws the veils in one call,
+        // once, where baud's overlays go: after the bell's tint, before
+        // the splash.
+        const RENDER: &str = include_str!("../../baud-render/src/renderer.rs");
+        assert!(
+            RENDER.contains("tips: self.tip.as_ref().map_or(&[][..], |t| &t.lines[..]),"),
+            "the tip's lines among the veils"
+        );
+        let veils = concat!("renderer.veils_", "onto(");
+        assert_eq!(FRAME.matches(veils).count(), 1, "the veils drawn once");
+        let drawn = FRAME.find(veils).expect("the veils drawn");
+        let tint = FRAME
+            .find("cell.records.extend_from_slice(renderer.bell_tint());")
+            .expect("the bell's tint");
+        let splash = FRAME
+            .find("cell.records.extend_from_slice(renderer.splash());")
+            .expect("the splash");
+        assert!(
+            tint < drawn && drawn < splash,
+            "the veils among the overlays"
+        );
         for want in [
             "let at = self.seat.frame_point(g.scale);",
             "self.line_tip.update_at(&self.term, over, at)",

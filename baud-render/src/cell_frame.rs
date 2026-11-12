@@ -405,11 +405,11 @@ where
     // **The config's notice row, after the status line's**:
     // blank cells, whose default background the shader draws,
     // under the notice's field drawn with baud's own overlays
-    // below (`Renderer::notice_bar`). No slide runs while it is
+    // below (`Renderer::veils_onto`). No slide runs while it is
     // shown (`below_grid`). Filled on every frame, the copy of
     // the screen skipped or not: a set that holds the screen may
     // not hold the notice's row.
-    let noticed = match renderer.notice_bar() {
+    let noticed = match renderer.notice_shown() {
         Some(_) => {
             let at = (vrows + lined) * stride;
             match cell.copies_mem[set].get_mut(at..at + vcols) {
@@ -567,45 +567,17 @@ where
     // same way; the thumb; the fade.
     let chrome_from = cell.records.len();
     cell.records.extend_from_slice(renderer.bell_tint());
-    for (c, under) in renderer.hover_bars() {
-        cell.exceptions.composed(
-            renderer,
-            term,
-            (&c, crate::Laid::OnScreen),
-            under,
-            &cell.styles_mem[set][..],
-            None,
-            view.cols(),
-            baud_domain::LineRendition::Single,
-            Px::of(0),
-            &mut cell.overlay_mem[set][..],
-            cell.records,
-        );
-    }
-    let tips = renderer.tip_bars().into_iter().map(|c| (Some(c), false));
-    let fields = [(renderer.find_field(), true), (renderer.link_bar(), false)]
-        .into_iter()
-        .chain(tips)
-        .chain([(renderer.notice_bar(), false)]);
-    for (c, caret) in fields {
-        let Some(c) = c else { continue };
-        cell.exceptions.composed(
-            renderer,
-            term,
-            (&c, crate::Laid::OnScreen),
-            PackedCell::EMPTY,
-            &cell.styles_mem[set][..],
-            None,
-            view.cols(),
-            baud_domain::LineRendition::Single,
-            Px::of(0),
-            &mut cell.overlay_mem[set][..],
-            cell.records,
-        );
-        if caret {
-            cell.records.extend_from_slice(renderer.find_caret());
-        }
-    }
+    // The link under the pointer's fields, the find field and its caret,
+    // the link's bar, the tip's lines and the notice: their cells masked
+    // off the shader as a composition's are, and their records kept while
+    // nothing they are drawn from moves (FS-C16).
+    renderer.veils_onto(
+        term,
+        (&cell.styles_mem[set][..], cell.style_stamps[set]),
+        composition.as_ref(),
+        view.cols(),
+        (&mut cell.overlay_mem[set][..], cell.records),
+    );
     cell.records.extend_from_slice(renderer.splash());
     cell.records.extend_from_slice(renderer.scrollbar());
     cell.records.extend_from_slice(renderer.screen_fade());

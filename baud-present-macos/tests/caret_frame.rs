@@ -40,7 +40,7 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 12] = [
+const NAMES: [&str; 13] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
@@ -49,6 +49,7 @@ const NAMES: [&str; 12] = [
     "a_sized_line_costs_a_caret_frame_no_allocation",
     "a_cell_written_on_a_sized_line_converts_it_again",
     "a_converted_row_costs_a_caret_frame_no_allocation",
+    "the_pointer_at_rest_costs_a_caret_frame_no_allocation",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -96,6 +97,9 @@ fn main() {
             }
             "a_converted_row_costs_a_caret_frame_no_allocation" => {
                 checks::a_converted_row_costs_a_caret_frame_no_allocation();
+            }
+            "the_pointer_at_rest_costs_a_caret_frame_no_allocation" => {
+                checks::the_pointer_at_rest_costs_a_caret_frame_no_allocation();
             }
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
@@ -1278,6 +1282,124 @@ mod checks {
         assert!(
             wrong.is_empty(),
             "caret frames on a row allocated otherwise than on the erased row:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    /// **The pointer at rest over a link costs a caret frame no
+    /// allocation for its fields** (FS-C16), arm (d): the fields the link
+    /// under the pointer is drawn as are kept with the records they were
+    /// composed into while nothing they are drawn from moves (`Veiled`), so
+    /// on each path each caret frame with the pointer at rest over the
+    /// second link drawn as a box allocates exactly what the same frame
+    /// does with it drawn as a line, which has no fields, and composes no
+    /// veil. The line, not the caret arm (b), is the control because both
+    /// looks find the link's runs in the row's order each frame
+    /// (`Orders::stored_runs`, two allocations a run, FS-C4's), and the
+    /// fields are what this counts. The controls: the box's first frame
+    /// composes its fields, and the line's composes none. Named break: the
+    /// key never holding, so every frame composes its veils again.
+    pub fn the_pointer_at_rest_costs_a_caret_frame_no_allocation() {
+        let n = Nth::ALL;
+        let at_rest = |paint: HoverPaint| {
+            move |t: &Term<'_>, k: Nth| Inputs {
+                hover: Some(LinkHover {
+                    paint,
+                    ..hover_over(t)
+                }),
+                ..Inputs::at(caret_at(k))
+            }
+        };
+        let mut wrong = Vec::new();
+        let (line, boxed) = (
+            cpu_costs(Blinking::No, at_rest(HoverPaint::Line), n),
+            cpu_costs(Blinking::No, at_rest(HoverPaint::Box), n),
+        );
+        let caret = cpu_costs(Blinking::No, |_, k| Inputs::at(caret_at(k)), n);
+        let (cell_line, cell_box) = (
+            cell_costs(Blinking::No, at_rest(HoverPaint::Line), n),
+            cell_costs(Blinking::No, at_rest(HoverPaint::Box), n),
+        );
+        for (k, ((l, _), (b, _))) in cell_line.iter().zip(&cell_box).enumerate() {
+            println!(
+                "hover cell frame {k}: box allocations={}, line allocations={}",
+                b.heap.here.value(),
+                l.heap.here.value()
+            );
+            if !Nth(k).warming() && b.heap.here != l.heap.here {
+                wrong.push(format!(
+                    "cell caret frame {k}: {} for the box against {} for the line\n  {}\n  {}",
+                    b.heap.here.value(),
+                    l.heap.here.value(),
+                    b.line(),
+                    l.line()
+                ));
+            }
+        }
+        for (k, ((l, b), c)) in line.iter().zip(&boxed).zip(&caret).enumerate() {
+            println!(
+                "hover cpu frame {k}: box allocations={}, line allocations={}, \
+                 no pointer allocations={}",
+                b.heap.here.value(),
+                l.heap.here.value(),
+                c.heap.here.value()
+            );
+            if !Nth(k).warming() && b.heap.here != l.heap.here {
+                wrong.push(format!(
+                    "cpu caret frame {k}: {} for the box against {} for the line\n  {}\n  {}",
+                    b.heap.here.value(),
+                    l.heap.here.value(),
+                    b.line(),
+                    l.line()
+                ));
+            }
+        }
+        for (paint, first) in [(HoverPaint::Box, true), (HoverPaint::Line, false)] {
+            let mut composed = Vec::new();
+            with_screen(Blinking::No, |t, r| {
+                let mut pixels = Pixels::of(r);
+                let mut target = pixels.target();
+                for k in n.before() {
+                    let damage = match k {
+                        Nth(0) => Damage::Full,
+                        _ => Damage::Incremental,
+                    };
+                    let before = r.veils_composed().value();
+                    cpu_frame(r, t, &at_rest(paint)(t, k), &mut target, damage);
+                    composed.push(r.veils_composed().value() - before);
+                }
+            });
+            with_screen(Blinking::No, |t, r| {
+                let mut backing = GlyphMap::backing();
+                let mut cells = Cells::new(&mut backing, t);
+                for k in n.before() {
+                    let before = r.veils_composed().value();
+                    cell_frame(r, t, &at_rest(paint)(t, k), &mut cells, k.set());
+                    let c = r.veils_composed().value() - before;
+                    if !k.warming() && c != 0 {
+                        wrong.push(format!(
+                            "cell caret frame {}: {c} veils composed again for the {paint:?}",
+                            k.0
+                        ));
+                    }
+                }
+            });
+            assert_eq!(
+                composed[0] > 0,
+                first,
+                "the control: the first frame composes the {paint:?}'s fields, if any"
+            );
+            for (k, c) in composed.iter().enumerate().skip(Nth::WARM.0) {
+                if *c != 0 {
+                    wrong.push(format!(
+                        "cpu caret frame {k}: {c} veils composed again for the {paint:?}"
+                    ));
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "the pointer at rest cost caret frames more than its runs:\n{}",
             wrong.join("\n")
         );
     }

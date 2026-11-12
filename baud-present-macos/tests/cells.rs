@@ -670,57 +670,20 @@ impl Arms<'_, '_> {
         self.renderer
             .cursor_guide_lowered(self.slide.unwrap_or(Px::of(0)), &mut self.grounds);
         // baud's own overlays last, over the images, as the app draws
-        // them: a `BEL`'s tint, the find field's cells masked and its
-        // records and caret, the link preview's bar the same way, the
-        // thumb, the fade.
+        // them: a `BEL`'s tint; baud's veils -- the link under the
+        // pointer's fields, the find field and its caret, the link
+        // preview's bar, the tip's lines and the notice -- their cells
+        // masked and their records kept while nothing they are drawn from
+        // moves (`Renderer::veils_onto`); the thumb, the fade.
         let chrome_from = self.records.len();
         self.records.extend_from_slice(self.renderer.bell_tint());
-        for (c, under) in self.renderer.hover_bars() {
-            self.exceptions.composed(
-                &mut self.renderer,
-                t,
-                (&c, baud_render::Laid::OnScreen),
-                under,
-                self.styles_mem,
-                None,
-                view.cols(),
-                baud_domain::LineRendition::Single,
-                Px::of(0),
-                self.overlay_mem,
-                &mut self.records,
-            );
-        }
-        let tips = self
-            .renderer
-            .tip_bars()
-            .into_iter()
-            .map(|c| (Some(c), false));
-        let fields = [
-            (self.renderer.find_field(), true),
-            (self.renderer.link_bar(), false),
-        ]
-        .into_iter()
-        .chain(tips)
-        .chain([(self.renderer.notice_bar(), false)]);
-        for (c, caret) in fields {
-            let Some(c) = c else { continue };
-            self.exceptions.composed(
-                &mut self.renderer,
-                t,
-                (&c, baud_render::Laid::OnScreen),
-                PackedCell::EMPTY,
-                self.styles_mem,
-                None,
-                view.cols(),
-                baud_domain::LineRendition::Single,
-                Px::of(0),
-                self.overlay_mem,
-                &mut self.records,
-            );
-            if caret {
-                self.records.extend_from_slice(self.renderer.find_caret());
-            }
-        }
+        self.renderer.veils_onto(
+            t,
+            (&*self.styles_mem, self.stamp),
+            composition.as_ref(),
+            view.cols(),
+            (&mut *self.overlay_mem, &mut self.records),
+        );
         self.records.extend_from_slice(self.renderer.splash());
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
@@ -8698,7 +8661,7 @@ fn copy_window(
         rows
     };
     // The config's notice row after both, blank, as the app copies it.
-    match renderer.notice_bar() {
+    match renderer.notice_shown() {
         Some(_) => {
             let at = ring * stride;
             copy_mem[at..at + cols].fill(PackedCell::EMPTY);
