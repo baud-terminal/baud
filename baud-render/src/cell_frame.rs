@@ -574,7 +574,6 @@ where
     renderer.veils_onto(
         term,
         (&cell.styles_mem[set][..], cell.style_stamps[set]),
-        composition.as_ref(),
         view.cols(),
         (&mut cell.overlay_mem[set][..], cell.records),
     );

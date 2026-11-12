@@ -680,7 +680,6 @@ impl Arms<'_, '_> {
         self.renderer.veils_onto(
             t,
             (&*self.styles_mem, self.stamp),
-            composition.as_ref(),
             view.cols(),
             (&mut *self.overlay_mem, &mut self.records),
         );

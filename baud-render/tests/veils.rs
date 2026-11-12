@@ -1,11 +1,13 @@
 //! **A veil kept is never a veil stale** (FS-C16): baud's veils -- the
 //! fields of the link under the pointer, the find field, the link
-//! preview's bar, the hover tip's lines, the notice -- and the input
-//! method's composition, which their key covers too, are drawn on the CPU
+//! preview's bar, the hover tip's lines, the notice -- are drawn on the CPU
 //! path from records kept while nothing they are drawn from moves. One
 //! control a kind: a frame whose veil changed draws, pixel for pixel, what
 //! a renderer of its own draws in one full frame, which has nothing kept;
-//! and a steady frame composes none, the count the kept records save.
+//! and a steady frame composes none, the count the kept records save. The
+//! input method's composition is not among what they are drawn from: one
+//! that changes beside a kept veil is drawn and composes no veil, and no
+//! veil is composed from it.
 
 mod support;
 
@@ -123,12 +125,17 @@ fn a_changed_veil_is_drawn(
         "{what}: the frame after the change is a fresh renderer's pixels"
     );
     assert!(px != steady, "{what}: the control, the change is drawn");
-    if counted == Counted::Composed {
-        assert!(composed.value() > 0, "{what}: the control, a veil composed");
-        assert!(
+    assert!(composed.value() > 0, "{what}: the control, a veil composed");
+    match counted {
+        Counted::Composed => assert!(
             r.veils_composed().value() > composed.value(),
             "{what}: the changed veil composed again"
-        );
+        ),
+        Counted::Kept => assert_eq!(
+            r.veils_composed(),
+            composed,
+            "{what}: the change composed no veil"
+        ),
     }
     paint(&mut r, &mut t, &mut full, Damage::Full);
     assert!(
@@ -137,12 +144,13 @@ fn a_changed_veil_is_drawn(
     );
 }
 
-/// Whether a veil's change composes one: every veil's does, but the
-/// composition's, whose records are its own.
+/// Whether the change composes a veil: a veil's own change does; the
+/// input method's composition, whose records are its own and which no
+/// veil reads, keeps the veil beside it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Counted {
     Composed,
-    Drawn,
+    Kept,
 }
 
 /// The link under the pointer, drawn as a box over `from..=to` of row 3.
@@ -289,16 +297,114 @@ fn composition(s: &str) -> Composition {
     }
 }
 
-/// **The input method's composition changed** draws it: the key covers it
-/// with the other veils, while its own records are drawn every frame.
+/// **The input method's composition changed beside a veil composes no
+/// veil**: the composition's records are its own, drawn every frame, and
+/// no veil's records read it, so the link preview's bar on the
+/// composition's row is kept while the composition is drawn as it now
+/// stands, pixel for pixel what a fresh renderer draws.
 #[test]
-fn a_composition_that_changed_is_drawn() {
+fn a_composition_that_changed_composes_no_veil() {
+    let bar = || {
+        Some(LinkLook {
+            spans: Vec::new(),
+            bar: field(3, 20, "example.org"),
+        })
+    };
     a_changed_veil_is_drawn(
         "the composition",
         Rows::of_index(ROWS),
-        |r, _| r.set_composition(Some(composition("ni"))),
+        |r, _| {
+            r.set_link(bar());
+            r.set_composition(Some(composition("ni")));
+        },
         |r, _| r.set_composition(Some(composition("nih"))),
         b"",
-        Counted::Drawn,
+        Counted::Kept,
     );
+}
+
+/// The arguments of the call whose text follows its opening parenthesis
+/// in `s`, up to its closing one.
+fn call_args(s: &str) -> &str {
+    let mut depth = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth == 0 => return &s[..i],
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    panic!("an unclosed call")
+}
+
+/// `args` split at its commas outside brackets, each trimmed, none empty.
+fn split_args(args: &str) -> Vec<&str> {
+    let (mut out, mut depth, mut from) = (Vec::new(), 0usize, 0);
+    for (i, c) in args.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(args[from..i].trim());
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(args[from..].trim());
+    out.retain(|a| !a.is_empty());
+    out
+}
+
+/// **No veil is composed from the input method's composition**, so its
+/// key, which holds none, cannot keep a veil stale when the composition
+/// moves. Neither what the key is made from (`VeilNow`) nor the key
+/// (`VeilKey`) carries one; and in each of the two places a veil is
+/// composed -- the CPU path's convert and the cell path's `veils_onto`
+/// -- `composition_records` is handed the veil's own field laid as the
+/// screen shows it and no cursor block (`None`), and the input method's
+/// composition is named nowhere in the call. The controls: two places, and
+/// the ten arguments each call takes. Named break: a veil composed with a
+/// block read from the composition.
+#[test]
+fn no_veil_is_composed_from_the_composition() {
+    const RENDER: &str = include_str!("../src/renderer.rs");
+    for head in ["pub(super) struct VeilNow<'a> {", "    struct VeilKey {"] {
+        let at = RENDER.find(head).expect(head) + head.len();
+        let body = call_args(&RENDER[at..]);
+        assert!(
+            !body.to_lowercase().contains("composition"),
+            "{head} carries no composition:{body}"
+        );
+    }
+    let open = "veils.records(";
+    let sites: Vec<&str> = RENDER
+        .match_indices(open)
+        .map(|(i, _)| call_args(&RENDER[i + open.len()..]))
+        .collect();
+    assert_eq!(
+        sites.len(),
+        2,
+        "the control: a veil is composed in two places"
+    );
+    let compose = "composition_records(";
+    for site in sites {
+        assert_eq!(site.matches(compose).count(), 1, "one compose:{site}");
+        let at = site.find(compose).expect(compose) + compose.len();
+        let args = split_args(call_args(&site[at..]));
+        assert_eq!(args.len(), 10, "the control, its ten arguments: {args:?}");
+        assert_eq!(
+            args[2], "(&v.comp, crate::overlay::Laid::OnScreen)",
+            "the veil's own field, laid as the screen shows it"
+        );
+        assert_eq!(args[5], "None", "no cursor block over a veil");
+        assert!(
+            !site
+                .replace(compose, "")
+                .to_lowercase()
+                .contains("composition"),
+            "the composition named nowhere in a veil's compose:{site}"
+        );
+    }
 }

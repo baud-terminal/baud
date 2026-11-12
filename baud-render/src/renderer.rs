@@ -1221,10 +1221,17 @@ use veils::{Force, VeilKind, VeilNow, VeilReach, VeilRest, Veiled};
 /// rows; the metrics; the selection; the blink's phases, the video, the
 /// fields' selection colours and the message pair; where the rendition
 /// table stands (its lending among it); the cluster store's epoch; and how
-/// many times the atlas grew, as a sized line's key counts it. And the
-/// input method's composition, which a later row's records draw beside
-/// them: the key covers every veil, so a change of any composes them
-/// again.
+/// many times the atlas grew, as a sized line's key counts it. The key
+/// covers every veil, so a change of any composes them again.
+///
+/// **Not the input method's composition**: a veil is composed laid as the
+/// screen shows it, with no cursor block over it, so its records read the
+/// composition nowhere -- the row's visual order, which a composition
+/// written on that row moves, only through the cells the key holds -- and
+/// a composition that changes beside a kept veil composes none
+/// (`a_composition_that_changed_composes_no_veil`, and
+/// `no_veil_is_composed_from_the_composition`, which holds every veil
+/// compose to that).
 ///
 /// **Kept only under its key, by type**: [`Veiled::records`] is the one
 /// way to the records, and it composes them again whenever the last
@@ -1410,7 +1417,6 @@ mod veils {
         pub(super) link_bar: Option<&'a Field>,
         pub(super) tips: &'a [Field],
         pub(super) notice: Option<(&'a [Codepoint], Row)>,
-        pub(super) composition: Option<&'a Composition>,
         pub(super) screen: Viewport<'a>,
         pub(super) orders: &'a crate::bidi::Orders,
         pub(super) rest: VeilRest,
@@ -1448,7 +1454,6 @@ mod veils {
     /// no buffer.
     struct VeilKey {
         parts: Vec<VeilPart>,
-        composition: Option<Composition>,
         /// Each part's row, as its records read it, one after another.
         cells: Vec<Option<PackedCell>>,
         rest: VeilRest,
@@ -1460,7 +1465,6 @@ mod veils {
         fn holds(&self, now: &VeilNow<'_>) -> bool {
             let cols = now.rest.cols;
             self.rest == now.rest
-                && self.composition.as_ref() == now.composition
                 && self.parts.len() == now.sources().count()
                 && self
                     .parts
@@ -1485,10 +1489,6 @@ mod veils {
                     None => self.parts.push(s.made(cols)),
                 }
             }
-            match (&mut self.composition, now.composition) {
-                (Some(kept), Some(c)) => kept.clone_from(c),
-                (kept, c) => *kept = c.cloned(),
-            }
             self.cells.clear();
             for p in &self.parts {
                 self.cells.extend(now.cells(p.comp.row));
@@ -1500,7 +1500,6 @@ mod veils {
         fn of(now: &VeilNow<'_>) -> VeilKey {
             let mut key = VeilKey {
                 parts: Vec::new(),
-                composition: None,
                 cells: Vec::new(),
                 rest: now.rest,
             };
@@ -5458,14 +5457,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The frame's veils, as their key reads them** (`veils`): each
-    /// where this renderer keeps it, the input method's `composition`,
-    /// the live screen, and the rest of what their records are drawn from,
-    /// the rendition table as `styles` stands and the width `cols` among it.
+    /// where this renderer keeps it, the live screen, and the rest of what
+    /// their records are drawn from, the rendition table as `styles` stands
+    /// and the width `cols` among it.
     fn veils_now<'s>(
         &'s self,
         term: &'s Term<'_>,
         (styles, cols): (StyleStamp, Cols),
-        composition: Option<&'s Composition>,
     ) -> VeilNow<'s> {
         VeilNow {
             bars: &self.hover_bars,
@@ -5473,7 +5471,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             link_bar: self.link.as_ref().map(|l| &l.bar),
             tips: self.tip.as_ref().map_or(&[][..], |t| &t.lines[..]),
             notice: self.notice_at(),
-            composition,
             screen: term.viewport(),
             orders: self.bidi.orders(),
             rest: VeilRest {
@@ -5499,19 +5496,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// appended, in that order, read through `styles`, the set's table,
     /// whose stamp is `stamp`. Composed again only when something they are
     /// drawn from moved ([`Veiled`]); a frame whose veils hold appends the
-    /// records the last one composed, and allocates nothing for them.
-    /// `composition` is the input method's, which their key covers too.
+    /// records the last one composed, and allocates nothing for them. No
+    /// veil reads the input method's composition, which the caller draws
+    /// itself.
     pub fn veils_onto(
         &mut self,
         term: &Term<'_>,
         (styles, stamp): (&[Resolved], StyleStamp),
-        composition: Option<&Composition>,
         cols: Cols,
         (mask, records): (&mut [u8], &mut Vec<Instance>),
     ) {
         let mut veils =
             core::mem::replace(&mut self.cell_veils, Veiled::reaching(VeilReach::Every));
-        veils.hold(&self.veils_now(term, (stamp, cols), composition));
+        veils.hold(&self.veils_now(term, (stamp, cols)));
         for (_, row, start, end) in veils.spans() {
             for x in start.index()..end.index() {
                 if let Some(slot) = mask.get_mut(row.index() * cols.index() + x) {
@@ -9640,7 +9637,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // below -- kept while nothing they are drawn from moved. The
         // notice's row is blank already.
         let mut veils = core::mem::replace(&mut self.cpu_veils, Veiled::reaching(VeilReach::Main));
-        veils.hold(&self.veils_now(term, (self.styles_stamp, cols), composition.as_ref()));
+        veils.hold(&self.veils_now(term, (self.styles_stamp, cols)));
         for (_, row, start, end) in veils.spans().filter(|v| v.0 != VeilKind::Notice) {
             let at = row.index() * ncols;
             for cell in &mut self.cur[at + start.index()..at + end.index()] {
