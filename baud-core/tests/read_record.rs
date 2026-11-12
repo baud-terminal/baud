@@ -823,3 +823,193 @@ fn a_read_says_whether_it_wrote_the_line_it_began_on() {
     assert_eq!(climbed.start_row(), StartRow::Untouched);
     assert_eq!(climbed.off_path(Screen::Normal), rows(1, 2));
 }
+
+/// The lines of `screen` `rec` says it erased whole, or none for a record
+/// that held more than it has room for.
+fn erased(rec: &ReadRecord, screen: Screen) -> Option<Vec<Span>> {
+    rec.erased(screen).map(Iterator::collect)
+}
+
+/// The primary's rows `a` to `b`, erased whole.
+fn whole(a: usize, b: usize) -> Option<Vec<Span>> {
+    Some(vec![Span::of(line(a), line(b))])
+}
+
+/// Nothing erased whole, with room.
+fn none_whole() -> Option<Vec<Span>> {
+    Some(Vec::new())
+}
+
+/// **A line erased whole is recorded, exactly** (`ReadRecord::erased`):
+/// `ED 2` every row; `EL 2` its row; `EL 0` from the first column its row
+/// and from column 6 none; `ED 0` from column 4 the rows below and from
+/// the first column the cursor's row with them, one span; `ED 1` and `EL 1`
+/// through the last column the cursor's row, and `ED 1` short of it only
+/// the rows above; a run of `EL 2` down the screen one span; `RIS` and
+/// `DECCOLM`'s clear every row. Named break: no erasure recorded
+/// (`Paint::record_erased` doing nothing) -- every one reads none.
+#[test]
+fn a_whole_line_erasure_is_recorded_exactly() {
+    let at = |before: &[u8], bytes: &[u8]| erased(&after(&WS, before, bytes), Screen::Normal);
+    let text = b"\x1b[6;1Hx".as_slice();
+    assert_eq!(at(text, b"\x1b[2J"), whole(0, 9), "ED 2");
+    assert_eq!(at(b"\x1b[4;8H", b"\x1b[2K"), whole(3, 3), "EL 2");
+    assert_eq!(at(b"\x1b[4;1H", b"\x1b[K"), whole(3, 3), "EL 0, column 1");
+    assert_eq!(at(b"\x1b[4;6H", b"\x1b[K"), none_whole(), "EL 0, column 6");
+    assert_eq!(at(b"\x1b[4;4H", b"\x1b[J"), whole(4, 9), "ED 0, column 4");
+    assert_eq!(at(b"\x1b[4;1H", b"\x1b[J"), whole(3, 9), "ED 0, column 1");
+    assert_eq!(
+        at(b"\x1b[4;20H", b"\x1b[1J"),
+        whole(0, 3),
+        "ED 1, last column"
+    );
+    assert_eq!(at(b"\x1b[4;6H", b"\x1b[1J"), whole(0, 2), "ED 1, column 6");
+    assert_eq!(
+        at(b"\x1b[4;20H", b"\x1b[1K"),
+        whole(3, 3),
+        "EL 1, last column"
+    );
+    assert_eq!(at(b"\x1b[4;6H", b"\x1b[1K"), none_whole(), "EL 1, column 6");
+    let run: Vec<u8> = (1..=10)
+        .flat_map(|y| format!("\x1b[{y};1H\x1b[2K").into_bytes())
+        .collect();
+    assert_eq!(at(b"", &run), whole(0, 9), "a run of EL 2");
+    assert_eq!(at(text, b"\x1bc"), whole(0, 9), "RIS");
+    assert_eq!(at(b"\x1b[?40h", b"\x1b[?3h"), whole(0, 9), "DECCOLM");
+}
+
+/// **An erase that leaves text on a line is not recorded**: `ECH` over the
+/// whole row, `DECSEL` and `DECSED`, `ED 2` and `EL 2` sparing a guarded
+/// area under ERM's PROTECT (`[[source: ecma48]]` 7.2.4), `EL 2` on a
+/// double-width line -- its half, the text past it kept for a single-width
+/// rendition to show again -- and `EL 2` on the status display, which is
+/// no line. The controls: ERM's ALL erases the guarded area, and a
+/// single-width line's `EL 2`, each recorded. Named break: every erase
+/// recorded whole -- each reads a span.
+#[test]
+fn an_erase_that_leaves_text_on_the_line_is_not_recorded() {
+    let at = |before: &[u8], bytes: &[u8]| erased(&after(&WS, before, bytes), Screen::Normal);
+    let row = b"\x1b[4;1Habcdefghijklmnopqrs".as_slice();
+    assert_eq!(at(row, b"\x1b[4;1H\x1b[20X"), none_whole(), "ECH");
+    assert_eq!(at(row, b"\x1b[?2K"), none_whole(), "DECSEL");
+    assert_eq!(at(row, b"\x1b[?2J"), none_whole(), "DECSED");
+    let guarded = b"\x1b[4;1H\x1bVab\x1bW".as_slice();
+    assert_eq!(at(guarded, b"\x1b[2J"), none_whole(), "ED 2, PROTECT");
+    assert_eq!(at(guarded, b"\x1b[2K"), none_whole(), "EL 2, PROTECT");
+    assert_eq!(
+        at(guarded, b"\x1b[6h\x1b[2J"),
+        whole(0, 9),
+        "the control: ALL"
+    );
+    assert_eq!(at(b"\x1b[4;1H\x1b#6ab", b"\x1b[2K"), none_whole(), "DECDWL");
+    assert_eq!(at(b"\x1b[4;1Hab", b"\x1b[2K"), whole(3, 3), "the control");
+    let status = b"\x1b[2$~\x1b[1$}abc".as_slice();
+    assert_eq!(at(status, b"\x1b[2K"), none_whole(), "the status display");
+}
+
+/// **An erasure a later move of the read reaches is dropped** (E4): the
+/// line may hold text moved onto it. `IL` and `DL` above it, `RI` at a
+/// region's top margin, `SU` in a region holding it and `SD` with no
+/// history each drop `EL 2`'s row 4; the controls keep it -- `IL` below
+/// it, `RI` off the margin, `SU` in a region below it, a full-screen `SU`
+/// whose lines keep their numbers, and a move before the erase. Named
+/// break: keep every erasure across a move -- each reads row 4.
+#[test]
+fn an_erasure_a_later_move_reaches_is_dropped() {
+    let at = |before: &[u8], bytes: &[u8]| erased(&after(&WS, before, bytes), Screen::Normal);
+    let row = b"\x1b[4;1Habc".as_slice();
+    let region = b"\x1b[2;8r\x1b[4;1Habc".as_slice();
+    let below = b"\x1b[6;10r\x1b[4;1Habc".as_slice();
+    for (before, bytes, what) in [
+        (row, b"\x1b[2K\x1b[2;1H\x1b[L".as_slice(), "IL above"),
+        (row, b"\x1b[2K\x1b[2;1H\x1b[M", "DL above"),
+        (region, b"\x1b[2K\x1b[2;1H\x1bM", "RI at the top margin"),
+        (region, b"\x1b[2K\x1b[S", "SU in the region"),
+        (row, b"\x1b[2K\x1b[T", "SD with no history"),
+    ] {
+        assert_eq!(at(before, bytes), none_whole(), "{what}");
+    }
+    for (before, bytes, what) in [
+        (row, b"\x1b[2K\x1b[6;1H\x1b[L".as_slice(), "IL below"),
+        (region, b"\x1b[2K\x1b[6;1H\x1bM", "RI off the margin"),
+        (below, b"\x1b[4;1H\x1b[2K\x1b[S", "SU in a region below"),
+        (row, b"\x1b[2K\x1b[S", "a full-screen SU"),
+        (
+            row,
+            b"\x1b[2;1H\x1b[L\x1b[4;1H\x1b[2K",
+            "IL before the erase",
+        ),
+    ] {
+        assert_eq!(at(before, bytes), whole(3, 3), "{what}");
+    }
+}
+
+/// **More erasures than the record holds vouch for none** (E1): four
+/// apart are each recorded, and a fifth overflows the list, which then
+/// names no line erased on either screen, so an embedder forgets nothing.
+/// Named break: drop the fifth silently -- the four read as all.
+#[test]
+fn more_erasures_than_the_record_holds_vouch_for_none() {
+    let rows_apart = |n: usize| -> Vec<u8> {
+        (0..n)
+            .flat_map(|k| format!("\x1b[{};1H\x1b[2K", 1 + 2 * k).into_bytes())
+            .collect()
+    };
+    let four = after(&WS, b"", &rows_apart(4));
+    let spans: Vec<Span> = (0..4).map(|k| Span::of(line(2 * k), line(2 * k))).collect();
+    assert_eq!(erased(&four, Screen::Normal), Some(spans), "the control");
+    let five = after(&WS, b"", &rows_apart(5));
+    assert_eq!(erased(&five, Screen::Normal), None);
+    assert_eq!(erased(&five, Screen::Alternate), None);
+}
+
+/// **`EL 2` under side margins erases the whole line, and is recorded**
+/// (E3): EL clears to `end_of_line(line)` (`[[source: dec-std-070]]` EL,
+/// p. 5-155), the line's width and not the right margin, and
+/// `Paint::line_span` spans `line_cols`, every column of a single-width
+/// line, whatever `DECSLRM` set. A row of text, margins 5 to 15, `EL 2`
+/// from column 8: every cell of the row is blank, those outside the
+/// margins included, and the row is erased whole. Named break: `EL`
+/// bounded by the side margins -- the cells outside them keep their text.
+#[test]
+fn el_2_under_side_margins_erases_and_records_the_whole_line() {
+    let before = b"\x1b[4;1Habcdefghijklmnopqrs\x1b[?69h\x1b[5;15s\x1b[4;8H";
+    let (rec, text) = support::with_term(&WS, |t| {
+        let _ = read(t, before);
+        let rec = read(t, b"\x1b[2K");
+        let row = t.row(Row::from_index(3)).expect("row 4");
+        let text: String = row
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|c| char::from_u32(c.value()))
+                    .unwrap_or(' ')
+            })
+            .collect();
+        (rec, text)
+    });
+    assert_eq!(text, " ".repeat(20), "every cell blank");
+    assert_eq!(erased(&rec, Screen::Normal), whole(3, 3));
+}
+
+/// **An erasure of the alternate screen is its own, and the screen's clear
+/// drops it**: `ED 2` there names the alternate screen's ten lines and
+/// none of the primary's; a read that enters with `?1049 h`, whose clear
+/// starts the screen's count again, names none on either. Named break:
+/// keep the alternate screen's erasures across its clear
+/// (`Recording::cleared_alternate`) -- the entry reads the clear's rows.
+#[test]
+fn an_alternate_screen_erasure_is_its_own_and_a_clear_drops_it() {
+    let ed = after(&WS, b"\x1b[?1049h", b"\x1b[2J");
+    let top = ed.start().line;
+    assert_eq!(ed.start().screen, Screen::Alternate);
+    assert_eq!(
+        erased(&ed, Screen::Alternate),
+        Some(vec![Span::of(top, top.plus(Rows::of_count(9)))])
+    );
+    assert_eq!(erased(&ed, Screen::Normal), none_whole());
+    let entry = after(&WS, b"abc", b"\x1b[?1049h");
+    assert_eq!(erased(&entry, Screen::Alternate), none_whole());
+    assert_eq!(erased(&entry, Screen::Normal), none_whole());
+}

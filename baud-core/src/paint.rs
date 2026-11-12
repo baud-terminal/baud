@@ -1985,6 +1985,35 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.erase_span(cy, a, b, blank);
         self.wrote_rows(cy, cy);
+        #[cfg(feature = "read-record")]
+        self.line_erased(e, (a, b));
+    }
+
+    /// **The cursor's row erased from `a` to `b` by `EL`'s extent `e`,
+    /// recorded where that was the whole line**
+    /// ([`crate::ReadRecord::erased`]): every column of the row, which on a
+    /// line not single-width the span is not -- its half, and the text past
+    /// it kept for a single-width rendition to show again -- no guarded
+    /// position spared, and for `EL 1`, which clears nothing past a narrower
+    /// edge, nothing held there. Out of line: once an `EL`.
+    #[cfg(feature = "read-record")]
+    #[cold]
+    #[inline(never)]
+    fn line_erased(&mut self, e: EraseExtent, (a, b): (Col, Col)) {
+        let whole = a == Col::ZERO && b.index() == self.cols.index();
+        let hidden = e == EraseExtent::ToStart && self.past_edge();
+        if whole && !hidden && !self.spares_guarded() {
+            self.record_erased(self.cy, self.cy);
+        }
+    }
+
+    /// **Whether an erase spares a guarded position**: one has been guarded
+    /// since the last `RIS` and ERM is reset, PROTECT
+    /// (`[[source: ecma48]]` 7.2.4), so the text there stays.
+    #[cfg(feature = "read-record")]
+    pub(crate) fn spares_guarded(&self) -> bool {
+        matches!(self.cold.guards, crate::term::Guards::Marked)
+            && !self.cold.modes.is_set(ModeBit::EraseGuarded)
     }
 
     /// Erase the screen. 0 below the cursor, 1 above it, 2 all of it.
@@ -2007,6 +2036,12 @@ impl<'a, 'b> Paint<'a, 'b> {
             // cleared area" (`crate::path`).
             self.path_rows(Row::from_index(from), Row::from_index(to - 1));
             self.wrote_rows(Row::from_index(from), Row::from_index(to - 1));
+            // Each row filled to its end, past an edge too: erased whole,
+            // unless a guarded position was spared.
+            #[cfg(feature = "read-record")]
+            if !self.spares_guarded() {
+                self.record_erased(Row::from_index(from), Row::from_index(to - 1));
+            }
         }
         // **ED 1 and ED 2 end the history's newest line**, which a wrap may
         // have left continuing onto the first row they erase: "the last

@@ -1688,12 +1688,17 @@ pub struct Cold {
 // off its row, a move of text between lines, a switch, a change of encoding,
 // a folder report and a prompt mark, and read by `Term::take_record` once a
 // read, never by a glyph. Without the feature it stays 1016.
+// The record's erasures (`ReadRecord::erased`, four spans each with its
+// surface, 24 bytes a slot with the surface's niche, and the fill: 104)
+// took it to 1824: written by an erase of whole lines, at most once an
+// `ED` or `EL`, and a move that reaches one, read once a read, never by a
+// glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it
 // more.
 #[cfg(all(not(feature = "sgr-table"), not(feature = "read-record")))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 1016);
 #[cfg(all(not(feature = "sgr-table"), feature = "read-record"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 1720);
+const _: () = assert!(core::mem::size_of::<Cold>() == 1824);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,

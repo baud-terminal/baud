@@ -5492,6 +5492,11 @@ impl Paint<'_, '_> {
         }
         self.path_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
         self.wrote_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
+        // Every row filled whatever is guarded: erased whole
+        // (`crate::ReadRecord::erased`). On the alternate screen the clear
+        // that follows drops it with the screen's other lines.
+        #[cfg(feature = "read-record")]
+        self.record_erased(Row::ZERO, Row::from_index(self.rows.index() - 1));
     }
 
     #[cold]
@@ -5969,9 +5974,14 @@ impl Paint<'_, '_> {
         // 14451-14455).
         self.cold.keyboard = Keyboard::Default;
         self.last_cp = None;
-        // The screen the reset cleared is the read's, every row.
+        // The screen the reset cleared is the read's, every row, and erased
+        // whole (`crate::ReadRecord::erased`).
         #[cfg(feature = "read-record")]
-        self.record_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
+        {
+            let last = Row::from_index(self.rows.index() - 1);
+            self.record_rows(Row::ZERO, last);
+            self.record_erased(Row::ZERO, last);
+        }
         self.goto(Row::ZERO, Col::ZERO);
     }
 

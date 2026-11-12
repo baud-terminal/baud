@@ -88,6 +88,18 @@ impl Span {
         self.first <= line && line <= self.last
     }
 
+    /// Whether the two spans share a line.
+    fn meets(self, other: Span) -> bool {
+        self.first <= other.last && other.first <= self.last
+    }
+
+    /// Whether the two spans share a line or one begins on the line after
+    /// the other ends: one run of lines.
+    fn touches(self, other: Span) -> bool {
+        let one = Rows::of_count(1);
+        self.first <= other.last.plus(one) && other.first <= self.last.plus(one)
+    }
+
     /// The span moved by `by`, or none where a line would fall before the
     /// first.
     pub fn moved(self, by: LineShift) -> Option<Span> {
@@ -257,6 +269,15 @@ impl core::fmt::Debug for MarkEvent {
             .field("letter", &char::from(self.letter))
             .finish()
     }
+}
+
+/// **Lines of one surface a read erased whole** ([`ReadRecord::erased`]):
+/// every cell of each blanked, none spared, nothing kept past an edge for
+/// a later growth or rendition to show, and no text moved onto one since.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Erasure {
+    screen: Screen,
+    span: Span,
 }
 
 /// Whether a record's list held every event, or more came than it holds.
@@ -441,6 +462,7 @@ pub struct ReadRecord {
     folders: Events<FolderEvent, 4>,
     marks: Events<MarkEvent, 8>,
     moves: Events<Move, 8>,
+    erased: Events<Erasure, 4>,
 }
 
 impl ReadRecord {
@@ -503,6 +525,31 @@ impl ReadRecord {
 
     pub fn moves(&self) -> &Events<Move, 8> {
         &self.moves
+    }
+
+    /// **The lines of `screen` the read erased whole**, exactly and never a
+    /// hull: spans that touch joined, so `ED 2` is one and a run of `EL 2`
+    /// down the screen is one. Whole is every cell of the line blanked --
+    /// `ED` over the line, `EL 2`, `EL 0` from its first column and `EL 1`
+    /// through its last on a single-width line, `DECCOLM`'s clear, `RIS` --
+    /// and not where a guarded position was spared (ERM reset), nor `EL 1`
+    /// with text kept past a narrower edge, nor `ECH`, `DECSED`, `DECSEL`,
+    /// a part of a line, the status display, or an erase under
+    /// PRESENTATION. An erasure a later move of the read reaches is
+    /// dropped: the line may hold text moved onto it. **None where more
+    /// came than the record holds**: an embedder then forgets nothing of
+    /// any line, failing closed. What an embedder knew of the text on a
+    /// line erased ends here; only what it learns after decides it.
+    pub fn erased(&self, screen: Screen) -> Option<impl Iterator<Item = Span> + '_> {
+        match self.erased.fill() {
+            Fill::Overflowed => None,
+            Fill::Room => Some(
+                self.erased
+                    .iter()
+                    .filter(move |e| e.screen == screen)
+                    .map(|e| e.span),
+            ),
+        }
     }
 
     /// **The lines whose text the read's moves may have carried onto
@@ -629,6 +676,7 @@ impl Recording {
                 folders: Events::EMPTY,
                 marks: Events::EMPTY,
                 moves: Events::EMPTY,
+                erased: Events::EMPTY,
             },
             str_at: BytePos::ZERO,
         }
@@ -710,6 +758,20 @@ impl Recording {
         self.rec.cleared = Cleared::Alternate;
         self.rec.alternate = None;
         self.rec.moves.keep(|m| m.screen() != Screen::Alternate);
+        self.rec.erased.keep(|e| e.screen != Screen::Alternate);
+    }
+
+    /// **Lines `span` of `screen` were erased whole** ([`ReadRecord::erased`]):
+    /// joined to an erasure on the same surface it touches, a new one
+    /// otherwise, and past the last slot the list overflows.
+    pub(crate) fn erased(&mut self, screen: Screen, span: Span) {
+        for e in self.rec.erased.items.iter_mut().flatten() {
+            if e.screen == screen && e.span.touches(span) {
+                e.span = e.span.hull(span);
+                return;
+            }
+        }
+        self.rec.erased.push(Erasure { screen, span });
     }
 
     pub(crate) fn renumbered(&mut self, why: Renumbered) {
@@ -744,6 +806,12 @@ impl Recording {
     /// line -- still says which lines its text moved among, and nothing is
     /// dropped.
     pub(crate) fn moved(&mut self, m: Move) {
+        // An erasure the move reaches is dropped: the line may hold text
+        // moved onto it, or its blank text gone elsewhere.
+        let (screen, band) = (m.screen(), m.band());
+        self.rec
+            .erased
+            .keep(|e| e.screen != screen || !e.span.meets(band));
         if let Some(last) = self.rec.moves.last_mut() {
             if let Some(both) = last.then(m) {
                 *last = both;
@@ -843,6 +911,19 @@ impl crate::paint::Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn record_climb(&mut self, to: baud_domain::Row) {
         self.record_rows(to, self.cy);
+    }
+
+    /// **Rows `a` to `b` of the live screen were erased whole**
+    /// ([`ReadRecord::erased`]): what an embedder knew of their text ends
+    /// here. Out of line, an erase's cost. On the status display, nothing.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn record_erased(&mut self, a: baud_domain::Row, b: baud_domain::Row) {
+        if self.on_status() {
+            return;
+        }
+        let (a, b) = (self.record_line(a), self.record_line(b));
+        self.cold.record.erased(a.screen, Span::of(a.line, b.line));
     }
 
     /// Text moved on the live screen, as rows (`from` and `by`).
