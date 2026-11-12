@@ -801,12 +801,58 @@ enum Over {
 /// otherwise only while an answer the scan would draw is kept. A frame of
 /// output with none spends one compare a cell on paths and reads no row for
 /// them; what it holds is read once a batch, at the settle or the ceiling,
-/// by the collection.
+/// by the collection -- but for the lines still to be named
+/// ([`Reads::Pending`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum Reads {
     #[default]
     No,
+    /// **Only lines still to be named, and only for whether they hold a
+    /// path** ([`Paths::read_pending`]): their naming makes such a path
+    /// readable, so the batch naming them is owed for a path
+    /// ([`Owes::Path`]), which the shell's `D` may hasten. Nothing is drawn
+    /// or kept, so for a row read again once answers are drawn it counts as
+    /// [`Reads::No`] ([`Unread`]). The cost is a frame's changed lines that
+    /// meet those still to be named, and none once a path is owed.
+    Pending,
     Yes,
+}
+
+/// **What a batch is owed for** ([`Paths::owes`]), the stronger last: a
+/// row that changed, which the plain pace answers; or a printed path with
+/// no answer, or one on a row still to be named, which that row's naming
+/// makes readable -- and drawable, where its answer is kept -- and which
+/// the window's shell's `D` may hasten (`probe::Pace::owe`).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Owes {
+    Rows,
+    Path,
+}
+
+/// **What the last collection met on rows still to be named**, until
+/// their naming: paths whose answers are kept, which the naming draws with
+/// no batch after it; or a path with none, for which the naming's answer
+/// owes the batch that asks about it ([`Paths::set_pending`]). Over the
+/// lines that held them, joined.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Awaiting {
+    #[default]
+    Nothing,
+    Cached(LineSpan),
+    Unanswered(LineSpan),
+}
+
+impl Awaiting {
+    /// With a path met on `span`, its kept `answer` if any.
+    fn with(self, answer: Option<State>, span: LineSpan) -> Awaiting {
+        let kept = matches!(answer, Some(State::Is(_)));
+        match self {
+            Awaiting::Nothing if kept => Awaiting::Cached(span),
+            Awaiting::Nothing => Awaiting::Unanswered(span),
+            Awaiting::Cached(s) if kept => Awaiting::Cached(s.joined(span)),
+            Awaiting::Cached(s) | Awaiting::Unanswered(s) => Awaiting::Unanswered(s.joined(span)),
+        }
+    }
 }
 
 /// Whether a scan read a row while printed paths were not read
@@ -1716,9 +1762,12 @@ pub struct Paths {
     /// What the worker last found for each program it was asked about.
     programs: Vec<(Program, Handler)>,
     generation: Generation,
-    owed: Owed,
+    /// What a batch is owed for, if one is.
+    owing: Option<Owes>,
     collect: Option<Collect>,
     reads: Reads,
+    /// What the last collection met on rows still to be named.
+    awaiting: Awaiting,
     /// Whether a scan read a row while printed paths were not read, since
     /// the last collection read every row: a row it kept no run for.
     unread: Unread,
@@ -1908,31 +1957,45 @@ impl Paths {
         // ask it again, a kind struck for having no app would stay struck.
         self.programs.clear();
         self.collect = None;
-        self.owed = Owed::No;
+        self.owing = None;
+        self.awaiting = Awaiting::Nothing;
         self.generation = self.generation.next();
         self.update_reads();
     }
 
-    /// [`Reads`] again, after the marks, the collection or the answers
-    /// changed: once a batch, never a frame.
+    /// [`Reads`] again, after the marks, the collection, the answers or the
+    /// lines still to be named changed: at a batch or a drain, never a
+    /// frame.
     fn update_reads(&mut self) {
         let draws = self
             .known
             .values()
             .any(|s| s.probe() == Some(Probe::Exists));
-        self.reads = match self.marks == Marks::On && (self.collect.is_some() || draws) {
-            true => Reads::Yes,
-            false => Reads::No,
+        let on = self.marks == Marks::On;
+        self.reads = match (
+            on && (self.collect.is_some() || draws),
+            on && !self.pending.is_empty(),
+        ) {
+            (true, _) => Reads::Yes,
+            (false, true) => Reads::Pending,
+            (false, false) => Reads::No,
         };
     }
 
-    /// **A row of the window changed**: a batch is owed, which the next one
-    /// due answers by reading every row then. One store a scan.
+    /// **A batch is owed for `o`**, or for what it was owed for already if
+    /// that is the stronger.
+    fn owe(&mut self, o: Owes) {
+        self.owing = Some(self.owing.map_or(o, |was| was.max(o)));
+    }
+
+    /// **A row of the window changed**: a batch is owed for the rows
+    /// ([`Owes::Rows`]), which the next one due answers by reading every row
+    /// then. One store a scan.
     fn changed(&mut self) {
         if self.marks == Marks::On {
-            self.owed = Owed::Yes;
+            self.owe(Owes::Rows);
         }
-        if self.reads == Reads::No {
+        if self.reads != Reads::Yes {
             self.unread = Unread::Yes;
         }
     }
@@ -1969,7 +2032,15 @@ impl Paths {
     /// Whether a row of the window changed, or a scan met a path it has no
     /// answer for, since the last batch.
     pub fn owed(&self) -> Owed {
-        self.owed
+        match self.owing {
+            Some(_) => Owed::Yes,
+            None => Owed::No,
+        }
+    }
+
+    /// **What the batch owed is owed for**: none while none is owed.
+    pub fn owes(&self) -> Option<Owes> {
+        self.owing
     }
 
     /// **What the worker said is there**, for the strike: none for a path it
@@ -2101,7 +2172,7 @@ impl Paths {
             }
         }
         if any && self.marks == Marks::On {
-            self.owed = Owed::Yes;
+            self.owe(Owes::Path);
         }
     }
 
@@ -2116,7 +2187,7 @@ impl Paths {
             }
         }
         if self.marks == Marks::On {
-            self.owed = Owed::Yes;
+            self.owe(Owes::Path);
         }
     }
 
@@ -2499,7 +2570,10 @@ impl Paths {
     /// them (`probe::Probes`): a held line reads as not known until its
     /// own writer is named. Where the held lines changed, every line each
     /// covered or covers is read again ([`Reader::refiled`]), and so is a
-    /// link's look under the pointer.
+    /// link's look under the pointer. Where the lines still to be named
+    /// changed, [`Reads`] is decided again, and what the last collection
+    /// met on them is settled once none of its lines is still to be named
+    /// ([`Paths::named`]).
     pub fn set_pending<I, J>(&mut self, pending: I, held: J)
     where
         I: Iterator<Item = LineSpan> + Clone,
@@ -2508,6 +2582,7 @@ impl Paths {
         if !same_spans(&self.pending, pending.clone()) {
             self.pending.clear();
             self.pending.extend(pending);
+            self.named();
         }
         if same_spans(&self.held, held.clone()) {
             return;
@@ -2518,6 +2593,29 @@ impl Paths {
         self.held.clear();
         self.held.extend(held);
         self.origins = self.origins.next();
+    }
+
+    /// **The lines still to be named changed**: [`Reads`] again; and once
+    /// none of the lines the last collection met paths on is still to be
+    /// named, the batch after their naming is owed for a path where one of
+    /// them had no answer kept ([`Awaiting::Unanswered`]) -- the second link
+    /// of a listing's chain, which a frame reading no row for paths would
+    /// owe only for the rows -- and for nothing more where every answer was
+    /// kept, which the naming alone draws.
+    fn named(&mut self) {
+        self.update_reads();
+        let (span, owes) = match self.awaiting {
+            Awaiting::Nothing => return,
+            Awaiting::Cached(s) => (s, None),
+            Awaiting::Unanswered(s) => (s, Some(Owes::Path)),
+        };
+        if self.pending.iter().any(|p| p.meet(span).is_some()) {
+            return;
+        }
+        self.awaiting = Awaiting::Nothing;
+        if let (Some(o), Marks::On) = (owes, self.marks) {
+            self.owe(o);
+        }
     }
 
     /// **A resize the driver just made, filed at once**, before any hover,
@@ -3163,15 +3261,17 @@ impl Paths {
     /// **Nothing is owed**: the program in front was asked about and is the
     /// same, not known to be local.
     pub fn settled(&mut self) {
-        self.owed = Owed::No;
+        self.owing = None;
     }
 
     /// **A collection starts**: the scan that follows, of every row of the
     /// window, asks about what it finds unanswered; the answers it finds stay
-    /// and the rest go.
+    /// and the rest go, and what it meets on rows still to be named is noted
+    /// afresh ([`Awaiting`]).
     pub fn begin_collect(&mut self) {
         self.collect = Some(Collect::default());
         self.unread = Unread::No;
+        self.awaiting = Awaiting::Nothing;
         self.update_reads();
     }
 
@@ -3197,9 +3297,9 @@ impl Paths {
         c.queue.append(&mut c.names);
         self.known = c.kept;
         self.marked = c.marked;
-        self.owed = match c.over {
-            Over::Yes => Owed::Yes,
-            Over::No => Owed::No,
+        self.owing = match c.over {
+            Over::Yes => Some(Owes::Path),
+            Over::No => None,
         };
         self.update_reads();
         c.queue
@@ -3265,7 +3365,7 @@ impl Paths {
             self.update_reads();
             // Printed paths read from now, with a row read since the
             // collection while they were not: it kept no run to draw.
-            if (reads, self.reads, self.unread) == (Reads::No, Reads::Yes, Unread::Yes) {
+            if reads != Reads::Yes && (self.reads, self.unread) == (Reads::Yes, Unread::Yes) {
                 answered = Answered::Everything;
             }
         }
@@ -3388,7 +3488,16 @@ impl Paths {
                 // In front of a program not known to be local: whether it
                 // still is gets asked once the screen settles.
                 if self.front == Front::Elsewhere && self.marks == Marks::On {
-                    self.owed = Owed::Yes;
+                    self.owe(Owes::Path);
+                } else if let (Some(span), Marks::On) =
+                    (self.pending_on(text.lines, text.screen), self.marks)
+                {
+                    let answer =
+                        match self.collect.is_some() && self.resolve(text.units, t, text.screen) {
+                            true => self.known.get(self.key.as_slice()).copied(),
+                            false => None,
+                        };
+                    self.awaits_naming(answer, span);
                 }
                 continue;
             }
@@ -3443,7 +3552,7 @@ impl Paths {
             }
             let probe = state.and_then(State::probe);
             if probe.is_none() && self.collect.is_none() && state.is_none() {
-                self.owed = Owed::Yes;
+                self.owe(Owes::Path);
             }
             // Drawn where the worker found it; kept either way, so an answer
             // draws it with no row read (`Lines::answered`). Only one with an
@@ -3487,7 +3596,7 @@ impl Paths {
         };
         if !self.readable_on(at.span(), at.screen(), Form::Absolute) {
             if self.front == Front::Elsewhere {
-                self.owed = Owed::Yes;
+                self.owe(Owes::Path);
             }
             return Mark::Line;
         }
@@ -3523,7 +3632,7 @@ impl Paths {
                 }
             }
         } else if state.is_none() {
-            self.owed = Owed::Yes;
+            self.owe(Owes::Path);
         }
         match (named, state.and_then(State::probe)) {
             (Named::ThisMachine, Some(Probe::Missing)) => Mark::Struck,
@@ -3532,9 +3641,78 @@ impl Paths {
     }
 
     /// Whether a line ending in `tail`, its last eight ASCII bytes, the
-    /// newest last, may hold a path worth reading.
+    /// newest last, may hold a path worth reading: under
+    /// [`Reads::Pending`], only until a path is owed, so a flood still to be
+    /// named has its lines read for paths by one frame a batch, not each.
     fn wants(&self, tail: [u8; 8]) -> bool {
-        self.reads == Reads::Yes && starts(tail, &self.forms)
+        let reads = match self.reads {
+            Reads::Yes => true,
+            Reads::Pending => self.owing != Some(Owes::Path),
+            Reads::No => false,
+        };
+        reads && starts(tail, &self.forms)
+    }
+
+    /// **An `OSC 8` link at `at` its click refuses**, which is a `file://`
+    /// link's on lines still to be named: owed for its file as
+    /// [`Paths::file_link`] owes one there, the naming deciding the rest.
+    fn refused_link(&mut self, uri: &[u8], at: At<'_>) {
+        if self.marks != Marks::On || self.missing != Turned::On || self.front == Front::Elsewhere {
+            return;
+        }
+        let Some((_, path)) = file_path(uri, &self.names) else {
+            return;
+        };
+        if let Some(span) = self.pending_on(at.span(), at.screen()) {
+            let answer = self.marked.get(path.as_slice()).copied();
+            self.awaits_naming(answer, span);
+        }
+    }
+
+    /// The lines `first` to `last` on `screen`, where they meet a line
+    /// still to be named.
+    fn pending_on(&self, (first, last): (AbsLine, AbsLine), screen: Screen) -> Option<LineSpan> {
+        let span = LineSpan::on(self.surface(screen), first, last);
+        self.pending
+            .iter()
+            .any(|p| p.meet(span).is_some())
+            .then_some(span)
+    }
+
+    /// **A path on `span`, lines still to be named**, printed or an `OSC 8`
+    /// `file://` link's, `answer` its kept answer as a collection reads it:
+    /// their naming makes it readable, so a frame owes the batch that names
+    /// them for a path ([`Owes::Path`]); a collection notes, for after that
+    /// naming, whether its answer is kept ([`Awaiting`]).
+    fn awaits_naming(&mut self, answer: Option<State>, span: LineSpan) {
+        match self.collect.is_some() {
+            false => self.owe(Owes::Path),
+            true => self.awaiting = self.awaiting.with(answer, span),
+        }
+    }
+
+    /// **The scan's half while only lines still to be named are read**
+    /// ([`Reads::Pending`]): a batch owed for a path where `text` meets
+    /// such a line and holds one outside the URIs in `found`, which the
+    /// naming makes readable. Nothing is drawn, kept or resolved; and once
+    /// a path is owed, no line is tokenized for it until a batch goes.
+    fn read_pending(&mut self, text: Text<'_>, found: &[Run]) {
+        if self.owing == Some(Owes::Path) || self.pending_on(text.lines, text.screen).is_none() {
+            return;
+        }
+        let mut toks = core::mem::take(&mut self.tokens);
+        tokens(text.units, (text.head, text.tail), &self.forms, &mut toks);
+        let met = toks.iter().any(|t| {
+            let shown = t.span.start < text.shown.1 && text.shown.0 < t.span.end;
+            let over = found
+                .iter()
+                .any(|f| f.units.start < t.span.end && t.span.start < f.units.end);
+            shown && !over
+        });
+        self.tokens = toks;
+        if met {
+            self.owe(Owes::Path);
+        }
     }
 }
 
@@ -3931,9 +4109,13 @@ impl Reader for Links<'_> {
                 .uris
                 .read_marking(text, found, &origin, &|t| Some(paths.target_mark(t)));
         }
-        if self.paths.reads == Reads::Yes {
-            n += self.paths.read(text, found).0;
-            found.sort_unstable_by_key(|r| r.units.start);
+        match self.paths.reads {
+            Reads::Yes => {
+                n += self.paths.read(text, found).0;
+                found.sort_unstable_by_key(|r| r.units.start);
+            }
+            Reads::Pending => self.paths.read_pending(text, found),
+            Reads::No => {}
         }
         Looked(n)
     }
@@ -3947,7 +4129,12 @@ impl Reader for Links<'_> {
         // machine's file: unmarked, as its click refuses it.
         let surface = self.paths.surface(at.screen());
         let origin = self.paths.link_origin(surface, at.id(), uri, at.rows());
-        let t = admit_link(uri, self.uris.names(), self.uris.rules(), origin).ok()?;
+        let Ok(t) = admit_link(uri, self.uris.names(), self.uris.rules(), origin) else {
+            // Refused while its rows' writer is still to be named: that
+            // naming may admit it, and a `file://` link's file is asked.
+            self.paths.refused_link(uri, at);
+            return None;
+        };
         Some(match t.scheme() {
             Scheme::File => self.paths.file_link(uri, at),
             _ => self.paths.target_mark(&t),
@@ -4535,6 +4722,191 @@ mod tests {
             "one found: a frame reads"
         );
         assert_eq!(runs(&l), [(1, 2, 11)]);
+    }
+
+    /// A window of `bytes`, its paths on, and a frame's scan of it.
+    struct Pended<'s> {
+        t: Term<'s>,
+        p: Paths,
+        l: Lines,
+        u: Uris,
+    }
+
+    impl Pended<'_> {
+        /// A frame's scan.
+        fn frame(&mut self) {
+            let _ = self.l.scan(
+                &self.t,
+                at(),
+                &mut Links {
+                    uris: &mut self.u,
+                    urls: Turned::On,
+                    paths: &mut self.p,
+                },
+            );
+        }
+
+        /// A collection's scan, every row read again: what it asked.
+        fn collect(&mut self) -> Vec<Vec<u8>> {
+            self.p.begin_collect();
+            self.l.forget();
+            self.frame();
+            self.p.end_collect().into_iter().map(|c| c.path).collect()
+        }
+
+        /// `row` of the window, as one line's span.
+        fn row(y: baud_domain::Row) -> LineSpan {
+            let line = at().line(Rows::ZERO, y);
+            LineSpan::of(line, line)
+        }
+
+        /// `rows` named, written here, and no longer still to be named;
+        /// every row read again, as the driver does for an answer that
+        /// moved what is in front (`probe::Probes::answers`).
+        fn name(&mut self, rows: &[baud_domain::Row]) {
+            for &y in rows {
+                self.p
+                    .written_under(Seen::Named(Front::Local), Self::row(y));
+            }
+            self.p.set_pending(core::iter::empty(), core::iter::empty());
+            self.l.forget();
+        }
+    }
+
+    /// **A path on a row still to be named owes its naming for a path, and
+    /// the batch after the naming for it too**: `/etc/hosts` written on a
+    /// row whose writer is still to be named, no answer kept anywhere. A
+    /// frame reads that row alone ([`Reads::Pending`]) and owes a batch
+    /// for a path; the naming batch's collection asks nothing, the row not
+    /// readable, and notes the path ([`Awaiting::Unanswered`]); the answer
+    /// naming the row owes the next batch for a path, which asks about it.
+    /// Once the path is owed, no line is read for paths until a batch goes.
+    /// The control: `% `, no path, owes for the rows alone, and nothing
+    /// after its naming, its lines still read. Breaks: no [`Reads::Pending`]
+    /// -- the frame owes for the rows; the naming owing nothing after it --
+    /// nothing owed once the row is named; lines read for paths whatever is
+    /// owed -- a line still wanted once the path is owed.
+    #[test]
+    fn a_pending_rows_path_awaits_its_naming() {
+        let run = |bytes: &[u8]| {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, bytes);
+            let mut p = Paths::new(None, Forms::DEFAULT);
+            p.set(Turned::On);
+            let _ = p.observe(&t, at());
+            p.set_pending(
+                [Pended::row(baud_domain::Row::from_index(0))].into_iter(),
+                core::iter::empty(),
+            );
+            let mut w = Pended {
+                t,
+                p,
+                l: Lines::default(),
+                u: Uris::default(),
+            };
+            let before = w.p.wants(u64::from(b'/').to_be_bytes());
+            w.frame();
+            let frame = w.p.owes();
+            let wants = (before, w.p.wants(u64::from(b'/').to_be_bytes()));
+            let naming = w.collect();
+            w.name(&[baud_domain::Row::ZERO]);
+            let after = w.p.owes();
+            let asked = w.collect();
+            (frame, wants, naming, after, asked)
+        };
+        let (frame, wants, naming, after, asked) = run(b"/etc/hosts\r\n");
+        assert_eq!(frame, Some(Owes::Path), "a frame owes the naming");
+        assert_eq!(wants, (true, false), "no line read for paths once owed");
+        assert_eq!(naming, Vec::<Vec<u8>>::new(), "the naming asks nothing");
+        assert_eq!(after, Some(Owes::Path), "and owes the batch after it");
+        assert_eq!(asked, [b"/etc/hosts".to_vec()], "which asks");
+        let (frame, wants, _, after, asked) = run(b"% \r\n");
+        assert_eq!(wants, (true, true), "the control: read while a path may be");
+        assert_eq!(frame, Some(Owes::Rows), "the control: no path");
+        assert_eq!(after, None, "the control: nothing after its naming");
+        assert_eq!(asked, Vec::<Vec<u8>>::new());
+    }
+
+    /// **A path on a row still to be named whose answer is kept owes the
+    /// naming, and nothing after it**: `/etc/hosts` asked and found on row
+    /// 0, then printed again on row 1, whose writer is still to be named.
+    /// A frame owes a batch for a path; the naming batch's collection asks
+    /// nothing and notes the answer kept ([`Awaiting::Cached`]); once the
+    /// row is named nothing more is owed, and the next frame draws both
+    /// rows' marks from the kept answer. Break: a kept answer awaited as
+    /// none is -- a path owed after the naming.
+    #[test]
+    fn a_cached_one_awaits_nothing_once_named() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"/etc/hosts\r\n");
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let _ = p.observe(&t, at());
+        p.written_under(
+            Seen::Named(Front::Local),
+            Pended::row(baud_domain::Row::from_index(0)),
+        );
+        let mut w = Pended {
+            t,
+            p,
+            l: Lines::default(),
+            u: Uris::default(),
+        };
+        let asked = w.collect();
+        assert_eq!(asked, [b"/etc/hosts".to_vec()], "the control");
+        let _ =
+            w.p.merge_into(asked.into_iter().map(|a| (a, Probe::Exists)), &mut w.l);
+        feed(&mut w.t, b"/etc/hosts\r\n");
+        w.p.set_pending(
+            [Pended::row(baud_domain::Row::from_index(1))].into_iter(),
+            core::iter::empty(),
+        );
+        w.frame();
+        assert_eq!(w.p.owes(), Some(Owes::Path), "a frame owes the naming");
+        assert_eq!(w.collect(), Vec::<Vec<u8>>::new(), "nothing asked");
+        w.name(&[baud_domain::Row::from_index(1)]);
+        assert_eq!(w.p.owes(), None, "nothing after the naming");
+        w.frame();
+        assert_eq!(runs(&w.l), [(0, 0, 9), (1, 0, 9)], "both drawn");
+    }
+
+    /// **A row a frame read while only rows still to be named were read
+    /// is read again once an answer is drawn**: `/etc/hosts` on row 0,
+    /// asked by a collection, with row 5's writer still to be named; then
+    /// `/etc/hosts` again on row 1, written here, read by a frame under
+    /// [`Reads::Pending`], which keeps no run for it; then the answer,
+    /// found. Both rows draw it. Break: [`Reads::Pending`] counted as
+    /// reading paths for [`Unread`] -- row 1 is not read again, and stays
+    /// unmarked.
+    #[test]
+    fn a_row_read_while_only_pending_rows_are_read_is_read_again() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"/etc/hosts\r\n");
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        p.set(Turned::On);
+        let _ = p.observe(&t, at());
+        p.all_written_here();
+        p.set_pending(
+            [Pended::row(baud_domain::Row::from_index(5))].into_iter(),
+            core::iter::empty(),
+        );
+        let mut w = Pended {
+            t,
+            p,
+            l: Lines::default(),
+            u: Uris::default(),
+        };
+        let asked = w.collect();
+        assert_eq!(asked, [b"/etc/hosts".to_vec()], "the control");
+        feed(&mut w.t, b"/etc/hosts\r\n");
+        w.frame();
+        let _ =
+            w.p.merge_into(asked.into_iter().map(|a| (a, Probe::Exists)), &mut w.l);
+        w.frame();
+        assert_eq!(runs(&w.l), [(0, 0, 9), (1, 0, 9)], "both drawn");
     }
 
     /// **`paths = "off"` reads and asks nothing**, and drops what it had; a
