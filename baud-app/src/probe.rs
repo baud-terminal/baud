@@ -4545,6 +4545,49 @@ mod tests {
         );
     }
 
+    /// **W1 under a held key: each `D` passes the floor with two scans**:
+    /// a batch asked about a path at 0, so the floor holds to a second;
+    /// then twenty of the shell's `D`s 33 ms apart from 100 ms, as Enter
+    /// repeats, with a turn every 4 ms, a read and a path owed at each,
+    /// and every scan sending a batch that only names -- the most a held
+    /// key can owe, a path on a new row at every frame. Between one `D` and
+    /// the next exactly two scans pass the floor, by the `D` and
+    /// [`GRANT_GAP`] apart, and the rest wait. Breaks: no cap (a [`Lift`]
+    /// never spent) -- five between one `D` and the next, one each
+    /// [`GRANT_GAP`]; no lift -- none.
+    #[test]
+    fn each_d_of_a_held_key_passes_the_floor_with_two_scans() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let gap = u64::try_from(GRANT_GAP.as_millis()).unwrap();
+        let mut p: Pace<Instant> = Pace::default();
+        p.saw(Taken(1), ms(0));
+        p.owe(ms(0), Owes::Path);
+        p.scanned(ms(0));
+        p.sent(ms(0), &[asked_path()]);
+        let mut read = 1;
+        for k in 0..20_u64 {
+            let d = 100 + 33 * k;
+            p.ended(shells_d(), ms(d));
+            let mut passed = Vec::new();
+            for now in (d..d + 33).step_by(4) {
+                read += 1;
+                p.saw(Taken(read), ms(now));
+                p.owe(ms(now), Owes::Path);
+                if let Some(due) = p.due().filter(|due| ms(now) >= due.at) {
+                    p.scanned(ms(now));
+                    p.sent(ms(now), &[]);
+                    passed.push((now - d, due.by));
+                }
+            }
+            assert_eq!(
+                passed,
+                [(0, By::Ended), (gap, By::Ended)],
+                "between D {k} and the next"
+            );
+        }
+    }
+
     /// **T4: a grant lapses [`SETTLE`] after its drain**: the `D` at 0,
     /// nothing owed; a read at 200 ms and a path met then: due 150 ms
     /// after that read, by the quiet. Break: no lapse -- due at 200 ms, by
@@ -12306,6 +12349,94 @@ mod tests {
         assert!(!got.sent.is_empty(), "named at all: {:?}", got.counts);
         assert_eq!(got.counts.by_ended, 0, "{:?}", got.counts);
         assert_eq!(got.counts.asked, 0, "{:?}", got.counts);
+    }
+
+    /// **Enter held at a prompt that shows a path names each new row and
+    /// asks once**: P7's shape with the same path on every prompt row, as a
+    /// prompt that shows its folder: forty of the shell's `D`s 33 ms apart,
+    /// each a cancelled line and a new prompt row `/etc/hosts % `, and
+    /// turns every 4 ms through them and two seconds after. The first `D`'s
+    /// chain names its row and asks about the path, laying the floor; each
+    /// later `D`'s row has its writer still to be named, so a batch names
+    /// it, and the answer kept since draws its mark. In all, at most one
+    /// batch naming a `D` and one batch asking; between one `D` and the
+    /// next, at most two batches passing the floor the asking one laid; and
+    /// no batch held under a grant (`Counts::held_granted`). The control
+    /// that the floor bound is live: `D`s inside the floor pass it. Breaks:
+    /// a kept answer asked again by each collection -- a batch asking at
+    /// every `D`; no lift -- none passing the floor. The cap itself, which
+    /// one naming batch a `D` never reaches here, is
+    /// [`each_d_of_a_held_key_passes_the_floor_with_two_scans`]'s.
+    #[test]
+    fn held_enter_at_a_path_prompt_names_each_row_and_asks_once() {
+        let enter = format!(
+            "\r\n\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07\x1b]133;A;aid=1\x07/etc/hosts % "
+        )
+        .into_bytes();
+        let mut steps = Vec::new();
+        for k in 0..40_u64 {
+            steps.push(Step::Drain(33 * k, vec![(enter.as_slice(), Some(1))]));
+            steps.push(Step::Turns {
+                from: 33 * k + 1,
+                to: 33 * (k + 1),
+                every: 4,
+            });
+        }
+        steps.push(Step::Turns {
+            from: 33 * 40,
+            to: 33 * 40 + 2000,
+            every: 4,
+        });
+        let ds: Vec<u64> = steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::Drain(at, _) => Some(*at),
+                _ => None,
+            })
+            .collect();
+        let got = timed(named_groups(), shells_sampler(), &steps);
+        let (mut asking, mut naming) = (Vec::new(), Vec::new());
+        let mut before = 0;
+        for &(at, asked, _) in &got.sent {
+            match asked == before {
+                true => naming.push(at),
+                false => asking.push(at),
+            }
+            before = asked;
+        }
+        assert_eq!(asking.len(), 1, "asking at {asking:?}: {:?}", got.sent);
+        assert!(
+            naming.len() <= ds.len(),
+            "{} naming for {} Ds: {:?}",
+            naming.len(),
+            ds.len(),
+            got.sent
+        );
+        let ceiling = u64::try_from(CEILING.as_millis()).unwrap();
+        let floor = |at: u64| asking[0] < at && at < asking[0] + ceiling;
+        let mut passed = 0;
+        for (k, &d) in ds.iter().enumerate() {
+            let next = ds.get(k + 1).copied().unwrap_or(u64::MAX);
+            let lifted = got
+                .sent
+                .iter()
+                .filter(|s| d <= s.0 && s.0 < next && s.2 == By::Ended && floor(s.0))
+                .count();
+            assert!(
+                lifted <= 2,
+                "{lifted} past the floor after D {k}: {:?}",
+                got.sent
+            );
+            passed += lifted;
+        }
+        assert!(passed >= 20, "the control: {passed} passed the floor");
+        assert_eq!(got.counts.held_granted, 0, "{:?}", got.counts);
+        println!(
+            "held Enter at a path prompt: {} batches, {} naming, asking at {asking:?}, {passed} past the floor, {:?}",
+            got.sent.len(),
+            naming.len(),
+            got.counts
+        );
     }
 
     /// `ls` listing `/etc/hosts` on its `D`, its batches answered by
