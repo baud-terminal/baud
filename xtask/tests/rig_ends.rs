@@ -19,16 +19,19 @@
 //!   act's `Ends` from `run_call`'s `match act`, and each `Ends`' bound
 //!   from `run`'s `match ends`. An `Ends` that waits for a sentinel ends
 //!   on it, its backstop printing a label of its own. One that waits for
-//!   the effects alone, under `BOUND`, ends on them while the row passes;
-//!   but a row whose recorded failure is `NotRun` passes by reaching that
-//!   bound, a timeout on its success path: a duration.
+//!   the effects alone, under `BOUND`, ends on them while the row passes,
+//!   if `run` says on a line of its own that the bound passed with an
+//!   effect owed (`bound passed before its effects`); with no such line,
+//!   reaching it reads as an iteration with nothing to say, which cannot
+//!   tell a lost effect from a late program, and the row ends on wall
+//!   time. A row whose recorded failure is `BoundPassed` passes by reaching
+//!   that bound, a timeout on its success path: a duration, labelled or not.
 //!
 //! **A hang bound that only fails is allowed**, and told apart by its
 //! label: [`Kind::Bound`] names the line printed past it, which the check
-//! finds in the file. A bound reached with no line of its own -- `BOUND`
-//! read as `NotRun`, which cannot tell a lost effect from a late program --
-//! is [`Kind::Unlabelled`]: not an end on the success path, and listed
-//! apart from the offenders.
+//! finds in the file. A wait's bound reached with no line of its own is
+//! [`Kind::Unlabelled`]: not an end on the success path, and listed apart
+//! from the offenders.
 //!
 //! **Sites** ([`SITES`]): every wall-clock wait in the rig's files -- an
 //! `elapsed()`, a deadline made from now, a count of passes, a `sleep`, a
@@ -105,7 +108,8 @@ const ENDS_ON_WALL_TIME: &[&str] = &[
     "a revoked device gives the GPU up at once",
     "one display link, paused, not made again per restart",
     "a remote command's printed path stays dark under its shell's D",
-    // An event row recorded as `NotRun`: each iteration waits out `BOUND`.
+    // An event row recorded as `BoundPassed`: each iteration waits out
+    // `BOUND`.
     "that Cmd-click, the window not believed key",
 ];
 
@@ -472,6 +476,18 @@ fn duration(files: &[&Source], name: &str) -> String {
         .unwrap_or_else(|| format!("{name} (no value found)"))
 }
 
+/// **Whether `run` says that a bound with no sentinel passed**, on a line
+/// of its own, when an iteration's effects owed are not all in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BoundLine {
+    /// An arm of its `match` on how the iteration ended has no sentinel
+    /// (`None`) and prints `bound passed before`.
+    Said,
+    /// No such arm: the bound reached reads as an iteration with nothing
+    /// to say.
+    Unsaid,
+}
+
 /// **How the child ends each kind of row**, read from its source.
 struct Ends {
     /// The frame rig's `RigFrameTicks` that end on `rig.attempts` passes.
@@ -485,6 +501,9 @@ struct Ends {
     act_ends: BTreeMap<String, String>,
     /// Each `Ends`' bound, and whether it waits for a sentinel.
     ends_bound: BTreeMap<String, (String, bool)>,
+    /// Whether `run` says that an iteration with no sentinel passed its
+    /// bound with an effect owed.
+    bound_line: BoundLine,
     /// Each cause's acts (`run_arm`); a cause naming none takes its
     /// gesture's.
     cause_acts: BTreeMap<String, Vec<String>>,
@@ -573,6 +592,14 @@ fn ends(t: &Tree) -> Result<Ends, String> {
             ends_bound.insert(e, (bound.clone(), sentinel));
         }
     }
+    let said = block_after(rig, "match (ended, holds(&got, each), sentinel)", run)
+        .ok_or("rig.rs: no `match` on how an iteration ended")?;
+    let bound_line = match arms(rig, said).iter().any(|(pattern, body)| {
+        pattern.starts_with("(None") && body.contains("\"bound passed before")
+    }) {
+        true => BoundLine::Said,
+        false => BoundLine::Unsaid,
+    };
     let src = &t.event_rig;
     let run_arm = src
         .skel
@@ -593,6 +620,7 @@ fn ends(t: &Tree) -> Result<Ends, String> {
         by_event,
         act_ends,
         ends_bound,
+        bound_line,
         cause_acts,
     })
 }
@@ -602,10 +630,8 @@ fn ends(t: &Tree) -> Result<Ends, String> {
 enum End {
     /// Its event, any bound past it a labelled failure.
     Event,
-    /// Its event while it passes, the bound past it read as the row's own
-    /// failure with no label of its own.
-    Unlabelled(String),
-    /// A duration: why.
+    /// A duration -- a count of passes, a bound reached on the success
+    /// path, or one reached with no line of its own: why.
     WallTime(String),
     /// Not told: why. Red.
     Unknown(String),
@@ -648,7 +674,6 @@ fn end_of(row: &Row, e: &Ends, t: &Tree) -> End {
                 (true, Some(a)) => vec![a.clone()],
                 (true, None) => return End::Unknown(format!("Cause::{cause}: no act found")),
             };
-            let mut unlabelled = None;
             for a in &acts {
                 let Some(ends) = e.act_ends.get(a) else {
                     return End::Unknown(format!("RigAct::{a}: on no arm of `run_call`"));
@@ -660,18 +685,20 @@ fn end_of(row: &Row, e: &Ends, t: &Tree) -> End {
                     continue;
                 }
                 let value = duration(&files, bound);
-                if recorded.as_deref() == Some("NotRun") {
+                if recorded.as_deref() == Some("BoundPassed") {
                     return End::WallTime(format!(
                         "RigAct::{a}, Ends::{ends}: each iteration waits out {bound} ({value}); \
-                         its recorded failure, NotRun, is that bound reached"
+                         its recorded failure, BoundPassed, is that bound reached"
                     ));
                 }
-                unlabelled = Some(format!(
-                    "RigAct::{a}, Ends::{ends}: ends on its effects; {bound} ({value}) reached \
-                     reads as NotRun, with no label of its own"
-                ));
+                if e.bound_line == BoundLine::Unsaid {
+                    return End::WallTime(format!(
+                        "RigAct::{a}, Ends::{ends}: {bound} ({value}) reached reads as an \
+                         iteration with nothing to say, with no line of its own"
+                    ));
+                }
             }
-            unlabelled.map_or(End::Event, End::Unlabelled)
+            End::Event
         }
     }
 }
@@ -733,14 +760,6 @@ fn every_rig_row_that_ends_on_wall_time_is_listed() {
         found.len(),
         report(&judged)
     );
-    for (r, e) in &judged {
-        if let End::Unlabelled(why) = e {
-            println!(
-                "  unlabelled bound, {EVENT_RIG}:{} {:?}: {why}",
-                r.line, r.name
-            );
-        }
-    }
     assert!(
         unknown.is_empty(),
         "rows whose end cannot be told: {unknown:#?}"
@@ -778,8 +797,9 @@ fn no_rig_row_ends_on_wall_time() {
 
 /// **The check's own controls**, on rows written here over the child's
 /// real source: a frame row on a count of passes is named and one on its
-/// event is not; an event row recorded as `NotRun` is named and a green
-/// one is not, its bound unlabelled; a frame row on an arm the run's end
+/// event is not; an event row recorded as `BoundPassed` is named and a
+/// green one is not, its bound said on a line of its own -- and named
+/// once the child's line is taken out; a frame row on an arm the run's end
 /// does not have is unclassified, never passed.
 #[test]
 fn the_check_names_a_count_of_passes_and_not_an_event() {
@@ -811,7 +831,10 @@ fn the_check_names_a_count_of_passes_and_not_an_event() {
         frame("on a count", "Withheld"),
         frame("on its event", "UntilAsked"),
         frame("on no arm", "Sideways"),
-        event("waits out its bound", "RowState::Control(Failure::NotRun)"),
+        event(
+            "waits out its bound",
+            "RowState::Control(Failure::BoundPassed)"
+        ),
         event("ends on its effect", "RowState::Green"),
     );
     t.event_rig = lex(&text);
@@ -830,9 +853,18 @@ fn the_check_names_a_count_of_passes_and_not_an_event() {
         matches!(end("waits out its bound"), End::WallTime(_)),
         "{judged:#?}"
     );
+    assert_eq!(end("ends on its effect"), End::Event);
+    // The child's line taken out, the same green row reaches its bound with
+    // nothing said: wall time.
+    let said = "\"bound passed before";
+    assert!(t.rig.code.contains(said), "the child says no bound passed");
+    t.rig = lex(&t.rig.code.replace(said, "\"passed before"));
+    let unsaid = crate::judged(&t);
     assert!(
-        matches!(end("ends on its effect"), End::Unlabelled(_)),
-        "{judged:#?}"
+        unsaid
+            .iter()
+            .any(|(r, e)| r.name == "ends on its effect" && matches!(e, End::WallTime(_))),
+        "{unsaid:#?}"
     );
 }
 

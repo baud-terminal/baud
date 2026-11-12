@@ -76,8 +76,11 @@ enum Failure {
     InCallback(EffectKind, Nested),
     /// The child aborted.
     Aborted,
-    /// No effect within the bound.
-    NotRun,
+    /// **The bound passed with an effect owed** (`Ends::Bound`): the
+    /// child's line of its own, `bound passed before its effects`, says
+    /// what the iteration owed and what ran. Never read from an iteration
+    /// with nothing to say: an effect lost and a program late both say so.
+    BoundPassed,
     /// An iteration that ends on an event met neither its effects nor the
     /// program's sentinel before the backstop ([`Cause::ProgramUntil`]):
     /// the rig stopped waiting, which says nothing of the effect.
@@ -582,7 +585,8 @@ const SITES: [Site; 32] = [
     // then the sentinel, a clear, written last every time, so the
     // iteration ends on the clear and finds the raise before it, or no
     // raise (Unanswered: a bell lost); never on the rig's two seconds,
-    // where a lost bell and a program late to print both read NotRun.
+    // where a lost bell and a program late to print both read
+    // BoundPassed.
     Site {
         name: SiteName("the bell's raise, mode 1043"),
         cause: Cause::ProgramUntil(
@@ -599,7 +603,7 @@ const SITES: [Site; 32] = [
     // **The same raise, its program late on purpose**: the shell sleeps
     // 2.5 s before the bell, past the rig's two-second bound, the wall time
     // a loaded machine can take. Break: the row ended on that bound
-    // (`Cause::Program`), and every arm reads NotRun.
+    // (`Cause::Program`), and every arm reads BoundPassed.
     Site {
         name: SiteName("the bell's raise, mode 1043, its program late"),
         cause: Cause::ProgramUntil(
@@ -864,7 +868,7 @@ const SITES: [Site; 32] = [
             ..LINK_CLICK
         }),
         expect: Expect::effect(&[EffectKind::Command]),
-        state: RowState::Control(Failure::NotRun),
+        state: RowState::Control(Failure::BoundPassed),
     },
     // **A notification's click**, the delegate's as the framework would
     // call it: the window brought forward on the turn, the app activated
@@ -891,14 +895,14 @@ const SITES: [Site; 32] = [
     // written as its first half and, 200 ms on, the rest. The wall time a
     // loaded machine took when the shell waited a second for it, and the
     // split a tty can make of one write, each read a reply as none: the row
-    // went NotRun, then Unanswered, on runs that fell either way. The hold
-    // is past the shell's old second and the rig's two-second bound, so
-    // neither decides the row: the iteration ends on the copy or the
-    // shell's sentinel, the rig's wait a backstop that says when it is
-    // reached. Breaks: the shell's wait back to a second (`time 10`), or
-    // its read back to the first bytes (`min 0`), and every arm reads the
-    // sentinel, Unanswered; the hold past the backstop, and every arm reads
-    // TimedOut, never NotRun.
+    // read no effect within the bound, then Unanswered, on runs that fell
+    // either way. The hold is past the shell's old second and the rig's
+    // two-second bound, so neither decides the row: the iteration ends on
+    // the copy or the shell's sentinel, the rig's wait a backstop that says
+    // when it is reached. Breaks: the shell's wait back to a second
+    // (`time 10`), or its read back to the first bytes (`min 0`), and every
+    // arm reads the sentinel, Unanswered; the hold past the backstop, and
+    // every arm reads TimedOut, never the bound passed.
     Site {
         name: SiteName("a kitty picture's OK, sent late"),
         cause: Cause::ProgramUntil(
@@ -975,7 +979,7 @@ const LINK_CLICK: Gesture = Gesture {
 /// comes.
 fn iterations(site: &Site) -> Iterations {
     match site.state {
-        RowState::Control(Failure::NotRun) => Iterations(3),
+        RowState::Control(Failure::BoundPassed) => Iterations(3),
         _ => site.cause.shape().iterations,
     }
 }
@@ -1238,10 +1242,16 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     if lines.contains(&"unanswered") {
         return Observed::Failed(Failure::Unanswered);
     }
+    // Before the records: the line is no record, and a row whose bound
+    // passed with an effect owed reads as that bound, not as the child's
+    // garble.
+    if lines
+        .iter()
+        .any(|l| l.starts_with("bound passed before its effects"))
+    {
+        return Observed::Failed(Failure::BoundPassed);
+    }
     for line in &lines {
-        if *line == "none" {
-            return Observed::Failed(Failure::NotRun);
-        }
         let Some(r) = Record::parse(line) else {
             return Observed::Failed(Failure::Child);
         };

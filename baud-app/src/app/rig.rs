@@ -547,6 +547,15 @@ fn post(waker: Waker) {
     let _ = std::thread::spawn(move || waker.wake()).join();
 }
 
+/// Effect kinds by their words, `,` between, `-` for none.
+fn words(kinds: impl Iterator<Item = probe::EffectKind>) -> String {
+    let said: Vec<&str> = kinds.map(probe::EffectKind::word).collect();
+    match said.is_empty() {
+        true => "-".to_owned(),
+        false => said.join(","),
+    }
+}
+
 /// Whether `got` holds each of `each`, as many times as `each` names it.
 fn holds(got: &[probe::Record], each: &[probe::EffectKind]) -> bool {
     each.iter().all(|k| {
@@ -792,7 +801,15 @@ fn run(
         match (ended, holds(&got, each), sentinel) {
             (Some(_), false, true) => println!("unanswered"),
             (Some(_), false, false) => println!("timed out at the backstop"),
-            _ if got.is_empty() => println!("none"),
+            // **[`BOUND`] passed with an effect still owed** (`Ends::Bound`,
+            // no sentinel): said on a line of its own, with what the
+            // iteration owed and what ran, so a lost effect reads as the
+            // bound it passed and never as an iteration with nothing to say.
+            (None, false, _) => println!(
+                "bound passed before its effects: owed {}, ran {}",
+                words(each.iter().copied()),
+                words(got.iter().map(|r| r.kind)),
+            ),
             _ => {}
         }
         for r in &got {
