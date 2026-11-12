@@ -44,6 +44,30 @@
 //! names against that folder, as a shell reporting it by `OSC 7` would make
 //! them: the report is fed before the recording, naming a host the paths
 //! are told is this machine's, and the folder is never looked at.
+//! `FRAME_FORGET=on` has the `paths` arms forget, after each read, what the
+//! read's record says it erased whole (`ReadRecord::erased`), as the app's
+//! `Probes::erased` does for a drain of one part: `Erased::of` on the record
+//! and the read's lines, placed as `keep::Counts` places a part's, on both
+//! screens, then `Paths::forget_erased` for each run; a record that
+//! renumbered its lines forgets nothing, as the app's drain skips it. It
+//! also takes the record after every read, which `off`, the default and the
+//! row of a build before it, does not; both run inside the frame's clock
+//! and the scan's. Probes' cuts of the spans it keeps are left out: the
+//! bench keeps none. Under the row it prints the best rep's forgets that
+//! moved a fact (`Moved::Yes`) and those that moved nothing, the refiles --
+//! reads whose forgets left rows to read again (`Reader::refiled`), one a
+//! read -- and the records that overflowed and the runs the read's lines
+//! did not place, which forget nothing. The bench files no writer, since it
+//! has no `Probes`, so its store holds no fact and every forget here moves
+//! nothing: the arm prices the record, the placing and the forget's search,
+//! and the refile a moving forget owes is priced by no arm of this bench.
+//! `FRAME_FORGET=on` with any other `FRAME_LINKS` is refused. The app's
+//! source check `only_a_reads_record_ends_a_lines_facts` counts the calls
+//! of `forget_erased` in `paths.rs` and `probe.rs` alone, so this call is
+//! outside it, and that holds what the check guards: the app's facts end
+//! only by a read's record. The bench is not the app; it compiles
+//! `paths.rs` on its own, calls it from the same record, and ends no fact
+//! the app keeps.
 //! `FRAME_READ=<bytes>` paints a frame after each read of that many bytes
 //! in the replay above, 4096 unless set: 1024 is what Darwin's tty hands a
 //! read. The count of lines retired moves by what each read retired, as the
@@ -231,6 +255,69 @@ enum Switch {
     Off,
 }
 
+/// **What `FRAME_FORGET=on`'s forgets did over a rep** ([`forget_read`]).
+#[derive(Clone, Copy, Default)]
+struct Forgets {
+    /// Forgets that ended a fact (`Moved::Yes`), and those that moved
+    /// nothing.
+    moved: baud_render::Tally,
+    idle: baud_render::Tally,
+    /// Reads whose forgets left rows to read again, one a read.
+    refiles: baud_render::Tally,
+    /// Records that held more erasures than they have room for, and runs
+    /// the read's lines did not place: neither forgets anything.
+    overflowed: baud_render::Tally,
+    unplaced: baud_render::Tally,
+}
+
+/// **`FRAME_FORGET=on`: what the read just fed erased whole, forgotten**,
+/// as the app's `Probes::erased` forgets a part's: the read's record taken,
+/// its lines placed as `keep::Counts` places them -- `base` the primary's
+/// window top and the count that numbered it as the read began, against
+/// the top as it ended -- then `Erased::of` on each screen and
+/// `Paths::forget_erased` for each run, each counted into `n` by whether
+/// it moved the answers' generation. A record that renumbered the lines
+/// forgets nothing, as the app's drain skips it, and one that overflowed
+/// stops the screens there, as `Probes::erased` does.
+fn forget_read(
+    t: &mut Term<'_>,
+    printed: &mut paths::Paths,
+    base: (baud_domain::LineIdx, baud_render::Scrolled),
+    n: &mut Forgets,
+) {
+    let rec = t.take_record();
+    if rec.renumbered().is_some() {
+        return;
+    }
+    let lines = paths::CoreLines::of(Some(base)).part(Some(t.history_mark().line()));
+    let was = printed.generation();
+    for screen in [baud_core::Screen::Normal, baud_core::Screen::Alternate] {
+        match paths::Erased::of(&rec, &lines, printed, screen) {
+            paths::ErasedLines::Overflowed => {
+                n.overflowed.bump();
+                break;
+            }
+            paths::ErasedLines::Placed(erased, unplaced) => {
+                for _ in 0..unplaced {
+                    n.unplaced.bump();
+                }
+                for e in erased {
+                    let before = printed.generation();
+                    printed.forget_erased(e);
+                    if printed.generation() == before {
+                        n.idle.bump();
+                    } else {
+                        n.moved.bump();
+                    }
+                }
+            }
+        }
+    }
+    if printed.generation() != was {
+        n.refiles.bump();
+    }
+}
+
 /// **Every allocation counted**, for `count-allocs`: only in a build taken for
 /// these counts, never in a timed one.
 #[cfg(feature = "count-allocs")]
@@ -398,6 +485,17 @@ fn main() {
             panic!("FRAME_LINKS is on, hover, paths, paths-exist, no-app or off, not {other}")
         }
     };
+    // `FRAME_FORGET`: whether the `paths` arms forget what each read
+    // erased whole; off unless asked, the row of a build before it.
+    let forget = match std::env::var("FRAME_FORGET").as_deref() {
+        Ok("off") | Err(_) => Switch::Off,
+        Ok("on") => Switch::On,
+        Ok(other) => panic!("FRAME_FORGET is on or off, not {other}"),
+    };
+    assert!(
+        matches!(forget, Switch::Off) || matches!(links, Links::Paths | Links::PathsExist),
+        "FRAME_FORGET=on prices the paths arms: FRAME_LINKS=paths or paths-exist"
+    );
     let fresh = || {
         let mut r = Renderer::new(
             Stack::new(&faces).unwrap(),
@@ -463,6 +561,8 @@ fn main() {
         collect_rows: baud_render::Tally,
         answer_rows: baud_render::Tally,
         marks: baud_render::Tally,
+        /// What `FRAME_FORGET=on`'s forgets did, summed over the frames.
+        forgets: Forgets,
         /// Each frame's time, and its allocations.
         times: Vec<Duration>,
         allocs: Vec<u64>,
@@ -510,6 +610,7 @@ fn main() {
             collect_rows: baud_render::Tally::default(),
             answer_rows: baud_render::Tally::default(),
             marks: baud_render::Tally::default(),
+            forgets: Forgets::default(),
             times: Vec::with_capacity(data.len() / 4096 + 1),
             allocs: Vec::with_capacity(data.len() / 4096 + 1),
         };
@@ -573,6 +674,13 @@ fn main() {
                 still_left -= 1;
             }
             let n = read.min(data.len() - at);
+            // `FRAME_FORGET=on`: the primary's window top and the count that
+            // numbers it as the read begins, which place the lines its
+            // record names; none for a frame with nothing read.
+            let began = match forget {
+                Switch::On if n > 0 => Some((t.history_mark().line(), scrolled)),
+                Switch::On | Switch::Off => None,
+            };
             let before = t.rotation();
             if n > 0 {
                 t.write_at(BytePos::ZERO, &data[at..at + n]);
@@ -593,6 +701,9 @@ fn main() {
                 }
                 Links::On | Links::Hover | Links::Paths | Links::PathsExist | Links::NoApp => {
                     let s0 = std::time::Instant::now();
+                    if let Some(base) = began {
+                        forget_read(&mut t, &mut printed, base, &mut rep.forgets);
+                    }
                     if printed.observe(&t, scrolled) == paths::Moved::Yes {
                         lines.forget();
                     }
@@ -1296,6 +1407,7 @@ fn main() {
         collect_rows,
         answer_rows,
         marks,
+        forgets,
         times,
         allocs,
     } = best.unwrap();
@@ -1351,6 +1463,16 @@ fn main() {
             println!(
                 "  paths asked {}, answered by the bench, no file system asked",
                 asked.value()
+            );
+        }
+        if let Switch::On = forget {
+            println!(
+                "  forgets moved {} moved nothing {} refiles {}; records overflowed {}, runs not placed {}",
+                forgets.moved.value(),
+                forgets.idle.value(),
+                forgets.refiles.value(),
+                forgets.overflowed.value(),
+                forgets.unplaced.value(),
             );
         }
         println!("  struck runs added {}", scans.struck);
