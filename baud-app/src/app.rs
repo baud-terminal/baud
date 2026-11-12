@@ -19,9 +19,9 @@ use crate::host::{
     startup_first, startup_mark, startup_note,
 };
 use crate::keep::{
-    Before, Counts, KeptText, Numbered, Ring, followed, kept_across_resize, live_moved, oldest,
-    reset_in, scrolled_off_the_top, snap_live, stale_in_moved_rows, switched, tracked_highlight,
-    whole_screen_scrolled,
+    Before, Carry, Counts, KeptText, Numbered, Ring, below_the_screen, followed,
+    kept_across_resize_owing, live_moved, oldest, reset_in, scrolled_off_the_top, snap_live,
+    stale_in_moved_rows, switched, tracked_highlight, whole_screen_scrolled,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::layouts::KeyLayout;
@@ -4935,6 +4935,10 @@ struct Driver {
     /// before the feed ([`Relaid`]): set where the re-cut numbers the
     /// window's count, taken at the pump's gate.
     relaid: Relaid,
+    /// Whether the selection still owes the read in flight its carry
+    /// ([`Carry`]): owed from the pump's readings to its gate, where a
+    /// relayout leaves the selection's lines to the block.
+    carry: Carry,
     /// What the style observer last saw, for `pump` to apply.
     style: PendingStyle,
     /// Whether the palette follows the appearance at all: a config that
@@ -9927,7 +9931,8 @@ mod refont_tests {
 
 #[cfg(test)]
 mod resize_selection_tests {
-    use super::{Counts, kept_across_resize};
+    use super::Counts;
+    use crate::keep::kept_across_resize;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
     use baud_render::{Grain, Scrolled, Selection, Span};
@@ -12672,9 +12677,23 @@ impl Renumbered {
 /// readings the pump took before its feed (`Driver::relayout`): the status
 /// line's row given up or taken back, the scrollbar's gutter, a program's
 /// font, each where the window keeps its size. The re-cut resizes the core
-/// and numbers the window's count itself (`kept_across_resize`), so the
-/// block after the feed runs, reads what the resize rotated, and takes the
-/// count it left ([`Relaid::numbered`]).
+/// and numbers the window's count itself (`kept_across_resize_owing`), so
+/// the block after the feed runs, reads what the resize rotated, and takes
+/// the count it left ([`Relaid::numbered`]).
+///
+/// **A relayout inside a turn comes only from its feed.** The status
+/// line's type is written only by `DECSSDT` and `RIS` (the core's
+/// `select_status_type` and `reset_status`), `?30`, the scrollbar, only by
+/// `set_private_mode` -- `SM`/`RM` and `XTRESTORE`'s restore -- and `RIS`,
+/// and a program's font only by the requests a read collects
+/// (`Term::font_requests`); the window's own copies of the first two are
+/// written only by `status_line` and `scrollbar_mode`, which the pump
+/// calls after its feed. The feeds outside the read leave all three: the
+/// child's end (`Driver::ended`) feeds `held::written`, whose `DECSTR`
+/// keeps the status line's type and `?30`, and the refusal said at
+/// opening (`pty::say_refused`) is text. So `Yes` with nothing fed does
+/// not happen; it stays a fact of [`Moved::of`] so that a relayout from
+/// anywhere else still runs the block.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Relaid {
     No,
@@ -12723,7 +12742,8 @@ impl Moved {
 
 #[cfg(test)]
 mod moved_tests {
-    use super::{Counts, Drain, Moved, Numbered, Relaid, Renumbered, kept_across_resize};
+    use super::{Counts, Drain, Moved, Numbered, Relaid, Renumbered};
+    use crate::keep::kept_across_resize;
     use crate::reads::Fed;
     use crate::width::Grid;
     use baud_core::{Owned, Term};
@@ -13026,6 +13046,298 @@ mod moved_tests {
             .expect("the re-cut said");
         assert!(numbered < set, "said where the count is numbered");
         assert_eq!(relayout.matches(concat!("Relaid::", "Yes")).count(), 1);
+    }
+
+    /// A one-line selection on `line`, columns 0 to 6.
+    fn on_line(line: baud_render::AbsLine) -> baud_render::Selection {
+        baud_render::Selection::at(
+            baud_render::Span {
+                start: baud_render::Point::new(line, baud_domain::Col::ZERO),
+                end: baud_render::Point::new(line, baud_domain::Col::at_index(6)),
+            },
+            baud_render::Grain::Cell,
+        )
+    }
+
+    /// **A read scrolls a selection off the top by its own two tops, and
+    /// not by the re-cut's**: `?1040` reset, a selection on the screen's
+    /// top line, and a read that retires it into the history and puts the
+    /// status line up, whose relayout gives a row up and retires another.
+    /// Judged on the read's two tops -- the window's before it and the one
+    /// its reading numbers -- it goes; on the re-cut's count at both ends,
+    /// which is what the block read when it took the older top after the
+    /// relayout had moved the window's count, it stayed. And a read that
+    /// only puts the status line up, whose re-cut alone takes the line up:
+    /// on the read's two tops it stays, as across any change of height,
+    /// where the re-cut's count at the newer end would drop it.
+    #[test]
+    fn a_read_scrolls_a_selection_off_the_top_by_its_own_two_tops() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        for (read, retired, scrolled_off) in [
+            (&b"more\r\n\x1b[2$~"[..], Rows::of_count(1), true),
+            (b"\x1b[2$~", Rows::ZERO, false),
+        ] {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let lines: Vec<u8> = (0..40)
+                .flat_map(|i| format!("line {i:02}\r\n").into_bytes())
+                .collect();
+            feed(&mut t, &lines);
+            feed(&mut t, b"\x1b[?1040l");
+            assert!(
+                !t.resource(baud_core::Resource::KeepSelection),
+                "the control: ?1040 reset"
+            );
+            let mut counts = Counts::starting(
+                &t,
+                Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+            );
+            let start = counts.numbered(&t, None).scrolled();
+            let sel = on_line(start.top(Rows::ZERO));
+            let _ = crate::keep::Before::watched(&mut t, Some(&sel), start);
+            feed(&mut t, read);
+            assert_eq!(t.status_rows(), Rows::of_count(1), "the control: {read:?}");
+            assert!(
+                !crate::keep::stale_in_moved_rows(&t),
+                "the control: the read wrote nothing on it: {read:?}"
+            );
+            let fed = counts.numbered(&t, None).scrolled();
+            assert_eq!(fed, start.advanced(retired), "the control: {read:?}");
+            let tops = (start.top(Rows::ZERO), fed.top(Rows::ZERO));
+            let was = (t.geometry().0, t.screen());
+            let _ = t.resize(&WinSize {
+                ws_col: 20,
+                ws_row: 9,
+            });
+            let rec = t.take_record();
+            let (_, recut) = kept_across_resize(&t, was, None, &mut counts, &rec);
+            assert_eq!(
+                recut,
+                fed.advanced(Rows::of_count(1)),
+                "the control: the re-cut retired a line: {read:?}"
+            );
+            assert_eq!(
+                crate::keep::scrolled_off_the_top(&t, &sel, tops),
+                scrolled_off,
+                "on the read's two tops: {read:?}"
+            );
+            let recut_top = recut.top(Rows::ZERO);
+            assert!(
+                !crate::keep::scrolled_off_the_top(&t, &sel, (recut_top, recut_top)),
+                "the control: the re-cut's count at both ends drops nothing: {read:?}"
+            );
+            assert!(
+                crate::keep::scrolled_off_the_top(&t, &sel, (tops.0, recut_top)),
+                "the control: the re-cut's count at the newer end drops it: {read:?}"
+            );
+        }
+    }
+
+    /// **The read's two tops are taken before the turn's relayouts**: the
+    /// pump is AppKit-bound, so the source is held. Both are read where the
+    /// feed's reading is numbered, before the status line's, the
+    /// scrollbar's and a program's font's relayout move the window's count,
+    /// and the block judges a selection scrolled off the top on them,
+    /// reading no top of its own. Break: the block reads the newer top
+    /// after the relayouts.
+    #[test]
+    fn the_reads_tops_are_taken_before_the_turns_relayouts() {
+        let pump = crate::no_appkit::fn_body(
+            include_str!("app.rs"),
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let once = |needle: &str| {
+            assert_eq!(
+                pump.matches(needle).count(),
+                1,
+                "once in the pump: {needle}"
+            );
+            pump.find(needle).expect("found")
+        };
+        let was = once(concat!(
+            "let top_was = ",
+            "self.app.scrolled.top(Rows::ZERO);"
+        ));
+        let tops = once(concat!(
+            "let tops = (top_was, ",
+            "numbered_now.top(Rows::ZERO));"
+        ));
+        assert!(once(concat!("let numbered_now = ", "numbered.scrolled();")) < was);
+        assert!(was < tops);
+        for relayout in [
+            concat!("self.status_", "line();"),
+            concat!("self.scrollbar_", "mode();"),
+            concat!("self.font_", "requests(&fonts_asked);"),
+        ] {
+            assert!(tops < once(relayout), "the tops before {relayout}");
+        }
+        let gate = once(concat!("\n        if turn == Moved", "::Moved {\n"));
+        let block = &pump[gate..];
+        assert!(
+            block.contains(concat!(
+                "scrolled_off_the_top(&self.app.term, ",
+                "&s, tops)"
+            )),
+            "judged on them"
+        );
+        for own in [concat!("let tops", " = "), concat!("let top_was", " = ")] {
+            assert!(!block.contains(own), "the block reads no top: {own}");
+        }
+    }
+
+    /// **A re-cut inside the turn leaves the selection's lines to its
+    /// carry**: forty lines on a ten-row screen and a selection on the
+    /// bottom row; a read scrolls a region of the lower five rows up one,
+    /// carrying the selection's text to the row above, and leaves the
+    /// cursor on row 6; a relayout gives a row up, which cuts the bottom
+    /// row under the screen. Judged before its carry -- the order a re-cut
+    /// inside the turn made -- the selection went with the cut row. Owed
+    /// its carry, the re-cut numbers the count and leaves it; carried, it
+    /// is on the screen's new bottom row, under nothing. Break: the re-cut
+    /// judges an owed selection.
+    #[test]
+    fn a_recut_inside_the_turn_leaves_the_selection_to_its_carry() {
+        use crate::keep::{Carry, below_the_screen, followed, kept_across_resize_owing};
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let lines = (0..40)
+            .map(|i| format!("line {i:02}"))
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        feed(&mut t, lines.as_bytes());
+        let mut counts = Counts::starting(
+            &t,
+            Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+        );
+        let start = counts.numbered(&t, None).scrolled();
+        let line = |r: usize| start.line(Rows::ZERO, baud_domain::Row::from_index(r));
+        let sel = on_line(line(9));
+        let _ = crate::keep::Before::watched(&mut t, Some(&sel), start);
+        feed(&mut t, b"\x1b[6;10r\x1b[10;1H\n\x1b[r\x1b[6;1H");
+        assert_eq!(
+            t.cursor().0,
+            baud_domain::Row::from_index(5),
+            "the control: the cursor on row 6"
+        );
+        assert!(
+            !crate::keep::stale_in_moved_rows(&t),
+            "the control: the region's scroll carried the line"
+        );
+        assert_eq!(
+            counts.numbered(&t, None),
+            Numbered::At(start),
+            "the control: the read retired nothing"
+        );
+        let was = (t.geometry().0, t.screen());
+        let _ = t.resize(&WinSize {
+            ws_col: 20,
+            ws_row: 9,
+        });
+        assert!(
+            t.watched_lines().is_some(),
+            "the control: the watch places its line across the re-cut"
+        );
+        let rec = t.take_record();
+        let (mut settled, mut owed) = (counts, counts);
+        let (judged, _) =
+            kept_across_resize_owing(&t, was, Some(sel), &mut settled, &rec, Carry::Settled);
+        assert!(
+            judged.is_none(),
+            "the control: judged before its carry, it went with the cut row"
+        );
+        let (mut kept, scrolled) =
+            kept_across_resize_owing(&t, was, Some(sel), &mut owed, &rec, Carry::Owed);
+        assert_eq!(scrolled, start, "the re-cut cut a row and retired none");
+        assert_eq!(kept, Some(sel), "owed its carry, the re-cut leaves it");
+        assert!(
+            below_the_screen(&t, &sel, scrolled),
+            "the control: uncarried, it reaches the cut row"
+        );
+        followed(&t, &mut kept, scrolled);
+        let kept = kept.expect("carried");
+        assert_eq!(
+            kept.ordered().0.line,
+            line(8),
+            "carried up a row with its text"
+        );
+        assert_eq!(kept.ordered().1.line, line(8));
+        assert!(
+            !below_the_screen(&t, &kept, scrolled),
+            "carried, it is on the new bottom row"
+        );
+    }
+
+    /// **The selection owes the read its carry through the turn's
+    /// relayouts**: the pump is AppKit-bound, so the source is held. Owed
+    /// from where the pump arms the watch on its lines, through the status
+    /// line's, the scrollbar's and a program's font's relayouts, settled at
+    /// the gate; `relayout` gives the re-cut what it owes; and on a turn a
+    /// re-cut was in, the block drops one under the screen after carrying
+    /// it and before the clip. Break: the drop on a turn with no re-cut.
+    #[test]
+    fn the_selection_owes_the_read_its_carry_through_the_turns_relayouts() {
+        let src = include_str!("app.rs");
+        let pump = crate::no_appkit::fn_body(
+            src,
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let once = |needle: &str| {
+            assert_eq!(
+                pump.matches(needle).count(),
+                1,
+                "once in the pump: {needle}"
+            );
+            pump.find(needle).expect("found")
+        };
+        let owed = once(concat!("self.carry = ", "Carry::Owed;"));
+        assert!(owed < once(concat!("let before = ", "Before::watched(")));
+        let settled = once(concat!("self.carry = ", "Carry::Settled;"));
+        for relayout in [
+            concat!("self.status_", "line();"),
+            concat!("self.scrollbar_", "mode();"),
+            concat!("self.font_", "requests(&fonts_asked);"),
+        ] {
+            assert!(
+                owed < once(relayout) && once(relayout) < settled,
+                "{relayout}"
+            );
+        }
+        assert!(settled < once(concat!("let turn = ", "Moved::of(")));
+        let carried = once(concat!(
+            "followed(&self.app.term, ",
+            "&mut self.app.selection, self.app.scrolled);"
+        ));
+        let relaid = once(concat!("if relaid == ", "Relaid::Yes\n"));
+        let below = once(concat!(
+            "below_the_screen(&self.app.term, ",
+            "&s, self.app.scrolled)"
+        ));
+        let clip = once(concat!(
+            ".is_some_and(|s| s.clip(oldest) ",
+            "== Clip::Cleared);"
+        ));
+        assert!(carried < relaid && relaid < below && below < clip);
+        let relayout = crate::no_appkit::fn_body(
+            src,
+            concat!(
+                "    fn relayout(&mut self, ",
+                "size: NSSize, scale: CGFloat) -> Drew {"
+            ),
+        );
+        assert!(
+            relayout.contains(concat!(
+                "&rec,\n                ",
+                "self.carry,\n            );"
+            )),
+            "the re-cut given what the selection owes"
+        );
     }
 }
 
@@ -13414,6 +13726,9 @@ impl Driver {
         // before -- the change a frame held, above, or a window's resize
         // between turns -- is in what `before` reads.
         self.relaid = Relaid::No;
+        // The selection owes the read its carry from the watch armed here
+        // to the block after the feed ([`Carry`]).
+        self.carry = Carry::Owed;
         let before = Before::watched(
             &mut self.app.term,
             self.app.selection.as_ref(),
@@ -13566,6 +13881,14 @@ impl Driver {
         let last = took.iter().rev().find_map(|(w, _)| w.record);
         let numbered = self.app.counts.numbered(&self.app.term, last.as_ref());
         let numbered_now = numbered.scrolled();
+        // The read's own two tops, the window's before it and the one its
+        // reading numbers, taken here, before a relayout in the turn moves
+        // the window's count by what its re-cut retired: a selection the
+        // read scrolled off the top goes below, and one the re-cut alone
+        // took up keeps its lines, as across any change of height
+        // (`kept_across_resize`).
+        let top_was = self.app.scrolled.top(Rows::ZERO);
+        let tops = (top_was, numbered_now.top(Rows::ZERO));
         let ended_at = numbered_now.line(Rows::ZERO, self.app.term.cursor().0);
         let ended = self.app.paths.line_on(self.app.term.screen(), ended_at);
         crate::link_layer::fed(
@@ -13637,6 +13960,7 @@ impl Driver {
         // What follows the block -- the find, the hover, the title and the
         // flush of what the child is owed -- runs on every turn.
         let relaid = std::mem::replace(&mut self.relaid, Relaid::No);
+        self.carry = Carry::Settled;
         let numbered = relaid.numbered(numbered, self.app.scrolled);
         let turn = Moved::of(
             fed,
@@ -13667,7 +13991,6 @@ impl Driver {
                 self.app.selection = None;
                 self.app.kept.dropped(&self.app.term);
             }
-            let top_was = self.app.scrolled.top(Rows::ZERO);
             self.app.scrolled = match numbered {
                 Numbered::At(s) => s,
                 // Taken back past the session's first line: a fresh terminal's
@@ -13678,8 +14001,8 @@ impl Driver {
                 }
             };
             // While `?1040` is reset, a selection the screen's scroll took off
-            // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`).
-            let tops = (top_was, self.app.scrolled.top(Rows::ZERO));
+            // the top goes, as xterm's reset disowns it (`scrolled_off_the_top`),
+            // judged on the read's own two tops, taken before any relayout.
             if self
                 .app
                 .selection
@@ -13688,6 +14011,18 @@ impl Driver {
                 self.app.selection = None;
             }
             followed(&self.app.term, &mut self.app.selection, self.app.scrolled);
+            // A re-cut inside the turn left the selection's lines to the carry
+            // (`kept_across_resize_owing`): one that reaches a row the shrink
+            // cut under the screen goes now, carried, and the clip below holds
+            // it to the history's end.
+            if relaid == Relaid::Yes
+                && self
+                    .app
+                    .selection
+                    .is_some_and(|s| below_the_screen(&self.app.term, &s, self.app.scrolled))
+            {
+                self.app.selection = None;
+            }
             match moved {
                 Ring::Retired(n) => {
                     // Smooth scroll: output scrolled the live screen up on the
@@ -15324,6 +15659,7 @@ impl Opening {
             owner: Owner::Free,
             deferred: Deferred::Nothing,
             relaid: Relaid::No,
+            carry: Carry::Settled,
             style: style.clone(),
             theme_choice,
             glass_cfg,
@@ -19061,12 +19397,13 @@ impl Driver {
             // keeps it on its lines (note V, V3). The core's record of the
             // resize, taken once, moves the counts and files the paths.
             let rec = self.app.term.take_record();
-            (self.app.selection, self.app.scrolled) = kept_across_resize(
+            (self.app.selection, self.app.scrolled) = kept_across_resize_owing(
                 &self.app.term,
                 was,
                 self.app.selection.take(),
                 &mut self.app.counts,
                 &rec,
+                self.carry,
             );
             // Inside a pump, after its feed: the block after the feed reads
             // what this re-cut rotated and takes the count it numbered.

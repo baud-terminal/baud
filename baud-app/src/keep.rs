@@ -561,16 +561,53 @@ pub(crate) fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrol
 /// by `rec`, the core's record of the resize (`Term::take_record`): the
 /// primary's re-cut renumbers its lines while the alternate screen is up
 /// too, and a change of height may move the alternate screen's rows, whose
-/// top the record says.
+/// top the record says. The Linux seat's; the macOS driver's relayout
+/// says what the selection owes ([`kept_across_resize_owing`]).
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn kept_across_resize(
+    term: &Term<'_>,
+    was: (Cols, Screen),
+    selection: Option<Selection>,
+    counts: &mut Counts,
+    rec: &baud_core::ReadRecord,
+) -> (Option<Selection>, Scrolled) {
+    kept_across_resize_owing(term, was, selection, counts, rec, Carry::Settled)
+}
+
+/// **Whether the selection still owes a read in flight its carry**
+/// ([`followed`]): from the readings a pump takes before its feed, which
+/// arm the core's watch on its lines ([`Before::watched`]), to the block
+/// after the feed that carries it by what the watch says. A resize inside
+/// that span -- a relayout the read asked for: the status line's row, the
+/// scrollbar's gutter, a program's font -- meets a selection whose lines
+/// the read has not yet moved ([`kept_across_resize_owing`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Carry {
+    Settled,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Owed,
+}
+
+/// `kept_across_resize` for a selection that may still owe a read in
+/// flight its carry ([`Carry`]). Owed, the count is numbered and the drops
+/// that hold wherever the read moved its lines are made -- a screen other
+/// than the primary, a count taken back past the session's first line, a
+/// change of columns -- and the two that read its lines are left to the
+/// block that carries it first: a line under the screen's bottom
+/// ([`below_the_screen`]) and the clip at the history's end. Judged on
+/// the lines the read had not yet moved, a selection a region's scroll
+/// carried up from the bottom row went with the row a shrink cut under
+/// the screen, and one clipped before its carry was moved from where the
+/// clip had put it.
+pub(crate) fn kept_across_resize_owing(
     term: &Term<'_>,
     (cols, screen): (Cols, Screen),
     selection: Option<Selection>,
     counts: &mut Counts,
     rec: &baud_core::ReadRecord,
+    carry: Carry,
 ) -> (Option<Selection>, Scrolled) {
     let numbered = counts.numbered(term, Some(rec));
-    let (now_cols, rows) = term.geometry();
     if screen != Screen::Normal || term.screen() != Screen::Normal {
         return (None, numbered.scrolled());
     }
@@ -578,20 +615,31 @@ pub(crate) fn kept_across_resize(
         Numbered::At(s) => s,
         Numbered::PastStart(s) => return (None, s),
     };
-    if now_cols != cols {
+    if term.geometry().0 != cols {
         return (None, scrolled);
     }
     let Some(mut sel) = selection else {
         return (None, scrolled);
     };
-    let bottom = Row::from_index(rows.index().saturating_sub(1));
-    if sel.ordered().1.line > scrolled.line(Rows::ZERO, bottom) {
+    match carry {
+        Carry::Owed => return (Some(sel), scrolled),
+        Carry::Settled => {}
+    }
+    if below_the_screen(term, &sel, scrolled) {
         return (None, scrolled);
     }
     match sel.clip(oldest(term, scrolled)) {
         Clip::Kept => (Some(sel), scrolled),
         Clip::Cleared => (None, scrolled),
     }
+}
+
+/// **Whether `sel` reaches a line under the screen's bottom**, numbered by
+/// `scrolled`: a row a shrink cut below the screen, which may come back or
+/// be blanked when history is pulled instead (note V, V3).
+pub(crate) fn below_the_screen(term: &Term<'_>, sel: &Selection, scrolled: Scrolled) -> bool {
+    let bottom = Row::from_index(term.geometry().1.index().saturating_sub(1));
+    sel.ordered().1.line > scrolled.line(Rows::ZERO, bottom)
 }
 
 /// **The lines past the window `back` lines up that the display may draw
