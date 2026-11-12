@@ -742,8 +742,8 @@ impl Outbox {
     }
 
     /// Whether bytes are owed that the kernel has not taken: a Linux wait
-    /// then wakes for room to write, and the macOS display link ticks
-    /// (`frames::Why::Unwritten`).
+    /// then wakes for room to write, and on macOS the master's room to
+    /// write is registered (`OutboxWatch::write`).
     pub fn owed(&self) -> Owed {
         match self.bytes.is_empty() {
             true => Owed::Nothing,
@@ -3081,7 +3081,8 @@ pub enum Ready {
 /// Whether the second descriptor of a `wait` is owed bytes it has not
 /// taken, so room to write should end the wait too: the retry is scheduled
 /// on the event that makes it possible, not on a timer. On macOS, whether
-/// the display link ticks for the retry (`frames::owes`).
+/// a write registers the master's room to write (`OutboxWatch::write`),
+/// the same event heard through a kqueue.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Owed {
     Nothing,
@@ -3603,6 +3604,11 @@ pub fn host_now() -> HostTime {
 
 #[cfg(test)]
 mod budget;
+
+#[cfg(target_os = "macos")]
+mod outbox_watch;
+#[cfg(target_os = "macos")]
+pub use outbox_watch::OutboxWatch;
 
 #[cfg(test)]
 mod shell_tests;

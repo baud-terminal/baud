@@ -91,10 +91,10 @@ pub const TIOCGWINSZ: c_ulong = 0x5413;
 
 pub const POLLIN: i16 = 0x1;
 /// Room to write. The Linux loop asks for it while the pty owes bytes it
-/// has not taken. The macOS driver asks no wait for it: its display link
-/// keeps ticking while those bytes are owed (`frames::Why::Unwritten`) and
-/// each tick's pump writes again, but a link a covered window has paused
-/// retries nothing until the window's next turn. Only a test asks there.
+/// has not taken. The macOS driver asks no `poll` for it: a write that
+/// leaves bytes owed registers `EVFILT_WRITE` on the master in a kqueue
+/// heard on the main queue, whose event wakes the window to write the rest
+/// (`pty::OutboxWatch`). Only a test asks for it there.
 #[cfg(any(target_os = "linux", test))]
 pub const POLLOUT: i16 = 0x4;
 /// The descriptor cannot be watched. Darwin's `poll(2)` says under BUGS
@@ -1644,6 +1644,21 @@ pub const EVFILT_PROC: i16 = -5;
 pub const EV_ADD: core::ffi::c_ushort = 0x1;
 #[cfg(target_os = "macos")]
 pub const EV_CLEAR: core::ffi::c_ushort = 0x20;
+
+/// `kevent`'s filter for room to write, and the flag that deletes a
+/// registration once it has fired: "EVFILT_WRITE Takes a file descriptor
+/// as the identifier, and returns whenever it is possible to write to the
+/// descriptor", and "EV_ONESHOT Causes the event to return only the first
+/// occurrence of the filter being triggered. After the user retrieves the
+/// event from the kqueue, it is deleted" (`[[source: macos-man-kqueue]]`
+/// 293-299, 200-202). The reply outbox's watch arms it on the master while
+/// the kernel has not taken every byte owed (`pty::outbox_watch`). The
+/// page names sockets, pipes and fifos and not a pty; the watch's test is
+/// the proof it fires on a master whose subsidiary read.
+#[cfg(target_os = "macos")]
+pub const EVFILT_WRITE: i16 = -2;
+#[cfg(target_os = "macos")]
+pub const EV_ONESHOT: core::ffi::c_ushort = 0x10;
 #[cfg(target_os = "macos")]
 pub const NOTE_EXIT: c_uint = 0x8000_0000;
 #[cfg(target_os = "macos")]
@@ -2293,6 +2308,8 @@ int main(void) {
     printf("EVFILT_PROC=%lld\n", (long long)EVFILT_PROC);
     printf("EV_ADD=%lld\n", (long long)EV_ADD);
     printf("EV_CLEAR=%lld\n", (long long)EV_CLEAR);
+    printf("EVFILT_WRITE=%lld\n", (long long)EVFILT_WRITE);
+    printf("EV_ONESHOT=%lld\n", (long long)EV_ONESHOT);
     printf("NOTE_EXIT=%lld\n", (long long)NOTE_EXIT);
     printf("NOTE_FORK=%lld\n", (long long)NOTE_FORK);
     printf("NOTE_EXEC=%lld\n", (long long)NOTE_EXEC);
@@ -2665,6 +2682,8 @@ int main(void) {
             assert_eq!(h["EVFILT_PROC"], i128::from(EVFILT_PROC));
             assert_eq!(h["EV_ADD"], i128::from(EV_ADD));
             assert_eq!(h["EV_CLEAR"], i128::from(EV_CLEAR));
+            assert_eq!(h["EVFILT_WRITE"], i128::from(EVFILT_WRITE));
+            assert_eq!(h["EV_ONESHOT"], i128::from(EV_ONESHOT));
             assert_eq!(h["NOTE_EXIT"], i128::from(NOTE_EXIT));
             assert_eq!(h["NOTE_FORK"], i128::from(NOTE_FORK));
             assert_eq!(h["NOTE_EXEC"], i128::from(NOTE_EXEC));

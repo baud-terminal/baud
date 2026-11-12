@@ -88,6 +88,12 @@ enum Failure {
     /// The program's sentinel came with no effect: it ended, and what it
     /// waited for never came ([`Cause::ProgramUntil`]).
     Unanswered,
+    /// A row that asks its witness ([`Until::SentinelShort`]) had none:
+    /// every write to the program went whole, so its queue never filled;
+    /// or, on the undriven arm ([`Witness::ShortAndRoom`]), no turn the
+    /// master's room woke wrote the rest, so whatever wrote it was
+    /// something else.
+    Unwitnessed,
     /// The effect ran other than once in an iteration, or another effect
     /// ran.
     Times,
@@ -134,6 +140,16 @@ enum Until {
     /// checked after it, so every read the program made has been fed
     /// however far apart it wrote them (`RigAct::TypeToSentinel`).
     Sentinel,
+    /// [`Until::Sentinel`], and the run's writes to the program taken short
+    /// at least once, by the child's own count (`short writes`,
+    /// `rig::short_write`), the witness that the program's input queue
+    /// filled; and, on the undriven arm, at least one turn the master's
+    /// room woke to write owed bytes, by the child's census (`room turns`,
+    /// `rig::carried`), the witness that the room carried them. Without
+    /// both the undriven arm's pass says nothing of the rest being written
+    /// on the master's room ([`Failure::Unwitnessed`]), whatever the
+    /// timing ([`witness`]).
+    SentinelShort,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,6 +271,16 @@ const FOUR_POSTS: Shape = Shape {
 /// **Four iterations of a row whose reads a ReGIS delay holds half a
 /// second each**: four releases, inside the run's time.
 const DELAYS: Shape = Shape {
+    polled: Polled::Read,
+    iterations: Iterations(4),
+};
+
+/// **Four iterations of a row whose program waits before it reads**: each
+/// waits [`REPLY_FLOOD`]'s three seconds with its replies owed, so a
+/// hundred would hold an arm five minutes, and under the row's break each
+/// iteration waits out the backstop besides; four show every iteration
+/// ends.
+const QUIET: Shape = Shape {
     polled: Polled::Read,
     iterations: Iterations(4),
 };
@@ -429,7 +455,52 @@ const KITTY_ERROR: &str = concat!(
     r#"case $r in *";E"*"$e\\") printf '\033]52;c;aGk=\007';; *) printf '\033]52;c;!\007';; esac"#,
 );
 
-const SITES: [Site; 32] = [
+/// **A flood of replies, read to its end in the shell itself**: the tty's
+/// settings kept, raw with no echo, 400 `CSI c` and a `CSI 5 n` written;
+/// then **a quiet**, three seconds of `read -t` on a FIFO the shell holds
+/// open both ways and nothing writes, so it reads neither the tty nor
+/// anything else and starts no process; then `read -d n` taking the replies
+/// a byte at a time up to the report's `n` -- no reply to `CSI c` holds one
+/// -- with no process started while it reads; a copy when what was read
+/// ends with the report's `ESC [ 0`, then the settings put back and the
+/// sentinel. The copy goes with a second `CSI 5 n`, whose report is read
+/// before the sentinel is written: the core keeps only the last clipboard
+/// write a read finished (`clip::Clips::poll`), so a copy and the
+/// sentinel's clear in one read would leave the clear alone, and the report
+/// puts the sentinel in a later read than the copy.
+///
+/// The quiet is what makes the master's room the one thing left to write
+/// on. The wakes the flood's reads bring after them land inside it and
+/// find the input queue full: each read owes a frame, drawn on a wake,
+/// whose completion wakes the window again (`Presenter`'s `on_done`); the
+/// derived title's check comes a frame interval after the last
+/// (`TitlePaced`); and the last iteration's copy words end 1.5 s after
+/// their first frame (`MESSAGE_FOR`). Read at once, as the shell did before
+/// the quiet, the replies' rest rode wakes like these, and the row passed
+/// with no registration at all; the child's census (`carried`) names each.
+/// The quiet is no proof on its own: on a loaded machine a wake late enough
+/// could still carry the rest. The proof is the event: the undriven arm
+/// passes only when the census counts a turn the master's room woke
+/// (`room turns`, [`Until::SentinelShort`]), so with no registration it
+/// fails however its turns fall in time. The driven arms are not held to
+/// it: a tick of theirs and the room's wake race for the same owed bytes,
+/// either may win, and the tick winning is correct; their room count
+/// stays in the census, read and not judged ([`witness`]).
+/// The FIFO is made before the flood, once, in the row's own folder;
+/// `/bin/sh` is bash 3.2, whose `read -t` takes whole seconds and ends 1
+/// on its time-out.
+const REPLY_FLOOD: &str = concat!(
+    r#"s=$(stty -g); e=$(printf '\033'); [ -p quiet ] || mkfifo quiet; exec 3<>quiet; "#,
+    r"stty raw -echo; ",
+    r"printf '\033[c%.0s' $(seq 400); printf '\033[5n'; ",
+    r"read -t 3 z <&3; ",
+    r"IFS= read -r -d n r; ",
+    r#"case $r in *"$e[0") printf '\033]52;c;aGk=\007\033[5n'; IFS= read -r -d n q;; esac; "#,
+    r#"stty "$s"; "#,
+    r"printf '\033]52;c;!\007'",
+);
+
+const SITES: [Site; 33] = [
     Site {
         name: SiteName("a printed path's reveal"),
         cause: Cause::PrintedPath(Rule::Reveal, Ticks::Driven),
@@ -664,6 +735,45 @@ const SITES: [Site; 32] = [
             Until::Sentinel,
         ),
         expect: Expect::effect(&[EffectKind::Front]),
+        state: RowState::Green,
+    },
+    // **A flood of replies the kernel takes in pieces, written whole with
+    // no tick** (FS-B2): the shell's tty raw with no echo, 400 device
+    // attributes queries and a status report's, and the shell reading the
+    // replies a byte at a time through the report's `ESC [ 0 n`, in the
+    // shell itself, so no process it starts wakes the window -- after a
+    // quiet of three seconds, so every wake the flood's reads bring has come
+    // and gone first ([`REPLY_FLOOD`]). 2804 bytes of replies to an input
+    // queue that holds about a kilobyte, full before the shell reads: the
+    // writes are taken short on every arm, and with no tick the rest goes
+    // on the wake the master's room brings (`pty::OutboxWatch`). The lights
+    // are off, the caret steady and the printed paths' worker never
+    // started, so no deadline of theirs wakes a turn that would write
+    // again. A copy once the report is read whole, then the sentinel in a
+    // later read; the child's count of short writes is the witness the
+    // queue filled, on every arm, and on the undriven arm its count of
+    // turns the master's room woke is the witness the room wrote the rest
+    // ([`Until::SentinelShort`], [`witness`]): a driven arm's tick may
+    // write it first, and does so correctly. Its census says what woke
+    // each turn that wrote bytes no read fed (`carried`). Break:
+    // no registration of the master's room, and the undriven arm's program
+    // waits for a reply no turn writes: TimedOut; were a late wake to carry
+    // it, the room's count of 0 fails it still: Unwitnessed.
+    Site {
+        name: SiteName("a flood of replies written whole on the master's room"),
+        cause: Cause::ProgramUntil(
+            Program {
+                line: REPLY_FLOOD,
+                config: "[window]\nactivity_lights = \"off\"\n[cursor]\nblink = false\n\
+                         [link]\npaths = \"off\"\n",
+                shape: QUIET,
+            },
+            Until::SentinelShort,
+        ),
+        expect: Expect {
+            each: &[EffectKind::Copy],
+            paced: &[EffectKind::Announce],
+        },
         state: RowState::Green,
     },
     // **A program's window operations, `CSI t`**: an iconify and a full
@@ -1170,7 +1280,7 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
             match until {
                 Until::Either => RigAct::TypeUntil,
                 Until::EitherHeld => RigAct::TypeHeld,
-                Until::Sentinel => RigAct::TypeToSentinel,
+                Until::Sentinel | Until::SentinelShort => RigAct::TypeToSentinel,
             },
             p.line.to_owned(),
             p.config,
@@ -1219,11 +1329,42 @@ fn run_arm(site: &Site, slug: &str, ticks: Ticks) -> Observed {
         .current_dir(&dir)
         .output()
         .expect("the child");
-    judge(expect, iterations(site), &out, &dir)
+    judge(expect, iterations(site), witness(site, ticks), &out, &dir)
+}
+
+/// Whether an arm asks the child's witness that its writes were taken
+/// short, and that the master's room woke a turn to write the rest.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Witness {
+    Any,
+    /// `short writes` at least one.
+    Short,
+    /// `short writes` and `room turns` each at least one.
+    ShortAndRoom,
+}
+
+/// For [`Until::SentinelShort`]'s rows alone: [`Witness::ShortAndRoom`] on
+/// the undriven arm, where no tick races the master's room for what the
+/// kernel did not take, and [`Witness::Short`] on the driven ones, where
+/// a tick and the room's wake race for the same owed bytes and the tick
+/// winning is correct, so a room count asked there would pass or fail by
+/// timing. Their room count stays in the census, unjudged.
+fn witness(site: &Site, ticks: Ticks) -> Witness {
+    match (site.cause, ticks) {
+        (Cause::ProgramUntil(_, Until::SentinelShort), Ticks::None) => Witness::ShortAndRoom,
+        (Cause::ProgramUntil(_, Until::SentinelShort), _) => Witness::Short,
+        _ => Witness::Any,
+    }
 }
 
 /// What a child's output and exit say.
-fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) -> Observed {
+fn judge(
+    expect: Expect,
+    n: Iterations,
+    witness: Witness,
+    out: &std::process::Output,
+    dir: &Path,
+) -> Observed {
     let kinds = expect.each;
     use std::os::unix::process::ExitStatusExt;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -1232,7 +1373,26 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     if out.status.signal().is_some() {
         return Observed::Failed(Failure::Aborted);
     }
-    let lines: Vec<&str> = text.lines().collect();
+    // The child's count of short writes and of the turns the master's room
+    // woke, each printed once at the run's end, and no record; nor is its
+    // census of what carried the bytes no read fed, kept in the row's
+    // `stdout` for whoever reads a run.
+    let short = text
+        .lines()
+        .find_map(|l| l.strip_prefix("short writes "))
+        .and_then(|c| c.parse::<u32>().ok());
+    let room = text
+        .lines()
+        .find_map(|l| l.strip_prefix("room turns "))
+        .and_then(|c| c.parse::<u32>().ok());
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| {
+            !l.starts_with("short writes ")
+                && !l.starts_with("carried ")
+                && !l.starts_with("room turns ")
+        })
+        .collect();
     let iterations = usize::from(n.0);
     let mut records = 0;
     let mut paced = vec![0_usize; expect.paced.len()];
@@ -1291,6 +1451,15 @@ fn judge(expect: Expect, n: Iterations, out: &std::process::Output, dir: &Path) 
     }
     if let Some(at) = paced.iter().position(|&seen| seen == 0) {
         return Observed::Failed(Failure::NeverPaced(expect.paced[at]));
+    }
+    let (short, room) = (short.unwrap_or(0), room.unwrap_or(0));
+    let witnessed = match witness {
+        Witness::Any => true,
+        Witness::Short => short >= 1,
+        Witness::ShortAndRoom => short >= 1 && room >= 1,
+    };
+    if !witnessed {
+        return Observed::Failed(Failure::Unwitnessed);
     }
     match out.status.success() {
         true => Observed::Passed,

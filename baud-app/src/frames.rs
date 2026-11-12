@@ -12,8 +12,6 @@ use std::time::Duration;
 
 use baud_domain::HostTime;
 
-use crate::pty::Owed;
-
 /// **A poll the tick still makes**, with no event to raise it yet: while
 /// any is held the link runs, so the poll keeps its pace. Each is named
 /// for the row that moves it to its event, and removing a variant is that
@@ -99,14 +97,6 @@ pub(crate) enum Why {
     Moving(Moving),
     /// A poll that is still the tick's.
     Held(Holder),
-    /// **Bytes owed to the child that the kernel has not taken**: a write
-    /// it took in part or not at all (`Wrote::Part`, `Wrote::Nothing`),
-    /// its slave's input queue full. Each tick's pump writes again, so the
-    /// rest goes once the child reads, and the link pauses once the outbox
-    /// is empty. FS-B2's interim: a source that wakes the window when the
-    /// master has room is the event this tick stands for, and a link a
-    /// covered window has paused retries nothing until another turn.
-    Unwritten,
     /// A deadline reached, or within a frame of now: the tick whose target
     /// reaches it is the next one.
     Due(Deadline),
@@ -226,23 +216,18 @@ pub(crate) enum Owes {
 }
 
 /// **What the link owes at `now`**: a frame when `frame` names why one is
-/// owed; else a frame while the outbox holds bytes the kernel has not
-/// taken (`owed`, [`Why::Unwritten`]); else the soonest deadline -- a frame
-/// if it is reached or less than a frame `interval` away, since a restart
-/// scheduled a frame early would land at once and find it still ahead,
-/// else a restart at it; else nothing.
+/// owed; else the soonest deadline -- a frame if it is reached or less
+/// than a frame `interval` away, since a restart scheduled a frame early
+/// would land at once and find it still ahead, else a restart at it; else
+/// nothing.
 pub(crate) fn owes(
     frame: Option<Why>,
-    owed: Owed,
     deadlines: &[(Deadline, Option<HostTime>)],
     now: HostTime,
     interval: Duration,
 ) -> Owes {
     if let Some(why) = frame {
         return Owes::Frame(why);
-    }
-    if owed == Owed::Bytes {
-        return Owes::Frame(Why::Unwritten);
     }
     let soonest = deadlines
         .iter()
@@ -304,10 +289,8 @@ mod tests {
     /// 4 ms ahead schedules a restart that lands at once; `owes` taking the
     /// latest deadline, and the caret's flip waits for the report. Every
     /// reason a frame is owed is in it but [`Why::Held`], which no holder
-    /// is left to make, and [`Why::Unwritten`], which the outbox makes
-    /// (`bytes_the_kernel_did_not_take_keep_the_link_ticking`); a deadline
-    /// exactly one interval ahead is a frame: break `<=` to `<` and it is
-    /// restarted at once.
+    /// is left to make, and a deadline exactly one interval ahead is a
+    /// frame: break `<=` to `<` and it is restarted at once.
     #[test]
     fn what_the_link_owes() {
         let ms = |n| HostTime::ZERO.plus(Duration::from_millis(n));
@@ -368,7 +351,7 @@ mod tests {
         ];
         for (frame, deadlines, want) in cases {
             assert_eq!(
-                owes(frame, Owed::Nothing, deadlines, now, FRAME),
+                owes(frame, deadlines, now, FRAME),
                 want,
                 "{frame:?} {deadlines:?}"
             );
@@ -474,75 +457,35 @@ mod tests {
     fn a_settle_runs_the_link_for_a_frame_no_one_owes() {
         let ms = |n| HostTime::ZERO.plus(Duration::from_millis(n));
         let now = ms(1_000);
-        let due = owes(
-            None,
-            Owed::Nothing,
-            &[(Deadline::Indicator, Some(ms(1_004)))],
-            now,
-            FRAME,
-        );
+        let due = owes(None, &[(Deadline::Indicator, Some(ms(1_004)))], now, FRAME);
         assert_eq!(due, Owes::Frame(Why::Due(Deadline::Indicator)));
         assert_eq!(act(due), Act::Run, "a deadline within one interval");
-        let open = owes(Some(Why::Presented), Owed::Nothing, &[], now, FRAME);
+        let open = owes(Some(Why::Presented), &[], now, FRAME);
         assert_eq!(act(open), Act::Run, "a latency record open");
         // The controls.
-        let later = owes(
-            None,
-            Owed::Nothing,
-            &[(Deadline::Caret, Some(ms(1_333)))],
-            now,
-            FRAME,
-        );
+        let later = owes(None, &[(Deadline::Caret, Some(ms(1_333)))], now, FRAME);
         assert_eq!(act(later), Act::PauseUntil(ms(1_333)));
-        assert_eq!(act(owes(None, Owed::Nothing, &[], now, FRAME)), Act::Pause);
+        assert_eq!(act(owes(None, &[], now, FRAME)), Act::Pause);
     }
 
-    /// **Bytes the kernel did not take keep the link ticking** (FS-B2's
-    /// interim): a reply written in part, its rest still in the outbox,
-    /// owes a frame with no other reason and ahead of a deadline, so each
-    /// tick's pump writes again until the child has read enough; once the
-    /// outbox is empty the link pauses. Since the link paused when nothing
-    /// owed a frame (32c9ad57), the rest waited for the next turn of any
-    /// kind, and a child blocked reading it, on a still window, waited for
-    /// ever. The driver hands `owes` the outbox's own reading, and lets the
-    /// outbox go once the child's stream has closed, so a window that
-    /// outlives its child does not tick for bytes no one can take. Breaks:
-    /// `owes` ignoring `owed`, and the rest owes nothing; the driver passing
-    /// `Owed::Nothing`, or the closed stream keeping the outbox, and the
-    /// source checks fail.
+    /// **Bytes the kernel has not taken owe the link nothing**: the master's
+    /// room to write wakes the window that owes them
+    /// (`pty::outbox_watch`), so no frame stands for the retry. FS-B2's
+    /// interim (b59c3157) kept the link ticking while the outbox held
+    /// bytes, a reason of their own in `owes`; it is gone, and nothing in
+    /// this file or in the driver's reading names the outbox again. The
+    /// event that replaced it is held by the watch's own tests and by the
+    /// event rig's undriven row of a flood of replies. Break: the interim's
+    /// reason back, and the source checks fail.
     #[test]
-    fn bytes_the_kernel_did_not_take_keep_the_link_ticking() {
-        let ms = |n| HostTime::ZERO.plus(Duration::from_millis(n));
-        let now = ms(1_000);
-        let caret = [(Deadline::Caret, Some(ms(1_333)))];
-        let owed = owes(None, Owed::Bytes, &[], now, FRAME);
-        assert_eq!(owed, Owes::Frame(Why::Unwritten));
-        assert_eq!(act(owed), Act::Run, "the tick that writes again");
-        assert_eq!(
-            owes(None, Owed::Bytes, &caret, now, FRAME),
-            Owes::Frame(Why::Unwritten),
-            "ahead of a deadline"
-        );
-        assert_eq!(
-            owes(Some(Why::Owed), Owed::Bytes, &caret, now, FRAME),
-            Owes::Frame(Why::Owed),
-            "a frame owed names its own reason"
-        );
-        // The controls: the outbox empty, the link pauses or waits for the
-        // deadline.
-        assert_eq!(owes(None, Owed::Nothing, &[], now, FRAME), Owes::Nothing);
-        assert_eq!(
-            owes(None, Owed::Nothing, &caret, now, FRAME),
-            Owes::At(ms(1_333), Deadline::Caret)
-        );
-        // The outbox's own reading: bytes pushed are owed, and let go are not.
-        let mut outbox = crate::pty::Outbox::default();
-        assert_eq!(outbox.owed(), Owed::Nothing);
-        outbox.push(b"\x1b[?1;2c");
-        assert_eq!(outbox.owed(), Owed::Bytes);
-        outbox.let_go();
-        assert_eq!(outbox.owed(), Owed::Nothing);
-        // The driver's reading, and the closed stream's.
+    fn bytes_the_kernel_did_not_take_owe_the_link_nothing() {
+        const SRC: &str = include_str!("frames.rs");
+        let (code, _) = SRC
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect("the tests' module");
+        for word in ["Unwritten", "outbox", "Outbox", "pty::Owed", "Owed::Bytes"] {
+            assert!(!code.contains(word), "frames.rs names {word}");
+        }
         const APP: &str = include_str!("app.rs");
         let driver = APP
             .split_once("    fn owes(&self, now: HostTime) -> crate::frames::Owes {")
@@ -550,18 +493,10 @@ mod tests {
             .expect("Driver::owes")
             .0;
         assert!(
-            driver.contains(
-                "crate::frames::owes(frame, app.outbox.owed(), &deadlines, now, app.interval)"
-            ),
+            driver.contains("crate::frames::owes(frame, &deadlines, now, app.interval)"),
             "{driver}"
         );
-        let closed = APP
-            .split_once("    fn pump(&mut self, trigger: Trigger) {")
-            .and_then(|(_, pump)| pump.split_once("if drained.stream == Stream::Closed {"))
-            .and_then(|(_, arm)| arm.split_once("\n        }\n"))
-            .expect("the closed stream's arm")
-            .0;
-        assert!(closed.contains("self.app.outbox.let_go();"), "{closed}");
+        assert!(!driver.contains("outbox"), "{driver}");
     }
 
     /// **A reveal after a paused gap holds for its whole hold**: the link

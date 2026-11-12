@@ -146,6 +146,20 @@ pub(super) fn split(
     }
 }
 
+/// **The link run while a read waits for the frame** ([`split`]), at
+/// every settle: the turn that left it fed nothing and owes no frame, so
+/// `frames::owes` finds nothing the read is owed, and the settle would
+/// pause the link its `owe_tick` ran -- `Ticker::tick` then sends nothing,
+/// and a row with no deadline of its own (the caret steady, the lights
+/// off) leaves the read there for good, "a read left to a frame no tick
+/// fed". Every other arm leaves nothing here, and the settle as it was.
+pub(super) fn held_for_split(act: crate::frames::Act) -> crate::frames::Act {
+    match TAIL.with_borrow(Vec::is_empty) {
+        true => act,
+        false => crate::frames::Act::Run,
+    }
+}
+
 thread_local! {
     /// Whether a decode's replies are held, set once by the call
     /// (`RigAct::TypeHeld`).
@@ -266,9 +280,14 @@ pub(super) fn take_click() -> Option<Vec<u8>> {
     CLICK.with(|c| c.borrow_mut().take())
 }
 
-/// The line a `wake` sends the shell, if the rig queued one.
+/// The line a `wake` sends the shell, if the rig queued one: heard for the
+/// census as the bytes its turn writes ([`Carrier::Typed`]).
 pub(super) fn take_typed() -> Option<Vec<u8>> {
-    TYPED.with(|c| c.borrow_mut().take())
+    let line = TYPED.with(|c| c.borrow_mut().take());
+    if line.is_some() {
+        heard(Carrier::Typed);
+    }
+    line
 }
 
 /// The characters a `wake` sends as key presses, if the rig queued them.
@@ -411,6 +430,159 @@ pub(super) fn heard_under(frame: Duration) {
     HEARD.with(|h| h.set(h.get().max(frame)));
 }
 
+thread_local! {
+    /// How many of the run's writes to the child the kernel took in part
+    /// or not at all (`Wrote::Part`, `Wrote::Nothing`).
+    static SHORT: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    /// How many turns the census counted ([`carried`]) with the master's
+    /// room among what woke them ([`Carrier::Room`]): turns that wrote
+    /// owed bytes on the room's event.
+    static ROOM: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+/// **A write the kernel took in part or not at all**, as `flush_reply`
+/// met it: the witness that a row's replies filled the child's input
+/// queue. Printed once, at the run's end, as `short writes <n>`, beside
+/// the turns the master's room woke to write the rest (`room turns <n>`,
+/// [`carried`]): with both, an undriven arm's pass says the room
+/// (`pty::OutboxWatch`) carried bytes, however its turns fell in time; a
+/// driven arm's tick may carry them first, and its room count is a record.
+pub(super) fn short_write() {
+    SHORT.with(|s| s.set(s.get().saturating_add(1)));
+}
+
+/// **What woke a turn that writes bytes it fed no read for**: the
+/// census of what carries owed bytes on (`carried`), printed at the run's
+/// end beside the short writes. Each is heard where it wakes the window,
+/// on the main thread, and taken by the next turn ([`turn`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Carrier {
+    /// The master's room, heard by `pty::OutboxWatch`.
+    Room,
+    /// A frame's completion: its surface presented, its wake after.
+    Landed,
+    /// A wake posted for a moment (`wake_holding`), by where it was asked.
+    Scheduled(&'static core::panic::Location<'static>),
+    /// The rig's own wake ([`post`]).
+    Posted,
+    /// The rig's line to the shell, written on the turn that takes it
+    /// ([`take_typed`]).
+    Typed,
+}
+
+impl Carrier {
+    fn name(self) -> String {
+        match self {
+            Carrier::Room => "room".to_owned(),
+            Carrier::Landed => "landed".to_owned(),
+            Carrier::Scheduled(at) => format!("scheduled at {}:{}", at.file(), at.line()),
+            Carrier::Posted => "posted".to_owned(),
+            Carrier::Typed => "typed".to_owned(),
+        }
+    }
+}
+
+/// Whether a turn fed a read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fed {
+    No,
+    Yes,
+}
+
+/// Whether a turn's carriers are in the census yet: once a turn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Counted {
+    No,
+    Yes,
+}
+
+/// The turn running: what woke it, whether it fed a read, and whether it
+/// is counted.
+struct Turn {
+    woke: Vec<Carrier>,
+    fed: Fed,
+    counted: Counted,
+}
+
+thread_local! {
+    /// What was heard since the last turn began.
+    static WOKE: RefCell<Vec<Carrier>> = const { RefCell::new(Vec::new()) };
+    /// The turn running.
+    static TURN: RefCell<Turn> = const {
+        RefCell::new(Turn {
+            woke: Vec::new(),
+            fed: Fed::No,
+            counted: Counted::Yes,
+        })
+    };
+    /// Each counted turn's carriers, named and joined, the run's census.
+    static CARRIED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// **A wake's source, heard** as it wakes the window ([`Carrier`]).
+pub(super) fn heard(by: Carrier) {
+    WOKE.with_borrow_mut(|w| w.push(by));
+}
+
+/// **A turn begins its feed** (`pump`): what woke it, taken, and whether
+/// it feeds a read -- a read's turn writes the replies it fed, and is no
+/// carrier.
+pub(super) fn turn(drained: &crate::pty::Drained) {
+    let woke = WOKE.with_borrow_mut(core::mem::take);
+    let fed = match drained.chunks.is_empty() {
+        true => Fed::No,
+        false => Fed::Yes,
+    };
+    TURN.with_borrow_mut(|t| {
+        *t = Turn {
+            woke,
+            fed,
+            counted: Counted::No,
+        }
+    });
+}
+
+/// **A write of bytes no read on this turn fed** (`flush_reply`): the
+/// turn's carriers counted, once a turn; "nothing heard" when no source
+/// the census hears woke it; and the turn counted in `ROOM` as well when
+/// the master's room is among them.
+pub(super) fn carried() {
+    TURN.with_borrow_mut(|t| {
+        if t.fed == Fed::No && t.counted == Counted::No {
+            t.counted = Counted::Yes;
+            let mut names: Vec<String> = t.woke.iter().copied().map(Carrier::name).collect();
+            names.sort();
+            names.dedup();
+            let named = match names.is_empty() {
+                true => "nothing heard".to_owned(),
+                false => names.join("+"),
+            };
+            CARRIED.with_borrow_mut(|c| c.push(named));
+            if t.woke.contains(&Carrier::Room) {
+                ROOM.with(|r| r.set(r.get().saturating_add(1)));
+            }
+        }
+    });
+}
+
+/// **The census, one line**: the turns counted, then each set of carriers
+/// with how many turns it woke, in the order first met.
+fn census() -> String {
+    CARRIED.with_borrow(|all| {
+        let mut kinds: Vec<&String> = Vec::new();
+        for k in all {
+            if !kinds.contains(&k) {
+                kinds.push(k);
+            }
+        }
+        let each: Vec<String> = kinds
+            .iter()
+            .map(|k| format!("{k} {}", all.iter().filter(|n| n == k).count()))
+            .collect();
+        format!("{} turns: {}", all.len(), each.join(", "))
+    })
+}
+
 /// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
 /// already parsed into `RigCall`, the one type the parent builds too.
 pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
@@ -542,8 +714,10 @@ fn drag(view: &DrawableView, from: NSPoint, to: NSPoint) {
     press(view, Press::Up, to, Chord::Plain);
 }
 
-/// A `wake:` posted from another thread and joined: certainly queued.
+/// A `wake:` posted from another thread and joined: certainly queued, and
+/// heard for the census ([`Carrier::Posted`]).
 fn post(waker: Waker) {
+    heard(Carrier::Posted);
     let _ = std::thread::spawn(move || waker.wake()).join();
 }
 
@@ -850,6 +1024,15 @@ fn run(
         println!("a panic was caught");
         failed = true;
     }
+    // The run's short writes, for a row that asks its witness
+    // (`short_write`).
+    println!("short writes {}", SHORT.with(core::cell::Cell::get));
+    // And what carried the bytes no read fed on, by the turns' sources
+    // (`carried`).
+    println!("carried {}", census());
+    // And how many of those turns the master's room woke, the field a row
+    // that asks its witness reads (`ROOM`).
+    println!("room turns {}", ROOM.with(core::cell::Cell::get));
     match failed {
         true => std::process::ExitCode::from(1),
         false => std::process::ExitCode::SUCCESS,

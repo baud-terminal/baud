@@ -307,6 +307,9 @@ const CALLS: &[(&str, Sites)] = &[
             ("src/window.rs", "activated", 1),
             // A dispatch source's, not the app's: `s.activate()`.
             ("../baud-app/src/full_screen_check.rs", "arm", 1),
+            // A dispatch source's, not the app's: `source.activate()`, the
+            // master's room to write heard on the main queue.
+            ("../baud-app/src/pty/outbox_watch.rs", "listen", 1),
             // A dispatch source's, not the app's: `source.activate()`.
             ("../baud-app/src/reload.rs", "listen", 1),
         ],

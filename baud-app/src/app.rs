@@ -574,12 +574,17 @@ struct App {
     os: crate::os_effect::OsQueue,
     /// The outcomes' storage, kept from pump to pump.
     os_done: Vec<crate::os_effect::EffectDone>,
+    /// **The master's room to write, heard** (`pty::OutboxWatch`): a write
+    /// that leaves bytes owed registers it, and the kernel's event wakes
+    /// the window to write the rest. Declared ahead of `pty`, so it is
+    /// dropped first: its source cancelled before the master closes.
+    room: crate::pty::OutboxWatch,
     pty: Pty,
     /// What the child is owed and the kernel has not taken (`pty.rs`):
-    /// every write goes through it, in order, and the pump offers what is
-    /// left on every turn -- the display link's tick among them -- so a
-    /// queue that fills is retried on the clock the loop already has, and
-    /// the window never waits in `write(2)` for a child that is not reading.
+    /// every write goes through it, in order, and what is left goes on the
+    /// turn the master's room wakes (`App::room`), or on any turn before
+    /// it, so the window never waits in `write(2)` for a child that is not
+    /// reading.
     outbox: Outbox,
     /// A program's log (`?46`, `OSC 46`), written off this thread.
     hostlog: crate::hostlog::HostLog,
@@ -1631,6 +1636,16 @@ impl App {
             link: baud_present_macos::display_link::Link::new(
                 baud_present_macos::display_link::ViewLink::of(view),
             ),
+            room: {
+                let w = waker;
+                crate::pty::OutboxWatch::listen(dispatch2::DispatchQueue::main(), move || {
+                    // The event rig's census of what carries owed bytes on
+                    // (`rig::Carrier`).
+                    #[cfg(feature = "effect-probe")]
+                    rig::heard(rig::Carrier::Room);
+                    w.wake();
+                })
+            },
             pty,
             outbox: Outbox::default(),
             hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -1978,7 +1993,9 @@ impl App {
     /// Whatever the core answered to the child, behind whatever it is
     /// already owed, as much as the kernel takes now; `Bytes` only when that
     /// emptied the outbox. With nothing owed it makes no system call: the
-    /// pump runs this every tick.
+    /// pump runs this on every turn. A write that leaves bytes owed
+    /// registers the master's room to write (`pty::OutboxWatch::write`),
+    /// whose event wakes the window for the turn that writes the rest.
     ///
     /// The reply was copied out and cleared whether or not the write went,
     /// so a short write lost the rest; the outbox keeps it.
@@ -1995,10 +2012,21 @@ impl App {
         if self.outbox.is_empty() {
             return Sent::Nothing;
         }
+        // The event rig's census: what woke a turn that writes bytes it
+        // fed no read for (`rig::carried`).
+        #[cfg(feature = "effect-probe")]
+        rig::carried();
+        let wrote = self.room.write(&self.pty, &mut self.outbox);
+        // The event rig's witness that the kernel's queue filled
+        // (`rig::short_write`).
+        #[cfg(feature = "effect-probe")]
+        if wrote != Wrote::All {
+            rig::short_write();
+        }
         // SD lights for a write the kernel took any of, never for bytes
         // still owed; a write it refused any of darkens CS, the line no
         // longer clear.
-        match self.pty.write(&mut self.outbox) {
+        match wrote {
             Wrote::All => {
                 self.activity.seen(Led::Sd, now);
                 Sent::Bytes
@@ -12931,6 +12959,10 @@ impl Driver {
         // the next frame all of it, which is owed (`rig::split`).
         #[cfg(feature = "effect-probe")]
         let drained = rig::split(drained, trigger, &mut self.app);
+        // And its census of what woke this turn, and whether it feeds a
+        // read (`rig::turn`).
+        #[cfg(feature = "effect-probe")]
+        rig::turn(&drained);
         for chunk in &drained.chunks {
             self.app
                 .launch_log
@@ -13354,8 +13386,9 @@ impl Driver {
         );
         if drained.stream == Stream::Closed {
             // Nothing owed to the child reaches it now: the outbox let go,
-            // or a window that outlives its child would tick for its bytes
-            // (`frames::Why::Unwritten`) until it closed.
+            // so no later turn of a window that outlives its child writes
+            // them again, fails, and registers the master's room for them
+            // (`pty::OutboxWatch::write`).
             self.app.outbox.let_go();
             // The child is gone: the window has nothing left to show, once
             // the log has written what this read and the ones before it
@@ -14178,6 +14211,10 @@ impl Responder for Driver {
             self.app.next_damage = Damage::Full;
             self.app.owe_frame();
         }
+        // The event rig's census: a frame landed, and the completion's wake
+        // follows (`rig::Carrier::Landed`).
+        #[cfg(feature = "effect-probe")]
+        rig::heard(rig::Carrier::Landed);
     }
 
     fn wake(&mut self) {
@@ -15279,7 +15316,12 @@ impl baud_present_macos::unwind::Settles for Driver {
         {
             baud_present_macos::probe::gpu(f);
         }
-        match crate::frames::act(owes) {
+        let act = crate::frames::act(owes);
+        // The event rig's split arm: a read a wake's turn left to the frame
+        // runs the link until a tick feeds it (`rig::split`).
+        #[cfg(feature = "effect-probe")]
+        let act = rig::held_for_split(act);
+        match act {
             // Whoever owed the frame may not have run the link -- a
             // deadline within one interval, a latency record open -- so the
             // settle runs it: sent nothing when it already runs.
@@ -15296,10 +15338,10 @@ impl baud_present_macos::unwind::Settles for Driver {
 impl Driver {
     /// **What the display link owes at `now`** (`frames::owes`): a frame
     /// while one is owed, motion runs, a latency record waits for its
-    /// bounds or a poll is still the tick's, or while the outbox holds bytes
-    /// the kernel has not taken, which each tick's pump writes again; else
-    /// the soonest deadline a timed effect keeps -- the clocks the Linux
-    /// loop bounds its wait by, read the same way -- or nothing.
+    /// bounds or a poll is still the tick's; else the soonest deadline a
+    /// timed effect keeps -- the clocks the Linux loop bounds its wait by,
+    /// read the same way -- or nothing. Bytes the kernel has not taken owe
+    /// it nothing: the master's room wakes the window (`App::room`).
     fn owes(&self, now: HostTime) -> crate::frames::Owes {
         use crate::frames::{Deadline, Moving, Why};
         let app = &self.app;
@@ -15389,7 +15431,7 @@ impl Driver {
             ),
             (Deadline::Lights, lamps_next(app, now)),
         ];
-        crate::frames::owes(frame, app.outbox.owed(), &deadlines, now, app.interval)
+        crate::frames::owes(frame, &deadlines, now, app.interval)
     }
 
     /// **The first poll that holds the link**: [`Driver::held`]'s, unless
@@ -16725,7 +16767,10 @@ impl Driver {
     }
 
     /// A turn of `pump` at `at`, from the main queue: the settle's end,
-    /// reached whether or not the display link is running.
+    /// reached whether or not the display link is running. In the probe
+    /// build the event rig's census names it by where it was asked
+    /// (`rig::Carrier::Scheduled`).
+    #[cfg_attr(feature = "effect-probe", track_caller)]
     fn wake_at(&self, at: Instant) {
         let _ = self.wake_holding(at, ());
     }
@@ -16733,6 +16778,7 @@ impl Driver {
     /// [`Driver::wake_at`], with `held` let go in the callback before the
     /// wake ([`wake_holding`]), and whether it was posted, which the
     /// notices' expiry wake arms by (`notice_schedule`).
+    #[cfg_attr(feature = "effect-probe", track_caller)]
     fn wake_holding<T: Held>(&self, at: Instant, held: T) -> Scheduled {
         wake_holding(self.app.waker, at, held)
     }
@@ -22943,14 +22989,20 @@ fn judged_by<'n>(
 /// come by what it holds (`Posted`), so the count holds each until its
 /// turn is posted; a frame's bound is its own wake (`FrameDue`). Says
 /// whether it was posted, which the notices' expiry wake arms by
-/// (`NoticeDue`).
+/// (`NoticeDue`). In the probe build the event rig's census names the wake
+/// by where it was asked (`rig::Carrier::Scheduled`).
+#[cfg_attr(feature = "effect-probe", track_caller)]
 fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) -> Scheduled {
+    #[cfg(feature = "effect-probe")]
+    let asked = core::panic::Location::caller();
     let after = at.saturating_duration_since(Instant::now());
     let Ok(when) = dispatch2::DispatchTime::try_from(after) else {
         return Scheduled::No;
     };
     let posted = dispatch2::DispatchQueue::main().after(when, move || {
         if held.let_go(waker) == Wakes::Yes {
+            #[cfg(feature = "effect-probe")]
+            rig::heard(rig::Carrier::Scheduled(asked));
             waker.wake();
         }
     });
