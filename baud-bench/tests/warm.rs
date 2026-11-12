@@ -480,6 +480,44 @@ fn the_watcher_builds_what_the_gate_builds() {
             "noJob does not refuse without {var}: {no_job}"
         );
     }
+    // cargo-watch names what it watches: left on the root it walks the whole
+    // tree, `target/` included, for ignore files and never starts a run.
+    assert!(
+        processes.contains("cargo watch --watch-when-idle -d 2 ${watchPaths} -s"),
+        "{processes}"
+    );
+    let paths = nix
+        .split_once("watchPaths = lib.concatMapStringsSep \" \" (p: \"-w ${p}\") [")
+        .expect("devenv.nix binds watchPaths")
+        .1
+        .split_once("];")
+        .expect("watchPaths ends")
+        .0;
+    let paths: Vec<&str> = paths
+        .lines()
+        .map(|l| l.trim().trim_matches('"'))
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "baud-core",
+            "baud-domain",
+            "baud-tablegen",
+            "baud-isa",
+            "baud-isa-aarch64",
+            "baud-isa-x86-64",
+            "Cargo.toml",
+            "Cargo.lock",
+            ".config/nextest.toml",
+        ]
+    );
+    for p in &paths {
+        assert!(
+            repo.join(p).exists(),
+            "watchPaths names {p}, which is not in the tree"
+        );
+    }
     assert!(nix.contains("\n  scripts.warm-run.exec = watch;\n"));
     let bound = |name: &str| {
         nix.lines()

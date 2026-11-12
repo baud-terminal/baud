@@ -45,6 +45,23 @@ let
     allow_warnings = true
     on_change_strategy = "wait_then_restart"
   '';
+  # cargo-watch watches only what its test job builds and filters on: the
+  # core, the domain, the tables the domain is built from, the ISA crates
+  # the core's scan features take, and the files that pick versions and
+  # nextest's groups. Left to watch the root, watchexec walks every ignored
+  # folder for ignore files, `target/` and its tens of gigabytes included,
+  # and never got to its first run.
+  watchPaths = lib.concatMapStringsSep " " (p: "-w ${p}") [
+    "baud-core"
+    "baud-domain"
+    "baud-tablegen"
+    "baud-isa"
+    "baud-isa-aarch64"
+    "baud-isa-x86-64"
+    "Cargo.toml"
+    "Cargo.lock"
+    ".config/nextest.toml"
+  ];
   noJob = name: ''
     if [ -z "''${BAUD_WATCH_JOB:-}" ] || [ -z "''${BAUD_WATCH:-}" ]; then
       echo "${name}: BAUD_WATCH_JOB or BAUD_WATCH is unset (devenv.local.nix names the job script and the folder the benches read); not watching"
@@ -137,15 +154,15 @@ in
   # and writes its result outside the tree. Unset, a watcher says so and
   # idles. bacon 3.26: headless, no `.bacon-locations` export, and a change
   # during a run waits for it to end (`wait_then_restart`), so a run is never
-  # killed half way. cargo-watch 8.5: `.gitignore` keeps `target/` and
-  # `.devenv*` out, `--watch-when-idle` drops the events a run makes, and a
-  # 2 s debounce as `warm` had.
+  # killed half way. cargo-watch 8.5: it watches only `watchPaths` (above),
+  # `--watch-when-idle` drops the events a run makes, and a 2 s debounce as
+  # `warm` had.
   processes = lib.mkIf (!config.devenv.isTesting) {
     bacon.exec = noJob "bacon" + ''
       exec bacon --headless --no-export-locations --config-toml ${lib.escapeShellArg baconConfig}
     '';
     cargo-watch.exec = noJob "cargo-watch" + ''
-      exec cargo watch --watch-when-idle -d 2 -s 'exec bash "$BAUD_WATCH_JOB" test'
+      exec cargo watch --watch-when-idle -d 2 ${watchPaths} -s 'exec bash "$BAUD_WATCH_JOB" test'
     '';
   };
 
