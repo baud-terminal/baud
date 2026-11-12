@@ -12,7 +12,10 @@
 //! **The shifted part** runs from the line's start, the left margin under
 //! DECLRMM for a cursor inside it, to the cursor, as FOLLOWING's runs from
 //! the cursor to the right margin, before any SEE and under SEE 1
-//! (`crate::extent` for the other extents). **A wide character stays
+//! (`crate::extent` for the other extents). For a character written under
+//! IRM with the cursor a move put right of the right margin it runs from
+//! one past the margin, the mirror of FOLLOWING's shift on to the line's
+//! end there ([`crate::component::PrecedingZone`]). **A wide character stays
 //! whole**, as under SEE's shifts: on its lead the part runs on through
 //! its tail, so an edit on either half takes the whole character, and one
 //! the part's ends or the shift would cut is erased, both halves. A wide
@@ -26,7 +29,10 @@
 //! the gap belongs, by the two moves `DCH` and `ICH` make there, so each
 //! cell keeps its string. A character written under IRM is inserted at the
 //! cursor's presentation position in either state of HEM (7.2.10,
-//! "inserted at the active presentation position").
+//! "inserted at the active presentation position"). Under PRECEDING the
+//! positions shifted are the ones whose cells are on the cursor's side of
+//! the side margins, so a string drawn across a margin is shifted only up
+//! to it ([`crate::component::DrawnPart`]).
 //!
 //! **What it costs while nothing selects it: nothing on the text path.**
 //! `DCH` and `ICH` test HEM's bit beside [`ModeBit::PresentationEdits`] in
@@ -35,9 +41,11 @@
 //! here while [`ModeBit::InsertShifted`] is set, so the text path's
 //! writers never read it.
 
-use baud_domain::{Codepoint, Col, Count, ModeBit, PackedCell, StringId, Width};
+use baud_domain::{
+    Codepoint, Col, Count, CursorAt, CursorCol, ModeBit, PackedCell, StringId, Width,
+};
 
-use crate::component::LineMap;
+use crate::component::PrecedingZone;
 use crate::paint::{Paint, Pen, Writer};
 
 /// **`DCH` or `ICH`**, for [`Paint::edit_moded`].
@@ -148,32 +156,56 @@ impl Paint<'_, '_> {
         let need = 1 + usize::from(w == Width::WIDE);
         self.refresh_fence();
         let fence = self.line_fence();
-        let c = self.cx.col().min(fence);
-        let left = self.left_limit(c);
-        // A wide character at the line's start takes the column after it.
-        let c = Col::at_index(c.index().max(left.index() + need - 1));
-        if c > fence {
+        let map = self.edit_map();
+        let see = map.is_none() && self.extent_chosen();
+        // **The active position**: a wrap waiting at the margin writes on
+        // the margin's column, and a column a move put right of the fence
+        // is the cursor's own (7.2.10, "inserted at the active
+        // presentation position"; 7.3.3 b), where until 2026-11-11 the
+        // character went in on the right margin's column. Under an extent
+        // SEE chose, the fence's column, as before.
+        let at = match (see, self.cursor_at()) {
+            (false, CursorAt::Column(c) | CursorAt::Placed(c)) => c,
+            _ => self.cx.col().min(fence),
+        };
+        let zone = self.preceding_zone(at);
+        let at = at.min(zone.hi());
+        // A wide character at the shifted part's start takes the column
+        // after it.
+        let c = Col::at_index(at.index().max(zone.lo().index() + need - 1));
+        let part = map.as_ref().map(|m| {
+            let p = m.presentation(at);
+            (p, self.preceding_drawn(m, p, zone, Count::of(need)))
+        });
+        let fits = match &part {
+            Some((_, part)) => part.len().index() >= need,
+            None => c <= zone.hi(),
+        };
+        if !fits {
             return;
         }
         self.form_step(cp);
         let blank = self.blank();
-        let (lead_col, kept) = match self.edit_map() {
-            Some(m) => {
-                let p = m.presentation(c);
-                (self.open_preceding_drawn(&m, p, Count::of(need)), Some(p))
+        let (lead_col, kept) = match (map, part) {
+            (Some(m), Some((p, part))) => {
+                let end = zone.end();
+                let Some(at) = self.open_preceding_drawn(&m, part, Count::of(need), end) else {
+                    return;
+                };
+                (at, Some(p))
             }
             // Under an extent SEE chose other than the line, along it
             // (`crate::extent`). On a wide character's lead the gap opens
             // after its tail, the shift taking the whole character.
-            None if self.extent_chosen() => {
+            _ if see => {
                 let to = crate::extent::Toward::Start;
                 let x = self.presented_at(c);
                 let start = self.shift_extent(x, Count::of(need), CharEdit::Insert, to);
                 let end = start.filter(|&s| s > c).unwrap_or(c).after();
                 (Col::at_index(end.index() - need), None)
             }
-            None => {
-                let (_, end) = self.open_preceding_line(c, Count::of(need), blank);
+            _ => {
+                let (_, end) = self.open_preceding_line(c, zone, Count::of(need), blank);
                 (Col::at_index(end.index() - need), None)
             }
         };
@@ -195,22 +227,15 @@ impl Paint<'_, '_> {
         let end = Col::at_index(lead_col.index() + need);
         self.overwrote(lead_col, end);
         self.row_written = self.row_written.max(end);
-        self.keep_presented(kept);
+        // **Kept one past the right margin, the cursor is on a column**,
+        // where a move put it: no write advanced it there, so no wrap
+        // waits (`[[source: dec-std-070]]` D.6.1).
+        if let Some(p) = kept {
+            self.keep_presented(Some(p));
+            let c = self.cx.col();
+            self.set_col(CursorCol::placed(c, self.cold.right, self.cols));
+        }
         self.row_changed_to(self.cy);
-    }
-
-    /// **`n` blanks opened under PRECEDING at presentation position `p`**
-    /// of the cursor's line, mapped by `m`: the cells drawn at the line's
-    /// first `n` positions deleted, and the blanks opened at the position
-    /// `p` has moved back to, so they are drawn at `p` and the `n - 1`
-    /// before it. The column the blanks start at.
-    fn open_preceding_drawn(&mut self, m: &LineMap, p: Col, n: Count) -> Col {
-        let k = Count::of(n.at_least_one().min(p.index() + 1));
-        let end = self.fence_end();
-        self.delete_drawn(m, Col::ZERO, k, end);
-        let at = Col::at_index(p.index() + 1 - k.index());
-        let after = self.line_map(self.cy);
-        self.insert_drawn(after.as_ref(), at, k, end)
     }
 
     /// **`DCH` or `ICH` under PRECEDING, or under DCSM's PRESENTATION**,
@@ -250,7 +275,8 @@ impl Paint<'_, '_> {
             }
             None => {
                 let blank = self.blank();
-                let (left, end, took) = self.preceding_part(c, blank);
+                let zone = self.preceding_zone(c);
+                let (left, end, took) = self.preceding_part(c, zone, blank);
                 // The `n` positions from the cursor's own, and the half the
                 // tail took in (8.3.26); a span whose last position is a
                 // wide character's tail takes its lead, as
@@ -285,12 +311,15 @@ impl Paint<'_, '_> {
         match self.cursor_map() {
             Some(m) => {
                 let p = m.presentation(c);
-                self.open_preceding_drawn(&m, p, n);
+                let zone = self.preceding_zone(c);
+                let part = self.preceding_drawn(&m, p, zone, Count::ONE);
+                self.open_preceding_drawn(&m, part, n, zone.end());
                 self.keep_presented(Some(p));
             }
             None => {
                 let blank = self.blank();
-                let (left, after) = self.open_preceding_line(c, n, blank);
+                let zone = self.preceding_zone(c);
+                let (left, after) = self.open_preceding_line(c, zone, n, blank);
                 let k = n.at_least_one().min(after.index() - left.index());
                 let from = Col::at_index(after.index() - k);
                 if self.strs.strings.begun == crate::strings::Begun::Yes {
@@ -312,8 +341,14 @@ impl Paint<'_, '_> {
     /// character whose lead would leave and whose tail stay is erased,
     /// both halves, as SEE's shift erases one it pushes off. The shifted
     /// part, as [`Paint::preceding_part`] gives it.
-    fn open_preceding_line(&mut self, c: Col, n: Count, blank: PackedCell) -> (Col, Col) {
-        let (left, end, _) = self.preceding_part(c, blank);
+    fn open_preceding_line(
+        &mut self,
+        c: Col,
+        zone: PrecedingZone,
+        n: Count,
+        blank: PackedCell,
+    ) -> (Col, Col) {
+        let (left, end, _) = self.preceding_part(c, zone, blank);
         let k = n.at_least_one().min(end.index() - left.index());
         let kept = Col::at_index(left.index() + k);
         if kept < end && self.is_tail(kept) {
@@ -327,14 +362,19 @@ impl Paint<'_, '_> {
     }
 
     /// **The shifted part of the cursor's line under PRECEDING**, `[left,
-    /// end)`: from the line's start to the cursor, and on to a wide
+    /// end)`: from `zone`'s start to the cursor, and on to a wide
     /// character's tail where the cursor is on its lead, so an edit on
     /// either half takes the whole character, as SEE's shifts do
     /// (`crate::extent`); and whether it took the tail in. A character the
     /// part's ends would cut is erased first, both halves: a tail past the
-    /// fence, or one at the line's start whose lead is before it.
-    fn preceding_part(&mut self, c: Col, blank: PackedCell) -> (Col, Col, bool) {
-        let left = self.left_limit(c);
+    /// zone, or one at its start whose lead is before it.
+    fn preceding_part(
+        &mut self,
+        c: Col,
+        zone: PrecedingZone,
+        blank: PackedCell,
+    ) -> (Col, Col, bool) {
+        let left = zone.lo();
         if left.index() > 0 && self.is_tail(left) {
             self.erase_whole(left.before(), blank);
         }
@@ -342,7 +382,7 @@ impl Paint<'_, '_> {
         if !self.is_tail(after) {
             return (left, after, false);
         }
-        if after <= self.line_fence() {
+        if after <= zone.hi() {
             return (left, after.after(), true);
         }
         self.erase_whole(c, blank);

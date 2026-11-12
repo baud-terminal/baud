@@ -380,3 +380,145 @@ fn a_string_at_the_line_edge_shifts_on_the_line() {
         ("abcdefg\u{4e00}_z", blank.as_str())
     );
 }
+
+/// The reversed string `abcdefgh` on row 0, closed with `SDS 0` or left
+/// `open`, BDSM reset, DECLRMM's margins at columns 2 to 6, HEM's
+/// PRECEDING and IRM set, the cursor put on column `col` with `HPA`, which
+/// moves the active data position (8.3.57), then `then` and a `CPR`: row
+/// 0 as stored and as drawn, and the report, which under PRESENTATION
+/// names the presentation column. Drawn `hgfedcba`, so the string crosses
+/// the right margin: `f`, on the margin, at position 2, and `g` and `h`,
+/// right of it, at 1 and 0, the home.
+fn across_the_margin(open: bool, col: usize, then: &str) -> (String, String, String) {
+    support::with_term(&WS, |t| {
+        let end = match open {
+            true => "",
+            false => "\x1b[0]",
+        };
+        let setup = format!(
+            "\x1b[8l\x1b[2]abcdefgh{end}\x1b[?69h\x1b[2;6s\x1b[10h\x1b[4h\x1b[1;1H\x1b[{col}`{then}\x1b[6n"
+        );
+        support::feed(t, setup.as_bytes());
+        let reply = String::from_utf8_lossy(t.reply()).into_owned();
+        (row(t, 10), drawn(t, 10), reply)
+    })
+}
+
+/// **Under PRESENTATION and PRECEDING a character written under IRM shifts
+/// only the positions inside the side margins** (7.2.10: "inserted at the
+/// active presentation position"; 7.2.9, the contents of the active
+/// presentation position shifted "in the direction opposite to that of
+/// the character path"; 8.3.64: "the contents of n character positions at
+/// the other end of the shifted part are removed"), the side margins
+/// bounding the shifted part as they bound FOLLOWING's at the right
+/// margin, so a cell right of the margin is neither shifted nor written
+/// over. On `f`, the margin's cell, at position 2: the part is position 2
+/// alone, `f` leaves it and `X` is drawn there, `g` and `h` kept; on `e`,
+/// at 3, `e` moves to 2 and `f` leaves. The cursor stays at its
+/// presentation position (7.3.3 b). The same at the left margin, the cells
+/// left of it neither shifted nor deleted. A wide character on `f` takes
+/// positions 2 and 3, as one at the shifted part's start takes the column
+/// after it on a line with no string. With the string closed the cells are
+/// the same. Until now the shift took the line's first positions, `h` and
+/// `g`, which the margin kept, so nothing left and `X` went in over `g`:
+/// `abcdefXh..` from `f`, `abcdeXgh..` from `e`, and from `f` a wide
+/// character over `h`, `abcdefg中_`.
+#[test]
+fn irm_under_preceding_and_presentation_shifts_only_inside_the_margins() {
+    assert_eq!(
+        across_the_margin(true, 6, "X"),
+        ("abcdeXgh..".into(), "hgXedcba..".into(), "\x1b[1;3R".into())
+    );
+    assert_eq!(
+        across_the_margin(true, 5, "X"),
+        ("abcdXegh..".into(), "hgeXdcba..".into(), "\x1b[1;4R".into())
+    );
+    assert_eq!(across_the_margin(false, 6, "X").0, "abcdeXgh..");
+    assert_eq!(across_the_margin(false, 5, "X").0, "abcdXegh..");
+    // **Mirrored at the left margin**: `xy` left of it at columns 1 and 2,
+    // the string `abcdef` after them drawn `fedcba` from position 2, the
+    // margins at columns 3 to 10, and on `f`, at 2, the part is position 2
+    // alone, `x` and `y` kept.
+    let left = support::with_term(&WS, |t| {
+        let setup = "\x1b[8lxy\x1b[2]abcdef\x1b[?69h\x1b[3;10s\x1b[10h\x1b[4h\x1b[8`X\x1b[6n";
+        support::feed(t, setup.as_bytes());
+        let reply = String::from_utf8_lossy(t.reply()).into_owned();
+        (row(t, 10), drawn(t, 10), reply)
+    });
+    assert_eq!(
+        left,
+        ("xyabcdeX..".into(), "xyXedcba..".into(), "\x1b[1;3R".into())
+    );
+    assert_eq!(
+        across_the_margin(true, 6, "\u{4e00}").0,
+        "abcd\u{4e00}_gh.."
+    );
+    assert_eq!(
+        across_the_margin(false, 6, "\u{4e00}").0,
+        "abcd\u{4e00}_gh.."
+    );
+}
+
+/// **`ICH` under PRESENTATION and PRECEDING the same** (8.3.64): on `f` a
+/// blank is drawn at position 2 and `f` leaves the line, on `e` the blank
+/// at 3, `e` at 2; the blank joins the string of the cell it pushed (TR/53
+/// note A.1). Until now `ICH` on `f` changed nothing, and on `e` put the
+/// blank at 2 and kept `e` at 3, `abcde.gh..`.
+#[test]
+fn ich_under_preceding_and_presentation_shifts_only_inside_the_margins() {
+    assert_eq!(
+        across_the_margin(true, 6, "\x1b[@"),
+        ("abcde.gh..".into(), "hg.edcba..".into(), "\x1b[1;3R".into())
+    );
+    assert_eq!(
+        across_the_margin(true, 5, "\x1b[@"),
+        ("abcd.egh..".into(), "hge.dcba..".into(), "\x1b[1;4R".into())
+    );
+}
+
+/// **Right of the right margin a character written under IRM and
+/// PRECEDING goes in at the cursor** (7.2.10: "inserted at the active
+/// presentation position"; 7.3.3 b: "the active position does not move"),
+/// the shifted part running from one past the margin to the cursor, the
+/// mirror of `[[source: dec-std-070]]`'s insert-or-replace, which takes
+/// the right margin as the shift's boundary only for an Active Position at
+/// or left of it and `end_of_line(line)` otherwise (pp. 5-139, 5-140):
+/// nothing inside the margins moves. Under PRESENTATION on `g`, at
+/// position 1, `g` moves to 0 and `h` leaves; on `h`, at 0, `h` leaves.
+/// The cursor stays at its presentation position, on column 7 one past the
+/// margin as a move put it, which `CPR` names, not a wrap waiting on the
+/// margin. On a line with no string the same at the cursor's column. Until
+/// now the character went in on the margin's column, two columns from a
+/// cursor on column 8: `abcdefXh..` under PRESENTATION, `acdefXgh..` on
+/// a plain line. A wrap waiting on the margin still writes on the
+/// margin's column.
+#[test]
+fn irm_under_preceding_right_of_the_right_margin_goes_in_at_the_cursor() {
+    assert_eq!(
+        across_the_margin(true, 7, "X"),
+        ("abcdefXg..".into(), "gXfedcba..".into(), "\x1b[1;2R".into())
+    );
+    assert_eq!(
+        across_the_margin(true, 8, "X"),
+        ("abcdefgX..".into(), "Xgfedcba..".into(), "\x1b[1;1R".into())
+    );
+    let plain = |then: &str| {
+        support::with_term(&WS, |t| {
+            let setup = format!("abcdefgh\x1b[?69h\x1b[2;6s\x1b[10h{then}\x1b[6n");
+            support::feed(t, setup.as_bytes());
+            (row(t, 10), String::from_utf8_lossy(t.reply()).into_owned())
+        })
+    };
+    assert_eq!(
+        plain("\x1b[4h\x1b[1;8HX"),
+        ("abcdefhX..".into(), "\x1b[1;8R".into())
+    );
+    assert_eq!(
+        plain("\x1b[4h\x1b[1;7HX"),
+        ("abcdefXh..".into(), "\x1b[1;7R".into())
+    );
+    assert_eq!(
+        plain("\x1b[1;2HPQRST\x1b[4hX"),
+        ("aQRSTXgh..".into(), "\x1b[1;6R".into())
+    );
+}

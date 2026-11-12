@@ -132,6 +132,58 @@ impl Shifted {
     }
 }
 
+/// **The columns HEM's PRECEDING shifts within**, `[lo, hi]` of the
+/// cursor's line, on the side of the right margin the cursor is on: from
+/// the left margin, or the line's start for a cursor left of it, to the
+/// fence for a cursor at or inside the fence; from one past the fence to
+/// the line's last column for a cursor a move put right of it, the mirror
+/// of the line's end DEC's insert-or-replace shifts to there
+/// ([`Paint::insert_end`]). Built only by [`Paint::preceding_zone`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct PrecedingZone {
+    lo: Col,
+    hi: Col,
+}
+
+impl PrecedingZone {
+    /// The zone's first column, where the shifted part starts on a line
+    /// with no string.
+    pub(crate) fn lo(self) -> Col {
+        self.lo
+    }
+    /// The zone's last column.
+    pub(crate) fn hi(self) -> Col {
+        self.hi
+    }
+    /// Whether column `c` is in the zone.
+    fn holds(self, c: Col) -> bool {
+        c >= self.lo && c <= self.hi
+    }
+    /// Where a shift inside the zone ends, one past its last column.
+    pub(crate) fn end(self) -> ShiftEnd {
+        ShiftEnd(self.hi.after())
+    }
+}
+
+/// **The positions HEM's PRECEDING shifts under PRESENTATION**, `[home,
+/// cursor]` along the line's path: back from the cursor's presentation
+/// position toward the line's home while the cell drawn at each is in the
+/// [`PrecedingZone`], so a string drawn across a side margin is shifted
+/// only on the cursor's side of it. Built only by
+/// [`Paint::preceding_drawn`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct DrawnPart {
+    home: Col,
+    cursor: Col,
+}
+
+impl DrawnPart {
+    /// How many positions the part holds, the cursor's included.
+    pub(crate) fn len(self) -> Cols {
+        Cols::of_index(self.cursor.index() + 1 - self.home.index())
+    }
+}
+
 /// **The lines a walk over positions reads**, `EA`'s and `EF`'s: in the
 /// presentation component, while [`ModeBit::PresentationEdits`] is set,
 /// each line's map, the last one read kept; in the data component every
@@ -797,6 +849,95 @@ impl Paint<'_, '_> {
             true => (c, c),
             false => (c, c.after()),
         }
+    }
+
+    /// **The columns PRECEDING shifts within for a cursor on column `c`**
+    /// ([`PrecedingZone`]).
+    pub(crate) fn preceding_zone(&self, c: Col) -> PrecedingZone {
+        let fence = self.line_fence();
+        match c > fence {
+            true => PrecedingZone {
+                lo: fence.after(),
+                hi: Col::at_index(self.line_cols().index() - 1),
+            },
+            false => PrecedingZone {
+                lo: self.left_limit(c),
+                hi: fence,
+            },
+        }
+    }
+
+    /// **The part PRECEDING shifts from presentation position `p`** of the
+    /// cursor's line, mapped by `m`, inside `zone` ([`DrawnPart`]). Where
+    /// it holds fewer than `need` positions it runs on past `p`, away from
+    /// the home, while the cells drawn there are in the zone, as a wide
+    /// character at the shifted part's start takes the column after it on
+    /// a line with no string (`crate::editing`); the caller writes nothing
+    /// where it still holds fewer.
+    pub(crate) fn preceding_drawn(
+        &self,
+        m: &LineMap,
+        p: Col,
+        zone: PrecedingZone,
+        need: Count,
+    ) -> DrawnPart {
+        let inside = |q: usize| zone.holds(m.data(Col::at_index(q)));
+        let mut home = p.index();
+        while home > 0 && inside(home - 1) {
+            home -= 1;
+        }
+        let mut cursor = p.index();
+        while cursor + 1 - home < need.index() && inside(cursor + 1) {
+            cursor += 1;
+        }
+        DrawnPart {
+            home: Col::at_index(home),
+            cursor: Col::at_index(cursor),
+        }
+    }
+
+    /// **`n` blanks opened under PRECEDING at the cursor's end of `part`**
+    /// (7.2.9: "the contents of the active presentation position and of
+    /// the following character positions in the presentation component to
+    /// be shifted in the direction opposite to that of the character
+    /// path", read as its DATA paragraph's "preceding"; 8.3.64: "the
+    /// contents of n character positions at the other end of the shifted
+    /// part are removed"): the cells drawn at the part's first `n`
+    /// positions deleted, and the gap opened beside the cell drawn at the
+    /// part's cursor end, on its far side from the home, so the blanks are
+    /// drawn there and at the `n - 1` positions before it. Both read `m`,
+    /// the map before the edit, as [`Paint::open_following_drawn`] does.
+    /// The blanks join the string of the cell they pushed (TR/53 note A.1).
+    /// The column the blanks start at; `None` where the gap would open past
+    /// `end`, which a part inside the zone `end` closes never does.
+    ///
+    /// **Until 2026-11-11 the deletion took the line's first positions**,
+    /// whatever the margins: on a string drawn across the right margin they
+    /// were cells right of it, which the shift's end kept, so nothing was
+    /// deleted, the gap opened past the fence with nothing to shift, and
+    /// the character was written over the cell right of the margin.
+    pub(crate) fn open_preceding_drawn(
+        &mut self,
+        m: &LineMap,
+        part: DrawnPart,
+        n: Count,
+        end: ShiftEnd,
+    ) -> Option<Col> {
+        let k = n.at_least_one().min(part.len().index());
+        let (c, at) = match self.gap_of(m, part.cursor) {
+            (c, at) if at == c => (c, c.after()),
+            (c, _) => (c, c),
+        };
+        let s = self.string_of(self.view.get(self.cy, c).style);
+        let home = part.home.index();
+        let gone = (home..home + k)
+            .filter(|&q| m.data(Col::at_index(q)) < at)
+            .count();
+        let at = Col::at_index(at.index() - gone);
+        let gap = end.from(at)?;
+        self.delete_drawn(m, part.home, Count::of(k), end);
+        self.open_gap_at(gap, Count::of(k), s);
+        Some(at)
     }
 
     /// `n` blanks opened at the start of `part` of the cursor's line, the
