@@ -91,8 +91,10 @@ pub const TIOCGWINSZ: c_ulong = 0x5413;
 
 pub const POLLIN: i16 = 0x1;
 /// Room to write. The Linux loop asks for it while the pty owes bytes it
-/// has not taken; the macOS driver retries those on the display link's tick
-/// instead, and only a test asks there.
+/// has not taken. The macOS driver asks no wait for it: its display link
+/// keeps ticking while those bytes are owed (`frames::Why::Unwritten`) and
+/// each tick's pump writes again, but a link a covered window has paused
+/// retries nothing until the window's next turn. Only a test asks there.
 #[cfg(any(target_os = "linux", test))]
 pub const POLLOUT: i16 = 0x4;
 /// The descriptor cannot be watched. Darwin's `poll(2)` says under BUGS

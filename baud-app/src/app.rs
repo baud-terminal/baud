@@ -13353,6 +13353,10 @@ impl Driver {
             },
         );
         if drained.stream == Stream::Closed {
+            // Nothing owed to the child reaches it now: the outbox let go,
+            // or a window that outlives its child would tick for its bytes
+            // (`frames::Why::Unwritten`) until it closed.
+            self.app.outbox.let_go();
             // The child is gone: the window has nothing left to show, once
             // the log has written what this read and the ones before it
             // queued, and it closes; the other windows and their shells go
@@ -15292,9 +15296,10 @@ impl baud_present_macos::unwind::Settles for Driver {
 impl Driver {
     /// **What the display link owes at `now`** (`frames::owes`): a frame
     /// while one is owed, motion runs, a latency record waits for its
-    /// bounds or a poll is still the tick's; else the soonest deadline a
-    /// timed effect keeps -- the clocks the Linux loop bounds its wait by,
-    /// read the same way -- or nothing.
+    /// bounds or a poll is still the tick's, or while the outbox holds bytes
+    /// the kernel has not taken, which each tick's pump writes again; else
+    /// the soonest deadline a timed effect keeps -- the clocks the Linux
+    /// loop bounds its wait by, read the same way -- or nothing.
     fn owes(&self, now: HostTime) -> crate::frames::Owes {
         use crate::frames::{Deadline, Moving, Why};
         let app = &self.app;
@@ -15384,7 +15389,7 @@ impl Driver {
             ),
             (Deadline::Lights, lamps_next(app, now)),
         ];
-        crate::frames::owes(frame, &deadlines, now, app.interval)
+        crate::frames::owes(frame, app.outbox.owed(), &deadlines, now, app.interval)
     }
 
     /// **The first poll that holds the link**: [`Driver::held`]'s, unless

@@ -741,13 +741,21 @@ impl Outbox {
         self.bytes.is_empty()
     }
 
-    /// Whether a wait should wake for room to write.
-    #[cfg(target_os = "linux")]
+    /// Whether bytes are owed that the kernel has not taken: a Linux wait
+    /// then wakes for room to write, and the macOS display link ticks
+    /// (`frames::Why::Unwritten`).
     pub fn owed(&self) -> Owed {
         match self.bytes.is_empty() {
             true => Owed::Nothing,
             false => Owed::Bytes,
         }
+    }
+
+    /// **Everything owed, let go**: the child's stream has closed, and
+    /// nothing written now reaches it.
+    #[cfg(target_os = "macos")]
+    pub fn let_go(&mut self) {
+        self.bytes.clear();
     }
 }
 
@@ -3070,10 +3078,10 @@ pub enum Ready {
     Idle,
 }
 
-/// Whether the second descriptor of a [`wait`] is owed bytes it has not
+/// Whether the second descriptor of a `wait` is owed bytes it has not
 /// taken, so room to write should end the wait too: the retry is scheduled
-/// on the event that makes it possible, not on a timer.
-#[cfg(target_os = "linux")]
+/// on the event that makes it possible, not on a timer. On macOS, whether
+/// the display link ticks for the retry (`frames::owes`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Owed {
     Nothing,
