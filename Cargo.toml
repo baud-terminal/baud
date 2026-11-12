@@ -106,6 +106,21 @@ baud-wayland = { path = "baud-wayland", version = "1.0.0-beta" }
 baud-present-wayland = { path = "baud-present-wayland", version = "1.0.0-beta" }
 baud-present-macos = { path = "baud-present-macos", version = "1.0.0-beta", default-features = false }
 
+# **Dev builds carry line tables, not full debuginfo.** Measured on this
+# workspace (`cargo build --workspace --tests`, lane environment, ld-prime):
+# a clean dev build 161 s -> 126 s (-22%, outside the A/A range), user CPU
+# -21%, target 10 GB -> 8 GB, and no change on an incremental edit.
+# Backtraces keep file and line; variables and types are not described, so
+# lldb on a dev build shows no locals: build `--profile debugging` for that.
+# `release` and `-align-all-functions=6` are untouched.
+[profile.dev]
+debug = "line-tables-only"
+
+# Full debuginfo for lldb: `cargo build --profile debugging`.
+[profile.debugging]
+inherits = "dev"
+debug = true
+
 # **The debug suite optimises the four crates its time is spent in, and
 # every dependency.** At opt-level 0 the workspace nextest took 1531 s,
 # and one test was 1503 s of it: `RIS` before every case erases the whole
