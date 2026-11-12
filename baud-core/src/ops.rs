@@ -277,16 +277,23 @@ impl Paint<'_, '_> {
         )
     }
 
+    /// `CUF` under `DECLRMM`: to the move fence from at or inside it, to
+    /// the line's last column from beyond it (notes 1 and 2). The move fence
+    /// is the right margin on every row here, since no line is sized while
+    /// DECLRMM is set (p. 5-29); read through it, never the margin itself,
+    /// so that a move fence that named the write fence would carry `CUF`
+    /// past the margin on a row outside the scroll area, where the write
+    /// fence is the line's end (`no_move_reads_the_write_fence`).
     #[cold]
     #[inline(never)]
     fn forward_fenced(&self, n: Count) -> CursorCol {
         let x = self.moved_from().index();
         let end = match self.at_or_inside_right() {
-            true => self.cold.right.index(),
+            true => self.line_move_fence().col().index(),
             false => self.cols.index() - 1,
         };
         let c = self.confine_col(Col::at_index((x + n.at_least_one()).min(end)));
-        CursorCol::placed(c, self.cold.right, self.cols)
+        self.place(c)
     }
 
     /// **Whether the cursor is at or inside the right margin**, for the
@@ -303,13 +310,18 @@ impl Paint<'_, '_> {
     /// since the `DECSC`, or a `DECRSPS`, can put inside the margins short
     /// of the right one; read as one past the margin, a `CUF` from there
     /// would go to the screen's last column.
+    ///
+    /// **Read against the move fence** ([`crate::paint::MoveFence`]), the
+    /// right margin on every single-width row, outside the scroll area too;
+    /// on a double line, which `HT` alone asks about, the half's last
+    /// column, where both of `HT`'s answers are that column.
     pub(crate) fn at_or_inside_right(&self) -> bool {
+        let right = self.line_move_fence().col();
         match self.cursor_at() {
-            CursorAt::Column(c) => c <= self.cold.right,
-            CursorAt::Pending(c) if self.cx.is_waiting() => c.before() <= self.cold.right,
+            CursorAt::Column(c) => c <= right,
+            CursorAt::Pending(c) if self.cx.is_waiting() => c.before() <= right,
             CursorAt::Pending(c) => {
-                c.index() == self.cold.right.index() + 1
-                    && self.cold.modes.is_set(ModeBit::AutoWrap)
+                c.index() == right.index() + 1 && self.cold.modes.is_set(ModeBit::AutoWrap)
             }
             CursorAt::Placed(_) => false,
         }
@@ -368,7 +380,7 @@ impl Paint<'_, '_> {
             false => 0,
         };
         let c = self.confine_col(Col::at_index(x.saturating_sub(n.at_least_one()).max(floor)));
-        CursorCol::placed(c, self.cold.right, self.cols)
+        self.place(c)
     }
 
     /// **`CUU`: the top margin stops a cursor at or below it, DECOM or
@@ -3306,20 +3318,19 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn tab_end(&self) -> Col {
+        // The right margin is the move fence on a single-width line, outside
+        // the scroll area too, and the line's last column is the screen's.
         // A double line ends at its half, which is where `HT` stops when no
-        // stop comes first: `active_position.column < end_of_line(...)`
-        // (p. 5-68). Side margins and a sized line never meet (p. 5-29).
+        // stop comes first, `active_position.column < end_of_line(...)` (p.
+        // 5-68), and both are that column there: side margins and a sized
+        // line never meet (p. 5-29).
         let fence = self.line_move_fence().col();
-        if fence != self.cold.right {
-            return fence;
-        }
-        let right = self.cold.right;
         let y = self.cy.index();
         let inside =
             y >= self.cold.top.index() && y <= self.cold.bot.index() && self.at_or_inside_right();
         match inside {
-            true => right,
-            false => Col::at_index(self.cols.index() - 1),
+            true => fence,
+            false => Col::at_index(self.line_cols().index() - 1),
         }
     }
 

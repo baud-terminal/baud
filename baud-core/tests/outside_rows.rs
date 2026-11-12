@@ -179,51 +179,228 @@ fn a_write_inside_the_vertical_margins_keeps_the_side_margins() {
     }
 }
 
+/// Rows 9 and 10 from column 55 and 20, seven columns each, and the `CPR`,
+/// after `then` and ten characters: what a write back inside the region
+/// leaves when it wraps at the right margin to the left margin of row 10.
+fn back_inside(then: &str) -> (String, String, String) {
+    let (s, reply) = after(&format!("{}{MARGINS}{then}0123456789", horizontal()));
+    (at(&s, 9, 55, 7), at(&s, 10, 20, 7), reply)
+}
+
+/// The same three, as [`back_inside`] expects them.
+fn wrapped_at_the_margin(nine: &str, ten: &str) -> (String, String, String) {
+    (nine.to_string(), ten.to_string(), cpr(10, 26))
+}
+
 /// **Back inside the region the side margins bound a write again**, however
 /// the cursor came there from a row outside it: `LF` from row 8 onto row 9,
-/// the region's top; `CUP` after a write on row 8; `RI` from row 17 onto
-/// row 16, the region's bottom; and `LF` from row 8 after `ED 0` from row 8,
-/// `EL 2` on row 9, `DECERA` over row 9, or `?1049h` onto the alternate
-/// screen, each of which erases row 9 whole. Every write wraps at the right
-/// margin to the left margin of the next line, as the rows inside do
-/// above. A fence left at the line's end would carry the write past the
-/// margin inside the region.
+/// the region's top, carried by the row's mark (`baud_domain::RegionTop`);
+/// `CUP` from row 8, after a write there, onto row 12; `RI` from row 17
+/// onto row 16, the region's bottom; and `?1049h` onto the alternate
+/// screen, whose row 9 is blank. Every write wraps at the right margin to
+/// the left margin of the next line, as the rows inside do above. A fence
+/// left at the line's end would carry the write past the margin inside the
+/// region. The erases that fill row 9 whole from above it each have a test
+/// of their own below, so a red names the one that broke.
 #[test]
 fn a_write_back_inside_the_region_keeps_the_side_margins() {
-    let fed = |then: &str| after(&format!("{}{MARGINS}{then}0123456789", horizontal()));
-    let cases = [
-        ("\x1b[8;56H\n", "I01234I", "J56789J", (10, 26)),
-        ("\x1b[8;1Hx\x1b[12;56H", "L01234L", "M56789M", (13, 26)),
-        ("\x1b[8;56H\x1b[J\n", " 01234 ", " 56789 ", (10, 26)),
-        (
-            "\x1b[9;1H\x1b[2K\x1b[8;56H\n",
-            " 01234 ",
-            "J56789J",
-            (10, 26),
-        ),
-        (
-            "\x1b[8;56H\x1b[9;1;9;80$z\n",
-            " 01234 ",
-            "J56789J",
-            (10, 26),
-        ),
-        ("\x1b[8;56H\x1b[?1049h\n", " 01234 ", " 56789 ", (10, 26)),
-    ];
-    for (then, one, two, to) in cases {
-        let (s, reply) = fed(then);
-        let r = to.0 - 1;
-        assert_eq!(
-            (at(&s, r, 55, 7), at(&s, r + 1, 20, 7), reply),
-            (one.to_string(), two.to_string(), cpr(to.0, to.1)),
-            "{then:?}"
-        );
-    }
-    let (s, reply) = fed("\x1b[17;56H\x1bM");
+    assert_eq!(
+        back_inside("\x1b[8;56H\n"),
+        wrapped_at_the_margin("I01234I", "J56789J"),
+        "LF from row 8"
+    );
+    let (s, reply) = after(&format!(
+        "{}{MARGINS}\x1b[8;1Hx\x1b[12;56H0123456789",
+        horizontal()
+    ));
+    assert_eq!(
+        (at(&s, 12, 55, 7), at(&s, 13, 20, 7), reply),
+        ("L01234L".to_string(), "M56789M".to_string(), cpr(13, 26)),
+        "CUP from row 8"
+    );
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[?1049h\n"),
+        wrapped_at_the_margin(" 01234 ", " 56789 "),
+        "?1049h"
+    );
+    let (s, reply) = after(&format!(
+        "{}{MARGINS}\x1b[17;56H\x1bM0123456789",
+        horizontal()
+    ));
     assert_eq!(
         (at(&s, 15, 55, 7), at(&s, 16, 20, 7), reply),
         ("P01234O".to_string(), "P56789 ".to_string(), cpr(16, 26)),
         "RI from row 17"
     );
+}
+
+/// **A move from inside the region onto a row outside it takes that row's
+/// fence, the line's end**: `LF` from row 8 onto row 9, the region's top,
+/// brings the fence to the right margin, and `CUP` back onto row 8 takes it
+/// to the line's end again (`Paint::set_row`), so ten characters from
+/// column 56 land on 56 to 65 (p. 5-139). A fence kept from row 9 would
+/// wrap them at the margin, where `CPR` would read 9;26.
+#[test]
+fn a_move_from_inside_the_region_onto_a_row_outside_writes_to_the_line_end() {
+    let (s, reply) = after(&format!(
+        "{}{MARGINS}\x1b[8;1H\n\x1b[8;56H0123456789",
+        horizontal()
+    ));
+    assert_eq!(
+        (at(&s, 8, 55, 12), reply),
+        ("H0123456789H".to_string(), cpr(8, 66))
+    );
+}
+
+/// **`ED 0` from row 8 fills the region's top to its end, and a line feed
+/// onto it still finds the right margin**: the fill builds row 9 a fresh
+/// mark, and the erase marks the area's top again (`Paint::erase_display`).
+#[test]
+fn ed_from_above_the_region_keeps_its_top_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[J\n"),
+        wrapped_at_the_margin(" 01234 ", " 56789 ")
+    );
+}
+
+/// **`EL 2` on row 9, then a move onto row 8**: the erase builds row 9 a
+/// fresh mark, the move takes row 8's fence, the line's end, and marks the
+/// area's top again (`Paint::set_row`), so the line feed back onto row 9
+/// finds the margin. A move that took no fence at all would leave row 9's
+/// margin on row 8 and land back on it unseen here: the moves' tests above
+/// hold that half.
+#[test]
+fn el_on_the_region_top_then_a_move_above_keeps_it_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[9;1H\x1b[2K\x1b[8;56H\n"),
+        wrapped_at_the_margin(" 01234 ", "J56789J")
+    );
+}
+
+/// **`EA` from row 8, ECMA-48's ERASE IN AREA (8.3.38) with no area
+/// guarded, the page from the cursor on**: it fills row 9 to its end, and
+/// marks the area's top again (`Paint::erase_in_area`).
+#[test]
+fn ea_from_above_the_region_keeps_its_top_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[O\n"),
+        wrapped_at_the_margin(" 01234 ", " 56789 ")
+    );
+}
+
+/// **`DECERA` over row 9 from row 8**: the rectangle runs to the row's end
+/// and marks the area's top again (`rect::area_written`).
+#[test]
+fn decera_over_the_region_top_keeps_it_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[9;1;9;80$z\n"),
+        wrapped_at_the_margin(" 01234 ", "J56789J")
+    );
+}
+
+/// **`DECFRA` over row 9 from row 8**, filled with `.`: as `DECERA`.
+#[test]
+fn decfra_over_the_region_top_keeps_it_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[46;9;1;9;80$x\n"),
+        wrapped_at_the_margin(".01234.", "J56789J")
+    );
+}
+
+/// **`DECCRA` from row 1 onto row 9, from row 8**: the copy runs to the
+/// row's end, as `DECERA`.
+#[test]
+fn deccra_onto_the_region_top_keeps_it_writing_to_the_margin() {
+    assert_eq!(
+        back_inside("\x1b[8;56H\x1b[1;1;1;80;1;9;1;1$v\n"),
+        wrapped_at_the_margin("A01234A", "J56789J")
+    );
+}
+
+/// **A scroll or shift of the region with the cursor on the row above it,
+/// then a line feed onto the region's top**: `SU` and `SD` move the
+/// rectangle's rows and keep each row's word, `SL` and `SR` its columns,
+/// and `DECIC` and `DECDC` do nothing outside the margins (`CSI ' }`'s row
+/// of `docs/vt-coverage.md`). None moves the cursor, so the line feed lands
+/// on row 9 still marked as the area's top (`baud_domain::RegionTop`), and
+/// the write wraps at the right margin. Rows 9 and 10 show what each moved:
+/// `SU` brings `J` up and `K` into row 10, `SD` blanks row 9's rectangle and
+/// moves `I` down into row 10, the rest leave the pattern.
+#[test]
+fn a_scroll_or_shift_from_above_the_region_keeps_its_top_writing_to_the_margin() {
+    let cases = [
+        ("\x1b[S", "J01234I", "J56789K"),
+        ("\x1b[T", " 01234I", "J56789I"),
+        ("\x1b[ @", "I01234I", "J56789J"),
+        ("\x1b[ A", "I01234I", "J56789J"),
+        ("\x1b['}", "I01234I", "J56789J"),
+        ("\x1b['~", "I01234I", "J56789J"),
+    ];
+    for (op, nine, ten) in cases {
+        assert_eq!(
+            back_inside(&format!("\x1b[8;56H{op}\n")),
+            wrapped_at_the_margin(nine, ten),
+            "{op:?}"
+        );
+    }
+}
+
+/// The `CPR` after the margins are set, the cursor put on row `r`, a
+/// resize to `cols` columns and `then`, on a blank screen with room for
+/// 100 columns.
+fn resized(r: usize, cols: u16, then: &str) -> String {
+    let room = WinSize {
+        ws_row: 24,
+        ws_col: 100,
+    };
+    let to = WinSize {
+        ws_row: 24,
+        ws_col: cols,
+    };
+    let mut owned = Owned::new(&room);
+    let mut t = Term::new(owned.storage(), &WS);
+    support::feed(&mut t, format!("{MARGINS}\x1b[{r};56H").as_bytes());
+    assert_eq!(t.resize(&to), Resized::Ok, "{cols} columns");
+    support::feed(&mut t, format!("{then}\x1b[6n").as_bytes());
+    String::from_utf8_lossy(t.reply()).into_owned()
+}
+
+/// **A resize with the margins set puts them at the page's edges and takes
+/// the cursor's fence at the new width**: from row 8, outside the region,
+/// whose fence was column 80, and from row 12, inside it, whose fence was
+/// the margin at 60. At 70 columns ten characters from column 66 wrap at
+/// column 70 to column 1 of the next row; at 100 ten from column 76 run to
+/// column 85. A fence kept at column 80 would carry the write past the
+/// narrowed line. **Set again, the margins split the rows again**: row 8,
+/// outside the new region, writes to the line's end, and row 12, inside it,
+/// wraps at the margin.
+#[test]
+fn a_resize_with_margins_set_takes_the_fence_at_the_new_width() {
+    for r in [8, 12] {
+        assert_eq!(
+            resized(r, 70, &format!("\x1b[{r};66H0123456789")),
+            cpr(r + 1, 6),
+            "row {r}, 70 columns"
+        );
+        assert_eq!(
+            resized(r, 100, &format!("\x1b[{r};76H0123456789")),
+            cpr(r, 86),
+            "row {r}, 100 columns"
+        );
+    }
+    for cols in [70, 100] {
+        let again = "\x1b[9;16r\x1b[21;60s";
+        assert_eq!(
+            resized(8, cols, &format!("{again}\x1b[8;56H0123456789")),
+            cpr(8, 66),
+            "row 8, {cols} columns, the margins set again"
+        );
+        assert_eq!(
+            resized(12, cols, &format!("{again}\x1b[12;56H0123456789")),
+            cpr(13, 26),
+            "row 12, {cols} columns, the margins set again"
+        );
+    }
 }
 
 /// **A row outside the region erased whole still writes to its end**:
@@ -485,12 +662,77 @@ fn moves_on_a_row_outside_the_vertical_margins_keep_the_margin() {
     }
 }
 
-/// **No move reads the write fence**: the bodies of `CUF`'s, `CUB`'s,
-/// `HT` and `CHT`'s, DECFI's and DECBI's functions name neither the stored
-/// fence nor the write fence's accessors; each reads the move fence or the
-/// right margin, and the cursor's column through a report's reading.
-/// Positive controls: the probe finds `write_fence(` in `line_fence`, and
-/// `move_stop` in `forward_in_margins`.
+/// **DECFI and DECBI step from the column a write on the margin left the
+/// cursor on**: on row 8, outside the region, `01234` from column 56 ends
+/// on the margin, column 60, and the Active Position advances to 61 (p.
+/// 5-139, "If the Active Position is outside the Scroll Area, it will
+/// advance to the last column of the Active Line"), which `CPR` names
+/// (`a_write_ending_on_the_margin_outside_the_vertical_margins_is_one_past_it`).
+/// DECFI's algorithm tests that column against the margin and nothing
+/// else, `if (active_position.column == right_margin) scroll_left(...)
+/// else if (active_position.column < columns_per_page)
+/// active_position.column += 1` (p. 5-38), and DECBI's against the left
+/// margin (p. 5-39): from 61, outside the side margins, "the active
+/// position moves forward one column" to 62, or back one to 60, and
+/// nothing shifts. So the cursor is read against the fence the write
+/// left it by, the line's end there (`rect::index_from`); read against the
+/// right margin, column 61 would be a wrap waiting on 60, and DECFI would
+/// shift the region left from it, where `CPR` reads 8;60 and row 12's
+/// column 60 is blank, and DECBI would step to 59.
+#[test]
+fn decfi_and_decbi_after_a_write_ending_on_the_margin_outside_step_from_the_column_past_it() {
+    let (s, reply) = after(&format!("{}{MARGINS}\x1b[8;56H01234\x1b9", horizontal()));
+    assert_eq!(
+        (at(&s, 8, 55, 8), at(&s, 12, 60, 1), reply),
+        ("H01234HH".to_string(), "L".to_string(), cpr(8, 62)),
+        "DECFI"
+    );
+    let (s, reply) = after(&format!("{}{MARGINS}\x1b[8;56H01234\x1b6", horizontal()));
+    assert_eq!(
+        (at(&s, 8, 55, 8), at(&s, 12, 21, 1), reply),
+        ("H01234HH".to_string(), "L".to_string(), cpr(8, 60)),
+        "DECBI"
+    );
+}
+
+/// The forms a move's body may not name: the stored fence, the write
+/// fence's accessors and type, and the right margin itself.
+const NOT_IN_A_MOVE: [&str; 5] = [
+    "cold.fence",
+    "cold.right",
+    "line_fence(",
+    "write_fence(",
+    "WriteFence",
+];
+
+/// **No move reads the write fence, and none takes its stop from the
+/// stored fence or the right margin but through the move fence**: the
+/// bodies of `CUF`'s, `CUB`'s, `HT` and `CHT`'s, DECFI's and DECBI's
+/// functions, and `at_or_inside_right`, which `CUF` and `HT` split on, name
+/// none of [`NOT_IN_A_MOVE`]. Each takes its stop from the move fence
+/// (`line_move_fence`, `move_stop`), the placed tag from `place`, and the
+/// cursor's column through a report's reading. `CUF`'s arm under DECLRMM
+/// read the right margin directly until 2026-11-12, so a move fence that
+/// read the write fence left it stopping at the margin and its test green.
+///
+/// **One exemption, DECFI's `cold.right`**: its algorithm compares the
+/// column with the margin to scroll, `if (active_position.column ==
+/// right_margin) scroll_left(left_margin, 1)` (`[[source: dec-std-070]]`
+/// p. 5-38), which is not a stop, since its step goes on past the margin
+/// to the line's end; and on a double line, with DECLRMM reset, the move
+/// fence is the half's last column, so comparing with it would scroll the
+/// region from a cursor DECFI moves along. Every other read is banned
+/// there.
+///
+/// **The other horizontal moves read no right stop**: `HPR` and `HPB` pass
+/// the margins, counting from the column a report names; `CHA`, `HPA` and
+/// `CUP` address a column; `CBT`, `BS`, `CR`, `CNL` and `CPL` move left, to
+/// a stop, the left margin or the line start; and `?45`'s walk ends on the
+/// line above.
+///
+/// Positive controls: the probe finds `write_fence(` in `line_fence`,
+/// `move_stop` in `forward_in_margins`, `cold.right` in
+/// `move_fence_of_line` and `cold.fence` in `move_stop`.
 #[test]
 fn no_move_reads_the_write_fence() {
     let read = |f: &str| {
@@ -500,31 +742,35 @@ fn no_move_reads_the_write_fence() {
     let (ops, rect, paint) = (read("ops.rs"), read("rect.rs"), read("paint.rs"));
     assert!(body_of(&paint, "line_fence").contains("write_fence("));
     assert!(body_of(&ops, "forward_in_margins").contains("move_stop"));
-    let moves: [(&str, &[&str]); 2] = [
-        (
-            ops.as_str(),
-            &[
-                "forward_in_margins",
-                "forward_to_line_end",
-                "forward_fenced",
-                "back_in_margins",
-                "back_past_the_fence",
-                "back_fenced",
-                "tab_forward",
-                "tab_forward_fenced",
-                "tab_end",
-            ],
-        ),
-        (rect.as_str(), &["back_index", "forward_index"]),
+    assert!(body_of(&paint, "move_fence_of_line").contains("cold.right"));
+    assert!(body_of(&paint, "move_stop").contains("cold.fence"));
+    let every: Vec<&str> = NOT_IN_A_MOVE.to_vec();
+    let decfi: Vec<&str> = every
+        .iter()
+        .copied()
+        .filter(|b| *b != "cold.right")
+        .collect();
+    let (ops, rect) = (ops.as_str(), rect.as_str());
+    let moves: [(&str, &str, &Vec<&str>); 12] = [
+        (ops, "forward_in_margins", &every),
+        (ops, "forward_to_line_end", &every),
+        (ops, "forward_fenced", &every),
+        (ops, "at_or_inside_right", &every),
+        (ops, "back_in_margins", &every),
+        (ops, "back_past_the_fence", &every),
+        (ops, "back_fenced", &every),
+        (ops, "tab_forward", &every),
+        (ops, "tab_forward_fenced", &every),
+        (ops, "tab_end", &every),
+        (rect, "back_index", &every),
+        (rect, "forward_index", &decfi),
     ];
     let mut found = Vec::new();
-    for (src, names) in moves {
-        for name in names {
-            let body = body_of(src, name);
-            for banned in ["cold.fence", "line_fence(", "write_fence(", "WriteFence"] {
-                if body.contains(banned) {
-                    found.push(format!("{name}: {banned}"));
-                }
+    for (src, name, banned) in moves {
+        let body = body_of(src, name);
+        for b in banned {
+            if body.contains(b) {
+                found.push(format!("{name}: {b}"));
             }
         }
     }

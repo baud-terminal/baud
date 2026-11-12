@@ -574,6 +574,24 @@ impl Paint<'_, '_> {
     /// a write that ended on the margin there leaves the cursor one past
     /// it on a column, no wrap pending, beyond the margin. Where the step
     /// stops is the margin's, as before.
+    ///
+    /// **A decode, not a stop**: the cursor's value is read against the
+    /// fence the write that left it there wrote against, the write fence,
+    /// so the column is the Active Position a report names. That is the
+    /// column DECFI's and DECBI's algorithms test, and they test nothing
+    /// else: `if (active_position.column == right_margin)
+    /// scroll_left(left_margin, 1); else if (active_position.column <
+    /// columns_per_page) active_position.column += 1` (`[[source:
+    /// dec-std-070]]` p. 5-38), the mirror for DECBI (p. 5-39), no row
+    /// tested; "If the active position is outside the left or right margin
+    /// when the command is received the active position moves forward one
+    /// column" (p. 5-37). After `01234` from column 56 of row 8, outside
+    /// the region 9;16 with the side margins 21;60, the Active Position is
+    /// column 61 (p. 5-139, "it will advance to the last column of the
+    /// Active Line"), and DECFI moves to 62; read against the move fence,
+    /// the right margin, the same value is a wrap waiting on 60, and DECFI
+    /// would shift the region instead
+    /// (`decfi_and_decbi_after_a_write_ending_on_the_margin_outside_step_from_the_column_past_it`).
     fn index_from(&self) -> Col {
         let own = match self.outside_region() {
             true => self.line_fence(),

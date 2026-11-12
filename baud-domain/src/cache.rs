@@ -255,9 +255,18 @@ const CLEAR: usize = 3;
 /// cells; 400 columns is 25 lines, 400 cells; `MAX_COLS` is 131 lines, 2096
 /// cells, because 129 steps one set a row and 131 steps three.
 pub fn store_stride(geom: &CacheGeometry, min_cols: Cols) -> Stride {
+    Stride(stride_cells(geom.line().bytes(), min_cols.index()))
+}
+
+/// [`store_stride`] in cells, for a line of `line` bytes and a grid
+/// `min_cols` wide: `const`, so the widest pitch a grid can take is known
+/// when a crate that stores it compiles ([`widest_stride_cells`]).
+pub const fn stride_cells(line: usize, min_cols: usize) -> usize {
     let cell = core::mem::size_of::<PackedCell>();
-    let line = geom.line().bytes();
-    let mut lines = (min_cols.index() * cell).div_ceil(line).max(1);
+    let mut lines = (min_cols * cell).div_ceil(line);
+    if lines == 0 {
+        lines = 1;
+    }
     if lines.is_multiple_of(2) {
         lines += 1;
     }
@@ -267,16 +276,46 @@ pub fn store_stride(geom: &CacheGeometry, min_cols: Cols) -> Stride {
     // A line is a whole number of cells on every real machine (64, 128,
     // 256 bytes against an 8-byte cell); the ceiling keeps the guarantee
     // if one ever is not.
-    Stride((lines * line).div_ceil(cell))
+    (lines * line).div_ceil(cell)
+}
+
+/// **The widest pitch, in cells, a grid `cols` wide takes** on any line
+/// [`CacheGeometry::line`] answers ([`LineSize::PLAUSIBLE`]; the fallback
+/// is one of them): what a row's mark must hold for a grid that wide
+/// (`RowExtent::MAX_MARK`). 2144 cells for 2048 columns, `MAX_COLS`: 67
+/// lines of 256 bytes, where 128-byte lines take 131 lines, 2096 cells,
+/// and 64-byte ones 259, 2072.
+pub const fn widest_stride_cells(cols: usize) -> usize {
+    let mut widest = 0;
+    let mut i = 0;
+    while i < LineSize::PLAUSIBLE.len() {
+        let s = stride_cells(LineSize::PLAUSIBLE[i].0, cols);
+        if s > widest {
+            widest = s;
+        }
+        i += 1;
+    }
+    widest
 }
 
 /// Whether a pitch of `lines` lines steps at least [`CLEAR`] sets away from
 /// a wrap of every L1 way's sets. A way smaller than `CLEAR * 2` lines
-/// cannot be stepped clear and is not asked.
-fn steps_clear(lines: usize, line: usize) -> bool {
-    WAYS.iter().all(|way| {
-        let sets = way / line;
+/// cannot be stepped clear and is not asked. A loop over the indices, as
+/// `const` asks.
+const fn steps_clear(lines: usize, line: usize) -> bool {
+    let mut i = 0;
+    while i < WAYS.len() {
+        let sets = WAYS[i] / line;
         let step = lines % sets;
-        sets < CLEAR * 2 || (CLEAR..=sets - CLEAR).contains(&step)
-    })
+        if sets >= CLEAR * 2 {
+            if step < CLEAR {
+                return false;
+            }
+            if step > sets - CLEAR {
+                return false;
+            }
+        }
+        i += 1;
+    }
+    true
 }

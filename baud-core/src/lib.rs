@@ -69,6 +69,8 @@ mod aligned;
 mod bounds;
 mod component;
 mod extent;
+#[cfg(test)]
+mod fence_rows;
 mod kitty;
 mod leftward;
 mod links;

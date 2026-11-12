@@ -38,6 +38,18 @@ pub const ARENA: usize = 1 << 20;
 pub const MAX_COLS: usize = 2048;
 pub const MAX_ROWS: usize = 640;
 
+// **The widest pitch `MAX_COLS` takes fits a row's mark**, which shares
+// its word with the wrap, the rendition and the region-top bit
+// (`RowExtent::MAX_MARK`, 4095): 2144 cells, on a 256-byte line
+// (`widest_stride_cells`). Raising `MAX_COLS` past what the mark holds
+// fails here, when the core compiles, and not at the first ring built;
+// `Storage::new` still asserts the pitch it is given, which a caller may
+// choose (`Stride::of_cells`).
+const _: () = assert!(
+    widest_stride_cells(MAX_COLS) <= RowExtent::MAX_MARK,
+    "the widest pitch MAX_COLS takes is past what a row's mark holds"
+);
+
 /// How many characters one run may hold.
 ///
 /// **Not the lane count.** A block holds at most eight two-byte characters,
