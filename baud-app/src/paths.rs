@@ -1169,6 +1169,56 @@ impl PartLines {
     }
 }
 
+/// **A run of lines a read erased whole, here** (`ReadRecord::erased`):
+/// every cell blanked, so what was filed over them was about text that is
+/// gone, and only what is filed after decides them
+/// ([`Paths::forget_erased`]). Made only by [`Erased::of`], from the
+/// core's record of the read and never from the cells.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Erased(LineSpan);
+
+/// **What a part's record says it erased whole on one screen, placed
+/// here** ([`Erased::of`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ErasedLines {
+    /// More than the record holds: no line of the part is forgotten.
+    Overflowed,
+    /// The runs placed, and how many the part's lines could not place,
+    /// which keep their facts.
+    Placed(Vec<Erased>, u64),
+}
+
+impl Erased {
+    /// **The runs of `screen` `rec` says its read erased whole, on
+    /// `lines`' numbers**, on the surface `paths` says that screen is now.
+    /// A run either end of which `lines` cannot place is left out and
+    /// counted, failing closed: its lines keep what was filed over them.
+    pub fn of(
+        rec: &baud_core::ReadRecord,
+        lines: &PartLines,
+        paths: &Paths,
+        screen: Screen,
+    ) -> ErasedLines {
+        let Some(spans) = rec.erased(screen) else {
+            return ErasedLines::Overflowed;
+        };
+        let surface = paths.surface(screen);
+        let (mut placed, mut unplaced) = (Vec::new(), 0);
+        for s in spans {
+            match (lines.line(screen, s.first()), lines.line(screen, s.last())) {
+                (Some(a), Some(b)) => placed.push(Erased(LineSpan::on(surface, a, b))),
+                _ => unplaced += 1,
+            }
+        }
+        ErasedLines::Placed(placed, unplaced)
+    }
+
+    /// The lines.
+    pub fn span(self) -> LineSpan {
+        self.0
+    }
+}
+
 /// **The lines one program wrote, first to last**, on one surface's
 /// absolute line numbers, so history scrolling and trimming leave them
 /// where they were: what a read was, from the line the cursor was on as it
@@ -1897,6 +1947,28 @@ impl Store {
         }
         moved
     }
+
+    /// **The facts over `span` gone** ([`Paths::forget_erased`]): each run
+    /// it covers cut to the lines outside it, which keep theirs, and the
+    /// floor left where it is -- a line renumbered in a way no count says
+    /// stays not known. Whether anything was filed there.
+    fn forget_lines(&mut self, span: LineSpan) -> Moved {
+        let from = self.runs.partition_point(|(r, _)| r.last < span.first);
+        let to = from
+            + self.runs[from..]
+                .iter()
+                .take_while(|(r, _)| r.first <= span.last)
+                .count();
+        if from == to {
+            return Moved::No;
+        }
+        let kept: Vec<(LineSpan, Facts)> = self.runs[from..to]
+            .iter()
+            .flat_map(|&(r, f)| r.outside(span).map(move |p| (p, f)))
+            .collect();
+        self.runs.splice(from..to, kept);
+        Moved::Yes
+    }
 }
 
 impl Paths {
@@ -2327,6 +2399,27 @@ impl Paths {
         self.origins = self.origins.next();
         self.generation = self.generation.next();
         self.changed();
+    }
+
+    /// **The lines `erased` names were erased whole**, as the core recorded
+    /// the read that did it: a fact is about the text it was filed with,
+    /// so every one filed over them ends with that text, and only those
+    /// filed after decide them -- a remote writer's still makes them
+    /// remote, and one not named still leaves them not known. A line
+    /// written over in part is never named here, and keeps what was filed.
+    /// The floor stays. Every row is read again, and a link on them looked
+    /// at again ([`Reader::refiled`]).
+    pub fn forget_erased(&mut self, erased: Erased) {
+        let span = erased.0;
+        let Some(store) = self.store_mut(span.surface) else {
+            return;
+        };
+        if store.forget_lines(span) == Moved::Yes {
+            self.origins = self.origins.next();
+            self.generation = self.generation.next();
+            self.refiled = Some(self.refiled.map_or(span, |r| r.joined(span)));
+            self.changed();
+        }
     }
 
     /// **What the worker named in front**, at the line the cursor was on
@@ -7331,17 +7424,67 @@ mod tests {
         (0..8).map(|n| p.wrote(Surface::Primary, l(n))).collect()
     }
 
-    /// **R5: what wrote a line is one total function of the facts over it,
-    /// whatever order they came in**: over 20,000 random sequences of up to
-    /// six facts on eight lines -- writers named local, multiplexer and
-    /// remote, writers not named, reads nothing names, the shell's local
-    /// commands -- the answer for every line is the same filed in order,
-    /// reversed and rotated; a line any remote writer wrote is remote; a
-    /// line is local only if no writer named over it is other than local,
-    /// every writer not named over it is under the shell's local command,
-    /// and no read nothing names wrote it; and a line with no fact
-    /// has no answer. Named break: the last writer filed wins -- the orders
-    /// disagree.
+    /// One event of the property below: a fact filed, or lines erased whole
+    /// as the core's record names them.
+    #[derive(Clone, Copy, Debug)]
+    enum Event {
+        File(Filing),
+        Erase(baud_domain::Row, baud_domain::Row),
+    }
+
+    /// The per-line answers of `events` in the order given, each erasure
+    /// forgotten as a read's record has it forgotten
+    /// ([`Paths::forget_erased`]).
+    fn happened(events: &[Event]) -> Vec<Option<Provenance>> {
+        let mut p = Paths::new(None, Forms::DEFAULT);
+        let l = |n: usize| at().line(Rows::ZERO, baud_domain::Row::from_index(n));
+        let on = |r| at().line(Rows::ZERO, r);
+        for e in events {
+            match *e {
+                Event::File(f) => {
+                    let _ = p.file(f.fact, LineSpan::of(on(f.first), on(f.last)));
+                }
+                Event::Erase(a, b) => p.forget_erased(Erased(LineSpan::of(on(a), on(b)))),
+            }
+        }
+        (0..8).map(|n| p.wrote(Surface::Primary, l(n))).collect()
+    }
+
+    /// `events` with the facts between each two erasures put in another
+    /// order by `turn`, each erasure where it was.
+    fn reordered(events: &[Event], turn: impl Fn(&mut Vec<Event>)) -> Vec<Event> {
+        let (mut out, mut run) = (Vec::new(), Vec::new());
+        for &e in events {
+            match e {
+                Event::File(_) => run.push(e),
+                Event::Erase(..) => {
+                    turn(&mut run);
+                    out.append(&mut run);
+                    out.push(e);
+                }
+            }
+        }
+        turn(&mut run);
+        out.append(&mut run);
+        out
+    }
+
+    /// **R5: what wrote a line is one total function of the facts filed
+    /// over it since it was last erased, whatever order they came in**:
+    /// over 20,000 random sequences of up to eight events on eight lines --
+    /// writers named local, multiplexer and remote, writers not named,
+    /// reads nothing names, the shell's local commands, and lines erased
+    /// whole -- the answer for every line is the same with the facts
+    /// between each two erasures filed in order, reversed and rotated; it
+    /// is the answer the facts over the line since its last erasure give
+    /// alone, on a store of their own; a line any remote writer wrote since
+    /// is remote; a line is local only if no writer named over it since is
+    /// other than local, every writer not named over it since is under the
+    /// shell's local command, and no read nothing names wrote it since; and
+    /// a line with no fact since has no answer. Named breaks: the last
+    /// writer filed wins -- the orders disagree; facts kept across an
+    /// erasure (`Paths::forget_erased` doing nothing) -- a line answers
+    /// for text erased.
     #[test]
     fn a_lines_writer_is_one_function_of_its_facts_in_any_order() {
         let facts = [
@@ -7359,32 +7502,53 @@ mod tests {
             seed ^= seed << 17;
             usize::try_from(seed % u64::try_from(n).expect("small")).expect("small")
         };
+        let row = baud_domain::Row::from_index;
         for _ in 0..20_000 {
-            let len = 1 + next(6);
-            let filings: Vec<Filing> = (0..len)
+            let len = 1 + next(8);
+            let events: Vec<Event> = (0..len)
                 .map(|_| {
                     let (a, b) = (next(8), next(8));
-                    Filing {
-                        fact: facts[next(facts.len())],
-                        first: baud_domain::Row::from_index(a.min(b)),
-                        last: baud_domain::Row::from_index(a.max(b)),
+                    let (first, last) = (row(a.min(b)), row(a.max(b)));
+                    match next(4) {
+                        0 => Event::Erase(first, last),
+                        _ => Event::File(Filing {
+                            fact: facts[next(facts.len())],
+                            first,
+                            last,
+                        }),
                     }
                 })
                 .collect();
-            let forward = filed(&filings);
-            let back: Vec<Filing> = filings.iter().rev().copied().collect();
-            let mut turned = filings.clone();
-            turned.rotate_left(len / 2);
-            assert_eq!(filed(&back), forward, "reversed: {filings:?}");
-            assert_eq!(filed(&turned), forward, "rotated: {filings:?}");
+            let forward = happened(&events);
+            let back = reordered(&events, |r| r.reverse());
+            let turned = reordered(&events, |r| {
+                let k = r.len() / 2;
+                r.rotate_left(k);
+            });
+            assert_eq!(happened(&back), forward, "reversed: {events:?}");
+            assert_eq!(happened(&turned), forward, "rotated: {events:?}");
             for (n, got) in forward.iter().enumerate() {
-                let over: Vec<Fact> = filings
+                let mut over: Vec<Fact> = Vec::new();
+                for e in &events {
+                    match *e {
+                        Event::Erase(a, b) if (a.index()..=b.index()).contains(&n) => over.clear(),
+                        Event::File(f) if (f.first.index()..=f.last.index()).contains(&n) => {
+                            over.push(f.fact);
+                        }
+                        Event::Erase(..) | Event::File(_) => {}
+                    }
+                }
+                let since: Vec<Filing> = over
                     .iter()
-                    .filter(|f| (f.first.index()..=f.last.index()).contains(&n))
-                    .map(|f| f.fact)
+                    .map(|&fact| Filing {
+                        fact,
+                        first: row(n),
+                        last: row(n),
+                    })
                     .collect();
                 let has = |f: Fact| over.contains(&f);
-                let what = format!("line {n}: {over:?} gave {got:?}");
+                let what = format!("line {n}: {over:?} since its last erasure gave {got:?}");
+                assert_eq!(filed(&since)[n], *got, "alone: {what}");
                 if has(Fact::Writer(Writer::Remote)) {
                     assert_eq!(*got, Some(Provenance::Remote), "{what}");
                 }
@@ -7404,6 +7568,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// **A run a part's lines cannot place is left out and counted, and a
+    /// record that held more erasures than it has room for names none**
+    /// (`Erased::of`, E1): `ED 2` read where no line of the primary is
+    /// placed names no run and one not placed; placed, one run and none
+    /// not placed. Five `EL 2` apart overflow the record. Named break: a
+    /// run not placed dropped uncounted -- the count reads 0.
+    #[test]
+    fn an_erasure_not_placed_is_counted_and_an_overflow_names_none() {
+        let ws = WinSize {
+            ws_col: 60,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let p = Paths::new(None, Forms::DEFAULT);
+        feed(&mut t, b"x\x1b[2J");
+        let rec = t.take_record();
+        let none = CoreLines::of(None).part(None);
+        assert_eq!(
+            Erased::of(&rec, &none, &p, Screen::Normal),
+            ErasedLines::Placed(Vec::new(), 1),
+            "not placed"
+        );
+        let first = baud_domain::LineIdx::FIRST;
+        let placed = CoreLines::of(Some((first, at()))).part(Some(first));
+        assert!(
+            matches!(
+                Erased::of(&rec, &placed, &p, Screen::Normal),
+                ErasedLines::Placed(ref e, 0) if e.len() == 1
+            ),
+            "the control: placed"
+        );
+        feed(
+            &mut t,
+            b"\x1b[1;1H\x1b[2K\x1b[3;1H\x1b[2K\x1b[5;1H\x1b[2K\x1b[7;1H\x1b[2K\x1b[9;1H\x1b[2K",
+        );
+        let five = t.take_record();
+        assert_eq!(
+            Erased::of(&five, &placed, &p, Screen::Normal),
+            ErasedLines::Overflowed
+        );
     }
 
     /// **A row's facts are found by a binary search, however long the

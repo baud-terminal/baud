@@ -1986,6 +1986,13 @@ pub struct Counts {
     pub by_ceiling: u64,
     pub by_floor: u64,
     pub hangs: u64,
+    /// **Reads whose record held more whole-line erasures than it has room
+    /// for** (`ReadRecord::erased`): their lines kept every fact, failing
+    /// closed (`Probes::erased`).
+    pub erase_overflowed: u64,
+    /// Runs of lines a read erased whole that its part's lines could not
+    /// place here, which kept their facts.
+    pub erase_unplaced: u64,
 }
 
 impl Counts {
@@ -2073,6 +2080,15 @@ impl Lit {
             e.1 = carry(e.1);
         }
         self.merge();
+    }
+
+    /// `erased`'s lines out of every span: what lit them was filed over
+    /// text that is gone (`Probes::erased`).
+    fn cut(&mut self, erased: LineSpan) {
+        self.spans = core::mem::take(&mut self.spans)
+            .into_iter()
+            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+            .collect();
     }
 
     /// **Only what a write can reach**: the lines on `surfaces`, and on
@@ -2624,6 +2640,9 @@ impl<T: Moment> Probes<T> {
                     self.held.push(h);
                 }
             }
+            // What it erased whole, forgotten after its moves and before
+            // any of the drain is filed.
+            self.erased(paths, &rec, &at, screens);
             self.publish(paths);
         }
         let kept: Vec<_> = reads
@@ -2827,6 +2846,71 @@ impl<T: Moment> Probes<T> {
     ) {
         self.carry_spans(|span| paths.carried_span(rec, lines, screens, span));
         self.publish(paths);
+    }
+
+    /// **What a part's record says it erased whole, forgotten**
+    /// (`Paths::forget_erased`) on each of `screens`, and cut out of every
+    /// span this keeps of the lines ([`Probes::cut`]): once a part, in the
+    /// parts' order, after the part's moves are carried and before any of
+    /// the drain is filed -- so text moved onto a line and then erased goes
+    /// with the line, and a read that erases and then writes ends the
+    /// earlier facts before it files its own. Each part's own record: one
+    /// for the whole drain would say only what its last part erased. A
+    /// record that held more than it has room for forgets nothing, and a
+    /// run the part's lines cannot place keeps its facts, each counted.
+    /// The only caller of `Paths::forget_erased`.
+    fn erased(
+        &mut self,
+        paths: &mut Paths,
+        rec: &baud_core::ReadRecord,
+        lines: &crate::paths::PartLines,
+        screens: &[baud_core::Screen],
+    ) {
+        use crate::paths::{Erased, ErasedLines};
+        for &screen in screens {
+            match Erased::of(rec, lines, paths, screen) {
+                ErasedLines::Overflowed => {
+                    self.counts.erase_overflowed += 1;
+                    return;
+                }
+                ErasedLines::Placed(erased, unplaced) => {
+                    self.counts.erase_unplaced += unplaced;
+                    for e in erased {
+                        paths.forget_erased(e);
+                        self.cut(e.span());
+                    }
+                }
+            }
+        }
+    }
+
+    /// **`erased`'s lines out of every span this keeps of the lines**:
+    /// those still to be named, sent, held, written with paths off, and
+    /// lit -- the text they were kept for is gone, and an answer about it
+    /// is filed over none of them. A span cut in two keeps its batch and
+    /// group in both; the lines past the groups kept, one span, keep the
+    /// hull of what is left of them, failing closed.
+    fn cut(&mut self, erased: LineSpan) {
+        self.seen = core::mem::take(&mut self.seen)
+            .into_iter()
+            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+            .collect();
+        self.unnamed = self
+            .unnamed
+            .and_then(|u| u.outside(erased).reduce(LineSpan::joined));
+        self.inflight = core::mem::take(&mut self.inflight)
+            .into_iter()
+            .flat_map(|(i, g, s)| s.outside(erased).map(move |p| (i, g, p)))
+            .collect();
+        self.held = core::mem::take(&mut self.held)
+            .into_iter()
+            .flat_map(|(g, s)| s.outside(erased).map(move |p| (g, p)))
+            .collect();
+        self.off = core::mem::take(&mut self.off)
+            .into_iter()
+            .flat_map(|o| o.outside(erased))
+            .collect();
+        self.lit.cut(erased);
     }
 
     /// Every span this keeps of the lines, carried where `carry` says their
@@ -7448,6 +7532,432 @@ mod tests {
             ],
         );
         assert_eq!(marked, [0, 1], "the shell named its command here");
+    }
+
+    /// **R1: a line erased whole takes the writer filed after the erase**
+    /// (diag-hang2's shape): a program gone before it was named prints
+    /// `/etc/passwd` on row 0 and its batch is answered; after the shell's
+    /// prompt, a local read clears the screen and prints `/etc/passwd`
+    /// there again. Row 0
+    /// lights: the gone writer's fact went with its text. So it does with
+    /// the clear before the gone writer's answer is taken, an answer about
+    /// text the clear erased, which is then filed over none of its lines.
+    /// The control: the local read homes and prints over the line with no
+    /// erase, and the row stays dark. Named breaks: facts kept across an
+    /// erase (`Paths::forget_erased` doing nothing) -- the row stays dark;
+    /// no cut (`Probes::cut` doing nothing) -- the answer taken after the
+    /// clear darkens it.
+    #[test]
+    fn a_line_erased_whole_takes_the_writer_filed_after_it() {
+        let clear = read(b"\x1b[2J\x1b[H/etc/passwd\r\n", 2);
+        let gone = |then| Read {
+            then,
+            ..read(b"/etc/passwd\r\n", 7)
+        };
+        let prompt = read(b"$ ", 1);
+        assert_eq!(
+            lit_reads(named_groups(), &[gone(Then::Answered), prompt, clear]),
+            [0]
+        );
+        assert_eq!(
+            lit_reads(named_groups(), &[gone(Then::Sent), prompt, clear]),
+            [0],
+            "the clear before the answer"
+        );
+        let over = read(b"\x1b[H/etc/passwd\r\n", 2);
+        assert_eq!(
+            lit_reads(named_groups(), &[gone(Then::Answered), prompt, over]),
+            Vec::<usize>::new(),
+            "the control: no erase"
+        );
+    }
+
+    /// **R2: after an ssh session, its exit and a `clear`, a local listing
+    /// on the same lines lights** -- the shell integration's own bytes:
+    /// `ssh h`, named not local by the shell's marks, prints `/etc/passwd`
+    /// on row 1; the shell's `D`, then `clear`, run with its `C`, whose
+    /// program prints `ED 2` and `ED 3`; the `D`, then `ls`, whose
+    /// `/etc/passwd` lands on row 1 again. So it does where Ctrl-L clears
+    /// instead, the shell redrawing with no marks around it. The control:
+    /// `clear`'s program homes and erases nothing, and the ssh's row stays
+    /// dark under the listing. Named break: facts kept across an erase
+    /// (`Paths::forget_erased` doing nothing) -- row 1 stays dark.
+    #[test]
+    fn after_ssh_its_exit_and_a_clear_a_local_listing_lights() {
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let clear = [d.as_slice(), &ran("clear", ";cmdline=clear")].concat();
+        let ls = [d.as_slice(), &ran("ls", ";cmdline=ls")].concat();
+        let by_clear = |wipe: &[u8]| {
+            lit_reads(
+                named_groups(),
+                &[
+                    read(&ssh, 1),
+                    read(b"/etc/passwd\r\n", 9),
+                    read(&clear, 1),
+                    read(wipe, 7),
+                    read(&ls, 1),
+                    read(b"/etc/passwd\r\n", 2),
+                ],
+            )
+        };
+        assert_eq!(by_clear(b"\x1b[H\x1b[2J\x1b[3J"), [1], "clear");
+        assert_eq!(
+            by_clear(b"\x1b[H"),
+            Vec::<usize>::new(),
+            "the control: no erase"
+        );
+        let prompt = prompt_after("");
+        let ls_bare = ran("ls", ";cmdline=ls");
+        let ctrl_l = lit_reads(
+            named_groups(),
+            &[
+                read(&ssh, 1),
+                read(b"/etc/passwd\r\n", 9),
+                read(&prompt, 1),
+                read(b"\x1b[H\x1b[2J", 1),
+                read(&ls_bare, 1),
+                read(b"/etc/passwd\r\n", 2),
+            ],
+        );
+        assert_eq!(ctrl_l, [1], "Ctrl-L");
+    }
+
+    /// **E2: `ED 3` after `ED 2` leaves no fact of the history it took**:
+    /// on a ten-row window `ssh h` prints fifteen `/etc/passwd` lines, the
+    /// first of them into the history; `clear` erases the screen and the
+    /// history; `ls` prints fifteen more. Line 10, `ssh`'s and then the
+    /// listing's, is this machine's; line 2, in the history the clear
+    /// erased, has no fact left: the screen's lines the ssh wrote were
+    /// forgotten, so its run ends above the window, and the next answer
+    /// trims it there (`Paths::trim_spans`). Named break: facts kept across
+    /// an erase (`Paths::forget_erased` doing nothing) -- line 2 still
+    /// answers remote, and line 10 too.
+    #[test]
+    fn ed_3_after_ed_2_leaves_no_fact_of_the_history_it_took() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let clear = [d.as_slice(), &ran("clear", ";cmdline=clear")].concat();
+        let ls = [d.as_slice(), &ran("ls", ";cmdline=ls")].concat();
+        let lines = b"/etc/passwd\r\n".repeat(15);
+        let reads = [
+            read(&ssh, 1),
+            read(&lines, 9),
+            read(&clear, 1),
+            read(b"\x1b[H\x1b[2J\x1b[3J", 7),
+            read(&ls, 1),
+            read(&lines, 2),
+        ];
+        let at = |n: usize| AbsLine::at(Rows::of_count(n));
+        let (_, _, (old, new)) = taken_numbered(
+            ws,
+            named_groups(),
+            &reads,
+            None,
+            Numbering::Driven,
+            |_, paths| (paths.origin(at(2)), paths.origin(at(10))),
+        );
+        assert_eq!(new, Origin::Local, "the listing's line");
+        assert_eq!(old, Origin::Unknown, "the history the clear took");
+    }
+
+    /// **S1: a remote writer after an erase leaves its line remote**: `ls`
+    /// prints `/etc/hosts` on row 0, lit; then `ssh` clears the screen and
+    /// prints it again in one read, or after a local clear. The row is dark
+    /// and remote. Named break: forget after the drain's filing -- the
+    /// remote read's own lines are cut, and it reads not known.
+    #[test]
+    fn a_remote_writer_after_an_erase_leaves_its_line_remote() {
+        let lit = Read {
+            then: Then::Answered,
+            ..read(b"/etc/hosts\r\n", 2)
+        };
+        assert_eq!(lit_reads(named_groups(), &[lit]), [0], "the control");
+        let (rows, origins) = taken(
+            named_groups(),
+            &[lit, read(b"\x1b[2J\x1b[H/etc/hosts\r\n", 9)],
+        );
+        assert_eq!(rows, Vec::<usize>::new(), "one read");
+        assert_eq!(origins[0], Origin::Remote, "one read");
+        let (rows, origins) = taken(
+            named_groups(),
+            &[lit, read(b"\x1b[2J\x1b[H", 2), read(b"/etc/hosts\r\n", 9)],
+        );
+        assert_eq!(rows, Vec::<usize>::new(), "after a local clear");
+        assert_eq!(origins[0], Origin::Remote, "after a local clear");
+    }
+
+    /// **S2: a writer not named after an erase leaves its line not known**:
+    /// `ls`'s lit row 0, a clear, and a program gone before it was named
+    /// prints there, in the clear's read or after it. The row is dark: the
+    /// local fact went with the text before.
+    #[test]
+    fn a_writer_not_named_after_an_erase_leaves_its_line_dark() {
+        let lit = Read {
+            then: Then::Answered,
+            ..read(b"/etc/hosts\r\n", 2)
+        };
+        let after =
+            |reads: &[Read<'_>]| lit_reads(named_groups(), &[[lit].as_slice(), reads].concat());
+        assert_eq!(
+            after(&[read(b"\x1b[2J\x1b[H/etc/hosts\r\n", 7)]),
+            Vec::<usize>::new(),
+            "one read"
+        );
+        assert_eq!(
+            after(&[read(b"\x1b[2J\x1b[H", 2), read(b"/etc/hosts\r\n", 7)]),
+            Vec::<usize>::new(),
+            "after a local clear"
+        );
+    }
+
+    /// **S3: a local write over part of a line not known leaves it not
+    /// known**: a program gone before it was named prints `/etc/hosts` on
+    /// row 0; then a local read returns and prints it over, or prints it
+    /// over and erases to the line's end from column 11 (`EL 0`, a part of
+    /// the line). The row stays dark: the old text may still be there, and
+    /// nothing erased the line. The control: `EL 2` first, the whole line,
+    /// and the local text lights. Named break: every erase recorded whole
+    /// -- the `EL 0` lights.
+    #[test]
+    fn a_local_write_over_part_of_a_line_not_known_leaves_it_dark() {
+        let gone = Read {
+            then: Then::Answered,
+            ..read(b"/etc/hosts", 7)
+        };
+        let over = |bytes: &'static [u8]| {
+            lit_reads(named_groups(), &[gone, read(b"\r\n$ ", 1), read(bytes, 2)])
+        };
+        assert_eq!(over(b"\x1b[A\r/etc/hosts"), Vec::<usize>::new(), "over");
+        assert_eq!(
+            over(b"\x1b[A\r/etc/hosts\x1b[K"),
+            Vec::<usize>::new(),
+            "over, EL 0 from column 11"
+        );
+        assert_eq!(over(b"\x1b[A\r\x1b[2K/etc/hosts"), [0], "the control: EL 2");
+    }
+
+    /// **S4: a read that erases and then writes files over what it wrote
+    /// alone**: `ssh` prints `/etc/passwd` on row 0; then one local read
+    /// clears the screen and prints it again. Row 0 lights. Named breaks:
+    /// facts kept across an erase -- the row stays dark; forget after the
+    /// drain's filing -- the local read's own lines are cut, and the row
+    /// reads not known.
+    #[test]
+    fn a_read_that_erases_then_writes_files_over_what_it_wrote_alone() {
+        let ssh = Read {
+            then: Then::Answered,
+            ..read(b"/etc/passwd\r\n", 9)
+        };
+        let local = read(b"\x1b[2J\x1b[H/etc/passwd\r\n", 2);
+        assert_eq!(
+            lit_reads(named_groups(), &[ssh, read(b"$ ", 1), local]),
+            [0]
+        );
+    }
+
+    /// **S5: an erase that spares a guarded area leaves its line's facts**:
+    /// a program gone before it was named prints `/etc/hosts` in a guarded
+    /// area (`SPA`, `EPA`) on row 0; a local `ED 2` under ERM's PROTECT
+    /// leaves it, and the row stays dark. The control: under ALL the same
+    /// erase takes the text, and the local `/etc/hosts` printed after it
+    /// lights. Named break: every erase recorded whole -- the guarded row
+    /// lights.
+    #[test]
+    fn an_erase_that_spares_a_guarded_area_leaves_its_lines_facts() {
+        let gone = Read {
+            then: Then::Answered,
+            ..read(b"\x1bV/etc/hosts\x1bW", 7)
+        };
+        let after = |bytes: &'static [u8]| {
+            lit_reads(named_groups(), &[gone, read(b"\r\n$ ", 1), read(bytes, 2)])
+        };
+        assert_eq!(after(b"\x1b[2J"), Vec::<usize>::new(), "PROTECT");
+        assert_eq!(
+            after(b"\x1b[6h\x1b[2J\x1b[H/etc/hosts"),
+            [0],
+            "the control: ALL"
+        );
+    }
+
+    /// **One rule on both screens** (the alternate screen within one
+    /// clear's epoch): `ssh`'s `/etc/passwd` on the alternate screen's row
+    /// 2, then a local program's `ED 2` and `/etc/passwd` there again --
+    /// row 2 lights; the reverse, a local line and `ssh`'s redraw, stays
+    /// dark. The control: local both, lit. Named break: facts kept across
+    /// an erase -- the local redraw over the remote line stays dark.
+    #[test]
+    fn an_alternate_screen_redraw_takes_the_writer_after_its_erase() {
+        let run = |first: Pid, then: Pid| {
+            lit_driven(
+                TALL,
+                named_groups(),
+                &[
+                    read(b"\x1b[?1049h", first),
+                    Read {
+                        then: Then::Answered,
+                        ..read(b"\x1b[3;1H/etc/passwd", first)
+                    },
+                    read(b"\x1b[8;1H", 1),
+                    read(b"\x1b[2J\x1b[3;1H/etc/passwd", then),
+                ],
+            )
+        };
+        assert_eq!(run(2, 2), [2], "the control: local both");
+        assert_eq!(run(9, 2), [2], "a local redraw over remote lines");
+        assert_eq!(
+            run(2, 9),
+            Vec::<usize>::new(),
+            "a remote redraw over local lines"
+        );
+    }
+
+    /// **E5: each part of a drain forgets what its own record erased**: a
+    /// remote line, then one drain of two local parts, the first clearing
+    /// the screen and the second printing `/etc/passwd` on row 0. It
+    /// lights. Named break: one record for the whole drain, its last part's
+    /// -- the clear is missed and the row stays dark.
+    #[test]
+    fn each_part_of_a_drain_forgets_what_its_own_record_erased() {
+        let reads = [
+            Read {
+                then: Then::Answered,
+                ..read(b"/etc/passwd\r\n", 9)
+            },
+            read(b"$ ", 1),
+            read(b"\x1b[2J\x1b[H", 2),
+            Read {
+                drain: Drain::Same,
+                ..read(b"/etc/passwd\r\n", 2)
+            },
+        ];
+        assert_eq!(lit_reads(named_groups(), &reads), [0]);
+    }
+
+    /// **A remote `clear` before `exit` leaves the lines it blanked remote,
+    /// pinned as it is**: `ssh h` prints `/etc/passwd` on row 1 and clears
+    /// the screen itself; it exits and `ls` prints `/etc/passwd` on row 1.
+    /// The row is dark: the remote clear's read is filed over every line
+    /// it blanked, and the listing erases nothing. An under-mark, never an
+    /// over-mark: a change that forgets the lines still blank at the end
+    /// of the read that erased them flips this to lit.
+    #[test]
+    fn a_remote_clear_before_exit_leaves_its_blank_lines_remote_an_under_mark() {
+        let d = format!("\x1b]133;D;0;aid=1;baud_token={TOKEN}\x07").into_bytes();
+        let ssh = ran("ssh h", ";cmdline=ssh\\ h");
+        let ls = [d.as_slice(), &ran("ls", ";cmdline=ls")].concat();
+        let rows = lit_reads(
+            named_groups(),
+            &[
+                read(&ssh, 1),
+                read(b"/etc/passwd\r\n", 9),
+                read(b"\x1b[H\x1b[2J", 9),
+                read(&ls, 1),
+                read(b"/etc/passwd\r\n", 2),
+            ],
+        );
+        assert_eq!(rows, Vec::<usize>::new());
+    }
+
+    /// **E1: an erasure the record could not hold, or the part's lines
+    /// could not place, forgets nothing and is counted**: every line filed
+    /// remote, then one read naming nothing erases. Four `EL 2` apart
+    /// forget row 0, which reads not known; five overflow the record, are
+    /// counted, and row 0 stays remote; `ED 2` on a part whose primary
+    /// lines are not placed is counted, and row 0 stays remote. Named
+    /// break: an overflow not counted -- the count reads 0.
+    #[test]
+    fn an_erasure_not_held_or_not_placed_forgets_nothing_and_is_counted() {
+        let ws = WinSize {
+            ws_col: 40,
+            ws_row: 10,
+        };
+        let run = |bytes: &[u8], placed: bool| -> (u64, u64, Origin) {
+            let (mut pr, _) = probes(named_groups());
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            let mut paths = Paths::new(None, Forms::DEFAULT);
+            paths.set(Turned::On);
+            let mut counts = crate::keep::Counts::new(&t);
+            paths.written_remote(LineSpan::of(
+                AbsLine::at(Rows::ZERO),
+                AbsLine::at(Rows::of_count(9)),
+            ));
+            let began = paths.line_on(t.screen(), AbsLine::at(Rows::ZERO));
+            let mut pace = crate::reads::Pace::new();
+            let mut took = Vec::new();
+            let _ = crate::reads::paced(
+                &mut t,
+                &mut pace,
+                Instant::now(),
+                [(bytes, Sampler::default().unasked())],
+                |_| {},
+                |t, r| page_width(t, &ws, r),
+                &mut crate::hostlog::NoLog,
+                &mut took,
+            );
+            let rec = took.iter().rev().find_map(|w| w.record);
+            let _ = counts.numbered(&t, rec.as_ref());
+            let lines = match placed {
+                true => counts.core_lines(&t),
+                false => crate::paths::CoreLines::of(None),
+            };
+            pr.drain_taken(
+                &mut paths,
+                &t,
+                (began, began),
+                lines,
+                took.into_iter().map(|w| (w, Linked::No)),
+                Instant::now(),
+            );
+            (
+                pr.counts.erase_overflowed,
+                pr.counts.erase_unplaced,
+                paths.origin(AbsLine::at(Rows::ZERO)),
+            )
+        };
+        let apart = |n: usize| -> Vec<u8> {
+            (0..n)
+                .flat_map(|k| format!("\x1b[{};1H\x1b[2K", 1 + 2 * k).into_bytes())
+                .collect()
+        };
+        assert_eq!(
+            run(&apart(4), true),
+            (0, 0, Origin::Unknown),
+            "the control: four"
+        );
+        assert_eq!(run(&apart(5), true), (1, 0, Origin::Remote), "five");
+        assert_eq!(run(b"\x1b[2J", false), (0, 1, Origin::Remote), "not placed");
+    }
+
+    /// **Only a read's record ends a line's facts**: `Store::forget_lines`
+    /// is called once, by `Paths::forget_erased`; that is called once in
+    /// the app's code, by `Probes::erased`; an `Erased` is made only by
+    /// `Erased::of`, which reads the core's record of the read and nothing
+    /// of the screen's cells; and nothing in `probe.rs` makes one or reads
+    /// the record's erasures itself. Perturbation: call `forget_erased`
+    /// from anywhere else -- the count.
+    #[test]
+    fn only_a_reads_record_ends_a_lines_facts() {
+        use crate::no_appkit::{bare_code, fn_body, without_tests};
+        let paths = without_tests(&bare_code(include_str!("paths.rs")));
+        let probe = without_tests(&bare_code(include_str!("probe.rs")));
+        assert_eq!(paths.matches("forget_lines(").count(), 2, "one call");
+        assert!(fn_body(&paths, "pub fn forget_erased(").contains(".forget_lines("));
+        assert_eq!(paths.matches("forget_erased(").count(), 1, "defined");
+        assert_eq!(probe.matches("forget_erased(").count(), 1, "one call");
+        assert!(fn_body(&probe, "fn erased(").contains(".forget_erased("));
+        assert_eq!(paths.matches("Erased(LineSpan").count(), 2, "one maker");
+        let of = fn_body(&paths, "impl Erased ");
+        assert!(of.contains("Erased(LineSpan::on("), "made in Erased::of");
+        assert!(of.contains("rec.erased(screen)"), "from the record");
+        assert!(!of.contains("term") && !of.contains("row("), "no cell read");
+        assert_eq!(probe.matches("Erased(").count(), 0, "none made here");
+        assert_eq!(probe.matches("rec.erased(").count(), 0, "nor read here");
     }
 
     /// **The prompt after a quick command is the shell's, whoever wrote the

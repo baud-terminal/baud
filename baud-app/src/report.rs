@@ -498,6 +498,8 @@ mod tests {
             by_ceiling: 0,
             by_floor: 0,
             hangs: 0,
+            erase_overflowed: 0,
+            erase_unplaced: 0,
         };
         assert_eq!(
             l.checks_line().as_deref(),
