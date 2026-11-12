@@ -482,11 +482,13 @@ fn the_watcher_builds_what_the_gate_builds() {
     }
     // cargo-watch watches the whole repository, and its walk never enters the
     // agents' sessions, devenv's state, git or a build folder: a `target/`
-    // in the tree held its first walk past four minutes.
+    // in the tree held its first walk past four minutes. A change during a run
+    // queues one run after it (`--no-restart`); `--watch-when-idle` dropped it.
     assert!(
-        processes.contains("cargo watch --watch-when-idle -d 5 ${watchIgnores} -s"),
+        processes.contains("cargo watch --no-restart -d 5 ${watchIgnores} -s"),
         "{processes}"
     );
+    assert!(!processes.contains("--watch-when-idle"), "{processes}");
     assert!(
         !nix.contains("watchPaths"),
         "cargo-watch names no paths: it watches the repository"

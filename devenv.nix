@@ -152,14 +152,18 @@ in
   # idles. bacon 3.26: headless, no `.bacon-locations` export, and a change
   # during a run waits for it to end (`wait_then_restart`), so a run is never
   # killed half way. cargo-watch 8.5: the whole repository but
-  # `watchIgnores` (above), `--watch-when-idle` drops the events a run makes,
-  # and a 5 s debounce, since its job is the whole workspace's tests.
+  # `watchIgnores` (above), `--no-restart` so a change during a run queues one
+  # run after it (never kills the one in flight, and never drops the change, as
+  # `--watch-when-idle` did: an edit made during a five-minute run got no run of
+  # its own), and a 5 s debounce, since its job is the whole workspace's tests.
+  # A run writes nothing into the tree (its target is outside it, and the job
+  # turns proptest's failure files off), so it cannot queue itself.
   processes = lib.mkIf (!config.devenv.isTesting) {
     bacon.exec = noJob "bacon" + ''
       exec bacon --headless --no-export-locations --config-toml ${lib.escapeShellArg baconConfig}
     '';
     cargo-watch.exec = noJob "cargo-watch" + ''
-      exec cargo watch --watch-when-idle -d 5 ${watchIgnores} -s 'exec bash "$BAUD_WATCH_JOB" test'
+      exec cargo watch --no-restart -d 5 ${watchIgnores} -s 'exec bash "$BAUD_WATCH_JOB" test'
     '';
   };
 
