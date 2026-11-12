@@ -8340,7 +8340,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) {
         out.clear();
         let (cols, rows) = (view.cols(), view.rows());
+        // **A row kept only while its line is sized**: a line set back to
+        // single-width forgets its records, here when no line is sized and
+        // in the walk below when others still are, so
+        // [`Renderer::sized_records`] never answers for a row that is not
+        // a sized line now.
         if !(0..rows.index()).any(|y| view.rendition(Row::from_index(y)).is_double()) {
+            for kept in &mut self.sized_rows {
+                *kept = None;
+            }
             return;
         }
         self.sized_ready(term);
@@ -8366,6 +8374,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let r = Row::from_index(y);
             let size = view.rendition(r);
             if !size.is_double() {
+                self.sized_rows[y] = None;
                 continue;
             }
             self.cur[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
@@ -8458,7 +8467,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **A sized line's records**, as [`Renderer::sized_lines`] last kept
-    /// them for row `r`, read in place: none for a row it did not keep.
+    /// them for row `r`, read in place: none for a row it did not keep,
+    /// and none for a row whose line its last call found single-width.
     pub fn sized_records(&self, r: Row) -> &[Instance] {
         self.sized_rows
             .get(r.index())

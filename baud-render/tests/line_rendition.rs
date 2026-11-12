@@ -8,9 +8,9 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, ReadLen};
+use baud_domain::{BytePos, ReadLen, Row};
 use baud_font::Face;
-use baud_render::{Damage, Renderer};
+use baud_render::{Damage, Renderer, Resolved, StyleStamp};
 use support::*;
 
 fn draw(r: &mut Renderer<'_, '_>, bytes: &[u8]) -> Canvas {
@@ -296,4 +296,80 @@ fn an_encircled_ring_is_drawn_at_the_line_s_size() {
         cy1 - cy0
     );
     assert!(cy0 < 2 * ch && cy1 > 2 * ch, "it crosses the boundary");
+}
+
+/// Feeds `bytes` to `t`.
+fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+}
+
+/// The cell path's walk of the sized lines over `t`'s window, as a frame
+/// makes it: the rows it keeps records for.
+fn sized_walk(r: &mut Renderer<'_, '_>, t: &Term<'_>) -> Vec<Row> {
+    let mut table = vec![Resolved::default(); t.styles().len()];
+    r.sync_styles(t, &mut table, &mut StyleStamp::default());
+    let mut rows = Vec::new();
+    r.sized_lines(t, (&t.viewport(), &table), None, None, &mut rows);
+    rows
+}
+
+/// **A line set back to single-width keeps no sized records**, when it
+/// was the only sized line ([`Renderer::sized_records`]): DECDWL on row 3,
+/// a walk that keeps its records -- the control that they are kept --
+/// then DECSWL (`ESC # 5`) on it and a walk, after which the row answers
+/// none. No frame draws from such an entry, since the overlay reads only
+/// the rows the walk lists, so it is seen here through `sized_records`
+/// alone. Named break: the entries kept when no line is sized.
+#[test]
+fn the_only_sized_line_set_single_keeps_no_records() {
+    let data = faces();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let row = Row::from_index(2);
+    feed(&mut t, b"\x1b[?25l\x1b[3;1H\x1b#6hello");
+    assert_eq!(sized_walk(&mut r, &t), [row], "the control: row 3 is sized");
+    assert!(
+        !r.sized_records(row).is_empty(),
+        "the control: its records kept"
+    );
+    feed(&mut t, b"\x1b[3;1H\x1b#5");
+    assert!(sized_walk(&mut r, &t).is_empty(), "no line is sized");
+    assert!(
+        r.sized_records(row).is_empty(),
+        "the single-width line keeps no records"
+    );
+}
+
+/// **One of two sized lines set back to single-width keeps no sized
+/// records, and the other keeps its own**: DECDWL on rows 3 and 5, a
+/// walk, then DECSWL on row 3 and a walk, which converts the sized row 5
+/// and passes row 3 by. Named break: the entry of a row the walk passes
+/// by kept.
+#[test]
+fn a_sized_line_set_single_beside_another_keeps_no_records() {
+    let data = faces();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let (three, five) = (Row::from_index(2), Row::from_index(4));
+    feed(&mut t, b"\x1b[?25l\x1b[3;1H\x1b#6hello\x1b[5;1H\x1b#6world");
+    assert_eq!(sized_walk(&mut r, &t), [three, five], "the control");
+    assert!(
+        !r.sized_records(three).is_empty(),
+        "the control: row 3's records kept"
+    );
+    feed(&mut t, b"\x1b[3;1H\x1b#5");
+    assert_eq!(sized_walk(&mut r, &t), [five], "row 5 alone is sized");
+    assert!(
+        r.sized_records(three).is_empty(),
+        "the single-width line keeps no records"
+    );
+    assert!(
+        !r.sized_records(five).is_empty(),
+        "the control: the sized line keeps its own"
+    );
 }
