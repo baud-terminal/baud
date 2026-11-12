@@ -29,3 +29,4 @@ cc 643bcec05a0f29fca6a03e9aeef798fea71c24608e422b4885da7139ca4fef6e # shrinks to
 cc dc7b58bc79d12bcf2b671c1a87e4a8733ae36e7589fe391ae924ff736a507323 # shrinks to prog = [99, 119, 69, 170, 140, 30], w = Narrow, found with 174 atoms in the alphabet
 cc e5b2c8bd4ea43fa6acf488af24d9cf45b94b9985e78469c2c33e70ee704e3815 # shrinks to prog = [99, 170, 180, 68], w = Narrow, found with 181 atoms in the alphabet
 cc a7494e41d4509d01de7a0c83862fce03a8c9c300b5675982d0467bd96172113d # shrinks to prog = [99, 170, 180, 155], a = 1, w = Narrow, found with 181 atoms in the alphabet
+cc 04388ce5cefed56de7cd232328cbea7bd311f53317e348aae4c1e32f5a3d42e8 # shrinks to prog = [121, 114, 0, 170, 134, 2, 6, 8, 131, 38], a = 1, w = Narrow

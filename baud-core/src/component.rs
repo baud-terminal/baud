@@ -43,7 +43,7 @@
 //! PRESENTATION, behind it.
 
 use baud_domain::{
-    BidiDirection, BidiSupport, CharacterPath, Col, Count, Csi, CursorAt, CursorCol,
+    BidiDirection, BidiSupport, CharacterPath, Col, Cols, Count, Csi, CursorAt, CursorCol,
     DeviceComponent, EraseExtent, ModeBit, ModeChange, PackedCell, Row, StringId, order_strings,
 };
 
@@ -93,6 +93,42 @@ impl LineMap {
             .get(c.index())
             .copied()
             .unwrap_or(BidiDirection::Ltr)
+    }
+}
+
+/// **Where a shift along the cursor's line ends**, one past the last
+/// column it moves: [`Paint::fence_end`] for the edits the side margins
+/// bound, [`Paint::insert_end`] for a character written under IRM. Chosen
+/// once, by the caller, for the cursor, and passed down, so the cells a
+/// shift deletes and the gap it opens end at the same column.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ShiftEnd(Col);
+
+impl ShiftEnd {
+    /// The column one past the last the shift moves.
+    fn col(self) -> Col {
+        self.0
+    }
+
+    /// **The columns from `at` to this end**, `None` where `at` lies past
+    /// it: there a gap shifts nothing, and its length would be negative.
+    fn from(self, at: Col) -> Option<Shifted> {
+        (at <= self.0).then_some(Shifted { at, end: self.0 })
+    }
+}
+
+/// **The columns `[at, end)` a shift moves**, built only by
+/// [`ShiftEnd::from`], where `at` is at or before `end`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Shifted {
+    at: Col,
+    end: Col,
+}
+
+impl Shifted {
+    /// How many columns the shift moves.
+    fn len(self) -> Cols {
+        Cols::of_index(self.end.index() - self.at.index())
     }
 }
 
@@ -622,7 +658,7 @@ impl Paint<'_, '_> {
         };
         self.edit_reaches(crate::aligned::EditRows::Chars);
         let p = m.presentation(self.cx.col());
-        self.delete_drawn(&m, p, n);
+        self.delete_drawn(&m, p, n, self.fence_end());
         self.keep_presented(Some(p));
         self.row_changed_to(self.cy);
         self.wrote_rows(self.cy, self.cy);
@@ -632,9 +668,9 @@ impl Paint<'_, '_> {
     /// **The cells drawn at the `n` presentation positions from `p` of the
     /// cursor's line deleted**, each where it is stored and the rest of the
     /// line closing up after it, from the rightmost, so each one's place in
-    /// the presentation closes as it goes.
-    pub(crate) fn delete_drawn(&mut self, m: &LineMap, p: Col, n: Count) {
-        let to = self.line_fence().after();
+    /// the presentation closes as it goes, the line closing up to `end`.
+    pub(crate) fn delete_drawn(&mut self, m: &LineMap, p: Col, n: Count, end: ShiftEnd) {
+        let to = end.col();
         let mut cols = [Col::ZERO; MAX_COLS];
         let mut k = 0;
         for q in p.index()..(p.index() + n.at_least_one()).min(m.width) {
@@ -665,7 +701,7 @@ impl Paint<'_, '_> {
         };
         self.edit_reaches(crate::aligned::EditRows::Chars);
         let p = m.presentation(self.cx.col());
-        self.open_following_drawn(&m, p, n);
+        self.open_following_drawn(&m, p, n, self.fence_end());
         self.keep_presented(Some(p));
         self.row_changed_to(self.cy);
         self.wrote_rows(self.cy, self.cy);
@@ -677,21 +713,27 @@ impl Paint<'_, '_> {
     /// presentation and the blanks joining its string (TR/53 note A.1 ii);
     /// with no map, at column `p`. The line keeps the cells it holds past
     /// the gap only where it has room for them: the callers, which make
-    /// that room first, are PRECEDING's. The column the blanks start at,
-    /// past the line's end where none fits.
-    pub(crate) fn insert_drawn(&mut self, m: Option<&LineMap>, p: Col, n: Count) -> Col {
+    /// that room first, are PRECEDING's. The cells shift on to `end`. The
+    /// column the blanks start at, past `end` where none fits.
+    pub(crate) fn insert_drawn(
+        &mut self,
+        m: Option<&LineMap>,
+        p: Col,
+        n: Count,
+        end: ShiftEnd,
+    ) -> Col {
         let (c, at) = match m {
             Some(m) => self.gap_of(m, p),
             None => (p, p),
         };
-        if at > self.line_fence().after() {
+        let Some(part) = end.from(at) else {
             return at;
-        }
+        };
         let s = match m {
             Some(_) => self.string_of(self.view.get(self.cy, c).style),
             None => StringId::NONE,
         };
-        self.open_gap_at(at, n, s);
+        self.open_gap_at(part, n, s);
         at
     }
 
@@ -700,26 +742,45 @@ impl Paint<'_, '_> {
     /// active presentation position and of the following character
     /// positions in the presentation component to be shifted in the
     /// direction of the character path"): the cells drawn at the last `n`
-    /// positions before the fence, the ones the shift takes off the line,
+    /// positions before `end`, the ones the shift takes off the line,
     /// deleted first, and the gap opened where the cell drawn at `p` stood
     /// in the data, so the blanks are drawn at `p` and after it. A string
     /// that ends at the line's edge is shifted as one in its middle is. The
     /// column the blanks start at.
-    pub(crate) fn open_following_drawn(&mut self, m: &LineMap, p: Col, n: Count) -> Col {
-        let to = self.line_fence().after();
-        if p >= to {
-            return self.insert_drawn(Some(m), p, n);
+    ///
+    /// **The gap opens at or before `end` wherever the caller chose `end`
+    /// for the cursor**: the cell drawn at `p` is the cursor's, and the gap
+    /// opens at its column or the one after it, so a shift ending at the
+    /// right margin, chosen for a cursor at or inside it, reaches it, as
+    /// one ending at the line's end does from anywhere. Until 2026-11-11 a
+    /// character written under IRM right of the right margin shifted to
+    /// the margin, before the gap: a debug build panicked, and a release
+    /// build deleted a cell inside the margins and wrote over the cursor's.
+    pub(crate) fn open_following_drawn(
+        &mut self,
+        m: &LineMap,
+        p: Col,
+        n: Count,
+        end: ShiftEnd,
+    ) -> Col {
+        let room = end.from(p).map_or(0, |part| part.len().index());
+        if room == 0 {
+            return self.insert_drawn(Some(m), p, n, end);
         }
-        let k = n.at_least_one().min(to.index() - p.index());
+        let k = n.at_least_one().min(room);
         let (c, at) = self.gap_of(m, p);
         let s = self.string_of(self.view.get(self.cy, c).style);
+        let to = end.col();
         let last = Col::at_index(to.index() - k);
         let gone = (last.index()..to.index().min(m.width))
             .filter(|&q| m.data(Col::at_index(q)) < at)
             .count();
-        self.delete_drawn(m, last, Count::of(k));
         let at = Col::at_index(at.index() - gone);
-        self.open_gap_at(at, Count::of(k), s);
+        let Some(part) = end.from(at) else {
+            return at;
+        };
+        self.delete_drawn(m, last, Count::of(k), end);
+        self.open_gap_at(part, Count::of(k), s);
         at
     }
 
@@ -738,17 +799,43 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// `n` blanks opened at column `at` of the cursor's line, the cells
-    /// from it shifted on to the fence, the first `n` joining string `s`.
-    fn open_gap_at(&mut self, at: Col, n: Count, s: StringId) {
-        let to = self.line_fence().after();
+    /// `n` blanks opened at the start of `part` of the cursor's line, the
+    /// cells in it shifted on to its end, the first `n` joining string `s`.
+    fn open_gap_at(&mut self, part: Shifted, n: Count, s: StringId) {
+        let Shifted { at, end: to } = part;
         let blank = self.blank();
-        let k = n.at_least_one().min(to.index() - at.index());
+        let k = n.at_least_one().min(part.len().index());
         self.view.insert_cells(self.cy, at, n, to, blank);
         let end = Col::at_index(at.index() + k);
         self.strings_kept(self.cy, (at, end), blank, |_| s);
         self.erase_images(self.cy, at, to);
-        self.cells = self.cells.plus(to.index() - at.index());
+        self.cells = self.cells.plus(part.len().index());
+    }
+
+    /// **Where `ICH`, `DCH` and PRECEDING's shifts end**: one past the
+    /// fence, the side margins bounding them on every row, as
+    /// [`Paint::char_edit_end`] ignores them outside the margins.
+    pub(crate) fn fence_end(&self) -> ShiftEnd {
+        ShiftEnd(self.line_fence().after())
+    }
+
+    /// **Where a character written under IRM and FOLLOWING shifts the
+    /// line to**: one past the fence for a cursor at or inside it, and the
+    /// line's end for one a move put right of it. `[[source: dec-std-070]]`'s
+    /// insert-or-replace takes the right margin as the shift's boundary
+    /// only for an Active Position at or left of it and `end_of_line(line)`
+    /// otherwise, and "Data shifted past the Right Margin within the Scroll
+    /// Area, or the last column of the Active Line outside the Scroll Area
+    /// is lost" (pp. 5-139, 5-140); the write
+    /// itself runs on to the line's last column there ([`Paint::overflow`]),
+    /// and under DATA its gap opens to the line's end ([`Paint::open_gap`]).
+    /// A row outside the scroll area keeps the right margin for a cursor
+    /// inside it, as the write does: open, the `CSI s` row.
+    pub(crate) fn insert_end(&self) -> ShiftEnd {
+        match self.cx.raw() > self.line_fence() {
+            true => ShiftEnd(Col::at_index(self.line_cols().index())),
+            false => self.fence_end(),
+        }
     }
 
     /// **The cells drawn at presentation positions `[from, to)` of the

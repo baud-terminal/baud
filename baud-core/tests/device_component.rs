@@ -648,3 +648,59 @@ fn a_shift_by_the_positions_drawn_keeps_a_wide_character_whole() {
     }
     assert!(split.is_empty(), "{split:#?}");
 }
+
+/// Row `r` of the reversed string `abcdefgh` written there, `mode` and
+/// `margins`, IRM set, the cursor put on data column 8, `h` (`HPA` moves
+/// the active data position, 8.3.57), and an `X` written: the row's cells
+/// and the cursor.
+fn irm_on_h(mode: &str, margins: &str, r: usize) -> (String, (Row, Col)) {
+    support::with_term(&WS, |t| {
+        let row = r + 1;
+        let setup = format!(
+            "\x1b[{row}H\x1b[8l\x1b[2]abcdefgh\x1b[0]{mode}{margins}\x1b[4h\x1b[{row}H\x1b[8`X"
+        );
+        support::feed(t, setup.as_bytes());
+        let text: String = t.viewport().row(Row::from_index(r))[..10]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or('.')
+            })
+            .collect();
+        (text, t.cursor())
+    })
+}
+
+/// The scroll area at rows 2 and 3 and DECLRMM's margins at columns 2 to
+/// 6, so `h`, at column 8, is right of the right margin.
+const MARGINS: &str = "\x1b[2;3r\x1b[?69h\x1b[2;6s";
+
+/// **A character written under IRM right of the right margin shifts the
+/// line to its end, under PRESENTATION as under DATA**: DEC STD 070's
+/// insert-or-replace takes the right margin as the shift's boundary only
+/// for an Active Position at or left of it and `end_of_line(line)`
+/// otherwise (`[[source: dec-std-070]]` pp. 5-139, 5-140), and 7.2.10's
+/// insertion "at the active presentation position" names no margin. On
+/// `h`, drawn against the line's path, the gap opens after it in the data,
+/// the empty column 10 leaves the line, the cells inside the margins stay,
+/// and the row is the one the same write leaves with no margins set; under
+/// DATA the `X` goes in at `h`'s column. Until now the shift under
+/// PRESENTATION ended at the right margin, before the gap: a debug build
+/// panicked subtracting the gap's column from the margin's, and a release
+/// build read `abdef.gX..`, `c` deleted from inside the margins and `X`
+/// written over `h`. On row 1, outside the scroll area, and row 2, inside.
+#[test]
+fn irm_right_of_the_right_margin_shifts_to_the_line_end_under_presentation() {
+    for r in [0, 1] {
+        let want = ("abcdefghX.".into(), (Row::from_index(r), Col::at_index(9)));
+        assert_eq!(irm_on_h(PRESENTATION, MARGINS, r), want, "row {r}");
+        assert_eq!(irm_on_h(PRESENTATION, "", r), want, "row {r}, no margins");
+        assert_eq!(
+            irm_on_h(DATA, MARGINS, r).0,
+            "abcdefgXh.",
+            "row {r}, under DATA"
+        );
+    }
+}

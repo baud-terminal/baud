@@ -128,7 +128,8 @@ impl Paint<'_, '_> {
         match map {
             Some(m) => {
                 let p = m.presentation(self.cx.col());
-                let at = self.open_following_drawn(&m, p, Count::of(need));
+                let end = self.insert_end();
+                let at = self.open_following_drawn(&m, p, Count::of(need), end);
                 self.row_changed_to(self.cy);
                 self.set_col(baud_domain::CursorCol::moved(at));
                 self.glyph_by::<Gapless>(cp, w, pen);
@@ -205,10 +206,11 @@ impl Paint<'_, '_> {
     /// before it. The column the blanks start at.
     fn open_preceding_drawn(&mut self, m: &LineMap, p: Col, n: Count) -> Col {
         let k = Count::of(n.at_least_one().min(p.index() + 1));
-        self.delete_drawn(m, Col::ZERO, k);
+        let end = self.fence_end();
+        self.delete_drawn(m, Col::ZERO, k, end);
         let at = Col::at_index(p.index() + 1 - k.index());
         let after = self.line_map(self.cy);
-        self.insert_drawn(after.as_ref(), at, k)
+        self.insert_drawn(after.as_ref(), at, k, end)
     }
 
     /// **`DCH` or `ICH` under PRECEDING, or under DCSM's PRESENTATION**,
@@ -240,9 +242,10 @@ impl Paint<'_, '_> {
             Some(m) => {
                 let p = m.presentation(c);
                 let k = Count::of(n.at_least_one().min(p.index() + 1));
-                self.delete_drawn(&m, Col::at_index(p.index() + 1 - k.index()), k);
+                let end = self.fence_end();
+                self.delete_drawn(&m, Col::at_index(p.index() + 1 - k.index()), k, end);
                 let after = self.line_map(self.cy);
-                self.insert_drawn(after.as_ref(), Col::ZERO, k);
+                self.insert_drawn(after.as_ref(), Col::ZERO, k, end);
                 self.keep_presented(Some(p));
             }
             None => {
