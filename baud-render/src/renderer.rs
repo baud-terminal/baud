@@ -998,11 +998,208 @@ fn curve_row(c: Argb) -> CurveRow {
     CurveRow::of(c.r().get(), c.g().get(), c.b().get())
 }
 
-/// One cell's input to the shaper: its base and attached codepoints.
+/// One cell's input to the shaper: its base and attached codepoints, a
+/// range of its run's ([`ClusterList`]), so a run's cells cost no buffer
+/// each.
+#[derive(Clone)]
 struct ClusterIn {
-    cps: Vec<Codepoint>,
+    /// Where the cell's codepoints are among its run's.
+    cps: core::ops::Range<u32>,
     /// Offset of the cell within the run.
     at: CellIx,
+}
+
+impl ClusterIn {
+    /// The cell's codepoints, of its run's `all`: none for a range `all`
+    /// does not hold.
+    fn of<'a>(&self, all: &'a [Codepoint]) -> &'a [Codepoint] {
+        match (
+            usize::try_from(self.cps.start),
+            usize::try_from(self.cps.end),
+        ) {
+            (Ok(from), Ok(to)) => all.get(from..to).unwrap_or(&[]),
+            _ => &[],
+        }
+    }
+}
+
+/// **A run's clusters as the shaper takes them**: one cell's codepoints
+/// alone, at the run's first cell, or each cluster a range of the run's
+/// codepoints ([`ClusterList`]). Borrowed either way, so a caller holding
+/// a cell's codepoints shapes them without copying them.
+#[derive(Clone, Copy)]
+enum Clusters<'a> {
+    /// One cell, at the run's first.
+    One(&'a [Codepoint]),
+    /// Each of `each` a range of `cps`.
+    Ranged {
+        cps: &'a [Codepoint],
+        each: &'a [ClusterIn],
+    },
+}
+
+impl<'a> Clusters<'a> {
+    /// Each cluster's codepoints and its offset in the run, in order.
+    fn iter(self) -> impl Iterator<Item = (&'a [Codepoint], CellIx)> {
+        let (one, all, each): (_, &[Codepoint], &[ClusterIn]) = match self {
+            Clusters::One(cps) => (Some((cps, CellIx(0))), &[], &[]),
+            Clusters::Ranged { cps, each } => (None, cps, each),
+        };
+        one.into_iter()
+            .chain(each.iter().map(move |cl| (cl.of(all), cl.at)))
+    }
+
+    /// The first cluster's codepoints: none for a run of none.
+    fn first(self) -> &'a [Codepoint] {
+        self.iter().next().map_or(&[], |(cps, _)| cps)
+    }
+}
+
+/// **A run's clusters, gathered**: every cell's codepoints end to end in
+/// one buffer and each cell's range of them in another, so gathering a
+/// run of `n` cells costs the two buffers, kept where the caller keeps
+/// them (`RowScratch`), and never one a cell.
+///
+/// **A range is a `u32`, checked**: a cluster whose codepoints end past
+/// `u32::MAX` of the run's is left out of the run -- its codepoints
+/// taken back -- and never given a range that wrapped onto another
+/// cluster's. A run holds at most [`RUN_CELLS`] cells of a base and
+/// [`ClusterSlot::CAPACITY`] marks each, cleared at each run's start, so
+/// it never comes near.
+#[derive(Default)]
+struct ClusterList {
+    cps: Vec<Codepoint>,
+    each: Vec<ClusterIn>,
+}
+
+impl ClusterList {
+    /// No cluster.
+    fn clear(&mut self) {
+        self.cps.clear();
+        self.each.clear();
+    }
+
+    /// One cluster of `cps`, at `at`: left out, its codepoints taken
+    /// back, where its range would end past a `u32`.
+    fn push(&mut self, cps: &[Codepoint], at: CellIx) {
+        let from = self.cps.len();
+        self.cps.extend_from_slice(cps);
+        match (u32::try_from(from), u32::try_from(self.cps.len())) {
+            (Ok(start), Ok(end)) => self.each.push(ClusterIn {
+                cps: start..end,
+                at,
+            }),
+            _ => self.cps.truncate(from),
+        }
+    }
+
+    fn clusters(&self) -> Clusters<'_> {
+        Clusters::Ranged {
+            cps: &self.cps,
+            each: &self.each,
+        }
+    }
+}
+
+use row_scratch::RowScratch;
+
+/// **The buffers one row's conversion fills**, the renderer's
+/// ([`Renderer::convert_row`]), kept from row to row and frame to frame so
+/// a converted row costs no buffer of its own: about two hundred a row
+/// before, a codepoint buffer a cell and a cluster list a run among them.
+///
+/// **Empty when a conversion starts, by type**: [`RowScratch::begin`] is
+/// the only way to have one -- it takes the kept buffers, or none on the
+/// first row, and gives them back cleared, every one -- so no row reads
+/// another's cells, map, shapes or clusters.
+mod row_scratch {
+    use super::{ClusterList, Col, Instance, PackedCell};
+
+    pub(super) struct RowScratch {
+        /// The row's cells, copied so shaping may borrow the renderer.
+        pub(super) row: Vec<PackedCell>,
+        /// A reordered row's logical column for each visual one.
+        pub(super) logical: Vec<Col>,
+        /// A reordered row's seams, where shaping stops.
+        pub(super) seams: Vec<bool>,
+        /// On a display line, the stored cell each visual cell shows.
+        pub(super) stored: Vec<Option<(crate::select::WindowLine, Col)>>,
+        /// The row's shapes, drawn after its glyphs.
+        pub(super) shapes: Vec<Instance>,
+        /// A sized line's ring parts, on its geometry already.
+        pub(super) rings: Vec<Instance>,
+        /// The run being gathered: its codepoints and its clusters' ranges.
+        pub(super) run: ClusterList,
+        /// Made here alone, so [`RowScratch::begin`] is the only
+        /// constructor.
+        _begun: Begun,
+    }
+
+    struct Begun;
+
+    impl RowScratch {
+        /// The buffers `kept` holds, each cleared, or new ones when none
+        /// are kept.
+        pub(super) fn begin(kept: Option<RowScratch>) -> RowScratch {
+            let Some(mut s) = kept else {
+                return RowScratch {
+                    row: Vec::new(),
+                    logical: Vec::new(),
+                    seams: Vec::new(),
+                    stored: Vec::new(),
+                    shapes: Vec::new(),
+                    rings: Vec::new(),
+                    run: ClusterList::default(),
+                    _begun: Begun,
+                };
+            };
+            s.row.clear();
+            s.logical.clear();
+            s.seams.clear();
+            s.stored.clear();
+            s.shapes.clear();
+            s.rings.clear();
+            s.run.cps.clear();
+            s.run.each.clear();
+            s
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::{CellIx, Codepoint, Px, Screen, solid};
+        use super::*;
+
+        /// **`begin` gives back every kept buffer empty**: each filled,
+        /// then begun again. Named breaks: each buffer left as it was.
+        #[test]
+        fn begin_empties_every_buffer() {
+            let mut s = RowScratch::begin(None);
+            let shape = solid(
+                Screen(0),
+                Screen(0),
+                Px::of(1),
+                Px::of(1),
+                Default::default(),
+            );
+            s.row.push(PackedCell::EMPTY);
+            s.logical.push(Col::ZERO);
+            s.seams.push(true);
+            s.stored.push(None);
+            s.shapes.push(shape);
+            s.rings.push(shape);
+            s.run.push(&[Codepoint::from_char('a')], CellIx(0));
+            let s = RowScratch::begin(Some(s));
+            assert!(s.row.is_empty(), "the row's cells");
+            assert!(s.logical.is_empty(), "the logical map");
+            assert!(s.seams.is_empty(), "the seams");
+            assert!(s.stored.is_empty(), "the stored cells");
+            assert!(s.shapes.is_empty(), "the shapes");
+            assert!(s.rings.is_empty(), "the rings");
+            assert!(s.run.cps.is_empty(), "the run's codepoints");
+            assert!(s.run.each.is_empty(), "the run's clusters");
+        }
+    }
 }
 
 /// **The most cells of its word either side a joined cell is shaped with**,
@@ -2502,6 +2699,14 @@ pub struct Renderer<'f, 'a> {
     /// Per row, its instances, with the tallies a frame reports kept as
     /// each row is written (`crate::per_row`).
     per_row: crate::per_row::PerRow,
+    /// **The buffers a row's conversion fills** ([`RowScratch`]), kept
+    /// between rows and frames: [`Renderer::convert_row`] takes them,
+    /// begins them empty and puts them back. None while a conversion holds
+    /// them; a conversion inside another would begin buffers of its own
+    /// rather than read the outer one's, and none is: `convert_with`,
+    /// `hide_cursor`, `sized_lines`, `status_records` and `sized_leaving`
+    /// each convert their rows one after another, never one inside another.
+    row_scratch: Option<RowScratch>,
     /// Per row, how many of its instances are glyphs, which come first;
     /// the rest are its decorations.
     glyph_ends: Vec<usize>,
@@ -3161,6 +3366,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             row_worded: Vec::new(),
             row_blinks: Vec::new(),
             per_row: crate::per_row::PerRow::default(),
+            row_scratch: None,
             glyph_ends: Vec::new(),
             reach: Vec::new(),
             reach_was: Vec::new(),
@@ -6185,7 +6391,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     continue;
                 }
                 let face = self.badge_face(&p.cps, look.style);
-                let (start, mut run, mut clusters) = (col, 0u32, Vec::new());
+                let (start, mut run, mut clusters) = (col, 0u32, ClusterList::default());
                 while at < line.to {
                     let q = &pieces[at];
                     let same = q.space == badge::Space::No
@@ -6194,16 +6400,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     if !same || run + q.cells > 250 {
                         break;
                     }
-                    clusters.push(ClusterIn {
-                        cps: q.cps.clone(),
-                        at: CellIx(u8::try_from(run).unwrap_or(u8::MAX)),
-                    });
+                    clusters.push(&q.cps, CellIx(u8::try_from(run).unwrap_or(u8::MAX)));
                     run += q.cells;
                     at += 1;
                 }
                 col += run;
-                let script = Script::of_cluster(&clusters[0].cps);
-                let shaped = self.shape(face, script, &clusters, &[], ..);
+                let script = Script::of_cluster(clusters.clusters().first());
+                let shaped = self.shape(face, script, clusters.clusters(), &[], ..);
                 let f = self.stack.face(face);
                 let scale = Scale::of(px, f.units_per_em());
                 for p in shaped.glyphs() {
@@ -10105,13 +10308,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let face = self.face_for(cps, style);
         let phase = self.phase_in(face, base, span);
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
         // A marked cell alone: the script its own code points name (UAX #24
         // 5.2), or `DFLT`'s for one that names none.
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), Clusters::One(cps), &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -10160,11 +10359,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let face = self.face_for(cps, style);
         let phase = self.phase_in(face, base, span).doubled();
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), Clusters::One(cps), &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -10202,11 +10397,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return Vec::new();
         }
         let face = self.face_for(cps, style);
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), Clusters::One(cps), &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let gdef = f.gdef();
@@ -10305,7 +10496,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if level == baud_font::ClusterLevel::Characters {
             key = key.fold(WORD_CELLS_KEY);
         }
-        let mut clusters = Vec::with_capacity(range.len());
+        let mut clusters = ClusterList::default();
         for i in range {
             let part = &text.parts[i];
             for cp in part {
@@ -10315,10 +10506,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             key = key.fold(u32::try_from(s.cells.index()).unwrap_or(0) << 24);
             let offset = |c: usize| CellIx(u8::try_from(c - first).unwrap_or(u8::MAX));
             if split.get(i) != Some(&true) {
-                clusters.push(ClusterIn {
-                    cps: part.clone(),
-                    at: offset(s.at.index()),
-                });
+                clusters.push(part, offset(s.at.index()));
                 continue;
             }
             let mut from = 0usize;
@@ -10334,10 +10522,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 key = key
                     .fold(u32::try_from(c - first).unwrap_or(0))
                     .fold(u32::try_from(n).unwrap_or(0));
-                clusters.push(ClusterIn {
-                    cps: cps.to_vec(),
-                    at: offset(c),
-                });
+                clusters.push(cps, offset(c));
                 from += n;
             }
         }
@@ -10353,7 +10538,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut shaped = self.shape_laid(
             face,
             script,
-            &clusters,
+            clusters.clusters(),
             &[],
             ..,
             (baud_font::Pens::Run, level),
@@ -11062,11 +11247,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Stretch::One => self.phase_in(face, base, span),
             Stretch::Tall | Stretch::Wide => self.phase_in(face, base, span).doubled(),
         };
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
-        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, &[], ..);
+        let shaped = self.shape(face, Script::of_cluster(cps), Clusters::One(cps), &[], ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * stretch.x();
@@ -11172,14 +11353,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let face = self.face_for(cps, style);
         let phase = self.phase_in(face, base, CellSpan::One);
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
         let shaped = self.shape_in_word(
             face,
             Script::of_cluster(cps),
-            &clusters,
+            Clusters::One(cps),
             &[Some(form)],
             word,
         );
@@ -11221,14 +11398,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         };
         let face = self.face_for(cps, style);
         let phase = self.phase_in(face, base, CellSpan::One).doubled();
-        let clusters = [ClusterIn {
-            cps: cps.to_vec(),
-            at: CellIx(0),
-        }];
         let shaped = self.shape_in_word(
             face,
             Script::of_cluster(cps),
-            &clusters,
+            Clusters::One(cps),
             &[Some(form)],
             word,
         );
@@ -11292,18 +11465,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let shaped = match self.cache.get(key) {
             Some(s) => s,
             None => {
-                let clusters = [
-                    ClusterIn {
-                        cps: lam.to_vec(),
-                        at: CellIx(0),
-                    },
-                    ClusterIn {
-                        cps: alef.to_vec(),
-                        at: CellIx(1),
-                    },
-                ];
+                let mut clusters = ClusterList::default();
+                clusters.push(lam, CellIx(0));
+                clusters.push(alef, CellIx(1));
                 let forms = [Some(lam_form), Some(baud_domain::JoiningForm::Final)];
-                let s = self.shape_in_word(face, Script::of_cluster(lam), &clusters, &forms, word);
+                let s = self.shape_in_word(
+                    face,
+                    Script::of_cluster(lam),
+                    clusters.clusters(),
+                    &forms,
+                    word,
+                );
                 self.cache.put(key, s);
                 s
             }
@@ -11399,10 +11571,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         }
         let face = self.face_for(core::slice::from_ref(&cp), style);
-        let clusters = [ClusterIn {
-            cps: vec![cp],
-            at: CellIx(0),
-        }];
         // A code point alone: its own script, or `DFLT`'s for one with none
         // -- the specification's "text [that] does not have a specific
         // script". In a row, a Common character takes its neighbours'
@@ -11410,7 +11578,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // lookups; on STIX Two Math, the one embedded face whose scripts
         // differ, the only lookup `DFLT` adds to `latn` is a ligature that
         // begins on a Greek capital, which no Common code point is.
-        let shaped = self.shape(face, Script::of(cp), &clusters, &[], ..);
+        let shaped = self.shape(
+            face,
+            Script::of(cp),
+            Clusters::One(core::slice::from_ref(&cp)),
+            &[],
+            ..,
+        );
         let p = *shaped.glyphs().first()?;
         let glyphs = match shaped.glyphs().len() {
             1 => Glyphs::One,
@@ -11574,20 +11748,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let end = (at + step).min(cells.len());
             let lo = at.saturating_sub(ext);
             let hi = (end + ext).min(cells.len());
-            let clusters: Vec<ClusterIn> = cells[lo..hi]
-                .iter()
-                .enumerate()
-                .map(|(i, (cps, _))| ClusterIn {
-                    cps: cps.clone(),
-                    at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
-                })
-                .collect();
+            let mut clusters = ClusterList::default();
+            for (i, (cps, _)) in cells[lo..hi].iter().enumerate() {
+                clusters.push(cps, CellIx(u8::try_from(i).unwrap_or(u8::MAX)));
+            }
             // What the context cells drop is counted by the chunk that
             // owns them, so a mark is counted once however the window is
             // cut.
             let own = CellIx(u8::try_from(at - lo).unwrap_or(u8::MAX))
                 ..CellIx(u8::try_from(end - lo).unwrap_or(u8::MAX));
-            let shaped = self.shape(facex, script, &clusters, &[], own);
+            let shaped = self.shape(facex, script, clusters.clusters(), &[], own);
             for p in shaped.glyphs() {
                 let cell = lo + usize::from(p.cell.0);
                 // Only this chunk's own cells; the context either side
@@ -12054,34 +12224,36 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
         crate::counters::add(Counter::CellsConverted, Tally::of(range.len()));
+        // **The row's buffers** ([`RowScratch`]), the renderer's, taken for
+        // this conversion and put back after it, each empty from `begin`:
+        // a row converted costs no buffer of its own.
+        let mut scratch = RowScratch::begin(self.row_scratch.take());
         // A copy of the row, so shaping may borrow the renderer mutably.
-        let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
+        scratch.row.extend_from_slice(&self.cur[range.clone()]);
+        let n = scratch.row.len();
         // **A reordered row's map, copied for the same reason**: the logical
         // column each visual cell shows, which the selection and the
         // pictures are kept by, and where shaping must stop (`bidi.rs`).
         let orders = self.bidi.orders();
-        let logical: Vec<Col> = match orders.reordered(r) {
-            true => (0..row.len())
-                .map(|v| orders.logical_col(r, Col::at_index(v)))
-                .collect(),
-            false => Vec::new(),
-        };
-        let seams: Vec<bool> = match orders.reordered(r) {
-            true => (0..row.len())
-                .map(|v| orders.seam(r, Col::at_index(v)))
-                .collect(),
-            false => Vec::new(),
-        };
+        if orders.reordered(r) {
+            scratch
+                .logical
+                .extend((0..n).map(|v| orders.logical_col(r, Col::at_index(v))));
+            scratch
+                .seams
+                .extend((0..n).map(|v| orders.seam(r, Col::at_index(v))));
+        }
+        let (row, logical, seams) = (&scratch.row[..], &scratch.logical[..], &scratch.seams[..]);
         let cursor_visual = cursor.map(|(cr, cc, s)| (cr, cc, orders.visual_col(cr, cc), s));
         let logical_of = |v: Col| logical.get(v.index()).copied().unwrap_or(v);
         // **On a display line, the stored cell each visual cell shows**
         // ([`crate::rebreak`]), which a selection is kept by.
-        let stored: Vec<Option<(crate::select::WindowLine, Col)>> = match orders.display() {
-            Some(_) => (0..row.len())
-                .map(|v| orders.stored_line_at(r, logical_of(Col::at_index(v))))
-                .collect(),
-            None => Vec::new(),
-        };
+        if orders.display().is_some() {
+            scratch
+                .stored
+                .extend((0..n).map(|v| orders.stored_line_at(r, logical_of(Col::at_index(v)))));
+        }
+        let stored = &scratch.stored[..];
         let selects = |h: &Highlight, col: Col, content: baud_domain::Content| match stored
             .get(col.index())
         {
@@ -12134,7 +12306,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (_, false) => (None, None),
             (true, true) => {
                 let rows = self.rows;
-                let (k, found, asked) = self.kept_row(term, (r, rows), (walked, &logical), || {
+                let (k, found, asked) = self.kept_row(term, (r, rows), (walked, logical), || {
                     let (parted, letters) =
                         crate::syllable::walk((term, lent_words.words()), walked, logical_of);
                     let words = match letters {
@@ -12176,40 +12348,42 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(f) => (&f.parted, &f.words),
             None => (&[], &[]),
         };
-        let beside: Vec<usize> = match self.taken.on(r) {
-            true => self.taken.beside(r).collect(),
-            false => Vec::new(),
-        };
+        // The cells beside a composition its words take in, read where the
+        // composition keeps them rather than gathered.
+        let on = self.taken.on(r);
+        let beside = on && self.taken.beside(r).next().is_some();
         let mut lights: Vec<crate::word::Light> = Vec::new();
         if self.row_worded[r.index()] == crate::word::Worded::Yes {
             for x in range.clone() {
                 self.worded[x] = crate::word::Worded::No;
             }
         }
-        self.row_worded[r.index()] = match words.is_empty() && beside.is_empty() {
+        self.row_worded[r.index()] = match words.is_empty() && !beside {
             true => crate::word::Worded::No,
             false => crate::word::Worded::Yes,
         };
-        if !words.is_empty() || !beside.is_empty() {
+        if !words.is_empty() || beside {
             lights = vec![crate::word::Light::NONE; row.len()];
             for w in words {
                 for x in w.at.index()..w.end().index() {
                     self.worded[range.start + x] = crate::word::Worded::Yes;
                 }
             }
-            for &x in beside.iter().filter(|&&x| x < row.len()) {
+            for x in self.taken.beside(r).filter(|&x| on && x < row.len()) {
                 self.worded[range.start + x] = crate::word::Worded::Yes;
             }
         }
-        let mut cursor_shapes: Vec<Instance> = Vec::new();
+        // The bar or underline cursor, or the hollow box: on the one cell
+        // the cursor is on, four shapes at most, held here.
+        let mut cursor_shapes: [Option<Instance>; 4] = [None; 4];
         // A sized line's ring parts, on its geometry already (`edges`).
-        let mut rings: Vec<Instance> = Vec::new();
+        let rings = &mut scratch.rings;
         // Colours first, cell by cell, with the shapes a rendition asks
         // for: an underline, a strike, an underline or bar cursor. A block
         // cursor is the cell's colours swapped. Shapes go on after the
         // glyphs, so a strike crosses its letter rather than hiding under
         // an opaque colour glyph.
-        let mut shapes: Vec<Instance> = Vec::new();
+        let shapes = &mut scratch.shapes;
         let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
         // The cursor's colours, read once a frame (`refresh_screen`) and used
@@ -12363,7 +12537,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // The overline, the frame, an encircled run and the stress mark,
             // out of line behind one test: most cells carry none of them.
             if !hidden && res.shapes.any(Shapes::EDGES) {
-                self.edges(term, r, col, &row, res, d, &mut shapes, &mut rings);
+                self.edges(term, r, col, row, res, d, shapes, rings);
             }
             if let Some((_, lc, style)) = here.filter(|&(_, _, s)| !self.swaps(s)) {
                 // The bar or underline cursor, or the hollow box, draws in
@@ -12376,27 +12550,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     CursorLook::Shaped => {
                         // Already on the line's geometry (`Renderer::cursor_px`).
                         let (left, y, w, h) = self.cursor_px(r, lc, style);
-                        cursor_shapes.push(solid(
-                            screen(px_i32(left)),
-                            screen(px_i32(y)),
-                            w,
-                            h,
-                            cur,
-                        ));
+                        cursor_shapes[0] =
+                            Some(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));
                     }
-                    CursorLook::Hollow => cursor_shapes.extend(self.hollow(r, lc, cur)),
+                    CursorLook::Hollow => cursor_shapes = self.hollow(r, lc, cur).map(Some),
                 }
             }
         }
         if size.is_double() {
             let band = self.band(r);
-            shapes = shapes
-                .into_iter()
-                .filter_map(|s| stretched(s, size, band))
-                .collect();
+            // Each shape moved onto the line's geometry where it stands, and
+            // one that falls outside the line's band left out.
+            shapes.retain_mut(|s| match stretched(*s, size, band) {
+                Some(moved) => {
+                    *s = moved;
+                    true
+                }
+                None => false,
+            });
         }
-        shapes.extend(rings);
-        shapes.extend(cursor_shapes);
+        shapes.extend_from_slice(rings);
+        shapes.extend(cursor_shapes.into_iter().flatten());
         self.row_blinks[r.index()] = blinks;
         // A composition's pages on this row, under every glyph of it.
         if let Some(s) = self.splice.as_ref().filter(|s| s.row == r) {
@@ -12449,16 +12623,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.row_runs(
             term,
             r,
-            (&row, &seams),
+            (row, seams),
             (st, line_end),
             worded,
-            &mut instances,
+            (&mut instances, &mut scratch.run),
             exc,
         );
         self.glyph_ends[r.index()] = instances.len();
         self.reach[r.index()] = Reach::of(&instances);
-        instances.extend(shapes);
+        instances.extend_from_slice(shapes);
         self.per_row.set(r, instances);
+        self.row_scratch = Some(scratch);
     }
 
     /// **One row's runs of cells shaped by one face**, for
@@ -12475,7 +12650,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
         words: Worded<'_>,
-        instances: &mut Vec<Instance>,
+        out: (&mut Vec<Instance>, &mut ClusterList),
         exc: &mut Exceptions,
     ) {
         // The test alone here, nothing kept from it: the loop every other row
@@ -12487,16 +12662,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && words.0.is_empty()
             && words.3.is_empty()
         {
-            true => self.runs::<false>(
-                term,
-                r,
-                (row, seams, &[], &[], &[]),
-                at,
-                words,
-                instances,
-                exc,
-            ),
-            false => self.joined_runs(term, r, (row, seams), at, words, instances, exc),
+            true => self.runs::<false>(term, r, (row, seams, &[], &[], &[]), at, words, out, exc),
+            false => self.joined_runs(term, r, (row, seams), at, words, out, exc),
         }
     }
 
@@ -12516,7 +12683,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (row, seams): (&[PackedCell], &[bool]),
         at: (Stretch, usize),
         words: Worded<'_>,
-        instances: &mut Vec<Instance>,
+        out: (&mut Vec<Instance>, &mut ClusterList),
         exc: &mut Exceptions,
     ) {
         let orders = self.bidi.orders();
@@ -12524,7 +12691,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mirrors = orders.mirrors(r).to_vec();
         let slants = orders.slants(r).to_vec();
         let cells = (row, seams, &joins[..], &mirrors[..], &slants[..]);
-        self.runs::<true>(term, r, cells, at, words, instances, exc);
+        self.runs::<true>(term, r, cells, at, words, out, exc);
     }
 
     /// The runs of one row, `LAID` for a row that holds a joined or a
@@ -12538,7 +12705,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (row, seams, joins, mirrors, slants): RowCells<'_>,
         (st, line_end): (Stretch, usize),
         (words, paints, grounds, syllables, kept): Worded<'_>,
-        instances: &mut Vec<Instance>,
+        (instances, run): (&mut Vec<Instance>, &mut ClusterList),
         exc: &mut Exceptions,
     ) {
         // The words of the frame's lent slots (`crate::frozen`), held so the
@@ -12692,7 +12859,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // a Hebrew word in a face whose `hebr` table differs from its
             // `latn` one is its own run.
             let start = c;
-            let mut clusters: Vec<ClusterIn> = Vec::new();
+            // The run's clusters, gathered into the row's buffers.
+            run.clear();
             // The key folds the face and then every codepoint of every cell.
             // That is all a run's shaping depends on: a cluster moved to
             // another face is on that face's key, and the marks a face that
@@ -12776,22 +12944,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         Starter::Plain => {}
                     }
                 }
-                let mut cps = vec![cp];
+                // The cell's base and marks, onto the stack -- a base and
+                // the most the cluster store holds (`ClusterSlot::CAPACITY`)
+                // -- then into the run's buffers.
+                let mut cps = [cp; 1 + ClusterSlot::CAPACITY];
+                let mut held_cps = 1;
                 key = key.fold(cp.value());
                 if cell.flags.is_marked() {
                     exc.marked.bump();
-                    for m in drawn_marks(term, held.words(), cell) {
-                        if let Some(mc) = Codepoint::new(m) {
-                            cps.push(mc);
-                            key = key.fold(m);
-                        }
+                    let marks = drawn_marks(term, held.words(), cell).filter_map(Codepoint::new);
+                    for (slot, mc) in cps[1..].iter_mut().zip(marks) {
+                        *slot = mc;
+                        held_cps += 1;
+                        key = key.fold(mc.value());
                     }
                 }
                 key = key.fold(u32::try_from(next - c).unwrap_or(0) << 24);
-                clusters.push(ClusterIn {
-                    cps,
-                    at: CellIx(u8::try_from(c - start).unwrap_or(u8::MAX)),
-                });
+                run.push(
+                    &cps[..held_cps],
+                    CellIx(u8::try_from(c - start).unwrap_or(u8::MAX)),
+                );
                 c = next;
             }
             // A joined cell is a run of its own (above), shaped in its form
@@ -12824,7 +12996,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let shaped = match self.cache.get(key) {
                 Some(s) => s,
                 None => {
-                    let s = self.shape_in_word(face, script, &clusters, form, &word);
+                    let s = self.shape_in_word(face, script, run.clusters(), form, &word);
                     self.cache.put(key, s);
                     s
                 }
@@ -12846,7 +13018,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
             #[cfg(feature = "exceptions")]
-            self.count_differs(term, r, Col::at_index(start), &clusters, &shaped, exc);
+            self.count_differs(term, r, Col::at_index(start), run.clusters(), &shaped, exc);
             // A mirrored cell's run is drawn by the loop that reads its
             // mirror; every other run by the loop that reads none.
             let at = Col::at_index(start);
@@ -12953,33 +13125,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         face: FaceIx,
         script: Script,
-        own: &[ClusterIn],
+        own: Clusters<'_>,
         forms: &[Option<baud_domain::JoiningForm>],
         word: &Word,
     ) -> Shaped {
         if word.is_empty() {
             return self.shape(face, script, own, forms, ..);
         }
-        let b = word.before.len();
-        let mut clusters = Vec::with_capacity(b + own.len() + word.after.len());
-        let mut all_forms = Vec::with_capacity(clusters.capacity());
-        let mut push = |cps: Vec<Codepoint>, form: Option<baud_domain::JoiningForm>| {
-            let at = CellIx(u8::try_from(clusters.len()).unwrap_or(u8::MAX));
-            clusters.push(ClusterIn { cps, at });
+        let (b, owned) = (word.before.len(), own.iter().count());
+        let mut clusters = ClusterList::default();
+        let mut all_forms = Vec::with_capacity(b + owned + word.after.len());
+        let mut pushed = 0usize;
+        let mut push = |cps: &[Codepoint], form: Option<baud_domain::JoiningForm>| {
+            let at = CellIx(u8::try_from(pushed).unwrap_or(u8::MAX));
+            pushed += 1;
+            clusters.push(cps, at);
             all_forms.push(form);
         };
         for (cps, form) in &word.before {
-            push(cps.clone(), *form);
+            push(cps, *form);
         }
-        for (i, cl) in own.iter().enumerate() {
-            push(cl.cps.clone(), forms.get(i).copied().flatten());
+        for (i, (cps, _)) in own.iter().enumerate() {
+            push(cps, forms.get(i).copied().flatten());
         }
         for (cps, form) in &word.after {
-            push(cps.clone(), *form);
+            push(cps, *form);
         }
         let first = CellIx(u8::try_from(b).unwrap_or(u8::MAX));
-        let end = CellIx(u8::try_from(b + own.len()).unwrap_or(u8::MAX));
-        let shaped = self.shape(face, script, &clusters, &all_forms, first..end);
+        let end = CellIx(u8::try_from(b + owned).unwrap_or(u8::MAX));
+        let shaped = self.shape(face, script, clusters.clusters(), &all_forms, first..end);
         let spans = shaped
             .glyphs()
             .iter()
@@ -13015,7 +13189,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         face: FaceIx,
         script: Script,
-        clusters: &[ClusterIn],
+        clusters: Clusters<'_>,
         forms: &[Option<baud_domain::JoiningForm>],
         own: impl core::ops::RangeBounds<CellIx>,
     ) -> Shaped {
@@ -13036,7 +13210,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &mut self,
         face: FaceIx,
         script: Script,
-        clusters: &[ClusterIn],
+        clusters: Clusters<'_>,
         forms: &[Option<baud_domain::JoiningForm>],
         own: impl core::ops::RangeBounds<CellIx>,
         (pens, level): (baud_font::Pens, baud_font::ClusterLevel),
@@ -13060,8 +13234,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 shaper.keep_cells();
             }
             let mut unmapped = 0usize;
-            for (i, cl) in clusters.iter().enumerate() {
-                let at = Cluster(u16::from(cl.at.0));
+            for (i, (cps, cell)) in clusters.iter().enumerate() {
+                let at = Cluster(u16::from(cell.0));
                 let form = forms.get(i).copied().flatten();
                 // **A mark the face cannot draw is left out, and counted.** A
                 // cluster reaches a face that cannot draw it whole only when no
@@ -13087,20 +13261,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     Some(f) => shaper.push_joined(cps, at, f),
                     None => shaper.push_cluster(cps, at),
                 };
-                let pushed = match cl.cps.as_slice() {
+                let pushed = match cps {
                     [_, _, ..] => {
-                        let cover = self.cluster_covers.answer(face, &cl.cps, || {
-                            match Normalised::of(f, &cl.cps).covered() {
+                        let cover = self
+                            .cluster_covers
+                            .answer(face, cps, || match Normalised::of(f, cps).covered() {
                                 true => Cover::Whole,
                                 false => Cover::Partial,
-                            }
-                        });
+                            });
                         if cover == Cover::Whole {
-                            push(&mut shaper, &cl.cps)
+                            push(&mut shaper, cps)
                         } else {
-                            let kept = Normalised::without_unmapped(f, &cl.cps);
+                            let kept = Normalised::without_unmapped(f, cps);
                             let pushed = push(&mut shaper, kept.as_slice());
-                            if pushed.is_some() && own.contains(&cl.at) {
+                            if pushed.is_some() && own.contains(&cell) {
                                 unmapped = unmapped.saturating_add(
                                     usize::try_from(kept.dropped().value()).unwrap_or(0),
                                 );
@@ -13174,13 +13348,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         term: &Term<'_>,
         r: Row,
         start: Col,
-        clusters: &[ClusterIn],
+        clusters: Clusters<'_>,
         shaped: &Shaped,
         exc: &mut Exceptions,
     ) {
         let range = self.row_cells(r);
-        for cl in clusters {
-            let col = start.index() + usize::from(cl.at.0);
+        for (_, at) in clusters.iter() {
+            let col = start.index() + usize::from(at.0);
             let Some(cell) = self.cur.get(range.start + col).copied() else {
                 continue;
             };
@@ -13195,12 +13369,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Some(s) => *s,
                 None => {
                     let face = self.face_for(core::slice::from_ref(&cp), style);
-                    let one = [ClusterIn {
-                        cps: vec![cp],
-                        at: CellIx(0),
-                    }];
+                    let one = Clusters::One(core::slice::from_ref(&cp));
                     let s = self
-                        .shape(face, Script::of(cp), &one, &[], ..)
+                        .shape(face, Script::of(cp), one, &[], ..)
                         .glyphs()
                         .first()
                         .map(|p| (face, *p));
@@ -13209,15 +13380,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             };
             let face = self.face_for(core::slice::from_ref(&cp), style);
-            let mine: Vec<Placed> = shaped
-                .glyphs()
-                .iter()
-                .copied()
-                .filter(|p| p.cell == cl.at)
-                .collect();
-            let same = match (alone, mine.as_slice()) {
-                (None, []) => true,
-                (Some((af, a)), [p]) => af == face && a.id == p.id && a.dx == p.dx && a.dy == p.dy,
+            // The cluster's glyphs, read in place: its first, and whether
+            // it has a second.
+            let mut mine = shaped.glyphs().iter().filter(|p| p.cell == at);
+            let (one, more) = (mine.next(), mine.next().is_some());
+            let same = match (alone, one, more) {
+                (None, None, _) => true,
+                (Some((af, a)), Some(p), false) => {
+                    af == face && a.id == p.id && a.dx == p.dx && a.dy == p.dy
+                }
                 _ => false,
             };
             if !same {

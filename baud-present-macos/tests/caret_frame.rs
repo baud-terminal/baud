@@ -40,7 +40,7 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 11] = [
+const NAMES: [&str; 12] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
@@ -48,6 +48,7 @@ const NAMES: [&str; 11] = [
     "a_ligature_window_costs_a_caret_frame_no_allocation",
     "a_sized_line_costs_a_caret_frame_no_allocation",
     "a_cell_written_on_a_sized_line_converts_it_again",
+    "a_converted_row_costs_a_caret_frame_no_allocation",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -92,6 +93,9 @@ fn main() {
             }
             "a_cell_written_on_a_sized_line_converts_it_again" => {
                 checks::a_cell_written_on_a_sized_line_converts_it_again();
+            }
+            "a_converted_row_costs_a_caret_frame_no_allocation" => {
+                checks::a_converted_row_costs_a_caret_frame_no_allocation();
             }
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
@@ -1101,6 +1105,181 @@ mod checks {
             }
         });
         out
+    }
+
+    /// The CPU path's caret frames, each read for its cost and the frame's
+    /// totals, on the fixture with `more` written before the first frame.
+    fn caret_cpu_frames(more: &[u8]) -> Vec<(Cost, Totals)> {
+        let mut out = Vec::new();
+        with_screen(Blinking::No, |t, r| {
+            feed(t, more);
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            for k in Nth::ALL.before() {
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => Damage::Incremental,
+                };
+                Cost::take();
+                let f = cpu_frame(r, t, &Inputs::at(caret_at(k)), &mut target, damage);
+                let cost = Cost::take();
+                out.push((
+                    Cost {
+                        rows_dirty: Some(f.rows_dirty),
+                        ..cost
+                    },
+                    Totals::of(&f),
+                ));
+            }
+        });
+        out
+    }
+
+    /// The cell path's caret frames, each read for its cost, how many
+    /// sized lines it converted and how many records it draws, on the
+    /// fixture with `more` written before the first frame.
+    fn caret_sized_frames(more: &[u8]) -> Vec<(Cost, u64, usize)> {
+        let mut out = Vec::new();
+        with_screen(Blinking::No, |t, r| {
+            feed(t, more);
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::ALL.before() {
+                let before = r.sized_converted().value();
+                Cost::take();
+                cell_frame(r, t, &Inputs::at(caret_at(k)), &mut cells, k.set());
+                let cost = Cost::take();
+                let converted = r.sized_converted().value() - before;
+                out.push((cost, converted, cells.records.len()));
+            }
+        });
+        out
+    }
+
+    /// **The rows a converted row is checked on** (FS-C19), each `cols`
+    /// columns wide: plain text, text in three renditions, wide
+    /// characters, ligature pairs and Hebrew, which the layout reorders.
+    fn converted_rows(cols: Cols) -> [(&'static str, String); 5] {
+        let styled = "\x1b[31mred\x1b[0m \x1b[42mgreen\x1b[0m \x1b[1mbold\x1b[0m plain text -> ";
+        [
+            ("plain", filled("plain text ", cols)),
+            ("styled", styled.repeat(cols.index() / 29)),
+            ("wide", "\u{4e2d}".repeat(cols.index() / 2)),
+            ("ligature", filled(SEEDS[5], cols)),
+            ("hebrew", filled(SEEDS[2], cols)),
+        ]
+    }
+
+    /// The bytes that write `text` alone on row 31 and erase row 32, each
+    /// line in `size` (`ESC # 5` or `ESC # 6`), then put the cursor on
+    /// row `at`.
+    fn rows_31_and_32(text: &str, size: &str, at: Row) -> Vec<u8> {
+        let at = at.index() + 1;
+        format!(
+            "\x1b[31;1H\x1b[2K\x1b#{size}{text}\x1b[0m\x1b[32;1H\x1b[2K\x1b#{size}\x1b[{at};20H"
+        )
+        .into_bytes()
+    }
+
+    /// **A converted row costs a caret frame no allocation, whatever it
+    /// holds** (FS-C19): a row converts into the renderer's own buffers
+    /// (`RowScratch`), its cells' codepoints gathered a run at a time into
+    /// one of them, so a caret frame whose cursor stands on a row of plain
+    /// text, renditions, wide characters, ligatures or Hebrew -- row 31,
+    /// the rest of it erased -- allocates exactly what the same frame does
+    /// with the cursor on the erased row below it, row 32: on the CPU
+    /// path, which converts the cursor's row every caret frame, and on the
+    /// cell path, where both rows are double-width and the cursor's sized
+    /// line converts every caret frame. The same screen either way, so
+    /// everything but the cursor's row costs the frame the same. The
+    /// controls: the row draws more than the erased one on each path, the
+    /// CPU path's caret frame repaints a row and the cell path's converts
+    /// one sized line. Named breaks: the buffers not put back, so each row
+    /// begins its own; each buffer left as it was by `begin`
+    /// (`row_scratch::tests::begin_empties_every_buffer`).
+    pub fn a_converted_row_costs_a_caret_frame_no_allocation() {
+        let cols = Cols::of_index(usize::from(WS.ws_col));
+        let half = Cols::of_index(cols.index() / 2);
+        // Row 31, the row a converted row is checked on, and the erased row
+        // below it.
+        let (row_31, row_32) = (Row::from_index(30), Row::from_index(31));
+        let blank_cpu = caret_cpu_frames(&rows_31_and_32("", "5", row_31));
+        let blank_cell = caret_sized_frames(&rows_31_and_32("", "6", row_31));
+        let mut wrong = Vec::new();
+        for ((kind, text), (_, sized)) in converted_rows(cols).into_iter().zip(converted_rows(half))
+        {
+            let on = caret_cpu_frames(&rows_31_and_32(&text, "5", row_31));
+            let below = caret_cpu_frames(&rows_31_and_32(&text, "5", row_32));
+            for (k, ((o, o_totals), (b, _))) in on.iter().zip(&below).enumerate() {
+                println!(
+                    "{kind} cpu frame {k}: on it allocations={} instances={} rows_dirty={}, \
+                     below it allocations={} rows_dirty={}",
+                    o.heap.here.value(),
+                    o_totals.instances.value(),
+                    o.rows_dirty.map_or(0, |t| t.value()),
+                    b.heap.here.value(),
+                    b.rows_dirty.map_or(0, |t| t.value()),
+                );
+                assert!(
+                    o_totals.instances.value() > blank_cpu[k].1.instances.value(),
+                    "{kind} cpu frame {k}: the row drawn"
+                );
+                if Nth(k).warming() {
+                    continue;
+                }
+                for (arm, c) in [("on it", o), ("below it", b)] {
+                    assert!(
+                        c.rows_dirty.is_some_and(|t| t.value() >= 1),
+                        "{kind} cpu frame {k} {arm}: the cursor's row repainted"
+                    );
+                }
+                if o.heap.here.value() != b.heap.here.value() {
+                    wrong.push(format!(
+                        "{kind} cpu frame {k}: {} on the row against {} below it\n  {}\n  {}",
+                        o.heap.here.value(),
+                        b.heap.here.value(),
+                        o.line(),
+                        b.line()
+                    ));
+                }
+            }
+            let on = caret_sized_frames(&rows_31_and_32(&sized, "6", row_31));
+            let below = caret_sized_frames(&rows_31_and_32(&sized, "6", row_32));
+            for (k, ((o, o_conv, o_records), (b, b_conv, _))) in on.iter().zip(&below).enumerate() {
+                println!(
+                    "{kind} cell frame {k}: on it allocations={} sized converted={o_conv} \
+                     records={o_records}, below it allocations={} sized converted={b_conv}",
+                    o.heap.here.value(),
+                    b.heap.here.value(),
+                );
+                assert!(
+                    *o_records > blank_cell[k].2,
+                    "{kind} cell frame {k}: the row drawn"
+                );
+                if Nth(k).warming() {
+                    continue;
+                }
+                assert_eq!(
+                    (*o_conv, *b_conv),
+                    (1, 1),
+                    "{kind} cell frame {k}: the cursor's sized line converted"
+                );
+                if o.heap.here.value() != b.heap.here.value() {
+                    wrong.push(format!(
+                        "{kind} cell frame {k}: {} on the row against {} below it\n  {}\n  {}",
+                        o.heap.here.value(),
+                        b.heap.here.value(),
+                        o.line(),
+                        b.line()
+                    ));
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "caret frames on a row allocated otherwise than on the erased row:\n{}",
+            wrong.join("\n")
+        );
     }
 
     /// **A sized line costs a caret frame no allocation** (FS-C12): a line
