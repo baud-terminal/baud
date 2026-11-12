@@ -201,8 +201,9 @@ pub struct Overlay {
     /// Where [`Overlay::order`] puts the records while it reorders them.
     staged: Vec<Instance>,
     /// The lines that are not single-width, as the instance path converts
-    /// them: kept, so a frame reuses the buffers.
-    sized: Vec<(Row, Vec<Instance>)>,
+    /// them: their rows, kept, so a frame reuses the buffer; the renderer
+    /// keeps their records ([`Renderer::sized_records`]).
+    sized: Vec<Row>,
     /// The hovered link's fields the walk reads as empty ([`Covered`]),
     /// kept so a frame reuses the buffer.
     hovered: Vec<(Row, Col, Cols)>,
@@ -938,7 +939,8 @@ impl Overlay {
             i32::try_from(geom.m.cell_h.value()).unwrap_or(0),
             i32::try_from(geom.pan.value()).unwrap_or(0),
         );
-        for (row, insts) in &sized {
+        for &row in &sized {
+            let insts = r.sized_records(row);
             let y = row.index();
             for b in &mut mask[y * cols..(y + 1) * cols] {
                 *b |= MASK_RECORD | MASK_SIZED;
@@ -957,7 +959,7 @@ impl Overlay {
                 records.extend(i);
             }
             self.emitted.push(Emitted::of(
-                (*row, Col::ZERO),
+                (row, Col::ZERO),
                 records,
                 &self.over,
                 inside..records.len(),

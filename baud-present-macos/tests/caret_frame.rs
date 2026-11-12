@@ -40,12 +40,14 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 9] = [
+const NAMES: [&str; 11] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
     "a_ligature_window_costs_a_caret_frame_no_allocation",
+    "a_sized_line_costs_a_caret_frame_no_allocation",
+    "a_cell_written_on_a_sized_line_converts_it_again",
     "a_caret_frame_tallies_the_rows_it_converts",
     "the_frames_totals_follow_every_write_of_a_row",
     "the_cell_driver_builds_as_present_builds",
@@ -84,6 +86,12 @@ fn main() {
             }
             "a_ligature_window_costs_a_caret_frame_no_allocation" => {
                 checks::a_ligature_window_costs_a_caret_frame_no_allocation();
+            }
+            "a_sized_line_costs_a_caret_frame_no_allocation" => {
+                checks::a_sized_line_costs_a_caret_frame_no_allocation();
+            }
+            "a_cell_written_on_a_sized_line_converts_it_again" => {
+                checks::a_cell_written_on_a_sized_line_converts_it_again();
             }
             "a_caret_frame_tallies_the_rows_it_converts" => {
                 checks::a_caret_frame_tallies_the_rows_it_converts();
@@ -1068,6 +1076,15 @@ mod checks {
     /// overlay's stats, on the fixture with `more` written before the
     /// first frame.
     fn caret_cell_frames(more: Option<&[u8]>) -> Vec<(Cost, OverlayStats)> {
+        caret_cell_records(more)
+            .into_iter()
+            .map(|(cost, stats, _)| (cost, stats))
+            .collect()
+    }
+
+    /// [`caret_cell_frames`], each with the number of records the frame
+    /// draws.
+    fn caret_cell_records(more: Option<&[u8]>) -> Vec<(Cost, OverlayStats, usize)> {
         let mut out = Vec::new();
         with_screen(Blinking::No, |t, r| {
             if let Some(more) = more {
@@ -1079,10 +1096,94 @@ mod checks {
                 let inputs = Inputs::at(caret_at(k));
                 Cost::take();
                 cell_frame(r, t, &inputs, &mut cells, k.set());
-                out.push((Cost::take(), cells.exceptions.stats()));
+                let cost = Cost::take();
+                out.push((cost, cells.exceptions.stats(), cells.records.len()));
             }
         });
         out
+    }
+
+    /// **A sized line costs a caret frame no allocation** (FS-C12): a line
+    /// that is not single-width is drawn on the cell path by the records
+    /// its last conversion kept, read in place, and the key that says
+    /// whether they still hold is compared with the line where it stands,
+    /// so the fixture with four more such lines -- rows 10 to 13 made
+    /// double-width and a double-height pair before the first frame --
+    /// allocates on each caret frame exactly what the fixture alone does:
+    /// the control that the four draw more than a hundred more records.
+    /// Named break: the line's cells copied into a key each frame.
+    pub fn a_sized_line_costs_a_caret_frame_no_allocation() {
+        let more = b"\x1b7\x1b[10;1H\x1b#6\x1b[11;1H\x1b#6\x1b[12;1H\x1b#3\x1b[13;1H\x1b#4\x1b8";
+        let (base, sized) = (caret_cell_records(None), caret_cell_records(Some(more)));
+        for (k, ((b, _, b_records), (s, _, s_records))) in base.iter().zip(&sized).enumerate() {
+            println!(
+                "sized frame {k}: base allocations={} records={b_records}, \
+                 four more sized allocations={} records={s_records}",
+                b.heap.here.value(),
+                s.heap.here.value(),
+            );
+            assert!(
+                *s_records > b_records + 100,
+                "frame {k}: the sized lines drawn"
+            );
+            if !Nth(k).warming() {
+                assert_eq!(
+                    s.heap.here.value(),
+                    b.heap.here.value(),
+                    "caret frame {k}: a sized line allocated"
+                );
+            }
+        }
+    }
+
+    /// One cell-path frame into `k`'s set with the cursor shown: how many
+    /// sized lines it converted, and the records it draws.
+    fn sized_frame(
+        r: &mut Renderer<'_, '_>,
+        t: &Term<'_>,
+        cells: &mut Cells<'_>,
+        k: Nth,
+    ) -> (u64, Vec<Instance>) {
+        let before = r.sized_converted().value();
+        cell_frame(r, t, &Inputs::at(CursorPhase::SHOWN), cells, k.set());
+        (r.sized_converted().value() - before, cells.records.clone())
+    }
+
+    /// **A cell written on a sized line converts the line again**
+    /// (FS-C12): a sized line's kept records are reused only while
+    /// everything it is drawn from holds, its cells among it, so a cell
+    /// written on the fixture's DECDWL row between two frames converts that
+    /// line alone again and changes the frame's records, and the frames
+    /// either side of it, with nothing written, convert none and draw the
+    /// same records: the control that the line's other inputs hold still
+    /// from frame to frame. Named break: the line's cells left out of what
+    /// its kept records are compared on.
+    pub fn a_cell_written_on_a_sized_line_converts_it_again() {
+        with_screen(Blinking::No, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::WARM.before() {
+                sized_frame(r, t, &mut cells, k);
+            }
+            let (steady, before) = sized_frame(r, t, &mut cells, Nth::WARM);
+            // An `X` over the `a` of `main` on row 1, the DECDWL line, in
+            // the rendition already on screen.
+            feed(t, b"\x1b7\x1b[1;5HX\x1b8");
+            let (written, after) = sized_frame(r, t, &mut cells, Nth(Nth::WARM.0 + 1));
+            let (again, kept) = sized_frame(r, t, &mut cells, Nth(Nth::WARM.0 + 2));
+            println!(
+                "sized lines converted: steady {steady}, written {written}, \
+                 after it {again}"
+            );
+            assert_eq!(
+                steady, 0,
+                "the control: a steady frame converts no sized line"
+            );
+            assert_eq!(written, 1, "the written line alone converted again");
+            assert_ne!(after, before, "the written cell drawn");
+            assert_eq!(again, 0, "the written line's records kept");
+            assert_eq!(kept, after, "the kept records drawn");
+        });
     }
 
     /// **A ligature window costs a caret frame no allocation** (FS-C11):

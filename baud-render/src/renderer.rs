@@ -1578,9 +1578,23 @@ type Cursor = Option<(Row, Col, CursorStyle)>;
 /// anywhere takes a free place and a growth keeps every slot at its texels
 /// (`Atlas::grow_mask`), so the atlas's generation, which every placement
 /// moves, would reconvert every sized row for a glyph on another line.
-#[derive(Clone, PartialEq, Eq)]
+///
+/// **Compared where the line stands** ([`SizedKey::holds`]): its cells,
+/// its pictured cells and its composition are compared with the frame's
+/// own, borrowed, and copied into the kept key's buffers only when they
+/// differ ([`SizedKey::take`]), so a steady line costs a frame no buffer.
 struct SizedKey {
     cells: Vec<PackedCell>,
+    pictured: Vec<crate::Pictured>,
+    /// The composition on the line, which a line that joins draws among
+    /// its own glyphs ([`Splice`]).
+    composition: Option<Composition>,
+    rest: SizedRest,
+}
+
+/// The rest of a [`SizedKey`], each part a value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SizedRest {
     size: LineRendition,
     cursor: Option<(Col, CursorStyle, Chan)>,
     look: CursorLook,
@@ -1592,11 +1606,49 @@ struct SizedKey {
     cursor_paint: BlockPaint,
     styles: StyleStamp,
     clusters: ClusterEpoch,
-    pictured: Vec<crate::Pictured>,
     atlas: Tally,
-    /// The composition on the line, which a line that joins draws among
-    /// its own glyphs ([`Splice`]).
-    composition: Option<Composition>,
+}
+
+/// A sized line's parts as the frame has them, borrowed.
+struct SizedNow<'a> {
+    cells: &'a [PackedCell],
+    pictured: &'a [crate::Pictured],
+    composition: Option<&'a Composition>,
+    rest: SizedRest,
+}
+
+impl SizedKey {
+    /// Whether the line converted under this key is the line `now` is:
+    /// every part compared, the cells among them.
+    fn holds(&self, now: &SizedNow<'_>) -> bool {
+        self.rest == now.rest
+            && self.cells[..] == now.cells[..]
+            && self.pictured[..] == now.pictured[..]
+            && self.composition.as_ref() == now.composition
+    }
+
+    /// The key `now` makes, into this key's buffers.
+    fn take(&mut self, now: &SizedNow<'_>) {
+        self.cells.clear();
+        self.cells.extend_from_slice(now.cells);
+        self.pictured.clear();
+        self.pictured.extend_from_slice(now.pictured);
+        match (&mut self.composition, now.composition) {
+            (Some(kept), Some(c)) => kept.clone_from(c),
+            (kept, c) => *kept = c.cloned(),
+        }
+        self.rest = now.rest;
+    }
+
+    /// The key `now` makes, new.
+    fn of(now: &SizedNow<'_>) -> SizedKey {
+        SizedKey {
+            cells: now.cells.to_vec(),
+            pictured: now.pictured.to_vec(),
+            composition: now.composition.cloned(),
+            rest: now.rest,
+        }
+    }
 }
 
 /// **A composition drawn in its row's order**, on a row the layout
@@ -8268,8 +8320,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// stretched those cells over a 200x50 window.
     /// **The lines of `view` that are not single-width, converted as the
     /// instance path converts them**, for the path that draws the grid
-    /// itself: each such row and its glyphs and decorations, cursor shapes
-    /// included, in the order the instance path draws them. The cell shader
+    /// itself: each such row into `out`, and its glyphs and decorations,
+    /// cursor shapes included, in the order the instance path draws them,
+    /// kept by the renderer and read in place ([`Renderer::sized_records`]).
+    /// The cell shader
     /// draws their backgrounds from the grid, a character's under both its
     /// columns, and leaves the rest to these (`Overlay::ensure`, which masks
     /// the rows), so a sized line is drawn by one conversion on every path.
@@ -8282,7 +8336,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (view, table): (&Viewport<'_>, &[Resolved]),
         cursor: Option<(Row, Col, CursorStyle)>,
         composition: Option<&Composition>,
-        out: &mut Vec<(Row, Vec<Instance>)>,
+        out: &mut Vec<Row>,
     ) {
         out.clear();
         let (cols, rows) = (view.cols(), view.rows());
@@ -8340,8 +8394,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // line's records. Under the picture finder a row enters a block
             // without a cell of its own changing, so the key holds what the
             // finder found on the row this frame.
-            let key = SizedKey {
-                cells: self.cur[y * ncols..(y + 1) * ncols].to_vec(),
+            let rest = SizedRest {
                 size,
                 cursor: cursor
                     .filter(|&(cr, _, _)| cr == r)
@@ -8355,11 +8408,31 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 cursor_paint: self.block_paint,
                 styles: self.styles_stamp,
                 clusters: term.cluster_epoch(),
-                pictured: self.pictures.row(r).to_vec(),
                 atlas: self.atlas.stats().grown,
-                composition: composition.filter(|c| c.row == r).cloned(),
             };
-            let reuse = self.sized_rows[y].as_ref().is_some_and(|s| s.key == key);
+            let mut kept = self.sized_rows[y].take();
+            let reuse = {
+                let now = SizedNow {
+                    cells: &self.cur[y * ncols..(y + 1) * ncols],
+                    pictured: self.pictures.row(r),
+                    composition: composition.filter(|c| c.row == r),
+                    rest,
+                };
+                let reuse = kept.as_ref().is_some_and(|s| s.key.holds(&now));
+                if !reuse {
+                    match kept.as_mut() {
+                        Some(s) => s.key.take(&now),
+                        None => {
+                            kept = Some(SizedRow {
+                                key: SizedKey::of(&now),
+                                records: Vec::new(),
+                            });
+                        }
+                    }
+                }
+                reuse
+            };
+            self.sized_rows[y] = kept;
             if !reuse {
                 let mut exc = Exceptions::default();
                 // A composition on a line that joins, drawn in its order.
@@ -8375,15 +8448,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.convert_row(term, r, cursor, &mut exc);
                 self.splice = None;
                 self.sized_converted.bump();
-                self.sized_rows[y] = Some(SizedRow {
-                    key,
-                    records: self.per_row[r].to_vec(),
-                });
+                if let Some(s) = self.sized_rows[y].as_mut() {
+                    s.records.clear();
+                    s.records.extend_from_slice(&self.per_row[r]);
+                }
             }
-            if let Some(s) = &self.sized_rows[y] {
-                out.push((r, s.records.clone()));
-            }
+            out.push(r);
         }
+    }
+
+    /// **A sized line's records**, as [`Renderer::sized_lines`] last kept
+    /// them for row `r`, read in place: none for a row it did not keep.
+    pub fn sized_records(&self, r: Row) -> &[Instance] {
+        self.sized_rows
+            .get(r.index())
+            .and_then(Option::as_ref)
+            .map_or(&[][..], |s| s.records.as_slice())
     }
 
     /// **The slots this path's table lent its last frozen cells, put back**
