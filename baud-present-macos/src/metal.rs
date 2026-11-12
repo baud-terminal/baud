@@ -837,7 +837,7 @@ enum Last {
 
 /// What an instance-path frame draws beside the rows the renderer converted
 /// ([`Renderer::redraw`]): two frames alike in this differ only in those.
-#[derive(PartialEq)]
+/// Compared field by field with the frame's own reads, and kept in place.
 struct InstanceKey {
     size: (Px, Px),
     uniforms: [u32; UNIFORM_FLOATS],
@@ -2778,27 +2778,39 @@ impl Gpu {
             .chain(renderer.cursor_glow())
             .chain(renderer.cursor_guide())
             .any(|r| crate::redraw::record_rows(r, cell, grid).is_none());
-        let key = InstanceKey {
-            size: target.size(),
-            uniforms: uniforms.map(f32::to_bits),
-            clear: renderer.clear_color(),
-            strip: renderer
-                .strip_records()
-                .iter()
-                .chain(renderer.margin_records())
-                .copied()
-                .collect(),
-            lights: renderer.lights_records().to_vec(),
-            unrowed: match off_grid || !images.is_empty() {
-                true => Unrowed::Yes,
-                false => Unrowed::No,
-            },
+        // What this frame draws beside its rows, read where the renderer
+        // holds it and compared with the last frame's key in place: the
+        // strip's records and the word wrap's marks as one run, as the key
+        // keeps them. Nothing is collected to compare, and the key's own
+        // buffers take this frame's records only when they differ.
+        let (size, bits, clear_word) = (
+            target.size(),
+            uniforms.map(f32::to_bits),
+            renderer.clear_color(),
+        );
+        let (strip, margin, lights_now) = (
+            renderer.strip_records(),
+            renderer.margin_records(),
+            renderer.lights_records(),
+        );
+        let unrowed = match off_grid || !images.is_empty() {
+            true => Unrowed::Yes,
+            false => Unrowed::No,
         };
-        let changed = match &self.last {
-            Last::Instances(last) if *last == key && key.unrowed == Unrowed::No => {
-                renderer.redraw()
+        let alike = match &self.last {
+            Last::Instances(last) => {
+                last.size == size
+                    && last.uniforms == bits
+                    && last.clear == clear_word
+                    && last.strip.iter().eq(strip.iter().chain(margin))
+                    && last.lights == lights_now
+                    && last.unrowed == unrowed
             }
-            _ => Redraw::Whole,
+            _ => false,
+        };
+        let changed = match alike && unrowed == Unrowed::No {
+            true => renderer.redraw(),
+            false => Redraw::Whole,
         };
         let changed = self.sliding(changed);
         let drawn = missing.union(changed);
@@ -2933,6 +2945,29 @@ impl Gpu {
         enc.endEncoding();
         self.compose_slide(&cmd, target, renderer.whole_size().1, Parts::of(renderer));
         let (submit, waited, flying) = self.commit(cmd, done);
+        // What the next frame is compared with: this one, in the last
+        // key's buffers, written only where it differs from that key.
+        let mut key = match core::mem::replace(&mut self.last, Last::None) {
+            Last::Instances(last) => last,
+            _ => InstanceKey {
+                size,
+                uniforms: bits,
+                clear: clear_word,
+                strip: Vec::new(),
+                lights: Vec::new(),
+                unrowed,
+            },
+        };
+        if !alike {
+            key.size = size;
+            key.uniforms = bits;
+            key.clear = clear_word;
+            key.strip.clear();
+            key.strip.extend(strip.iter().chain(margin).copied());
+            key.lights.clear();
+            key.lights.extend_from_slice(lights_now);
+            key.unrowed = unrowed;
+        }
         self.last = Last::Instances(key);
         self.committed(&waited);
         renderer.take_redraw();
@@ -3154,14 +3189,10 @@ impl Gpu {
             .try_fold(RowSet::NONE, |set, r| {
                 crate::redraw::record_rows(r, cell, grid_cells_rows).map(|rs| set.union(rs))
             });
-        // The word wrap's marks are kept with the strip's: a change to
-        // either draws the frame whole.
-        let strip_now: Vec<Instance> = renderer
-            .strip_records()
-            .iter()
-            .chain(renderer.margin_records())
-            .copied()
-            .collect();
+        // The word wrap's marks are kept with the strip's, as one run: a
+        // change to either draws the frame whole. Both are compared where
+        // the renderer holds them, and nothing is collected to compare.
+        let (strip, margin) = (renderer.strip_records(), renderer.margin_records());
         let lights_now = renderer.lights_records();
         let unrowed = match moving.is_none() || !images.is_empty() || input.slide.is_some() {
             true => Unrowed::Yes,
@@ -3180,7 +3211,7 @@ impl Gpu {
                 && l.viewport == vp
                 && l.uniforms.without_cursor() == uniforms.without_cursor()
                 && l.clear == clear_word
-                && l.strip == strip_now
+                && l.strip.iter().eq(strip.iter().chain(margin))
                 && l.lights == lights_now
                 && l.unrowed == Unrowed::No
                 && unrowed == Unrowed::No
@@ -3629,7 +3660,7 @@ impl Gpu {
         };
         if changed == Redraw::Whole {
             last.strip.clear();
-            last.strip.extend_from_slice(&strip_now);
+            last.strip.extend(strip.iter().chain(margin).copied());
             last.lights.clear();
             last.lights.extend_from_slice(lights_now);
             last.records.clear();
