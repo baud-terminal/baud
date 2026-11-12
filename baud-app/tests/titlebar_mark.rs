@@ -44,6 +44,11 @@
 //! transition, through baud's own observer (`full_screen.rs`) and its own
 //! response (`strip::follow`): entered, the terminal's view reaches the
 //! window's top; exited, it stops the title bar's height short again.
+//!
+//! **A double-click on the title bar's empty part** is the binary's second
+//! test ([`double_click`]): in the same windows, the view each point of the
+//! bar is hit as, and what a double-click there does under each value of
+//! the user's setting.
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
@@ -91,24 +96,33 @@ mod front {
 
 const NAME: &str = "the_lockup_sits_in_the_titlebar_strip";
 
+/// The second test: [`double_click`].
+const DOUBLE_CLICK: &str = "a_double_click_on_the_empty_title_bar_does_the_settings_action";
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--list") {
         if cfg!(target_os = "macos") && !args.iter().any(|a| a == "--ignored") {
             println!("{NAME}: test");
+            println!("{DOUBLE_CLICK}: test");
         }
         return;
     }
-    let skipped = args
-        .iter()
-        .find(|a| !a.starts_with('-'))
-        .is_some_and(|filter| !NAME.contains(filter.as_str()));
+    let filter = args.iter().find(|a| !a.starts_with('-'));
+    let runs = |name: &str| filter.is_none_or(|f| name.contains(f.as_str()));
     #[cfg(target_os = "macos")]
-    if !skipped {
-        run();
+    {
+        if runs(NAME) {
+            run();
+        }
+        if runs(DOUBLE_CLICK) {
+            double_click(
+                MainThreadMarker::new().expect("harness = false runs main on the main thread"),
+            );
+        }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = skipped;
+    let _ = runs;
 }
 
 #[cfg(target_os = "macos")]
@@ -1883,5 +1897,788 @@ fn check(
             r.origin.y >= v.origin.y + v.size.height - EPS,
             "{at}: {what} {r:?} overlaps the terminal's view {v:?}"
         );
+    }
+}
+
+/// **A double-click on the title bar's empty part does what the user's
+/// "Window title bar double-click action" says** (`baud_present_macos::
+/// container`): in real windows built as `Opening` builds baud's -- the
+/// container `Container::new` makes, the terminal's view in it, the build's
+/// name, the lockup and the lights put by `mark.rs`, `strip.rs` and
+/// `lights.rs` -- in both bodies, with the plate and without it, never
+/// shown.
+///
+/// At each point of the bar, the view that wins the hit test is named.
+/// Left of the close button, between the traffic lights, right of the zoom
+/// button, the middle, between the name and the plate, and the right
+/// inset with no plate, it is the container: the title bar is transparent
+/// and lets clicks through to the content there. A double-click delivered
+/// to it -- `mouseDown:` with a `clickCount` of 2, as AppKit hands a click
+/// to the view it hit -- zooms under "Maximize", goes to the Dock under
+/// "Minimize", is AppKit's `_zoomFill:` under "Fill", and under "None" and
+/// under a word no release stores is passed on as a click, which the
+/// window's frame answers with a drag; the unknown word is said once
+/// however often it is met. The setting is put in the defaults' argument
+/// domain for each case, the command line's, which the shared defaults
+/// search after managed preferences and before the user's own
+/// ([[source: sdk27-nsuserdefaults-h]] 22-33), so this Mac's setting never
+/// decides and nothing is written to it -- a managed Mac's would, and
+/// `Setting::set`'s read-back fails there.
+///
+/// **With no key, macOS's own default.** The argument domain cleared of the
+/// key, the value read is the one in the registration domain, and the
+/// double-click does what that value says, whatever it is; with the
+/// registration domain holding "Minimize" (`registerDefaults:`, this
+/// process only) it goes to the Dock, so a "Maximize" written into the code
+/// for a missing key fails here. That the registration domain holds
+/// "Maximize" is checked on its own, as the value macOS 27.3 registers.
+/// The user's own preferences for every app come between the two, so the
+/// test reads them, never writing them, and fails naming the key on a Mac
+/// where they hold it. Fill on a window that does not answer
+/// `respondsToSelector:` for `_zoomFill:` is `performZoom:`.
+///
+/// With the container answering no view to the hit test, the frame view's
+/// hit at each empty point is printed, and is never under AppKit's
+/// `NSTitlebarContainerView`: passing the point through would not reach
+/// AppKit's double-click.
+///
+/// On the build's name, the plate and the right inset beside the plate the
+/// winner is in the title bar's own views, under the view that carries
+/// AppKit's double-click recognizer, and the double-click is AppKit's; the
+/// recognizer acts only for a window on screen, so there this checks the
+/// place and that the container takes no part, not the action. The traffic
+/// lights are hit as AppKit's buttons and the plate as the strip's own
+/// views (controls), a single click on the empty bar is still the window's
+/// drag, and a double-click below the title bar, where the container is
+/// hit with the terminal's view hidden, does nothing of the setting's.
+///
+/// The window's class is swapped for one that records `performZoom:`,
+/// `performMiniaturize:`, `zoom:`, `miniaturize:`, `_zoomFill:` and
+/// `performWindowDragWithEvent:` and does none of them, and that answers
+/// every way of ordering it in, so nothing reaches the Dock or the screen;
+/// the swap is checked before every delivery. Named breaks: a container
+/// that is a plain `NSView` (master before this test) records only the
+/// drag at every empty point; drop the `clickCount` test and the single
+/// click zooms; drop the title bar's bounds and the double-click below it
+/// zooms; drop the hit test and the double-click on the name, which the
+/// title bar passes on to the content under it, zooms; an unknown word
+/// zoomed; an unknown word not said; Fill zoomed; `_zoomFill:` called
+/// without asking, and the window without it records it; a missing key
+/// read as "Maximize" past the registration domain, and "Minimize"
+/// registered zooms.
+#[cfg(target_os = "macos")]
+fn double_click(mtm: MainThreadMarker) {
+    use baud_present_macos::container::Container;
+    use baud_present_macos::container::{DoubleClick, SETTING, said};
+    use baud_render::{ActivityLights, Shown, Theme};
+    use macos_liquid_glass::objc2::rc::Retained;
+    use macos_liquid_glass::objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+    let _ = NSApplication::sharedApplication(mtm);
+    let registered = Setting::registered();
+    // The value observed on macOS 27.3, and only that: the no-key checks
+    // below act on whatever the registration domain holds, not on this.
+    assert_eq!(
+        registered.as_deref(),
+        Some("Maximize"),
+        "the value AppKit registers on macOS 27.3"
+    );
+    assert_eq!(
+        Setting::users_own(),
+        None,
+        "this user has {SETTING} set for every app, which a key missing from the argument \
+         domain falls to before the registered value; the no-key checks need it unset, and \
+         this test never writes the user's defaults"
+    );
+    let faces = [baud_font::Face::parse(embedded::BOLD.bytes).expect("the Bold")];
+    let r = renderer_of(&faces, Theme::dark());
+    let setting = Setting::kept();
+    let mut delivered = 0;
+    let mut wrong = Vec::new();
+    for body in [Body::Standard, Body::Glass] {
+        for lights in [ActivityLights::TitleBar, ActivityLights::Off] {
+            let at = |step: &str| format!("{body:?} body, lights {lights:?}: {step}");
+            let window = GlassWindow::new(mtm, WINDOW_SIZE, "baud");
+            let w = window.ns_window();
+            let inset = strip::inset_of(w);
+            let built = NSRect::new(NSPoint::new(0.0, 0.0), WINDOW_SIZE);
+            let container = Container::new(mtm, built);
+            container.setAutoresizesSubviews(true);
+            let view = NSView::initWithFrame(NSView::alloc(mtm), built);
+            strip::apply(&view, &container, inset);
+            view.setAutoresizingMask(
+                NSAutoresizingMaskOptions::ViewWidthSizable
+                    | NSAutoresizingMaskOptions::ViewHeightSizable,
+            );
+            container.addSubview(&view);
+            window.set_content_view(&container);
+            let mark = mark::Mark::put(mtm, &window, inset, VERSION).expect("the lockups decode");
+            let holder = strip::Accessory::put(
+                mtm,
+                &window,
+                TitlebarSide::Trailing,
+                NSSize::new(0.0, inset),
+            );
+            let mut strip = lights::Strip::new(Some(holder), None, mark.size());
+            let glass;
+            let material;
+            match body {
+                Body::Standard => {
+                    material = MaterialSurface::new(mtm, built, Material::UnderWindowBackground);
+                    window.set_content_view(material.view());
+                    material.set_content_view(&container);
+                }
+                Body::Glass => {
+                    glass = GlassSurface::new(mtm, built, GlassStyle::Regular, 16.0)
+                        .expect("macOS 26 has NSGlassEffectView");
+                    window.set_content_view(glass.view());
+                    glass.set_content_view(&container);
+                }
+            }
+            draw_and_place(w, &mut strip, &mark, &r, lights, Shown::DARK, 2.0, inset);
+            assert!(!w.isVisible(), "{}", at("never shown"));
+            let frame = w.contentView().and_then(|v| unsafe { v.superview() });
+            let frame = frame.expect("the window's frame view");
+            let in_window = |v: &NSView| v.convertRect_toView(v.bounds(), None);
+            let button = |b| {
+                w.standardWindowButton(b)
+                    .expect("a titled window's buttons")
+            };
+            let (close, mini, zoom) = (
+                in_window(&button(NSWindowButton::CloseButton)),
+                in_window(&button(NSWindowButton::MiniaturizeButton)),
+                in_window(&button(NSWindowButton::ZoomButton)),
+            );
+            let bar = unsafe { button(NSWindowButton::CloseButton).superview() }
+                .expect("the buttons' view");
+            // AppKit's own double-click on the title bar: a two-click
+            // recognizer on the view that holds the buttons' view.
+            let recognizer = unsafe { bar.superview() }.is_some_and(|holder| {
+                holder.gestureRecognizers().iter().any(|g| {
+                    let two: isize = unsafe {
+                        macos_liquid_glass::objc2::msg_send![&*g, numberOfClicksRequired]
+                    };
+                    g.class().name().to_bytes() == b"NSClickGestureRecognizer" && two == 2
+                })
+            });
+            assert!(recognizer, "{}", at("AppKit's double-click recognizer"));
+            let width = w.frame().size.width;
+            let y = close.origin.y + close.size.height / 2.0;
+            let name = in_window(mark.version_label());
+            assert!(!mark.version_label().isHidden(), "{}", at("the name shows"));
+            let plate = strip.plate_view().map(|p| in_window(p));
+            let end = |r: NSRect| r.origin.x + r.size.width;
+            let mut points = vec![
+                (
+                    "left of the close button",
+                    close.origin.x / 2.0,
+                    Wins::Container,
+                ),
+                (
+                    "between close and minimise",
+                    (end(close) + mini.origin.x) / 2.0,
+                    Wins::Container,
+                ),
+                (
+                    "between minimise and zoom",
+                    (end(mini) + zoom.origin.x) / 2.0,
+                    Wins::Container,
+                ),
+                ("right of the zoom button", end(zoom) + 2.0, Wins::Container),
+                (
+                    "the build's name",
+                    name.origin.x + name.size.width / 2.0,
+                    Wins::TitleBar,
+                ),
+            ];
+            match plate {
+                Some(p) => {
+                    points.push((
+                        "the middle",
+                        (end(name) + p.origin.x) / 2.0,
+                        Wins::Container,
+                    ));
+                    points.push((
+                        "between the name and the plate",
+                        p.origin.x - 4.0,
+                        Wins::Container,
+                    ));
+                    points.push(("the right inset", (end(p) + width) / 2.0, Wins::TitleBar));
+                    let hit = frame
+                        .hitTest(NSPoint::new(p.origin.x + p.size.width / 2.0, y))
+                        .expect("the plate is hit");
+                    let ours = strip.plate_view().is_some_and(|v| same(v, &hit))
+                        || same(mark.view(), &hit);
+                    let lamp = baud_render::Led::ALL
+                        .iter()
+                        .any(|&l| strip.lamp_view(l).is_some_and(|v| same(v, &hit)));
+                    assert!(
+                        lamp || ours,
+                        "{}: {}",
+                        at("the plate is the strip's"),
+                        hit.class().name().to_string_lossy()
+                    );
+                }
+                None => {
+                    points.push(("the middle", width / 2.0, Wins::Container));
+                    points.push((
+                        "between the name and the right edge",
+                        (end(name) + width) / 2.0,
+                        Wins::Container,
+                    ));
+                    points.push(("the right inset", width - 4.0, Wins::Container));
+                }
+            }
+            for b in [
+                NSWindowButton::CloseButton,
+                NSWindowButton::MiniaturizeButton,
+                NSWindowButton::ZoomButton,
+            ] {
+                let f = in_window(&button(b));
+                let centre = NSPoint::new(f.origin.x + f.size.width / 2.0, y);
+                let hit = frame.hitTest(centre).expect("a button is hit");
+                assert!(
+                    same(&hit, &button(b)),
+                    "{}: {}",
+                    at("a traffic light is AppKit's button"),
+                    hit.class().name().to_string_lossy()
+                );
+            }
+            {
+                use macos_liquid_glass::objc2::sel;
+                use macos_liquid_glass::objc2_foundation::NSObjectProtocol;
+                assert!(
+                    w.respondsToSelector(sel!(_zoomFill:)),
+                    "{}",
+                    at("the window answers for _zoomFill:, as on macOS 27.3")
+                );
+            }
+            let recorder = Recorder::on(w, Fill::Answered);
+            let event = |p: NSPoint, clicks: isize| -> Retained<NSEvent> {
+                NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                    NSEventType::LeftMouseDown,
+                    p,
+                    NSEventModifierFlags(0),
+                    0.0,
+                    w.windowNumber(),
+                    None,
+                    0,
+                    clicks,
+                    1.0,
+                )
+                .expect("a mouse event")
+            };
+            let empty: Vec<(&str, CGFloat)> = points
+                .iter()
+                .filter(|p| p.2 == Wins::Container)
+                .map(|p| (p.0, p.1))
+                .collect();
+            for (what, x, wins) in points {
+                let p = NSPoint::new(x, y);
+                let step = at(what);
+                let hit = frame.hitTest(p).expect("the bar is hit");
+                let chain = chain_of(&hit);
+                let won = if same(&hit, &container) {
+                    Wins::Container
+                } else if hit.isDescendantOf(&bar) {
+                    Wins::TitleBar
+                } else {
+                    panic!("{step}: neither the container nor the title bar: {chain}")
+                };
+                assert_eq!(won, wins, "{step}: {chain}");
+                match won {
+                    Wins::TitleBar => {
+                        recorder.deliver(w, &hit, &event(p, 2), Some("Maximize"), &setting);
+                        assert_eq!(recorder.take(), [DRAG], "{step}: AppKit's, not ours");
+                    }
+                    Wins::Container => {
+                        for (value, wanted) in [
+                            ("Maximize", ZOOM),
+                            ("Minimize", MINIATURIZE),
+                            ("None", DRAG),
+                            ("Fill", FILL),
+                            (UNKNOWN, DRAG),
+                        ] {
+                            recorder.deliver(w, &hit, &event(p, 2), Some(value), &setting);
+                            let done = recorder.take();
+                            if done != [wanted] {
+                                wrong.push(format!("{step}, {value}: {done:?}, not {wanted}"));
+                            }
+                            delivered += 1;
+                        }
+                        recorder.deliver(w, &hit, &event(p, 1), Some("Maximize"), &setting);
+                        assert_eq!(recorder.take(), [DRAG], "{step}: a single click drags");
+                    }
+                }
+                assert!(!w.isVisible(), "{step}: never shown");
+            }
+            // With the container answering no view, the frame view's hit at
+            // each empty point is the body's, never under the title bar's
+            // container: a container passing the point through would hand
+            // the click to the body, not to AppKit's double-click.
+            {
+                let unhit = Unhit::on(&container);
+                for &(what, x) in &empty {
+                    let step = at(&format!("{what}, passed through"));
+                    let hit = frame.hitTest(NSPoint::new(x, y));
+                    let chain = hit.as_deref().map_or("nothing".to_owned(), chain_of);
+                    assert!(!chain.contains(TITLE_BAR_CONTAINER), "{step}: {chain}");
+                    println!("{step}: {chain}");
+                }
+                drop(unhit);
+            }
+            // Below the title bar, with the terminal's view hidden so the
+            // container is the view hit there.
+            view.setHidden(true);
+            let below = NSPoint::new(width / 2.0, w.contentLayoutRect().size.height / 2.0);
+            let hit = frame.hitTest(below).expect("the content is hit");
+            assert!(same(&hit, &container), "{}", at("the container below"));
+            recorder.deliver(w, &container, &event(below, 2), Some("Maximize"), &setting);
+            view.setHidden(false);
+            let done = recorder.take();
+            assert!(
+                !done.contains(&ZOOM) && !done.contains(&MINIATURIZE),
+                "{}: {done:?}",
+                at("below the title bar")
+            );
+            // No key in the argument domain: the value read is the one the
+            // registration domain holds, and the double-click does what that
+            // value says, whatever it is; then with the registration domain
+            // holding "Minimize", in this process only, it goes to the Dock.
+            let (what, x) = empty[0];
+            let p = NSPoint::new(x, y);
+            setting.clear();
+            assert_eq!(
+                Setting::read(),
+                registered,
+                "{}",
+                at("no key: the registered value is read")
+            );
+            recorder.deliver(w, &container, &event(p, 2), None, &setting);
+            assert_eq!(
+                recorder.take(),
+                [action_of(registered.as_deref())],
+                "{}",
+                at(&format!("{what}, no key: the registered value's action"))
+            );
+            {
+                let _minimize = Registered::holding("Minimize");
+                setting.clear();
+                assert_eq!(Setting::read().as_deref(), Some("Minimize"));
+                recorder.deliver(w, &container, &event(p, 2), None, &setting);
+                assert_eq!(
+                    recorder.take(),
+                    [MINIATURIZE],
+                    "{}",
+                    at(&format!("{what}, no key, \"Minimize\" registered"))
+                );
+            }
+            assert_eq!(Setting::read(), registered, "{}", at("registered put back"));
+            drop(recorder);
+            // Fill on a window without `_zoomFill:` is a zoom.
+            let refusing = Recorder::on(w, Fill::Refused);
+            refusing.deliver(w, &container, &event(p, 2), Some("Fill"), &setting);
+            assert_eq!(
+                refusing.take(),
+                [ZOOM],
+                "{}",
+                at(&format!("{what}, Fill without _zoomFill:"))
+            );
+            drop(refusing);
+            assert!(!w.isVisible(), "{}", at("never shown"));
+        }
+    }
+    drop(setting);
+    assert!(
+        wrong.is_empty(),
+        "{} wrong:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+    let unknown = DoubleClick::of(Some(UNKNOWN));
+    assert_eq!(
+        said().iter().filter(|v| **v == unknown).count(),
+        1,
+        "an unknown word is said once, naming it"
+    );
+    assert_eq!(delivered, 2 * 5 * (6 + 7), "every empty point, every value");
+    println!("{DOUBLE_CLICK}: ok, {delivered} double-clicks");
+}
+
+/// Which view a point of the title bar is hit as.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Wins {
+    /// The terminal's container, under the transparent title bar.
+    Container,
+    /// One of the title bar's own views.
+    TitleBar,
+}
+
+/// Whether `a` and `b` are one view.
+#[cfg(target_os = "macos")]
+fn same(a: &NSView, b: &NSView) -> bool {
+    core::ptr::eq(a, b)
+}
+
+/// `view` and its superviews, by class, for a failure's message.
+#[cfg(target_os = "macos")]
+fn chain_of(view: &NSView) -> String {
+    let mut names = Vec::new();
+    let mut at = Some(view.retain());
+    while let Some(v) = at {
+        names.push(v.class().name().to_string_lossy().into_owned());
+        at = unsafe { v.superview() };
+    }
+    names.join(" < ")
+}
+
+/// The class of the view AppKit holds the title bar's own views in.
+#[cfg(target_os = "macos")]
+const TITLE_BAR_CONTAINER: &str = "NSTitlebarContainerView";
+
+/// **The container answering no view to every hit test**: its class
+/// swapped for one whose `hitTest:` returns nil, so the frame view's hit
+/// where the container was is what AppKit gives when the content passes a
+/// point through. Put back when it drops.
+#[cfg(target_os = "macos")]
+struct Unhit {
+    _swap: Pretend,
+}
+
+#[cfg(target_os = "macos")]
+impl Unhit {
+    fn on(view: &NSView) -> Unhit {
+        use macos_liquid_glass::objc2::runtime::{AnyObject, Sel};
+        use macos_liquid_glass::objc2::sel;
+        extern "C-unwind" fn nothing(
+            _: &AnyObject,
+            _: Sel,
+            _: NSPoint,
+        ) -> Option<&'static AnyObject> {
+            None
+        }
+        let mut swap = Pretend {
+            swapped: Vec::new(),
+        };
+        swap.swap(view, "BaudUnhit", |b| {
+            // SAFETY: `hitTest:` takes an NSPoint and returns a view or
+            // nil, which `nothing` does.
+            unsafe {
+                b.add_method(
+                    sel!(hitTest:),
+                    nothing as extern "C-unwind" fn(_, _, _) -> _,
+                );
+            }
+        });
+        Unhit { _swap: swap }
+    }
+}
+
+#[cfg(target_os = "macos")]
+const ZOOM: &str = "performZoom:";
+#[cfg(target_os = "macos")]
+const MINIATURIZE: &str = "performMiniaturize:";
+#[cfg(target_os = "macos")]
+const DRAG: &str = "performWindowDragWithEvent:";
+#[cfg(target_os = "macos")]
+const FILL: &str = "_zoomFill:";
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// What the recording window was asked to do, in order.
+    static ASKED: core::cell::RefCell<Vec<&'static str>> = const {
+        core::cell::RefCell::new(Vec::new())
+    };
+}
+
+/// **The user's double-click setting, as the command line would give it**:
+/// the defaults' argument domain, searched after managed preferences only,
+/// held to one value for a delivery and put back as it was when this
+/// drops. Volatile: it is this process's alone and is never written.
+#[cfg(target_os = "macos")]
+struct Setting {
+    was: macos_liquid_glass::objc2::rc::Retained<
+        macos_liquid_glass::objc2_foundation::NSDictionary<
+            NSString,
+            macos_liquid_glass::objc2::runtime::AnyObject,
+        >,
+    >,
+}
+
+#[cfg(target_os = "macos")]
+impl Setting {
+    fn kept() -> Setting {
+        use macos_liquid_glass::objc2_foundation::{NSArgumentDomain, NSUserDefaults};
+        // SAFETY: a framework constant, valid for the process's life.
+        let was = NSUserDefaults::standardUserDefaults()
+            .volatileDomainForName(unsafe { NSArgumentDomain });
+        Setting { was }
+    }
+
+    /// The setting read as `value` from now on.
+    fn set(&self, value: &str) {
+        use macos_liquid_glass::objc2::runtime::AnyObject;
+        use macos_liquid_glass::objc2_foundation::{
+            NSArgumentDomain, NSDictionary, NSUserDefaults,
+        };
+        let key = NSString::from_str(baud_present_macos::container::SETTING);
+        let value = NSString::from_str(value);
+        let one = NSDictionary::from_slices(&[&*key], &[&*value as &AnyObject]);
+        let d = NSUserDefaults::standardUserDefaults();
+        // SAFETY: a framework constant, and a dictionary of strings.
+        unsafe { d.setVolatileDomain_forName(&one, NSArgumentDomain) };
+        assert_eq!(
+            d.stringForKey(&key).map(|s| s.to_string()),
+            Some(value.to_string()),
+            "the argument domain is read first"
+        );
+    }
+
+    /// The argument domain as it was, without the setting: the value read
+    /// from now on is the user's own, or else the registered one.
+    fn clear(&self) {
+        use macos_liquid_glass::objc2_foundation::{
+            NSArgumentDomain, NSMutableDictionary, NSUserDefaults,
+        };
+        let without = NSMutableDictionary::dictionaryWithDictionary(&self.was);
+        without.removeObjectForKey(&NSString::from_str(baud_present_macos::container::SETTING));
+        // SAFETY: a framework constant, and the domain as it was less a key.
+        unsafe {
+            NSUserDefaults::standardUserDefaults()
+                .setVolatileDomain_forName(&without, NSArgumentDomain);
+        }
+    }
+
+    /// The setting as the shared defaults give it now, every domain
+    /// searched, as `DoubleClick::read` reads it.
+    fn read() -> Option<String> {
+        use macos_liquid_glass::objc2_foundation::NSUserDefaults;
+        NSUserDefaults::standardUserDefaults()
+            .stringForKey(&NSString::from_str(baud_present_macos::container::SETTING))
+            .map(|s| s.to_string())
+    }
+
+    /// The setting in the registration domain alone: what AppKit registered.
+    fn registered() -> Option<String> {
+        use macos_liquid_glass::objc2_foundation::{NSRegistrationDomain, NSUserDefaults};
+        // SAFETY: a framework constant, valid for the process's life.
+        let domain = NSUserDefaults::standardUserDefaults()
+            .volatileDomainForName(unsafe { NSRegistrationDomain });
+        domain
+            .objectForKey(&NSString::from_str(baud_present_macos::container::SETTING))
+            .and_then(|v| v.downcast::<NSString>().ok())
+            .map(|s| s.to_string())
+    }
+
+    /// The setting in the user's own preferences for every app, read and
+    /// never written.
+    fn users_own() -> Option<String> {
+        use macos_liquid_glass::objc2_foundation::{NSGlobalDomain, NSUserDefaults};
+        // SAFETY: a framework constant, valid for the process's life.
+        let domain = NSUserDefaults::standardUserDefaults()
+            .persistentDomainForName(unsafe { NSGlobalDomain })?;
+        domain
+            .objectForKey(&NSString::from_str(baud_present_macos::container::SETTING))
+            .map(|v| format!("{v:?}"))
+    }
+}
+
+/// **The registration domain holding a value for the setting, in this
+/// process only**, as AppKit registers its own (`registerDefaults:`, which
+/// writes nothing to disk); the value it held is registered again when this
+/// drops.
+#[cfg(target_os = "macos")]
+struct Registered {
+    was: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+impl Registered {
+    fn holding(value: &str) -> Registered {
+        let was = Setting::registered();
+        Registered::register(value);
+        assert_eq!(Setting::registered().as_deref(), Some(value));
+        Registered { was }
+    }
+
+    fn register(value: &str) {
+        use macos_liquid_glass::objc2::runtime::AnyObject;
+        use macos_liquid_glass::objc2_foundation::{NSDictionary, NSUserDefaults};
+        let key = NSString::from_str(baud_present_macos::container::SETTING);
+        let value = NSString::from_str(value);
+        let one = NSDictionary::from_slices(&[&*key], &[&*value as &AnyObject]);
+        // SAFETY: a dictionary of strings, property-list objects.
+        unsafe { NSUserDefaults::standardUserDefaults().registerDefaults(&one) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Registered {
+    fn drop(&mut self) {
+        if let Some(was) = self.was.as_deref() {
+            Registered::register(was);
+        }
+    }
+}
+
+/// A word no release of the setting holds.
+#[cfg(target_os = "macos")]
+const UNKNOWN: &str = "a word no release stores";
+
+/// What the recording window records for a double-click under `value`, as
+/// the setting's words are documented: zoom, the Dock, Fill, or the click
+/// passed on to the frame's drag.
+#[cfg(target_os = "macos")]
+fn action_of(value: Option<&str>) -> &'static str {
+    match value {
+        Some("Maximize") => ZOOM,
+        Some("Minimize") => MINIATURIZE,
+        Some("Fill") => FILL,
+        _ => DRAG,
+    }
+}
+
+/// Whether the recording window answers `respondsToSelector:` for
+/// `_zoomFill:`: as every window on a macOS that has it, or as one without.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Fill {
+    Answered,
+    Refused,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Setting {
+    fn drop(&mut self) {
+        use macos_liquid_glass::objc2_foundation::{NSArgumentDomain, NSUserDefaults};
+        // SAFETY: a framework constant, and the domain as it was.
+        unsafe {
+            NSUserDefaults::standardUserDefaults()
+                .setVolatileDomain_forName(&self.was, NSArgumentDomain);
+        }
+    }
+}
+
+/// **A window that records what it is asked to do and does none of it**:
+/// its class swapped (`Pretend::swap`) for one whose zoom, miniaturize and
+/// drag only record, and whose every way of being ordered in or made key
+/// records too, so a double-click reaches neither the Dock nor the screen.
+#[cfg(target_os = "macos")]
+struct Recorder {
+    _swap: Pretend,
+}
+
+/// The swapped class's name starts with this.
+#[cfg(target_os = "macos")]
+const RECORDING: &str = "BaudRecording";
+
+#[cfg(target_os = "macos")]
+impl Recorder {
+    fn on(window: &NSWindow, fill: Fill) -> Recorder {
+        use macos_liquid_glass::objc2::runtime::{AnyObject, Bool, ClassBuilder, Sel};
+        use macos_liquid_glass::objc2::sel;
+        fn note(s: Sel) {
+            let name = s.name().to_string_lossy();
+            let known = [ZOOM, MINIATURIZE, DRAG, FILL, "zoom:", "miniaturize:"];
+            let word = known
+                .into_iter()
+                .find(|k| *k == name)
+                .unwrap_or("ordered in");
+            ASKED.with(|a| a.borrow_mut().push(word));
+        }
+        extern "C-unwind" fn one(_: &AnyObject, s: Sel, _: *mut AnyObject) {
+            note(s);
+        }
+        extern "C-unwind" fn none(_: &AnyObject, s: Sel) {
+            note(s);
+        }
+        extern "C-unwind" fn two(_: &AnyObject, s: Sel, _: isize, _: isize) {
+            note(s);
+        }
+        // `respondsToSelector:` answered from the runtime for the swapped
+        // class itself. Inherited, it answered no for `_zoomFill:` once the
+        // class was swapped under the window's observed (KVO) class, though
+        // the window answered yes before and the class has the method; so
+        // both recorders answer it here, the one without Fill no for
+        // `_zoomFill:`, which it still records if it is sent.
+        extern "C-unwind" fn answers(this: &AnyObject, _: Sel, asked: Sel) -> Bool {
+            Bool::new(this.class().responds_to(asked))
+        }
+        extern "C-unwind" fn answers_no_fill(this: &AnyObject, _: Sel, asked: Sel) -> Bool {
+            Bool::new(asked != sel!(_zoomFill:) && this.class().responds_to(asked))
+        }
+        let mut swap = Pretend {
+            swapped: Vec::new(),
+        };
+        let prefix = match fill {
+            Fill::Answered => RECORDING.to_owned(),
+            Fill::Refused => format!("{RECORDING}NoFill"),
+        };
+        swap.swap(window, &prefix, |b: &mut ClassBuilder| {
+            let rts = match fill {
+                Fill::Answered => answers as extern "C-unwind" fn(_, _, _) -> _,
+                Fill::Refused => answers_no_fill as extern "C-unwind" fn(_, _, _) -> _,
+            };
+            // SAFETY: `respondsToSelector:` takes a selector and returns a
+            // BOOL, which both answers do.
+            unsafe { b.add_method(sel!(respondsToSelector:), rts) };
+            for s in [
+                sel!(performZoom:),
+                sel!(performMiniaturize:),
+                sel!(zoom:),
+                sel!(miniaturize:),
+                sel!(performWindowDragWithEvent:),
+                sel!(_zoomFill:),
+                sel!(orderFront:),
+                sel!(makeKeyAndOrderFront:),
+            ] {
+                // SAFETY: each takes one object argument and returns
+                // nothing, which `one` does.
+                unsafe { b.add_method(s, one as extern "C-unwind" fn(_, _, _)) };
+            }
+            for s in [sel!(orderFrontRegardless), sel!(makeKeyWindow)] {
+                // SAFETY: each takes no argument and returns nothing.
+                unsafe { b.add_method(s, none as extern "C-unwind" fn(_, _)) };
+            }
+            // SAFETY: `orderWindow:relativeTo:` takes an NSWindowOrderingMode
+            // and an NSInteger, both word-sized, and returns nothing.
+            unsafe {
+                b.add_method(
+                    sel!(orderWindow:relativeTo:),
+                    two as extern "C-unwind" fn(_, _, _, _),
+                );
+            }
+        });
+        Recorder { _swap: swap }
+    }
+
+    /// `event` sent to `view`'s `mouseDown:` with the setting read as
+    /// `value`, the window's class checked first.
+    fn deliver(
+        &self,
+        window: &NSWindow,
+        view: &NSView,
+        event: &macos_liquid_glass::objc2_app_kit::NSEvent,
+        value: Option<&str>,
+        setting: &Setting,
+    ) {
+        assert!(
+            window
+                .class()
+                .name()
+                .to_string_lossy()
+                .starts_with(RECORDING),
+            "the recorder is in place"
+        );
+        if let Some(v) = value {
+            setting.set(v);
+        }
+        ASKED.with(|a| a.borrow_mut().clear());
+        view.mouseDown(event);
+    }
+
+    /// What was asked since the last delivery.
+    fn take(&self) -> Vec<&'static str> {
+        ASKED.with(|a| core::mem::take(&mut *a.borrow_mut()))
     }
 }

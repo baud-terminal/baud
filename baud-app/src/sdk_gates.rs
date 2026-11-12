@@ -307,3 +307,160 @@ fn the_general_pasteboard_is_read_only_from_paste() {
         ]
     );
 }
+
+/// Where a source names a selector: each line outside a comment that does,
+/// by file, the function it is in, and whether it is a call (`msg_send!`).
+fn named(sources: &[(PathBuf, String)], selector: &str) -> Vec<(String, String, bool)> {
+    let mut found = Vec::new();
+    for (path, text) in sources {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut func = String::new();
+        for line in text.lines() {
+            let l = line.trim_start();
+            if l.starts_with("//") {
+                continue;
+            }
+            if let Some(at) = l.find("fn ") {
+                let rest = &l[at + 3..];
+                func = rest.split('(').next().unwrap_or_default().to_owned();
+            }
+            if l.contains(selector) {
+                found.push((name.clone(), func.clone(), l.contains("msg_send!")));
+            }
+        }
+    }
+    found
+}
+
+/// **The one guarded call of AppKit's private `_zoomFill:`**, in `sources`:
+/// the function it is called from, if the selector is called exactly once,
+/// named in no other function, and asked about with `respondsToSelector`
+/// on a line before the call; else what is wrong.
+fn zoom_fill_site(sources: &[(PathBuf, String)]) -> Result<(String, String), String> {
+    let selector = ["_zoom", "Fill:"].concat();
+    let guard = ["responds", "ToSelector"].concat();
+    let found = named(sources, &selector);
+    let calls: Vec<_> = found.iter().filter(|f| f.2).collect();
+    let [call] = calls.as_slice() else {
+        return Err(format!("{} calls: {found:?}", calls.len()));
+    };
+    let site = (call.0.clone(), call.1.clone());
+    if let Some(other) = found.iter().find(|f| (&f.0, &f.1) != (&site.0, &site.1)) {
+        return Err(format!("named outside {site:?}: {other:?}"));
+    }
+    let (_, text) = sources
+        .iter()
+        .find(|(p, _)| p.file_name().is_some_and(|n| n.to_string_lossy() == site.0))
+        .ok_or("the site's file")?;
+    let body = body(text, &site.1);
+    let call_at = body
+        .lines()
+        .position(|l| l.contains(&selector) && l.contains("msg_send!"));
+    let guard_at = body
+        .lines()
+        .position(|l| !l.trim_start().starts_with("//") && l.contains(&guard));
+    match (guard_at, call_at) {
+        (Some(g), Some(c)) if g < c => Ok(site),
+        _ => Err(format!("{site:?}: the call is not after {guard}")),
+    }
+}
+
+/// **AppKit's private `_zoomFill:`, the title bar's Fill, is called at one
+/// site, and only after `respondsToSelector:`**: no header names it, so it
+/// is called only where the window says it has it, as Chromium
+/// ([[source: chromium-native-widget-mac-nswindow-e44f559]] 778-780),
+/// Firefox ([[source: firefox-nscocoautils-293c306]] 1259-1261) and iTerm2
+/// ([[source: iterm2-nswindow-iterm-2a8d67e]] 40-42) call it, and
+/// `container::fill` is that one site. Positive control: the site is found
+/// in the sources, in `container.rs`'s `fill`. Named breaks, each built
+/// from the real sources and each refused: a second call in another
+/// function; the guard taken out; the guard moved after the call.
+#[test]
+fn the_private_fill_is_called_once_and_guarded() {
+    let all = app_sources();
+    assert_eq!(
+        zoom_fill_site(&all),
+        Ok(("container.rs".to_owned(), "fill".to_owned()))
+    );
+    let container = all
+        .iter()
+        .position(|(p, _)| p.file_name().is_some_and(|n| n == "container.rs"))
+        .expect("container.rs");
+    let guard = ["window.responds", "ToSelector(sel!(_zoom", "Fill:))"].concat();
+    let call = ["msg_send![window, _zoom", "Fill: None::<&AnyObject>]"].concat();
+    let text = &all[container].1;
+    assert!(
+        text.contains(&guard) && text.contains(&call),
+        "the site's lines"
+    );
+    let with = |change: &dyn Fn(&str) -> String| {
+        let mut changed = all.clone();
+        changed[container].1 = change(text);
+        zoom_fill_site(&changed)
+    };
+    let second = [
+        "fn again(window: &NSWindow) {\n    let () = unsafe { ",
+        &call,
+        " };\n}\n",
+    ]
+    .concat();
+    assert!(
+        with(&|t| format!("{t}\n{second}")).is_err(),
+        "a second call"
+    );
+    assert!(
+        with(&|t| t.replace(&guard, "true")).is_err(),
+        "the guard taken out"
+    );
+    let after = |t: &str| {
+        let t = t.replace(&guard, "true");
+        let at = t.find(&call).expect("the call");
+        let line_end = at + t[at..].find('\n').expect("the call's line");
+        format!(
+            "{}\n        let _ = {guard};{}",
+            &t[..line_end],
+            &t[line_end..]
+        )
+    };
+    assert!(with(&after).is_err(), "the guard after the call");
+}
+
+/// **A zoom is AppKit's standard frame, the screen's**: `zoom:` takes "a
+/// 'best fit' frame" from `windowWillUseStandardFrame:defaultFrame:` when
+/// the window's delegate or class has it, else "a default frame [that]
+/// nearly fills the current screen" ([[source: apple-nswindow-zoom]],
+/// [[source: apple-nswindowdelegate-windowwillusestandardframe]]), and
+/// resize increments would round what it gets. The title bar's Zoom, and
+/// Fill where the window has no `_zoomFill:`, are `performZoom:`
+/// (`container.rs`), so neither of these is named in either crate: adding
+/// one makes a zoom something else, and this fails to say so. Positive
+/// control: the same scan finds `performZoom`, in `container.rs`. Named
+/// break: a delegate method of that name added to a source, and it is
+/// found.
+#[test]
+fn a_zoom_is_the_standard_frame() {
+    let all = app_sources();
+    let frame = ["windowWillUse", "StandardFrame"].concat();
+    let increments = ["Resize", "Increments"].concat();
+    let lower = ["resize", "Increments"].concat();
+    let hits = |sources: &[(PathBuf, String)]| {
+        let mut found = named(sources, &frame);
+        found.extend(named(sources, &increments));
+        found.extend(named(sources, &lower));
+        found
+    };
+    assert_eq!(hits(&all), [], "a standard frame or resize increments");
+    let zooms = named(&all, &["perform", "Zoom("].concat());
+    assert!(
+        zooms.iter().any(|z| z.0 == "container.rs"),
+        "the scan finds the zoom: {zooms:?}"
+    );
+    let mut broken = all.clone();
+    broken[0].1.push_str(&format!(
+        "\nfn {frame}(window: &NSWindow, default: NSRect) -> NSRect {{ default }}\n"
+    ));
+    assert_eq!(hits(&broken).len(), 1, "a delegate's standard frame");
+}

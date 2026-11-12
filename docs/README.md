@@ -108,6 +108,7 @@ their entries' titles:
 | GP | the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (`tools/baud-pictures` and `assets/logo/README.md` cite them) |
 | SP | the shell prompt baud ships: starship 1.27.0's configuration schema, which `assets/starship/baud.toml` is checked against (`baud-app/tests/starship_preset.rs` cites it) |
 | FM | the tour film's pieces: the wallpaper photograph's licence, CC0, with CC0's legal code, and the licences of the Noto emoji, CJK and other fonts the demo fetches to draw its scenes (`assets/demo/LICENSES.md` cites them) |
+| TB | the title bar's double-click: the Desktop & Dock setting's four actions, the defaults search list it is read from, how a zoom finds its frame, and how Chromium, Firefox and iTerm2 read the setting and call Fill (`baud-present-macos/src/container.rs` and `baud-app/src/sdk_gates.rs` cite them) |
 
 The table is held to the manifest by `every_source_group_is_in_the_index`
 (`baud-core/tests/docs.rs`), which fails when a group has no row.

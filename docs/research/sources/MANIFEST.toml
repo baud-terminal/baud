@@ -84,6 +84,7 @@
 #   GP  the brand pictures: GitHub's picture limits, the five-unit code the link picture's tape spells, the tape's hole sizes, and the font release the letters are traced from (tools/baud-pictures and assets/logo/README.md)
 #   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
 #   FM  the films' pieces: the licences of the photo and the fonts the demo's takes show (assets/demo/LICENSES.md)
+#   TB  the title bar's double-click: the Desktop & Dock setting and where it is read (baud-present-macos/src/container.rs)
 #
 # Selection, resize and reflow, Sixel and images have no group of their own:
 # their sources are filed under C, and the images' also under J.
@@ -40286,3 +40287,110 @@ bytes  = 66193
 status = "external"
 group  = "AK"
 # Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-support-mac-desktop-dock-settings]
+key    = "apple-support-mac-desktop-dock-settings"
+title  = "Mac User Guide (macOS 27), Change Desktop & Dock settings on Mac -- Window title bar double-click action: 'Fill: Expand a window to fill the space between the menu bar and the Dock', 'Zoom: Zoom a window', 'Minimize: Minimize an app window to the Dock', 'No Action: Don't do anything when the title bar is clicked'"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com/guide/mac-help (macOS 27)"
+url    = "https://support.apple.com/guide/mac-help/change-desktop-dock-settings-mchlp1119/mac"
+file   = ""
+sha256 = "99bee6a4aa8785fcd9a34e95a9a4f45aba8dba2d94803fa29275d4ceca277201"
+bytes  = 735358
+status = "external"
+group  = "TB"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.sdk27-nsuserdefaults-h]
+key    = "sdk27-nsuserdefaults-h"
+title  = "macOS SDK 27.2, Foundation NSUserDefaults.h -- the search list, command-line arguments first, then the app's, the preferences 'global to all apps', and those 'registered with -registerDefaults:' (22-33); standardUserDefaults searches 'the current domain, followed by any added suite domains, the global domain, and the registration domain' (153); the argument domain's 'temporary overrides of settings' (118)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.2 SDK (macosx27.2, Xcode 27.2 build 27B52)"
+url    = "$SDKROOT/System/Library/Frameworks/Foundation.framework/Headers/NSUserDefaults.h"
+file   = ""
+sha256 = "a35371e63488777f863a2b791f102d4bd77000d60fcf331ac4088574faadaf1f"
+bytes  = 35448
+status = "external"
+group  = "TB"
+# A vendor header: hash recorded only, not committed. Compare the sha256 of
+# the file at the url.
+
+[sources.chromium-native-widget-mac-nswindow-e44f559]
+key    = "chromium-native-widget-mac-nswindow-e44f559"
+title  = "Chromium e44f559, components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm -- sendEvent: on a double-click's mouse-up in a custom draggable area reads AppleActionOnDoubleClick from standardUserDefaults: 'Fill' calls _zoomFill: only if respondsToSelector: says so, no value or 'Maximize' performZoom:, 'Minimize' performMiniaturize:, '\"None\" or unrecognized value => do nothing' (762-787)"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at e44f559 (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/e44f559958c6da2e2b0b127bdb6f4253d062933d/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm"
+file   = ""
+sha256 = "efbeb6d3d6c9a49b913f7f057e758adfd4786566ec0e5e24419928357241cb95"
+bytes  = 49594
+status = "external"
+group  = "TB"
+# Hash-verified, not committed -- a source file at a pinned commit. Re-fetch the
+# url and compare.
+
+[sources.firefox-nscocoautils-293c306]
+key    = "firefox-nscocoautils-293c306"
+title  = "Firefox 293c306, widget/cocoa/nsCocoaUtils.mm -- the title bar's double-click: AppleActionOnDoubleClick read as a string from standardUserDefaults; +[NSWindow _shouldZoomOnDoubleClick] and _shouldFillOnDoubleClick where the class has them; -_zoomFill: 'present on macOS 15 and above', called only if the window respondsToSelector: it (1215-1263)"
+author = "The Mozilla contributors"
+year   = 2026
+venue  = "mozilla-firefox/firefox at 293c306 (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/mozilla-firefox/firefox/293c306d006a8a236b34064f824c9e2b5b2a667a/widget/cocoa/nsCocoaUtils.mm"
+file   = ""
+sha256 = "c61c6ff87afb23ca210ac04ed4478c6d913f3993749088c074e53f98cb53864b"
+bytes  = 69808
+status = "external"
+group  = "TB"
+# Hash-verified, not committed -- a source file at a pinned commit. Re-fetch the
+# url and compare.
+
+[sources.iterm2-nswindow-iterm-2a8d67e]
+key    = "iterm2-nswindow-iterm-2a8d67e"
+title  = "iTerm2 2a8d67e, sources/Categories/NSWindow+iTerm.m -- it_titleBarDoubleClick: 'Minimize' performMiniaturize:, no value or 'Maximize' performZoom:, 'Fill' _zoomFill: if the window respondsToSelector: it, else 'Unknown action' logged (27-46)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 2a8d67e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/2a8d67e06111e8246c6af16d87546060b572fb21/sources/Categories/NSWindow+iTerm.m"
+file   = ""
+sha256 = "713859c2caf88319b5dbc1db35438fe642eb68a238702c3ecc144a1dedb1f372"
+bytes  = 4742
+status = "external"
+group  = "TB"
+# Hash-verified, not committed -- a source file at a pinned commit. Re-fetch the
+# url and compare.
+
+[sources.apple-nswindow-zoom]
+key    = "apple-nswindow-zoom"
+title  = "NSWindow.zoom(_:) (documentation JSON) -- 'Invokes the windowWillUseStandardFrame(_:defaultFrame:) method, if the delegate or the window class implements it, to obtain a \"best fit\" frame for the window. If neither the delegate nor the window class implements the method, zoom(_:) uses a default frame. The default frame nearly fills the current screen'"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/zoom(_:).json"
+file   = ""
+sha256 = "556f071b6fad91cf0af30f6e32b6411be687e2cea88b8631e71dd123eb53e4f4"
+bytes  = 34947
+status = "external"
+group  = "TB"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as apple-nswindow-zoom.json, and the digest is of
+# that copy.
+
+[sources.apple-nswindowdelegate-windowwillusestandardframe]
+key    = "apple-nswindowdelegate-windowwillusestandardframe"
+title  = "NSWindowDelegate.windowWillUseStandardFrame(_:defaultFrame:) (documentation JSON) -- newFrame: 'The size of the current screen ... possibly reduced on the top, bottom, left, or right, depending on the current interface style. The frame is reduced on the top to leave room for the menu bar.'"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindowdelegate/windowwillusestandardframe(_:defaultframe:).json"
+file   = ""
+sha256 = "592f157a626d256ad36ec6a9935d26e9da66ed45349812ce7aea32c7002a4ec3"
+bytes  = 17134
+status = "external"
+group  = "TB"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as
+# apple-nswindowdelegate-windowwillusestandardframe.json, and the digest is of
+# that copy.

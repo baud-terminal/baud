@@ -14641,12 +14641,15 @@ impl Opening {
         // A transparent container fills the glass; the terminal view sits inside it
         // inset below the titlebar, so the glass still fills the strip the traffic
         // lights float over while row 0 clears them. Autoresizing keeps the inset
-        // fixed as the window grows.
+        // fixed as the window grows. The container is the view a click on the
+        // title bar's empty part reaches, the bar being transparent, so a
+        // double-click there does what the user's title-bar setting says
+        // (`baud_present_macos::container`).
         let full = frame.size;
-        let container = NSView::initWithFrame(
-            NSView::alloc(mtm),
+        let container = Retained::into_super(baud_present_macos::container::Container::new(
+            mtm,
             NSRect::new(NSPoint::new(0.0, 0.0), full),
-        );
+        ));
         container.setAutoresizesSubviews(true);
         crate::strip::apply(&view, &container, inset);
         view.setAutoresizingMask(
