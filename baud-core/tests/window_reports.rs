@@ -254,3 +254,196 @@ fn the_title_stack_is_chunk_invariant() {
         assert_eq!(split, whole, "cut at {cut}");
     }
 }
+
+/// The window as the embedder reads it at the question, moved and resized
+/// since [`facts`] were handed over: a drag the embedder has not heard of.
+fn dragged() -> WindowFacts {
+    WindowFacts {
+        position: Some(ScreenPoint {
+            x: ScreenCoord::of(300),
+            y: ScreenCoord::of(-20),
+        }),
+        text_area: Some(ScreenPoint {
+            x: ScreenCoord::of(320),
+            y: ScreenCoord::of(36),
+        }),
+        window: Some(PixelSize {
+            width: ImagePx::of(1600),
+            height: ImagePx::of(900),
+        }),
+        ..facts()
+    }
+}
+
+/// Feed `bytes` as one read, at the start of the buffer.
+fn read(t: &mut Term<'_>, bytes: &[u8]) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+}
+
+/// **Under `WindowHold::On` a `CSI 13 t` stops the read and is answered
+/// from the window the embedder reads then**, not from the facts it last
+/// handed over: a window dragged since reports where it is. Nothing after
+/// the question is parsed until the answer is given, so the CPR the same
+/// read asks next comes after it.
+#[test]
+fn a_held_window_report_is_answered_from_the_window_read_at_the_question() {
+    support::with_term(&WS, |t| {
+        t.set_window(facts());
+        t.set_window_hold(WindowHold::On);
+        read(t, b"\x1b[13tab\x1b[6n");
+        assert_eq!(
+            t.reply(),
+            b"",
+            "nothing until the embedder reads its window"
+        );
+        assert_eq!(
+            t.window_asked(),
+            WindowAsked::Owed(WindowQuery::WindowPosition)
+        );
+        let rest = t.take_held().expect("the read stopped at the question");
+        assert_eq!((rest.at.index(), rest.len.index()), (5, 6));
+        t.answer_window(dragged());
+        assert_eq!(t.window_asked(), WindowAsked::No);
+        assert_eq!(
+            t.reply(),
+            b"\x1b[3;300;65516t",
+            "the facts handed over, not the window at the question"
+        );
+        t.feed(rest.at, rest.len);
+        assert_eq!(t.reply(), b"\x1b[3;300;65516t\x1b[1;3R");
+    });
+}
+
+/// **A held question that ends its read leaves an empty rest**, the
+/// common case of a program that asks and waits: `CSI 13 ; 2 t` and
+/// `CSI 14 ; 2 t` are held as `CSI 13 t` is, each answered from what the
+/// embedder reads.
+#[test]
+fn a_held_report_at_the_end_of_its_read_holds_an_empty_rest() {
+    support::with_term(&WS, |t| {
+        t.set_window(facts());
+        t.set_window_hold(WindowHold::On);
+        for (ask, query, answer) in [
+            (
+                &b"\x1b[13;2t"[..],
+                WindowQuery::TextAreaPosition,
+                &b"\x1b[3;320;36t"[..],
+            ),
+            (
+                &b"\x1b[14;2t"[..],
+                WindowQuery::WindowPixels,
+                &b"\x1b[4;900;1600t"[..],
+            ),
+        ] {
+            t.clear_reply();
+            read(t, ask);
+            assert_eq!(t.window_asked(), WindowAsked::Owed(query));
+            assert_eq!(t.take_held().map(|r| r.len.index()), Some(0));
+            t.answer_window(dragged());
+            assert_eq!(t.reply(), answer);
+            assert_eq!(t.window_asked(), WindowAsked::No);
+        }
+    });
+}
+
+/// **An answer with nothing read is silence and a count, and the question
+/// is no longer owed**: a report the embedder cannot read must not stay
+/// owed, or every question after it would wait behind it. With nothing
+/// owed an answer does nothing.
+#[test]
+fn a_held_report_with_nothing_read_is_silent_counted_and_cleared() {
+    support::with_term(&WS, |t| {
+        t.set_window(facts());
+        t.set_window_hold(WindowHold::On);
+        read(t, b"\x1b[13;2t");
+        let counted = t.unsupported_param;
+        t.answer_window(WindowFacts::UNKNOWN);
+        assert_eq!(t.reply(), b"", "an answer from nothing");
+        assert_eq!(t.unsupported_param, counted + 1);
+        assert_eq!(t.window_asked(), WindowAsked::No, "still owed");
+        t.answer_window(dragged());
+        assert_eq!(t.reply(), b"", "answered what was not asked");
+        assert_eq!(t.unsupported_param, counted + 1);
+    });
+}
+
+/// **Under the hold the state and the screen still answer at once**, from
+/// the facts handed over, and the read goes on: only the three reports a
+/// drag moves are read at the question. **And an answer keeps nothing**:
+/// with the hold off again, `CSI 13 t` answers from the facts handed over,
+/// not from the window last read at a question.
+#[test]
+fn the_hold_stops_only_the_reports_a_drag_moves_and_keeps_nothing() {
+    support::with_term(&WS, |t| {
+        t.set_window(facts());
+        t.set_cell_size(ImagePx::of(17), ImagePx::of(34));
+        t.set_window_hold(WindowHold::On);
+        read(t, b"\x1b[11t\x1b[15t\x1b[19t\x1b[14t\x1b[18t");
+        assert_eq!(
+            t.reply(),
+            b"\x1b[1t\x1b[5;1964;3024t\x1b[9;57;177t\x1b[4;816;1360t\x1b[8;24;80t"
+        );
+        assert_eq!(t.window_asked(), WindowAsked::No);
+        assert!(
+            t.take_held().is_none(),
+            "a report held that the cache answers"
+        );
+        t.clear_reply();
+        read(t, b"\x1b[13t");
+        t.answer_window(dragged());
+        assert_eq!(t.reply(), b"\x1b[3;300;65516t");
+        t.clear_reply();
+        t.set_window_hold(WindowHold::Off);
+        read(t, b"\x1b[13t");
+        assert_eq!(t.reply(), b"\x1b[3;65528;50t", "the answer was kept");
+        assert!(t.take_held().is_none());
+    });
+}
+
+/// **Two holds in one read answer in the order asked**: a DSR `?15` held
+/// under `PrinterHold::On` and a `CSI 13 t` held under `WindowHold::On`,
+/// then a CPR. Each stops the read in turn, each answer goes out before
+/// the next byte is parsed, and the replies come in byte order whichever
+/// question comes first.
+#[test]
+fn a_printer_hold_and_a_window_hold_in_one_read_answer_in_byte_order() {
+    let mut s = Owned::new(&WS).with_printer(PrintBudget::of_bytes(4096));
+    let mut t = Term::new(s.storage(), &WS);
+    t.set_window(facts());
+    t.set_printer_hold(PrinterHold::On);
+    t.set_window_hold(WindowHold::On);
+    read(&mut t, b"\x1b[?15n\x1b[13t\x1b[6n");
+    assert_eq!(t.reply(), b"");
+    assert_eq!(t.printer_asked(), PrinterAsked::Owed);
+    assert_eq!(t.window_asked(), WindowAsked::No, "parsed past the first");
+    let rest = t.take_held().expect("stopped at the DSR");
+    assert_eq!((rest.at.index(), rest.len.index()), (6, 9));
+    t.set_printer(PrinterPort::Ready);
+    t.feed(rest.at, rest.len);
+    assert_eq!(t.reply(), b"\x1b[?10n");
+    assert_eq!(
+        t.window_asked(),
+        WindowAsked::Owed(WindowQuery::WindowPosition)
+    );
+    let rest = t.take_held().expect("stopped at the window report");
+    assert_eq!((rest.at.index(), rest.len.index()), (11, 4));
+    t.answer_window(dragged());
+    t.feed(rest.at, rest.len);
+    assert_eq!(t.reply(), b"\x1b[?10n\x1b[3;300;65516t\x1b[1;1R");
+    assert!(t.take_held().is_none());
+    // The other order, driven as an embedder does: answer what is owed,
+    // then feed the rest, until nothing is held.
+    t.clear_reply();
+    read(&mut t, b"\x1b[13t\x1b[?15n\x1b[6n");
+    while let Some(rest) = t.take_held() {
+        if t.printer_asked() == PrinterAsked::Owed {
+            t.set_printer(PrinterPort::Ready);
+        }
+        if t.window_asked() != WindowAsked::No {
+            t.answer_window(dragged());
+        }
+        t.feed(rest.at, rest.len);
+    }
+    assert_eq!(t.reply(), b"\x1b[3;300;65516t\x1b[?10n\x1b[1;1R");
+}

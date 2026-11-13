@@ -4,17 +4,21 @@
 //!
 //! **The reports answer from what the embedder has said** (`Term::set_window`,
 //! `Term::set_cell_size`) and are silent and counted where it has said
-//! nothing. **`CSI 20 t` and `CSI 21 t` are refused and counted on their
-//! own**: their reply is `OSC L label ST` and `OSC l label ST`, text a program
-//! set put back into the input stream, which a remote program can use to make
-//! the terminal type for it. **The window operations, 1-10, and DECSLPP, 24
+//! nothing. **Under `WindowHold::On` the three a drag or a live resize moves
+//! stop the read** ([`baud_domain::WindowQuery`]), and the embedder answers
+//! each from its window as it reads it then (`Term::answer_window`).
+//! **`CSI 20 t` and `CSI 21 t` are refused and counted on their own**: their
+//! reply is `OSC L label ST` and `OSC l label ST`, text a program set put back
+//! into the input stream, which a remote program can use to make the
+//! terminal type for it. **The window operations, 1-10, and DECSLPP, 24
 //! and up, are queued for the embedder** ([`WindowAsks`]), which has the
 //! window: on by default, and refused, counted, while the embedder has them
 //! off ([`WindowOps::Off`]).
 
 use baud_domain::{
     ByteLen, InputEncoding, ModeChange, Osc52Writes, ParamIdx, PasteControls, Report, TitleMode,
-    TitleModes, WindowAbilities, WindowOp, WindowOps, WindowRequest,
+    TitleModes, WindowAbilities, WindowAsked, WindowHold, WindowOp, WindowOps, WindowQuery,
+    WindowRequest,
 };
 
 use crate::paint::Paint;
@@ -70,6 +74,13 @@ pub(crate) struct WindowAsks {
     pub(crate) paste: PasteControls,
     pub(crate) refused: WindowOpsRefused,
     pub(crate) dropped: WindowRequestsDropped,
+    /// Whether the reports a drag moves stop the read
+    /// ([`crate::Term::set_window_hold`]): the embedder's, kept across
+    /// `RIS` as the rest of this is.
+    pub(crate) hold: WindowHold,
+    /// The report a read stopped at, owed until
+    /// [`crate::Term::answer_window`].
+    pub(crate) asked: WindowAsked,
 }
 
 /// How many of [`WindowAsks`]'s slots hold a request.
@@ -86,6 +97,8 @@ impl WindowAsks {
         paste: PasteControls::Untold,
         refused: WindowOpsRefused(0),
         dropped: WindowRequestsDropped(0),
+        hold: WindowHold::Off,
+        asked: WindowAsked::No,
     };
 
     /// Count one more operation refused while they are off: a window
@@ -218,7 +231,7 @@ impl Paint<'_, '_> {
     /// a pop of the title stack, or a refusal.
     #[cold]
     #[inline(never)]
-    pub(crate) fn window_op(&mut self, op: WindowOp, csi: &Csi) {
+    pub(crate) fn window_op(&mut self, op: WindowOp, csi: &Csi, node: &mut crate::graph::Node) {
         match op {
             WindowOp::TitleReport => {
                 self.strs.title_reports_refused = self.strs.title_reports_refused.next()
@@ -246,11 +259,29 @@ impl Paint<'_, '_> {
                     _ => self.pop_title(names, slot),
                 }
             }
-            _ => match WindowRequest::of(op, &csi.params()) {
-                Some(r) => self.strs.window_asks.ask(r),
-                None => self.window_report(op),
+            _ => match (
+                WindowRequest::of(op, &csi.params()),
+                WindowQuery::of(op),
+                self.strs.window_asks.hold,
+            ) {
+                (Some(r), _, _) => self.strs.window_asks.ask(r),
+                (None, Some(q), WindowHold::On) => self.hold_window_report(q, node),
+                (None, _, _) => self.window_report(op),
             },
         }
+    }
+
+    /// **A report a drag or a live resize moves, under [`WindowHold::On`]:
+    /// the read stops here and the answer is owed**, so the embedder reads
+    /// its window at the question and answers through
+    /// [`crate::Term::answer_window`] before the rest of the read is parsed,
+    /// as a DSR `?15` waits for the printer under `PrinterHold::On`
+    /// (`Paint::hold_printer_status`). The facts last handed over are the
+    /// window when the embedder last heard it change, and a window being
+    /// dragged has moved since.
+    fn hold_window_report(&mut self, q: WindowQuery, node: &mut crate::graph::Node) {
+        self.strs.window_asks.asked = WindowAsked::Owed(q);
+        self.hold_read(node);
     }
 
     /// A report, answered from what the embedder handed over, or counted.

@@ -6298,9 +6298,59 @@ impl<'b> Term<'b> {
     /// pixels, the unit [`Term::set_cell_size`] takes. A fact left `None` is
     /// a report answered with silence and counted in `unsupported_param`,
     /// never a made-up number; the last facts handed over are the ones
-    /// answered, so an embedder re-sends them when they change.
+    /// answered, so an embedder re-sends them when they change -- **but for
+    /// the three [`Term::set_window_hold`] stops a read at**, which answer
+    /// from what [`Term::answer_window`] is given.
     pub fn set_window(&mut self, facts: baud_domain::WindowFacts) {
         self.store.strs.window = facts;
+    }
+
+    /// **Whether a report a drag or a live resize moves stops the read**:
+    /// `CSI 13 t`, `CSI 13 ; 2 t` and `CSI 14 ; 2 t` ([`WindowQuery`]). Set
+    /// it only if you read your window when [`Term::window_asked`] says one
+    /// is owed, call [`Term::answer_window`] with what you read -- which
+    /// answers it -- and then feed the rest of the read [`Term::take_held`]
+    /// hands back, as after a DSR `?15` under [`Term::set_printer_hold`]:
+    /// the program waits for the answer, and the bytes after its question
+    /// are parsed after it, so the replies stay in the order asked. Off,
+    /// every report answers at once from what [`Term::set_window`] last
+    /// handed over. It survives `RIS`.
+    pub fn set_window_hold(&mut self, hold: WindowHold) {
+        self.store.strs.window_asks.hold = hold;
+    }
+
+    /// Whether a report a read stopped at waits for [`Term::answer_window`],
+    /// and which.
+    pub fn window_asked(&self) -> WindowAsked {
+        self.store.strs.window_asks.asked
+    }
+
+    /// **The report a read stopped at, answered from `facts`**, the window
+    /// as the embedder read it at the question, under
+    /// [`Term::set_window_hold`]'s [`WindowHold::On`], before the rest of
+    /// that read is fed. A fact left `None` is silence, counted in
+    /// `unsupported_param`, as with [`Term::set_window`]. **It always clears
+    /// what is owed**, answered or silent, so no report stays owed and the
+    /// program's next question is held and answered in its turn. `facts` are
+    /// not kept: every other report answers from what [`Term::set_window`]
+    /// last handed over. With nothing owed it does nothing.
+    pub fn answer_window(&mut self, facts: baud_domain::WindowFacts) {
+        let WindowAsked::Owed(q) = core::mem::take(&mut self.store.strs.window_asks.asked) else {
+            return;
+        };
+        match Report::window(
+            q.op(),
+            self.rows,
+            self.cols,
+            self.cell_width,
+            self.cell_height,
+            &facts,
+        ) {
+            Some(r) => {
+                let _ = self.queue(r);
+            }
+            None => self.unsupported_param += 1,
+        }
     }
 
     /// `CSI 20 t` and `CSI 21 t` refused: the icon label and title reports,

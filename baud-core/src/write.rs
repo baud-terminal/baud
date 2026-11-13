@@ -2610,7 +2610,7 @@ fn csi_dispatch(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node,
         // `CSI 6 ; h ; w t` it gets back; without it, and without pixels in
         // the pty's `winsize`, it draws every image at a fixed 600x900.
         DomCsi::Window(op) => {
-            p.window_op(op, csi);
+            p.window_op(op, csi, node);
             p.hold_for_replies(node);
         }
         // **XTMODKEYS and XTFMTKEYS: recorded here and read by `Term::key`.**

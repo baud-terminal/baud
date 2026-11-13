@@ -111,6 +111,87 @@ impl WindowFacts {
     };
 }
 
+/// **Whether a report a drag or a live resize moves stops the read**
+/// (`Term::set_window_hold`), so the embedder reads its window at the
+/// question and the answer is the window then, not the facts it last
+/// handed over. **Off by default**: every report then answers at once from
+/// those facts, as an embedder with no window, or none it reads at the
+/// question, wants.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WindowHold {
+    #[default]
+    Off,
+    On,
+}
+
+/// **A report read at the question under [`WindowHold::On`]**: the window's
+/// position (`CSI 13 t`), the text area's (`CSI 13 ; 2 t`) and the window's
+/// size in pixels (`CSI 14 ; 2 t`), the three facts a drag or a live resize
+/// moves. The window's state (`CSI 11 t`) and its screen (`CSI 15 t`,
+/// `CSI 19 t`) change only on an event the embedder hears, and answer from
+/// the facts it last handed over either way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowQuery {
+    /// `CSI 13 t`.
+    WindowPosition,
+    /// `CSI 13 ; 2 t`.
+    TextAreaPosition,
+    /// `CSI 14 ; 2 t`.
+    WindowPixels,
+}
+
+impl WindowQuery {
+    /// The query `op` is, or `None` for every other operation, the reports
+    /// answered from the facts last handed over among them.
+    pub fn of(op: WindowOp) -> Option<WindowQuery> {
+        match op {
+            WindowOp::WindowPosition => Some(WindowQuery::WindowPosition),
+            WindowOp::TextAreaPosition => Some(WindowQuery::TextAreaPosition),
+            WindowOp::WindowPixels => Some(WindowQuery::WindowPixels),
+            WindowOp::Deiconify
+            | WindowOp::Iconify
+            | WindowOp::Move
+            | WindowOp::ResizePixels
+            | WindowOp::Raise
+            | WindowOp::Lower
+            | WindowOp::Refresh
+            | WindowOp::ResizeCells
+            | WindowOp::Maximize
+            | WindowOp::FullScreen
+            | WindowOp::Lines
+            | WindowOp::WindowState
+            | WindowOp::TextAreaPixels
+            | WindowOp::ScreenPixels
+            | WindowOp::CellPixels
+            | WindowOp::TextAreaChars
+            | WindowOp::ScreenChars
+            | WindowOp::TitleReport
+            | WindowOp::PushTitle
+            | WindowOp::PopTitle
+            | WindowOp::Refused => None,
+        }
+    }
+
+    /// The operation the query is.
+    pub fn op(self) -> WindowOp {
+        match self {
+            WindowQuery::WindowPosition => WindowOp::WindowPosition,
+            WindowQuery::TextAreaPosition => WindowOp::TextAreaPosition,
+            WindowQuery::WindowPixels => WindowOp::WindowPixels,
+        }
+    }
+}
+
+/// Whether a report held under [`WindowHold::On`] waits for its answer,
+/// and which: owed until the embedder reads its window and answers
+/// (`Term::answer_window`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WindowAsked {
+    #[default]
+    No,
+    Owed(WindowQuery),
+}
+
 /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
 /// embedder. `On` by default, and `Off` refuses every one, counted and
 /// nothing queued, as xterm does with them among its disallowed window

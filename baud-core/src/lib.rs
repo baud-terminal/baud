@@ -235,8 +235,13 @@ pub use baud_domain::{
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
 /// [`Term::requested_width`] answers without a [`WidthRequest`].
 pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
-/// The window facts `Term::set_window` takes.
-pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
+/// The window facts `Term::set_window` takes, and the hold an embedder
+/// that reads its window at the question sets ([`Term::set_window_hold`],
+/// [`Term::window_asked`], [`Term::answer_window`]).
+pub use baud_domain::{
+    PixelSize, ScreenCoord, ScreenPoint, WindowAsked, WindowFacts, WindowHold, WindowQuery,
+    WindowState,
+};
 /// ReGIS's delay: an embedder that cannot name a [`RegisHold`] cannot
 /// call [`Term::set_regis_hold`], nor read [`Term::take_regis_wait`]'s
 /// ticks without [`RegisTicks`]; nor route its keys and pointer by
