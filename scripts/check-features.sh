@@ -38,7 +38,8 @@
 # **The arms run in parallel, each worker in a target directory of its
 # own.** One `cargo check` after another left most of the machine idle, and
 # two cargo runs in one target directory queue on its lock, so
-# CHECK_FEATURES_JOBS workers (half the CPUs by default) each build in
+# CHECK_FEATURES_JOBS workers (half the CPUs, at most four, by default)
+# each build in
 # `<CARGO_TARGET_DIR, or target>/arms-<i>`. An arm always goes to the same
 # worker -- its place in the full list, modulo the count -- so a directory
 # stays warm for the arms it built before, and the script never deletes
@@ -68,8 +69,15 @@ if [ $# -gt 0 ]; then
   since=$2
 fi
 
+# The default is half the CPUs, capped at four. Each worker is its own cargo
+# check, so memory grows with the count: on an
+# 18-CPU machine nine workers went past scripts/bounded's 16 GiB bound and
+# were killed with no result (2026-11-13, 08:33), while four and three built
+# every arm under the same bound. An explicit CHECK_FEATURES_JOBS still wins.
 cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
-jobs=${CHECK_FEATURES_JOBS:-$((cpus / 2))}
+jobs=$((cpus / 2))
+[ "$jobs" -le 4 ] || jobs=4
+jobs=${CHECK_FEATURES_JOBS:-$jobs}
 [ -n "${CHECK_FEATURES_JOBS:-}" ] || [ "$jobs" -ge 1 ] || jobs=1
 case "$jobs" in
 '' | *[!0-9]* | 0*)
