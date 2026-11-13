@@ -289,6 +289,9 @@ thread_local! {
     static EXPIRED: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The turns that did notice work, news owed (`notice_turned`).
     static NOTICE_TURNS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The window's key and occlusion state read for a post's plan
+    /// (`notice_state_read`).
+    static NOTICE_STATE_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -673,6 +676,18 @@ pub fn notice_turned() {
 /// How many turns did notice work.
 pub fn notice_turns() -> Taken {
     NOTICE_TURNS.with(Cell::get)
+}
+
+/// **The window's state read for a notice's plan**: its key status and
+/// occlusion, which baud-app's `deliver_notices` reads only when a read
+/// posted a notification.
+pub fn notice_state_read() {
+    NOTICE_STATE_READS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the window's state was read for a notice's plan.
+pub fn notice_state_reads() -> Taken {
+    NOTICE_STATE_READS.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before

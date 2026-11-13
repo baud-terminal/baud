@@ -5049,6 +5049,12 @@ struct Driver {
     glass_live: std::rc::Rc<std::cell::Cell<crate::config::Glass>>,
     /// The window's key in the open windows, given as it is shown.
     window_id: Option<crate::windows::WindowId>,
+    /// **What begins the identifiers of the notifications this window
+    /// posts** (`notice_prefix`), built once when the window is made and
+    /// again when it is given its key (`Driver::given_key`, the one writer
+    /// of both), never on a turn: the process and the key change at
+    /// nothing else.
+    notice_prefix: String,
     /// Whether the window's close has been asked for, once its shell has
     /// gone, so the pump that sees it again asks nothing more.
     close_asked: CloseAsked,
@@ -5181,7 +5187,7 @@ mod notice_no_center_tests {
             let _ = d.mac(
                 &mut t,
                 posted,
-                (Focus::Unfocused, Visible::Covered),
+                || (Focus::Unfocused, Visible::Covered),
                 Instant::now(),
                 "baud-1",
                 &mut crate::kitty_files::LocalFiles::new(),
@@ -15703,6 +15709,7 @@ impl Opening {
             notice,
             glass_live: std::rc::Rc::new(std::cell::Cell::new(glass_cfg)),
             window_id: None,
+            notice_prefix: notice_prefix(None),
             close_asked: CloseAsked::No,
         };
         // The window its queue's own effects, a raise, are made on.
@@ -16025,7 +16032,7 @@ impl Opening {
                 std::path::Path::new(&dir),
             );
         }
-        driver.window_id = Some(id);
+        driver.given_key(id);
         driver.app.os.name(id);
         // The window's first frame is owed from its making, and the display
         // link runs to draw it (`App::owe_tick`); it pauses once nothing
@@ -16295,6 +16302,18 @@ const ZOOM_MIN: f32 = crate::fonts::SIZE_MIN;
 const ZOOM_MAX: f32 = crate::fonts::SIZE_MAX;
 
 impl Driver {
+    /// **The window given its key in the open windows**, and the
+    /// identifiers of its notifications built for that key
+    /// (`notice_prefix`): a post names its window by them
+    /// (`windows::notice_poster`), so the two move together and this is
+    /// the only writer of either past the driver's making. `show` gives
+    /// the key, and the event rig's child gives its windows theirs as
+    /// `show` does.
+    fn given_key(&mut self, id: crate::windows::WindowId) {
+        self.window_id = Some(id);
+        self.notice_prefix = notice_prefix(self.window_id);
+    }
+
     /// **Command-N**: a new window, opened on a later turn of the main
     /// queue (`open_window`), its shell started in this window's directory
     /// (`windows::inherited`). Before this machine's names are read, an
@@ -17025,26 +17044,34 @@ impl Driver {
     /// pictures to the checker, whose answers `Delivery::mac_checked`
     /// posts. Every turn of the loop comes here, the checker's wake among
     /// them, so a picture checked while the window is covered and the
-    /// display link paused posts on that wake.
+    /// display link paused posts on that wake. **A turn that posted
+    /// nothing sends the window nothing**: its key status and occlusion
+    /// are read for a post's plan alone (`Delivery::mac`'s `window`), and
+    /// the identifiers' prefix is the window's, built when it was given
+    /// its key (`Driver::notice_prefix`).
     fn deliver_notices(&mut self, posted: Vec<crate::notify::Posted>) {
         use crate::notify::{Focus as F, Visible};
-        let window = self.view.window();
-        let state = match &window {
-            Some(w) => (
-                if w.isKeyWindow() {
-                    F::Focused
-                } else {
-                    F::Unfocused
-                },
-                if w.occlusionState().contains(NSWindowOcclusionState::Visible) {
-                    Visible::Seen
-                } else {
-                    Visible::Covered
-                },
-            ),
-            None => (F::Unfocused, Visible::Covered),
+        let view = &self.view;
+        let state = || {
+            #[cfg(feature = "effect-probe")]
+            baud_present_macos::probe::notice_state_read();
+            match view.window() {
+                Some(w) => (
+                    if w.isKeyWindow() {
+                        F::Focused
+                    } else {
+                        F::Unfocused
+                    },
+                    if w.occlusionState().contains(NSWindowOcclusionState::Visible) {
+                        Visible::Seen
+                    } else {
+                        Visible::Covered
+                    },
+                ),
+                None => (F::Unfocused, Visible::Covered),
+            }
         };
-        let prefix = notice_prefix(self.window_id);
+        let prefix = self.notice_prefix.as_str();
         let outbox = &mut self.app.outbox;
         // The pictures the checker sent back since the last turn, their
         // notifications posted first: they came before this read's.
@@ -17054,7 +17081,7 @@ impl Driver {
                 &mut self.app.term,
                 checked,
                 Instant::now(),
-                &prefix,
+                prefix,
                 |b| outbox.push(b),
             ));
         }
@@ -17063,7 +17090,7 @@ impl Driver {
             posted,
             state,
             Instant::now(),
-            &prefix,
+            prefix,
             &mut self.app.pictures,
             |b| outbox.push(b),
         ));
@@ -17080,13 +17107,13 @@ impl Driver {
     /// runs while the view's responder is being replaced, so nothing here
     /// touches the view.
     fn notices_at_close(&mut self) {
-        let prefix = notice_prefix(self.window_id);
+        let prefix = self.notice_prefix.as_str();
         let outbox = &mut self.app.outbox;
         let calls = self.app.notes.mac_closing(
             &mut self.app.term,
             self.app.checker.finished(),
             Instant::now(),
-            &prefix,
+            prefix,
             |b| outbox.push(b),
         );
         self.notice_calls(calls);
@@ -25156,7 +25183,7 @@ mod mark_tests {
             .find(concat!("driver.pump(", "Trigger::Opening);"))
             .expect("the turn");
         let given = show
-            .find(concat!("driver.window_id = ", "Some(id);"))
+            .find(concat!("driver.given_", "key(id);"))
             .expect("the window given");
         let woken = show
             .rfind(concat!("view.waker()", ".wake();"))
@@ -25713,5 +25740,194 @@ mod idle_turn_tests {
         let clock = flush.find(concat!("host_", "now()")).expect("the clock");
         assert!(nothing < clock, "the return before the clock");
         assert_eq!(flush.matches(concat!("host_", "now()")).count(), 1);
+    }
+
+    /// **A turn's notices build no prefix and read the window only for a
+    /// post** (`Driver::deliver_notices`): the pump delivers on every turn,
+    /// so the identifiers' prefix is the driver's, built at its making and
+    /// again right where the window is given its key, and the window's key
+    /// status and occlusion are read inside the closure `Delivery::mac`
+    /// calls for a post's plan alone (held by
+    /// `notify::tests::the_window_is_read_once_for_a_reads_posts_and_never_without_one`).
+    /// AppKit-bound, so the source is what can fail. Breaks: the prefix
+    /// built again on the turn; the window read ahead of the closure.
+    #[test]
+    fn a_turns_notices_build_no_prefix_and_read_the_window_only_for_a_post() {
+        const SRC: &str = include_str!("app.rs");
+        let build = concat!("notice_", "prefix(");
+        let deliver = body(
+            SRC,
+            concat!(
+                "    fn deliver_",
+                "notices(&mut self, posted: Vec<crate::notify::Posted>) {"
+            ),
+        );
+        let close = body(SRC, concat!("    fn notices_", "at_close(&mut self) {"));
+        let kept = concat!("let prefix = self.notice_", "prefix.as_str();");
+        for (name, b) in [("deliver", deliver), ("at close", close)] {
+            assert_eq!(b.matches(kept).count(), 1, "{name}: the kept prefix");
+            assert!(!b.contains(build), "{name}: no prefix built on the turn");
+        }
+        // Built twice, and nowhere else: at the driver's making, and where
+        // the window is given its key (`Driver::given_key`, its one writer,
+        // held by `the_key_and_the_notice_prefix_have_one_writer`).
+        assert_eq!(
+            SRC.matches(concat!("notice_", "prefix: notice_", "prefix(None),"))
+                .count(),
+            1,
+            "at the making"
+        );
+        let given = body(
+            SRC,
+            concat!(
+                "    fn given_",
+                "key(&mut self, id: crate::windows::WindowId) {"
+            ),
+        );
+        assert_eq!(
+            given
+                .matches(concat!("= notice_", "prefix(self.window", "_id);"))
+                .count(),
+            1,
+            "with the key"
+        );
+        assert_eq!(
+            SRC.matches(build).count(),
+            4,
+            "its definition, the key's own within it, the making's and the key's"
+        );
+        // The window's state, read in the closure handed to the delivery,
+        // and nowhere else in the function.
+        let state = deliver
+            .find(concat!("let state = ", "|| {"))
+            .expect("the state's closure");
+        for read in [
+            concat!("view.", "window()"),
+            concat!(".isKey", "Window()"),
+            concat!(".occlusion", "State()"),
+        ] {
+            assert_eq!(deliver.matches(read).count(), 1, "once: {read}");
+            assert!(
+                deliver.find(read).expect(read) > state,
+                "in the closure: {read}"
+            );
+        }
+        assert!(
+            deliver.contains(concat!("posted,\n            ", "state,\n")),
+            "the closure handed to the delivery"
+        );
+        assert!(
+            !deliver.contains(concat!("state", "()")),
+            "and only handed over, never called here"
+        );
+    }
+
+    /// **The window's key and its notices' prefix have one writer**
+    /// (`Driver::given_key`): the prefix is built from the key, so a key
+    /// given without it leaves the window's posts named for the process
+    /// alone, which `windows::notice_poster` routes to no window. Over
+    /// `app.rs` and the event rig's child (`app/rig.rs`), which gives its
+    /// windows keys as `show` does: neither field is assigned anywhere but
+    /// in `given_key`, written in a struct's literal anywhere but the
+    /// driver's making, or changed through a `&mut` or a method in place.
+    /// The writer's own two assignments are the control. AppKit-bound, so
+    /// the source is what can fail. Break: one of the rig's two sites back
+    /// to the raw assignment of the key.
+    #[test]
+    fn the_key_and_the_notice_prefix_have_one_writer() {
+        const APP: &str = include_str!("app.rs");
+        const RIG: &str = include_str!("app/rig.rs");
+        /// Each code line that writes `field`: an assignment (`=`, `+=`),
+        /// a field of a struct's literal or declaration (`:`), a `&mut`, or
+        /// a method that changes it in place.
+        fn writes(src: &str, field: &str) -> Vec<String> {
+            const CHANGES: [&str; 8] = [
+                ".take(",
+                ".replace(",
+                ".insert(",
+                ".get_or_insert",
+                ".as_mut(",
+                ".push",
+                ".clear(",
+                ".truncate(",
+            ];
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            src.lines()
+                .map(str::trim)
+                .filter(|l| !l.starts_with("//"))
+                .filter(|l| {
+                    let l: &str = l;
+                    l.match_indices(field).any(|(at, _)| {
+                        let (lead, after) = (&l[..at], &l[at + field.len()..]);
+                        if lead.chars().next_back().is_some_and(word)
+                            || after.chars().next().is_some_and(word)
+                        {
+                            return false;
+                        }
+                        let next = after.trim_start();
+                        (next.starts_with('=') && !next.starts_with("=="))
+                            || next.starts_with("+=")
+                            || (next.starts_with(':') && !next.starts_with("::"))
+                            || CHANGES.iter().any(|m| after.starts_with(m))
+                            || lead
+                                .trim_end_matches(|c: char| word(c) || c == '.')
+                                .ends_with("&mut ")
+                    })
+                })
+                .map(str::to_owned)
+                .collect()
+        }
+        let key = concat!("window", "_id");
+        let prefix = concat!("notice", "_prefix");
+        let head = concat!(
+            "    fn given_",
+            "key(&mut self, id: crate::windows::WindowId) {"
+        );
+        let given = body(APP, head);
+        // The control: the writer's two assignments are seen.
+        assert_eq!(
+            writes(given, key),
+            [format!("self.{key} = Some(id);")],
+            "the writer: the key"
+        );
+        assert_eq!(
+            writes(given, prefix),
+            [format!("self.{prefix} = {prefix}(self.{key});")],
+            "the writer: the prefix"
+        );
+        // Everywhere else in app.rs, the field's declaration and the
+        // driver's making alone.
+        let rest = APP.replacen(given, "", 1);
+        assert_eq!(
+            writes(&rest, key),
+            [
+                format!("{key}: Option<crate::windows::WindowId>,"),
+                format!("{key}: None,"),
+            ],
+            "app.rs: no write of the key outside given_key"
+        );
+        assert_eq!(
+            writes(&rest, prefix),
+            [
+                format!("{prefix}: String,"),
+                format!("{prefix}: {prefix}(None),")
+            ],
+            "app.rs: no write of the prefix outside given_key and the making"
+        );
+        // The rig's child writes neither, and gives both its windows their
+        // keys through the writer.
+        assert_eq!(
+            writes(RIG, key),
+            Vec::<String>::new(),
+            "the rig: no write of the key outside given_key"
+        );
+        assert_eq!(
+            writes(RIG, prefix),
+            Vec::<String>::new(),
+            "the rig: no write of the prefix"
+        );
+        let call = concat!("driver.given_", "key(id);");
+        assert_eq!(RIG.matches(call).count(), 2, "the rig's two windows");
+        assert_eq!(APP.matches(call).count(), 1, "show, the app's one");
     }
 }

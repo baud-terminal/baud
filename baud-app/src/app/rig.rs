@@ -765,7 +765,7 @@ fn run(
     // Dock bar and its clicks are found by it. Never entered into the open
     // windows themselves, which hold what `show` makes.
     let id = crate::windows::Windows::<()>::new().open(());
-    driver.window_id = Some(id);
+    driver.given_key(id);
     driver.app.os.name(id);
     CLOSE.with_borrow_mut(|c| *c = Some((driver.app.os.closer(), id)));
     // The display link run for the first frame, as `show` runs it, so the
@@ -1275,7 +1275,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         ..
     } = Opening::new(mtm, size, scale, inset, shell, None);
     let id = crate::windows::Windows::<()>::new().open(());
-    driver.window_id = Some(id);
+    driver.given_key(id);
     driver.app.os.name(id);
     // **The launch's first frame, held** (`GpuRow::HoldLaunch`): drawn now
     // and waited for as `show` draws it, with its completion held past
@@ -1444,6 +1444,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     let (held, batches) = (probe::paths_held(), probe::paths_batches());
     let expired = probe::expirations();
     let notice_turns = probe::notice_turns();
+    let notice_reads = probe::notice_state_reads();
     let followed = || {
         [
             probe::Followed::Scroller,
@@ -1468,7 +1469,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         let (link, sends_after) = probe::link();
         let holders = probe::holders();
         println!(
-            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={} expired={} notices={} alive={}",
+            "frames link={} delivered={} sends={} made={} drawn={} holders={} owed={} styled={} focus={} motion={} display={} preview={} reads={} fed={} reaped={} followed={} hands={} greeted={} asked={} held={} batches={} marked={} flips={} first={} offered={} gpu_failed={} gpu_slowest_us={} gpu_overdue={} gpu_late={} gpu_gave_up={} gpu_whole={} opened={} gpu_use={} switched={} layer={} gpu_made={} gpu_held={} lit={} expired={} notices={} alive={} notice_reads={}",
             match link {
                 baud_present_macos::display_link::LinkState::Run => "run",
                 baud_present_macos::display_link::LinkState::Pause => "pause",
@@ -1573,6 +1574,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 probe::AliveAnswered::List => "list",
                 probe::AliveAnswered::Bound => "bound",
             },
+            probe::notice_state_reads().0.saturating_sub(notice_reads.0),
         );
         // Each path asked about since the settle, on a line of its own: a
         // row about one path reads which, not only how many.

@@ -965,20 +965,27 @@ impl<T: Moment> Delivery<T, String> {
     /// before it is attached is handed to the window's [`Checker`]
     /// (`MacCall::Check`), its notification posted when the check comes
     /// back ([`Delivery::mac_checked`]), so no decode runs here.
+    ///
+    /// `window` reads the window's focus and visibility, which only a
+    /// post's [`plan`] needs: it is called once, at the first post, and
+    /// not at all for a read that posted nothing, whose progress and
+    /// attention request are still told.
     #[allow(clippy::too_many_arguments)]
     pub fn mac(
         &mut self,
         term: &mut Term<'_>,
         posted: Vec<Posted>,
-        window: (Focus, Visible),
+        mut window: impl FnMut() -> (Focus, Visible),
         now: T,
         prefix: &str,
         files: &mut dyn PictureReader,
         mut reply: impl FnMut(&[u8]),
     ) -> Vec<MacCall> {
         let mut calls = Vec::new();
+        let mut state = None;
         for p in posted {
-            match plan(&p, self.setting, window.0, window.1, &mut self.bucket, now) {
+            let (focus, visible) = *state.get_or_insert_with(&mut window);
+            match plan(&p, self.setting, focus, visible, &mut self.bucket, now) {
                 Plan::Show => {
                     // A kitty icon is attached by its signature; iTerm2's
                     // picture once it decodes, which is checked off this
@@ -2180,7 +2187,7 @@ mod tests {
         let calls = d.mac(
             &mut t,
             posted,
-            (Focus::Focused, Visible::Seen),
+            || (Focus::Focused, Visible::Seen),
             at(Secs(0)),
             "baud-1",
             &mut NoFiles,
@@ -2232,7 +2239,7 @@ mod tests {
         let calls = d.mac(
             &mut t,
             posted,
-            (Focus::Focused, Visible::Seen),
+            || (Focus::Focused, Visible::Seen),
             at(Secs(1)),
             "baud-1",
             &mut NoFiles,
@@ -2245,6 +2252,52 @@ mod tests {
         assert_eq!(calls[1], MacCall::Remove(id));
         assert_eq!(calls[2], MacCall::Bar(None));
         assert_eq!(calls.len(), 3, "the OSC 9 was dropped");
+    }
+
+    /// **The window's state is read for a post's plan and for nothing
+    /// else** (`Delivery::mac`'s `window`): the macOS driver delivers on
+    /// every turn, and a read that posted nothing reads neither the
+    /// window's key status nor its occlusion, while its progress is still
+    /// told; a read that posted two reads it once. Break: the state read
+    /// ahead of the posts, and the read with none reads it.
+    #[test]
+    fn the_window_is_read_once_for_a_reads_posts_and_never_without_one() {
+        let mut owned = Owned::new(&WS).with_notices(BUDGET);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_notice_support(support(Setting::On, Platform::MacOs));
+        let mut d: Delivery<HostTime, String> = Delivery::new(Setting::On, &t, PIXELS);
+        let reads = core::cell::Cell::new(0_u32);
+        let window = || {
+            reads.set(reads.get() + 1);
+            (Focus::Unfocused, Visible::Covered)
+        };
+        let mut icons = Icons::default();
+        let mut deliver = |t: &mut Term<'_>, d: &mut Delivery<HostTime, String>, seq: &str| {
+            feed(t, seq.as_bytes());
+            let posted: Vec<Posted> = t.notices().map(|n| Posted::of(&n, &mut icons)).collect();
+            t.clear_notices();
+            d.mac(t, posted, window, at(Secs(0)), "p", &mut NoFiles, |_| {})
+        };
+        let calls = deliver(&mut t, &mut d, "\x1b]9;4;1;40\x07");
+        assert_eq!(
+            calls,
+            [MacCall::Bar(Some(DockBar {
+                fraction: Some(0.4),
+                tone: DockTone::Normal
+            }))],
+            "the progress told"
+        );
+        assert_eq!(reads.get(), 0, "no post, no read of the window");
+        let calls = deliver(&mut t, &mut d, "");
+        assert!(calls.is_empty(), "{calls:?}");
+        assert_eq!(reads.get(), 0, "nothing at all, no read");
+        let calls = deliver(&mut t, &mut d, "\x1b]99;i=a;One\x1b\\\x1b]99;i=b;Two\x1b\\");
+        let posts = calls
+            .iter()
+            .filter(|c| matches!(c, MacCall::Post(_)))
+            .count();
+        assert_eq!(posts, 2, "the control: two posted, {calls:?}");
+        assert_eq!(reads.get(), 1, "two posts, one read");
     }
 
     /// **The Linux driver's pieces**: the launcher's fraction for each
@@ -2429,7 +2482,7 @@ mod tests {
             d.mac(
                 t,
                 posted,
-                (Focus::Unfocused, Visible::Covered),
+                || (Focus::Unfocused, Visible::Covered),
                 at(Secs(s)),
                 "p",
                 &mut NoFiles,
@@ -2490,7 +2543,7 @@ mod tests {
             let calls = d.mac(
                 &mut t,
                 posted,
-                (Focus::Unfocused, Visible::Covered),
+                || (Focus::Unfocused, Visible::Covered),
                 at(Secs(0)),
                 "p",
                 &mut NoFiles,
@@ -2819,7 +2872,7 @@ mod tests {
             let calls = d.mac(
                 t,
                 posted,
-                (focus, Visible::Covered),
+                || (focus, Visible::Covered),
                 now,
                 "baud-1",
                 files,
@@ -2939,7 +2992,7 @@ mod tests {
                 let calls = d.mac(
                     t,
                     posted,
-                    (Focus::Unfocused, Visible::Covered),
+                    || (Focus::Unfocused, Visible::Covered),
                     now,
                     "baud-1",
                     &mut files,
@@ -3037,7 +3090,7 @@ mod tests {
         let calls = d.mac(
             &mut t,
             posted,
-            (Focus::Unfocused, Visible::Covered),
+            || (Focus::Unfocused, Visible::Covered),
             at(Secs(0)),
             "baud-1",
             &mut files,
@@ -3095,7 +3148,7 @@ mod tests {
         let calls = d.mac(
             &mut t,
             posted,
-            (Focus::Unfocused, Visible::Covered),
+            || (Focus::Unfocused, Visible::Covered),
             at(Secs(2)),
             "baud-1",
             &mut files,
@@ -3150,7 +3203,7 @@ mod tests {
         let calls = d.mac(
             &mut t,
             posted,
-            (Focus::Unfocused, Visible::Covered),
+            || (Focus::Unfocused, Visible::Covered),
             at(Secs(0)),
             "baud-1",
             &mut files,
