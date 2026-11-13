@@ -584,6 +584,28 @@ pub struct Lines {
     past: Option<AbsLine>,
     past_cells: Vec<PackedCell>,
     past_rows: Vec<(usize, Wrap)>,
+    /// Rows whose cells the last scan compared with what it kept: the
+    /// window's, and those below it a look back went by
+    /// ([`Lines::compared`]).
+    compared: Compared,
+}
+
+/// **Rows a scan compared with what it kept** ([`Lines::compared`]): a
+/// count of rows, none before the first scan.
+#[derive(Clone, Copy, Debug)]
+struct Compared(Rows);
+
+impl Default for Compared {
+    fn default() -> Compared {
+        Compared(Rows::ZERO)
+    }
+}
+
+impl Compared {
+    /// One row more.
+    fn one(&mut self) {
+        self.0 = Rows::of_count(self.0.index() + 1);
+    }
 }
 
 /// **How a row the writer ended meets the next**, as a scan read it: not
@@ -608,6 +630,15 @@ impl Lines {
     /// nothing.
     pub fn struck(&self) -> &[LinkLine] {
         &self.struck
+    }
+
+    /// **Rows whose cells the last scan compared with what it kept**: the
+    /// window's, and those below it that the bottom row's last read went
+    /// by. What a frame costs the scan where it reads no row; kept beside
+    /// [`Scan`], whose equality says what a frame read.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn compared(&self) -> Rows {
+        self.compared.0
     }
 
     /// Read every row at the next scan.
@@ -727,7 +758,7 @@ impl Lines {
     /// **Whether the rows below the window the last read of its bottom row
     /// went by are not what it saw**: another line below it now, one gone,
     /// or one written over.
-    fn past_moved(&self, term: &Term<'_>, scrolled: Scrolled, back: Rows) -> bool {
+    fn past_moved(&mut self, term: &Term<'_>, scrolled: Scrolled, back: Rows) -> bool {
         let rows = self.size.1;
         let below = scrolled.line(back, Row::from_index(rows - 1)).below();
         let now = row_of(term, scrolled, below).map(|_| below);
@@ -739,6 +770,7 @@ impl Lines {
             let Some((cells, w)) = row_of(term, scrolled, line) else {
                 return true;
             };
+            self.compared.one();
             if w != wrap || cells != &self.past_cells[at..at + len] {
                 return true;
             }
@@ -808,6 +840,7 @@ impl Lines {
     pub fn scan<R: Reader>(&mut self, term: &Term<'_>, scrolled: Scrolled, reader: &mut R) -> Scan {
         self.slots_read = SlotsRead::No;
         self.slots_moved.clear();
+        self.compared = Compared::default();
         let back = term.window_back();
         let view = term.view(back);
         let (cols, rows) = (view.cols().index(), view.rows().index());
@@ -882,11 +915,12 @@ impl Lines {
             let n = row.len().min(cols);
             let kept = &mut self.cells[y * cols..y * cols + n];
             let (wrap, size) = (view.wrapped(r), view.rendition(r));
-            let same = !all
-                && !wrap_moved
-                && kept == &row[..n]
-                && self.wraps[y] == wrap
-                && self.sizes[y] == size;
+            let compare = !all && !wrap_moved;
+            if compare {
+                self.compared.one();
+            }
+            let same =
+                compare && kept == &row[..n] && self.wraps[y] == wrap && self.sizes[y] == size;
             wrap_moved = self.wraps[y] != wrap;
             self.again[y] = match same {
                 true => Read::Kept,
@@ -2541,11 +2575,19 @@ mod tests {
         }
     }
 
-    /// `bytes` fed, `scrolled` moved by the lines the core retired, as a
-    /// driver moves its count.
+    /// `bytes` fed, `scrolled` moved by the lines the core retired: by
+    /// nothing across a switch of screens, whose two rotations are two
+    /// rings' and, read as one, subtract past zero. That is a selection's
+    /// count (`keep::live_moved`), not the scan's in the app, which moves to
+    /// the alternate screen's own number for its top line (`keep::Counts`):
+    /// a switch here leaves the count where it was, so it never takes the
+    /// scan's shift.
     fn fed(t: &mut Term<'_>, scrolled: &mut Scrolled, bytes: &[u8]) {
-        let before = t.rotation();
+        let (before, epoch) = (t.rotation(), t.screen_epoch());
         feed(t, bytes);
+        if t.screen_epoch() != epoch {
+            return;
+        }
         if let baud_core::Moved::Retired(n) = t.moved_since(before) {
             *scrolled = scrolled.advanced(n);
         }
@@ -3090,5 +3132,570 @@ mod tests {
         let _ = l.scan(&t, at, &mut u);
         assert_eq!((l.lines().to_vec(), l.struck().to_vec()), fresh(&t, at));
         assert_eq!(runs(&l), []);
+    }
+
+    // The scan under seals: frames as the drivers make them, the scan and
+    // then the seal the build takes, and each case asking whether the scan
+    // reads what changed when no row of the window was written since the
+    // seal the scan keeps.
+
+    /// A frame as a driver makes it: the scan, then the seal. With the seal
+    /// the scan read under, `term.sealed()` as it read.
+    fn sealed_scan<R: Reader>(
+        l: &mut Lines,
+        t: &mut Term<'_>,
+        at: Scrolled,
+        r: &mut R,
+    ) -> (Scan, baud_domain::Seal) {
+        let kept = t.sealed();
+        let s = l.scan(t, at, r);
+        let _ = t.seal_writes();
+        (s, kept)
+    }
+
+    /// Two frames with nothing fed: the last one's seal covers every write
+    /// before them, and is the one returned.
+    fn settle<R: Reader>(
+        l: &mut Lines,
+        t: &mut Term<'_>,
+        at: Scrolled,
+        r: &mut R,
+    ) -> baud_domain::Seal {
+        let _ = sealed_scan(l, t, at, r);
+        sealed_scan(l, t, at, r).1
+    }
+
+    /// The rows of the window drawn now written after `kept`.
+    fn written(t: &Term<'_>, kept: &baud_domain::Seal) -> Vec<usize> {
+        let back = t.window_back();
+        let gens = t.row_gens(back);
+        (0..t.view(back).rows().index())
+            .filter(|&y| gens.after(Row::from_index(y), kept))
+            .collect()
+    }
+
+    /// The lines and strikes `l` keeps.
+    fn kept(l: &Lines) -> (Vec<LinkLine>, Vec<LinkLine>) {
+        (l.lines().to_vec(), l.struck().to_vec())
+    }
+
+    /// **With no seal taken, a frame that reads no row compares every row
+    /// with the copy**: six rows of links, every row written; the scan
+    /// that reads every row compares none, and a frame that moves only
+    /// the cursor reads nothing and compares all six. A row written once
+    /// reads as written on every frame until a seal, so this holds with
+    /// the write generation too. Named break: the window's compare not
+    /// counted.
+    #[test]
+    fn an_unsealed_caret_frame_compares_every_row() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        let rows = usize::from(WS.ws_row);
+        let screen: Vec<String> = (0..rows)
+            .map(|n| format!("see https://u{n}.example/ ok"))
+            .collect();
+        feed(&mut t, screen.join("\r\n").as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = l.scan(&t, at, &mut u);
+        assert_eq!(runs(&l).len(), rows, "the control: a link a row");
+        assert_eq!(
+            l.compared(),
+            Rows::ZERO,
+            "a scan reading every row compares none"
+        );
+        feed(&mut t, b"\x1b[3;3H");
+        assert_eq!(l.scan(&t, at, &mut u), Scan::default(), "nothing read");
+        assert_eq!(l.compared(), Rows::of_count(rows), "every row compared");
+    }
+
+    /// **With no seal taken, a looked-back frame also compares the row
+    /// below the window that the bottom row's read went by**: `/p13` on the
+    /// bottom row of a window three lines back, running on into the row
+    /// below; a frame with nothing written compares the six rows of the
+    /// window and that one. Named break: the rows below not counted.
+    #[test]
+    fn an_unsealed_look_back_compares_the_row_below_it_went_by() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(24),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..10 {
+            fed(&mut t, &mut at, format!("l{n}\r\n").as_bytes());
+        }
+        fed(
+            &mut t,
+            &mut at,
+            format!("{:>40}\r\n3 ok\r\nz\r\ny", "/p1").as_bytes(),
+        );
+        t.set_window_back(Rows::of_count(3));
+        let mut r = Found {
+            found: vec![b"/p13".to_vec()],
+        };
+        let mut l = Lines::default();
+        let _ = l.scan(&t, at, &mut r);
+        assert_eq!(runs(&l), [(5, 37, 39)], "the control: /p13 runs on below");
+        assert_eq!(l.scan(&t, at, &mut r), Scan::default(), "nothing read");
+        assert_eq!(
+            l.compared(),
+            Rows::of_count(usize::from(WS.ws_row) + 1),
+            "the window's rows and the one below"
+        );
+    }
+
+    /// **A look back reads the history rows it brings in, with no row
+    /// written since the seal**: a link three lines into the history, the
+    /// window looked back onto it; the rows brought in hold old
+    /// generations, and the link is found on the row showing it. Named
+    /// break: `shift` leaves the rows it empties trusted -- the link is
+    /// never read.
+    #[test]
+    fn a_look_back_reads_the_history_rows_it_brings_in_under_a_seal() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(12),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        fed(&mut t, &mut at, b"see https://old.example/ ok");
+        for n in 0..8 {
+            fed(&mut t, &mut at, format!("\r\nplain {n}").as_bytes());
+        }
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(runs(&l), [], "the control: the link is behind the window");
+        t.set_window_back(Rows::of_count(3));
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(kept(&l), fresh(&t, at));
+        assert!(
+            runs(&l).iter().any(|r| r.0 == 0),
+            "the link on the row it shows: {:?}",
+            runs(&l)
+        );
+    }
+
+    /// **A switch of screens with nothing written reads the screen shown**:
+    /// a link on the alternate screen, which `?47` does not clear, and one
+    /// on the primary; each switch, with no row written since the seal,
+    /// draws the lines a scan from nothing finds. Named break: trust a row
+    /// by its generation alone, not the window it was kept over -- the
+    /// other screen's lines stay.
+    #[test]
+    fn a_screen_switch_with_nothing_written_reads_the_screen_shown() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(&mut t, b"see https://primary.example/ ok");
+        feed(
+            &mut t,
+            b"\x1b[?47h\x1b[3;1Hgo https://alt.example/ ok\x1b[?47l",
+        );
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(kept(&l), fresh(&t, at));
+        assert!(
+            runs(&l).iter().any(|r| r.0 == 0),
+            "the control: the primary's link"
+        );
+        feed(&mut t, b"\x1b[?47h");
+        assert_eq!(
+            written(&t, &seal),
+            [] as [usize; 0],
+            "the alternate screen's rows were written before the seal"
+        );
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(kept(&l), fresh(&t, at));
+        assert!(
+            runs(&l).iter().any(|r| r.0 == 2) && !runs(&l).iter().any(|r| r.0 == 0),
+            "the alternate screen's link alone: {:?}",
+            runs(&l)
+        );
+        let seal = sealed_scan(&mut l, &mut t, at, &mut u).1;
+        feed(&mut t, b"\x1b[?47l");
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "back, none written");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(kept(&l), fresh(&t, at));
+        assert!(
+            runs(&l).iter().any(|r| r.0 == 0) && !runs(&l).iter().any(|r| r.0 == 2),
+            "the primary's link alone: {:?}",
+            runs(&l)
+        );
+    }
+
+    /// **A scroll the driver's count does not show reads every row**: the
+    /// alternate screen's ring turns under output, and a count of the
+    /// primary's lines does not move; the rows that moved up were written
+    /// before the seal, and each link is found where it is now, every row's
+    /// at another column. Named break: trust a row by its generation alone
+    /// -- each row keeps the link of the row it showed before.
+    #[test]
+    fn a_scroll_the_count_does_not_show_reads_every_row() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(&mut t, b"\x1b[?1049h");
+        for n in 0..6 {
+            let nl = if n == 0 { "" } else { "\r\n" };
+            let pad = " ".repeat(n);
+            feed(&mut t, format!("{nl}{pad}https://a{n}.example/").as_bytes());
+        }
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(runs(&l).len(), 6, "the control: a link a row");
+        let before = t.rotation();
+        feed(&mut t, b"\r\n");
+        assert!(
+            matches!(t.moved_since(before), baud_core::Moved::Retired(_)),
+            "the control: the ring turned"
+        );
+        assert_eq!(written(&t, &seal), [5], "only the row brought in");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(kept(&l), fresh(&t, at));
+        assert_eq!(runs(&l).len(), 5);
+    }
+
+    /// **`forget` reads every row, with none written**: what a folder
+    /// reported, the machine's names handed, the config read again or an
+    /// answer to every link asks. Named break: trust rows by their
+    /// generations when the scan was told to read everything -- nothing is
+    /// read.
+    #[test]
+    fn forget_reads_every_row_with_nothing_written() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(
+            &mut t,
+            b"see https://f1.example/ ok\r\nplain\r\nmailto:m@x.example",
+        );
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        l.forget();
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let (s, _) = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert!(s.rows >= 6, "every row read again: {}", s.rows);
+        assert_eq!(kept(&l), fresh(&t, at));
+    }
+
+    /// **A sweep of the link table reads every row, with the rows kept
+    /// unwritten**: a freed slot moves what a cell's word means with no
+    /// change to the word, so the scan reads everything again. Built as
+    /// `hyperlinks.rs` builds a sweep: two tables' worth of targets, the
+    /// screen and history erased, a screen of text, then new targets on the
+    /// bottom row. Named break: trust rows by their generations when the
+    /// epoch moved -- only the bottom row is read.
+    #[test]
+    fn a_link_table_sweep_reads_every_row_with_none_written() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        let link = |uri: String, text: &str| format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\");
+        let mut v = String::new();
+        for i in 0..2 * baud_domain::LinkBook::SLOTS {
+            v.push_str(&link(format!("http://first.example/{i}"), "a"));
+        }
+        v.push_str("\x1b[H\x1b[2J\x1b[3J");
+        v.push_str(&".".repeat(200 * 50));
+        v.push_str("\x1b[H\x1b[2J\x1b[3J");
+        v.push_str("see https://kept.example/ ok");
+        feed(&mut t, v.as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(runs(&l).len(), 1, "the control: the kept row's link");
+        let epoch = t.link_epoch();
+        let mut w = String::from("\x1b[6;1H");
+        for i in 0..30 {
+            w.push_str(&link(format!("http://second.example/{i}"), "b"));
+        }
+        feed(&mut t, w.as_bytes());
+        assert_ne!(t.link_epoch(), epoch, "the control: a slot was freed");
+        assert_eq!(written(&t, &seal), [5], "only the row the targets are on");
+        let (s, _) = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert!(s.rows >= 6, "every row read again: {}", s.rows);
+        assert_eq!(kept(&l), fresh(&t, at));
+    }
+
+    /// **An answer redraws a printed path with no row written**: a batch
+    /// of answers moves no cell and no generation. Named break: end the
+    /// scan when no row of the window was written since the seal and the
+    /// window did not move -- the answer is never drawn.
+    #[test]
+    fn an_answer_with_nothing_written_still_redraws() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        fed(&mut t, &mut at, b"see /p1 and /p2 ok\r\nplain");
+        let (mut l, mut r) = (Lines::default(), Answering::default());
+        let seal = settle(&mut l, &mut t, at, &mut r);
+        assert_eq!(l.lines(), &[] as &[LinkLine], "the control: none found");
+        r.toggle("/p1");
+        l.answered();
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let (s, _) = sealed_scan(&mut l, &mut t, at, &mut r);
+        assert_eq!(s.remarks, 1);
+        assert_eq!(kept(&l), fresh_by(&t, at, &r));
+        assert_eq!(runs(&l), [(0, 4, 6)]);
+    }
+
+    /// URIs, and one span of lines handed as refiled to the next scan.
+    #[derive(Default)]
+    struct Refiling {
+        uris: Uris,
+        span: Option<crate::paths::LineSpan>,
+    }
+
+    impl Reader for Refiling {
+        fn wants(&self, tail: Tail) -> bool {
+            self.uris.wants(tail)
+        }
+
+        fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
+            Reader::read(&mut self.uris, text, found)
+        }
+
+        fn marked(&mut self, uri: &[u8], at: At<'_>) -> Option<Mark> {
+            Reader::marked(&mut self.uris, uri, at)
+        }
+
+        fn refiled(&mut self) -> Option<crate::paths::LineSpan> {
+            self.span.take()
+        }
+    }
+
+    /// **A span a read refiled is read again, with no row written**: a
+    /// remote read filing renditions alone moves what a link on the lines
+    /// reads and no cell. Named break: end the scan when no row of the
+    /// window was written since the seal -- the row is not read.
+    #[test]
+    fn a_refiled_span_with_nothing_written_is_read_again() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(&mut t, b"a\r\nb\r\nsee https://r.example/ ok\r\nd");
+        let (mut l, mut r) = (Lines::default(), Refiling::default());
+        let seal = settle(&mut l, &mut t, at, &mut r);
+        let line = at.line(t.window_back(), Row::from_index(2));
+        r.span = Some(crate::paths::LineSpan::of(line, line));
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let (s, _) = sealed_scan(&mut l, &mut t, at, &mut r);
+        assert!(s.rows >= 1, "the row refiled read again: {}", s.rows);
+        assert_eq!(kept(&l), fresh(&t, at));
+    }
+
+    /// URIs, joining rows the writer ended as `joins` says.
+    struct Joining {
+        uris: Uris,
+        joins: Joins,
+    }
+
+    impl Reader for Joining {
+        fn wants(&self, tail: Tail) -> bool {
+            self.uris.wants(tail)
+        }
+
+        fn read(&mut self, text: Text<'_>, found: &mut Vec<Run>) -> crate::paths::Looked {
+            Reader::read(&mut self.uris, text, found)
+        }
+
+        fn marked(&mut self, uri: &[u8], at: At<'_>) -> Option<Mark> {
+            Reader::marked(&mut self.uris, uri, at)
+        }
+
+        fn joins(&self, _: Screen, _: AbsLine) -> Joins {
+            self.joins
+        }
+    }
+
+    /// **A join answered otherwise reads both rows, with none written**: a
+    /// URI the writer ended at the last column runs on into the next row
+    /// while joins hold, and stops there once they do not, as when the
+    /// program that wrote it is named. Named break: end the scan when no
+    /// row of the window was written since the seal -- the link stays
+    /// across both rows.
+    #[test]
+    fn a_join_answered_otherwise_with_nothing_written_reads_both_rows() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let at = at();
+        feed(
+            &mut t,
+            format!("top\r\n{:>40}\r\nrest/1 ok", "https://j1.example/aaaa").as_bytes(),
+        );
+        let mut r = Joining {
+            uris: Uris::default(),
+            joins: Joins::Yes,
+        };
+        let mut l = Lines::default();
+        let seal = settle(&mut l, &mut t, at, &mut r);
+        assert!(
+            runs(&l).iter().any(|x| x.0 == 2),
+            "the control: joined, the link runs on into row 2: {:?}",
+            runs(&l)
+        );
+        r.joins = Joins::No;
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut r);
+        let mut apart = Lines::default();
+        let _ = apart.scan(
+            &t,
+            at,
+            &mut Joining {
+                uris: Uris::default(),
+                joins: Joins::No,
+            },
+        );
+        assert_eq!(kept(&l), kept(&apart));
+        assert!(
+            !runs(&l).iter().any(|x| x.0 == 2),
+            "held apart, row 2 holds no part of it: {:?}",
+            runs(&l)
+        );
+    }
+
+    /// **A row below a looked-back window written over reads the bottom
+    /// row again, with no row of the window written**: the rows below are
+    /// outside the window's generations. Named break: end the scan when no
+    /// row of the window was written since the seal -- `/p13`'s line stays.
+    #[test]
+    fn a_row_below_the_window_written_with_the_window_unwritten() {
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(24),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        for n in 0..10 {
+            fed(&mut t, &mut at, format!("l{n}\r\n").as_bytes());
+        }
+        fed(
+            &mut t,
+            &mut at,
+            format!("{:>40}\r\n3 ok\r\nz\r\ny", "/p1").as_bytes(),
+        );
+        t.set_window_back(Rows::of_count(3));
+        let found = || Found {
+            found: vec![b"/p13".to_vec()],
+        };
+        let (mut l, mut r) = (Lines::default(), found());
+        let seal = settle(&mut l, &mut t, at, &mut r);
+        assert_eq!(runs(&l), [(5, 37, 39)], "the control: /p13 runs on below");
+        fed(&mut t, &mut at, b"\x1b[4;1H\x1b[2K/p10");
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "the window unwritten");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut r);
+        let mut fresh = Lines::default();
+        let _ = fresh.scan(&t, at, &mut found());
+        assert_eq!(runs(&fresh), [], "a scan from nothing: /p1/p10 is none");
+        assert_eq!(runs(&l), runs(&fresh));
+    }
+
+    /// **A trim of the history where the top row's line began reads the
+    /// top row again, with no row of the window written**: `trimmed_above`
+    /// under seals. Named break: end the scan when no row of the window was
+    /// written since the seal -- the half link stays.
+    #[test]
+    fn a_trim_above_the_window_with_the_window_unwritten() {
+        let parts = [FIRST, SECOND];
+        let depth = 10;
+        let mut owned = Owned::with_history(
+            &WS,
+            &baud_domain::CacheGeometry::UNKNOWN,
+            baud_domain::Depth::of(depth),
+        );
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        fed(&mut t, &mut at, parts.join("\r\n").as_bytes());
+        for n in 0..depth + usize::from(WS.ws_row) - parts.len() {
+            fed(&mut t, &mut at, format!("\r\nline {n}").as_bytes());
+        }
+        t.set_window_back(Rows::of_count(depth + 1 - parts.len()));
+        let link = SECOND.find(' ').unwrap_or(SECOND.len());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let seal = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(
+            runs(&l),
+            [(0, 0, link - 1)],
+            "the control, the link's last part on the top row"
+        );
+        fed(&mut t, &mut at, b"\r\none more");
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "the window unwritten");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(runs(&l), [], "the half link goes");
+        assert_eq!(kept(&l), fresh(&t, at));
+    }
+
+    /// **The lines a scan keeps under seals are the lines a scan from
+    /// nothing finds**: `kept_lines_are_what_a_fresh_scan_finds`'s steps with
+    /// a seal after every scan, as the drivers seal, and switches of screen
+    /// (`?47`, which leaves the alternate screen as it was, and `?1049`)
+    /// and a resize to the same size among them. Named breaks: `shift`
+    /// leaving the rows it empties trusted; `ran_on`'s row left trusted;
+    /// trusting a row by its generation alone, not the window it was kept
+    /// over.
+    #[test]
+    fn kept_lines_are_what_a_fresh_scan_finds_under_seals() {
+        for seed in [1u64, 7, 42, 2026] {
+            let mut x = seed;
+            let mut next = |m: usize| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                usize::try_from(x % u64::try_from(m).unwrap_or(1)).unwrap_or(0)
+            };
+            let mut owned = Owned::with_history(
+                &WS,
+                &baud_domain::CacheGeometry::UNKNOWN,
+                baud_domain::Depth::of(8),
+            );
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut at = at();
+            let (mut l, mut u) = (Lines::default(), Uris::default());
+            for step in 0..1000 {
+                let n = next(1000);
+                let bytes = match next(10) {
+                    0 | 1 => format!("\r\nsee https://s{n}.example/ ok"),
+                    2 => format!("\r\nplain {n}"),
+                    3 => format!("\x1b[{};1H\x1b[2Kat https://w{n}.example/", 1 + next(6)),
+                    4 => format!("\r\n{}https://wrap{n}.example/", "x".repeat(30)),
+                    5 if next(2) == 0 => {
+                        format!(
+                            "\r\n{:>40}\r\nrest/{n} ok",
+                            format!("https://j{n}.example/aaaa")
+                        )
+                    }
+                    5 => "\r\n\r\n\r\n".to_string(),
+                    6 => {
+                        t.set_window_back(Rows::of_count(next(4)));
+                        String::new()
+                    }
+                    7 => match next(4) {
+                        0 => "\x1b[?47h".to_string(),
+                        1 => "\x1b[?47l".to_string(),
+                        2 => "\x1b[?1049h".to_string(),
+                        _ => "\x1b[?1049l".to_string(),
+                    },
+                    8 => {
+                        let _ = t.resize(&WS);
+                        String::new()
+                    }
+                    _ => match next(3) {
+                        0 => "\x1b[2J\x1b[H".to_string(),
+                        _ => format!("\r\nmailto:m{n}@x.example"),
+                    },
+                };
+                fed(&mut t, &mut at, bytes.as_bytes());
+                let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+                assert_eq!(
+                    kept(&l),
+                    fresh(&t, at),
+                    "seed {seed}, step {step}: {bytes:?}"
+                );
+            }
+        }
     }
 }
