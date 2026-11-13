@@ -449,7 +449,7 @@ mod tests {
         for sig in [
             "fn show_lights(&mut self, target: f64) {",
             "fn strip_edges(&self) -> crate::strip::Edges {",
-            "fn place_lights(&self) {",
+            "fn place_lights(&mut self) {",
             "fn draw_lights(&mut self) {",
         ] {
             let b = body(app, sig, "\n    }\n");

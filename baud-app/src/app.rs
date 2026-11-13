@@ -4871,6 +4871,54 @@ enum Scheduled {
     No,
 }
 
+/// **What the lights' places for their hover text are reckoned from,
+/// besides their views** (`Driver::lights_at`): the view's and the whole
+/// frame's size, which centre the frame in the view; the lights' own line
+/// as the last frame drew it; and the strip's origin and cell at the
+/// backing's scale. Values the driver and the renderer keep: comparing
+/// them reads no view.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Geometry {
+    view: (Px, Px),
+    whole: (Px, Px),
+    line: Option<crate::line_tip::LightsLine>,
+    strip: Px,
+    grid_top: Px,
+    cell: (Px, Px),
+    scale: CGFloat,
+}
+
+/// **The lights' places as the tip was last given them**
+/// (`Driver::place_tips`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Tips {
+    /// To be read again: the strip laid the lights out anew
+    /// (`lights::Laid::Again`), or the window's layout moved them
+    /// (`Driver::place_lights`).
+    Owed,
+    /// Read at this geometry, and the views not laid out since.
+    Read(Geometry),
+}
+
+/// Whether the tip's places are read again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reread {
+    No,
+    Yes,
+}
+
+impl Tips {
+    /// **Read again where the lights may have moved**: owed by a layout of
+    /// the views, or at a geometry other than the one they were read at.
+    /// A caret's tick moves neither, and reads no view.
+    fn owes(&self, now: &Geometry) -> Reread {
+        match self {
+            Tips::Read(at) if at == now => Reread::No,
+            Tips::Read(_) | Tips::Owed => Reread::Yes,
+        }
+    }
+}
+
 /// The view's responder, with the view it reports to.
 struct Driver {
     app: App,
@@ -5026,6 +5074,10 @@ struct Driver {
     /// The activity lights at the strip's right, in a trailing titlebar
     /// accessory (`lights.rs`, `strip.rs`).
     lights: crate::lights::Strip,
+    /// **Where the lights' hover text was last placed from**
+    /// (`place_tips`): read again only where they may have moved, never on
+    /// a tick that moved nothing.
+    tips: Tips,
     /// OH's and CD's sampler of the job in front, and the kernel's reads
     /// it makes, on the tick while the lights are on (`front.rs`).
     front: crate::front::Front,
@@ -15700,6 +15752,7 @@ impl Opening {
             icon: None,
             icon_inset: inset,
             lights: crate::lights::Strip::new(None, None, NSSize::new(0.0, 0.0)),
+            tips: Tips::Owed,
             front: crate::front::Front::new(),
             procs: crate::front::Live::new(),
             front_read: None,
@@ -18945,7 +18998,7 @@ impl Driver {
             scale: self.app.scale,
             look: self.app.renderer.lights_look(glow),
         };
-        self.lights.show(
+        let laid = self.lights.show(
             setting,
             wanted,
             shown,
@@ -18953,6 +19006,9 @@ impl Driver {
             self.strip_edges(),
             self.icon_inset,
         );
+        if laid == crate::lights::Laid::Again {
+            self.tips = Tips::Owed;
+        }
         // The lights know their width only once they are drawn, and the
         // lockup stands on their plate, or beside the traffic lights with
         // no plate, and the build's name gives way to them.
@@ -18976,14 +19032,45 @@ impl Driver {
             }
             self.app.owe_frame();
         }
-        self.place_tips();
+        self.follow_tips();
+    }
+
+    /// **The lights' places for their hover text, read again only where
+    /// they may have moved** (`Tips::owes`): a layout of the views, or a
+    /// geometry other than the last reading's -- the frame's line drawn
+    /// elsewhere, the view resized, the scale. A caret's tick moves none of
+    /// it, and reads no view; the pointer's own moves read them at once
+    /// (`tip_at`), as they did.
+    fn follow_tips(&mut self) {
+        if self.tips.owes(&self.tips_geometry()) == Reread::Yes {
+            self.place_tips();
+        }
+    }
+
+    /// **The geometry the lights' places are reckoned from**, from the
+    /// driver and the renderer alone ([`Geometry`]).
+    fn tips_geometry(&self) -> Geometry {
+        let r = &self.app.renderer;
+        let m = r.metrics();
+        Geometry {
+            view: self.app.view_px,
+            whole: r.whole_size(),
+            line: crate::line_tip::LightsLine::drawn(r),
+            strip: r.strip(),
+            grid_top: r.grid_top(),
+            cell: (m.cell_w, m.cell_h),
+            scale: self.app.scale,
+        }
     }
 
     /// **Where the lights are, for their hover text**, told to the tip,
-    /// which each frame settles again (`line_tip.rs`).
+    /// which each frame settles again (`line_tip.rs`), and the geometry it
+    /// was read at kept.
     fn place_tips(&mut self) {
+        let at = self.tips_geometry();
         let lights = self.lights_at();
         self.app.line_tip.set_lights(lights);
+        self.tips = Tips::Read(at);
     }
 
     /// **Where the lights are, in the terminal view's device pixels**: on
@@ -18995,6 +19082,8 @@ impl Driver {
     /// screen, where the title bar is a window of its own. None with the
     /// lights off.
     fn lights_at(&self) -> Option<crate::line_tip::LightsAt> {
+        #[cfg(feature = "effect-probe")]
+        baud_present_macos::probe::lights_read();
         let r = &self.app.renderer;
         let whole = r.whole_size();
         let o = grid_origin(self.app.view_px, whole, Px::of(0), Px::of(0));
@@ -19071,7 +19160,7 @@ impl Driver {
         };
         let pace = crate::access::lights_pace(self.app.motion);
         let shown = self.app.activity.step(host_now(), pace);
-        self.lights.show(
+        let laid = self.lights.show(
             self.app.activity_lights,
             wanted,
             shown,
@@ -19079,17 +19168,22 @@ impl Driver {
             self.strip_edges(),
             self.icon_inset,
         );
+        if laid == crate::lights::Laid::Again {
+            self.tips = Tips::Owed;
+        }
     }
 
     /// The activity lights follow the window's top-right on every resize,
     /// and the lockup stands on their plate, or beside the traffic lights
     /// with no plate; the build's name gives way to them first
-    /// (`Mark::fit`).
-    fn place_lights(&self) {
+    /// (`Mark::fit`). The views moved with the window: the tip reads their
+    /// places again (`Tips::Owed`).
+    fn place_lights(&mut self) {
         let plate = self.lights.place(self.strip_edges());
         if let Some(mark) = &self.icon {
             mark.fit(self.window.ns_window(), plate, self.lights.fitted());
         }
+        self.tips = Tips::Owed;
     }
 
     /// Re-centre the titlebar lockup in its accessory, whose height AppKit
@@ -25929,5 +26023,154 @@ mod idle_turn_tests {
         let call = concat!("driver.given_", "key(id);");
         assert_eq!(RIG.matches(call).count(), 2, "the rig's two windows");
         assert_eq!(APP.matches(call).count(), 1, "show, the app's one");
+    }
+}
+
+#[cfg(test)]
+mod tips_tests {
+    use super::link_pointer_tests::body;
+    use super::*;
+
+    fn geometry() -> Geometry {
+        Geometry {
+            view: (Px::of(1600), Px::of(1000)),
+            whole: (Px::of(1584), Px::of(992)),
+            line: None,
+            strip: Px::of(0),
+            grid_top: Px::of(0),
+            cell: (Px::of(16), Px::of(32)),
+            scale: 2.0,
+        }
+    }
+
+    /// **The lights' places are read again only where they may have
+    /// moved** (`Tips::owes`): owed by a layout of the views, read again at
+    /// any other geometry -- the view, the whole frame, the lights' own
+    /// line, the strip, the grid's top, the cell, the scale -- and not at
+    /// the one they were read at, a caret's tick's. Perturbation: `owes`
+    /// answering yes to every reading, and the second assertion fails.
+    #[test]
+    fn the_lights_places_are_read_again_only_where_they_may_have_moved() {
+        let at = geometry();
+        assert_eq!(Tips::Owed.owes(&at), Reread::Yes, "owed by a layout");
+        assert_eq!(
+            Tips::Read(at).owes(&at),
+            Reread::No,
+            "a tick that moved nothing"
+        );
+        let line = crate::line_tip::LightsLine {
+            edge: baud_render::LineEdge::Bottom,
+            top: Px::of(960),
+            height: Px::of(32),
+            places: baud_render::ByLed::default(),
+            origin: (Px::of(0), Px::of(0)),
+            cell: (Px::of(16), Px::of(32)),
+            width: Px::of(1584),
+        };
+        for moved in [
+            Geometry {
+                view: (Px::of(1700), Px::of(1000)),
+                ..at
+            },
+            Geometry {
+                whole: (Px::of(1584), Px::of(1024)),
+                ..at
+            },
+            Geometry {
+                line: Some(line),
+                ..at
+            },
+            Geometry {
+                strip: Px::of(16),
+                ..at
+            },
+            Geometry {
+                grid_top: Px::of(32),
+                ..at
+            },
+            Geometry {
+                cell: (Px::of(18), Px::of(36)),
+                ..at
+            },
+            Geometry { scale: 1.0, ..at },
+        ] {
+            assert_eq!(Tips::Read(at).owes(&moved), Reread::Yes, "{moved:?}");
+        }
+    }
+
+    /// **A tick reads the lights' places only where they may have moved**
+    /// (`Driver::follow_tips`): the tick follows them and never places
+    /// them itself; a reading is owed where the strip lays them out anew,
+    /// at the launch's drawing and every tick's, and where the window's
+    /// layout places them (`place_lights`, at the showing, every re-lay
+    /// and the lockup's compare); and the views' places are read where the
+    /// tick follows them, which keeps the geometry it read them at, and at
+    /// the pointer's own moves (`tip_at`), as before. AppKit-bound,
+    /// so the source is what can fail. Red on the base: the tick placed the
+    /// tips itself.
+    #[test]
+    fn a_tick_reads_the_lights_places_only_where_they_may_have_moved() {
+        const SRC: &str = include_str!("app.rs");
+        let show = body(
+            SRC,
+            concat!("    fn show_", "lights(&mut self, target: f64) {"),
+        );
+        assert!(
+            !show.contains(concat!("self.place_", "tips()")),
+            "the tick places no tips itself"
+        );
+        assert!(!show.contains(concat!("self.lights_", "at()")));
+        assert!(show.contains(concat!("self.follow_", "tips();")), "{show}");
+        let owed = concat!(
+            "if laid == crate::lights::Laid::Again {\n",
+            "            self.tips = Tips::",
+            "Owed;"
+        );
+        assert!(show.contains(owed), "the strip laid out anew\n{show}");
+        let draw = body(SRC, concat!("    fn draw_", "lights(&mut self) {"));
+        assert!(draw.contains(owed), "the launch's drawing\n{draw}");
+        let place = body(SRC, concat!("    fn place_", "lights(&mut self) {"));
+        assert!(
+            place.contains(concat!("self.tips = Tips::", "Owed;")),
+            "the window's layout\n{place}"
+        );
+        let follow = body(SRC, concat!("    fn follow_", "tips(&mut self) {"));
+        assert!(
+            follow.contains(concat!(
+                "if self.tips.owes(&self.tips_geometry()) == Reread::Yes {\n",
+                "            self.place_",
+                "tips();"
+            )),
+            "{follow}"
+        );
+        let tips = body(SRC, concat!("    fn place_", "tips(&mut self) {"));
+        let read = tips
+            .find(concat!("self.lights_", "at()"))
+            .expect("the read");
+        let kept = tips
+            .find(concat!("self.tips = Tips::", "Read(at);"))
+            .expect("the geometry kept");
+        assert!(read < kept, "{tips}");
+        assert_eq!(
+            SRC.matches(concat!("self.lights_", "at()")).count(),
+            2,
+            "the views' places read in place_tips and at the pointer alone"
+        );
+        assert_eq!(
+            SRC.matches(concat!("self.tips = Tips::", "Owed;")).count(),
+            3,
+            "owed at the strip's two showings and the window's placing"
+        );
+        let tip = body(
+            SRC,
+            concat!(
+                "    fn tip_",
+                "at(&mut self, at: (f64, f64), in_view: InView) {"
+            ),
+        );
+        assert!(
+            tip.contains(concat!("self.lights_", "at()")),
+            "the pointer reads them at once\n{tip}"
+        );
     }
 }

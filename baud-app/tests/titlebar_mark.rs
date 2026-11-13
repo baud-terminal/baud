@@ -311,7 +311,7 @@ fn draw_and_place(
         scale,
         look: renderer.lights_look(baud_render::Glow::Full),
     };
-    strip.show(setting, wanted, shown, renderer, strip::edges(w), inset);
+    let _: lights::Laid = strip.show(setting, wanted, shown, renderer, strip::edges(w), inset);
     place_panel(w, strip, mark);
 }
 
@@ -556,7 +556,7 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
             scale: 2.0,
             look: r.lights_look(baud_render::Glow::Full),
         };
-        strip.show(
+        let _: lights::Laid = strip.show(
             ActivityLights::TitleBar,
             wanted,
             Shown::DARK,
@@ -674,7 +674,7 @@ fn name_yields_first(mtm: MainThreadMarker) {
     assert!(!mark.lights_moved(strip.fitted()), "placed for what it is");
     let look = r.lights_look(baud_render::Glow::Full);
     let wanted = lights::Drawn { scale: 1.0, look };
-    strip.show(
+    let _: lights::Laid = strip.show(
         ActivityLights::TitleBar,
         wanted,
         Shown::DARK,

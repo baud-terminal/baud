@@ -116,6 +116,47 @@ pub(crate) fn step(
     }
 }
 
+/// **Whether a call to [`Strip::show`] laid the lights out anew**: where
+/// a light sits on the screen, which the tip reads its places from
+/// (`Driver::lights_at`), moves only when this says so or the window's own
+/// layout does (`Driver::place_lights`). A swap of a light's picture
+/// re-places every view at the frame it already had.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[must_use]
+pub(crate) enum Laid {
+    /// Every view where it was: nothing shown, a picture swapped, or the
+    /// lights already down.
+    Same,
+    /// Views put up or taken down, the pictures drawn again for another
+    /// scale or look, or the strip's ends moved since the last placing.
+    Again,
+}
+
+/// What made the views this call, besides placing them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Made {
+    /// None put up.
+    Nothing,
+    /// The plate or a light's view put up.
+    Views,
+}
+
+/// **[`Laid`] of a call that placed the views**: again when the pictures
+/// were drawn for another scale or look, when a view was put up, or when
+/// the strip's ends are not the ones the last placing was at; the same
+/// for a swap at the same ends.
+pub(crate) fn laid(
+    step: Step,
+    made: Made,
+    before: Option<crate::strip::Edges>,
+    now: crate::strip::Edges,
+) -> Laid {
+    match (step, made, before == Some(now)) {
+        (Step::Swap | Step::Nothing, Made::Nothing, true) => Laid::Same,
+        _ => Laid::Again,
+    }
+}
+
 /// How a lit light is drawn under the Dim Flashing Lights setting: with
 /// its glow, or with none.
 pub(crate) fn glow(flashing: baud_present_macos::settings::Flashing) -> Glow {
@@ -338,6 +379,9 @@ pub(crate) struct Strip {
     /// wakes at a crossing.
     crossings: Option<Crossings>,
     waker: Option<Waker>,
+    /// The strip's ends the views were last placed at by [`Strip::show`],
+    /// none while they are down (`laid`).
+    placed_at: Option<crate::strip::Edges>,
 }
 
 impl Strip {
@@ -367,6 +411,7 @@ impl Strip {
             colour: Argb(0),
             crossings: None,
             waker,
+            placed_at: None,
         }
     }
 
@@ -430,7 +475,8 @@ impl Strip {
     /// **The lights at `shown`**, under `setting`, drawn for a strip of
     /// `inset` points and placed between the strip's `edges`: the views
     /// put up, their pictures drawn and swapped, or taken down -- off, or
-    /// on their own line in the frame.
+    /// on their own line in the frame. Whether that laid them out anew
+    /// ([`Laid`]).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn show(
         &mut self,
@@ -440,36 +486,41 @@ impl Strip {
         renderer: &Renderer<'_, '_>,
         edges: crate::strip::Edges,
         inset: CGFloat,
-    ) {
+    ) -> Laid {
         let Some(container) = self.holder.as_ref().map(|h| h.view.clone()) else {
-            return;
+            return Laid::Same;
         };
         if setting != ActivityLights::TitleBar {
+            let mut down = Laid::Same;
             for led in Led::ALL {
                 if let Some(v) = self.views.get_mut(led).take() {
                     v.removeFromSuperview();
+                    down = Laid::Again;
                 }
             }
             if let Some(v) = self.plate.take() {
                 v.removeFromSuperview();
+                down = Laid::Again;
             }
             self.on_view = ByLed::default();
+            self.placed_at = None;
             self.place(edges);
-            return;
+            return down;
         }
         let have = self.pictures.as_ref().map(|(d, _)| *d);
-        match step(setting, wanted, have, shown, self.on_view) {
-            Step::Nothing => return,
+        let owed = step(setting, wanted, have, shown, self.on_view);
+        match owed {
+            Step::Nothing => return Laid::Same,
             Step::Redraw => {
                 let Some(columns) = columns(renderer, wanted.scale) else {
-                    return;
+                    return Laid::Same;
                 };
                 let Some(drawn) = pictures(renderer, &wanted.look, wanted, inset) else {
-                    return;
+                    return Laid::Same;
                 };
                 let Some(plates) = plates(&wanted.look, &columns, self.logo, wanted.scale, inset)
                 else {
-                    return;
+                    return Laid::Same;
                 };
                 self.columns = columns;
                 self.scale = wanted.scale;
@@ -480,10 +531,12 @@ impl Strip {
             }
             Step::Swap => {}
         }
+        let mut made = Made::Nothing;
         if self.views.iter().any(|(_, v)| v.is_none()) || self.plate.is_none() {
             let Some(mtm) = MainThreadMarker::new() else {
-                return;
+                return Laid::Same;
             };
+            made = Made::Views;
             // The plate first, so every light's view is added above it.
             if self.plate.is_none() {
                 let v = NSImageView::new(mtm);
@@ -513,8 +566,10 @@ impl Strip {
             }
         }
         self.place(edges);
+        let placed = laid(owed, made, self.placed_at, edges);
+        self.placed_at = Some(edges);
         let Some((_, p)) = &self.pictures else {
-            return;
+            return placed;
         };
         for led in Led::ALL {
             let light = *shown.get(led);
@@ -526,6 +581,7 @@ impl Strip {
                 *self.on_view.get_mut(led) = Some(light);
             }
         }
+        placed
     }
 
     /// **How wide the lights are, in points**: none with no lights.
@@ -754,6 +810,43 @@ mod tests {
 
     fn showing(s: Shown) -> ByLed<Option<Light>> {
         ByLed::of(|l| Some(*s.get(l)))
+    }
+
+    /// **A swap at the strip's ends the views were placed at lays nothing
+    /// out anew; a redraw, a view put up or the ends moved does**
+    /// (`laid`), which is what owes the tip a reading of the lights' places
+    /// (`Driver::show_lights`). Perturbation: a swap read as laid again, and
+    /// the first assertion fails.
+    #[test]
+    fn a_swap_lays_nothing_out_and_a_redraw_a_view_or_the_ends_do() {
+        use crate::strip::Edges;
+        let ends = Edges {
+            width: 800.0,
+            left: 74.0,
+            right: 12.0,
+        };
+        let wider = Edges {
+            width: 900.0,
+            ..ends
+        };
+        assert_eq!(
+            laid(Step::Swap, Made::Nothing, Some(ends), ends),
+            Laid::Same
+        );
+        assert_eq!(
+            laid(Step::Nothing, Made::Nothing, Some(ends), ends),
+            Laid::Same
+        );
+        assert_eq!(
+            laid(Step::Redraw, Made::Nothing, Some(ends), ends),
+            Laid::Again
+        );
+        assert_eq!(laid(Step::Swap, Made::Views, Some(ends), ends), Laid::Again);
+        assert_eq!(
+            laid(Step::Swap, Made::Nothing, Some(ends), wider),
+            Laid::Again
+        );
+        assert_eq!(laid(Step::Swap, Made::Nothing, None, ends), Laid::Again);
     }
 
     /// **A light that changes swaps a picture, and only a change of what
@@ -1396,7 +1489,7 @@ mod tests {
             show[compare..].contains("self.place_lights();"),
             "and places it\n{show}"
         );
-        let place = body(concat!("    fn place_lights(&self) ", "{"));
+        let place = body(concat!("    fn place_lights(&mut self) ", "{"));
         for want in [
             "let plate = self.lights.place(self.strip_edges());",
             "mark.fit(self.window.ns_window(), plate, self.lights.fitted());",
@@ -1416,12 +1509,12 @@ mod tests {
         let style = body(concat!("    fn apply_style(&mut self) ", "{"));
         assert!(style.contains("self.lights.stale();"), "{style}");
         // On their own line: the tick hands the renderer what they show and
-        // tells the tips where the lights are, every frame places their records,
-        // and a re-lay sets the line at its scale and takes its pixels off
-        // the grid's.
+        // tells the tips where the lights are where they may have moved,
+        // every frame places their records, and a re-lay sets the line at
+        // its scale and takes its pixels off the grid's.
         for want in [
             "self.app.renderer.set_lights(shown, glow);",
-            "self.place_tips();",
+            "self.follow_tips();",
         ] {
             assert!(show.contains(want), "{want}\n{show}");
         }

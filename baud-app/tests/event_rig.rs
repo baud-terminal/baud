@@ -1884,6 +1884,9 @@ struct Counters {
     /// The window's state read for a notice's plan after the settle: once
     /// a turn whose read posted a notification, never on another.
     notice_reads: u32,
+    /// The lights' places read for their hover text after the settle:
+    /// only where they may have moved, never on a caret's tick.
+    tips: u32,
     /// What answered the last held `p=alive`.
     alive: AliveSeen,
 }
@@ -2061,6 +2064,7 @@ impl Counters {
             expired: count("expired")?,
             notices: count("notices")?,
             notice_reads: count("notice_reads")?,
+            tips: count("tips")?,
             alive: match field("alive")? {
                 "unanswered" => AliveSeen::Unanswered,
                 "list" => AliveSeen::List,
@@ -3628,7 +3632,7 @@ fn a_row_filter_names_what_it_skipped_and_one_naming_no_row_is_red() {
 fn a_row_about_its_own_path_is_met_by_that_path_alone() {
     let counts = |link: &str, delivered: u32, lines: &str| {
         let text = format!(
-            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered notice_reads=0\n{lines}"
+            "frames link={link} delivered={delivered} sends=2 made=1 drawn=1 holders=- owed=Nothing styled=0 focus=gained motion=0 display=0 preview=unset reads=0 fed=2 reaped=0 followed=0,0,0 hands=0 greeted=0 asked=1 held=0 batches=1 marked=0 flips=0 first=0 offered=0 gpu_failed=0 gpu_slowest_us=0 gpu_overdue=0 gpu_late=0 gpu_gave_up=0 gpu_whole=0 opened=unset gpu_use=live switched=none layer=unset gpu_made=1 gpu_held=0 lit=- expired=0 notices=0 alive=unanswered notice_reads=0 tips=0\n{lines}"
         );
         Counters::parse(&text).expect("the counts")
     };
@@ -3722,6 +3726,16 @@ fn every_frame_row_comes_to_its_state() {
                     "the window read {} times for no notice",
                     lifted.notice_reads
                 ),
+            ));
+        }
+        // **A caret's ticks read no light's place**: a blinking caret runs
+        // the link at each flip and moves nothing the lights' places are
+        // reckoned from, so the hover text keeps the places it has
+        // (`Driver::follow_tips`).
+        if matches!(site.expect, Settles::Blinks { .. }) && lifted.tips != 0 {
+            red.push((
+                site.name,
+                format!("the lights' places read on {} ticks", lifted.tips),
             ));
         }
         if matches!(site.expect, Settles::OneLink | Settles::PreviewedUnticked) {

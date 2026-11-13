@@ -292,6 +292,8 @@ thread_local! {
     /// The window's key and occlusion state read for a post's plan
     /// (`notice_state_read`).
     static NOTICE_STATE_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
+    /// The lights' places read for their hover text (`lights_read`).
+    static LIGHTS_READS: Cell<Taken> = const { Cell::new(Taken(0)) };
     /// The focus baud last set (`Focused`).
     static FOCUSED: Cell<Focused> = const { Cell::new(Focused::Unset) };
     /// What the last read found under the pointer (`Previewed`).
@@ -688,6 +690,18 @@ pub fn notice_state_read() {
 /// How many times the window's state was read for a notice's plan.
 pub fn notice_state_reads() -> Taken {
     NOTICE_STATE_READS.with(Cell::get)
+}
+
+/// **The lights' places read for their hover text**: each shown light's
+/// frame on the screen, brought into the terminal's view, which baud-app's
+/// `lights_at` reads only where the lights may have moved.
+pub fn lights_read() {
+    LIGHTS_READS.with(|n| n.set(Taken(n.get().0.saturating_add(1))));
+}
+
+/// How many times the lights' places were read for their hover text.
+pub fn lights_reads() -> Taken {
+    LIGHTS_READS.with(Cell::get)
 }
 
 /// **The focus baud last set**, as the frame rig prints it: none before
