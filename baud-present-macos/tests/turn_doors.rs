@@ -350,6 +350,9 @@ const CALLS: &[(&str, Sites)] = &[
         "LinkState::Pause",
         &[
             ("../baud-app/src/app.rs", "pause", 1),
+            // The frame rig's quiet reads the state the probe recorded,
+            // and its print shows it.
+            ("../baud-app/src/app/rig.rs", "quiet", 1),
             ("../baud-app/src/app/rig.rs", "run_frames", 1),
             ("src/display_link.rs", "closed", 1),
             ("src/display_link.rs", "call", 1),

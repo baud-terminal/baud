@@ -24142,7 +24142,11 @@ fn judged_by<'n>(
 /// turn is posted; a frame's bound is its own wake (`FrameDue`). Says
 /// whether it was posted, which the notices' expiry wake arms by
 /// (`NoticeDue`). In the probe build the event rig's census names the wake
-/// by where it was asked (`rig::Carrier::Scheduled`).
+/// by where it was asked (`rig::Carrier::Scheduled`), and the frame rig's
+/// quiet counts it in flight from its post to its callback, taken off
+/// before what it holds is let go, so a wake its callback posts again is
+/// counted through, and at once for a post the queue refused
+/// (`rig::wake_posted`, `rig::wake_done`).
 #[cfg_attr(feature = "effect-probe", track_caller)]
 fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) -> Scheduled {
     #[cfg(feature = "effect-probe")]
@@ -24151,7 +24155,11 @@ fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) -> Scheduled {
     let Ok(when) = dispatch2::DispatchTime::try_from(after) else {
         return Scheduled::No;
     };
+    #[cfg(feature = "effect-probe")]
+    rig::wake_posted();
     let posted = dispatch2::DispatchQueue::main().after(when, move || {
+        #[cfg(feature = "effect-probe")]
+        rig::wake_done();
         if held.let_go(waker) == Wakes::Yes {
             #[cfg(feature = "effect-probe")]
             rig::heard(rig::Carrier::Scheduled(asked));
@@ -24160,7 +24168,482 @@ fn wake_holding<T: Held>(waker: Waker, at: Instant, held: T) -> Scheduled {
     });
     match posted {
         Ok(()) => Scheduled::Yes,
-        Err(_) => Scheduled::No,
+        Err(_) => {
+            #[cfg(feature = "effect-probe")]
+            rig::wake_done();
+            Scheduled::No
+        }
+    }
+}
+
+#[cfg(test)]
+mod wake_count_tests {
+    /// **A wake posted for a moment is counted in flight from its post to
+    /// its callback, and the count taken off before what it holds is let
+    /// go** (`wake_holding`, the frame rig's quiet): counted after the
+    /// moment converts and before the post, taken off first thing in the
+    /// callback -- so a `FrameDue` its callback posts again is counted
+    /// through -- and taken off at once on a post the queue refused. The
+    /// turn's own `wake:` is posted in that callback, on the main queue,
+    /// after the count is off: zero in flight says it is posted, and the
+    /// rig's barrier, posted from the main thread after zero, is performed
+    /// behind it (`quiet_closes_only_behind_a_barrier_performed_with_no_callback_since`).
+    /// Read from the source, which every build has; the counter is the
+    /// probe build's. Perturbations: the count taken off after `let_go`, or
+    /// not on a refused post, or counted before the moment converts, or the
+    /// `wake:` posted outside the callback -- each fails here.
+    #[test]
+    fn a_wake_is_counted_from_its_post_to_its_callback_before_let_go() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const HEAD: &str = concat!(
+            "fn wake_holding<T: Held>(waker: Waker, ",
+            "at: Instant, held: T) -> Scheduled {"
+        );
+        const POSTED: &str = concat!("rig::wake_", "posted();");
+        const DONE: &str = concat!("rig::wake_", "done();");
+        const CONVERTS: &str = concat!("dispatch2::DispatchTime::", "try_from(after)");
+        const AFTER: &str = concat!("DispatchQueue::main().", "after(when, move || {");
+        const LET_GO: &str = concat!("held.let_", "go(waker)");
+        const REFUSED: &str = concat!("Err(_) => ", "{");
+        const WAKE: &str = concat!("waker.", "wake();");
+        const MATCH: &str = concat!("match ", "posted {");
+        assert_eq!(SRC.matches(HEAD).count(), 1, "one wake_holding");
+        let at = SRC.find(HEAD).expect("wake_holding");
+        let end = at + SRC[at..].find("\n}\n").expect("its end");
+        let body = &SRC[at..end];
+        assert_eq!(body.matches(POSTED).count(), 1, "one count up: {body}");
+        assert_eq!(body.matches(DONE).count(), 2, "two counts down: {body}");
+        let find = |what: &str| body.find(what).unwrap_or_else(|| panic!("no {what}"));
+        let posted = find(POSTED);
+        let after = find(AFTER);
+        let first_done = find(DONE);
+        let refused = find(REFUSED);
+        let last_done = body.rfind(DONE).expect("a count down");
+        assert!(find(CONVERTS) < posted, "counted after the moment converts");
+        assert!(posted < after, "counted before the post");
+        assert!(
+            after < first_done && first_done < find(LET_GO),
+            "taken off in the callback, before let_go"
+        );
+        assert!(refused < last_done, "taken off on a refused post");
+        assert_eq!(body.matches(WAKE).count(), 1, "one wake: posted: {body}");
+        assert!(
+            find(LET_GO) < find(WAKE) && find(WAKE) < find(MATCH),
+            "the turn's wake: posted in the callback, after the count is off"
+        );
+        assert_eq!(
+            SRC.matches(POSTED).count(),
+            1,
+            "counted up in wake_holding alone"
+        );
+        assert_eq!(SRC.matches(DONE).count(), 2, "counted down there alone");
+    }
+
+    /// **The rig reads quiet through the one judge and its barrier** (the
+    /// frame rig's `quiet` and `quiet_at`): quiet's parts are read in `quiet`
+    /// alone and judged there by `quiet_judge::judge`; `quiet_at` is
+    /// `quiet`'s one caller and hands what it judged, and then the wakes'
+    /// callbacks run, to `quiet_judge::closed`, the barrier's rules, with
+    /// no way to quiet of its own; the run's end is judged through
+    /// `quiet_at`, before its loop and on each pass; and `wake_done` counts
+    /// each callback run. What each rule does is held by `quiet_judge`'s own
+    /// tests, which every test build runs; this holds the rig to them, and to
+    /// handing them the real reads: every part's read in `quiet`, the wakes
+    /// in flight read there alone, and the barrier posted and its
+    /// performance read in `quiet_at` alone. Read from the source, which
+    /// every build has; the rig is the probe build's. Perturbations: a part
+    /// judged in the rig instead, a part handed as a constant (the wakes as
+    /// none in flight), `quiet` read outside `quiet_at`, `closed` passed by,
+    /// a barrier taken as performed without asking, or the callbacks not
+    /// counted -- each fails here.
+    #[test]
+    fn the_rig_reads_quiet_through_the_one_judge_and_its_barrier() {
+        const RIG: &str = include_str!("app/rig.rs");
+        let body = |head: &str| {
+            assert_eq!(RIG.matches(head).count(), 1, "one {head}");
+            let at = RIG.find(head).expect("its head");
+            let end = at + RIG[at..].find("\n}\n").expect("its end");
+            &RIG[at..end]
+        };
+        const PARTS: &str = "quiet(event, signed)";
+        const JUDGE: &str = "quiet_judge::judge(";
+        const CLOSED: &str = "quiet_judge::closed(";
+        assert_eq!(RIG.matches(PARTS).count(), 1, "the parts read once");
+        assert_eq!(RIG.matches(JUDGE).count(), 1, "judged once");
+        assert_eq!(RIG.matches(CLOSED).count(), 1, "closed once");
+        let read = body("fn quiet(");
+        assert_eq!(read.matches(JUDGE).count(), 1, "judged in quiet: {read}");
+        for part in [
+            "probe::alive_answered()",
+            "probe::link().0 ==",
+            "probe::frame_owed()",
+            "probe::owes()",
+            "WAKES_IN_FLIGHT.load(",
+            "probe::paths_due()",
+            "signed == Signed::Yes",
+        ] {
+            assert!(read.contains(part), "{part} read in quiet: {read}");
+        }
+        assert_eq!(
+            RIG.matches("WAKES_IN_FLIGHT.load(").count(),
+            1,
+            "the wakes in flight read in quiet alone"
+        );
+        let judged = body("fn quiet_at(");
+        let find = |what: &str| {
+            judged
+                .find(what)
+                .unwrap_or_else(|| panic!("no {what}: {judged}"))
+        };
+        assert!(
+            find(CLOSED) < find(PARTS) && find(PARTS) < find("WAKES_RUN.load("),
+            "the parts judged, then the callbacks run read, both handed to closed: {judged}"
+        );
+        assert_eq!(
+            judged.matches("Ok(").count(),
+            0,
+            "no way to quiet but closed's: {judged}"
+        );
+        for (barrier, what) in [
+            ("probe::reached(", "its performance read"),
+            ("probe::barrier,", "the barrier posted"),
+        ] {
+            assert_eq!(RIG.matches(barrier).count(), 1, "{what} once");
+            assert!(judged.contains(barrier), "{what} in quiet_at: {judged}");
+        }
+        assert_eq!(
+            RIG.matches("quiet_at(event, signed, &mut at_quiet)")
+                .count(),
+            2,
+            "the run's end judged through quiet_at, before its loop and on each pass"
+        );
+        let done = body("pub(super) fn wake_done(");
+        assert!(
+            done.contains("WAKES_RUN.fetch_add(1,"),
+            "each callback run counted: {done}"
+        );
+    }
+}
+
+/// **The frame rig's quiet, judged from what it read** (`rig::quiet`,
+/// `rig::quiet_at`): no reads of its own, so its rules are held by tests
+/// every test build runs, while the rig that reads the parts is the probe
+/// build's alone.
+#[cfg(any(test, feature = "effect-probe"))]
+mod quiet_judge {
+    /// **Whether a part of quiet is met**, as the rig read it.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Met {
+        Yes,
+        No,
+    }
+
+    /// **The wakes posted for a moment still to run**, as the rig read them
+    /// (`rig::WAKES_IN_FLIGHT`).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) struct InFlight(pub(crate) u32);
+
+    /// **The wakes' callbacks run, ever**, as the rig read them
+    /// (`rig::WAKES_RUN`): compared, never counted with.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) struct WakesRun(pub(crate) u64);
+
+    /// **Quiet's parts, as read**, in the order they are judged: the row's
+    /// event (`Err`, the event not yet seen), the link paused, nothing owed
+    /// -- no frame, and the last settle owing no restart at a deadline --,
+    /// the wakes in flight, the printed paths' worker (`Err`, what it still
+    /// owes), and the act's clear read, or none to read.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) struct Parts<E, P> {
+        pub(crate) event: Result<(), E>,
+        pub(crate) paused: Met,
+        pub(crate) owed_nothing: Met,
+        pub(crate) wakes: InFlight,
+        pub(crate) paths: Result<(), P>,
+        pub(crate) signed: Met,
+    }
+
+    /// **What quiet still waits for**, the first part not yet met, named on
+    /// the backstop's line.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Unquiet<E, P> {
+        /// The row's own event not yet seen.
+        Event(E),
+        /// The display link not paused.
+        Link,
+        /// A frame owed and not drawn, or the last settle owing one or a
+        /// restart at a deadline.
+        Owed,
+        /// Wakes posted for a moment still to run: how many.
+        Wakes(InFlight),
+        /// The printed paths' worker owing a turn: a batch due or out, or
+        /// its wake still to come.
+        Paths(P),
+        /// The act's clear not yet read.
+        Act,
+        /// Every part above met, and the barrier posted when they were
+        /// ([`closed`]) not yet performed.
+        Barrier,
+    }
+
+    impl<E: core::fmt::Debug, P: core::fmt::Debug> core::fmt::Display for Unquiet<E, P> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Unquiet::Event(event) => write!(f, "the row's event, {event:?}, never seen"),
+                Unquiet::Link => f.write_str("the link never paused"),
+                Unquiet::Owed => f.write_str("a frame or a restart still owed"),
+                Unquiet::Wakes(InFlight(n)) => {
+                    write!(f, "{n} wakes posted for a moment still to run")
+                }
+                Unquiet::Paths(due) => write!(f, "the printed paths' worker {due:?}"),
+                Unquiet::Act => f.write_str("the act's clear never read"),
+                Unquiet::Barrier => f.write_str("the barrier posted at quiet never performed"),
+            }
+        }
+    }
+
+    /// **Every part met, or the first that is not**, in [`Parts`]' order. A
+    /// wake in flight holds quiet off however still the rest reads: the
+    /// moment it was posted for has not come, and what its turn does --
+    /// owe a frame, set a title, answer a held read -- is still to happen.
+    pub(crate) fn judge<E, P>(parts: Parts<E, P>) -> Result<(), Unquiet<E, P>> {
+        parts.event.map_err(Unquiet::Event)?;
+        if parts.paused == Met::No {
+            return Err(Unquiet::Link);
+        }
+        if parts.owed_nothing == Met::No {
+            return Err(Unquiet::Owed);
+        }
+        if parts.wakes != InFlight(0) {
+            return Err(Unquiet::Wakes(parts.wakes));
+        }
+        parts.paths.map_err(Unquiet::Paths)?;
+        match parts.signed {
+            Met::Yes => Ok(()),
+            Met::No => Err(Unquiet::Act),
+        }
+    }
+
+    /// Whether a barrier posted at quiet has been performed
+    /// (`probe::Reached`).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Reached {
+        Yes,
+        No,
+    }
+
+    /// **A barrier posted at quiet**, and the wakes' callbacks run when it
+    /// was posted.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) struct AtQuiet<B> {
+        barrier: B,
+        run: WakesRun,
+    }
+
+    /// **Quiet, closed by a barrier**: every part met ([`judge`]'s `judged`,
+    /// read again on every call), then a barrier through the main thread's
+    /// performs posted (`post`) and performed (`reached`), with no wake's
+    /// callback run since it was posted (`run`). Zero wakes in flight says a
+    /// callback has run, not that the turn it brings has: the callback
+    /// posts that turn's `wake:` from the main thread as it returns, and
+    /// performs posted from one thread in the same modes are performed in
+    /// the order posted, so a barrier posted after it is performed after it,
+    /// and after the turn. A callback run after the barrier was posted posts
+    /// behind it, so the barrier is posted again; any part unmet drops it.
+    /// The turns are not counted instead: the window crate folds the
+    /// `wake:`s that land while its responder is inside a call into one, so
+    /// a count taken off per turn would never come back to zero.
+    pub(crate) fn closed<E, P, B: Copy>(
+        judged: Result<(), Unquiet<E, P>>,
+        run: WakesRun,
+        at: &mut Option<AtQuiet<B>>,
+        reached: impl FnOnce(B) -> Reached,
+        post: impl FnOnce() -> B,
+    ) -> Result<(), Unquiet<E, P>> {
+        if let Err(unmet) = judged {
+            *at = None;
+            return Err(unmet);
+        }
+        match *at {
+            Some(posted) if posted.run == run => match reached(posted.barrier) {
+                Reached::Yes => Ok(()),
+                Reached::No => Err(Unquiet::Barrier),
+            },
+            Some(_) | None => {
+                *at = Some(AtQuiet {
+                    barrier: post(),
+                    run,
+                });
+                Err(Unquiet::Barrier)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use core::cell::Cell;
+
+        /// Every part met, as each case starts from.
+        const MET: Parts<&str, &str> = Parts {
+            event: Ok(()),
+            paused: Met::Yes,
+            owed_nothing: Met::Yes,
+            wakes: InFlight(0),
+            paths: Ok(()),
+            signed: Met::Yes,
+        };
+
+        /// **A wake in flight holds quiet off** ([`judge`]): every other part
+        /// met and one wake posted for a moment still to run, or many, is
+        /// not quiet, and the backstop's line says how many; none is. What
+        /// the rig reads into it is `rig::WAKES_IN_FLIGHT`. Break: the
+        /// wakes not judged, so quiet comes with a wake's turn still to run.
+        #[test]
+        fn a_wake_in_flight_holds_quiet_off() {
+            assert_eq!(judge(MET), Ok(()), "every part met");
+            for n in [1, 2, u32::MAX] {
+                let parts = Parts {
+                    wakes: InFlight(n),
+                    ..MET
+                };
+                assert_eq!(judge(parts), Err(Unquiet::Wakes(InFlight(n))), "{n}");
+            }
+        }
+
+        /// **Each part holds quiet off alone, and the first unmet is the one
+        /// named** ([`judge`]): the event not seen, the link running, a frame
+        /// or restart owed, the paths' worker owing, the act's clear unread
+        /// -- each alone is not quiet -- and with all of them unmet the
+        /// event is named, then the link, then a wake. Break: a part not
+        /// judged, and its case is quiet.
+        #[test]
+        fn each_part_holds_quiet_off_and_the_first_unmet_is_named() {
+            let cases = [
+                (
+                    Parts {
+                        event: Err("event"),
+                        ..MET
+                    },
+                    Unquiet::Event("event"),
+                ),
+                (
+                    Parts {
+                        paused: Met::No,
+                        ..MET
+                    },
+                    Unquiet::Link,
+                ),
+                (
+                    Parts {
+                        owed_nothing: Met::No,
+                        ..MET
+                    },
+                    Unquiet::Owed,
+                ),
+                (
+                    Parts {
+                        paths: Err("owed"),
+                        ..MET
+                    },
+                    Unquiet::Paths("owed"),
+                ),
+                (
+                    Parts {
+                        signed: Met::No,
+                        ..MET
+                    },
+                    Unquiet::Act,
+                ),
+            ];
+            for (parts, unmet) in cases {
+                assert_eq!(judge(parts), Err(unmet), "{parts:?}");
+            }
+            let none = Parts {
+                event: Err("event"),
+                paused: Met::No,
+                owed_nothing: Met::No,
+                wakes: InFlight(1),
+                paths: Err("owed"),
+                signed: Met::No,
+            };
+            assert_eq!(judge(none), Err(Unquiet::Event("event")));
+            let seen = Parts {
+                event: Ok(()),
+                ..none
+            };
+            assert_eq!(judge(seen), Err(Unquiet::Link));
+            let settled = Parts {
+                paused: Met::Yes,
+                owed_nothing: Met::Yes,
+                ..seen
+            };
+            assert_eq!(judge(settled), Err(Unquiet::Wakes(InFlight(1))));
+        }
+
+        /// **Quiet closes only behind a barrier performed with no callback
+        /// run since** ([`closed`]): every part met with no barrier posts one
+        /// and is not yet quiet; one not yet performed is not quiet either,
+        /// and nothing more is posted; a callback run since it was posted
+        /// posts it again, that callback's `wake:` being behind the first;
+        /// performed with none run since, it is quiet; and a part unmet
+        /// drops it, so quiet after that waits for a barrier of its own.
+        /// Breaks: quiet at zero with no barrier -- the posting arm quiet,
+        /// the order that left the gap open -- and the callbacks run not
+        /// compared, each red here.
+        #[test]
+        fn quiet_closes_only_behind_a_barrier_performed_with_no_callback_since() {
+            let posts = Cell::new(0_u32);
+            let post = || {
+                posts.set(posts.get() + 1);
+                posts.get()
+            };
+            let never = |_: u32| Reached::No;
+            let performed = |barrier: u32| match barrier == posts.get() {
+                true => Reached::Yes,
+                false => Reached::No,
+            };
+            let met: Result<(), Unquiet<&str, &str>> = Ok(());
+            let unmet: Result<(), Unquiet<&str, &str>> = Err(Unquiet::Link);
+            let (run, since) = (WakesRun(5), WakesRun(6));
+            let mut at = None;
+            assert_eq!(
+                closed(met, run, &mut at, never, post),
+                Err(Unquiet::Barrier),
+                "met at zero: a barrier posted, not yet quiet"
+            );
+            assert_eq!(posts.get(), 1, "one barrier posted");
+            assert_eq!(
+                closed(met, run, &mut at, never, post),
+                Err(Unquiet::Barrier),
+                "not yet performed"
+            );
+            assert_eq!(posts.get(), 1, "and not posted again");
+            assert_eq!(
+                closed(met, since, &mut at, performed, post),
+                Err(Unquiet::Barrier),
+                "a callback run since it was posted"
+            );
+            assert_eq!(posts.get(), 2, "posted again, behind that callback's wake:");
+            assert_eq!(
+                closed(met, since, &mut at, performed, post),
+                Ok(()),
+                "performed, and no callback run since"
+            );
+            assert_eq!(
+                closed(unmet, since, &mut at, performed, post),
+                Err(Unquiet::Link),
+                "a part unmet"
+            );
+            assert_eq!(at, None, "drops the barrier");
+            assert_eq!(
+                closed(met, since, &mut at, performed, post),
+                Err(Unquiet::Barrier),
+                "quiet again waits for a barrier of its own"
+            );
+            assert_eq!(posts.get(), 3);
+        }
     }
 }
 

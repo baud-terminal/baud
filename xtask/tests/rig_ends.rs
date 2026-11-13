@@ -10,11 +10,17 @@
 //! **Rows** ([`rows`]): each `FrameSite` and `Site` literal in
 //! `baud-app/tests/event_rig.rs`. How a row ends is read from the child,
 //! `baud-app/src/app/rig.rs`, not from a list kept here:
-//! - a frame row ends where `run_frames`' last `match rig.ticks` sends its
-//!   `RigFrameTicks`. A variant on the arm that runs `rig.attempts` passes
-//!   of the run loop ends on a count of passes, each one up to the pass's
-//!   timeout: a duration. Any other arm must loop on an event and print a
-//!   label past its bound, or the row is unclassified and the check red;
+//! - a frame row's end is its `RigEnd`, which the parent's one mapping
+//!   (`fn rig_end`) gives what it expects, and the child ends it where
+//!   `run_frames`' `match rig.end` sends that `RigEnd` ([`settles_ends`]
+//!   holds the mapping to naming every `Settles` and none by a wildcard).
+//!   A variant on the arm that runs `rig.attempts` passes of the run loop
+//!   ends on a count of passes, each one up to the pass's timeout: a
+//!   duration. An arm with nothing in it ends where the ticks' own run
+//!   did, the arm of its `RigFrameTicks` in the `match rig.ticks` before
+//!   it. Any other arm, the ticks' included, must loop on an event and
+//!   print a label past its bound, or the row is unclassified and the
+//!   check red;
 //! - an event row's acts are read from `run_arm`'s `match site.cause`, each
 //!   act's `Ends` from `run_call`'s `match act`, and each `Ends`' bound
 //!   from `run`'s `match ends`. An `Ends` that waits for a sentinel ends
@@ -68,8 +74,11 @@ const EFFECT_PROBE: &str = "baud-present-macos/src/probe.rs";
 /// **The rows that end on wall time today**, by name: the conversions'
 /// work list. A row converted to end on its event comes off; none goes on.
 const ENDS_ON_WALL_TIME: &[&str] = &[
-    // A frame row's `RigFrameTicks::Offered` or `Withheld`: `rig.attempts`
-    // passes of the run loop.
+    // A frame row on `RigEnd::Passes`: `rig.attempts` passes of the run
+    // loop, not yet on its event and quiet, which counts no GPU frame in
+    // flight. Among them the splash's first frame, whose cause is open,
+    // and the one link's row, whose blinking caret leaves a restart always
+    // to come, so quiet never does.
     "a static screen pauses the display link",
     "an echo runs the link, and it pauses again",
     "a flash runs the link to its end, then it pauses",
@@ -372,6 +381,8 @@ enum Rig {
     Frame {
         ticks: String,
         attempts: String,
+        /// The `Settles` variant it expects, which its end is mapped from.
+        expect: String,
     },
     Event {
         cause: String,
@@ -435,6 +446,7 @@ fn rows(src: &Source) -> Vec<Row> {
                     ticks: first(r"ticks:\s*RigFrameTicks::(\w+)", &text).unwrap_or_default(),
                     attempts: first(r"attempts:\s*Iterations\(([^)]*)\)", &text)
                         .unwrap_or_default(),
+                    expect: first(r"expect:\s*Settles::(\w+)", &text).unwrap_or_default(),
                 },
                 _ => Rig::Event {
                     cause: first(r"cause:\s*Cause::(\w+)", &text).unwrap_or_default(),
@@ -488,14 +500,31 @@ enum BoundLine {
     Unsaid,
 }
 
+/// **What a `RigEnd` arm of the child's run does**, other than a count.
+#[derive(Clone, Debug)]
+enum EndArm {
+    /// Nothing: the run ended where the ticks' own run did.
+    Ticks,
+    /// A loop of its own: on an event with a label past its bound, or why
+    /// it is not one.
+    Own(Result<(), String>),
+}
+
 /// **How the child ends each kind of row**, read from its source.
 struct Ends {
-    /// The frame rig's `RigFrameTicks` that end on `rig.attempts` passes.
+    /// The frame rig's `RigEnd`s that end on `rig.attempts` passes.
     by_count: Vec<String>,
     /// The longest a pass of those runs waits, as written.
     pass: String,
-    /// Each frame variant on an arm of its own that is not a count: why
-    /// it is not one, or why it cannot be told.
+    /// Each other `RigEnd`'s arm.
+    end_arms: BTreeMap<String, EndArm>,
+    /// The `RigEnd`s whose arm reads the act's clear itself and signs it
+    /// (`act_signed = true`), so no wait after it is that row's.
+    signs: Vec<String>,
+    /// Each `Settles` variant's `RigEnd`, the parent's one mapping.
+    settles_end: BTreeMap<String, String>,
+    /// Each `RigFrameTicks` on an arm of the ticks' run: why it is not an
+    /// end on an event, or why it cannot be told.
     by_event: BTreeMap<String, Result<(), String>>,
     /// Each event act's `Ends`.
     act_ends: BTreeMap<String, String>,
@@ -515,25 +544,29 @@ fn ends(t: &Tree) -> Result<Ends, String> {
         .skel
         .find("fn run_frames(")
         .ok_or("rig.rs: no `fn run_frames`")?;
-    // The run's end: the last `match rig.ticks` in `run_frames` whose arm
-    // runs `rig.attempts` passes.
-    let count_arm = Regex::new(r"(?s)((?:RigFrameTicks::\w+\s*\|\s*)*RigFrameTicks::\w+)\s*=>\s*(run|offer)\(rig\.attempts\.0\)")
-        .expect("a pattern");
+    // The run's end: `run_frames`' `match rig.end`, one of whose arms runs
+    // `rig.attempts` passes.
+    let by_end = block_after(rig, "match rig.end {", frames)
+        .ok_or("rig.rs: no `match rig.end` in `run_frames`")?;
+    let count_arm = Regex::new(
+        r"(?s)((?:RigEnd::\w+\s*\|\s*)*RigEnd::\w+)\s*=>\s*(run|offer)\(rig\.attempts\.0\)",
+    )
+    .expect("a pattern");
     let found = count_arm
-        .captures(&rig.code[frames..])
-        .ok_or("rig.rs: no arm of `run_frames` runs `rig.attempts` passes")?;
-    let by_count = all(r"RigFrameTicks::(\w+)", &found[1]);
-    let at = frames + found.get(0).map_or(0, |m| m.start());
-    // The `match rig.ticks` that holds that arm: one nested in another arm
-    // closes before it.
-    let end_match = rig.skel[frames..at]
+        .captures(&rig.code[by_end.0..by_end.1])
+        .ok_or("rig.rs: no arm of `match rig.end` runs `rig.attempts` passes")?;
+    let by_count = all(r"RigEnd::(\w+)", &found[1]);
+    // The ticks' own run: the `match rig.ticks` before it that closes
+    // last, so neither one nested in another arm nor the run's closure.
+    let end_match = rig.skel[frames..by_end.0]
         .match_indices("match rig.ticks {")
         .map(|(p, m)| {
             let open = frames + p + m.len() - 1;
             (open, close(&rig.skel, open))
         })
-        .find(|&(_, end)| end > at)
-        .ok_or("rig.rs: the count's arm is in no `match rig.ticks`")?;
+        .filter(|&(_, end)| end <= by_end.0)
+        .max_by_key(|&(_, end)| end)
+        .ok_or("rig.rs: no `match rig.ticks` before `match rig.end`")?;
     // A pass's longest wait: the `offer` and `run` closures' passes.
     let mut pass = String::new();
     for head in ["let offer = |", "let run = |"] {
@@ -547,26 +580,40 @@ fn ends(t: &Tree) -> Result<Ends, String> {
     if pass.is_empty() {
         return Err("rig.rs: no pass of a timeout in `offer` or `run`".to_owned());
     }
-    let mut by_event = BTreeMap::new();
     let a_loop = Regex::new(r"\b(while|loop)\b").expect("a pattern");
     let a_label = Regex::new(r"println!\(|\bfail\(|break Some\(").expect("a pattern");
+    let verdict = |v: &str, body: &str| match (a_loop.is_match(body), a_label.is_match(body)) {
+        (true, true) => Ok(()),
+        (false, _) => Err(format!(
+            "{v}: its arm has no loop, and so waits on no event"
+        )),
+        (true, false) => Err(format!("{v}: its loop prints no label past its bound")),
+    };
+    let mut by_event = BTreeMap::new();
     for (pattern, body) in arms(rig, end_match) {
         for v in all(r"RigFrameTicks::(\w+)", &pattern) {
+            let judged = verdict(&v, &body);
+            by_event.insert(v, judged);
+        }
+    }
+    let mut end_arms = BTreeMap::new();
+    let mut signs = Vec::new();
+    for (pattern, body) in arms(rig, by_end) {
+        for v in all(r"RigEnd::(\w+)", &pattern) {
+            if body.contains("act_signed = true") {
+                signs.push(v.clone());
+            }
             if by_count.contains(&v) {
                 continue;
             }
-            let looped = a_loop.is_match(&body);
-            let labelled = a_label.is_match(&body);
-            let verdict = match (looped, labelled) {
-                (true, true) => Ok(()),
-                (false, _) => Err(format!(
-                    "{v}: its arm has no loop, and so waits on no event"
-                )),
-                (true, false) => Err(format!("{v}: its loop prints no label past its bound")),
+            let arm = match body.trim_matches(|c: char| c == '{' || c == '}' || c.is_whitespace()) {
+                "" => EndArm::Ticks,
+                _ => EndArm::Own(verdict(&v, &body)),
             };
-            by_event.insert(v, verdict);
+            end_arms.insert(v, arm);
         }
     }
+    let settles_end = settles_ends(&t.event_rig).map_err(|red| red.join("; "))?;
     // The event rig: each act's `Ends`, the default the thread's own.
     let default = first(r"static ENDS:[^;]*Cell::new\(Ends::(\w+)\)", &rig.code)
         .ok_or("rig.rs: no default `Ends`")?;
@@ -617,12 +664,88 @@ fn ends(t: &Tree) -> Result<Ends, String> {
     Ok(Ends {
         by_count,
         pass,
+        end_arms,
+        signs,
+        settles_end,
         by_event,
         act_ends,
         ends_bound,
         bound_line,
         cause_acts,
     })
+}
+
+/// **The parent's one mapping from what a frame row expects to its end**
+/// (`event_rig.rs`, `fn rig_end`), read arm by arm: each `Settles`
+/// variant and its `RigEnd`. Red, with each reason, on an arm that names
+/// a variant by a wildcard or a binding -- one that would end a variant
+/// added later without its end being chosen -- on a variant of
+/// `enum Settles` named on no arm or on two, and on an arm with no one
+/// `RigEnd`.
+fn settles_ends(src: &Source) -> Result<BTreeMap<String, String>, Vec<String>> {
+    let mut red = Vec::new();
+    let Some(at) = src.skel.find("fn rig_end(") else {
+        return Err(vec!["event_rig.rs: no `fn rig_end`".to_owned()]);
+    };
+    let Some(by) = block_after(src, "match expect {", at) else {
+        return Err(vec![
+            "event_rig.rs: `rig_end` has no `match expect`".to_owned(),
+        ]);
+    };
+    let Some(settles) = block_after(src, "enum Settles {", 0) else {
+        return Err(vec!["event_rig.rs: no `enum Settles`".to_owned()]);
+    };
+    let variant =
+        Regex::new(r"^Settles::(\w+)\s*(?:\(\s*\.\.\s*\)|\{\s*\.\.\s*\})?$").expect("a pattern");
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for (pattern, body) in arms(src, by) {
+        let ends = all(r"RigEnd::(\w+)", &body);
+        let [end] = ends.as_slice() else {
+            red.push(format!("the arm `{pattern}` names {} ends", ends.len()));
+            continue;
+        };
+        // The alternatives, split at the top level's `|`.
+        let mut alts = Vec::new();
+        let (mut depth, mut from) = (0_i32, 0);
+        for (k, c) in pattern.char_indices() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                '|' if depth == 0 => {
+                    alts.push(pattern[from..k].trim());
+                    from = k + 1;
+                }
+                _ => {}
+            }
+        }
+        alts.push(pattern[from..].trim());
+        for alt in alts {
+            match variant.captures(alt) {
+                Some(c) => {
+                    if map.insert(c[1].to_owned(), end.clone()).is_some() {
+                        red.push(format!("Settles::{} is on two arms", &c[1]));
+                    }
+                }
+                None => red.push(format!(
+                    "`{alt}` names no one Settles variant: a wildcard or a binding ends what is added later unchosen"
+                )),
+            }
+        }
+    }
+    let body = &src.code[settles.0 + 1..settles.1 - 1];
+    let declared = all(r"(?m)^\s{4}([A-Z]\w*)\b", body);
+    if declared.is_empty() {
+        red.push("enum Settles: no variant found".to_owned());
+    }
+    for v in &declared {
+        if !map.contains_key(v) {
+            red.push(format!("Settles::{v} has no end in `rig_end`"));
+        }
+    }
+    match red.is_empty() {
+        true => Ok(map),
+        false => Err(red),
+    }
 }
 
 /// What ends a row.
@@ -640,25 +763,43 @@ enum End {
 fn end_of(row: &Row, e: &Ends, t: &Tree) -> End {
     let files = [&t.rig, &t.rig_call];
     match &row.rig {
-        Rig::Frame { ticks, attempts } => {
-            if e.by_count.contains(ticks) {
+        Rig::Frame {
+            ticks,
+            attempts,
+            expect,
+        } => {
+            let Some(end) = e.settles_end.get(expect) else {
+                return End::Unknown(format!("Settles::{expect:?}: no end in `rig_end`"));
+            };
+            if e.by_count.contains(end) {
                 let n: Option<f64> = attempts.parse().ok();
                 let up_to = match (n, e.pass.parse::<f64>().ok()) {
                     (Some(n), Some(p)) => format!(", up to {:.1} s", n * p),
                     _ => String::new(),
                 };
                 return End::WallTime(format!(
-                    "RigFrameTicks::{ticks}: ends after {attempts} passes of the run loop, \
-                     each up to {} s (`run(rig.attempts.0)`){up_to}",
+                    "RigEnd::{end} (Settles::{expect}): ends after {attempts} passes of the run \
+                     loop, each up to {} s (`run(rig.attempts.0)`){up_to}",
                     e.pass
                 ));
             }
-            match e.by_event.get(ticks) {
-                Some(Ok(())) => End::Event,
-                Some(Err(why)) => End::Unknown(why.clone()),
-                None => End::Unknown(format!(
-                    "RigFrameTicks::{ticks}: on no arm of the run's end"
-                )),
+            let judged = match e.end_arms.get(end) {
+                Some(EndArm::Own(judged)) => judged,
+                Some(EndArm::Ticks) => match e.by_event.get(ticks) {
+                    Some(judged) => judged,
+                    None => {
+                        return End::Unknown(format!(
+                            "RigFrameTicks::{ticks}: on no arm of the ticks' run"
+                        ));
+                    }
+                },
+                None => {
+                    return End::Unknown(format!("RigEnd::{end}: on no arm of the run's end"));
+                }
+            };
+            match judged {
+                Ok(()) => End::Event,
+                Err(why) => End::Unknown(why.clone()),
             }
         }
         Rig::Event {
@@ -796,19 +937,21 @@ fn no_rig_row_ends_on_wall_time() {
 }
 
 /// **The check's own controls**, on rows written here over the child's
-/// real source: a frame row on a count of passes is named and one on its
-/// event is not; an event row recorded as `BoundPassed` is named and a
+/// real source and the parent's real mapping: a frame row on a count of
+/// passes is named and one on its ticks' event or on quiet is not; an
+/// event row recorded as `BoundPassed` is named and a
 /// green one is not, its bound said on a line of its own -- and named
 /// once the child's line is taken out; a frame row on an arm the run's end
 /// does not have is unclassified, never passed.
 #[test]
 fn the_check_names_a_count_of_passes_and_not_an_event() {
     let mut t = tree();
-    let frame = |name: &str, ticks: &str| {
+    let frame = |name: &str, ticks: &str, expect: &str| {
         format!(
             "    FrameSite {{\n        name: SiteName(\"{name}\"),\n        setup: STILL,\n        \
              act: \"\",\n        ticks: RigFrameTicks::{ticks},\n        window: RigWindow::Released,\n        \
-             attempts: Iterations(200),\n        state: RowState::Green,\n    }},\n"
+             attempts: Iterations(200),\n        expect: Settles::{expect},\n        \
+             state: RowState::Green,\n    }},\n"
         )
     };
     let event = |name: &str, state: &str| {
@@ -824,13 +967,16 @@ fn the_check_names_a_count_of_passes_and_not_an_event() {
         real[at..close(&lex(real).skel, open)].to_owned()
     };
     let text = format!(
-        "const LINK_CLICK: Gesture = Gesture {{ act: RigAct::Link, }};\n{}\n{}\n\
-         const ROWS: [FrameSite; 3] = [\n{}{}{}];\nconst EVENTS: [Site; 2] = [\n{}{}];\n",
+        "const LINK_CLICK: Gesture = Gesture {{ act: RigAct::Link, }};\n{}\n{}\n{}\n{}\n\
+         const ROWS: [FrameSite; 4] = [\n{}{}{}{}];\nconst EVENTS: [Site; 2] = [\n{}{}];\n",
         keep("fn run_arm("),
+        keep("enum Settles {"),
+        keep("fn rig_end("),
         "fn after() {}",
-        frame("on a count", "Withheld"),
-        frame("on its event", "UntilAsked"),
-        frame("on no arm", "Sideways"),
+        frame("on a count", "Withheld", "Greeted"),
+        frame("on its event", "UntilAsked", "Filed(\"/x\")"),
+        frame("on no arm", "Sideways", "Marked(1)"),
+        frame("on quiet", "Withheld", "StillOnCpu"),
         event(
             "waits out its bound",
             "RowState::Control(Failure::BoundPassed)"
@@ -849,6 +995,7 @@ fn the_check_names_a_count_of_passes_and_not_an_event() {
     assert!(matches!(end("on a count"), End::WallTime(_)), "{judged:#?}");
     assert_eq!(end("on its event"), End::Event);
     assert!(matches!(end("on no arm"), End::Unknown(_)), "{judged:#?}");
+    assert_eq!(end("on quiet"), End::Event);
     assert!(
         matches!(end("waits out its bound"), End::WallTime(_)),
         "{judged:#?}"
@@ -865,6 +1012,103 @@ fn the_check_names_a_count_of_passes_and_not_an_event() {
             .iter()
             .any(|(r, e)| r.name == "ends on its effect" && matches!(e, End::WallTime(_))),
         "{unsaid:#?}"
+    );
+}
+
+/// **Every `Settles` has its end, chosen by name**: the parent's one
+/// mapping (`rig_end`) names every variant of `Settles` on one arm and
+/// none by a wildcard or a binding, each arm one `RigEnd`, and each
+/// `RigEnd` it gives is one the child's run ends on. Its controls, on the
+/// real mapping: a `_` arm added, a variant taken off its arm, and a
+/// variant named twice are each red. Break: a `_` arm in `rig_end`.
+#[test]
+fn every_settles_has_its_end_chosen_by_name() {
+    let t = tree();
+    let map = settles_ends(&t.event_rig).unwrap_or_else(|red| panic!("{}", red.join("\n")));
+    let e = ends(&t).unwrap_or_else(|why| panic!("the child's ends could not be read: {why}"));
+    let unended: Vec<String> = map
+        .iter()
+        .filter(|(_, end)| !e.by_count.contains(end) && !e.end_arms.contains_key(*end))
+        .map(|(s, end)| format!("Settles::{s} -> RigEnd::{end}"))
+        .collect();
+    assert!(
+        unended.is_empty(),
+        "ends the child's run has no arm for: {unended:?}"
+    );
+    let real = &t.event_rig.code;
+    let head = "match expect {";
+    let at = real.find("fn rig_end(").expect("rig_end");
+    let open = at + real[at..].find(head).expect("its match") + head.len();
+    let wild = format!(
+        "{}\n        _ => RigEnd::Passes,{}",
+        &real[..open],
+        &real[open..]
+    );
+    let red = settles_ends(&lex(&wild)).expect_err("a `_` arm");
+    assert!(red.iter().any(|r| r.contains("wildcard")), "{red:?}");
+    let off = "        | Settles::OffHook => RigEnd::Passes,";
+    assert_eq!(real.matches(off).count(), 1, "the last arm's last variant");
+    let dropped = real.replace(off, "        => RigEnd::Passes,");
+    let red = settles_ends(&lex(&dropped)).expect_err("a variant with no end");
+    assert!(
+        red.iter().any(|r| r.contains("OffHook has no end")),
+        "{red:?}"
+    );
+    let twice = real.replace(
+        off,
+        "        | Settles::OffHook\n        | Settles::Still => RigEnd::Passes,",
+    );
+    let red = settles_ends(&lex(&twice)).expect_err("a variant on two arms");
+    assert!(
+        red.iter().any(|r| r.contains("Still is on two arms")),
+        "{red:?}"
+    );
+}
+
+/// **Every row that ends on quiet draws on the CPU**: quiet counts no
+/// frame in flight, and a GPU frame's completion wakes the window from the
+/// GPU's thread, which a barrier posted from the main thread is not
+/// ordered after (rig.rs, `quiet`). So until a frame in flight is a part
+/// of quiet, every frame row whose `Settles` the mapping (`rig_end`) ends
+/// on `RigEnd::Quiet` or `RigEnd::QuietOffered` sets `BAUD_GPU` to `cpu`
+/// in its own environment, as the CPU twins do. Its controls, on the real
+/// rows: at least one row ends on quiet, so the check reads something, and
+/// with the CPU's setting spelled otherwise every such row is named.
+/// Break: a twin's `BAUD_GPU` taken off.
+#[test]
+fn every_row_that_ends_on_quiet_draws_on_the_cpu() {
+    const CPU: &str = r#"("BAUD_GPU", "cpu")"#;
+    let t = tree();
+    let map = settles_ends(&t.event_rig).unwrap_or_else(|red| panic!("{}", red.join("\n")));
+    let on_quiet = |r: &Row| match &r.rig {
+        Rig::Frame { expect, .. } => map
+            .get(expect)
+            .is_some_and(|end| end == "Quiet" || end == "QuietOffered"),
+        Rig::Event { .. } => false,
+    };
+    let on_gpu = |src: &Source| -> Vec<String> {
+        rows(src)
+            .iter()
+            .filter(|r| on_quiet(r) && !r.text.contains(CPU))
+            .map(|r| r.name.clone())
+            .collect()
+    };
+    let quiet: Vec<String> = rows(&t.event_rig)
+        .iter()
+        .filter(|r| on_quiet(r))
+        .map(|r| r.name.clone())
+        .collect();
+    assert!(!quiet.is_empty(), "no row ends on quiet: nothing is read");
+    assert_eq!(
+        on_gpu(&t.event_rig),
+        Vec::<String>::new(),
+        "rows that end on quiet and may draw on the GPU"
+    );
+    let spelled = lex(&t.event_rig.code.replace(CPU, r#"("BAUD_GPU", "auto")"#));
+    assert_eq!(
+        on_gpu(&spelled),
+        quiet,
+        "the control: with the CPU's setting spelled otherwise, every row on quiet is named"
     );
 }
 
@@ -917,8 +1161,9 @@ enum Reach {
     EveryFrameRow,
     /// Frame rows whose act ends with the pasteboard's clear and whose
     /// clear no step before has waited for: not a `Released` window's,
-    /// whose settle signs it, nor `UntilMarked`'s, whose run does
-    /// (`act_signed`).
+    /// whose settle signs it, nor `UntilMarked`'s, whose run does, nor a
+    /// row whose `RigEnd` (the parent's mapping of what it expects) has an
+    /// arm that does, as quiet's (`act_signed`).
     FrameRowsWhoseActClears,
     /// Event rows of these causes.
     EventCauses(&'static [&'static str]),
@@ -928,14 +1173,19 @@ enum Reach {
     Named(&'static [&'static str]),
 }
 
-fn reaches(reach: Reach, r: &Row) -> bool {
+fn reaches(reach: Reach, r: &Row, e: &Ends) -> bool {
     match (reach, &r.rig) {
         (Reach::EveryFrameRow, Rig::Frame { .. }) => true,
-        (Reach::FrameRowsWhoseActClears, Rig::Frame { ticks, .. }) => {
+        (Reach::FrameRowsWhoseActClears, Rig::Frame { ticks, expect, .. }) => {
             let window = first(r"window:\s*RigWindow::(\w+)", &r.text).unwrap_or_default();
+            let signed_at_its_end = e
+                .settles_end
+                .get(expect)
+                .is_some_and(|end| e.signs.contains(end));
             first(r"(?s)act:\s*(.*?)\n\s*keys:", &r.text).is_some_and(|a| a.contains("]52;c;!"))
                 && !window.starts_with("Released")
                 && ticks != "UntilMarked"
+                && !signed_at_its_end
         }
         (Reach::EventCauses(c), Rig::Event { cause, .. }) => c.contains(&cause.as_str()),
         (Reach::FrameWindows(w), Rig::Frame { .. }) => {
@@ -1236,10 +1486,17 @@ const SITES: &[Site] = &[
     ),
     site(
         RIG,
-        "RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),",
+        "RigEnd::Passes => run(rig.attempts.0),",
         Times(1),
         Kind::RowEnd,
-        "Offered and Withheld: `rig.attempts` passes, the rows of ENDS_ON_WALL_TIME",
+        "RigEnd::Passes: `rig.attempts` passes, the rows of ENDS_ON_WALL_TIME",
+    ),
+    site(
+        RIG,
+        "while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {",
+        Times(1),
+        Kind::RowEnd,
+        "RigEnd::Quiet and QuietOffered: the row's event and quiet, \"bound passed before quiet\" past the backstop",
     ),
     site(
         RIG,
@@ -1491,6 +1748,16 @@ fn every_wall_clock_wait_in_the_rig_is_classified() {
         _ => &t.paths_probe,
     };
     let rows = rows(&t.event_rig);
+    let e = ends(&t).unwrap_or_else(|why| panic!("the child's ends could not be read: {why}"));
+    // The arms that sign the act's clear, found: a reach that leaves them
+    // out reads a list that is not empty by accident.
+    for end in ["Quiet", "QuietOffered"] {
+        assert!(
+            e.signs.iter().any(|s| s == end),
+            "RigEnd::{end}'s arm signs the act's clear: {:?}",
+            e.signs
+        );
+    }
     let mut offending = String::new();
     for (i, s) in SITES.iter().enumerate() {
         if Times(times[i]) != s.times {
@@ -1518,7 +1785,7 @@ fn every_wall_clock_wait_in_the_rig_is_classified() {
         if let Kind::Window(reach) | Kind::FailOpen(reach) = s.kind {
             let reached: Vec<&str> = rows
                 .iter()
-                .filter(|r| reaches(reach, r))
+                .filter(|r| reaches(reach, r, &e))
                 .map(|r| r.name.as_str())
                 .collect();
             if reached.is_empty() {

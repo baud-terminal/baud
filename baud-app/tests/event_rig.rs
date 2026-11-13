@@ -42,8 +42,8 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, RigAct, RigCall, RigFocus, RigFrameTicks, RigHolders, RigKeys,
-    RigTicks, RigWindow,
+    EventRig, FrameRig, Iterations, RigAct, RigCall, RigEnd, RigFocus, RigFrameTicks, RigHolders,
+    RigKeys, RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -2121,6 +2121,12 @@ enum Settles {
     /// Nothing owed: paused all through, no tick delivered, nothing sent,
     /// nothing drawn.
     Still,
+    /// **[`Settles::Still`] on the CPU path** (`BAUD_GPU=cpu`), a GPU row's
+    /// CPU twin: what it holds, and the layer last set from the CPU, so no
+    /// frame was drawn on the GPU, whose completion quiet does not count.
+    /// Its run ends on quiet, then on the ticks offered there
+    /// ([`RigEnd::QuietOffered`]).
+    StillOnCpu,
     /// Run again by what was owed -- the act's frame or a clock's -- and
     /// paused again: at least `drawn` frames drawn, at most `delivered`
     /// ticks taken for them, at least a run and a pause sent, paused at the
@@ -2317,6 +2323,7 @@ impl Settles {
             Settles::Still => {
                 c.link == LinkSeen::Pause && c.delivered == 0 && c.sends == 0 && c.drawn == 0
             }
+            Settles::StillOnCpu => Settles::Still.holds(c) && c.layer == LayerSeen::Cpu,
             Settles::Restarts { drawn, delivered } => {
                 c.link == LinkSeen::Pause
                     && c.drawn >= drawn
@@ -2474,6 +2481,78 @@ impl Settles {
     }
 }
 
+/// **What ends a frame row's run, by what it expects** (`RigEnd`): the
+/// one place the two are paired, so a row's end cannot drift from what it
+/// is judged on. Every arm names its variants, none by a wildcard, so a
+/// variant added to [`Settles`] does not compile until its end is chosen
+/// here (xtask's `rig_ends` holds the arms to that, and every row on
+/// [`RigEnd::Passes`] to its list of rows that end on wall time).
+///
+/// - the rows whose ticks have a run of their own: that run.
+/// - the CPU twins ([`Settles::StillOnCpu`]): quiet, then the ticks
+///   offered there ([`RigEnd::QuietOffered`]). On the CPU path a frame has
+///   no completion to wake the window from another thread, and the twins
+///   reach no producer quiet does not count once their setup has settled.
+/// - every other: a count of passes, for now. Each of these but the
+///   splash's first frame sets no `BAUD_GPU` and so draws on the GPU where
+///   there is one, whose completion wakes the window from the GPU's
+///   thread, and quiet counts no frame in flight; their link on the GPU
+///   path is what they guard, so a CPU twin is a row of its own and never
+///   their replacement. [`Settles::Still`] takes
+///   [`RigEnd::QuietOffered`] once a frame in flight is a part of quiet,
+///   and [`Settles::AliveAtBound`] `RigEnd::Quiet(RigEvent::AliveAnswered)`
+///   once the pty's reader and the process watch are too: its act runs
+///   `dd` and `stty`, whose exits the process watch's thread hears, and the
+///   shell's prompt follows its clear, which the reader's thread reads, so
+///   it has no CPU twin on quiet yet. [`Settles::OneLink`] waits for a
+///   reason of its own: its caret blinks, so a restart's wake is always to
+///   come and quiet never is; it waits for a run that ends on the caret's
+///   flips. [`Settles::GreetedFirst`], the splash's first frame, stays on
+///   its count while its cause is open.
+fn rig_end(expect: Settles) -> RigEnd {
+    match expect {
+        Settles::Blinks { .. }
+        | Settles::ReadOnce
+        | Settles::ReadByEvents
+        | Settles::Filed(..)
+        | Settles::Marked(..)
+        | Settles::MarkedOnD
+        | Settles::PastFloor(..) => RigEnd::Ticks,
+        Settles::StillOnCpu => RigEnd::QuietOffered,
+        Settles::Still
+        | Settles::AliveAtBound
+        | Settles::Restarts { .. }
+        | Settles::OneLink
+        | Settles::Expires
+        | Settles::Restyled
+        | Settles::Focused(..)
+        | Settles::Accessed
+        | Settles::Previewed
+        | Settles::Unread { .. }
+        | Settles::ReadByFrame
+        | Settles::Titled(..)
+        | Settles::Reaped
+        | Settles::Followed
+        | Settles::PreviewedUnticked
+        | Settles::Greeted
+        | Settles::GreetedFirst
+        | Settles::AliveByList
+        | Settles::Expired
+        | Settles::Handed
+        | Settles::GpuHeld
+        | Settles::GpuFailed
+        | Settles::OpenedOnCpu
+        | Settles::GaveUpStuck
+        | Settles::LaunchGaveUp
+        | Settles::GaveUpFailing
+        | Settles::FailedTwice
+        | Settles::GaveUpRevoked
+        | Settles::DarkOnD
+        | Settles::Darkened
+        | Settles::OffHook => RigEnd::Passes,
+    }
+}
+
 /// One frame row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct FrameSite {
@@ -2531,7 +2610,7 @@ const FULL: &str = r"seq 1 300; printf 'baud\033]52;c;!\007'";
 /// thirty a flip at 250 ms.
 const TICKS_A_FLIP: u64 = 3;
 
-const FRAME_SITES: [FrameSite; 42] = [
+const FRAME_SITES: [FrameSite; 44] = [
     // **R1, the done-condition's row**: a static screen's link pauses and
     // no tick reaches the view. Stage 3 closes on this row's kept arm,
     // never on its lifted one.
@@ -2547,6 +2626,27 @@ const FRAME_SITES: [FrameSite; 42] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Still,
+        state: RowState::Green,
+    },
+    // **R1's CPU twin**: the static screen on the CPU path (`BAUD_GPU=cpu`),
+    // whose frames have no completion to wake the window from another
+    // thread, so its run ends on quiet and then on the ticks offered there
+    // (`RigEnd::QuietOffered`). Its ticks are withheld after the settle, so
+    // those are the only ticks it is offered: a link that runs with nothing
+    // owed takes them. Its count is R1's and unread. R1 stays on its count,
+    // on the GPU, whose link is what it guards.
+    FrameSite {
+        name: SiteName("a static screen pauses the display link (CPU twin)"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_GPU", "cpu")],
+        config: NO_SPLASH,
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::StillOnCpu,
         state: RowState::Green,
     },
     // **R2**: a blinking caret runs the link at each flip, scheduled a
@@ -2670,6 +2770,26 @@ const FRAME_SITES: [FrameSite; 42] = [
         focus: RigFocus::Real,
         attempts: Iterations(100),
         expect: Settles::Still,
+        state: RowState::Green,
+    },
+    // **Its CPU twin**, ended as R1's twin is: on the CPU path a present
+    // wakes the window while the splash waits (`layer_presented`), a
+    // `wake:` posted on the main thread inside the turn that drew, so
+    // before any barrier quiet posts after it, and the plasma the splash
+    // also waits for is never built: no window is shown, and the CPU path
+    // has none to build.
+    FrameSite {
+        name: SiteName("a splash waiting for its window holds no link (CPU twin)"),
+        setup: STILL,
+        act: "",
+        keys: RigKeys::Line,
+        ticks: RigFrameTicks::Withheld,
+        window: RigWindow::Untold,
+        env: &[("BAUD_GPU", "cpu")],
+        config: "[cursor]\ntrail = \"off\"\n",
+        focus: RigFocus::Real,
+        attempts: Iterations(100),
+        expect: Settles::StillOnCpu,
         state: RowState::Green,
     },
     // **FS-A17**: the splash starts on the turn its window is shown, the
@@ -3520,6 +3640,7 @@ fn run_frames_in(site: &FrameSite, dir: &Path, holders: RigHolders) -> Result<Co
         window: site.window,
         keys: site.keys,
         ticks: site.ticks,
+        end: rig_end(site.expect),
     });
     let out = Command::new(env!("CARGO_BIN_EXE_baud"))
         .args(call.to_args())

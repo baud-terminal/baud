@@ -24,7 +24,9 @@ use macos_liquid_glass::objc2::MainThreadMarker;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{Message, msg_send, sel};
 use macos_liquid_glass::objc2_app_kit::{NSApplication, NSEventMask};
-use macos_liquid_glass::objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint};
+use macos_liquid_glass::objc2_foundation::{
+    NSArray, NSDate, NSDefaultRunLoopMode, NSMutableArray, NSObject, NSPoint, NSRunLoopCommonModes,
+};
 use macos_liquid_glass::objc2_quartz_core::CADisplayLink;
 
 /// Where a call runs.
@@ -1076,6 +1078,73 @@ pub fn woke() {
 /// The wakes delivered so far.
 pub fn wakes() -> Wakes {
     WAKES.with(Cell::get)
+}
+
+/// **A barrier through the main thread's performs**, for the frame rig's
+/// quiet: a `performSelectorOnMainThread:` of its own ([`barrier`]),
+/// posted from the main thread in the common modes, as `Waker::wake` posts
+/// each `wake:`. Apple's reference for that method: "Multiple calls to
+/// this method from the same thread cause the corresponding selectors to
+/// be queued and performed in the same same order in which the calls were
+/// made, assuming the associated run loop modes for each selector are the
+/// same." So once a barrier has been performed ([`reached`]), so has every
+/// `wake:` the main thread posted before it. Its target is a list only the
+/// probe holds, so it wakes no responder and moves no count a row reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Barrier(usize);
+
+/// Whether a [`Barrier`] has been performed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reached {
+    No,
+    Yes,
+}
+
+thread_local! {
+    /// The list each barrier adds its marker to as it is performed.
+    static BARRIERS: RefCell<Option<Retained<NSMutableArray<NSObject>>>> =
+        const { RefCell::new(None) };
+    /// The barriers posted.
+    static BARRIERS_POSTED: Cell<usize> = const { Cell::new(0) };
+}
+
+/// **Posts a [`Barrier`]**, from the main thread, to be performed behind
+/// whatever the main thread has posted before it in the same modes.
+pub fn barrier() -> Barrier {
+    let posted = BARRIERS_POSTED.with(|p| {
+        let n = p.get().saturating_add(1);
+        p.set(n);
+        n
+    });
+    BARRIERS.with_borrow_mut(|b| {
+        let list = b.get_or_insert_with(NSMutableArray::<NSObject>::new);
+        let marker = NSObject::new();
+        // SAFETY: `addObject:` takes one object and returns nothing; the
+        // list and the marker are retained by the perform until it has
+        // run. Not waited for, so it is queued even on the main thread; in
+        // the common modes, `Waker::wake`'s, a framework constant.
+        unsafe {
+            let modes = NSArray::from_slice(&[NSRunLoopCommonModes]);
+            let () = msg_send![
+                &**list,
+                performSelectorOnMainThread: sel!(addObject:),
+                withObject: &*marker,
+                waitUntilDone: false,
+                modes: &*modes,
+            ];
+        }
+    });
+    Barrier(posted)
+}
+
+/// Whether `posted` has been performed: as many markers in the list as
+/// barriers posted up to it.
+pub fn reached(posted: Barrier) -> Reached {
+    let performed = BARRIERS.with_borrow(|b| b.as_ref().map_or(0, |list| list.count()));
+    match performed >= posted.0 {
+        true => Reached::Yes,
+        false => Reached::No,
+    }
 }
 
 /// The view whose `wake:` [`record`] queues before its nested call.

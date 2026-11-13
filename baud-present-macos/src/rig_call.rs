@@ -59,7 +59,65 @@ pub struct FrameRig {
     pub keys: RigKeys,
     /// Whether the ticks after the act reach the view.
     pub ticks: RigFrameTicks,
+    /// What ends the run once the window is told: the parent's one
+    /// mapping from what the row expects (`event_rig.rs`, `rig_end`).
+    pub end: RigEnd,
 }
+
+/// **What ends a frame row's run**, once the window has been told and the
+/// ticks' own steps are done: a count of passes, the ticks' own event, or
+/// the row's event and quiet (baud-app's `rig::Quiet`) -- the positive
+/// witness that nothing more can happen without an outside event: the
+/// link paused, no frame owed, no wake posted for a moment still to run,
+/// no printed paths' batch owed or out, and the act's clear read if it
+/// has one -- then read again behind a barrier through the main thread's
+/// performs (`probe::barrier`), so the turn a wake's callback posted has
+/// run. A run that ends on quiet is judged at quiet, so every negative
+/// a row asserts -- nothing delivered, nothing read, nothing asked -- is
+/// asserted where nothing is left to make it false, not over a window of
+/// passes. [`SENTINEL_BACKSTOP`] past the window's step with no quiet is a
+/// bound that, reached, says which part of quiet never came.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigEnd {
+    /// `attempts` passes of the run loop, the ticks offered or withheld:
+    /// wall time, each such row on the parent's list with its reason.
+    Passes,
+    /// The ticks' own run ends it on its event ([`RigFrameTicks::UntilFlips`],
+    /// [`RigFrameTicks::OneAfterFeeds`], [`RigFrameTicks::EventFrames`],
+    /// [`RigFrameTicks::UntilMarked`], [`RigFrameTicks::UntilAsked`]); a row
+    /// whose ticks have no run of their own is refused.
+    Ticks,
+    /// The event, then quiet.
+    Quiet(RigEvent),
+    /// Quiet, then [`QUIET_OFFERS`] ticks offered through the rig's own
+    /// ticker, of which the link may take none: a link that runs with no
+    /// frame owed is seen in offered events, not in seconds.
+    QuietOffered,
+}
+
+/// **The event a quiet end waits for first**, read through the probe's
+/// doors.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RigEvent {
+    /// None beyond the window's step, which waited for its own.
+    Settled,
+    /// A held `p=alive` answered, by the list or at its bound
+    /// (`probe::alive_answered`).
+    AliveAnswered,
+}
+
+/// **How many ticks [`RigEnd::QuietOffered`] offers at quiet**: a link
+/// that runs takes the first one offered; eight is margin for one that
+/// starts late in the run loop, counted in ticks, not time.
+pub const QUIET_OFFERS: u16 = 8;
+
+const ENDS: [(RigEnd, &str); 5] = [
+    (RigEnd::Passes, "end-passes"),
+    (RigEnd::Ticks, "end-ticks"),
+    (RigEnd::Quiet(RigEvent::Settled), "end-quiet"),
+    (RigEnd::Quiet(RigEvent::AliveAnswered), "end-quiet-alive"),
+    (RigEnd::QuietOffered, "end-quiet-offered"),
+];
 
 /// **Whether the polls still the tick's hold the display link**: kept,
 /// as every real build has them, or lifted, the probe's ceiling arm, so
@@ -393,6 +451,7 @@ impl RigCall {
                 window,
                 keys,
                 ticks,
+                end,
             }) => {
                 return vec![
                     FRAME_RIG.to_owned(),
@@ -404,6 +463,7 @@ impl RigCall {
                     word(&WINDOW, *window).to_owned(),
                     word(&KEYS, *keys).to_owned(),
                     word(&FRAME_TICKS, *ticks).to_owned(),
+                    word(&ENDS, *end).to_owned(),
                 ];
             }
         };
@@ -430,8 +490,20 @@ impl RigCall {
     /// they make none: anything but a well-formed rig call is refused.
     pub fn parse(args: &[String]) -> Result<RigCall, Refused> {
         if args.first().is_some_and(|f| f == FRAME_RIG) {
-            let [_, setup, act, attempts, focus, holders, window, keys, ticks] = args else {
-                return Err(Refused("--frame-rig takes eight arguments"));
+            let [
+                _,
+                setup,
+                act,
+                attempts,
+                focus,
+                holders,
+                window,
+                keys,
+                ticks,
+                end,
+            ] = args
+            else {
+                return Err(Refused("--frame-rig takes nine arguments"));
             };
             return Ok(RigCall::Frames(FrameRig {
                 setup: setup.clone(),
@@ -445,6 +517,7 @@ impl RigCall {
                 window: of(&WINDOW, window).ok_or(Refused("--frame-rig: no such window event"))?,
                 keys: of(&KEYS, keys).ok_or(Refused("--frame-rig: no such keys"))?,
                 ticks: of(&FRAME_TICKS, ticks).ok_or(Refused("--frame-rig: no such ticks"))?,
+                end: of(&ENDS, end).ok_or(Refused("--frame-rig: no such end"))?,
             }));
         }
         let [flag, act, arg, iterations, ticks, focus, each] = args else {
@@ -489,7 +562,9 @@ mod tests {
 
     /// **A call parses back to itself, and nothing else parses**: no
     /// arguments, a plain launch's, one too few or too many, and a word
-    /// out of its table -- an act, a focus, an effect -- are each refused. Perturbation: accept a short
+    /// out of its table -- an act, a focus, an effect, an end -- are each
+    /// refused; every refused frame call but the short ones has the full
+    /// count, so it is refused for its word. Perturbation: accept a short
     /// call.
     #[test]
     fn a_call_round_trips_and_anything_else_is_refused() {
@@ -511,8 +586,23 @@ mod tests {
             window: RigWindow::Restyled,
             keys: RigKeys::Pressed,
             ticks: RigFrameTicks::Withheld,
+            end: RigEnd::Passes,
         });
         assert_eq!(RigCall::parse(&frames.to_args()), Ok(frames));
+        for (end, _) in ENDS {
+            let ended = RigCall::Frames(FrameRig {
+                setup: "printf x".to_owned(),
+                act: String::new(),
+                attempts: Iterations(1),
+                focus: RigFocus::Real,
+                holders: RigHolders::Kept,
+                window: RigWindow::Untold,
+                keys: RigKeys::Line,
+                ticks: RigFrameTicks::Offered,
+                end,
+            });
+            assert_eq!(RigCall::parse(&ended.to_args()), Ok(ended));
+        }
         for ticks in [
             RigFrameTicks::OneAfterFeeds,
             RigFrameTicks::EventFrames,
@@ -528,6 +618,7 @@ mod tests {
                 window: RigWindow::PointerOver,
                 keys: RigKeys::Line,
                 ticks,
+                end: RigEnd::Ticks,
             });
             assert_eq!(RigCall::parse(&frozen.to_args()), Ok(frozen));
         }
@@ -554,6 +645,7 @@ mod tests {
                 "untold",
                 "line",
                 "offered",
+                "end-passes",
             ]),
             args(&[
                 "--frame-rig",
@@ -565,6 +657,7 @@ mod tests {
                 "made-key",
                 "line",
                 "offered",
+                "end-passes",
             ]),
             args(&[
                 "--frame-rig",
@@ -576,12 +669,37 @@ mod tests {
                 "untold",
                 "typed",
                 "offered",
+                "end-passes",
             ]),
             args(&[
                 "--frame-rig",
                 "printf x",
                 "",
                 "-1",
+                "focus-real",
+                "holders-kept",
+                "untold",
+                "line",
+                "offered",
+                "end-passes",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
+                "focus-real",
+                "holders-kept",
+                "untold",
+                "line",
+                "dropped",
+                "end-passes",
+            ]),
+            args(&[
+                "--frame-rig",
+                "printf x",
+                "",
+                "60",
                 "focus-real",
                 "holders-kept",
                 "untold",
@@ -597,7 +715,8 @@ mod tests {
                 "holders-kept",
                 "untold",
                 "line",
-                "dropped",
+                "offered",
+                "end-wall",
             ]),
             args(&["--event-rig", "path", "/a", "3", "tick", "copy"]),
             args(&[

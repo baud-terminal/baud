@@ -583,6 +583,170 @@ fn census() -> String {
     })
 }
 
+/// **The wakes posted for a moment and not yet run** (`wake_holding`):
+/// one more as each is posted, one fewer in its callback before what it
+/// holds is let go, or at once for a post the main queue refused. A wake
+/// whose callback posts another (`FrameDue` early, or overdue and so owing
+/// its give-up) is counted through, the second post after the first's
+/// count is taken off. What goes through `wake_holding` -- a frame's
+/// bounds, the printed paths' worker's deadline and hang, a notice's
+/// expiry wake, a held read's deadline, a title's pace, a paused link's
+/// restart, the config's settle -- is none of it still to come while this
+/// reads zero -- but for the `wake:` a callback's turn is brought by: the
+/// callback posts it to the main run loop as it returns, after its count
+/// is off, so zero says only that it is posted. [`quiet_at`]'s barrier
+/// waits for that. A block posted through `baud-present-macos`'s
+/// `turn::after` or `turn::later` is not counted here ([`quiet`] names
+/// them). Atomic, though every post and callback found is the main
+/// thread's, so the count holds wherever one is posted from; a callback
+/// with no post wraps it past any count a run reaches, and quiet never
+/// comes.
+static WAKES_IN_FLIGHT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// **The wakes' callbacks run, ever** ([`wake_done`]): a barrier posted at
+/// zero ([`quiet_at`]) stands only while this has not moved, since a
+/// callback run after it posts its `wake:` behind the barrier.
+static WAKES_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A wake posted for a moment ([`WAKES_IN_FLIGHT`]).
+pub(super) fn wake_posted() {
+    WAKES_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+/// A wake posted for a moment run, or never posted ([`WAKES_IN_FLIGHT`],
+/// [`WAKES_RUN`]).
+pub(super) fn wake_done() {
+    WAKES_IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    WAKES_RUN.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+/// **What quiet still waits for** ([`quiet`]), the first part not yet
+/// met, named on the backstop's line: `quiet_judge`'s, over the row's
+/// event and the printed paths' worker as the probe reads them.
+type Unquiet = super::quiet_judge::Unquiet<probe_call::RigEvent, probe::PathsDue>;
+
+/// **Whether the act ends by clearing the pasteboard** (`]52;c;!`, as
+/// [`READY`] does): read once from the act, for every step that waits for
+/// that clear.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Clears {
+    Yes,
+    No,
+}
+
+impl Clears {
+    fn of(act: &str) -> Clears {
+        match act.contains("]52;c;!") {
+            true => Clears::Yes,
+            false => Clears::No,
+        }
+    }
+}
+
+/// **Whether the act's clear has been read**, or it has none to read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Signed {
+    Yes,
+    No,
+}
+
+/// **Quiet: nothing more can happen without an outside event**
+/// (`probe_call::RigEnd`), the row's `event` seen first: the link paused;
+/// no frame owed and the last settle owing nothing, not even a restart at
+/// a deadline; no wake posted for a moment still to run
+/// ([`WAKES_IN_FLIGHT`]); the printed paths' worker idle, no batch due,
+/// out or with its wake to come; and the act's clear read, if it has one
+/// ([`Signed`]), so the shell's output is over. An act with no clear -- none
+/// at all, or one that leaves a job running -- has nothing of its own to
+/// wait for here: the run's quiet is then the window's. Every part is read
+/// here and judged by `quiet_judge::judge`, whose tests every test build
+/// runs.
+///
+/// **The producers that wake the window directly**, with no wake posted
+/// for a moment, and what of theirs quiet counts:
+/// - the printed paths' worker (`Probes::system`): a batch due or out is
+///   [`probe::PathsDue::Owed`], the worker's answer to it among what is
+///   out, and its scheduled wakes `Waking`;
+/// - a wake posted on the main thread inside a turn -- a frame on the layer
+///   while a splash waits (`layer_presented`), a gone link the pointer
+///   came over (`recheck_entered`), the effect queue's runner done -- is a
+///   `wake:` posted before any barrier [`quiet_at`] posts after it, and is
+///   performed first;
+/// - **no in-flight count**, each a finding to add before a row that
+///   reaches it after its event ends on quiet: from a thread of its own,
+///   the pty's reader (`Pty::spawn`'s wake), the process watch
+///   (`pty.watch`, which the derived title and the reaping hear), the read
+///   of this machine's names (`Hosts`, which the rig stalls but on
+///   `RigWindow::HostNamed`), the plasma's build (`build_plasma`, the GPU's
+///   alone, once the window is shown), the printer list, the attachments'
+///   checker (`notify::Checker`) and a GPU frame's completion; as main-queue
+///   blocks, `turn::soon` (the effect queue's runner), `turn::after` (a
+///   notice's removal at its expiry) and `turn::later`, and the outbox's
+///   room and the config's dispatch sources; and the host log's writer at
+///   a close, the notification list's answer (`notify::listen`), the
+///   launch's bound (`baud-present-macos`), and the hover's, the settings'
+///   and the window's own observers, which AppKit calls.
+///
+/// A frame's completion first: a frame row with no `BAUD_GPU` draws on
+/// the GPU where there is one, whose completion counts the frame out of
+/// flight before it posts the surface and the `wake:` from the GPU's
+/// thread, and a barrier posted from the main thread is ordered after
+/// neither. So no such row ends on quiet until a frame in flight is a
+/// part of it; a row on the CPU path (`BAUD_GPU=cpu`) has no completion.
+fn quiet(event: probe_call::RigEvent, signed: Signed) -> Result<(), Unquiet> {
+    let seen = match event {
+        probe_call::RigEvent::Settled => true,
+        probe_call::RigEvent::AliveAnswered => {
+            probe::alive_answered() != probe::AliveAnswered::Unanswered
+        }
+    };
+    // A part of quiet, as read: met or not.
+    let met = |yes: bool| match yes {
+        true => super::quiet_judge::Met::Yes,
+        false => super::quiet_judge::Met::No,
+    };
+    super::quiet_judge::judge(super::quiet_judge::Parts {
+        event: match seen {
+            true => Ok(()),
+            false => Err(event),
+        },
+        paused: met(probe::link().0 == baud_present_macos::display_link::LinkState::Pause),
+        owed_nothing: met(probe::frame_owed() == probe::FrameOwed::No && probe::owes() == "Nothing"),
+        wakes: super::quiet_judge::InFlight(
+            WAKES_IN_FLIGHT.load(std::sync::atomic::Ordering::Acquire),
+        ),
+        paths: match probe::paths_due() {
+            probe::PathsDue::Idle => Ok(()),
+            due @ (probe::PathsDue::Waking | probe::PathsDue::Owed) => Err(due),
+        },
+        signed: met(signed == Signed::Yes),
+    })
+}
+
+/// **Quiet, closed by a barrier** ([`quiet`]): every part read and judged
+/// again on each call, then the wakes' callbacks run, both handed to
+/// `quiet_judge::closed`, whose rules post a barrier through the main
+/// thread's performs ([`probe::barrier`]) at zero and come to quiet only
+/// once it is performed ([`probe::reached`]) with no wake's callback run
+/// since it was posted -- or, a responder busy when the callback's
+/// `wake:` landed, after the call it folded into returned.
+fn quiet_at(
+    event: probe_call::RigEvent,
+    signed: Signed,
+    at: &mut Option<super::quiet_judge::AtQuiet<probe::Barrier>>,
+) -> Result<(), Unquiet> {
+    super::quiet_judge::closed(
+        quiet(event, signed),
+        super::quiet_judge::WakesRun(WAKES_RUN.load(std::sync::atomic::Ordering::Acquire)),
+        at,
+        |barrier| match probe::reached(barrier) {
+            probe::Reached::Yes => super::quiet_judge::Reached::Yes,
+            probe::Reached::No => super::quiet_judge::Reached::No,
+        },
+        probe::barrier,
+    )
+}
+
 /// **The rig, as `main`'s door admitted it** (`rig_door.rs`): the call
 /// already parsed into `RigCall`, the one type the parent builds too.
 pub(crate) fn run_call(call: probe_call::RigCall) -> std::process::ExitCode {
@@ -1205,7 +1369,29 @@ fn read_back_opening(app: &App) -> Result<(), String> {
 /// ticks, the focus baud last set, the display options' changes taken, and
 /// what the last read found under the pointer.
 fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
-    use probe_call::{RigFocus, RigFrameTicks, RigHolders, RigKeys, RigWindow};
+    use probe_call::{RigEnd, RigFocus, RigFrameTicks, RigHolders, RigKeys, RigWindow};
+    // Whether the act ends on the pasteboard's clear: every wait for it
+    // below reads this.
+    let clears = Clears::of(&rig.act);
+    // **The run's end and its ticks agree** (`RigEnd::Ticks`): ticks with
+    // a run of their own end on it and on nothing else, and ticks offered
+    // or withheld have none, so their row ends on a count or on quiet. A
+    // call that pairs them otherwise would end twice or not at all.
+    let ticks_end = match rig.ticks {
+        RigFrameTicks::Offered | RigFrameTicks::Withheld => RigEnd::Passes,
+        RigFrameTicks::UntilFlips
+        | RigFrameTicks::OneAfterFeeds
+        | RigFrameTicks::EventFrames
+        | RigFrameTicks::UntilMarked
+        | RigFrameTicks::UntilAsked => RigEnd::Ticks,
+    };
+    if (ticks_end == RigEnd::Ticks) != (rig.end == RigEnd::Ticks) {
+        println!(
+            "the row's end ({:?}) and its ticks ({:?}) disagree",
+            rig.end, rig.ticks
+        );
+        return std::process::ExitCode::from(1);
+    }
     // Before the app is made, and so before its every commit: the instant
     // a frozen frame gate's clock stops at (`OneAfterFeeds`, `EventFrames`).
     let opened = Instant::now();
@@ -1815,9 +2001,8 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         // [`probe_call::LATE_RELEASE`] from now, and written on the run's
         // passes (`release`).
         RigWindow::Released | RigWindow::ReleasedLate => {
-            let clears = rig.act.contains("]52;c;!");
             let start = Instant::now();
-            let mut signed = !clears;
+            let mut signed = clears == Clears::No;
             loop {
                 signed |= probe::take()
                     .iter()
@@ -1837,7 +2022,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 println!("the act's first stage never settled");
                 return std::process::ExitCode::from(1);
             }
-            act_signed = clears;
+            act_signed = clears == Clears::Yes;
             let hold = match rig.window {
                 RigWindow::ReleasedLate => probe_call::LATE_RELEASE,
                 _ => Duration::ZERO,
@@ -2191,7 +2376,68 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 }
             };
         }
-        RigFrameTicks::Offered | RigFrameTicks::Withheld => run(rig.attempts.0),
+        RigFrameTicks::Offered | RigFrameTicks::Withheld => {}
+    }
+    // **The run's end** (`RigEnd`): a count of passes; the ticks' own run,
+    // ended above; or the row's event and quiet closed by its barrier
+    // ([`quiet_at`]), a pass at a time -- a tick offered on each where the
+    // ticks are, none where they are withheld -- with the act's clear read
+    // on the way, then judged there, where nothing is left to come without
+    // an outside event.
+    // Quiet that never comes is a bound that says which part of it did
+    // not, after the counts. On [`RigEnd::QuietOffered`] the rig's ticker
+    // then offers [`probe_call::QUIET_OFFERS`] ticks, and a link that
+    // takes one ran with nothing owed.
+    match rig.end {
+        RigEnd::Passes => run(rig.attempts.0),
+        RigEnd::Ticks => {}
+        RigEnd::Quiet(_) | RigEnd::QuietOffered => {
+            let event = match rig.end {
+                RigEnd::Quiet(event) => event,
+                RigEnd::Passes | RigEnd::Ticks | RigEnd::QuietOffered => {
+                    probe_call::RigEvent::Settled
+                }
+            };
+            let start = Instant::now();
+            let mut signed = match (act_signed, clears) {
+                (true, _) | (false, Clears::No) => Signed::Yes,
+                (false, Clears::Yes) => Signed::No,
+            };
+            let mut at_quiet = None;
+            let mut unmet = quiet_at(event, signed, &mut at_quiet).err();
+            while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                run(1);
+                if probe::take()
+                    .iter()
+                    .any(|r| r.kind == probe::EffectKind::Clear)
+                {
+                    signed = Signed::Yes;
+                }
+                unmet = quiet_at(event, signed, &mut at_quiet).err();
+            }
+            if let Some(unmet) = unmet {
+                counters(reads, fed, drawn, offered_at);
+                println!(
+                    "bound passed before quiet: {unmet}, owes {}",
+                    probe::owes().replace(' ', "")
+                );
+                return std::process::ExitCode::from(1);
+            }
+            act_signed = true;
+            if rig.end == RigEnd::QuietOffered {
+                let before = probe::delivered();
+                offer(probe_call::QUIET_OFFERS);
+                let took = probe::delivered().0.saturating_sub(before.0);
+                if took != 0 {
+                    counters(reads, fed, drawn, offered_at);
+                    println!(
+                        "the link took {took} of the {} ticks offered at quiet",
+                        probe_call::QUIET_OFFERS
+                    );
+                    return std::process::ExitCode::from(1);
+                }
+            }
+        }
     }
     // A late second stage still due here was never written before the run
     // ended: the row reads that from its counts, as a path it missed.
@@ -2204,7 +2450,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     // then as long as the setup's settle, so what the act wrote is all fed
     // and drawn whatever the machine's pace, and the row's counts are the
     // whole act's.
-    if rig.act.contains("]52;c;!") && !act_signed {
+    if clears == Clears::Yes && !act_signed {
         let start = Instant::now();
         let mut signed = probe::take()
             .iter()
