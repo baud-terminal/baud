@@ -923,3 +923,107 @@ mod counts_tests {
         }
     }
 }
+
+/// The order of the find's re-selection and the block's carry, when a
+/// re-cut falls inside a pump (`app.rs`'s `Reselect`).
+#[cfg(all(test, target_os = "macos"))]
+mod reselect_tests {
+    use super::{Before, Carry, Counts, followed, kept_across_resize_owing, stale_in_moved_rows};
+    use crate::find::Finding;
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, Codepoint, ReadLen, Row, Rows, WinSize};
+    use baud_render::Scrolled;
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **A re-cut inside the turn re-selects the find's match after the
+    /// block's carry, not before it**: forty lines on a ten-row screen, the
+    /// find's one match on row 9, selected, and the pump's watch armed on
+    /// that selection; a read scrolls a region of the lower five rows up
+    /// one, which takes the match's text to row 8, and leaves the cursor on
+    /// row 6; a relayout gives a row up, owed its carry. Re-selected at the
+    /// re-cut -- the order before the row -- the match's new selection is
+    /// then carried by where the read moved the old one's text: up a row
+    /// more, and held to the old one's line, it is no longer the match.
+    /// Re-selected after the block's carry, it is the match. Break:
+    /// `relayout` re-selects under `Carry::Owed` (`app.rs`'s
+    /// `a_recut_inside_the_turn_leaves_the_finds_reselection_to_the_pump`).
+    #[test]
+    fn a_recut_inside_the_turn_reselects_the_match_after_the_carry() {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 10,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let lines = (0..40)
+            .map(|i| match i {
+                38 => format!("needle {i:02}"),
+                _ => format!("line {i:02}"),
+            })
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        feed(&mut t, lines.as_bytes());
+        let mut counts = Counts::starting(
+            &t,
+            Scrolled::START.advanced(Rows::of_count(t.scrollback().len())),
+        );
+        let start = counts.numbered(&t, None).scrolled();
+        let line = |r: usize| start.line(Rows::ZERO, Row::from_index(r));
+        let query = "needle".chars().map(Codepoint::from_char).collect();
+        let mut f = Finding::open(&t, query);
+        let found = f.after_resize(&t, start).expect("the match selected");
+        assert_eq!(found.text(&t, start), "needle", "the control: the match");
+        assert_eq!(found.ordered().0.line, line(8), "the control: on row 9");
+        // The pump's readings, armed on the selection as it stands.
+        let _ = Before::watched(&mut t, Some(&found), start);
+        feed(&mut t, b"\x1b[6;10r\x1b[10;1H\n\x1b[r\x1b[6;1H");
+        assert!(
+            !stale_in_moved_rows(&t),
+            "the control: the region's scroll carried the line"
+        );
+        // The relayout inside the turn: a row given up, the selection owed
+        // its carry.
+        let was = (t.geometry().0, t.screen());
+        let _ = t.resize(&WinSize {
+            ws_col: 20,
+            ws_row: 9,
+        });
+        let rec = t.take_record();
+        let (kept, scrolled) =
+            kept_across_resize_owing(&t, was, Some(found), &mut counts, &rec, Carry::Owed);
+        assert_eq!(scrolled, start, "the re-cut cut a row and retired none");
+        // Before the row: the match selected again at the re-cut, then
+        // carried by the block.
+        let mut before = f.after_resize(&t, scrolled);
+        let reselected = before.expect("the match selected again");
+        assert_eq!(
+            reselected.ordered().0.line,
+            line(7),
+            "the control: on the settled grid the match is on row 8"
+        );
+        assert_eq!(reselected.text(&t, scrolled), "needle");
+        followed(&t, &mut before, scrolled);
+        let carried = before.expect("kept");
+        assert_ne!(
+            carried, reselected,
+            "carried a second time, it left the match"
+        );
+        assert_ne!(carried.text(&t, scrolled), "needle");
+        // The row's order: the block carries the selection it armed on,
+        // then the pump selects the match again.
+        let mut after = kept;
+        followed(&t, &mut after, scrolled);
+        assert_eq!(
+            after.map(|s| s.ordered().0.line),
+            Some(line(7)),
+            "the control: the carry took the old selection to the match"
+        );
+        let after = f.after_resize(&t, scrolled).or(after);
+        assert_eq!(after, Some(reselected), "on the match");
+        assert_eq!(after.map(|s| s.text(&t, scrolled)), Some("needle".into()));
+    }
+}

@@ -5011,6 +5011,9 @@ struct Driver {
     /// ([`Carry`]): owed from the pump's readings to its gate, where a
     /// relayout leaves the selection's lines to the block.
     carry: Carry,
+    /// Whether a relayout inside that span left the find's current match
+    /// to be selected again after the block ([`Reselect`]).
+    reselect: Reselect,
     /// What the style observer last saw, for `pump` to apply.
     style: PendingStyle,
     /// Whether the palette follows the appearance at all: a config that
@@ -12790,6 +12793,33 @@ enum Relaid {
     Yes,
 }
 
+/// **Whether the find's current match is owed a re-selection after the
+/// pump's block** (`Driver::relayout`, `Driver::pump`): a re-cut re-reads
+/// the find's matches and selects its current one again, since a silent
+/// child sends no read to bring them up to date. Inside the span where the
+/// selection owes the read its carry ([`Carry::Owed`]), a re-selection
+/// made at the re-cut would meet the block after the feed, which carries
+/// the selection by the core's watch on the lines of the one it was armed
+/// on, and judges it by that one's rows and the read's two tops: a region's
+/// scroll would move the match by where it moved the old selection's text,
+/// and a write on the old selection's rows would drop it. So the re-cut
+/// leaves it `Owed` there, and the pump re-selects after its block, on the
+/// grid and the count the block settled. That selection is a match in the
+/// ring and on the window, so it needs none of the carry's drops, and it is
+/// not one the read carried (`keep::KeptText::carried`): `?1040`'s kept
+/// text is left as a re-cut between turns leaves it, untouched. `relayout`
+/// is the one setter, under `Carry::Owed`; the pump is the one taker,
+/// outside its block, on every pump, and resets it to `No` where it arms
+/// the watch, so none outlives its pump. The re-cut's own frame inside the
+/// pump draws the old selection and the find's marks as the read left
+/// them; the pump's next frame draws the re-selection and the find's marks
+/// read again.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reselect {
+    No,
+    Owed,
+}
+
 impl Relaid {
     /// **The count the block numbers the window by**: the feed's reading
     /// (`Counts::numbered`, taken once a turn, before the batch's lines are
@@ -13429,6 +13459,99 @@ mod moved_tests {
             "the re-cut given what the selection owes"
         );
     }
+
+    /// **A re-cut inside the turn leaves the find's re-selection to the
+    /// pump, after its block** ([`super::Reselect`]): the pump is
+    /// AppKit-bound, so the source is held. `relayout` re-selects at once
+    /// only under `Carry::Settled`, and under `Carry::Owed` owes it; the
+    /// pump resets it beside the carry it owes, and takes it once the block
+    /// that follows what the turn moved has closed -- on every turn, not
+    /// inside the block -- and before the find's refresh after the read.
+    /// The unit is `keep::reselect_tests`. Break: `relayout` re-selects
+    /// under `Owed`, as before the row.
+    #[test]
+    fn a_recut_inside_the_turn_leaves_the_finds_reselection_to_the_pump() {
+        let src = include_str!("app.rs");
+        let relayout = crate::no_appkit::fn_body(
+            src,
+            concat!(
+                "    fn relayout(&mut self, ",
+                "size: NSSize, scale: CGFloat) -> Drew {"
+            ),
+        );
+        let reselect = concat!("self.reselect_", "match()");
+        assert!(
+            relayout.contains(concat!(
+                "match self.carry {\n                Carry::Settled => self.reselect_",
+                "match(),\n                Carry::Owed => self.reselect = ",
+                "Reselect::Owed,\n            }"
+            )),
+            "re-selected at once only when settled"
+        );
+        assert_eq!(
+            relayout.matches(reselect).count(),
+            1,
+            "nowhere else in the re-cut"
+        );
+        assert_eq!(
+            src.matches(concat!("self.reselect = ", "Reselect::Owed"))
+                .count(),
+            1,
+            "one setter"
+        );
+        let matched =
+            crate::no_appkit::fn_body(src, concat!("    fn reselect_", "match(&mut self) {"));
+        assert_eq!(
+            src.matches(concat!("f.after_", "resize(")).count(),
+            1,
+            "the find's match selected again in one place"
+        );
+        assert!(matched.contains(concat!("f.after_", "resize(")));
+        let pump = crate::no_appkit::fn_body(
+            src,
+            concat!("    fn pump(&mut self, ", "trigger: Trigger) {"),
+        );
+        let once = |needle: &str| {
+            assert_eq!(
+                pump.matches(needle).count(),
+                1,
+                "once in the pump: {needle}"
+            );
+            pump.find(needle).expect("found")
+        };
+        let owes = once(concat!("self.carry = ", "Carry::Owed;"));
+        let reset = once(concat!("self.reselect = ", "Reselect::No;"));
+        let watched = once(concat!("let before = ", "Before::watched("));
+        assert!(
+            owes < reset && reset < watched,
+            "reset beside the carry owed"
+        );
+        let block = once(concat!("if turn == ", "Moved::Moved {"));
+        let closed = once(concat!(
+            "self.app.kept.carried(self.app.selection.as_ref());\n",
+            "        }\n"
+        ));
+        let take = once(concat!(
+            "\n        if std::mem::replace(&mut self.",
+            "reselect, Reselect::No) == Reselect::Owed {\n            self.reselect_",
+            "match();\n        }\n"
+        ));
+        let refresh = once(concat!(
+            "f.refresh(&self.app.term) == ",
+            "crate::find::Moved::Yes"
+        ));
+        assert!(
+            block < closed && closed < take && take < refresh,
+            "taken after the block closes, outside it, before the find's refresh"
+        );
+        assert_eq!(src.matches(reselect).count(), 2, "the re-cut and the pump");
+        assert_eq!(
+            src.matches(concat!("std::mem::replace(&mut self.", "reselect,"))
+                .count(),
+            1,
+            "one taker"
+        );
+    }
 }
 
 impl Driver {
@@ -13819,6 +13942,8 @@ impl Driver {
         // The selection owes the read its carry from the watch armed here
         // to the block after the feed ([`Carry`]).
         self.carry = Carry::Owed;
+        // And no re-selection is owed yet ([`Reselect`]).
+        self.reselect = Reselect::No;
         let before = Before::watched(
             &mut self.app.term,
             self.app.selection.as_ref(),
@@ -14217,6 +14342,12 @@ impl Driver {
             // Carried or clipped, the text kept is the one it was made with
             // (`keep::KeptText::carried`).
             self.app.kept.carried(self.app.selection.as_ref());
+        }
+        // A re-cut inside the turn left the find's current match to be
+        // selected here, on the grid and the count the block settled,
+        // outside the block, on every pump ([`Reselect`]).
+        if std::mem::replace(&mut self.reselect, Reselect::No) == Reselect::Owed {
+            self.reselect_match();
         }
         // The find's matches after the read: the lines it retired dropped,
         // the lines it wrote read again, and the current match selected
@@ -15752,6 +15883,7 @@ impl Opening {
             deferred: Deferred::Nothing,
             relaid: Relaid::No,
             carry: Carry::Settled,
+            reselect: Reselect::No,
             style: style.clone(),
             theme_choice,
             glass_cfg,
@@ -19421,6 +19553,19 @@ impl Driver {
         }
     }
 
+    /// **The find's matches read again on the grid as it stands, and its
+    /// current match selected again**, with a frame owed to draw them: at a
+    /// re-cut between turns, or after the pump's block for one inside it
+    /// ([`Reselect`]).
+    fn reselect_match(&mut self) {
+        if let Some(f) = self.app.finding.as_mut() {
+            if let Some(sel) = f.after_resize(&self.app.term, self.app.scrolled) {
+                self.app.selection = Some(sel);
+            }
+            self.app.owe_frame();
+        }
+    }
+
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
@@ -19612,11 +19757,12 @@ impl Driver {
             );
             // The find's matches on the re-laid grid, and its current
             // match selected again, before the frame below draws them: a
-            // silent child sends no read to bring them up to date.
-            if let Some(f) = self.app.finding.as_mut() {
-                if let Some(sel) = f.after_resize(&self.app.term, self.app.scrolled) {
-                    self.app.selection = Some(sel);
-                }
+            // silent child sends no read to bring them up to date. Inside a
+            // pump, after its feed, the selection owes the read its carry,
+            // so the pump selects the match after its block ([`Reselect`]).
+            match self.carry {
+                Carry::Settled => self.reselect_match(),
+                Carry::Owed => self.reselect = Reselect::Owed,
             }
             // A new grid is a new surface, so repaint every row of it rather
             // than trusting the last frame, whose rows were a different width.
