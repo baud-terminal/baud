@@ -1,8 +1,9 @@
 //! **What a frame did, counted where it does it**: the cells it compared,
 //! copied and converted, the rows it laid out for their direction, the
 //! cells the overlay built records for, the cells scanned for pictures, the
-//! link records placed, the image tables built and the instances tallied
-//! for the frame's totals.
+//! link records placed, the image tables built, the instances tallied
+//! for the frame's totals, and the displays the re-cut laid out and the
+//! rows' generations it read.
 //!
 //! The counts are kept only under the `counters` feature, which nothing
 //! that ships enables: each [`add`] is an empty function without it, so the
@@ -17,7 +18,7 @@
 //!
 //! **Each count is kept by the [`Site`] that did the work** as well as in
 //! all: several parts of a frame compare and copy cells -- the copy of the
-//! screen, the CPU path's conversion, the layout, the re-cut, a kept row --
+//! screen, the CPU path's conversion, the layout, a kept row --
 //! and a row that brings one of them down must read that one alone
 //! ([`Counts::at`]), not a total the others can hide a change in.
 
@@ -30,14 +31,14 @@ pub enum Counter {
     /// Cells a compare of two copies of a row may read -- both rows whole,
     /// an upper bound, since a compare stops at the first cell that
     /// differs: the conversion's
-    /// against its last frame, the layout's and the re-cut's caches
-    /// against the rows they were found on, a kept row's lookup -- its
+    /// against its last frame, the layout's cache against the rows it was
+    /// found on, a kept row's lookup -- its
     /// compare and the fold that finds a row kept elsewhere -- and the
     /// cell path's copy against the last frame's.
     CellsCompared,
     /// Cells copied out of the window or the status line: the
     /// conversion's copy, the layout's copy in drawn order and of a row it
-    /// tests, the re-cut's snapshot, and the cell path's copy into a set.
+    /// tests, and the cell path's copy into a set.
     CellsCopied,
     /// Cells a row's conversion into instances read.
     CellsConverted,
@@ -57,11 +58,19 @@ pub enum Counter {
     /// Instances tallied for the frame's totals of them -- all, coloured,
     /// solid -- as a row's are set (`crate::per_row`).
     InstancesTallied,
+    /// Displays the re-cut laid out past its cache: a layout of the
+    /// window's finished paragraphs at their words that the last one kept
+    /// did not answer (`crate::rebreak`).
+    DisplaysLaid,
+    /// Rows whose write generation the re-cut's kept layout read, to know
+    /// whether a row it was laid out from was written since the seal it was
+    /// read under (`crate::rebreak`).
+    GensRead,
 }
 
 impl Counter {
     /// Every counter, in the order a harness prints them.
-    pub const ALL: [Counter; 9] = [
+    pub const ALL: [Counter; 11] = [
         Counter::CellsCompared,
         Counter::CellsCopied,
         Counter::CellsConverted,
@@ -71,6 +80,8 @@ impl Counter {
         Counter::LinkInstancesBuilt,
         Counter::ImageTablesBuilt,
         Counter::InstancesTallied,
+        Counter::DisplaysLaid,
+        Counter::GensRead,
     ];
 
     /// The counter's name, as a harness prints it.
@@ -85,6 +96,8 @@ impl Counter {
             Counter::LinkInstancesBuilt => "link_instances_built",
             Counter::ImageTablesBuilt => "image_tables_built",
             Counter::InstancesTallied => "instances_tallied",
+            Counter::DisplaysLaid => "displays_laid",
+            Counter::GensRead => "gens_read",
         }
     }
 }
@@ -230,6 +243,8 @@ mod on {
             Counter::LinkInstancesBuilt => &of[6],
             Counter::ImageTablesBuilt => &of[7],
             Counter::InstancesTallied => &of[8],
+            Counter::DisplaysLaid => &of[9],
+            Counter::GensRead => &of[10],
         }
     }
 

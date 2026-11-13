@@ -40,11 +40,13 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 16] = [
+const NAMES: [&str; 18] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
     "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
     "a_caret_frame_compares_only_the_rows_drawn_in_another_order",
+    "a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut",
+    "a_write_outside_the_display_reads_its_rows_once",
     "every_driver_seals_once_a_frame_before_it_builds",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
@@ -88,6 +90,12 @@ fn main() {
             }
             "a_caret_frame_compares_only_the_rows_drawn_in_another_order" => {
                 checks::a_caret_frame_compares_only_the_rows_drawn_in_another_order();
+            }
+            "a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut" => {
+                checks::a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut();
+            }
+            "a_write_outside_the_display_reads_its_rows_once" => {
+                checks::a_write_outside_the_display_reads_its_rows_once();
             }
             "every_driver_seals_once_a_frame_before_it_builds" => {
                 checks::every_driver_seals_once_a_frame_before_it_builds();
@@ -197,7 +205,9 @@ mod heap {
 mod checks {
     use crate::heap::{self, Heap};
     use baud_core::{Owned, Term};
-    use baud_domain::{BytePos, Col, Cols, ImageBudget, PackedCell, ReadLen, Row, Rows, WinSize};
+    use baud_domain::{
+        BytePos, Col, Cols, ImageBudget, PackedCell, ReadLen, Row, Rows, WinSize, Wrap,
+    };
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{SetIx, Wheel};
     use baud_present_macos::screens::{Built, Screens};
@@ -617,7 +627,10 @@ mod checks {
     }
 
     /// The CPU path's frame as `App::present` draws it on that path: the
-    /// inputs set, then `render_at` into the frame's pixels.
+    /// frame's writes sealed first (`Term::seal_writes`), as `present`
+    /// seals them before its first ask of the display, then the inputs set,
+    /// then `render_at` into the frame's pixels, which seals again at its
+    /// top and so closes an empty generation.
     fn cpu_frame(
         r: &mut Renderer<'_, '_>,
         t: &mut Term<'_>,
@@ -625,6 +638,7 @@ mod checks {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> baud_render::Frame {
+        let _ = t.seal_writes();
         let back = t.window_back();
         r.fit(t);
         r.set_highlight(None);
@@ -921,6 +935,13 @@ mod checks {
                 Counter::OverlayCellsBuilt => {
                     assert_eq!(on_cpu, 0, "the CPU path builds no overlay")
                 }
+                // This screen holds no finished paragraph, so no display is
+                // laid out, and a first frame has none kept to ask a row's
+                // generation for: the held screen's frames feed both, and
+                // their controls assert it
+                // (`a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut`,
+                // `a_write_outside_the_display_reads_its_rows_once`).
+                Counter::DisplaysLaid | Counter::GensRead => continue,
                 _ => assert!(on_cpu > 0, "the CPU path's full frame moves {}", c.name()),
             }
             assert!(
@@ -1154,6 +1175,196 @@ mod checks {
                     }
                 }
             }
+        }
+    }
+
+    /// **The C0 screen with the shell's prompt mark on its last row**
+    /// (FS-C3): [`fixture`]'s screen, with `OSC 133 ; A` at row 50, column
+    /// 1, before the cursor's last move, so every row above it is finished
+    /// and its wrapped pairs are drawn at their words: a display held. At
+    /// column 1 the mark's fresh line moves nothing, and from the output it
+    /// opens a prompt and erases nothing.
+    fn fixture_held() -> Vec<u8> {
+        let mut v = fixture(Blinking::No);
+        let caret: &[u8] = b"\x1b[30;60H\x1b[1 q\x1b[?25h";
+        assert!(v.ends_with(caret), "the fixture ends on the cursor's move");
+        v.truncate(v.len() - caret.len());
+        v.extend_from_slice(b"\x1b[50;1H\x1b]133;A\x1b\\");
+        v.extend_from_slice(caret);
+        v
+    }
+
+    /// `c`'s count at the re-cut (`Site::Rebreak`) in `cost`.
+    fn at_rebreak(cost: &Cost, c: Counter) -> u64 {
+        cost.counts.at(Site::Rebreak, c).value()
+    }
+
+    /// **H1: a caret frame over a re-broken display lays out nothing and
+    /// reads nothing at the re-cut** (FS-C3): on the held screen
+    /// ([`fixture_held`]), on both paths, every caret frame after the
+    /// first compares and copies no cell at `Site::Rebreak`, lays no
+    /// display out and reads no row's generation, since nothing was
+    /// written after the seal its layout is kept under. The controls: every
+    /// frame holds a display, and the first lays it out. Named break: an
+    /// answer that never holds, which lays the display out on every ask.
+    pub fn a_caret_frame_over_a_re_broken_display_lays_out_and_reads_nothing_at_the_re_cut() {
+        let caret = |k: Nth| Inputs::at(caret_at(k));
+        let held = fixture_held();
+        let (mut cpu, mut cell) = (Vec::new(), Vec::new());
+        with_screen_of(&held, Strike::First, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(k);
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => inputs.damage,
+                };
+                Cost::take();
+                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                cpu.push((Cost::take(), r.bidi().display().is_some()));
+            }
+        });
+        with_screen_of(&held, Strike::First, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(k);
+                Cost::take();
+                let _ = cell_frame(r, t, &inputs, &mut cells, k.set());
+                cell.push((Cost::take(), r.bidi().display().is_some()));
+            }
+        });
+        print("held", "cpu", cpu.iter().map(|c| c.0));
+        print("held", "cell", cell.iter().map(|c| c.0));
+        for (path, costs) in [("cpu", &cpu), ("cell", &cell)] {
+            assert!(
+                at_rebreak(&costs[0].0, Counter::DisplaysLaid) > 0,
+                "the control: the {path} path's first frame lays the display out"
+            );
+            for (k, (cost, held)) in costs.iter().enumerate() {
+                assert!(*held, "the control: {path} frame {k} holds a display");
+                if k == 0 {
+                    continue;
+                }
+                for c in [
+                    Counter::CellsCompared,
+                    Counter::CellsCopied,
+                    Counter::DisplaysLaid,
+                    Counter::GensRead,
+                ] {
+                    assert_eq!(
+                        at_rebreak(cost, c),
+                        0,
+                        "{path} caret frame {k}: {} at the re-cut",
+                        c.name()
+                    );
+                }
+            }
+        }
+    }
+
+    /// **The status line written, and no row the held screen's display
+    /// read**: what [`a_write_outside_the_display_reads_its_rows_once`]
+    /// writes between two frames, checked against the seal before it. The
+    /// window is the live screen, so its display read its own rows and the
+    /// rows above it its first paragraph's walk reached, the one that ended
+    /// the walk included, and none below: how many, which is what an ask
+    /// after the write reads.
+    fn write_outside(t: &mut Term<'_>) -> u64 {
+        let back = t.window_back();
+        assert_eq!(back, Rows::ZERO, "the window is the live screen");
+        let view = t.view(back);
+        let (rows, budget) = (
+            view.rows().index(),
+            baud_render::CONTEXT / view.cols().index(),
+        );
+        let mut up = 0;
+        loop {
+            let want = Rows::of_index(up + 1);
+            if t.looking_back(want) != want {
+                break;
+            }
+            up += 1;
+            if t.view(want).wrapped(Row::ZERO) != Wrap::Continues || up > budget {
+                break;
+            }
+        }
+        let seal = t.sealed();
+        feed(t, b"\x1b[1$}X\x1b[0$}");
+        let gens = t.row_gens(back);
+        assert!(
+            t.status_gen().is_some_and(|s| s.after(&seal))
+                && (0..rows).all(|y| !gens.after(Row::from_index(y), &seal))
+                && (1..=up).all(|k| !t.row_gens(Rows::of_index(k)).after(Row::ZERO, &seal)),
+            "the isolation: the status line written, and no row the display read"
+        );
+        u64::try_from(rows + up).expect("a count")
+    }
+
+    /// **H2: a write outside the display reads its rows once** (FS-C3): on
+    /// the held screen, the status line written between two caret frames
+    /// ([`write_outside`]); on both paths, the next frame reads the
+    /// generation of each row the display read once and lays nothing out,
+    /// and the frame after reads nothing. Named breaks: the layout not kept
+    /// again under the seal, which reads every row on every ask of every
+    /// frame after; and a driver that asks before it seals, which reads
+    /// them once an ask before its seal and once after it.
+    pub fn a_write_outside_the_display_reads_its_rows_once() {
+        let caret = |k: Nth| Inputs::at(caret_at(k));
+        let held = fixture_held();
+        let after = [Nth::WARM, Nth(Nth::WARM.0 + 1)];
+        let mut got: Vec<(&str, Vec<Cost>, u64)> = Vec::new();
+        with_screen_of(&held, Strike::First, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            for k in Nth::WARM.before() {
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => Damage::Incremental,
+                };
+                let _ = cpu_frame(r, t, &caret(k), &mut target, damage);
+            }
+            let rows = write_outside(t);
+            let mut costs = Vec::new();
+            for k in after {
+                Cost::take();
+                let _ = cpu_frame(r, t, &caret(k), &mut target, Damage::Incremental);
+                costs.push(Cost::take());
+            }
+            got.push(("cpu", costs, rows));
+        });
+        with_screen_of(&held, Strike::First, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            for k in Nth::WARM.before() {
+                let _ = cell_frame(r, t, &caret(k), &mut cells, k.set());
+            }
+            let rows = write_outside(t);
+            let mut costs = Vec::new();
+            for k in after {
+                Cost::take();
+                let _ = cell_frame(r, t, &caret(k), &mut cells, k.set());
+                costs.push(Cost::take());
+            }
+            got.push(("cell", costs, rows));
+        });
+        for (path, costs, rows) in &got {
+            print("outside", path, costs.iter().copied());
+            let did = |c: &Cost| {
+                (
+                    at_rebreak(c, Counter::DisplaysLaid),
+                    at_rebreak(c, Counter::GensRead),
+                )
+            };
+            assert_eq!(
+                did(&costs[0]),
+                (0, *rows),
+                "{path}: the frame after the write reads each row its display read once"
+            );
+            assert_eq!(did(&costs[1]), (0, 0), "{path}: the frame after that");
         }
     }
 
@@ -1955,6 +2166,14 @@ mod checks {
     /// its top. A present that stopped sealing would build every caret
     /// frame as a new screen, every row read as written; one that sealed
     /// before the scan would hide a frame's writes from it.
+    ///
+    /// **And each seals before its first ask of the display** (FS-C3): the
+    /// re-cut keeps its layout under the seal a reader on `&Term` names,
+    /// which a write since the frame's last seal is after, so an ask before
+    /// the seal reads the rows again, once an ask. `present` and the cell
+    /// driver seal before `set_images` and `place_marks`, the CPU driver
+    /// here and the Linux driver's `present` before `place_marks`, the
+    /// Linux one after its link scan, as on macOS.
     pub fn every_driver_seals_once_a_frame_before_it_builds() {
         let here = include_str!("caret_frame.rs");
         let read = |p: &str| {
@@ -1985,6 +2204,12 @@ mod checks {
             present.contains("letseal=self.term.seal_writes();"),
             "present keeps the seal it takes: {present}"
         );
+        for ask in [".set_images(", ".place_marks("] {
+            assert!(
+                at(&present, "seal_writes()") < at(&present, ask),
+                "present seals before its first {ask}"
+            );
+        }
         let driver = body_of(here, "fn cell_frame(", METHOD);
         assert_eq!(
             driver.matches("seal_writes()").count(),
@@ -1994,6 +2219,34 @@ mod checks {
         assert!(
             at(&driver, "letseal=t.seal_writes();") < at(&driver, "=build("),
             "the driver seals before it builds"
+        );
+        for ask in ["r.set_images(", "r.place_marks("] {
+            assert!(
+                at(&driver, "letseal=t.seal_writes();") < at(&driver, ask),
+                "the driver seals before its first {ask}"
+            );
+        }
+        let cpu = body_of(here, "fn cpu_frame(", METHOD);
+        assert_eq!(
+            cpu.matches("seal_writes()").count(),
+            1,
+            "the CPU driver seals once"
+        );
+        assert!(
+            at(&cpu, "t.seal_writes()") < at(&cpu, "r.place_marks("),
+            "the CPU driver seals before its first ask"
+        );
+        let linux = read("baud-app/src/linux.rs");
+        let shown = body_of(&linux, "fn present(&mut self) {", METHOD);
+        assert_eq!(
+            shown.matches("seal_writes()").count(),
+            1,
+            "the Linux driver seals once"
+        );
+        assert!(
+            at(&shown, "self.lines.scan(") < at(&shown, "seal_writes()")
+                && at(&shown, "seal_writes()") < at(&shown, ".place_marks("),
+            "the Linux driver seals after its link scan and before its first ask"
         );
         let library = read("baud-render/src/cell_frame.rs");
         let build = body_of(&library, "pub fn build<P>(", "\n}\n");

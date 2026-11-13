@@ -3741,6 +3741,13 @@ impl Driver {
             self.frame.fill(margin.0);
             self.damage = Damage::Full;
         }
+        // **One write generation closed a frame, before its first ask of
+        // the display** (`Term::seal_writes`), and after the link scan,
+        // which keeps the seal it read under, as `App::present` seals: the
+        // re-cut keeps its layout under the seal, so the frame's later asks
+        // read no row. `render_at` seals again at its top, closing an empty
+        // generation, as it does on macOS's CPU arm.
+        let _ = self.term.seal_writes();
         // The marks on the window shown, and the whole frame they are
         // drawn in: the strip at its left, then the grid.
         self.renderer.place_marks(

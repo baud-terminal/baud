@@ -779,12 +779,16 @@ pub(crate) fn line_styles<'t>(
 }
 
 /// **The working state the display's layout keeps between frames**: the
-/// algorithm's, and the last layout with what it read, so a frame whose
-/// window and context are the last frame's is answered without laying
-/// anything out again.
+/// algorithm's, and the last layout under the seal its rows were read under
+/// (`kept::Laid`), so a frame that wrote no row it read is answered
+/// without laying anything out again or reading a cell.
 pub struct Breaker {
     bidi: Box<Bidi<{ crate::CONTEXT }>>,
-    last: Option<Kept>,
+    last: Option<kept::Laid>,
+    /// What the asks did, for the tests in this file, which run without the
+    /// `counters` feature: counted from the same numbers as the counters.
+    #[cfg(test)]
+    asked: kept::Asked,
 }
 
 impl Default for Breaker {
@@ -792,21 +796,10 @@ impl Default for Breaker {
         Breaker {
             bidi: Box::new(Bidi::new()),
             last: None,
+            #[cfg(test)]
+            asked: kept::Asked::default(),
         }
     }
-}
-
-/// What a layout depended on beyond the rows it read: the window's place,
-/// size and finished rows, and the tables its cells name.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Key {
-    back: Rows,
-    rows: Rows,
-    cols: Cols,
-    live: isize,
-    epoch: baud_domain::ClusterEpoch,
-    strings: Strings,
-    top: Top,
 }
 
 /// Whether an SDS or SRS string has been begun.
@@ -823,64 +816,21 @@ enum Top {
     First,
 }
 
-/// **The last layout and every row it read**: the window's, and the
-/// rows above and below it its context reached, each as it was read, with
-/// the next one past them, which said where the context stopped.
-struct Kept {
-    key: Key,
-    window: Vec<PackedCell>,
-    marks: Vec<RowExtent>,
-    up: Vec<(Vec<PackedCell>, RowExtent)>,
-    down: Vec<(Vec<PackedCell>, RowExtent)>,
-    shown: Option<Rc<Display>>,
+/// The mark of row `k` above the window `back` lines up, if the history
+/// holds it.
+fn up_mark(term: &Term<'_>, back: Rows, k: Rows) -> Option<RowExtent> {
+    let want = Rows::of_index(back.index() + k.index());
+    (term.looking_back(want) == want).then(|| mark_of(&term.view(want), Row::ZERO))
 }
 
-/// Row `k` above the window `back` lines up, if the history holds it.
-fn up_row<'t>(term: &'t Term<'_>, back: Rows, k: usize) -> Option<(&'t [PackedCell], RowExtent)> {
-    let want = Rows::of_index(back.index() + k);
-    (term.looking_back(want) == want).then(|| {
-        let v = term.view(want);
-        (v.row(Row::ZERO), mark_of(&v, Row::ZERO))
-    })
-}
-
-/// Row `k` below the window `back` lines up, if it is on the live screen.
-fn down_row<'t>(term: &'t Term<'_>, back: Rows, k: usize) -> Option<(&'t [PackedCell], RowExtent)> {
+/// The mark of row `k` below the window `back` lines up, if it is on the
+/// live screen.
+fn down_mark(term: &Term<'_>, back: Rows, k: Rows) -> Option<RowExtent> {
     let nrows = term.view(back).rows().index();
-    (k <= back.index()).then(|| {
-        let v = term.view(Rows::of_count(back.index() - k));
-        let at = Row::from_index(nrows - 1);
-        (v.row(at), mark_of(&v, at))
+    (k.index() <= back.index()).then(|| {
+        let v = term.view(Rows::of_count(back.index() - k.index()));
+        mark_of(&v, Row::from_index(nrows - 1))
     })
-}
-
-impl Kept {
-    /// Whether the window and its context read now as they did.
-    fn holds(&self, term: &Term<'_>, key: Key, vp: &Viewport<'_>) -> bool {
-        let n = key.cols.index();
-        self.key == key
-            && (0..key.rows.index()).all(|y| {
-                let r = Row::from_index(y);
-                mark_of(vp, r) == self.marks[y]
-                    && crate::counters::same_cells(
-                        crate::counters::Site::Rebreak,
-                        vp.row(r),
-                        &self.window[y * n..(y + 1) * n],
-                    )
-            })
-            && self.up.iter().enumerate().all(|(i, (c, m))| {
-                up_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
-                    mark == *m
-                        && crate::counters::same_cells(crate::counters::Site::Rebreak, cells, c)
-                })
-            })
-            && self.down.iter().enumerate().all(|(i, (c, m))| {
-                down_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
-                    mark == *m
-                        && crate::counters::same_cells(crate::counters::Site::Rebreak, cells, c)
-                })
-            })
-    }
 }
 
 /// The stand-in an erased cell between characters is given UAX #9: U+200B
@@ -966,7 +916,8 @@ pub(crate) fn lay_out(
         let up = Rows::of_index(back.index() + 1);
         term.looking_back(up) != up
     };
-    let key = Key {
+    let key = kept::Key {
+        at: term.row_gens(back).window(),
         back,
         rows: vp.rows(),
         cols: vp.cols(),
@@ -981,40 +932,41 @@ pub(crate) fn lay_out(
             false => Top::Below,
         },
     };
-    // Not once a string has been begun: a rendition rewritten under an
-    // unchanged cell can move it into or out of one.
-    if let Some(kept) = work
-        .last
-        .as_ref()
-        .filter(|k| key.strings == Strings::Unseen && k.holds(term, key, &vp))
-    {
-        return kept.shown.clone();
+    // **The last layout, where no row it read was written since the seal
+    // it was read under** ([`kept::Laid::answer`]): four compares while no
+    // surface was written, one generation a row read while one was. A
+    // string's bounds are its cells' words, which only a stamped store
+    // moves, so a screen that has begun one is answered the same way.
+    if let Some(laid) = work.last.as_mut() {
+        let (answer, read) = laid.answer(term, &key);
+        crate::counters::add(
+            crate::counters::Counter::GensRead,
+            crate::counters::Site::Rebreak,
+            read,
+        );
+        #[cfg(test)]
+        work.asked.gens.add(read);
+        if let kept::Answer::Holds(shown) = answer {
+            return shown;
+        }
     }
     let shown = place_window(term, &vp, back, key, work);
-    // What it read, kept for the next frame's compare: the window, and the
-    // context rows each group reached with the one past them.
-    let budget = Rows::of_index(budget);
-    let (up, down) = (
-        context_up(term, back, budget),
-        context_down(term, back, &vp, budget),
-    );
     crate::counters::add(
-        crate::counters::Counter::CellsCopied,
+        crate::counters::Counter::DisplaysLaid,
         crate::counters::Site::Rebreak,
-        Tally::of(nrows * key.cols.index()),
+        Tally::of(1),
     );
-    work.last = Some(Kept {
-        key,
-        window: (0..nrows)
-            .flat_map(|y| vp.row(Row::from_index(y)).iter().copied())
-            .collect(),
-        marks: (0..nrows)
-            .map(|y| mark_of(&vp, Row::from_index(y)))
-            .collect(),
-        up,
-        down,
-        shown: shown.clone(),
-    });
+    #[cfg(test)]
+    work.asked.laid.bump();
+    // How far it read past the window, kept with it: the rows above and
+    // below that its groups' walks reached, the one that ended each walk
+    // included.
+    let budget = Rows::of_index(budget);
+    let reach = kept::Reach {
+        up: reach_up(term, back, budget),
+        down: reach_down(term, back, &vp, budget),
+    };
+    work.last = Some(kept::Laid::new(term, key, reach, shown.clone()));
     shown
 }
 
@@ -1071,43 +1023,36 @@ pub(crate) fn paragraph_display(
     Some(Rc::new(build(&[g], &placed, cols, Rows::of_index(n))))
 }
 
-/// The rows above the window its first paragraph reaches, with the one
-/// that ends the reach, as [`lay_out`] reads them.
-fn context_up(term: &Term<'_>, back: Rows, budget: Rows) -> Vec<(Vec<PackedCell>, RowExtent)> {
-    let mut out = Vec::new();
-    let mut k = 1;
-    while let Some((cells, mark)) = up_row(term, back, k) {
-        out.push((cells.to_vec(), mark));
-        if !mark.wrapped() || out.len() > budget.index() {
+/// **How many rows above the window its first paragraph's context reads**:
+/// those [`place_window`]'s walk up reads, the one that ends the walk
+/// included, as many as the budget holds and one more.
+fn reach_up(term: &Term<'_>, back: Rows, budget: Rows) -> Rows {
+    let mut n = 0;
+    while let Some(mark) = up_mark(term, back, Rows::of_count(n + 1)) {
+        n += 1;
+        if !mark.wrapped() || n > budget.index() {
             break;
         }
-        k += 1;
     }
-    out
+    Rows::of_count(n)
 }
 
-/// The rows below the window its last paragraph reaches, as [`lay_out`]
-/// reads them.
-fn context_down(
-    term: &Term<'_>,
-    back: Rows,
-    vp: &Viewport<'_>,
-    budget: Rows,
-) -> Vec<(Vec<PackedCell>, RowExtent)> {
-    let mut out = Vec::new();
+/// **How many rows below the window its last paragraph's context reads**,
+/// counted as [`reach_up`] counts them: none where the window's last row
+/// ends its paragraph.
+fn reach_down(term: &Term<'_>, back: Rows, vp: &Viewport<'_>, budget: Rows) -> Rows {
     let last = Row::from_index(vp.rows().index() - 1);
     if vp.wrapped(last) != Wrap::Continues {
-        return out;
+        return Rows::ZERO;
     }
-    let mut k = 1;
-    while let Some((cells, mark)) = down_row(term, back, k) {
-        out.push((cells.to_vec(), mark));
-        if !mark.wrapped() || out.len() > budget.index() {
+    let mut n = 0;
+    while let Some(mark) = down_mark(term, back, Rows::of_count(n + 1)) {
+        n += 1;
+        if !mark.wrapped() || n > budget.index() {
             break;
         }
-        k += 1;
     }
-    out
+    Rows::of_count(n)
 }
 
 /// **The window's display**, laid out: [`lay_out`]'s work past its cache.
@@ -1115,7 +1060,7 @@ fn place_window(
     term: &Term<'_>,
     vp: &Viewport<'_>,
     back: Rows,
-    key: Key,
+    key: kept::Key,
     work: &mut Breaker,
 ) -> Option<Rc<Display>> {
     let (nrows, ncols) = (vp.rows().index(), vp.cols().index());
@@ -1734,10 +1679,183 @@ fn window_lines(g: &Group<'_>) -> Vec<Option<WindowLine>> {
         .collect()
 }
 
+/// **The last layout, answered through the write generations of the rows
+/// it read** (FS-C3). The cache this replaced compared every cell and mark
+/// of the window and of each row its context reached, on every ask, up to
+/// four a frame; this asks nothing while no surface was written since the
+/// seal the layout was read under, and each row's generation once a seal
+/// while one was.
+///
+/// The fields are private to this module, so a kept display is reached
+/// only through [`Laid::answer`], which reads the generations: an answer
+/// from the key alone cannot be written in [`super::lay_out`].
+mod kept {
+    use std::rc::Rc;
+
+    use baud_core::Term;
+    use baud_domain::{ClusterEpoch, Cols, Row, Rows, Seal, WindowAt};
+
+    use super::{Display, Strings, Top};
+    use crate::units::Tally;
+
+    /// **What a layout depended on beyond the cells and marks of the rows
+    /// it read**: which physical rows the window shows, how far it looks
+    /// back, its size and finished rows, the cluster slots its cells name,
+    /// whether a string was ever begun, and whether its top is the first
+    /// line the history keeps.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) struct Key {
+        /// The window's physical rows (`Term::row_gens`): a scroll under a
+        /// window held back moves it one ring row and writes none of the
+        /// rows it then shows.
+        pub(super) at: WindowAt,
+        pub(super) back: Rows,
+        pub(super) rows: Rows,
+        pub(super) cols: Cols,
+        pub(super) live: isize,
+        pub(super) epoch: ClusterEpoch,
+        pub(super) strings: Strings,
+        pub(super) top: Top,
+    }
+
+    /// How far a layout's context read past the window: the rows above it
+    /// and below it, the row that ended each walk included.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) struct Reach {
+        pub(super) up: Rows,
+        pub(super) down: Rows,
+    }
+
+    /// What an ask of the last layout found.
+    pub(super) enum Answer {
+        /// It holds: the display it kept, none where it drew every row as
+        /// stored.
+        Holds(Option<Rc<Display>>),
+        /// It was laid out for another key, or a row it read was written:
+        /// the window is laid out again.
+        Again,
+    }
+
+    /// Whether a row a layout read was written after its seal.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Written {
+        Yes,
+        No,
+    }
+
+    /// **The last layout**: its key, the seal its rows were read under, how
+    /// far its context read, and what it showed.
+    pub(super) struct Laid {
+        key: Key,
+        under: Seal,
+        reach: Reach,
+        shown: Option<Rc<Display>>,
+    }
+
+    impl Laid {
+        /// A layout just made for `key`, its rows read under
+        /// `term.sealed()`.
+        pub(super) fn new(
+            term: &Term<'_>,
+            key: Key,
+            reach: Reach,
+            shown: Option<Rc<Display>>,
+        ) -> Laid {
+            Laid {
+                key,
+                under: term.sealed(),
+                reach,
+                shown,
+            }
+        }
+
+        /// **The kept display, where it holds for `key` now**, and how many
+        /// rows' generations the answer read. Another key lays out again.
+        /// Then, while no surface was written since the seal the layout is
+        /// kept under, it holds, and no row is read. Otherwise each row the
+        /// layout read is asked whether it was written since, and the first
+        /// that was lays out again.
+        ///
+        /// Where none was, the layout is kept under the seal a reader names
+        /// now, `term.sealed()`, so the next ask reads no row: every row it
+        /// read carries a generation at or below the old seal's, which is
+        /// at or below the new one's, and a store to any of them after this
+        /// carries a later one. A store since the frame's last seal carries
+        /// the open generation, which the new seal does not cover, so an
+        /// ask before the frame seals reads the rows again -- the safe
+        /// direction, and the reason each driver seals before it asks.
+        pub(super) fn answer(&mut self, term: &Term<'_>, key: &Key) -> (Answer, Tally) {
+            if self.key != *key {
+                return (Answer::Again, Tally::ZERO);
+            }
+            if !term.wrote_since(&self.under) {
+                return (Answer::Holds(self.shown.clone()), Tally::ZERO);
+            }
+            let (read, written) = self.reread(term);
+            if written == Written::Yes {
+                return (Answer::Again, read);
+            }
+            self.under = term.sealed();
+            (Answer::Holds(self.shown.clone()), read)
+        }
+
+        /// Each row the layout read, asked whether it was written after
+        /// `under` -- the window's top down, then the rows above it, then
+        /// those below -- until one was: how many were asked, and whether
+        /// one was written. A row above that the history no longer holds
+        /// reads as written.
+        fn reread(&self, term: &Term<'_>) -> (Tally, Written) {
+            let back = self.key.back;
+            let rows = self.key.rows.index();
+            let window = term.row_gens(back);
+            if let Some(y) = (0..rows).find(|&y| window.after(Row::from_index(y), &self.under)) {
+                return (Tally::of(y + 1), Written::Yes);
+            }
+            let up = self.reach.up.index();
+            for k in 1..=up {
+                let want = Rows::of_index(back.index() + k);
+                if term.looking_back(want) != want {
+                    return (Tally::of(rows + k - 1), Written::Yes);
+                }
+                if term.row_gens(want).after(Row::ZERO, &self.under) {
+                    return (Tally::of(rows + k), Written::Yes);
+                }
+            }
+            let last = Row::from_index(rows.saturating_sub(1));
+            let down = self.reach.down.index();
+            for k in 1..=down {
+                let Some(below) = back.index().checked_sub(k) else {
+                    return (Tally::of(rows + up + k - 1), Written::Yes);
+                };
+                if term
+                    .row_gens(Rows::of_count(below))
+                    .after(last, &self.under)
+                {
+                    return (Tally::of(rows + up + k), Written::Yes);
+                }
+            }
+            (Tally::of(rows + up + down), Written::No)
+        }
+    }
+
+    /// **What one breaker's asks did**, for the tests in this file, which
+    /// run without the `counters` feature: the layouts made past the cache
+    /// and the rows whose generation a key read, counted from the numbers
+    /// [`crate::counters::Counter::DisplaysLaid`] and
+    /// [`crate::counters::Counter::GensRead`] are counted from.
+    #[cfg(test)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+    pub(super) struct Asked {
+        pub(super) laid: Tally,
+        pub(super) gens: Tally,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baud_domain::line_breaks;
+    use baud_core::Owned;
+    use baud_domain::{BytePos, ReadLen, Seal, WinSize, line_breaks};
 
     fn spans(s: &str) -> (Vec<char>, Vec<Span>) {
         let t: Vec<char> = s.chars().collect();
@@ -1785,5 +1903,202 @@ mod tests {
         let (lines, b) = break_lines(&t, &sp, &breaks(&t), &[], Cols::of_index(4));
         assert_eq!(texts(&t, &lines), ["ab ", "abcd", "efgh", "ij ", "cd"]);
         assert_eq!(b.emergency, Tally::of(1));
+    }
+
+    const WS: WinSize = WinSize {
+        ws_col: 40,
+        ws_row: 10,
+    };
+
+    /// The window's rows.
+    const ROWS: usize = 10;
+
+    /// A paragraph the terminal's wrap cuts inside a word, "do|g" at the
+    /// fortieth column, which the display draws at its words on the same
+    /// two lines, "dog" moved whole to the second.
+    const PARAGRAPH: &str = "a quick brown fox jumps over the lazy dog and then runs away";
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **A screen whose display is held**, after `first`: a status line
+    /// the host writes, the paragraph on rows 3 and 4, and the shell's
+    /// prompt mark at row 10, column 1, which finishes every row above it.
+    /// No history: the window's context reads no row past it.
+    fn held(first: &str) -> Vec<u8> {
+        format!("{first}\x1b[2$~\x1b[3;1H{PARAGRAPH}\x1b[10;1H\x1b]133;A\x07").into_bytes()
+    }
+
+    /// What `b`'s asks did since `then`: the layouts made, and the rows
+    /// whose generation a key read.
+    fn since(b: &Breaker, then: kept::Asked) -> (u64, u64) {
+        (
+            b.asked.laid.value() - then.laid.value(),
+            b.asked.gens.value() - then.gens.value(),
+        )
+    }
+
+    /// One ask of `b` for the live window, as a frame's readers ask it:
+    /// what it did, and its answer.
+    fn ask(t: &Term<'_>, b: &mut Breaker) -> ((u64, u64), Option<Rc<Display>>) {
+        let then = b.asked;
+        let shown = lay_out(t, Rows::ZERO, WordWrap::On, b);
+        (since(b, then), shown)
+    }
+
+    /// **One frame as `App::present` asks**: the writes sealed, then a
+    /// frame's four asks -- the images', the wrap marks', the status
+    /// marks' and the layout's.
+    fn frame(t: &mut Term<'_>, b: &mut Breaker) -> ((u64, u64), Option<Rc<Display>>) {
+        let _ = t.seal_writes();
+        let then = b.asked;
+        let mut shown = None;
+        for _ in 0..4 {
+            shown = lay_out(t, Rows::ZERO, WordWrap::On, b);
+        }
+        (since(b, then), shown)
+    }
+
+    /// Whether a row of the live window was written after `seal`.
+    fn window_written(t: &Term<'_>, seal: &Seal) -> bool {
+        let g = t.row_gens(Rows::ZERO);
+        (0..ROWS).any(|y| g.after(Row::from_index(y), seal))
+    }
+
+    /// The held screen, its first frame laid out, and the breaker.
+    fn laid_out(owned: &mut Owned, first: &str, f: impl FnOnce(&mut Term<'_>, &mut Breaker)) {
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &held(first));
+        let mut b = Breaker::default();
+        let (did, shown) = frame(&mut t, &mut b);
+        assert!(shown.is_some(), "the control: the display is held");
+        assert_eq!(did, (1, 0), "the first frame lays it out once");
+        assert!(
+            t.looking_back(Rows::of_index(1)) != Rows::of_index(1),
+            "no history above the window"
+        );
+        f(&mut t, &mut b);
+    }
+
+    /// **U1: a frame with nothing written lays out nothing and reads no
+    /// row's generation** (FS-C3): the first frame lays the display out
+    /// once for its four asks, and every frame after answers all four from
+    /// the seal alone. The control: the display is held. Named break: an
+    /// answer that never holds lays out on each ask, four a frame.
+    #[test]
+    fn a_frame_with_nothing_written_lays_out_and_reads_nothing() {
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "", |t, b| {
+            for k in 2..=4 {
+                let (did, shown) = frame(t, b);
+                assert!(shown.is_some(), "frame {k}: the display is held");
+                assert_eq!(did, (0, 0), "frame {k}");
+            }
+        });
+    }
+
+    /// **U2: a write outside what the display read is read once a frame**:
+    /// the status line written, the next frame reads each window row's
+    /// generation once -- the window is the live screen, with no history
+    /// above it and nothing below, so its context read no other row -- and
+    /// lays nothing out; the frame after reads nothing. The isolation: the
+    /// status line was written after the seal, and no window row was.
+    /// Named break: the layout not kept again under the seal, which reads
+    /// every row on every ask, four times a frame, and again the frame
+    /// after.
+    #[test]
+    fn a_write_outside_what_the_display_read_is_read_once_a_frame() {
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "", |t, b| {
+            let seal = t.sealed();
+            feed(t, b"\x1b[1$}X\x1b[0$}");
+            assert!(
+                t.status_gen().is_some_and(|s| s.after(&seal)) && !window_written(t, &seal),
+                "the isolation: the status line written, and no window row"
+            );
+            let (did, shown) = frame(t, b);
+            assert!(shown.is_some(), "the display is held");
+            assert_eq!(did, (0, u64::from(WS.ws_row)), "the frame after the write");
+            assert_eq!(frame(t, b).0, (0, 0), "the frame after that");
+        });
+    }
+
+    /// **U3: a write in a row the display read lays it out again, once a
+    /// frame**: a cell written in the paragraph's second row, the window's
+    /// fourth; the next frame reads the window's generations down to it,
+    /// four, and lays the display out once, a new one; the frame after
+    /// does neither. Named breaks: an answer that never holds lays out four
+    /// times; a key answered without its rows' generations lays out none
+    /// and keeps the display the write left stale.
+    #[test]
+    fn a_write_in_a_row_the_display_read_lays_it_out_once_a_frame() {
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "", |t, b| {
+            let (_, before) = ask(t, b);
+            let before = before.expect("the display is held");
+            let seal = t.sealed();
+            feed(t, b"\x1b[4;5HX");
+            assert!(
+                t.row_gens(Rows::ZERO).after(Row::from_index(3), &seal),
+                "the isolation: the paragraph's second row written"
+            );
+            let (did, after) = frame(t, b);
+            let after = after.expect("the display is held");
+            assert_eq!(did, (1, 4), "the frame after the write");
+            assert!(!Rc::ptr_eq(&before, &after), "a display laid out again");
+            assert_eq!(frame(t, b).0, (0, 0), "the frame after that");
+        });
+    }
+
+    /// **U4: an ask before the frame's seal reads the rows again after
+    /// it**: the status line written, two asks before the seal each read
+    /// every window row -- each keeps the layout under the seal a reader on
+    /// `&Term` can name, which the write is after -- the first ask after
+    /// the seal reads them once more and keeps it past the write, and the
+    /// next reads none. The over-report a driver that asks before it seals
+    /// pays, and why every driver seals first (`caret_frame.rs`,
+    /// `every_driver_seals_once_a_frame_before_it_builds`).
+    #[test]
+    fn an_ask_before_the_seal_reads_again_after_it() {
+        let rows = u64::from(WS.ws_row);
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "", |t, b| {
+            feed(t, b"\x1b[1$}X\x1b[0$}");
+            assert_eq!(ask(t, b).0, (0, rows), "the first ask before the seal");
+            assert_eq!(ask(t, b).0, (0, rows), "the second ask before the seal");
+            let _ = t.seal_writes();
+            assert_eq!(ask(t, b).0, (0, rows), "the first ask after it");
+            assert_eq!(ask(t, b).0, (0, 0), "the next");
+        });
+    }
+
+    /// **U5: a string opened and closed outside what the display read
+    /// keeps it** (the strings' control, lifted with the bypass that laid
+    /// out every ask once a string was begun): on a screen that began a
+    /// string before its first layout, an SDS opened and closed on the
+    /// status line; the next frame reads the window's rows once, lays
+    /// nothing out and answers the display it kept. The isolation: the
+    /// status line written, and no window row. That it is drawn as a fresh
+    /// layout draws it is `stale_display.rs`'s.
+    #[test]
+    fn a_string_opened_outside_what_the_display_read_keeps_it() {
+        let mut owned = Owned::new(&WS);
+        laid_out(&mut owned, "\x1b[1;1H\x1b[1]abc\x1b[0]", |t, b| {
+            assert!(t.strings_seen(), "a string was begun before the layout");
+            let (_, before) = ask(t, b);
+            let before = before.expect("the display is held");
+            let seal = t.sealed();
+            feed(t, b"\x1b[1$}\x1b[1]abc\x1b[0]\x1b[0$}");
+            assert!(
+                t.status_gen().is_some_and(|s| s.after(&seal)) && !window_written(t, &seal),
+                "the isolation: the status line written, and no window row"
+            );
+            let (did, after) = frame(t, b);
+            assert_eq!(did, (0, u64::from(WS.ws_row)), "the frame after the string");
+            let after = after.expect("the display is held");
+            assert!(Rc::ptr_eq(&before, &after), "the display kept");
+        });
     }
 }
