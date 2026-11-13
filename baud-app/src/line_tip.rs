@@ -518,11 +518,19 @@ mod tests {
         let crossing = body(MAC, concat!("    fn lights_crossed(&mut self) ", "{"));
         for want in [
             "if self.lights.crossed().is_empty() {",
+            "self.tip_at_pointer();",
+        ] {
+            assert!(crossing.contains(want), "{want}");
+        }
+        // Where the pointer is now, which a crossing and a slide of the
+        // lights' own window both settle the tip at.
+        let now = body(MAC, concat!("    fn tip_at_pointer(&mut self) ", "{"));
+        for want in [
             "mouseLocationOutsideOfEventStream()",
             "self.view.convertPoint_fromView(now, None)",
             "self.tip_at((v.x, v.y), in_view);",
         ] {
-            assert!(crossing.contains(want), "{want}");
+            assert!(now.contains(want), "{want}");
         }
         assert!(STRIP.contains(".watch(&v);"), "every light's view watched");
         // No system tip anywhere, so the system's never shows over baud's.

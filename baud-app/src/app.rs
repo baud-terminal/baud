@@ -5101,6 +5101,11 @@ struct Driver {
     /// (`place_tips`): read again only where they may have moved, never on
     /// a tick that moved nothing.
     tips: Tips,
+    /// **The lights' window's slides** under a still pointer: in full
+    /// screen the title bar is a window of its own, and its slide moves
+    /// the lights with no tick's geometry changing
+    /// ([`baud_present_macos::hover::Moves`]); none until shown.
+    slides: Option<baud_present_macos::hover::Moves>,
     /// **The lights' look as last made, and the glow it was made at**
     /// (`kept_look`): none until the first, and again after the theme or
     /// the lights' colours change.
@@ -15264,6 +15269,18 @@ impl Responder for Driver {
         if ASKED.with(|a| a.take(self.window_id)) {
             self.new_window();
         }
+        // The title bar's own window slid under the pointer, in full
+        // screen: the lights' places are read again on the next tick, and
+        // the tip settles where the pointer is now (`hover::Moves`).
+        if self
+            .slides
+            .as_ref()
+            .map(baud_present_macos::hover::Moves::slid)
+            == Some(baud_present_macos::hover::Slid::Yes)
+        {
+            self.tips = Tips::Owed;
+            self.tip_at_pointer();
+        }
         // The pointer crossing a light in the title strip, heard by its
         // tracking area since the last turn.
         self.lights_crossed();
@@ -15915,6 +15932,7 @@ impl Opening {
             icon_inset: inset,
             lights: crate::lights::Strip::new(None, None, NSSize::new(0.0, 0.0)),
             tips: Tips::Owed,
+            slides: None,
             look: None,
             edges: None,
             front: crate::front::Front::new(),
@@ -16249,6 +16267,12 @@ impl Opening {
                 std::path::Path::new(&dir),
             );
         }
+        // **The lights' window's slides** (`hover::Moves`): the moves of the
+        // window that holds the lights while it is not this one, which in
+        // full screen is the title bar's own.
+        driver.slides = driver.lights.holder_view().map(|v| {
+            baud_present_macos::hover::Moves::follow(&v, window.ns_window(), Some(driver.app.waker))
+        });
         driver.given_key(id);
         driver.app.os.name(id);
         // The window's first frame is owed from its making, and the display
@@ -19306,6 +19330,12 @@ impl Driver {
         if self.lights.crossed().is_empty() {
             return;
         }
+        self.tip_at_pointer();
+    }
+
+    /// **The tip where the pointer is now**, in the view: a crossing's
+    /// wake and a slide of the lights' window both settle it here.
+    fn tip_at_pointer(&mut self) {
         let now = self.window.ns_window().mouseLocationOutsideOfEventStream();
         let v = self.view.convertPoint_fromView(now, None);
         let in_view = in_view_at(self.view.bounds(), v);
@@ -26369,8 +26399,8 @@ mod tips_tests {
         );
         assert_eq!(
             SRC.matches(concat!("self.tips = Tips::", "Owed;")).count(),
-            3,
-            "owed at the strip's two showings and the window's placing"
+            4,
+            "owed at the strip's two showings, the window's placing and the title bar's window's slide"
         );
         let tip = body(
             SRC,
@@ -26382,6 +26412,53 @@ mod tips_tests {
         assert!(
             tip.contains(concat!("self.lights_", "at()")),
             "the pointer reads them at once\n{tip}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod slide_tests {
+    use super::link_pointer_tests::body;
+
+    const SRC: &str = include_str!("app.rs");
+
+    /// **The wake turn takes the lights' window's slide before the
+    /// crossings** (`hover::Moves`): on every wake, so a slide is never
+    /// kept past its turn; a slide owes the tips and settles the tip at
+    /// the pointer now, as a crossing does; show() follows the moves with
+    /// the terminal's own window, whose move is no slide.
+    #[test]
+    fn the_wake_turn_takes_the_lights_windows_slide_before_the_crossings() {
+        let take = SRC
+            .find(concat!(".map(baud_present_macos::hover::Moves::", "slid)"))
+            .expect("the wake turn takes the slide");
+        let crossed = SRC
+            .find(concat!("        self.lights_", "crossed();\n"))
+            .expect("the wake turn reads the crossings");
+        assert!(take < crossed, "the slide is taken before the crossings");
+        let arm = &SRC[take..crossed];
+        assert!(
+            arm.contains(concat!("self.tips = Tips::", "Owed;")),
+            "{arm}"
+        );
+        assert!(arm.contains(concat!("self.tip_at_", "pointer();")), "{arm}");
+        assert_eq!(
+            SRC.matches(concat!(".map(baud_present_macos::hover::Moves::", "slid)"))
+                .count(),
+            1,
+            "one taker"
+        );
+        let crossings = body(SRC, concat!("    fn lights_", "crossed(&mut self) {"));
+        assert!(
+            crossings.contains(concat!("self.tip_at_", "pointer();")),
+            "{crossings}"
+        );
+        assert!(
+            SRC.contains(concat!(
+                "baud_present_macos::hover::Moves::",
+                "follow(&v, window.ns_window(), Some(driver.app.waker))"
+            )),
+            "show() follows the moves with the terminal's window"
         );
     }
 }
