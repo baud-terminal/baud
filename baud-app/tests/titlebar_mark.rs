@@ -550,13 +550,15 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
     );
     let mut strip = lights::Strip::new(Some(holder), None, mark.size());
     assert_eq!(mark.shown(), OnDark, "put, a dark window");
-    // What a tick does: show the look, and fit only if the key moved.
+    // What a tick does: show the look, and fit only if the key moved. It
+    // returns what `Strip::show` laid out as well, which the driver's tick
+    // turns into a reading of the tips' places owed (`Tips::Owed`).
     let tick = |strip: &mut lights::Strip, r: &baud_render::Renderer<'_, '_>, w: &NSWindow| {
         let wanted = lights::Drawn {
             scale: 2.0,
             look: r.lights_look(baud_render::Glow::Full),
         };
-        let _: lights::Laid = strip.show(
+        let laid = strip.show(
             ActivityLights::TitleBar,
             wanted,
             Shown::DARK,
@@ -568,15 +570,26 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
         if moved {
             place_panel(w, strip, &mark);
         }
-        moved
+        (moved, laid)
     };
-    assert!(tick(&mut strip, &dark, w), "the plate comes up");
+    let (moved, laid) = tick(&mut strip, &dark, w);
+    assert!(moved, "the plate comes up");
+    assert_eq!(
+        laid,
+        lights::Laid::Again,
+        "the plate comes up, its views laid out"
+    );
     assert_eq!(mark.shown(), OnDark, "the dark plate");
-    assert!(!tick(&mut strip, &dark, w), "the tick after does nothing");
+    let (moved, laid) = tick(&mut strip, &dark, w);
+    assert!(!moved, "the tick after does nothing");
+    assert_eq!(laid, lights::Laid::Same, "the tick after lays nothing out");
     // The theme changes under a window that does not.
     let placed = mark.view().frame();
     let first = mark.view().image().expect("a picture");
-    assert!(tick(&mut strip, &light, w), "a theme change moves the key");
+    assert!(
+        tick(&mut strip, &light, w).0,
+        "a theme change moves the key"
+    );
     assert_eq!(mark.shown(), OnLight, "a light plate under a dark window");
     assert_eq!(mark.view().frame(), placed, "and moves nothing");
     assert!(
@@ -587,7 +600,7 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
     appearance(&window, "NSAppearanceNameAqua");
     mark.follow_window(w);
     assert_eq!(mark.shown(), OnLight, "the flip leaves it");
-    assert!(tick(&mut strip, &dark, w), "the dark theme again");
+    assert!(tick(&mut strip, &dark, w).0, "the dark theme again");
     assert_eq!(mark.shown(), OnDark, "a dark plate under a light window");
     let opaque = baud_domain::Chan::from_u8(0xFF);
     assert_eq!(
@@ -614,7 +627,7 @@ fn the_plate_picks_the_form(mtm: MainThreadMarker) {
     mark.follow_window(w);
     assert_eq!(mark.shown(), OnLight, "and back");
     // It comes back: the plate's form at once.
-    assert!(tick(&mut strip, &dark, w), "the plate again");
+    assert!(tick(&mut strip, &dark, w).0, "the plate again");
     assert_eq!(mark.shown(), OnDark, "the plate's, under a light window");
     // The plate goes in a window too narrow for any light, and comes back.
     w.setContentSize(NSSize::new(140.0, WINDOW_SIZE.height));
@@ -674,13 +687,18 @@ fn name_yields_first(mtm: MainThreadMarker) {
     assert!(!mark.lights_moved(strip.fitted()), "placed for what it is");
     let look = r.lights_look(baud_render::Glow::Full);
     let wanted = lights::Drawn { scale: 1.0, look };
-    let _: lights::Laid = strip.show(
+    let laid = strip.show(
         ActivityLights::TitleBar,
         wanted,
         Shown::DARK,
         &r,
         strip::edges(w),
         inset,
+    );
+    assert_eq!(
+        laid,
+        lights::Laid::Again,
+        "another scale draws the pictures again"
     );
     assert!(mark.lights_moved(strip.fitted()), "another scale");
     place_panel(w, &strip, &mark);
