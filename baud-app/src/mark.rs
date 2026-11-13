@@ -483,14 +483,17 @@ impl Mark {
             .window()
             .map_or(1.0, |w| w.backingScaleFactor());
         let at = beside_at(h, self.place.size(), scale);
-        self.view.setFrame(at);
-        self.version.setFrame(NSRect::new(
-            NSPoint::new(
-                at.size.width + VERSION_GAP,
-                (h - self.version_size.height) / 2.0,
+        baud_present_macos::sends::set_frame(&self.view, at);
+        baud_present_macos::sends::set_frame(
+            &self.version,
+            NSRect::new(
+                NSPoint::new(
+                    at.size.width + VERSION_GAP,
+                    (h - self.version_size.height) / 2.0,
+                ),
+                self.version_size,
             ),
-            self.version_size,
-        ));
+        );
     }
 
     /// **The lockup and the build's name for `window` as it is now**, on
@@ -513,14 +516,17 @@ impl Mark {
                     self.view.removeFromSuperview();
                     on.holder.addSubview(&self.view);
                 }
-                self.view.setFrame(on.logo);
+                baud_present_macos::sends::set_frame(&self.view, on.logo);
                 let left = crate::strip::edges(window).left;
                 let shows = name_shows(on.placed, on.plate_left, left, self.version_size.width);
                 let below = h / 2.0 - (VERSION_BASELINE - crate::strip::STRIP / 2.0);
-                self.version.setFrame(NSRect::new(
-                    NSPoint::new(0.0, below - self.version.baselineOffsetFromBottom()),
-                    self.version_size,
-                ));
+                baud_present_macos::sends::set_frame(
+                    &self.version,
+                    NSRect::new(
+                        NSPoint::new(0.0, below - self.version.baselineOffsetFromBottom()),
+                        self.version_size,
+                    ),
+                );
                 (shows, if shows { self.version_size.width } else { 0.0 })
             }
             None => {
@@ -542,7 +548,13 @@ impl Mark {
                 (shows, width)
             }
         };
-        self.version.setHidden(!shows);
+        baud_present_macos::sends::set_seen(
+            &self.version,
+            match shows {
+                true => baud_present_macos::sends::Seen::Shown,
+                false => baud_present_macos::sends::Seen::Hidden,
+            },
+        );
         self.version_shown.set(shows);
         self.accessory.set_width(width);
     }
@@ -580,10 +592,13 @@ impl Mark {
         if want == self.shown.get() {
             return;
         }
-        self.view.setImage(Some(match want {
-            Lockup::OnDark => &self.on_dark,
-            Lockup::OnLight => &self.on_light,
-        }));
+        baud_present_macos::sends::set_image(
+            &self.view,
+            match want {
+                Lockup::OnDark => &self.on_dark,
+                Lockup::OnLight => &self.on_light,
+            },
+        );
         self.shown.set(want);
     }
 

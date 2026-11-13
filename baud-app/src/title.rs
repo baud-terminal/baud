@@ -840,7 +840,7 @@ mod tests {
         const MAC: &str = include_str!("app.rs");
         let send = body(MAC, concat!("    fn send_title(", "&mut self) {"), "    ");
         let set = send
-            .find(concat!("self.window", ".set_title("))
+            .find(concat!("sends::set_title(", "&self.window, t)"))
             .expect("the title set");
         let next = send.find(concat!("self.mini", ".next(")).expect("told");
         assert!(
@@ -851,14 +851,17 @@ mod tests {
             "told of the title set"
         );
         let mini = send
-            .find(concat!("setMiniwindow", "Title("))
+            .find(concat!("sends::set_mini_", "title("))
             .expect("the minimized title");
         assert!(
             set < next && next < mini,
             "set, told, then the minimized title"
         );
         assert!(send.contains(concat!("icon_name", "_encoding()")));
-        assert_eq!(MAC.matches(concat!("setMiniwindow", "Title(")).count(), 1);
+        assert_eq!(
+            MAC.matches(concat!("sends::set_mini_", "title(")).count(),
+            1
+        );
     }
 
     #[test]

@@ -2152,7 +2152,7 @@ impl App {
             .pointer(self.term.pointer_shape())
             .map(system_pointer);
         if let Some(p) = to_set(want, self.pointer_shown) {
-            system_cursor(p).set();
+            baud_present_macos::sends::set_cursor(&system_cursor(p));
         }
         self.pointer_shown = match want {
             Some(w) => Shown::Set(w),
@@ -12298,11 +12298,11 @@ mod motion_tests {
         const SHIM: &str = r#"
             use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
             use crate::os_effect::OsEffect;
-            let window = self.view.window();
+            let window = baud_present_macos::sends::window_of(&self.view);
             let state = match &window {
                 Some(w) => Window::of(
-                    if w.isKeyWindow() { Key::Key } else { Key::NotKey },
-                    if w.isMiniaturized() { Miniaturized::Minimized }
+                    if baud_present_macos::sends::is_key(w) { Key::Key } else { Key::NotKey },
+                    if baud_present_macos::sends::is_miniaturized(w) { Miniaturized::Minimized }
                     else { Miniaturized::NotMinimized },
                 ),
                 None => Window::Unfocused,
@@ -15446,7 +15446,7 @@ impl Responder for Driver {
             None => {}
             Some(rig::Reshape::ZoomIn) => self.zoom(self.app.font_size + 1.0),
             Some(rig::Reshape::Wider) => {
-                let size = self.view.frame().size;
+                let size = baud_present_macos::sends::frame_of(&self.view).size;
                 let wider = NSSize::new(size.width + rig::WIDER, size.height);
                 let _ = self.relayout(wider, self.app.scale);
             }
@@ -16508,7 +16508,7 @@ impl baud_present_macos::unwind::Settles for Driver {
         let now = host_now();
         let owes = self.owes(now);
         #[cfg(feature = "effect-probe")]
-        baud_present_macos::probe::owed(format!("{owes:?}"));
+        baud_present_macos::probe::owed(&owes);
         #[cfg(feature = "effect-probe")]
         baud_present_macos::probe::set_frame_owed(match self.app.pending {
             Pending::Dirty => baud_present_macos::probe::FrameOwed::Yes,
@@ -16966,7 +16966,7 @@ impl Driver {
         if asked.is_empty() {
             return;
         }
-        let Some(w) = self.view.window() else {
+        let Some(w) = baud_present_macos::sends::window_of(&self.view) else {
             return;
         };
         let Some(mtm) = MainThreadMarker::new() else {
@@ -17448,7 +17448,8 @@ impl Driver {
     /// transition is seen on its own turn and never after a click that
     /// depends on it.
     fn poll_focus(&mut self) {
-        let key = self.view.window().is_some_and(|w| w.isKeyWindow());
+        let key = baud_present_macos::sends::window_of(&self.view)
+            .is_some_and(|w| baud_present_macos::sends::is_key(&w));
         // Under the probe only, the event rig's focus door: a row may have
         // baud believe its never-key window is key. Read here and nowhere
         // else, so every other focus decision comes from the `Focus` this
@@ -17481,14 +17482,14 @@ impl Driver {
         let state = || {
             #[cfg(feature = "effect-probe")]
             baud_present_macos::probe::notice_state_read();
-            match view.window() {
+            match baud_present_macos::sends::window_of(view) {
                 Some(w) => (
-                    if w.isKeyWindow() {
+                    if baud_present_macos::sends::is_key(&w) {
                         F::Focused
                     } else {
                         F::Unfocused
                     },
-                    if w.occlusionState().contains(NSWindowOcclusionState::Visible) {
+                    if baud_present_macos::sends::is_seen(&w) {
                         Visible::Seen
                     } else {
                         Visible::Covered
@@ -17782,15 +17783,15 @@ impl Driver {
     fn ring_bell(&mut self, volume: baud_core::BellVolume) {
         use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
         use crate::os_effect::OsEffect;
-        let window = self.view.window();
+        let window = baud_present_macos::sends::window_of(&self.view);
         let state = match &window {
             Some(w) => Window::of(
-                if w.isKeyWindow() {
+                if baud_present_macos::sends::is_key(w) {
                     Key::Key
                 } else {
                     Key::NotKey
                 },
-                if w.isMiniaturized() {
+                if baud_present_macos::sends::is_miniaturized(w) {
                     Miniaturized::Minimized
                 } else {
                     Miniaturized::NotMinimized
@@ -17930,7 +17931,10 @@ impl Driver {
         }
         if scroller_change(heard, self.app.scroller, scroller_style) == Relayout::Now {
             crate::info!("scroller: {:?}", scroller_style());
-            let _ = self.relayout(self.view.frame().size, self.app.scale);
+            let _ = self.relayout(
+                baud_present_macos::sends::frame_of(&self.view).size,
+                self.app.scale,
+            );
         }
         if self.settings.take(Setting::DimFlashingLights) == Heard::Changed {
             #[cfg(feature = "effect-probe")]
@@ -18546,7 +18550,7 @@ impl Driver {
             self.app.term.print_run(),
         );
         if let Some(t) = &sent {
-            self.window.set_title(t);
+            baud_present_macos::sends::set_title(&self.window, t);
         }
         self.app.session.title = self.titles.sent().map(str::to_string);
         // A badge naming the job, its folder or the title is drawn again
@@ -18563,9 +18567,7 @@ impl Driver {
             self.app.term.icon_name_encoding(),
             title,
         ) {
-            self.window
-                .ns_window()
-                .setMiniwindowTitle(Some(&NSString::from_str(&m)));
+            baud_present_macos::sends::set_mini_title(self.window.ns_window(), &m);
         }
     }
 
@@ -18613,7 +18615,9 @@ impl Driver {
     fn print_next(&mut self) {
         use std::sync::atomic::Ordering::Relaxed;
         let panel = &self.app.panel;
-        if panel.load(Relaxed) == PANEL_SHOWN && self.window.ns_window().attachedSheet().is_none() {
+        if panel.load(Relaxed) == PANEL_SHOWN
+            && !baud_present_macos::sends::has_sheet(self.window.ns_window())
+        {
             panel.store(PANEL_IDLE, Relaxed);
         }
         if panel.load(Relaxed) != PANEL_IDLE {
@@ -19660,8 +19664,8 @@ impl Driver {
         self.bar_hold.end_drag();
         self.app.next_damage = Damage::Full;
         self.app.owe_frame();
-        let full = match self.view.window() {
-            Some(w) if w.styleMask().contains(NSWindowStyleMask::FullScreen) => Full::Yes,
+        let full = match baud_present_macos::sends::window_of(&self.view) {
+            Some(w) if baud_present_macos::sends::is_full_screen(&w) => Full::Yes,
             _ => Full::No,
         };
         match crate::reveal::bar_change(self.app.scroller, full, self.app.term.window_ops()) {
@@ -19687,7 +19691,10 @@ impl Driver {
                 widen_later(self.window.ns_window(), width);
             }
             BarChange::Relayout => {
-                let _ = self.relayout(self.view.frame().size, self.app.scale);
+                let _ = self.relayout(
+                    baud_present_macos::sends::frame_of(&self.view).size,
+                    self.app.scale,
+                );
             }
         }
     }
@@ -19709,7 +19716,10 @@ impl Driver {
         self.app.status_rows = now;
         self.app.next_damage = Damage::Full;
         self.app.owe_frame();
-        let (Some(w), Some(mtm)) = (self.view.window(), MainThreadMarker::new()) else {
+        let (Some(w), Some(mtm)) = (
+            baud_present_macos::sends::window_of(&self.view),
+            MainThreadMarker::new(),
+        ) else {
             return None;
         };
         let at = self.mac_window(&w, mtm);
@@ -19727,7 +19737,10 @@ impl Driver {
                 Some(left)
             }
             StatusChange::Relayout => {
-                let _ = self.relayout(self.view.frame().size, self.app.scale);
+                let _ = self.relayout(
+                    baud_present_macos::sends::frame_of(&self.view).size,
+                    self.app.scale,
+                );
                 None
             }
         }
@@ -19748,7 +19761,10 @@ impl Driver {
         self.app.next_damage = Damage::Full;
         self.app.owe_frame();
         self.app.line_shown = None;
-        let resize = match (self.view.window(), MainThreadMarker::new()) {
+        let resize = match (
+            baud_present_macos::sends::window_of(&self.view),
+            MainThreadMarker::new(),
+        ) {
             (Some(w), Some(mtm)) => {
                 let at = self.mac_window(&w, mtm);
                 match crate::winops::mac_line_change(&at, f64::from(was.value())) {
@@ -19763,7 +19779,10 @@ impl Driver {
                 window_later(&w, crate::winops::line_frame(&at, f64::from(was.value())))
             }
             None => {
-                let _ = self.relayout(self.view.frame().size, self.app.scale);
+                let _ = self.relayout(
+                    baud_present_macos::sends::frame_of(&self.view).size,
+                    self.app.scale,
+                );
             }
         }
     }
@@ -20750,8 +20769,12 @@ fn system_cursor(p: crate::pointer::SystemPointer) -> Retained<NSCursor> {
 /// by the second.
 fn hide_pointer(act: crate::hide::Act) {
     match act {
-        crate::hide::Act::Hide => NSCursor::setHiddenUntilMouseMoves(true),
-        crate::hide::Act::Show => NSCursor::setHiddenUntilMouseMoves(false),
+        crate::hide::Act::Hide => {
+            baud_present_macos::sends::pointer_until_moved(baud_present_macos::sends::Seen::Hidden)
+        }
+        crate::hide::Act::Show => {
+            baud_present_macos::sends::pointer_until_moved(baud_present_macos::sends::Seen::Shown)
+        }
         crate::hide::Act::Nothing => {}
     }
 }
@@ -25844,7 +25867,7 @@ mod link_pointer_tests {
         let show = body(SRC, concat!("    fn show_", "pointer(&mut self) {"));
         assert!(
             show.contains(concat!(".pointer(self.term.pointer_", "shape())"))
-                && show.contains(concat!("system_cursor(p).", "set()")),
+                && show.contains(concat!("set_cursor(&system_", "cursor(p))")),
             "the pointer shown is not the preview's"
         );
         // A move shows the pointer after the preview reads it, and leaving
@@ -26851,9 +26874,9 @@ mod idle_turn_tests {
             .find(concat!("let state = ", "|| {"))
             .expect("the state's closure");
         for read in [
-            concat!("view.", "window()"),
-            concat!(".isKey", "Window()"),
-            concat!(".occlusion", "State()"),
+            concat!("sends::window_", "of(view)"),
+            concat!("sends::is_", "key(&w)"),
+            concat!("sends::is_", "seen(&w)"),
         ] {
             assert_eq!(deliver.matches(read).count(), 1, "once: {read}");
             assert!(

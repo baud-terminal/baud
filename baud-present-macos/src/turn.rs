@@ -64,8 +64,12 @@ impl Turn<'_> {
 
 /// **`f` with a turn, if this is the main thread**: the check every turn
 /// is made through. Off it, which only a test reaches, `f` does not run.
+/// Under the probe a turn is baud's work, as a responder method is
+/// ([`crate::probe::working`]), so the stage-3 counts see what it does.
 fn on_main(f: impl FnOnce(&Turn<'_>)) {
     if let Some(mtm) = MainThreadMarker::new() {
+        #[cfg(feature = "effect-probe")]
+        let _working = crate::probe::working();
         f(&Turn(PhantomData, mtm));
     }
 }

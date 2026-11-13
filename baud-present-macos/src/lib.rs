@@ -65,6 +65,7 @@ pub mod screens {
     pub use baud_render::screens::*;
 }
 pub mod selection;
+pub mod sends;
 pub mod settings;
 pub mod turn;
 pub mod unwind;
@@ -629,7 +630,7 @@ impl Presenter {
         if self.copy_changed(frame, stride, clear, changed) == Presented::No {
             return Presented::No;
         }
-        view.set_surface(self.surfaces[at].io_surface());
+        sends::set_surface(view, self.surfaces[at].io_surface());
         #[cfg(feature = "effect-probe")]
         crate::probe::layer(crate::probe::Layer::Cpu);
         Presented::Yes
@@ -674,7 +675,7 @@ impl Presenter {
             return Presented::No;
         }
         self.ages.forget(SurfaceIx(at));
-        view.set_surface(self.surfaces[at].io_surface());
+        sends::set_surface(view, self.surfaces[at].io_surface());
         #[cfg(feature = "effect-probe")]
         crate::probe::cpu_shown(SurfaceIx(at));
         #[cfg(feature = "effect-probe")]
@@ -899,7 +900,7 @@ impl Presenter {
         // it was.
         if let Drawn::Frame(f) = &drawn {
             if f.waited.landed().is_ok() {
-                view.set_surface(self.surfaces[slot].io_surface());
+                sends::set_surface(view, self.surfaces[slot].io_surface());
                 #[cfg(feature = "effect-probe")]
                 crate::probe::layer(crate::probe::Layer::Gpu);
             }
@@ -927,7 +928,7 @@ impl Presenter {
         // it was.
         if let Drawn::Frame(f) = &drawn {
             if f.waited.landed().is_ok() {
-                view.set_surface(self.surfaces[slot].io_surface());
+                sends::set_surface(view, self.surfaces[slot].io_surface());
                 #[cfg(feature = "effect-probe")]
                 crate::probe::layer(crate::probe::Layer::Gpu);
             }

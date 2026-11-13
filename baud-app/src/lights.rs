@@ -612,7 +612,9 @@ impl Strip {
     /// for `Mark::fit`; none with no plate, or none placed.
     pub(crate) fn place(&self, edges: crate::strip::Edges) -> Option<crate::mark::OnPlate> {
         let holder = self.holder.as_ref()?;
-        let inset = holder.view.frame().size.height;
+        let inset = baud_present_macos::sends::frame_of(&holder.view)
+            .size
+            .height;
         let at = match self.plate {
             Some(_) => panel(
                 NSSize::new(edges.width, inset),
@@ -634,14 +636,19 @@ impl Strip {
             match (at, &self.plates) {
                 (Some(p), Some(pictures)) => {
                     let r = moved(p.plate);
-                    v.setImage(Some(pictures.get(p.first)));
-                    v.setFrame(NSRect::new(
-                        NSPoint::new(r.origin.x - margin, r.origin.y - margin),
-                        NSSize::new(r.size.width + 2.0 * margin, r.size.height + 2.0 * margin),
-                    ));
-                    v.setHidden(false);
+                    baud_present_macos::sends::set_image(v, pictures.get(p.first));
+                    baud_present_macos::sends::set_frame(
+                        v,
+                        NSRect::new(
+                            NSPoint::new(r.origin.x - margin, r.origin.y - margin),
+                            NSSize::new(r.size.width + 2.0 * margin, r.size.height + 2.0 * margin),
+                        ),
+                    );
+                    baud_present_macos::sends::set_seen(v, baud_present_macos::sends::Seen::Shown);
                 }
-                _ => v.setHidden(true),
+                _ => {
+                    baud_present_macos::sends::set_seen(v, baud_present_macos::sends::Seen::Hidden)
+                }
             }
         }
         for led in Led::ALL {
@@ -650,10 +657,12 @@ impl Strip {
             };
             match at.and_then(|p| *p.lamps.get(led)) {
                 Some((rect, _)) => {
-                    v.setFrame(moved(rect));
-                    v.setHidden(false);
+                    baud_present_macos::sends::set_frame(v, moved(rect));
+                    baud_present_macos::sends::set_seen(v, baud_present_macos::sends::Seen::Shown);
                 }
-                None => v.setHidden(true),
+                None => {
+                    baud_present_macos::sends::set_seen(v, baud_present_macos::sends::Seen::Hidden)
+                }
             }
         }
         at.map(|p| crate::mark::OnPlate {

@@ -93,6 +93,14 @@ pub enum RigEnd {
     /// ticker, of which the link may take none: a link that runs with no
     /// frame owed is seen in offered events, not in seconds.
     QuietOffered,
+    /// **[`RigEnd::QuietOffered`], then counted**: what baud's own work on
+    /// the main thread allocated and sent to AppKit
+    /// (`baud_present_macos::sends`) is read at quiet, again after the
+    /// ticks offered, and again after [`QUIET_WAKES`] bare wakes posted
+    /// there and quiet reached once more. The stage-3 still screen holds
+    /// both at none across the wakes, and the harness's own phase, the
+    /// ticks offered, at none too.
+    QuietCounted,
 }
 
 /// **The event a quiet end waits for first**, read through the probe's
@@ -111,12 +119,19 @@ pub enum RigEvent {
 /// starts late in the run loop, counted in ticks, not time.
 pub const QUIET_OFFERS: u16 = 8;
 
-const ENDS: [(RigEnd, &str); 5] = [
+/// **How many bare wakes [`RigEnd::QuietCounted`] posts at quiet**: each a
+/// `wake:` with nothing owed, as a reader's or a timer's that finds
+/// nothing to do, posted from the main thread outside any responder and
+/// delivered one by one, each a turn of the pump.
+pub const QUIET_WAKES: u16 = 8;
+
+const ENDS: [(RigEnd, &str); 6] = [
     (RigEnd::Passes, "end-passes"),
     (RigEnd::Ticks, "end-ticks"),
     (RigEnd::Quiet(RigEvent::Settled), "end-quiet"),
     (RigEnd::Quiet(RigEvent::AliveAnswered), "end-quiet-alive"),
     (RigEnd::QuietOffered, "end-quiet-offered"),
+    (RigEnd::QuietCounted, "end-quiet-counted"),
 ];
 
 /// **Whether the polls still the tick's hold the display link**: kept,

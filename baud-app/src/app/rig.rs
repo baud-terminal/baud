@@ -2417,31 +2417,37 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
     match rig.end {
         RigEnd::Passes => run(rig.attempts.0),
         RigEnd::Ticks => {}
-        RigEnd::Quiet(_) | RigEnd::QuietOffered => {
+        RigEnd::Quiet(_) | RigEnd::QuietOffered | RigEnd::QuietCounted => {
             let event = match rig.end {
                 RigEnd::Quiet(event) => event,
-                RigEnd::Passes | RigEnd::Ticks | RigEnd::QuietOffered => {
+                RigEnd::Passes | RigEnd::Ticks | RigEnd::QuietOffered | RigEnd::QuietCounted => {
                     probe_call::RigEvent::Settled
                 }
             };
-            let start = Instant::now();
             let mut signed = match (act_signed, clears) {
                 (true, _) | (false, Clears::No) => Signed::Yes,
                 (false, Clears::Yes) => Signed::No,
             };
-            let mut at_quiet = None;
-            let mut unmet = quiet_at(event, signed, &mut at_quiet).err();
-            while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
-                run(1);
-                if probe::take()
-                    .iter()
-                    .any(|r| r.kind == probe::EffectKind::Clear)
-                {
-                    signed = Signed::Yes;
+            // Quiet reached, a pass at a time, its barrier posted afresh:
+            // once after the act, and on `QuietCounted` again after the
+            // wakes it posts there.
+            let mut reach = || {
+                let mut at_quiet = None;
+                let start = Instant::now();
+                let mut unmet = quiet_at(event, signed, &mut at_quiet).err();
+                while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {
+                    run(1);
+                    if probe::take()
+                        .iter()
+                        .any(|r| r.kind == probe::EffectKind::Clear)
+                    {
+                        signed = Signed::Yes;
+                    }
+                    unmet = quiet_at(event, signed, &mut at_quiet).err();
                 }
-                unmet = quiet_at(event, signed, &mut at_quiet).err();
-            }
-            if let Some(unmet) = unmet {
+                unmet
+            };
+            if let Some(unmet) = reach() {
                 counters(reads, fed, drawn, offered_at);
                 println!(
                     "bound passed before quiet: {unmet}, owes {}",
@@ -2450,7 +2456,21 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                 return std::process::ExitCode::from(1);
             }
             act_signed = true;
-            if rig.end == RigEnd::QuietOffered {
+            // **What baud's own work cost, counted** (`RigEnd::QuietCounted`):
+            // at quiet, the main thread's allocations inside a responder
+            // method or a turn (`heap::allocations`) and the AppKit seams'
+            // sends with the display link door's (`probe::sends_counted`,
+            // `probe::link`), read before the ticks, after them, and after
+            // the bare wakes and quiet again.
+            let counted_at = || {
+                (
+                    crate::heap::allocations(),
+                    probe::sends_counted(),
+                    probe::link().1,
+                )
+            };
+            let at_quiet_counts = counted_at();
+            if matches!(rig.end, RigEnd::QuietOffered | RigEnd::QuietCounted) {
                 let before = probe::delivered();
                 offer(probe_call::QUIET_OFFERS);
                 let took = probe::delivered().0.saturating_sub(before.0);
@@ -2462,6 +2482,54 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                     );
                     return std::process::ExitCode::from(1);
                 }
+            }
+            if rig.end == RigEnd::QuietCounted {
+                let offered_counts = counted_at();
+                let woke_before = probe::wakes();
+                let mut posted = 0_u16;
+                for _ in 0..probe_call::QUIET_WAKES {
+                    if probe::wake_bare() == probe::Woken::Posted {
+                        posted += 1;
+                    }
+                }
+                if let Some(unmet) = reach() {
+                    counters(reads, fed, drawn, offered_at);
+                    println!(
+                        "bound passed before quiet after the wakes: {unmet}, owes {}",
+                        probe::owes().replace(' ', "")
+                    );
+                    return std::process::ExitCode::from(1);
+                }
+                let woke_counts = counted_at();
+                // The seams' sends and the display link door's, from one
+                // read to another.
+                let appkit =
+                    |from: (crate::heap::Calls, probe::Sent, probe::Sends),
+                     to: (crate::heap::Calls, probe::Sent, probe::Sends)| {
+                        let door = to.2.0.saturating_sub(from.2.0);
+                        to.1.since(from.1).total().0.saturating_add(door)
+                    };
+                let kinds = woke_counts.1.since(offered_counts.1);
+                let named: Vec<String> = baud_present_macos::sends::Kind::ALL
+                    .iter()
+                    .zip(kinds.0)
+                    .filter(|(_, n)| n.0 > 0)
+                    .map(|(k, n)| format!("{}:{}", k.name(), n.0))
+                    .collect();
+                println!(
+                    "counted allocs={} appkit={} posted={posted} woke={} harness_allocs={} harness_appkit={} setup_allocs={} setup_seams={} kinds={}",
+                    woke_counts.0.since(offered_counts.0).0,
+                    appkit(offered_counts, woke_counts),
+                    probe::wakes().since(woke_before),
+                    offered_counts.0.since(at_quiet_counts.0).0,
+                    appkit(at_quiet_counts, offered_counts),
+                    at_quiet_counts.0.0,
+                    at_quiet_counts.1.total().0,
+                    match named.is_empty() {
+                        true => "-".to_owned(),
+                        false => named.join(","),
+                    },
+                );
             }
         }
     }

@@ -1070,8 +1070,8 @@ fn every_settles_has_its_end_chosen_by_name() {
 /// GPU's thread, which a barrier posted from the main thread is not
 /// ordered after (rig.rs, `quiet`). So until a frame in flight is a part
 /// of quiet, every frame row whose `Settles` the mapping (`rig_end`) ends
-/// on `RigEnd::Quiet` or `RigEnd::QuietOffered` sets `BAUD_GPU` to `cpu`
-/// in its own environment, as the CPU twins do. Its controls, on the real
+/// on `RigEnd::Quiet`, `RigEnd::QuietOffered` or `RigEnd::QuietCounted`
+/// sets `BAUD_GPU` to `cpu` in its own environment, as the CPU twins do. Its controls, on the real
 /// rows: at least one row ends on quiet, so the check reads something, and
 /// with the CPU's setting spelled otherwise every such row is named.
 /// Break: a twin's `BAUD_GPU` taken off.
@@ -1083,7 +1083,7 @@ fn every_row_that_ends_on_quiet_draws_on_the_cpu() {
     let on_quiet = |r: &Row| match &r.rig {
         Rig::Frame { expect, .. } => map
             .get(expect)
-            .is_some_and(|end| end == "Quiet" || end == "QuietOffered"),
+            .is_some_and(|end| end == "Quiet" || end == "QuietOffered" || end == "QuietCounted"),
         Rig::Event { .. } => false,
     };
     let on_gpu = |src: &Source| -> Vec<String> {
@@ -1496,7 +1496,7 @@ const SITES: &[Site] = &[
         "while unmet.is_some() && start.elapsed() < probe_call::SENTINEL_BACKSTOP {",
         Times(1),
         Kind::RowEnd,
-        "RigEnd::Quiet and QuietOffered: the row's event and quiet, \"bound passed before quiet\" past the backstop",
+        "RigEnd::Quiet, QuietOffered and QuietCounted: the row's event and quiet, \"bound passed before quiet\" past the backstop",
     ),
     site(
         RIG,
@@ -1751,7 +1751,7 @@ fn every_wall_clock_wait_in_the_rig_is_classified() {
     let e = ends(&t).unwrap_or_else(|why| panic!("the child's ends could not be read: {why}"));
     // The arms that sign the act's clear, found: a reach that leaves them
     // out reads a list that is not empty by accident.
-    for end in ["Quiet", "QuietOffered"] {
+    for end in ["Quiet", "QuietOffered", "QuietCounted"] {
         assert!(
             e.signs.iter().any(|s| s == end),
             "RigEnd::{end}'s arm signs the act's clear: {:?}",

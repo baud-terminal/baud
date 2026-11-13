@@ -118,13 +118,13 @@ pub(crate) fn inset_of(window: &NSWindow) -> CGFloat {
 /// top**, the full width: set only when it moves, since a new frame lays
 /// the grid out again.
 pub(crate) fn apply(view: &NSView, container: &NSView, top: CGFloat) {
-    let full = container.frame().size;
+    let full = baud_present_macos::sends::frame_of(container).size;
     let want = NSRect::new(
         NSPoint::new(0.0, 0.0),
         NSSize::new(full.width, (full.height - top).max(0.0)),
     );
-    if view.frame() != want {
-        view.setFrame(want);
+    if baud_present_macos::sends::frame_of(view) != want {
+        baud_present_macos::sends::set_frame(view, want);
     }
 }
 
@@ -167,9 +167,9 @@ impl Accessory {
 
     /// **`width` points wide**, at the height AppKit gave it.
     pub(crate) fn set_width(&self, width: CGFloat) {
-        let now = self.view.frame().size;
+        let now = baud_present_macos::sends::frame_of(&self.view).size;
         if now.width != width {
-            self.view.setFrameSize(NSSize::new(width, now.height));
+            baud_present_macos::sends::set_frame_size(&self.view, NSSize::new(width, now.height));
         }
     }
 

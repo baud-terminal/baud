@@ -42,8 +42,8 @@
 
 use baud_present_macos::probe::{EffectKind, Nested, Record, Responder, Where};
 use baud_present_macos::rig_call::{
-    EventRig, FrameRig, Iterations, RigAct, RigCall, RigEnd, RigEvent, RigFocus, RigFrameTicks,
-    RigHolders, RigKeys, RigTicks, RigWindow,
+    EventRig, FrameRig, Iterations, QUIET_WAKES, RigAct, RigCall, RigEnd, RigEvent, RigFocus,
+    RigFrameTicks, RigHolders, RigKeys, RigTicks, RigWindow,
 };
 use baud_present_macos::unwind::SiteName;
 use std::path::{Path, PathBuf};
@@ -1889,6 +1889,9 @@ struct Counters {
     /// line: none for a row that releases no second stage
     /// (`RigWindow::Released`).
     by: Option<SentBy>,
+    /// What baud's own work cost at quiet, from its own line
+    /// (`RigEnd::QuietCounted`); none for any other row.
+    counted: Option<Counted>,
     /// The activity lights lit at their last step, by their letters.
     lit: Vec<String>,
     /// The notices expired after the settle, their `w` passed.
@@ -1978,6 +1981,68 @@ impl SentBy {
             held_granted: count("held_granted")?,
             asked: count("asked")?,
         })
+    }
+}
+
+/// **What baud's own work on the main thread cost at quiet**
+/// (`RigEnd::QuietCounted`): the blocks it allocated (baud-app's
+/// `heap::allocations`, counted inside a responder method or a turn) and
+/// what it sent to AppKit through the counted seams with the display
+/// link door's sends (`baud_present_macos::sends`), over the bare wakes
+/// posted at quiet; the same over the ticks offered before them, the
+/// rig's own phase; and the allocations and the seams' sends alone from
+/// the launch to quiet, which show both counts live: the door's sends,
+/// counted outside the scope, are not in that total.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Counted {
+    allocs: u64,
+    appkit: u64,
+    /// The bare wakes posted, and those delivered.
+    posted: u64,
+    woke: u64,
+    harness_allocs: u64,
+    harness_appkit: u64,
+    setup_allocs: u64,
+    setup_seams: u64,
+    /// The seams' sends over the wakes, by kind, or `-`.
+    kinds: String,
+}
+
+impl Counted {
+    fn parse(line: &str) -> Option<Counted> {
+        let field = |name: &str| {
+            line.split(' ')
+                .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+        };
+        let count = |name: &str| -> Option<u64> { field(name)?.parse().ok() };
+        Some(Counted {
+            allocs: count("allocs")?,
+            appkit: count("appkit")?,
+            posted: count("posted")?,
+            woke: count("woke")?,
+            harness_allocs: count("harness_allocs")?,
+            harness_appkit: count("harness_appkit")?,
+            setup_allocs: count("setup_allocs")?,
+            setup_seams: count("setup_seams")?,
+            kinds: field("kinds")?.to_owned(),
+        })
+    }
+
+    /// **A still screen's turns cost nothing**: every bare wake posted and
+    /// delivered, none of them allocating or sending; the rig's own phase
+    /// counted at none, so the scope leaves the harness out; and both
+    /// counts moved before quiet, so neither is dead.
+    fn still(&self) -> bool {
+        let wakes = u64::from(QUIET_WAKES);
+        self.posted == wakes
+            && self.woke == wakes
+            && self.allocs == 0
+            && self.appkit == 0
+            && self.kinds == "-"
+            && self.harness_allocs == 0
+            && self.harness_appkit == 0
+            && self.setup_allocs > 0
+            && self.setup_seams > 0
     }
 }
 
@@ -2115,6 +2180,10 @@ impl Counters {
                 .lines()
                 .find_map(|l| l.strip_prefix("by "))
                 .and_then(SentBy::parse),
+            counted: text
+                .lines()
+                .find_map(|l| l.strip_prefix("counted "))
+                .and_then(Counted::parse),
             asked_paths: text
                 .lines()
                 .filter_map(|l| l.strip_prefix("asked "))
@@ -2149,6 +2218,11 @@ enum Settles {
     /// Its run ends on quiet, then on the ticks offered there
     /// ([`RigEnd::QuietOffered`]).
     StillOnCpu,
+    /// **[`Settles::StillOnCpu`], counted**: R1's CPU twin, and the stage-3
+    /// still screen's costs on it ([`Counted::still`]): its run ends on
+    /// quiet, the ticks offered there and the bare wakes posted there
+    /// ([`RigEnd::QuietCounted`]).
+    StillCounted,
     /// Run again by what was owed -- the act's frame or a clock's -- and
     /// paused again: at least `drawn` frames drawn, at most `delivered`
     /// ticks taken for them, at least a run and a pause sent, paused at the
@@ -2353,6 +2427,9 @@ impl Settles {
                 c.link == LinkSeen::Pause && c.delivered == 0 && c.sends == 0 && c.drawn == 0
             }
             Settles::StillOnCpu => Settles::Still.holds(c) && c.layer == LayerSeen::Cpu,
+            Settles::StillCounted => {
+                Settles::StillOnCpu.holds(c) && c.counted.as_ref().is_some_and(Counted::still)
+            }
             Settles::Restarts { drawn, delivered } => {
                 c.link == LinkSeen::Pause
                     && c.drawn >= drawn
@@ -2527,6 +2604,8 @@ impl Settles {
 ///   offered there ([`RigEnd::QuietOffered`]). On the CPU path a frame has
 ///   no completion to wake the window from another thread, and the twins
 ///   reach no producer quiet does not count once their setup has settled.
+///   R1's twin ([`Settles::StillCounted`]) then posts bare wakes there and
+///   reaches quiet again, its costs counted ([`RigEnd::QuietCounted`]).
 /// - the window's reads ([`Settles::WindowRead`]): quiet, on the CPU path
 ///   for the same reason; the act's clear, where it has one, is a part of
 ///   it.
@@ -2556,6 +2635,7 @@ fn rig_end(expect: Settles) -> RigEnd {
         | Settles::MarkedOnD
         | Settles::PastFloor(..) => RigEnd::Ticks,
         Settles::StillOnCpu => RigEnd::QuietOffered,
+        Settles::StillCounted => RigEnd::QuietCounted,
         Settles::WindowRead { .. } => RigEnd::Quiet(RigEvent::Settled),
         Settles::Still
         | Settles::AliveAtBound
@@ -2676,11 +2756,18 @@ const FRAME_SITES: [FrameSite; 53] = [
     },
     // **R1's CPU twin**: the static screen on the CPU path (`BAUD_GPU=cpu`),
     // whose frames have no completion to wake the window from another
-    // thread, so its run ends on quiet and then on the ticks offered there
-    // (`RigEnd::QuietOffered`). Its ticks are withheld after the settle, so
-    // those are the only ticks it is offered: a link that runs with nothing
-    // owed takes them. Its count is R1's and unread. R1 stays on its count,
-    // on the GPU, whose link is what it guards.
+    // thread, so its run ends on quiet and then on the ticks offered there.
+    // Its ticks are withheld after the settle, so those are the only ticks
+    // it is offered: a link that runs with nothing owed takes them. Its
+    // count is R1's and unread. R1 stays on its count, on the GPU, whose
+    // link is what it guards. **Stage 3's still screen, counted**
+    // (`RigEnd::QuietCounted`): then bare wakes posted at quiet, each a turn
+    // of the pump with nothing owed, and quiet reached again; across them
+    // baud's work on the main thread allocates nothing and sends AppKit
+    // nothing, the rig's own phase is outside both counts, and both counts
+    // moved before quiet (`Counted::still`). The driver's sources hold the
+    // other half: every send on a turn is a counted seam or on turn_doors'
+    // cold table.
     FrameSite {
         name: SiteName("a static screen pauses the display link (CPU twin)"),
         setup: STILL,
@@ -2692,7 +2779,7 @@ const FRAME_SITES: [FrameSite; 53] = [
         config: NO_SPLASH,
         focus: RigFocus::Real,
         attempts: Iterations(100),
-        expect: Settles::StillOnCpu,
+        expect: Settles::StillCounted,
         state: RowState::Green,
     },
     // **R2**: a blinking caret runs the link at each flip, scheduled a
@@ -4535,4 +4622,27 @@ fn the_same_path_printed_again_within_a_second_is_drawn_on_its_d() {
         "{:?}: {c:?}",
         SHELLS_D_WARM.name
     );
+}
+
+/// **The counted line reads whole, and a still screen is read from all of
+/// it** ([`Counted::still`]): the line as the rig prints it holds; a wake
+/// that allocated, a send over the wakes, a wake not delivered, the
+/// harness counted, or a count that never moved before quiet each fails.
+#[test]
+fn a_counted_line_is_read_whole() {
+    let still = "counted allocs=0 appkit=0 posted=8 woke=8 harness_allocs=0 harness_appkit=0 setup_allocs=900 setup_seams=12 kinds=-";
+    assert!(Counted::parse(still).is_some_and(|c| c.still()), "{still}");
+    for (from, to) in [
+        ("allocs=0", "allocs=8"),
+        ("appkit=0", "appkit=8"),
+        ("kinds=-", "kinds=title:8"),
+        ("woke=8", "woke=7"),
+        ("harness_allocs=0", "harness_allocs=1"),
+        ("setup_allocs=900", "setup_allocs=0"),
+        ("setup_seams=12", "setup_seams=0"),
+    ] {
+        let line = still.replacen(from, to, 1);
+        assert!(Counted::parse(&line).is_some_and(|c| !c.still()), "{line}");
+    }
+    assert_eq!(Counted::parse("counted allocs=0"), None, "a part missing");
 }

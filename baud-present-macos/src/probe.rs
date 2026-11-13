@@ -216,7 +216,7 @@ impl Record {
 }
 
 /// The wakes [`Guarded`](crate::unwind::Guarded) has delivered: compared,
-/// never read as a number.
+/// or counted since another ([`Wakes::since`]).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct Wakes(u64);
 
@@ -1079,18 +1079,137 @@ pub fn inline() -> Inline {
 }
 
 /// A responder method entered at `at`, left when this drops.
-pub struct Entered((Where, Responder));
+pub struct Entered {
+    at: (Where, Responder),
+    /// Baud's work, ended with the method.
+    _working: Working,
+}
 
 impl Drop for Entered {
     fn drop(&mut self) {
-        AT.with(|a| a.set(self.0));
+        AT.with(|a| a.set(self.at));
     }
 }
 
 /// Enter a responder method: `InFrame` for `frame`, `InCallback` for the
 /// rest.
 pub fn enter(at: Where) -> Entered {
-    Entered(AT.with(|a| a.replace((at, Responder::Held))))
+    Entered {
+        at: AT.with(|a| a.replace((at, Responder::Held))),
+        _working: working(),
+    }
+}
+
+/// **Whether baud's own work is on the main thread's stack**: a responder
+/// method ([`enter`]) or a turn (`turn.rs`, [`working`]). What the stage-3
+/// counts are scoped by -- heap allocations (baud-app's `heap.rs`) and
+/// the AppKit seams' sends ([`sent`]) -- so the frame rig's harness,
+/// which runs between them on the same thread, is never in a count.
+/// Kept apart from [`AT`]'s [`Responder`], which says a responder is on
+/// the stack and which [`record`]'s nested call reads: a turn is baud's
+/// work and holds no responder.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Busy {
+    Idle,
+    Working,
+}
+
+thread_local! {
+    /// What [`held_now`] reads: a `const` cell of a `Copy` value, so its
+    /// read from inside the allocator allocates nothing and registers no
+    /// destructor.
+    static BUSY: Cell<Busy> = const { Cell::new(Busy::Idle) };
+    /// The seams' sends while [`Busy::Working`], by kind ([`sent`]).
+    static SENT: Cell<Sent> = const { Cell::new(Sent([Sends(0); crate::sends::KINDS])) };
+}
+
+/// Baud's work begun on this thread, ended when this drops (nesting
+/// restores the outer one).
+pub struct Working(Busy);
+
+impl Drop for Working {
+    fn drop(&mut self) {
+        let _ = BUSY.try_with(|b| b.set(self.0));
+    }
+}
+
+/// **Baud's work begun**: a responder method's or a turn's.
+pub fn working() -> Working {
+    Working(
+        BUSY.try_with(|b| b.replace(Busy::Working))
+            .unwrap_or(Busy::Idle),
+    )
+}
+
+/// **Whether baud's work is on this thread's stack now**, or `None` while
+/// the thread's locals are torn down: `try_with` on a `const` cell, so it
+/// never panics, never allocates and never re-enters the allocator that
+/// asks.
+pub fn held_now() -> Option<Busy> {
+    BUSY.try_with(Cell::get).ok()
+}
+
+/// **The seams' sends**, each kind's at its place in
+/// [`crate::sends::Kind::ALL`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Sent(pub [Sends; crate::sends::KINDS]);
+
+impl Sent {
+    /// Every kind's sends together.
+    pub fn total(self) -> Sends {
+        Sends(self.0.iter().fold(0, |all, n| n.0.saturating_add(all)))
+    }
+
+    /// The sends since `before`, kind by kind.
+    #[must_use]
+    pub fn since(self, before: Sent) -> Sent {
+        let mut d = self.0;
+        for (d, b) in d.iter_mut().zip(before.0) {
+            *d = Sends(d.0.saturating_sub(b.0));
+        }
+        Sent(d)
+    }
+}
+
+/// **A seam's send of `kind`** (`sends.rs`), counted while baud's work is
+/// on the stack ([`Busy::Working`]).
+pub fn sent(kind: crate::sends::Kind) {
+    if held_now() != Some(Busy::Working) {
+        return;
+    }
+    let Some(at) = crate::sends::Kind::ALL.iter().position(|k| *k == kind) else {
+        return;
+    };
+    let _ = SENT.try_with(|s| {
+        let mut n = s.get();
+        n.0[at] = Sends(n.0[at].0.saturating_add(1));
+        s.set(n);
+    });
+}
+
+/// The seams' sends counted so far.
+pub fn sends_counted() -> Sent {
+    SENT.with(Cell::get)
+}
+
+/// **A bare wake**, as another thread's would come: the stored view's
+/// `wake:` posted from here, outside any responder, with nothing owed.
+/// Whether there was a view to wake.
+pub fn wake_bare() -> Woken {
+    match WAKER.with(Cell::get) {
+        Some(waker) => {
+            waker.wake();
+            Woken::Posted
+        }
+        None => Woken::NoView,
+    }
+}
+
+/// Whether [`wake_bare`] had a view to wake.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Woken {
+    Posted,
+    NoView,
 }
 
 /// Where the main thread is now.
@@ -1106,6 +1225,21 @@ pub fn woke() {
 /// The wakes delivered so far.
 pub fn wakes() -> Wakes {
     WAKES.with(Cell::get)
+}
+
+impl Wakes {
+    /// The wakes delivered since `before`.
+    #[must_use]
+    pub fn since(self, before: Wakes) -> Wakes {
+        Wakes(self.0.saturating_sub(before.0))
+    }
+}
+
+/// A count of wakes, as the frame rig prints it.
+impl core::fmt::Display for Wakes {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 /// **A barrier through the main thread's performs**, for the frame rig's
@@ -1522,9 +1656,17 @@ pub fn gpu_release() -> baud_render::Tally {
     baud_render::Tally::ZERO
 }
 
-/// **What the last settle found owed**, for the frame rig to print.
-pub fn owed(what: String) {
-    OWED.with_borrow_mut(|o| *o = what);
+/// **What the last settle found owed**, for the frame rig to print,
+/// written over the kept text in place: its buffer grows only past the
+/// longest text it has held, so a settle at quiet, owing `Nothing` again,
+/// allocates nothing on baud's turn (the frame rig's counted still
+/// screen).
+pub fn owed(what: &dyn core::fmt::Debug) {
+    use core::fmt::Write;
+    OWED.with_borrow_mut(|o| {
+        o.clear();
+        let _ = write!(o, "{what:?}");
+    });
 }
 
 /// What the last settle found owed.
