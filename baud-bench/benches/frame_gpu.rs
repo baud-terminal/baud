@@ -80,7 +80,7 @@ fn main() {
     use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx, Wheel};
     use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-    use baud_present_macos::screens::{Built, Compare, Screens};
+    use baud_present_macos::screens::{Built, Compare, Held, Screens, Taking};
     use baud_present_macos::{
         CellInput, Completion, Deadline, Done, Drawn, Gpu, InFlight, Presenter, StillBusy,
         SurfaceHandle, SurfaceSpace, Wake,
@@ -678,6 +678,9 @@ fn main() {
                     };
                     dirty = false;
                     let si = set.0;
+                    // One write generation closed a frame, before anything
+                    // reads, as the app's frame closes it.
+                    let seal = t.seal_writes();
                     // The ids this set's copy was lent put back and its slots
                     // given back, as the app's frame does first.
                     let tb = strike.then(Instant::now);
@@ -703,13 +706,22 @@ fn main() {
                         .and_then(|l| lents.get(l.0))
                         .map_or(&[][..], Lent::rewrites);
                     let tk = strike.then(Instant::now);
+                    // The core's view, every row as stored: none drawn in
+                    // another order and no display held.
                     let built = screens.take_lent(
                         &mut m.copies_mem,
                         set,
-                        &view,
-                        status.as_ref(),
-                        t.stride(),
-                        Leaving::None,
+                        &Taking {
+                            term: &t,
+                            seal,
+                            back: Rows::ZERO,
+                            view: &view,
+                            status: status.as_ref(),
+                            reordered: &|_| false,
+                            held: Held::No,
+                            stride: t.stride(),
+                            leaving: Leaving::None,
+                        },
                         undo,
                     );
                     // The struck cells lent their grey, and the frame the
@@ -746,7 +758,7 @@ fn main() {
                     let built = match built {
                         Built::Last if lending == screens.lending => Built::Last,
                         Built::Last => {
-                            screens.built(Built::New, &view, status.as_ref());
+                            screens.built(Built::New);
                             Built::New
                         }
                         Built::New => Built::New,
@@ -1061,6 +1073,9 @@ the first cpu {:.1}, copy {:.2}",
                     at += n;
                 }
                 if cell_arm {
+                    // One write generation closed a frame, before anything
+                    // reads, as the app's frame closes it.
+                    let seal = t.seal_writes();
                     // The styles first, as the app syncs them: the map walk
                     // reads each cell's face style from them.
                     let tr = Instant::now();
@@ -1092,13 +1107,21 @@ the first cpu {:.1}, copy {:.2}",
                     // the same key: the app's `Screens`. The slide arm walks
                     // every frame, as a slide does.
                     let vp = t.viewport();
+                    let status = t.status_line();
                     let built = screens.take(
                         &mut [&mut screen[..]],
                         SetIx(0),
-                        &vp,
-                        t.status_line().as_ref(),
-                        t.stride(),
-                        Leaving::None,
+                        &Taking {
+                            term: &t,
+                            seal,
+                            back: Rows::ZERO,
+                            view: &vp,
+                            status: status.as_ref(),
+                            reordered: &|_| false,
+                            held: Held::No,
+                            stride: t.stride(),
+                            leaving: Leaving::None,
+                        },
                     );
                     let same = arm != Arm::Slide && built == Built::Last;
                     let key = WalkKey {

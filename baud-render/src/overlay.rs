@@ -23,12 +23,12 @@ use crate::cellmap::{
     Swaps,
 };
 use crate::color::Argb;
-use crate::counters::Counter;
+use crate::counters::{Counter, Site};
 use crate::frozen::Words;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
-use crate::renderer::{BlinkPhases, Blinking, ClusterGlyph, Renderer};
+use crate::renderer::{BlinkPhases, Blinking, ClusterGlyph, Framed, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
@@ -316,6 +316,11 @@ enum Find {
     Pictures,
     None,
 }
+
+/// What a walk is given beyond its scene: the cells of several glyphs,
+/// where it reads them from other than the map's last walk, and the window
+/// a frame's build keyed (`Framed`), where one did.
+type Given<'a> = (Option<&'a [(Row, Col)]>, Option<Framed>);
 
 /// One cell the walk drew by records: where it is, its records' places in
 /// the frame's records and in the parts above their rows, and the box
@@ -716,16 +721,38 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        self.ensure_with(scene, None, Find::Pictures, r, mask, records);
+        self.ensure_with(scene, (None, None), Find::Pictures, r, mask, records);
+    }
+
+    /// **[`Overlay::ensure`] for the frame a build keyed** (`framed`,
+    /// FS-C5): its sized lines are keyed by where their rows are stored and
+    /// the build's seal (`Renderer::sized_framed`), where `ensure`, which
+    /// may be handed a window of an older copy, compares their cells.
+    pub(crate) fn ensure_framed(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        framed: Framed,
+        r: &mut Renderer<'_, '_>,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        self.ensure_with(
+            scene,
+            (None, Some(framed)),
+            Find::Pictures,
+            r,
+            mask,
+            records,
+        );
     }
 
     /// [`Overlay::ensure`], reading the cells of several glyphs from
-    /// `several` where given rather than from the map's last walk, and the
-    /// pictures as `find` says.
+    /// `several` where given rather than from the map's last walk, the
+    /// pictures as `find` says, and its sized lines keyed as `framed` says.
     fn ensure_with(
         &mut self,
         scene: &Scene<'_, '_>,
-        several: Option<&[(Row, Col)]>,
+        (several, framed): Given<'_>,
         find: Find,
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
@@ -768,7 +795,14 @@ impl Overlay {
                 None => Walked::This,
             };
             let several = several.unwrap_or_else(|| scene.map.several());
-            self.walk(scene, (several, walked), r, mask, records, &pictures);
+            self.walk(
+                scene,
+                (several, walked, framed),
+                r,
+                mask,
+                records,
+                &pictures,
+            );
             if r.atlas_stats().grown.value() == self.grown.value() {
                 break;
             }
@@ -781,7 +815,11 @@ impl Overlay {
         // bit alone.
         if self.stats.pictured.value() > 0 {
             let w = cols.index();
-            crate::counters::add(Counter::PictureCellsScanned, Tally::of(w * rows.index()));
+            crate::counters::add(
+                Counter::PictureCellsScanned,
+                Site::Pictures,
+                Tally::of(w * rows.index()),
+            );
             for y in 0..rows.index() {
                 for x in 0..w {
                     if self.pictures.at(Row::from_index(y), Col::at_index(x)) != Pictured::Yes {
@@ -798,7 +836,7 @@ impl Overlay {
     fn walk(
         &mut self,
         scene: &Scene<'_, '_>,
-        (several, walked): (&[(Row, Col)], Walked),
+        (several, walked, framed): (&[(Row, Col)], Walked, Option<Framed>),
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
@@ -861,7 +899,7 @@ impl Overlay {
                 if !orders.reordered(row) && (!displayed || same) {
                     continue;
                 }
-                crate::counters::add(Counter::OverlayCellsBuilt, Tally::of(cols));
+                crate::counters::add(Counter::OverlayCellsBuilt, Site::Overlay, Tally::of(cols));
                 for (x, cell) in view.row(row).iter().enumerate().take(cols) {
                     let l = orders.logical_col(row, Col::at_index(x));
                     let sel = scene
@@ -928,9 +966,10 @@ impl Overlay {
         // every cell masked and marked sized, so the shader draws their
         // backgrounds from half the column and nothing else of them.
         let mut sized = core::mem::take(&mut self.sized);
-        r.sized_lines(
+        r.sized_framed(
             term,
             (&view, scene.styles),
+            framed,
             cursor,
             scene.composition,
             &mut sized,
@@ -1367,7 +1406,11 @@ impl Overlay {
             }
             self.painted[y] = Some(painted);
         }
-        crate::counters::add(Counter::OverlayCellsBuilt, Tally::of(rows * cols));
+        crate::counters::add(
+            Counter::OverlayCellsBuilt,
+            Site::Overlay,
+            Tally::of(rows * cols),
+        );
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
@@ -1413,7 +1456,7 @@ impl Overlay {
             self.order(records);
         }
         #[cfg(feature = "counters")]
-        crate::counters::add(Counter::OverlayCellsBuilt, {
+        crate::counters::add(Counter::OverlayCellsBuilt, Site::Overlay, {
             let mut built = self.stats.cells;
             built.add(self.stats.window_cells);
             built
@@ -2858,7 +2901,7 @@ impl Overlay {
         r.swap_leaving_layout();
         slide.walk.ensure_with(
             &scene,
-            Some(&slide.several),
+            (Some(&slide.several), None),
             Find::None,
             r,
             &mut row_mask,

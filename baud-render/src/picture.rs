@@ -197,6 +197,7 @@ impl Pictures {
         let (cols, rows) = (view.cols().index(), view.rows().index());
         crate::counters::add(
             crate::counters::Counter::PictureCellsScanned,
+            crate::counters::Site::Pictures,
             Tally::of(cols * rows),
         );
         let mut above = 0..0;

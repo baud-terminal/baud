@@ -862,16 +862,22 @@ impl Kept {
             && (0..key.rows.index()).all(|y| {
                 let r = Row::from_index(y);
                 mark_of(vp, r) == self.marks[y]
-                    && crate::counters::same_cells(vp.row(r), &self.window[y * n..(y + 1) * n])
+                    && crate::counters::same_cells(
+                        crate::counters::Site::Rebreak,
+                        vp.row(r),
+                        &self.window[y * n..(y + 1) * n],
+                    )
             })
             && self.up.iter().enumerate().all(|(i, (c, m))| {
                 up_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
-                    mark == *m && crate::counters::same_cells(cells, c)
+                    mark == *m
+                        && crate::counters::same_cells(crate::counters::Site::Rebreak, cells, c)
                 })
             })
             && self.down.iter().enumerate().all(|(i, (c, m))| {
                 down_row(term, key.back, i + 1).is_some_and(|(cells, mark)| {
-                    mark == *m && crate::counters::same_cells(cells, c)
+                    mark == *m
+                        && crate::counters::same_cells(crate::counters::Site::Rebreak, cells, c)
                 })
             })
     }
@@ -994,6 +1000,7 @@ pub(crate) fn lay_out(
     );
     crate::counters::add(
         crate::counters::Counter::CellsCopied,
+        crate::counters::Site::Rebreak,
         Tally::of(nrows * key.cols.index()),
     );
     work.last = Some(Kept {

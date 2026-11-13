@@ -40,9 +40,12 @@
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
-const NAMES: [&str; 13] = [
+const NAMES: [&str; 16] = [
     "every_counter_moves_on_a_full_frame",
     "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs",
+    "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell",
+    "a_caret_frame_compares_only_the_rows_drawn_in_another_order",
+    "every_driver_seals_once_a_frame_before_it_builds",
     "a_written_cell_repaints_its_row_alone",
     "a_marked_cell_costs_a_caret_frame_no_allocation",
     "a_ligature_window_costs_a_caret_frame_no_allocation",
@@ -79,6 +82,15 @@ fn main() {
             "every_counter_moves_on_a_full_frame" => checks::every_counter_moves_on_a_full_frame(),
             "a_caret_frame_blinks_the_cursor_and_counts_what_it_costs" => {
                 checks::a_caret_frame_blinks_the_cursor_and_counts_what_it_costs();
+            }
+            "a_caret_frame_drawn_as_stored_copies_and_compares_no_cell" => {
+                checks::a_caret_frame_drawn_as_stored_copies_and_compares_no_cell();
+            }
+            "a_caret_frame_compares_only_the_rows_drawn_in_another_order" => {
+                checks::a_caret_frame_compares_only_the_rows_drawn_in_another_order();
+            }
+            "every_driver_seals_once_a_frame_before_it_builds" => {
+                checks::every_driver_seals_once_a_frame_before_it_builds();
             }
             "a_written_cell_repaints_its_row_alone" => {
                 checks::a_written_cell_repaints_its_row_alone();
@@ -190,7 +202,7 @@ mod checks {
     use baud_present_macos::journal::{SetIx, Wheel};
     use baud_present_macos::screens::{Built, Screens};
     use baud_render::cell_frame::{CellInputs, CellParts, build};
-    use baud_render::counters::{self, Counter, Counts};
+    use baud_render::counters::{self, Counter, Counts, Site};
     use baud_render::{
         Blend, Blink, BlinkPhases, Candidate, CursorPhase, Damage, GlyphMap, HoverPaint, Instance,
         Leaving, Lent, LineStyle, LinkHover, LinkLine, LinkSpan, Overlay, OverlayStats, PxSize,
@@ -315,32 +327,51 @@ mod checks {
         "a -> b != c :: d <- e == f ",
     ];
 
+    /// The status line's text.
+    const STATUS: &str = "status -> main != done \u{5e9}\u{5dc}\u{5d5}\u{5dd} ";
+
+    /// **The seeds and status line with no right-to-left text**: the
+    /// Hebrew and the Arabic seed's letters, and the status line's, in
+    /// Latin, so the layout draws no row in another order.
+    const LTR_SEEDS: [&str; 6] = [
+        SEEDS[0],
+        SEEDS[1],
+        "shalom shlm olm 2026 world ",
+        "marhaba mrhba blalm 42 ",
+        SEEDS[4],
+        SEEDS[5],
+    ];
+    const LTR_STATUS: &str = "status -> main != done shlm ";
+
     /// **The screen**: the status line, a DECDWL row, a DECDHL pair, rows
     /// full from the seeds -- every fourth one wrapped onto the next as one
     /// line -- two links, a kitty image and a Sixel over the text, a
     /// blinking cell where `blinking` asks, and the cursor a blinking block
     /// mid-screen.
     fn fixture(blinking: Blinking) -> Vec<u8> {
+        fixture_of(blinking, &SEEDS, STATUS)
+    }
+
+    /// [`fixture`] from `seeds` and with `status` on the status line.
+    fn fixture_of(blinking: Blinking, seeds: &[&str; 6], status: &str) -> Vec<u8> {
         let cols = usize::from(WS.ws_col);
         // The screen's width, and half of it for a double-width line.
         let (wide, half) = (Cols::of_index(cols), Cols::of_index(cols / 2));
         let mut v = Vec::new();
         v.extend_from_slice(b"\x1b[2$~\x1b[1$}");
-        v.extend_from_slice(
-            filled("status -> main != done \u{5e9}\u{5dc}\u{5d5}\u{5dd} ", wide).as_bytes(),
-        );
+        v.extend_from_slice(filled(status, wide).as_bytes());
         v.extend_from_slice(b"\x1b[0$}\x1b[H");
         v.extend_from_slice(b"\x1b#6");
-        v.extend_from_slice(filled(SEEDS[0], half).as_bytes());
+        v.extend_from_slice(filled(seeds[0], half).as_bytes());
         v.extend_from_slice(b"\r\n\x1b#3");
-        v.extend_from_slice(filled(SEEDS[5], half).as_bytes());
+        v.extend_from_slice(filled(seeds[5], half).as_bytes());
         v.extend_from_slice(b"\r\n\x1b#4");
-        v.extend_from_slice(filled(SEEDS[5], half).as_bytes());
+        v.extend_from_slice(filled(seeds[5], half).as_bytes());
         let main = usize::from(WS.ws_row);
         let mut y = 3;
         while y < main {
             v.extend_from_slice(b"\r\n");
-            let seed = SEEDS[y % SEEDS.len()];
+            let seed = seeds[y % seeds.len()];
             let text = match (y % 4, y + 1 < main) {
                 // A line two rows long, which the terminal cut at the
                 // margin and word-wrap draws at its words.
@@ -529,6 +560,17 @@ mod checks {
             for c in Counter::ALL {
                 s.push_str(&format!("{}={} ", c.name(), self.counts.of(c).value()));
             }
+            // Where the cells compared and copied were, by site.
+            for site in Site::ALL {
+                let at = |c: Counter| self.counts.at(site, c).value();
+                let (compared, copied) = (at(Counter::CellsCompared), at(Counter::CellsCopied));
+                if compared + copied > 0 {
+                    s.push_str(&format!(
+                        "{}:compared={compared},copied={copied} ",
+                        site.name()
+                    ));
+                }
+            }
             s.push_str(&format!(
                 "allocations={} bytes={} other_threads={}",
                 self.heap.here.value(),
@@ -672,14 +714,17 @@ mod checks {
     /// itself through the function `present` builds it with
     /// (`baud_render::cell_frame::build`). No composition, no prediction,
     /// no slide and no notice. Every call here is one `present` makes, in
-    /// its order (`the_cell_driver_builds_as_present_builds`).
+    /// its order (`the_cell_driver_builds_as_present_builds`), and the
+    /// frame's writes are sealed first (`Term::seal_writes`).
     fn cell_frame(
         r: &mut Renderer<'_, '_>,
-        t: &Term<'_>,
+        t: &mut Term<'_>,
         inputs: &Inputs,
         cell: &mut Cells<'_>,
         at: SetIx,
     ) -> Built {
+        let seal = t.seal_writes();
+        let t = &*t;
         let back = t.window_back();
         r.fit(t);
         r.set_highlight(None);
@@ -712,6 +757,7 @@ mod checks {
         let frame = build(
             r,
             t,
+            seal,
             &frame_inputs,
             &mut CellParts {
                 map: &mut cell.map,
@@ -740,6 +786,23 @@ mod checks {
     /// A screen of the fixture, its links set at rest with the first one
     /// struck, handed to `f` with the faces' renderer.
     fn with_screen(blinking: Blinking, f: impl FnOnce(&mut Term<'_>, &mut Renderer<'_, '_>)) {
+        with_screen_of(&fixture(blinking), Strike::First, f);
+    }
+
+    /// Whether a screen's first link is struck.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Strike {
+        First,
+        None,
+    }
+
+    /// A screen of `bytes`, its two links set at rest with the first
+    /// struck where `strike` says, handed to `f` with the faces' renderer.
+    fn with_screen_of(
+        bytes: &[u8],
+        strike: Strike,
+        f: impl FnOnce(&mut Term<'_>, &mut Renderer<'_, '_>),
+    ) {
         let faces = [
             Face::parse(JETBRAINS).expect("JetBrains Mono"),
             Face::parse(CASCADIA).expect("Cascadia Mono"),
@@ -747,11 +810,13 @@ mod checks {
         let mut r = renderer(&faces);
         let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
         let mut t = Term::new(owned.storage(), &WS);
-        feed(&mut t, &fixture(blinking));
+        feed(&mut t, bytes);
         let lines = links(&t);
         assert_eq!(lines.len(), 2, "two links on screen");
         r.set_link_lines(&lines, LineStyle::Solid);
-        r.set_link_strikes(&lines[..1], &[]);
+        if strike == Strike::First {
+            r.set_link_strikes(&lines[..1], &[]);
+        }
         f(&mut t, &mut r);
     }
 
@@ -934,7 +999,8 @@ mod checks {
         with_screen(Blinking::No, |t, r| {
             let mut backing = GlyphMap::backing();
             let mut cells = Cells::new(&mut backing, t);
-            cell_frame(r, t, &hover(t, Nth(0)), &mut cells, Nth(0).set());
+            let hovered = hover(t, Nth(0));
+            cell_frame(r, t, &hovered, &mut cells, Nth(0).set());
             assert!(
                 !r.hover_bars().is_empty(),
                 "and drawn as a bar on the cell path"
@@ -980,7 +1046,8 @@ mod checks {
         with_screen(Blinking::Yes, |t, r| {
             let mut backing = GlyphMap::backing();
             let mut cells = Cells::new(&mut backing, t);
-            cell_frame(r, t, &text_blink(t, Nth(0)), &mut cells, Nth(0).set());
+            let blinking = text_blink(t, Nth(0));
+            cell_frame(r, t, &blinking, &mut cells, Nth(0).set());
             assert_eq!(
                 r.blink_seen(),
                 baud_render::Blinking::SLOW,
@@ -999,6 +1066,186 @@ mod checks {
                 .into_iter()
                 .map(|c| c.0),
         );
+    }
+
+    /// **A caret frame on a screen drawn as stored copies and compares no
+    /// cell** (FS-C5), on either path: the fixture with its Hebrew and
+    /// Arabic in Latin ([`LTR_SEEDS`]) and no link struck, so no row is
+    /// drawn in another order, no display is re-broken, nothing is veiled
+    /// and nothing is lent. On every frame after the first ones, the copy
+    /// of the screen (`Site::Screens`), the CPU path's convert
+    /// (`Site::Convert`) and the sized lines (`Site::Sized`) read no cell
+    /// and write none: nothing was written since the seal each was taken
+    /// under. The controls: the first frame copies at those sites -- they
+    /// are fed -- the CPU caret frame repaints the cursor's row, and the
+    /// cell path's is built from the last screen. Named break: every row
+    /// taken as written since the seal.
+    pub fn a_caret_frame_drawn_as_stored_copies_and_compares_no_cell() {
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        let ltr = fixture_of(Blinking::No, &LTR_SEEDS, LTR_STATUS);
+        let (mut cpu, mut cell) = (Vec::new(), Vec::new());
+        with_screen_of(&ltr, Strike::None, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(t, k);
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => inputs.damage,
+                };
+                Cost::take();
+                let f = cpu_frame(r, t, &inputs, &mut target, damage);
+                cpu.push((Cost::take(), f.rows_dirty));
+            }
+        });
+        with_screen_of(&ltr, Strike::None, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(t, k);
+                Cost::take();
+                let built = cell_frame(r, t, &inputs, &mut cells, k.set());
+                cell.push((Cost::take(), built));
+            }
+        });
+        print("ltr", "cpu", cpu.iter().map(|c| c.0));
+        print("ltr", "cell", cell.iter().map(|c| c.0));
+        let fed = |c: &Cost, site: Site| c.counts.at(site, Counter::CellsCopied).value() > 0;
+        assert!(
+            fed(&cpu[0].0, Site::Convert),
+            "the control: the CPU path's first frame copies"
+        );
+        assert!(
+            fed(&cell[0].0, Site::Screens),
+            "the control: the cell path's first frame copies"
+        );
+        assert!(
+            fed(&cell[0].0, Site::Sized),
+            "the control: its sized lines are taken"
+        );
+        for k in Nth::ALL.before().filter(|k| !k.warming()) {
+            let (cpu, rows) = &cpu[k.0];
+            let (cell, built) = &cell[k.0];
+            assert_eq!(
+                rows.value(),
+                1,
+                "CPU caret frame {}: the cursor's row repaints",
+                k.0
+            );
+            assert_eq!(
+                *built,
+                Built::Last,
+                "cell caret frame {}: the last screen",
+                k.0
+            );
+            for (path, cost) in [("cpu", cpu), ("cell", cell)] {
+                for site in [Site::Screens, Site::Convert, Site::Sized] {
+                    for c in [Counter::CellsCompared, Counter::CellsCopied] {
+                        assert_eq!(
+                            cost.counts.at(site, c).value(),
+                            0,
+                            "{path} caret frame {}: {} at {}",
+                            k.0,
+                            c.name(),
+                            site.name()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The rows of `t`'s window and its status line that `r`'s last layout
+    /// drew in another order, and how many rows there are.
+    fn drawn_otherwise(t: &Term<'_>, r: &Renderer<'_, '_>) -> (usize, usize) {
+        let rows = t.viewport().rows().index() + usize::from(t.status_line().is_some());
+        let drawn = (0..rows)
+            .filter(|&y| r.bidi().reordered(Row::from_index(y)))
+            .count();
+        (drawn, rows)
+    }
+
+    /// **R1: a caret frame on the C0 screen compares and copies only the
+    /// rows drawn in another order** (FS-C5): the Hebrew and the Arabic
+    /// seeds' rows and the status line keep being compared and copied,
+    /// since their drawn order reads more of the terminal than their
+    /// cells, and no other row is. The bound is the frame's own layout's:
+    /// on the cell path, as the C0 screen is, its first link struck, the
+    /// copy of the screen (`Site::Screens`) compares at most twice the
+    /// cells of those rows -- once as copied, once through the struck
+    /// link's lending -- and copies none, since the set a caret frame is
+    /// built into already holds the last frame's screen; on the CPU path,
+    /// no link struck, the convert (`Site::Convert`) compares at most
+    /// their cells and copies at most twice them, into its copy of the
+    /// window and into the last frame's. A struck link on the CPU path
+    /// lends every row of its copy each frame (`Renderer::lend_cpu`), so
+    /// every row is compared there. Both fall below a compare of every
+    /// row, and the controls: some rows are drawn in another order, and
+    /// not all. Named breaks: every row taken as written since the seal;
+    /// a set that holds the screen copied into again.
+    pub fn a_caret_frame_compares_only_the_rows_drawn_in_another_order() {
+        let caret = |_: &Term<'_>, k: Nth| Inputs::at(caret_at(k));
+        let cols = usize::from(WS.ws_col);
+        let of = |rows: usize| u64::try_from(rows * cols).expect("a count");
+        let (mut cell_costs, mut cpu_costs) = (Vec::new(), Vec::new());
+        with_screen(Blinking::No, |t, r| {
+            let mut backing = GlyphMap::backing();
+            let mut cells = Cells::new(&mut backing, t);
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(t, k);
+                Cost::take();
+                cell_frame(r, t, &inputs, &mut cells, k.set());
+                cell_costs.push((k, Cost::take(), drawn_otherwise(t, r)));
+            }
+        });
+        with_screen_of(&fixture(Blinking::No), Strike::None, |t, r| {
+            let mut pixels = Pixels::of(r);
+            let mut target = pixels.target();
+            Cost::take();
+            for k in Nth::ALL.before() {
+                let inputs = caret(t, k);
+                let damage = match k {
+                    Nth(0) => Damage::Full,
+                    _ => inputs.damage,
+                };
+                Cost::take();
+                let _ = cpu_frame(r, t, &inputs, &mut target, damage);
+                cpu_costs.push((k, Cost::take(), drawn_otherwise(t, r)));
+            }
+        });
+        print("c0", "cell", cell_costs.iter().map(|c| c.1));
+        print("c0", "cpu", cpu_costs.iter().map(|c| c.1));
+        for (path, costs, site, (compared, copied)) in [
+            ("cell", &cell_costs, Site::Screens, (2, 0)),
+            ("cpu", &cpu_costs, Site::Convert, (1, 2)),
+        ] {
+            for (k, cost, (drawn, every)) in costs.iter().filter(|c| !c.0.warming()) {
+                assert!(
+                    0 < *drawn && drawn < every,
+                    "the control: {path} caret frame {} draws some rows in another order, {drawn} of {every}",
+                    k.0
+                );
+                let at = |c: Counter| cost.counts.at(site, c).value();
+                assert!(
+                    at(Counter::CellsCompared) <= compared * of(*drawn)
+                        && at(Counter::CellsCompared) < of(*every),
+                    "{path} caret frame {}: {} cells compared at {}, {drawn} of {every} rows drawn otherwise",
+                    k.0,
+                    at(Counter::CellsCompared),
+                    site.name()
+                );
+                assert!(
+                    at(Counter::CellsCopied) <= copied * of(*drawn),
+                    "{path} caret frame {}: {} cells copied at {}, {drawn} of {every} rows drawn otherwise",
+                    k.0,
+                    at(Counter::CellsCopied),
+                    site.name()
+                );
+            }
+        }
     }
 
     /// **(c) One cell written mid-screen repaints its row alone**, and
@@ -1374,7 +1621,8 @@ mod checks {
                 let mut cells = Cells::new(&mut backing, t);
                 for k in n.before() {
                     let before = r.veils_composed().value();
-                    cell_frame(r, t, &at_rest(paint)(t, k), &mut cells, k.set());
+                    let inputs = at_rest(paint)(t, k);
+                    cell_frame(r, t, &inputs, &mut cells, k.set());
                     let c = r.veils_composed().value() - before;
                     if !k.warming() && c != 0 {
                         wrong.push(format!(
@@ -1441,7 +1689,7 @@ mod checks {
     /// sized lines it converted, and the records it draws.
     fn sized_frame(
         r: &mut Renderer<'_, '_>,
-        t: &Term<'_>,
+        t: &mut Term<'_>,
         cells: &mut Cells<'_>,
         k: Nth,
     ) -> (u64, Vec<Instance>) {
@@ -1698,6 +1946,74 @@ mod checks {
         ("screens.", "screens."),
     ];
 
+    /// **Every driver seals once a frame, before it builds** (FS-C5): the
+    /// cell path's build takes the seal as an argument and seals nothing
+    /// itself, so `App::present` seals once, after the link scan (which
+    /// keeps the seal it read under) and before `cell_frame::build`, and
+    /// hands that seal in; the cell driver here does the same; and
+    /// `Renderer::render_at`, which every CPU driver goes through, seals at
+    /// its top. A present that stopped sealing would build every caret
+    /// frame as a new screen, every row read as written; one that sealed
+    /// before the scan would hide a frame's writes from it.
+    pub fn every_driver_seals_once_a_frame_before_it_builds() {
+        let here = include_str!("caret_frame.rs");
+        let read = |p: &str| {
+            std::fs::read_to_string(format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")))
+                .unwrap_or_else(|e| panic!("{p}: {e}"))
+        };
+        let app = read("baud-app/src/app.rs");
+        let present = body_of(
+            &app,
+            "fn present(&mut self, screen: &DrawableView, show: Show)",
+            METHOD,
+        );
+        let at = |flat: &str, what: &str| {
+            flat.find(what)
+                .unwrap_or_else(|| panic!("{what} is in the body: {flat}"))
+        };
+        assert_eq!(
+            present.matches("seal_writes()").count(),
+            1,
+            "present seals once a frame"
+        );
+        assert!(
+            at(&present, "self.scan_lines()") < at(&present, "seal_writes()")
+                && at(&present, "seal_writes()") < at(&present, "cell_frame::build("),
+            "present seals after the link scan and before the build"
+        );
+        assert!(
+            present.contains("letseal=self.term.seal_writes();"),
+            "present keeps the seal it takes: {present}"
+        );
+        let driver = body_of(here, "fn cell_frame(", METHOD);
+        assert_eq!(
+            driver.matches("seal_writes()").count(),
+            1,
+            "the driver seals once a frame"
+        );
+        assert!(
+            at(&driver, "letseal=t.seal_writes();") < at(&driver, "=build("),
+            "the driver seals before it builds"
+        );
+        let library = read("baud-render/src/cell_frame.rs");
+        let build = body_of(&library, "pub fn build<P>(", "\n}\n");
+        assert!(
+            build.contains("term:&Term<'_>,seal:Seal,"),
+            "the build takes the seal: {build}"
+        );
+        assert!(
+            !build.contains("seal_writes(") && !build.contains("sealed()"),
+            "and takes none itself"
+        );
+        let renderer = read("baud-render/src/renderer.rs");
+        let render_at = body_of(&renderer, "pub fn render_at(", METHOD);
+        assert_eq!(
+            render_at.matches("term.seal_writes()").count(),
+            1,
+            "render_at seals once a frame"
+        );
+    }
+
     /// **The cell driver builds the frame as `App::present` does**: both
     /// call `baud_render::cell_frame::build` once, every call the driver
     /// makes before it into the renderer is one `present` makes, in
@@ -1772,7 +2088,7 @@ mod checks {
         for control in [
             "screens.take_lent",
             "cell.maps.live.ensure",
-            "cell.exceptions.ensure",
+            "cell.exceptions.ensure_framed",
             "self.renderer.sync_styles",
             "self.renderer.bidi().window",
         ] {
@@ -1796,7 +2112,6 @@ mod checks {
                 METHOD
             )),
             [
-                "cell.exceptions.ensure",
                 "self.renderer.badge",
                 "self.renderer.place_grounds",
                 "self.renderer.set_cursor_glow_at",

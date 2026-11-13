@@ -22,7 +22,7 @@ use baud_domain::{
 use baud_font::{Face, Px};
 use baud_present_macos::journal::SetIx;
 use baud_present_macos::redraw::{Ages, SURFACES, SurfaceIx};
-use baud_present_macos::screens::{Compare, Screens};
+use baud_present_macos::screens::{Compare, Held, Screens, Taking};
 use baud_present_macos::{
     Cause, CellInput, Deadline, Done, Drawn, FaultCode, Gpu, GpuFrame, GridBuffer, Inject, Landed,
     MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
@@ -425,6 +425,9 @@ impl Arms<'_, '_> {
         let live_back = self.back.index() == 0;
         self.renderer
             .set_predicted(self.predictions.iter().copied().filter(|_| live_back));
+        // One write generation closed a frame, before anything reads, as
+        // the app's frame closes it.
+        let seal = t.seal_writes();
         let rejoin = self.renderer.lay_out_bidi_copied(t, self.back);
         let view =
             self.renderer
@@ -466,15 +469,24 @@ impl Arms<'_, '_> {
         // Whether this frame's screen is the last's, as the app decides it:
         // the window as drawn, its status line and line renditions.
         self.screens.compare = Compare::for_rejoin(rejoin);
+        let status = t.status_line();
+        let orders = self.renderer.bidi();
         self.screens.take(
             &mut [&mut self.screen[..]],
             SetIx(0),
-            &view,
-            t.status_line().as_ref(),
-            t.stride(),
-            match self.slide {
-                Some(_) => baud_render::Leaving::Drawn,
-                None => baud_render::Leaving::None,
+            &Taking {
+                term: t,
+                seal,
+                back: self.back,
+                view: &view,
+                status: status.as_ref(),
+                reordered: &|r| orders.reordered(r),
+                held: Held::of(orders),
+                stride: t.stride(),
+                leaving: match self.slide {
+                    Some(_) => baud_render::Leaving::Drawn,
+                    None => baud_render::Leaving::None,
+                },
             },
         );
         // The kept joins found again where that compare found a row changed,
@@ -16535,17 +16547,28 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
     let (mut cells, mut used) = (Vec::new(), Vec::new());
     // One frame of the cell path as the app builds it, to the walk: what
     // the layout read, and whether its joins are a fresh layout's.
-    let mut frame = |r: &mut Renderer<'_, '_>, t: &Term<'_>| {
+    let mut frame = |r: &mut Renderer<'_, '_>, t: &mut Term<'_>| {
+        let seal = t.seal_writes();
+        let t = &*t;
         let rejoin = r.lay_out_bidi_copied(t, Rows::ZERO);
         let view = r.bidi().window(t, Rows::ZERO, &mut cells, &mut used);
         screens.compare = Compare::for_rejoin(rejoin);
+        let status = t.status_line();
+        let orders = r.bidi();
         screens.take(
             &mut [&mut copy[..]],
             SetIx(0),
-            &view,
-            t.status_line().as_ref(),
-            t.stride(),
-            baud_render::Leaving::None,
+            &Taking {
+                term: t,
+                seal,
+                back: Rows::ZERO,
+                view: &view,
+                status: status.as_ref(),
+                reordered: &|row| orders.reordered(row),
+                held: Held::of(orders),
+                stride: t.stride(),
+                leaving: baud_render::Leaving::None,
+            },
         );
         if let Some(how) = rejoin {
             r.rejoin_bidi(t, Rows::ZERO, how, |row| screens.changed(row));
@@ -16571,26 +16594,30 @@ fn the_cell_path_rejoins_only_the_rows_the_copy_finds_changed() {
     r.convert(&t, Rows::ZERO, Damage::Full);
     assert_eq!(r.joins_seen(), baud_render::Joins::Seen, "a beh was shaped");
     assert_eq!(
-        frame(&mut r, &t),
+        frame(&mut r, &mut t),
         (0, rows),
         "after a conversion: every row"
     );
-    assert_eq!(frame(&mut r, &t), (0, 0), "the same screen");
-    assert_eq!(frame(&mut r, &t), (0, 0), "and again");
+    assert_eq!(frame(&mut r, &mut t), (0, 0), "the same screen");
+    assert_eq!(frame(&mut r, &mut t), (0, 0), "and again");
     feed(&mut t, b"\x1b[1;1Hj");
-    assert_eq!(frame(&mut r, &t), (0, 1), "one Latin row changed");
+    assert_eq!(frame(&mut r, &mut t), (0, 1), "one Latin row changed");
     feed(&mut t, b"\x1b[3;1Hxx");
-    assert_eq!(frame(&mut r, &t), (0, 1), "the Arabic row made Latin");
+    assert_eq!(frame(&mut r, &mut t), (0, 1), "the Arabic row made Latin");
     feed(&mut t, "\x1b[5;1H\u{0628}\u{0628}\u{0628}".as_bytes());
-    assert_eq!(frame(&mut r, &t), (0, 1), "a Latin row made Arabic");
+    assert_eq!(frame(&mut r, &mut t), (0, 1), "a Latin row made Arabic");
     assert!(
         r.bidi().joins(Row::from_index(4)).is_some(),
         "its behs joined"
     );
-    assert_eq!(frame(&mut r, &t), (0, 0), "the same screen, a row joined");
+    assert_eq!(
+        frame(&mut r, &mut t),
+        (0, 0),
+        "the same screen, a row joined"
+    );
     r.convert(&t, Rows::ZERO, Damage::Incremental);
-    assert_eq!(frame(&mut r, &t), (0, rows), "after a conversion again");
-    assert_eq!(frame(&mut r, &t), (0, 0), "and the same screen");
+    assert_eq!(frame(&mut r, &mut t), (0, rows), "after a conversion again");
+    assert_eq!(frame(&mut r, &mut t), (0, 0), "and the same screen");
 }
 
 /// **A mirrored character resolved right to left is drawn mirrored on every

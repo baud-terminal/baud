@@ -13,7 +13,7 @@ use crate::cellmap::{
 };
 use crate::color::{Argb, BaudCursor, CursorMade, Theme, Video};
 use crate::composite::{Blend, Blit, Mix, Page, Target, Texels};
-use crate::counters::Counter;
+use crate::counters::{Counter, Site};
 use crate::effect::Vfx;
 use crate::find::{Current, FindLook};
 use crate::flash::{self, Strength};
@@ -41,7 +41,7 @@ use baud_domain::{
     Attrs, BidiDirection, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle,
     FrameNo, GlyphId, ImageAge, ImageAlpha, ImageDraw, ImageGen, ImageGround, ImageId, ImagePx,
     ImageScreen, ImageStore, KittyId, KittyRoot, LineRendition, PackedCell, Pixel, PlaceSerial,
-    Row, Rows, Viewport, ZIndex,
+    Row, RowAt, RowGens, Rows, Seal, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -2233,7 +2233,7 @@ type Cursor = Option<(Row, Col, CursorStyle)>;
 /// own, borrowed, and copied into the kept key's buffers only when they
 /// differ ([`SizedKey::take`]), so a steady line costs a frame no buffer.
 struct SizedKey {
-    cells: Vec<PackedCell>,
+    from: SizedFrom,
     pictured: Vec<crate::Pictured>,
     /// The composition on the line, which a line that joins draws among
     /// its own glyphs ([`Splice`]).
@@ -2258,9 +2258,103 @@ struct SizedRest {
     atlas: Tally,
 }
 
+/// **A frame's window as the cell path's build keyed it** (FS-C5): how far
+/// it looks back, and the seal the build closed its writes under, read
+/// with the window under one `&Term`, so a sized line's key can name its
+/// row by where it is stored. Made only in this crate, by the frame's
+/// build (`crate::cell_frame::build`): a caller that draws a window of
+/// its own copy -- the last frame's, as a screen switch's slide draws it
+/// (`Overlay::ensure`) -- has none, and its sized lines are compared cell
+/// for cell.
+#[derive(Clone, Copy)]
+pub(crate) struct Framed {
+    back: Rows,
+    seal: Seal,
+}
+
+impl Framed {
+    /// The window `back` lines into the history of the term a build read,
+    /// under `seal`, the term's as it read it.
+    pub(crate) fn of(back: Rows, seal: Seal) -> Framed {
+        Framed { back, seal }
+    }
+}
+
+/// **What a sized line's key holds its cells by** (FS-C5).
+enum SizedFrom {
+    /// The row as stored: where it is stored and the seal the frame's
+    /// window was keyed under. It holds while the same stored row is drawn
+    /// at the line's row and was not written after that seal
+    /// (`RowGens::after`), and reads no cell.
+    Stored { at: RowAt, seal: Seal },
+    /// The cells as drawn, compared cell for cell: a row the layout drew
+    /// in another order, which reads the terminal beyond its cells, every
+    /// row of a display it re-broke, and every row of a window no build
+    /// keyed ([`Framed`]).
+    Cells(Vec<PackedCell>),
+}
+
+/// A sized line's cells as the frame has them: where the row is stored,
+/// with the window's generations and seal, or the cells as drawn.
+enum SizedCells<'a, 'g> {
+    Stored {
+        at: RowAt,
+        seal: Seal,
+        gens: &'a RowGens<'g>,
+        y: Row,
+    },
+    Drawn(&'a [PackedCell]),
+}
+
+impl SizedFrom {
+    /// Whether the cells this key was taken from are `now`'s: the same
+    /// stored row, written since the key's seal or not, or the same cells,
+    /// compared. A line that moves between the two misses once.
+    fn holds(&self, now: &SizedCells<'_, '_>) -> bool {
+        match (self, now) {
+            (
+                SizedFrom::Stored { at, seal },
+                SizedCells::Stored {
+                    at: here, gens, y, ..
+                },
+            ) => at == here && !gens.after(*y, seal),
+            (SizedFrom::Cells(kept), SizedCells::Drawn(cells)) => {
+                crate::counters::same_cells(Site::Sized, kept, cells)
+            }
+            _ => false,
+        }
+    }
+
+    /// The key `now` makes, new.
+    fn of(now: &SizedCells<'_, '_>) -> SizedFrom {
+        match now {
+            SizedCells::Stored { at, seal, .. } => SizedFrom::Stored {
+                at: *at,
+                seal: *seal,
+            },
+            SizedCells::Drawn(cells) => {
+                crate::counters::add(Counter::CellsCopied, Site::Sized, Tally::of(cells.len()));
+                SizedFrom::Cells(cells.to_vec())
+            }
+        }
+    }
+
+    /// The key `now` makes, into this key's buffer where both are cells.
+    fn take(&mut self, now: &SizedCells<'_, '_>) {
+        match (self, now) {
+            (SizedFrom::Cells(kept), SizedCells::Drawn(cells)) => {
+                kept.clear();
+                kept.extend_from_slice(cells);
+                crate::counters::add(Counter::CellsCopied, Site::Sized, Tally::of(cells.len()));
+            }
+            (me, now) => *me = SizedFrom::of(now),
+        }
+    }
+}
+
 /// A sized line's parts as the frame has them, borrowed.
-struct SizedNow<'a> {
-    cells: &'a [PackedCell],
+struct SizedNow<'a, 'g> {
+    cells: SizedCells<'a, 'g>,
     pictured: &'a [crate::Pictured],
     composition: Option<&'a Composition>,
     rest: SizedRest,
@@ -2268,18 +2362,17 @@ struct SizedNow<'a> {
 
 impl SizedKey {
     /// Whether the line converted under this key is the line `now` is:
-    /// every part compared, the cells among them.
-    fn holds(&self, now: &SizedNow<'_>) -> bool {
+    /// every part compared, its cells by what the key holds them by.
+    fn holds(&self, now: &SizedNow<'_, '_>) -> bool {
         self.rest == now.rest
-            && self.cells[..] == now.cells[..]
+            && self.from.holds(&now.cells)
             && self.pictured[..] == now.pictured[..]
             && self.composition.as_ref() == now.composition
     }
 
     /// The key `now` makes, into this key's buffers.
-    fn take(&mut self, now: &SizedNow<'_>) {
-        self.cells.clear();
-        self.cells.extend_from_slice(now.cells);
+    fn take(&mut self, now: &SizedNow<'_, '_>) {
+        self.from.take(&now.cells);
         self.pictured.clear();
         self.pictured.extend_from_slice(now.pictured);
         match (&mut self.composition, now.composition) {
@@ -2290,9 +2383,9 @@ impl SizedKey {
     }
 
     /// The key `now` makes, new.
-    fn of(now: &SizedNow<'_>) -> SizedKey {
+    fn of(now: &SizedNow<'_, '_>) -> SizedKey {
         SizedKey {
-            cells: now.cells.to_vec(),
+            from: SizedFrom::of(&now.cells),
             pictured: now.pictured.to_vec(),
             composition: now.composition.cloned(),
             rest: now.rest,
@@ -2364,6 +2457,128 @@ enum Prev {
     /// Nothing painted yet, or the geometry changed: the next frame is full.
     Unknown,
     Known,
+}
+
+/// **What a frame does with a row of this path's copy of the window**
+/// (`Renderer::convert`): leaves it as the last frame left it, compares it
+/// with the last frame's as it stands -- a row veiled or lent, now or last
+/// -- or takes it from the terminal again and compares it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MirrorRow {
+    Kept,
+    Compared,
+    Filled,
+}
+
+/// Whether a frame lent every row of this path's copy (`Renderer::lend_cpu`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LentRows {
+    None,
+    Every,
+}
+
+use mirror::Mirror;
+
+/// **The CPU path's copy of the window, and the key it was taken under**
+/// (FS-C5): its cells, each row's line rendition, and the seal and window
+/// a convert last brought it up to date under, so the next convert takes
+/// from the terminal only the rows written since, and those drawn from
+/// more than their stored cells.
+///
+/// At the end of every convert the copy equals the last frame's, `prev`,
+/// row for row, so a row the key keeps is neither read nor compared. That
+/// holds only while the convert is the copy's one writer, so the fields
+/// are this module's: every other writer -- the cell path's sized lines,
+/// its status line and a smooth scroll's leaving row, which convert rows
+/// of their own on these buffers -- writes through [`Mirror::scribble`],
+/// which forgets the key first, and a resize forgets it too. **A copy so
+/// written is read as no key at all** (`Keeps::Nothing`): the next
+/// convert takes every row and compares it, as a full frame does.
+mod mirror {
+    use crate::screens::{Keeps, Now, Reordered, ScreenGen, SetKey};
+    use baud_core::Term;
+    use baud_domain::{Cols, LineRendition, PackedCell, Row, Rows, Seal, Viewport};
+
+    #[derive(Default)]
+    pub(super) struct Mirror {
+        cells: Vec<PackedCell>,
+        sizes: Vec<LineRendition>,
+        key: SetKey,
+    }
+
+    /// The cells, read as they stand.
+    impl core::ops::Deref for Mirror {
+        type Target = [PackedCell];
+
+        fn deref(&self) -> &[PackedCell] {
+            &self.cells
+        }
+    }
+
+    impl Mirror {
+        /// Blank cells, `cols` a row over `rows` single-width rows, under no
+        /// key.
+        pub(super) fn resize(&mut self, cols: Cols, rows: Rows) {
+            self.cells = vec![PackedCell::EMPTY; cols.index() * rows.index()];
+            self.sizes = vec![LineRendition::Single; rows.index()];
+            self.key.forget();
+        }
+
+        /// Each row's line rendition, as it stands.
+        pub(super) fn sizes(&self) -> &[LineRendition] {
+            &self.sizes
+        }
+
+        /// **The copy written by anything but the convert**: the key
+        /// forgotten first, so the next convert takes every row.
+        pub(super) fn scribble(&mut self) -> (&mut [PackedCell], &mut [LineRendition]) {
+            self.key.forget();
+            (&mut self.cells, &mut self.sizes)
+        }
+
+        /// **The copy written by the convert** (`Renderer::convert_with`),
+        /// the key kept: the rows it fills from the terminal, and those it
+        /// veils, composes over, notices or lends, each of which it then
+        /// compares, copies into `prev` and takes again the next frame.
+        pub(super) fn converting(&mut self) -> (&mut [PackedCell], &mut [LineRendition]) {
+            (&mut self.cells, &mut self.sizes)
+        }
+
+        /// How much of the copy the key keeps for `now` (`SetKey::keeps`):
+        /// nothing once scribbled or resized.
+        pub(super) fn keeps(
+            &self,
+            term: &Term<'_>,
+            now: &Now<'_>,
+            reordered: &[Reordered],
+        ) -> Keeps {
+            self.key.keeps(term, now, reordered)
+        }
+
+        /// Whether row `r` may not be the window's now (`SetKey::dirty`).
+        pub(super) fn dirty(
+            &self,
+            now: &Now<'_>,
+            reordered: &[Reordered],
+            view: &Viewport<'_>,
+            r: Row,
+        ) -> bool {
+            self.key.dirty(now, reordered, view, r)
+        }
+
+        /// **The convert done**, the copy equal to the frame drawn: keyed
+        /// under `seal`, the term's as it was read.
+        pub(super) fn settle(
+            &mut self,
+            seal: Seal,
+            now: &Now<'_>,
+            view: &Viewport<'_>,
+            reordered: &[Reordered],
+        ) {
+            self.key
+                .record((seal, ScreenGen::default()), now, view, reordered);
+        }
+    }
 }
 
 /// Where a picture's anchor row is: a row of the window drawn, or that
@@ -3026,12 +3241,24 @@ pub struct Renderer<'f, 'a> {
     main: Rows,
     prev: Vec<PackedCell>,
     known: Prev,
-    cur: Vec<PackedCell>,
-    /// Each row's line rendition in the frame being converted, and in the
-    /// last: part of a row's damage, since DECDWL on a line whose cells it
-    /// leaves alone, or DECSWL, changes how the row is drawn and no cell.
-    cur_size: Vec<LineRendition>,
+    /// The frame being converted, and its key ([`Mirror`]). Each row's
+    /// line rendition in it, and in the last, is part of a row's damage,
+    /// since DECDWL on a line whose cells it leaves alone, or DECSWL,
+    /// changes how the row is drawn and no cell.
+    cur: Mirror,
     prev_size: Vec<LineRendition>,
+    /// This frame's reordered rows for the key, the status line's after
+    /// the window's, and what the frame does with each row of `cur`, in
+    /// buffers kept across frames.
+    mirror_reordered: Vec<crate::screens::Reordered>,
+    mirror_rows: Vec<MirrorRow>,
+    /// The rows the last frame and this one veiled, composed over or
+    /// noticed in `cur`, and whether either lent every row: the rows the
+    /// next frame takes again, since `cur` holds them as drawn, not as
+    /// stored.
+    veiled_last: Vec<usize>,
+    veiled_now: Vec<usize>,
+    lent_last: LentRows,
     /// The cells of the frame being converted that belong to a picture
     /// drawn in text, whose backgrounds are drawn solid under the dim --
     /// [`Theme::finds_pictures`]. Found over the whole screen, because a
@@ -3784,9 +4011,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             main: Rows::of_index(0),
             prev: Vec::new(),
             known: Prev::Unknown,
-            cur: Vec::new(),
-            cur_size: Vec::new(),
+            cur: Mirror::default(),
             prev_size: Vec::new(),
+            mirror_reordered: Vec::new(),
+            mirror_rows: Vec::new(),
+            veiled_last: Vec::new(),
+            veiled_now: Vec::new(),
+            lent_last: LentRows::None,
             pictures: Pictures::new(),
             bidi: crate::bidi::Reorder::new(),
             placeholder_bidi: None,
@@ -5141,7 +5372,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         self.hover_bars = bars;
         self.hover_spare = spare;
-        crate::counters::add(Counter::LinkInstancesBuilt, Tally::of(out.len()));
+        crate::counters::add(
+            Counter::LinkInstancesBuilt,
+            Site::Links,
+            Tally::of(out.len()),
+        );
         self.line_inst = out;
     }
 
@@ -7984,9 +8219,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.rows = rows;
         let cells = cols.index() * rows.index();
         self.prev = vec![PackedCell::EMPTY; cells];
-        self.cur = vec![PackedCell::EMPTY; cells];
+        self.cur.resize(cols, rows);
         self.prev_size = vec![LineRendition::Single; rows.index()];
-        self.cur_size = vec![LineRendition::Single; rows.index()];
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
         self.curve = vec![CurveRow::default(); cells];
@@ -8171,6 +8405,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // row loop instead, over a repainted row's background and under its
         // glyphs, so it is never over its own last blit; the rows one
         // arrives on are repainted for it (`arrived_under`).
+        //
+        // **One write generation closed a frame, before anything reads**
+        // (`Term::seal_writes`): the copy the convert keeps is taken under
+        // it, and the next frame takes again only the rows written after.
+        let _ = term.seal_writes();
         self.fit(term);
         // A frame with the splash's layers, or the one after it, repaints
         // whole: no row's reach counts their records.
@@ -8688,7 +8927,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if i0 >= i1 || j0 >= j1 {
             return;
         }
-        crate::counters::add(Counter::ImageTablesBuilt, Tally::of(1));
+        crate::counters::add(Counter::ImageTablesBuilt, Site::Images, Tally::of(1));
         let (src, dest) = (draw.src, draw.dest);
         let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
         let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
@@ -9070,10 +9309,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Nothing is read or converted when every line is single-width. An
     /// input method's `composition` on a sized line blanks the cells under
     /// it, as [`Renderer::convert`] does, for its own records to draw.
+    ///
+    /// Each line's records are kept while what it is drawn from holds, its
+    /// cells compared with the line's key: `view` is a window of a copy
+    /// this call cannot name the seal of (`Renderer::sized_framed`).
     pub fn sized_lines(
         &mut self,
         term: &Term<'_>,
         (view, table): (&Viewport<'_>, &[Resolved]),
+        cursor: Option<(Row, Col, CursorStyle)>,
+        composition: Option<&Composition>,
+        out: &mut Vec<Row>,
+    ) {
+        self.sized_framed(term, (view, table), None, cursor, composition, out);
+    }
+
+    /// **[`Renderer::sized_lines`] over the window a frame's build keyed**
+    /// (`framed`, FS-C5): a line drawn as stored is keyed by where its row
+    /// is stored and the build's seal, and its cells are neither read nor
+    /// copied while that row was not written since; one the layout drew in
+    /// another order, any line while a re-broken display is drawn, and
+    /// every line with no `framed`, by its cells, compared.
+    pub(crate) fn sized_framed(
+        &mut self,
+        term: &Term<'_>,
+        (view, table): (&Viewport<'_>, &[Resolved]),
+        framed: Option<Framed>,
         cursor: Option<(Row, Col, CursorStyle)>,
         composition: Option<&Composition>,
         out: &mut Vec<Row>,
@@ -9110,6 +9371,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.sized_rows.len() != rows.index() {
             self.sized_rows = (0..rows.index()).map(|_| None).collect();
         }
+        // The window's stored rows and the build's seal, where a build
+        // keyed it and no display is re-broken.
+        let held = self.bidi.orders().display().is_some();
+        let stored = framed
+            .filter(|_| !held)
+            .map(|f| (term.row_gens(f.back), f.seal));
         for y in 0..rows.index() {
             let r = Row::from_index(y);
             let size = view.rendition(r);
@@ -9117,26 +9384,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.sized_rows[y] = None;
                 continue;
             }
-            self.cur[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
-            self.cur_size[y] = size;
-            // The cells under a composition blanked where the row's order
-            // draws them, as `Renderer::convert` blanks them: `view` is in
-            // that order, so a cell the composition's columns name is at
-            // its visual column, and a mirror L4 gives the composition's
-            // text is in its cell there.
-            if let Some(c) = composition.filter(|c| c.row == r) {
-                let (start, end) = c.columns(c.width_on(view));
-                let orders = self.bidi.orders();
-                for x in start..end {
-                    let v = orders.visual_col(r, Col::at_index(x)).index();
-                    if let Some(cell) = self.cur.get_mut(y * ncols + v) {
-                        *cell = PackedCell {
-                            content: baud_domain::Content::EMPTY,
-                            style: cell.style,
-                            flags: baud_domain::CellFlags::NONE,
-                        };
-                    }
-                }
+            let at = stored.as_ref().filter(|_| !self.bidi.orders().reordered(r));
+            if at.is_none() {
+                self.sized_fill(view, r, composition);
             }
             // **Converted again only when something it is drawn from moved**:
             // a steady screen, or one whose other rows change, reuses the
@@ -9161,8 +9411,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let mut kept = self.sized_rows[y].take();
             let reuse = {
+                let cells = match at {
+                    Some((gens, seal)) => SizedCells::Stored {
+                        at: gens.window().at(r),
+                        seal: *seal,
+                        gens,
+                        y: r,
+                    },
+                    None => SizedCells::Drawn(&self.cur[y * ncols..(y + 1) * ncols]),
+                };
                 let now = SizedNow {
-                    cells: &self.cur[y * ncols..(y + 1) * ncols],
+                    cells,
                     pictured: self.pictures.row(r),
                     composition: composition.filter(|c| c.row == r),
                     rest,
@@ -9183,6 +9442,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             self.sized_rows[y] = kept;
             if !reuse {
+                if at.is_some() {
+                    self.sized_fill(view, r, composition);
+                }
                 let mut exc = Exceptions::default();
                 // A composition on a line that joins, drawn in its order.
                 self.splice = None;
@@ -9252,6 +9514,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut stamp = self.styles_stamp;
         {
             let mut rows: Vec<(&mut [PackedCell], Words<'_>)> = cur
+                .converting()
+                .0
                 .chunks_mut(ncols.max(1))
                 .enumerate()
                 .map(|(r, c)| (c, sources.get(r).map_or(Words::LIVE, |s| s.words())))
@@ -9297,6 +9561,34 @@ impl<'f, 'a> Renderer<'f, 'a> {
         leaving.view(term, above).rendition(Row::ZERO)
     }
 
+    /// **Sized line `r` of `view` into this path's copy, as drawn**, to be
+    /// converted or compared from: its cells and rendition, and the cells
+    /// under a composition on it blanked where the row's order draws them,
+    /// as `Renderer::convert` blanks them -- `view` is in that order, so a
+    /// cell the composition's columns name is at its visual column, and a
+    /// mirror L4 gives the composition's text is in its cell there.
+    fn sized_fill(&mut self, view: &Viewport<'_>, r: Row, composition: Option<&Composition>) {
+        let (y, ncols) = (r.index(), view.cols().index());
+        let (cells, sizes) = self.cur.scribble();
+        cells[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
+        sizes[y] = view.rendition(r);
+        crate::counters::add(Counter::CellsCopied, Site::Sized, Tally::of(ncols));
+        if let Some(c) = composition.filter(|c| c.row == r) {
+            let (start, end) = c.columns(c.width_on(view));
+            let orders = self.bidi.orders();
+            for x in start..end {
+                let v = orders.visual_col(r, Col::at_index(x)).index();
+                if let Some(cell) = self.cur.scribble().0.get_mut(y * ncols + v) {
+                    *cell = PackedCell {
+                        content: baud_domain::Content::EMPTY,
+                        style: cell.style,
+                        flags: baud_domain::CellFlags::NONE,
+                    };
+                }
+            }
+        }
+    }
+
     /// **The leaving row of a smooth scroll, when its line is not
     /// single-width**: the line just above the window `back` lines into the
     /// history, in the order it was drawn in as that window's first,
@@ -9340,7 +9632,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let range = self.row_cells(r0);
         let kept = (
             self.cur[range.clone()].to_vec(),
-            self.cur_size[0],
+            self.cur.sizes()[0],
             self.per_row.take(r0),
             self.bg[range.clone()].to_vec(),
             self.fg[range.clone()].to_vec(),
@@ -9352,8 +9644,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         );
         let mut pictures = core::mem::take(&mut self.pictures);
         self.pictures.clear(self.cols, self.rows);
-        self.cur[range.start..range.start + n].copy_from_slice(&cells[..n]);
-        self.cur_size[0] = size;
+        let (to, sizes) = self.cur.scribble();
+        to[range.start..range.start + n].copy_from_slice(&cells[..n]);
+        sizes[0] = size;
         // A line the core froze, drawn in its own renditions
         // (`crate::frozen`): its cells lent slots of this path's table.
         let source = self.leaving_source(term, back);
@@ -9364,7 +9657,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 core::mem::take(&mut self.cur),
             );
             let mut stamp = self.styles_stamp;
-            let mut rows = [(&mut cur[range.start..range.start + n], source.words())];
+            let mut rows = [(
+                &mut cur.scribble().0[range.start..range.start + n],
+                source.words(),
+            )];
             let _ = self.lend_frozen(term, &mut rows, &mut styles, &mut stamp, &mut lent);
             (self.styles, self.styles_stamp, self.cpu_lent, self.cur) = (styles, stamp, lent, cur);
         }
@@ -9379,8 +9675,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }));
         core::mem::swap(&mut self.pictures, &mut pictures);
         let (cur, size, per_row, bg, fg, curve, text, blinks, ends, reach) = kept;
-        self.cur[range.clone()].copy_from_slice(&cur);
-        self.cur_size[0] = size;
+        let (to, sizes) = self.cur.scribble();
+        to[range.clone()].copy_from_slice(&cur);
+        sizes[0] = size;
         self.per_row.set(r0, per_row);
         self.bg[range.clone()].copy_from_slice(&bg);
         self.fg[range.clone()].copy_from_slice(&fg);
@@ -9437,10 +9734,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.bidi.orders().permute(
             r,
             &line.cells[..n],
-            &mut self.cur[range.start..range.start + n],
+            &mut self.cur.scribble().0[range.start..range.start + n],
         );
-        crate::counters::add(Counter::CellsCopied, Tally::of(n));
-        self.cur_size[r.index()] = line.rendition;
+        crate::counters::add(Counter::CellsCopied, Site::Status, Tally::of(n));
+        self.cur.scribble().1[r.index()] = line.rendition;
         let mut exc = Exceptions::default();
         self.convert_row(term, r, cursor, &mut exc);
         out.extend_from_slice(&self.per_row[r]);
@@ -9530,38 +9827,109 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let slants_now = self.bidi.orders().any()
             && (0..main.index()).any(|r| !self.bidi.orders().slants(Row::from_index(r)).is_empty());
         let slants_kept = slants_now || !self.slants_prev.is_empty();
-        let orders = self.bidi.orders();
-        for r in 0..main.index() {
-            let row = Row::from_index(r);
-            orders.permute(row, vp.row(row), &mut self.cur[r * ncols..(r + 1) * ncols]);
-            self.cur_size[r] = vp.rendition(row);
-        }
-        crate::counters::add(Counter::CellsCopied, Tally::of(main.index() * ncols));
         // **The status line's row, below the main display's**, whatever the
         // window looks back on: it is no line of the history. In the order
         // its own layout gives it, the maps' row after the window's.
         let status = term.status_line();
-        if let Some(line) = &status {
+        let lined = usize::from(status.is_some() && main.index() < rows.index());
+        // **The embedder's notice, on its own row below both**: blank cells
+        // in the default rendition, drawn over by its field below.
+        let notice = self.notice_field();
+        // **Which rows `cur` takes from the terminal again** (FS-C5): every
+        // row when its key does not hold -- none yet, another window, other
+        // scalars, a frame that knows nothing of the last; else the rows
+        // written since its seal, drawn in another order now or then, or
+        // under a display held now or then, and the status line's by its
+        // own generation. And the rows the last frame veiled, composed over
+        // or noticed, or every row if it lent them: `cur` holds those as
+        // drawn, not as stored. Every other row is the terminal's already,
+        // and the last frame's: it is neither read nor compared.
+        let orders = self.bidi.orders();
+        crate::screens::Reordered::rows_into(
+            &mut self.mirror_reordered,
+            Rows::of_index(main.index() + lined),
+            |r| orders.reordered(r),
+        );
+        let now = crate::screens::Now::of(
+            term,
+            back,
+            (&vp, status.as_ref()),
+            crate::screens::Held::of(orders),
+            term.stride(),
+        );
+        let keeps = match self.known {
+            Prev::Unknown => crate::screens::Keeps::Nothing,
+            Prev::Known => self.cur.keeps(term, &now, &self.mirror_reordered),
+        };
+        self.mirror_rows.clear();
+        for r in 0..rows.index() {
+            let taken = match keeps {
+                crate::screens::Keeps::Nothing => true,
+                crate::screens::Keeps::All => false,
+                crate::screens::Keeps::Rows => {
+                    r < main.index() + lined
+                        && self
+                            .cur
+                            .dirty(&now, &self.mirror_reordered, &vp, Row::from_index(r))
+                }
+            };
+            self.mirror_rows.push(match taken {
+                true => MirrorRow::Filled,
+                false => MirrorRow::Kept,
+            });
+        }
+        if self.lent_last == LentRows::Every {
+            self.mirror_rows.fill(MirrorRow::Filled);
+        }
+        for &r in &self.veiled_last {
+            if let Some(m) = self.mirror_rows.get_mut(r) {
+                *m = MirrorRow::Filled;
+            }
+        }
+        if let Some(m) = notice
+            .as_ref()
+            .and_then(|f| self.mirror_rows.get_mut(f.row.index()))
+        {
+            *m = MirrorRow::Filled;
+        }
+        let mut copied = 0;
+        for r in 0..main.index() {
+            if self.mirror_rows[r] != MirrorRow::Filled {
+                continue;
+            }
+            let row = Row::from_index(r);
+            let (cells, sizes) = self.cur.converting();
+            orders.permute(row, vp.row(row), &mut cells[r * ncols..(r + 1) * ncols]);
+            sizes[r] = vp.rendition(row);
+            copied += ncols;
+        }
+        crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
+        if let Some(line) = status.as_ref().filter(|_| lined == 1) {
             let r = main.index();
-            if r < rows.index() {
+            if self.mirror_rows[r] == MirrorRow::Filled {
                 let n = ncols.min(line.cells.len());
                 orders.permute(
                     Row::from_index(r),
                     &line.cells[..n],
-                    &mut self.cur[r * ncols..r * ncols + n],
+                    &mut self.cur.converting().0[r * ncols..r * ncols + n],
                 );
-                crate::counters::add(Counter::CellsCopied, Tally::of(n));
-                self.cur_size[r] = line.rendition;
+                crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(n));
+                self.cur.converting().1[r] = line.rendition;
             }
         }
-        // **The embedder's notice, on its own row below both**: blank cells
-        // in the default rendition, drawn over by its field below.
-        let notice = self.notice_field();
         if let Some(f) = &notice {
             let r = f.row.index();
-            self.cur[r * ncols..(r + 1) * ncols].fill(PackedCell::EMPTY);
-            self.cur_size[r] = LineRendition::Single;
+            let (cells, sizes) = self.cur.converting();
+            cells[r * ncols..(r + 1) * ncols].fill(PackedCell::EMPTY);
+            sizes[r] = LineRendition::Single;
         }
+        // The rows this frame veils, composes over or notices in `cur`, and
+        // whether it lends every row, for the compare below and the next
+        // frame's fill.
+        self.veiled_now.clear();
+        self.veiled_now
+            .extend(notice.as_ref().map(|f| f.row.index()));
+        let mut lent_now = LentRows::None;
         // **A window over history the core froze** (`crate::frozen`): each
         // frozen cell of this path's copy given a slot of its table no
         // other cell of the frame names, its generation's word resolved
@@ -9574,6 +9942,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // `Lent::moved_from`).
         if self.bidi.orders().window_frozen(term, back) || !self.link_strikes.is_empty() {
             self.lend_cpu(term, back);
+            lent_now = LentRows::Every;
         }
         self.frame_words = self.cpu_lent.held();
         // The frame's links, on this frame's layout, a field's ground read
@@ -9602,13 +9971,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if let Some(c) = &composition {
             let (start, end) = c.columns(c.width_on(&vp));
             let at = c.row.index() * ncols;
+            self.veiled_now.push(c.row.index());
             if let Some(&cell) = vp.row(c.row).get(start) {
                 under = cell;
             }
             let orders = self.bidi.orders();
             for x in start..end {
                 let v = orders.visual_col(c.row, Col::at_index(x)).index();
-                if let Some(cell) = self.cur.get_mut(at + v) {
+                if let Some(cell) = self.cur.converting().0.get_mut(at + v) {
                     *cell = PackedCell {
                         content: baud_domain::Content::EMPTY,
                         style: cell.style,
@@ -9620,7 +9990,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // same way: its records draw them, in one word with its own.
             self.taken = c.taken(term, orders, c.width_on(&vp), vp.rendition(c.row));
             for v in self.taken.beside(c.row) {
-                if let Some(cell) = self.cur.get_mut(at + v) {
+                if let Some(cell) = self.cur.converting().0.get_mut(at + v) {
                     *cell = PackedCell {
                         content: baud_domain::Content::EMPTY,
                         style: cell.style,
@@ -9639,8 +10009,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut veils = core::mem::replace(&mut self.cpu_veils, Veiled::reaching(VeilReach::Main));
         veils.hold(&self.veils_now(term, (self.styles_stamp, cols)));
         for (_, row, start, end) in veils.spans().filter(|v| v.0 != VeilKind::Notice) {
+            self.veiled_now.push(row.index());
             let at = row.index() * ncols;
-            for cell in &mut self.cur[at + start.index()..at + end.index()] {
+            for cell in &mut self.cur.converting().0[at + start.index()..at + end.index()] {
                 *cell = PackedCell {
                     content: baud_domain::Content::EMPTY,
                     style: cell.style,
@@ -9725,7 +10096,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
             || (self.styles_stamp.lending != lent_was
-                && self.cpu_lent.moved_from(&held_was, &self.styles, &self.cur)
+                && self
+                    .cpu_lent
+                    .moved_from(&held_was, &self.styles, &self.cur[..])
                     == crate::frozen::Moved::Yes)
             || self.fade != self.last_fade
             || self.bell != self.last_bell
@@ -9773,11 +10146,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let mut composed_parts: Option<crate::overlay::Composed> = None;
         self.splice = None;
+        // **The rows compared with the last frame's**: those taken again,
+        // and those veiled or lent now, which `cur` holds as drawn. Every
+        // other row is the last frame's, unread.
+        if lent_now == LentRows::Every {
+            self.mirror_rows.fill(MirrorRow::Filled);
+        }
+        for &r in &self.veiled_now {
+            if let Some(m) = self
+                .mirror_rows
+                .get_mut(r)
+                .filter(|m| **m == MirrorRow::Kept)
+            {
+                *m = MirrorRow::Compared;
+            }
+        }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
-            crate::counters::add(Counter::CellsCompared, Tally::of(range.len()));
-            let changed = self.cur[range.clone()] != self.prev[range]
-                || self.cur_size[r] != self.prev_size[r];
+            let changed = match self.mirror_rows[r] {
+                MirrorRow::Kept => false,
+                MirrorRow::Compared | MirrorRow::Filled => {
+                    crate::counters::add(
+                        Counter::CellsCompared,
+                        Site::Convert,
+                        Tally::of(range.len()),
+                    );
+                    self.cur[range.clone()] != self.prev[range]
+                        || self.cur.sizes()[r] != self.prev_size[r]
+                }
+            };
             // A window row's joins found again, with BDSM reset, where its
             // cells changed -- or may have: a composition, the find field
             // or the link bar blanks part of a row this frame or blanked it
@@ -10086,11 +10483,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .row_blinks
             .iter()
             .fold(Blinking::UNSEEN, |a, &b| a.with(b));
-        core::mem::swap(&mut self.prev, &mut self.cur);
-        // Copied, not swapped as the cells are: `cur_size` stays this
-        // frame's after it, for the cursor's box a caller asks for between
-        // frames (`Renderer::cursor_rect`).
-        self.prev_size.clone_from(&self.cur_size);
+        // **`prev` brought up to `cur`**, the rows compared copied: every
+        // other row is the same in both already, so `cur` equals `prev` row
+        // for row, and the next frame keeps what it does not take again.
+        // The renditions are copied whole, and stay this frame's after it, for
+        // the cursor's box a caller asks for between frames
+        // (`Renderer::cursor_rect`).
+        let mut copied = 0;
+        for r in 0..rows.index() {
+            if self.mirror_rows[r] == MirrorRow::Kept {
+                continue;
+            }
+            let range = self.row_cells(Row::from_index(r));
+            copied += range.len();
+            self.prev[range.clone()].copy_from_slice(&self.cur[range]);
+        }
+        crate::counters::add(Counter::CellsCopied, Site::Convert, Tally::of(copied));
+        self.prev_size.clear();
+        self.prev_size.extend_from_slice(self.cur.sizes());
+        self.cur
+            .settle(term.sealed(), &now, &vp, &self.mirror_reordered);
+        core::mem::swap(&mut self.veiled_last, &mut self.veiled_now);
+        self.lent_last = lent_now;
         self.known = Prev::Known;
         self.last_cursor = cursor;
         self.last_cursor_opacity = opacity;
@@ -10207,7 +10621,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.set_cursor_glow_at(None);
         self.place_grounds(None, None);
         self.reach_was.clone_from(&self.reach);
-        core::mem::swap(&mut self.prev, &mut self.cur);
+        // The rows are converted from `cur`, which every convert leaves equal
+        // to `prev`, the last frame drawn. The cell path may have written
+        // rows of it since (`Mirror::scribble`), so it is made `prev`'s
+        // again first, which the next convert then takes whole.
+        let (cells, _) = self.cur.scribble();
+        cells.copy_from_slice(&self.prev);
         let mut converted = Tally::default();
         for r in 0..rows {
             let band = self.band(Row::from_index(r));
@@ -10221,7 +10640,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 converted.bump();
             }
         }
-        core::mem::swap(&mut self.prev, &mut self.cur);
         // A converted row's glyphs that reach into another row's band are
         // painted there too, as a convert has them.
         let mut reached: Vec<usize> = Vec::new();
@@ -12695,7 +13113,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
-        crate::counters::add(Counter::CellsConverted, Tally::of(range.len()));
+        crate::counters::add(
+            Counter::CellsConverted,
+            Site::Convert,
+            Tally::of(range.len()),
+        );
         // **The row's buffers** ([`RowScratch`]), the renderer's, taken for
         // this conversion and put back after it, each empty from `begin`:
         // a row converted costs no buffer of its own.
@@ -14075,7 +14497,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Row `r`'s line rendition in the frame being converted: what its
     /// glyphs are drawn at.
     fn size_of(&self, r: Row) -> LineRendition {
-        self.cur_size
+        self.cur
+            .sizes()
             .get(r.index())
             .copied()
             .unwrap_or(LineRendition::Single)

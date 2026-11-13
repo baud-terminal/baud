@@ -7,22 +7,41 @@
 //! window, laid out flat in screen order, in the set of buffers no frame
 //! in flight holds (`baud-present-macos`'s `Wheel`). A frame where only the
 //! cursor, its blink animation or its trail moved is built from the screen
-//! the last frame was: its cells, its status line and its line renditions
-//! are the ones the last frame copied, compared row for row against that
-//! frame's copy. Such a frame skips the copy into a set that already holds
-//! that screen, and the caller skips the glyph map's walk when nothing
-//! else the walk reads changed ([`Screens::walked`]).
+//! the last frame was. Such a frame skips the copy into a set that already
+//! holds that screen, and the caller skips the glyph map's walk when
+//! nothing else the walk reads changed ([`Screens::walked`]).
 //!
-//! The same compare says which rows changed, when a frame asks
+//! **Which rows changed is the core's to say, not a compare's.** Every
+//! store to a cell or a mark stamps its row with the core's write
+//! generation (`baud_domain::SurfaceStore`), and a driver seals one
+//! generation a frame (`Term::seal_writes`). Each set keeps the [`Seal`]
+//! its copy was last brought up to date under, with the window it copied
+//! ([`WindowAt`]) and what else the copy was drawn under; a row is copied
+//! again only when it was written after that seal ([`RowGens::after`]), so
+//! a frame where nothing was written reads no cell. Two kinds of row are
+//! drawn from more than their stored cells and are still compared cell
+//! for cell: a row the bidirectional layout drew in another order, whose
+//! order reads the terminal's state beyond the row, and every row of a
+//! display the layout re-broke (`crate::rebreak`).
+//!
+//! Each set has its own key, and the frame's answer -- whether its screen
+//! is the last frame's -- is the last set's: a frame built into one set
+//! after another set was brought up to date compares against the one its
+//! own copy was taken under for the copy, and against the last frame's
+//! for the answer.
+//!
+//! The same rule says which rows changed, when a frame asks
 //! ([`Compare::Rows`]): with BDSM reset, after the renderer's first letter
 //! that takes a joining form, a row's joins are found again only where its
-//! cells changed (`Renderer::rejoin_bidi`), and no other compare reads the
-//! window for them.
+//! cells changed (`Renderer::rejoin_bidi`).
 
-use crate::counters::{Counter, add, compared};
+use crate::counters::{Counter, Site, add, compared};
 use crate::{Leaving, Lending, Rejoin, Tally, WalkKey};
-use baud_core::StatusLine;
-use baud_domain::{LineRendition, PackedCell, Row, Stride, StyleId, Viewport};
+use baud_core::{StatusLine, Term};
+use baud_domain::{
+    Cols, LineRendition, PackedCell, Row, RowGens, Rows, Seal, StatusGen, Stride, StyleId,
+    Viewport, WindowAt,
+};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -46,10 +65,9 @@ pub enum Built {
     New,
 }
 
-/// **What a frame's compare with the last frame's copy answers**: whether
-/// the screen is the last's, stopping at the first row that differs, or
-/// that and which rows differ, every row compared -- for a frame whose
-/// joins are kept from the last ([`Compare::for_rejoin`]).
+/// **What a frame's take answers about its rows**: whether the screen is
+/// the last's, or that and which rows differ -- for a frame whose joins
+/// are kept from the last ([`Compare::for_rejoin`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Compare {
     Screen,
@@ -74,6 +92,43 @@ enum RowChange {
     Changed,
 }
 
+/// Whether the layout drew a row in another order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Reordered {
+    No,
+    Yes,
+}
+
+impl Reordered {
+    /// **Rows `0..n`, each as `drawn` says it was laid out**, into `out`,
+    /// whose buffer is kept: the window's rows, then the status line's.
+    pub(crate) fn rows_into(out: &mut Vec<Reordered>, n: Rows, drawn: impl Fn(Row) -> bool) {
+        out.clear();
+        out.extend((0..n.index()).map(|y| match drawn(Row::from_index(y)) {
+            true => Reordered::Yes,
+            false => Reordered::No,
+        }));
+    }
+}
+
+/// **Whether the layout drew a display it re-broke** (`crate::rebreak`):
+/// every row then a display line, not a stored row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Held {
+    No,
+    Yes,
+}
+
+impl Held {
+    /// Whether `orders` hold a re-broken display.
+    pub fn of(orders: &crate::Orders) -> Held {
+        match orders.display().is_some() {
+            true => Held::Yes,
+            false => Held::No,
+        }
+    }
+}
+
 /// A screen frames were built from: a new one whenever a frame's screen
 /// differs from the last's, so two frames that carry the same one show the
 /// same cells. **Unique in the process**, not counted per [`Screens`]: the
@@ -90,24 +145,211 @@ impl ScreenGen {
     }
 }
 
+/// **The frame a set is taken for**: the terminal; the seal its driver
+/// closed the frame's writes with (`Term::seal_writes`), which the copy is
+/// recorded under; how far its window looks back, which names the stored
+/// rows and their write generations (`Term::row_gens`); the window as the
+/// layout drew it and its status line; which of those rows the layout
+/// drew in another order -- the status line's at the row after the
+/// window's -- and whether it re-broke a display; the pitch of the sets'
+/// copies; and whether a smooth scroll's leaving row is drawn.
+pub struct Taking<'a, 'v, 't> {
+    pub term: &'a Term<'t>,
+    pub seal: Seal,
+    pub back: Rows,
+    pub view: &'a Viewport<'v>,
+    pub status: Option<&'a StatusLine<'v>>,
+    pub reordered: &'a dyn Fn(Row) -> bool,
+    pub held: Held,
+    pub stride: Stride,
+    pub leaving: Leaving,
+}
+
+/// **The scalar part of what a copy was drawn under**: its size, its
+/// pitch, and whether the status line was shown and in which rendition.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Scalar {
+    cols: Cols,
+    rows: Rows,
+    stride: Stride,
+    status: Option<LineRendition>,
+}
+
+/// **What a set's copy was last brought up to date under**: the seal, the
+/// window, the scalars, whether a display was held, and the screen it is.
+#[derive(Clone, Copy, Debug)]
+struct Head {
+    seal: Seal,
+    at: WindowAt,
+    scalar: Scalar,
+    held: Held,
+    screen: ScreenGen,
+}
+
+/// **One copy's key** -- a set's, or the CPU path's own copy of the window
+/// (`Renderer::convert`) -- its head while the copy holds a screen, and
+/// the window's line renditions and reordered rows at that build, in
+/// buffers kept across frames so a frame allocates none.
+#[derive(Default)]
+pub(crate) struct SetKey {
+    head: Option<Head>,
+    renditions: Vec<LineRendition>,
+    reordered: Vec<Reordered>,
+}
+
+/// **This frame, as a key compares it.**
+pub(crate) struct Now<'g> {
+    gens: RowGens<'g>,
+    status: Option<StatusGen>,
+    scalar: Scalar,
+    held: Held,
+}
+
+impl<'g> Now<'g> {
+    /// The window `back` lines into `term`'s history, drawn as `view` with
+    /// `status` below it, laid out as `held` says, copied at `stride`.
+    pub(crate) fn of(
+        term: &'g Term<'_>,
+        back: Rows,
+        (view, status): (&Viewport<'_>, Option<&StatusLine<'_>>),
+        held: Held,
+        stride: Stride,
+    ) -> Now<'g> {
+        Now {
+            gens: term.row_gens(back),
+            status: term.status_gen(),
+            scalar: Scalar {
+                cols: view.cols(),
+                rows: view.rows(),
+                stride,
+                status: status.map(|l| l.rendition),
+            },
+            held,
+        }
+    }
+}
+
+/// How much of a copy a key keeps: all of it, the rows its rule names, or
+/// none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Keeps {
+    All,
+    Rows,
+    Nothing,
+}
+
+impl SetKey {
+    /// **How much of the copy this key was taken under still holds for
+    /// `now`**: nothing for no key, another window or other scalars; all of
+    /// it when nothing was written since its seal and no row is drawn from
+    /// more than its cells, now or then; else the rows [`SetKey::dirty`]
+    /// does not name.
+    pub(crate) fn keeps(&self, term: &Term<'_>, now: &Now<'_>, reordered: &[Reordered]) -> Keeps {
+        let Some(h) = &self.head else {
+            return Keeps::Nothing;
+        };
+        if h.at != now.gens.window() || h.scalar != now.scalar {
+            return Keeps::Nothing;
+        }
+        let drawn = |r: &[Reordered]| r.contains(&Reordered::Yes);
+        match term.wrote_since(&h.seal)
+            || h.held == Held::Yes
+            || now.held == Held::Yes
+            || drawn(&self.reordered)
+            || drawn(reordered)
+        {
+            false => Keeps::All,
+            true => Keeps::Rows,
+        }
+    }
+
+    /// **Whether row `r` of the copy may not be the window's now**: written
+    /// after the key's seal, drawn in another order now or then, a display
+    /// held now or then, or another line rendition. Row `rows` is the
+    /// status line's, written when its own generation says so.
+    pub(crate) fn dirty(
+        &self,
+        now: &Now<'_>,
+        reordered: &[Reordered],
+        view: &Viewport<'_>,
+        r: Row,
+    ) -> bool {
+        let Some(h) = &self.head else {
+            return true;
+        };
+        let drawn = |rows: &[Reordered]| rows.get(r.index()) == Some(&Reordered::Yes);
+        if drawn(&self.reordered) || drawn(reordered) {
+            return true;
+        }
+        if r.index() == view.rows().index() {
+            return now.status.is_none_or(|g| g.after(&h.seal));
+        }
+        h.held == Held::Yes
+            || now.held == Held::Yes
+            || now.gens.after(r, &h.seal)
+            || self.renditions.get(r.index()) != Some(&view.rendition(r))
+    }
+
+    /// **This key, for a copy brought up to date now**: under `seal`, the
+    /// term's `Term::sealed` as the copy was read, holding `screen`.
+    pub(crate) fn record(
+        &mut self,
+        (seal, screen): (Seal, ScreenGen),
+        now: &Now<'_>,
+        view: &Viewport<'_>,
+        reordered: &[Reordered],
+    ) {
+        self.head = Some(Head {
+            seal,
+            at: now.gens.window(),
+            scalar: now.scalar,
+            held: now.held,
+            screen,
+        });
+        self.renditions.clear();
+        self.renditions
+            .extend((0..view.rows().index()).map(|y| view.rendition(Row::from_index(y))));
+        self.reordered.clear();
+        self.reordered.extend_from_slice(reordered);
+    }
+
+    /// The copy no longer holds a screen.
+    pub(crate) fn forget(&mut self) {
+        self.head = None;
+    }
+
+    /// Whether row `r` is drawn from more than its stored cells, now or at
+    /// this key's build, so that only a compare of its cells says it is the
+    /// same.
+    fn compared(&self, now: &Now<'_>, reordered: &[Reordered], r: Row) -> bool {
+        let held = self.head.is_some_and(|h| h.held == Held::Yes) || now.held == Held::Yes;
+        let drawn = |rows: &[Reordered]| rows.get(r.index()) == Some(&Reordered::Yes);
+        held || drawn(&self.reordered) || drawn(reordered)
+    }
+}
+
 /// Which screen each set's copy holds, and what the last map walk read.
 pub struct Screens {
     /// The screen the last frame was built from.
     now: ScreenGen,
-    /// The screen each set's copy holds, or none.
-    copied: Vec<Option<ScreenGen>>,
-    /// The set the last frame was built into, whose copy is its screen,
-    /// and that screen's line renditions and its status line's, if shown.
+    /// Each set's key.
+    keys: Vec<SetKey>,
+    /// The set the last frame was built into, whose key is the last
+    /// frame's.
     last: Option<usize>,
-    renditions: Vec<LineRendition>,
-    status: Option<LineRendition>,
+    /// This frame's reordered rows, the status line's after the window's,
+    /// in a buffer kept across frames.
+    reordered: Vec<Reordered>,
+    /// The last copy's row read through a lending's undo, kept across
+    /// frames.
+    scratch: Vec<PackedCell>,
     /// What the last walk read, as it left the map; none after a frame
     /// that slid, whose walks listed another window. The caller's to keep.
     pub walked: Option<WalkKey>,
-    /// What the next frame's compare answers. The caller's to set.
+    /// What the next frame's take answers. The caller's to set.
     pub compare: Compare,
     /// Each row of the last frame taken under [`Compare::Rows`]: whether
-    /// it differs from the copy the frame before left.
+    /// it may differ from the copy the frame before left.
     changed: Vec<RowChange>,
     /// **The lending the last frame's copy was drawn under**
     /// (`baud_render::Lent`): a frame whose screen is the last's is built
@@ -123,14 +365,14 @@ impl Default for Screens {
 }
 
 impl Screens {
-    /// One record a buffer set, none holding a screen.
+    /// One key a buffer set, none holding a screen.
     pub fn new() -> Screens {
         Screens {
             now: ScreenGen::default(),
-            copied: vec![None; SETS],
+            keys: (0..SETS).map(|_| SetKey::default()).collect(),
             last: None,
-            renditions: Vec::new(),
-            status: None,
+            reordered: Vec::new(),
+            scratch: Vec::new(),
             walked: None,
             compare: Compare::Screen,
             changed: Vec::new(),
@@ -148,277 +390,237 @@ impl Screens {
     /// rewrote their ids in the copy (`baud_render::Lent`), so the copy is
     /// not the screen's cells.
     pub fn forget(&mut self, set: SetIx) {
-        if let Some(c) = self.copied.get_mut(set.0) {
-            *c = None;
+        if let Some(k) = self.keys.get_mut(set.0) {
+            k.forget();
         }
     }
 
     /// The screen `set`'s copy holds, or none.
     pub fn holds(&self, set: SetIx) -> Option<ScreenGen> {
-        self.copied.get(set.0).copied().flatten()
+        self.keys.get(set.0).and_then(|k| k.head).map(|h| h.screen)
     }
 
-    /// The set the last frame was built into, whose copy is compared with
-    /// the next frame's screen.
+    /// The set the last frame was built into.
     pub fn last_set(&self) -> Option<SetIx> {
         self.last.map(SetIx)
     }
 
-    /// **The frame about to be built into `set`**: whether `view` and
-    /// `status` are the last frame's screen, and that screen copied into
-    /// `copies[set]` at `stride` cells a row -- the window's rows in screen
-    /// order, then the status line's row -- unless that set's copy already
-    /// holds it. A frame that slides -- whose `leaving` row is drawn -- is a
-    /// screen of its own: its copy holds a leaving row and its walk another
-    /// window.
+    /// **The frame about to be built into `set`**: whether `w`'s window
+    /// and status line are the last frame's screen, and that window
+    /// brought up to date in `copies[set]` at `w.stride` cells a row -- the
+    /// window's rows in screen order, then the status line's row -- by
+    /// copying the rows written since that set's copy was last brought up
+    /// to date, and nothing when none was or when the frame is the last
+    /// frame's screen and the set already holds it. A frame that slides --
+    /// whose `leaving` row is drawn -- is a screen of its own, copied
+    /// whole: its copy holds a leaving row and its walk another window.
     ///
-    /// Under [`Compare::Rows`] every row is compared with the last copy's,
-    /// before this frame's copy can overwrite it -- `set` may be the set the
-    /// last frame was built into -- and a frame that slides is compared too,
-    /// its window's rows being where the last copy has them; each row is
-    /// [`Screens::changed`] where there is no last copy.
-    ///
-    /// `Viewport::row` resolves a row through the rotation and the ring,
-    /// so the wrap at the ring's end costs nothing here: it is two slices
-    /// either side of it, and this walks rows rather than one span.
+    /// Under [`Compare::Rows`] each row's answer is kept, against the last
+    /// frame's key -- `set` may be the set the last frame was built into,
+    /// so the answer is found before this frame's copy is touched -- and a
+    /// frame that slides is answered too; each row is
+    /// [`Screens::changed`] where there is no last frame.
     pub fn take(
         &mut self,
         copies: &mut [&mut [PackedCell]],
         set: SetIx,
-        view: &Viewport<'_>,
-        status: Option<&StatusLine<'_>>,
-        stride: Stride,
-        leaving: Leaving,
+        w: &Taking<'_, '_, '_>,
     ) -> Built {
-        let last = self.last.and_then(|ps| copies.get(ps));
-        self.changed.clear();
-        if self.compare == Compare::Rows {
-            let (cols, stride) = (view.cols().index(), stride.index());
-            self.changed.extend((0..view.rows().index()).map(|y| {
-                let now = view.row(Row::from_index(y)).get(..cols);
-                let kept = last.map(|copy| copy.get(y * stride..y * stride + cols));
-                if let Some(kept) = kept {
-                    compared(kept, now);
-                }
-                match kept {
-                    Some(kept) if kept == now => RowChange::Same,
-                    _ => RowChange::Changed,
-                }
-            }));
-        }
-        let built = match (leaving, last) {
-            (Leaving::None, Some(copy)) => match self.compare {
-                Compare::Screen => self.is_last(copy, view, status, stride),
-                Compare::Rows => self.is_last_by(copy, view, status, stride, |y, _| {
-                    self.changed[y] == RowChange::Same
-                }),
-            },
-            _ => Built::New,
-        };
-        self.built(built, view, status);
-        let (cols, rows, stride) = (view.cols().index(), view.rows().index(), stride.index());
-        let held = self.holds(set);
-        if let (Some(copy), false) = (copies.get_mut(set.0), held == Some(self.now)) {
-            for y in 0..rows {
-                let src = view.row(Row::from_index(y));
-                let at = y * stride;
-                copy[at..at + cols].copy_from_slice(&src[..cols]);
-            }
-            add(Counter::CellsCopied, Tally::of(rows * cols));
-            // **The status line's row, after the main display's**, at index
-            // `rows`: the shader draws `rows` and the line's row
-            // (`Renderer::grid`), its backgrounds from here and its glyphs
-            // from the records `Overlay::status` adds. No slide runs while
-            // it is shown, so the leaving row never wants the index.
-            if let Some(line) = status {
-                let at = rows * stride;
-                let n = cols.min(line.cells.len());
-                copy[at..at + n].copy_from_slice(&line.cells[..n]);
-                add(Counter::CellsCopied, Tally::of(n));
-            }
-            if let Some(c) = self.copied.get_mut(set.0) {
-                *c = Some(self.now);
-            }
-        }
-        self.last = Some(set.0);
-        built
+        self.take_lent(copies, set, w, &[])
     }
 
-    /// **[`Screens::take`], the last frame's copy read through `undo`**:
-    /// the cells a lending rewrote in it, by row of the copy and column,
-    /// with the id each held (`baud_render::Lent::rewrites`), so a copy
-    /// lent a struck link's slots compares as the screen it was copied
-    /// from. Its own set's, which no frame in flight reads, is put back
-    /// before (`Lent::restore`), and so names none.
-    #[allow(clippy::too_many_arguments)]
+    /// **[`Screens::take`], the last frame's copy read through `undo`**
+    /// where a row of it is compared: the cells a lending rewrote in it, by
+    /// row of the copy and column, with the id each held
+    /// (`baud_render::Lent::rewrites`), so a copy lent a struck link's
+    /// slots compares as the screen it was copied from. Its own set's,
+    /// which no frame in flight reads, is put back before
+    /// (`Lent::restore`), and so names none.
     pub fn take_lent(
         &mut self,
         copies: &mut [&mut [PackedCell]],
         set: SetIx,
-        view: &Viewport<'_>,
-        status: Option<&StatusLine<'_>>,
-        stride: Stride,
-        leaving: Leaving,
+        w: &Taking<'_, '_, '_>,
         undo: &[(usize, usize, StyleId)],
     ) -> Built {
-        // A last copy no lending rewrote is compared as `take` compares it,
-        // by the same code, so a frame with nothing lent pays nothing here.
-        if undo.is_empty() {
-            return self.take(copies, set, view, status, stride, leaving);
-        }
-        let last = self.last.and_then(|ps| copies.get(ps));
+        let view = w.view;
+        let (cols, rows, stride) = (view.cols().index(), view.rows().index(), w.stride.index());
+        let now = Now::of(w.term, w.back, (view, w.status), w.held, w.stride);
+        let lined = usize::from(w.status.is_some());
+        Reordered::rows_into(
+            &mut self.reordered,
+            Rows::of_index(rows + lined),
+            w.reordered,
+        );
+        let reordered = &self.reordered[..];
+        // **The last frame's answer, before this frame's copy is touched.**
         self.changed.clear();
-        let (cols, at) = (view.cols().index(), stride.index());
-        // Row `y` of the last copy holds row `r` of the screen: as copied,
-        // or once every rewrite on it is undone, the last first.
-        let mut scratch: Vec<PackedCell> = Vec::new();
-        let mut row_same = |copy: &[PackedCell], y: usize, now: Option<&[PackedCell]>| {
-            let kept = copy.get(y * at..y * at + cols);
-            compared(kept, now);
-            if kept == now {
-                return true;
+        let mut same = true;
+        let last = self
+            .last
+            .and_then(|l| Some((self.keys.get(l)?, copies.get(l)?)));
+        match last.map(|(k, c)| (k, c, k.keeps(w.term, &now, reordered))) {
+            None | Some((_, _, Keeps::Nothing)) => {
+                same = false;
+                self.changed.resize(rows, RowChange::Changed);
             }
-            let (Some(kept), Some(now)) = (kept, now) else {
-                return false;
-            };
-            if !undo.iter().any(|&(ry, _, _)| ry == y) {
-                return false;
-            }
-            scratch.clear();
-            scratch.extend_from_slice(kept);
-            for &(ry, x, was) in undo.iter().rev() {
-                if let (true, Some(c)) = (ry == y, scratch.get_mut(x)) {
-                    c.style = was;
+            Some((_, _, Keeps::All)) => self.changed.resize(rows, RowChange::Same),
+            Some((k, copy, Keeps::Rows)) => {
+                let scratch = &mut self.scratch;
+                let mut differs = |y: usize| {
+                    if !k.dirty(&now, reordered, view, Row::from_index(y)) {
+                        return false;
+                    }
+                    if !k.compared(&now, reordered, Row::from_index(y)) {
+                        return true;
+                    }
+                    let (at, n) = match y == rows {
+                        true => (
+                            rows * stride,
+                            w.status.map_or(0, |l| cols.min(l.cells.len())),
+                        ),
+                        false => (y * stride, cols),
+                    };
+                    let kept = copy.get(at..at + n);
+                    let drawn = match y == rows {
+                        true => w.status.and_then(|l| l.cells.get(..n)),
+                        false => view.row(Row::from_index(y)).get(..n),
+                    };
+                    !row_same(scratch, undo, (kept, drawn), Row::from_index(y))
+                };
+                for y in 0..rows {
+                    let d = differs(y);
+                    same &= !d;
+                    self.changed.push(match d {
+                        true => RowChange::Changed,
+                        false => RowChange::Same,
+                    });
+                }
+                if lined == 1 && differs(rows) {
+                    same = false;
                 }
             }
-            compared(Some(&scratch), Some(now));
-            scratch[..] == now[..]
-        };
-        if self.compare == Compare::Rows || !undo.is_empty() {
-            self.changed.extend((0..view.rows().index()).map(|y| {
-                let now = view.row(Row::from_index(y)).get(..cols);
-                match last.is_some_and(|copy| row_same(copy, y, now)) {
-                    true => RowChange::Same,
-                    false => RowChange::Changed,
-                }
-            }));
         }
-        let built = match (leaving, last) {
-            (Leaving::None, Some(copy)) => match (self.compare, undo.is_empty()) {
-                (Compare::Screen, true) => self.is_last(copy, view, status, stride),
-                _ => self.is_last_by(copy, view, status, stride, |y, _| {
-                    self.changed[y] == RowChange::Same
-                }),
-            },
+        let built = match (w.leaving, same) {
+            (Leaving::None, true) => Built::Last,
             _ => Built::New,
         };
-        self.built(built, view, status);
-        let (cols, rows, stride) = (view.cols().index(), view.rows().index(), stride.index());
-        let held = self.holds(set);
-        if let (Some(copy), false) = (copies.get_mut(set.0), held == Some(self.now)) {
-            for y in 0..rows {
-                let src = view.row(Row::from_index(y));
+        if self.compare == Compare::Screen {
+            self.changed.clear();
+        }
+        // **This frame's copy, against its own set's key**, and none at
+        // all into a set that already holds the screen this frame is: the
+        // last frame's, found above, which every frame since that set's
+        // build has been, so its copy is that screen's cells, the rows
+        // drawn in another order among them.
+        let holds = built == Built::Last && self.holds(set) == Some(self.now);
+        if let (Some(copy), Some(k)) = (copies.get_mut(set.0), self.keys.get(set.0)) {
+            let keeps = match (w.leaving, holds) {
+                (Leaving::Drawn, _) => Keeps::Nothing,
+                (Leaving::None, true) => Keeps::All,
+                (Leaving::None, false) => k.keeps(w.term, &now, reordered),
+            };
+            let mut copied = 0;
+            for y in 0..rows + lined {
+                let kept = match keeps {
+                    Keeps::All => true,
+                    Keeps::Rows => !k.dirty(&now, reordered, view, Row::from_index(y)),
+                    Keeps::Nothing => false,
+                };
+                if kept {
+                    continue;
+                }
                 let at = y * stride;
-                copy[at..at + cols].copy_from_slice(&src[..cols]);
+                // **The status line's row, after the main display's**, at
+                // index `rows`: the shader draws `rows` and the line's row
+                // (`Renderer::grid`), its backgrounds from here and its
+                // glyphs from the records `Overlay::status` adds. No slide
+                // runs while it is shown, so the leaving row never wants
+                // the index.
+                let src = match y == rows {
+                    true => w
+                        .status
+                        .map_or(&[][..], |l| &l.cells[..cols.min(l.cells.len())]),
+                    false => &view.row(Row::from_index(y))[..cols],
+                };
+                copy[at..at + src.len()].copy_from_slice(src);
+                copied += src.len();
             }
-            add(Counter::CellsCopied, Tally::of(rows * cols));
-            // **The status line's row, after the main display's**, at index
-            // `rows`: the shader draws `rows` and the line's row
-            // (`Renderer::grid`), its backgrounds from here and its glyphs
-            // from the records `Overlay::status` adds. No slide runs while
-            // it is shown, so the leaving row never wants the index.
-            if let Some(line) = status {
-                let at = rows * stride;
-                let n = cols.min(line.cells.len());
-                copy[at..at + n].copy_from_slice(&line.cells[..n]);
-                add(Counter::CellsCopied, Tally::of(n));
-            }
-            if let Some(c) = self.copied.get_mut(set.0) {
-                *c = Some(self.now);
-            }
+            add(Counter::CellsCopied, Site::Screens, Tally::of(copied));
+        }
+        if built == Built::New {
+            self.now = ScreenGen::fresh();
+        }
+        if let Some(k) = self.keys.get_mut(set.0) {
+            k.record((w.seal, self.now), &now, view, &self.reordered);
         }
         self.last = Some(set.0);
         built
     }
 
-    /// Whether `view` and `status` show the screen the last frame was built
-    /// from, read from `copy`, the copy that frame left at `stride` cells a
-    /// row: every row's cells and line rendition, and the status line's.
-    pub fn is_last(
-        &self,
-        copy: &[PackedCell],
-        view: &Viewport<'_>,
-        status: Option<&StatusLine<'_>>,
-        stride: Stride,
-    ) -> Built {
-        let (cols, at) = (view.cols().index(), stride.index());
-        self.is_last_by(copy, view, status, stride, |y, r| {
-            let (kept, now) = (copy.get(y * at..y * at + cols), view.row(r).get(..cols));
-            compared(kept, now);
-            kept == now
-        })
-    }
-
-    /// [`Screens::is_last`], with whether row `y` holds the cells it held
-    /// the last frame answered by `cells_same`.
-    fn is_last_by(
-        &self,
-        copy: &[PackedCell],
-        view: &Viewport<'_>,
-        status: Option<&StatusLine<'_>>,
-        stride: Stride,
-        cells_same: impl Fn(usize, Row) -> bool,
-    ) -> Built {
-        let (cols, rows) = (view.cols().index(), view.rows().index());
-        let stride = stride.index();
-        let same = self.status == status.map(|l| l.rendition)
-            && self.renditions.len() == rows
-            && (0..rows).all(|y| {
-                let r = Row::from_index(y);
-                self.renditions[y] == view.rendition(r) && cells_same(y, r)
-            })
-            && status.is_none_or(|line| {
-                let n = cols.min(line.cells.len());
-                let (kept, now) = (
-                    copy.get(rows * stride..rows * stride + n),
-                    line.cells.get(..n),
-                );
-                compared(kept, now);
-                kept == now
-            });
-        match same {
-            true => Built::Last,
-            false => Built::New,
-        }
-    }
-
-    /// Whether row `r` of the last frame taken under [`Compare::Rows`]
-    /// differs from the copy the frame before left: every row when there
+    /// Whether row `r` of the last frame taken under [`Compare::Rows`] may
+    /// differ from the copy the frame before left: every row when there
     /// was none, or the frame was taken under [`Compare::Screen`].
     pub fn changed(&self, r: Row) -> bool {
         self.changed.get(r.index()) != Some(&RowChange::Same)
     }
 
-    /// A frame built from `view` and `status`, the last frame's screen when
-    /// `built` says so, else a screen of its own.
-    pub fn built(&mut self, built: Built, view: &Viewport<'_>, status: Option<&StatusLine<'_>>) {
+    /// **The last frame was built as a screen of its own** when `built`
+    /// says so, whatever its take answered: a caller that lent its copy
+    /// otherwise than the frame before (`baud_render::Lent`). The copy
+    /// itself is the window's still, so its set keeps its key and takes the
+    /// new screen.
+    pub fn built(&mut self, built: Built) {
         if built == Built::Last {
             return;
         }
         self.now = ScreenGen::fresh();
-        self.renditions.clear();
-        self.renditions
-            .extend((0..view.rows().index()).map(|y| view.rendition(Row::from_index(y))));
-        self.status = status.map(|l| l.rendition);
+        if let Some(h) = self
+            .last
+            .and_then(|l| self.keys.get_mut(l))
+            .and_then(|k| k.head.as_mut())
+        {
+            h.screen = self.now;
+        }
     }
+}
+
+/// **Whether `kept`, a row of the last copy, is the screen's `now`**: as
+/// copied, or once every rewrite `undo` names on its row `r` is undone,
+/// the last first, in `scratch`. Every cell either compare reads counted.
+fn row_same(
+    scratch: &mut Vec<PackedCell>,
+    undo: &[(usize, usize, StyleId)],
+    (kept, now): (Option<&[PackedCell]>, Option<&[PackedCell]>),
+    r: Row,
+) -> bool {
+    compared(Site::Screens, kept, now);
+    if kept == now {
+        return true;
+    }
+    let (Some(kept), Some(now)) = (kept, now) else {
+        return false;
+    };
+    if !undo.iter().any(|&(ry, _, _)| ry == r.index()) {
+        return false;
+    }
+    scratch.clear();
+    scratch.extend_from_slice(kept);
+    for &(ry, x, was) in undo.iter().rev() {
+        if let (true, Some(c)) = (ry == r.index(), scratch.get_mut(x)) {
+            c.style = was;
+        }
+    }
+    compared(Site::Screens, Some(scratch), Some(now));
+    scratch[..] == now[..]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Built, Compare, Screens, SetIx};
+    use super::{Built, Compare, Held, Screens, SetIx, Taking};
     use crate::Leaving;
     use baud_core::{Owned, Term};
-    use baud_domain::{BytePos, PackedCell, ReadLen, Row, WinSize};
+    use baud_domain::{BytePos, PackedCell, ReadLen, Row, Rows, WinSize};
 
     const WS: WinSize = WinSize {
         ws_col: 20,
@@ -447,41 +649,85 @@ mod tests {
         out
     }
 
-    fn built_from(t: &Term<'_>) -> (Screens, Vec<PackedCell>) {
-        let mut s = Screens::new();
-        s.built(Built::New, &t.viewport(), t.status_line().as_ref());
-        (s, copy(t))
+    /// Two sets, as the app keeps them.
+    fn sets(t: &Term<'_>) -> [Vec<PackedCell>; 2] {
+        let len = t.stride().index() * (usize::from(WS.ws_row) + 1);
+        [vec![PackedCell::EMPTY; len], vec![PackedCell::EMPTY; len]]
     }
 
-    fn is_last(s: &Screens, c: &[PackedCell], t: &Term<'_>) -> Built {
-        s.is_last(c, &t.viewport(), t.status_line().as_ref(), t.stride())
+    /// **A frame taken as a driver takes it**: one generation sealed, then
+    /// the live window and its status line taken into `set`, the rows in
+    /// `drawn` laid out in another order and a display `held` or not.
+    fn frame(
+        s: &mut Screens,
+        t: &mut Term<'_>,
+        sets: &mut [Vec<PackedCell>; 2],
+        set: SetIx,
+        (slide, drawn, held): (Leaving, &[usize], Held),
+    ) -> Built {
+        let seal = t.seal_writes();
+        let [a, b] = sets;
+        let mut copies: [&mut [PackedCell]; 2] = [a, b];
+        let view = t.viewport();
+        let status = t.status_line();
+        let reordered = |r: Row| drawn.contains(&r.index());
+        s.take(
+            &mut copies,
+            set,
+            &Taking {
+                term: t,
+                seal,
+                back: Rows::ZERO,
+                view: &view,
+                status: status.as_ref(),
+                reordered: &reordered,
+                held,
+                stride: t.stride(),
+                leaving: slide,
+            },
+        )
     }
 
-    /// **A frame whose screen is the last frame's skips the walk and the
-    /// copy**, and any change to what the shader reads of it is a new
-    /// screen: a cell, a line's rendition, the status line appearing or
-    /// changing. A cursor move is the last screen.
+    const PLAIN: (Leaving, &[usize], Held) = (Leaving::None, &[], Held::No);
+
+    /// **A frame whose screen is the last frame's is built from it**, and
+    /// any change to what the shader reads of it is a new screen: a cell, a
+    /// line's rendition, the status line appearing or changing. A cursor
+    /// move is the last screen.
     #[test]
     fn the_last_screen_is_its_cells_line_renditions_and_status_line() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
-        feed(&mut t, b"hello\r\nworld");
-        let (s, c) = built_from(&t);
-        assert_eq!(is_last(&s, &c, &t), Built::Last, "the same screen");
-        feed(&mut t, b"\x1b[1;3H");
-        assert_eq!(is_last(&s, &c, &t), Built::Last, "the cursor moved alone");
-        feed(&mut t, b"X");
-        assert_eq!(is_last(&s, &c, &t), Built::New, "a cell written");
-        let (s, c) = built_from(&t);
-        feed(&mut t, b"\x1b[2;1H\x1b#6");
-        assert_eq!(is_last(&s, &c, &t), Built::New, "a line made double width");
-        let (s, c) = built_from(&t);
-        feed(&mut t, b"\x1b[2$~");
-        assert_eq!(is_last(&s, &c, &t), Built::New, "the status line shown");
-        let (s, c) = built_from(&t);
-        assert_eq!(is_last(&s, &c, &t), Built::Last, "and the same again");
-        feed(&mut t, b"\x1b[1$}status\x1b[0$}");
-        assert_eq!(is_last(&s, &c, &t), Built::New, "the status line written");
+        let mut sets = sets(&t);
+        let mut s = Screens::new();
+        let mut step = |t: &mut Term<'_>, bytes: &[u8]| {
+            feed(t, bytes);
+            frame(&mut s, t, &mut sets, SetIx(0), PLAIN)
+        };
+        assert_eq!(step(&mut t, b"hello\r\nworld"), Built::New, "the first");
+        assert_eq!(step(&mut t, b""), Built::Last, "the same screen");
+        assert_eq!(
+            step(&mut t, b"\x1b[1;3H"),
+            Built::Last,
+            "the cursor moved alone"
+        );
+        assert_eq!(step(&mut t, b"X"), Built::New, "a cell written");
+        assert_eq!(
+            step(&mut t, b"\x1b[2;1H\x1b#6"),
+            Built::New,
+            "a line made double width"
+        );
+        assert_eq!(
+            step(&mut t, b"\x1b[2$~"),
+            Built::New,
+            "the status line shown"
+        );
+        assert_eq!(step(&mut t, b""), Built::Last, "and the same again");
+        assert_eq!(
+            step(&mut t, b"\x1b[1$}status\x1b[0$}"),
+            Built::New,
+            "the status line written"
+        );
     }
 
     /// **Each set's copy is the screen its frame was built from**, and a
@@ -493,49 +739,48 @@ mod tests {
     fn a_set_is_copied_once_a_screen_and_holds_what_it_was_built_from() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
-        let stride = t.stride();
-        let len = stride.index() * (usize::from(WS.ws_row) + 1);
-        let mut sets = [vec![PackedCell::EMPTY; len], vec![PackedCell::EMPTY; len]];
+        let mut sets = sets(&t);
         let mut s = Screens::new();
-        let take = |s: &mut Screens, t: &Term<'_>, sets: &mut [Vec<PackedCell>; 2], set, slide| {
-            let [a, b] = sets;
-            let mut copies: [&mut [PackedCell]; 2] = [a, b];
-            s.take(&mut copies, SetIx(set), &t.viewport(), None, stride, slide)
-        };
         feed(&mut t, b"hello");
         assert_eq!(
-            take(&mut s, &t, &mut sets, 0, Leaving::None),
-            Built::New,
-            "the first"
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New
         );
         assert_eq!(sets[0], copy(&t), "set 0 holds it");
         let first = s.now();
         assert_eq!(
-            take(&mut s, &t, &mut sets, 1, Leaving::None),
+            frame(&mut s, &mut t, &mut sets, SetIx(1), PLAIN),
             Built::Last,
             "unchanged"
         );
         assert_eq!(s.now(), first, "the same screen");
         assert_eq!(sets[1], copy(&t), "set 1 holds it too");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::Last);
-        // A cell changed behind the record's back in set 1, which holds the
-        // screen: the next frame into it compares against set 0 and does
-        // not copy, so the cell stays -- the copy was skipped.
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::Last
+        );
+        // A cell changed behind the key's back in set 1, which holds the
+        // screen: nothing was written since its key's seal, so the next
+        // frame into it reads no cell and copies none, and the cell stays.
         sets[1][1] = PackedCell::EMPTY;
-        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(1), PLAIN),
+            Built::Last
+        );
         assert_ne!(sets[1], copy(&t), "set 1 was not copied again");
         sets[1] = copy(&t);
         feed(&mut t, b" world");
         assert_eq!(
-            take(&mut s, &t, &mut sets, 0, Leaving::None),
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
             Built::New,
             "a cell written"
         );
         assert_ne!(s.now(), first, "a new screen");
         assert_eq!(sets[0], copy(&t), "copied into the set it goes to");
         let second = s.now();
+        let slide = (Leaving::Drawn, &[][..], Held::No);
         assert_eq!(
-            take(&mut s, &t, &mut sets, 1, Leaving::Drawn),
+            frame(&mut s, &mut t, &mut sets, SetIx(1), slide),
             Built::New,
             "a slide"
         );
@@ -543,24 +788,17 @@ mod tests {
         assert_eq!(sets[1], copy(&t));
     }
 
-    /// **Under [`Compare::Rows`] the compare names the rows that changed**:
-    /// against the last frame's copy, also when this frame goes into the
-    /// same set and overwrites it, and on a frame that slides; every row
-    /// with no last copy, or when the frame was not compared by row.
+    /// **Under [`Compare::Rows`] the take names the rows that changed**:
+    /// against the last frame's key, also when this frame goes into the
+    /// same set and overwrites its copy, and on a frame that slides; every
+    /// row with no last frame, or when the frame was not answered by row.
     #[test]
     fn the_rows_compare_names_the_rows_that_changed() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
-        let stride = t.stride();
-        let len = stride.index() * (usize::from(WS.ws_row) + 1);
-        let mut sets = [vec![PackedCell::EMPTY; len], vec![PackedCell::EMPTY; len]];
+        let mut sets = sets(&t);
         let mut s = Screens::new();
         s.compare = Compare::Rows;
-        let take = |s: &mut Screens, t: &Term<'_>, sets: &mut [Vec<PackedCell>; 2], set, slide| {
-            let [a, b] = sets;
-            let mut copies: [&mut [PackedCell]; 2] = [a, b];
-            s.take(&mut copies, SetIx(set), &t.viewport(), None, stride, slide)
-        };
         let rows = usize::from(WS.ws_row);
         let changed = |s: &Screens| -> Vec<usize> {
             (0..rows)
@@ -569,21 +807,147 @@ mod tests {
         };
         let every: Vec<usize> = (0..rows).collect();
         feed(&mut t, b"hello\r\nworld");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::New);
-        assert_eq!(changed(&s), every, "no last copy");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::Last);
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New
+        );
+        assert_eq!(changed(&s), every, "no last frame");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::Last
+        );
         assert_eq!(changed(&s), Vec::<usize>::new(), "the same screen");
         feed(&mut t, b"\x1b[2;1HW");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::None), Built::New);
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New
+        );
         assert_eq!(changed(&s), vec![1], "one row, into the set it was in");
-        assert_eq!(sets[0], copy(&t), "and copied after it was compared");
-        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
+        assert_eq!(sets[0], copy(&t), "and copied after it was answered");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(1), PLAIN),
+            Built::Last
+        );
         assert_eq!(changed(&s), Vec::<usize>::new(), "the other set");
         feed(&mut t, b"\x1b[1;1HH");
-        assert_eq!(take(&mut s, &t, &mut sets, 0, Leaving::Drawn), Built::New);
-        assert_eq!(changed(&s), vec![0], "a slide, compared by row");
+        let slide = (Leaving::Drawn, &[][..], Held::No);
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), slide),
+            Built::New
+        );
+        assert_eq!(changed(&s), vec![0], "a slide, answered by row");
         s.compare = Compare::Screen;
-        assert_eq!(take(&mut s, &t, &mut sets, 1, Leaving::None), Built::Last);
-        assert_eq!(changed(&s), every, "not compared by row");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(1), PLAIN),
+            Built::Last
+        );
+        assert_eq!(changed(&s), every, "not answered by row");
+    }
+
+    /// **A set's copy is brought up to date by the rows written after its
+    /// own seal, and by no other**: a cell scribbled into two rows of the
+    /// copy behind the key's back, one of the two then written in the
+    /// terminal; the written row is copied again and the other is not
+    /// read, so its scribble stays.
+    #[test]
+    fn a_set_copies_the_rows_written_after_its_seal_and_no_other() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut sets = sets(&t);
+        let mut s = Screens::new();
+        feed(&mut t, b"one\r\ntwo\r\nthree");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New
+        );
+        let stride = t.stride().index();
+        let scribble = PackedCell::EMPTY;
+        sets[0][stride] = scribble;
+        sets[0][2 * stride] = scribble;
+        feed(&mut t, b"\x1b[2;1HT");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New
+        );
+        let now = copy(&t);
+        assert_eq!(
+            sets[0][stride..2 * stride],
+            now[stride..2 * stride],
+            "the written row copied"
+        );
+        assert_eq!(
+            sets[0][2 * stride],
+            scribble,
+            "the row not written not read"
+        );
+        assert_ne!(now[2 * stride], scribble, "the control: it differs");
+    }
+
+    /// **A, a write, B, C on set 0**: A into set 0, a row written, B into
+    /// set 1, and C into set 0 again with nothing written. C is the last
+    /// frame's screen -- B's, which has the write -- and set 0's copy,
+    /// taken under A's seal, is brought up to date with the row.
+    #[test]
+    fn a_set_taken_again_after_another_copies_what_was_written_between() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut sets = sets(&t);
+        let mut s = Screens::new();
+        feed(&mut t, b"one\r\ntwo");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::New,
+            "A"
+        );
+        feed(&mut t, b"\x1b[2;1HT");
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(1), PLAIN),
+            Built::New,
+            "B"
+        );
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN),
+            Built::Last,
+            "C is B's screen"
+        );
+        assert_eq!(sets[0], copy(&t), "and set 0 holds the row written after A");
+    }
+
+    /// **A row drawn in another order at a set's build, then in its own
+    /// with nothing written** -- BDSM reset (`CSI 8 l`) -- and every row
+    /// of a display held at the build, then not -- word wrap off: none was
+    /// stamped, and each such row is copied again, since the copy holds it
+    /// as it was drawn then.
+    #[test]
+    fn a_row_drawn_otherwise_at_the_build_is_copied_again_with_nothing_written() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut sets = sets(&t);
+        let mut s = Screens::new();
+        feed(&mut t, b"one\r\ntwo\r\nthree");
+        let stride = t.stride().index();
+        let drawn = (Leaving::None, &[1usize][..], Held::No);
+        assert_eq!(
+            frame(&mut s, &mut t, &mut sets, SetIx(0), drawn),
+            Built::New
+        );
+        // What the reordered row's copy held, which the term's stored row
+        // is not.
+        let scribble = PackedCell::EMPTY;
+        sets[0][stride] = scribble;
+        sets[0][2 * stride] = scribble;
+        let _ = frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN);
+        let now = copy(&t);
+        assert_eq!(
+            sets[0][stride..2 * stride],
+            now[stride..2 * stride],
+            "the row drawn in another order copied"
+        );
+        assert_eq!(sets[0][2 * stride], scribble, "a row drawn as stored kept");
+        let held = (Leaving::None, &[][..], Held::Yes);
+        let _ = frame(&mut s, &mut t, &mut sets, SetIx(0), held);
+        sets[0][2 * stride] = scribble;
+        let _ = frame(&mut s, &mut t, &mut sets, SetIx(0), PLAIN);
+        assert_eq!(sets[0], copy(&t), "every row of a display held copied");
     }
 }

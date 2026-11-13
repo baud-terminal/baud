@@ -764,6 +764,7 @@ impl Orders {
         self.permute(r, line.cells, cells);
         crate::counters::add(
             crate::counters::Counter::CellsCopied,
+            crate::counters::Site::Layout,
             Tally::of(line.cells.len()),
         );
         StatusLine { cells, ..line }
@@ -865,6 +866,7 @@ impl Orders {
         cells.resize(nrows * ncols, PackedCell::EMPTY);
         crate::counters::add(
             crate::counters::Counter::CellsCopied,
+            crate::counters::Site::Layout,
             Tally::of(nrows * ncols),
         );
         used.clear();
@@ -1281,7 +1283,9 @@ impl Seen {
         // each time, and its answer not kept: the same ids name other words
         // in another generation, which the compare of its cells cannot see.
         let live = words.is_live();
-        if self.opens[y] != Opens::Unknown && crate::counters::same_cells(kept, cells) {
+        if self.opens[y] != Opens::Unknown
+            && crate::counters::same_cells(crate::counters::Site::Layout, kept, cells)
+        {
             let strung = match (live, self.strung[y]) {
                 (true, Opens::Unknown) => {
                     self.strung[y] = self.row_strung(term, words, cells);
@@ -1298,7 +1302,11 @@ impl Seen {
             };
         }
         kept.copy_from_slice(cells);
-        crate::counters::add(crate::counters::Counter::CellsCopied, Tally::of(n));
+        crate::counters::add(
+            crate::counters::Counter::CellsCopied,
+            crate::counters::Site::Layout,
+            Tally::of(n),
+        );
         work.tested.bump();
         let h = Holds {
             strung: self.row_strung(term, words, cells),
@@ -1991,7 +1999,11 @@ impl Reorder {
     /// joins are then found over the cells as [`Reorder::reverse_paths`]
     /// lays them out, by the visual column every draw path reads.
     fn join_shown(&mut self, term: &Term<'_>, (r, words): (Row, Words<'_>), cells: &[PackedCell]) {
-        crate::counters::add(crate::counters::Counter::BidiRowsLaid, Tally::of(1));
+        crate::counters::add(
+            crate::counters::Counter::BidiRowsLaid,
+            crate::counters::Site::Layout,
+            Tally::of(1),
+        );
         if !self.orders.reordered(r) {
             return self.join_displayed(term, (r, words), cells);
         }
@@ -2284,6 +2296,7 @@ impl Reorder {
         #[cfg(feature = "counters")]
         crate::counters::add(
             crate::counters::Counter::BidiRowsLaid,
+            crate::counters::Site::Layout,
             Tally::of(rows.iter().filter(|r| r.window.is_some()).count()),
         );
         self.text.clear();

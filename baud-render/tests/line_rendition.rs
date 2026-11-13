@@ -8,9 +8,9 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, ReadLen, Row};
+use baud_domain::{BytePos, Codepoint, Col, ReadLen, Row};
 use baud_font::Face;
-use baud_render::{Damage, Renderer, Resolved, StyleStamp};
+use baud_render::{Caret, Composition, Damage, Measure, Renderer, Resolved, StyleStamp};
 use support::*;
 
 fn draw(r: &mut Renderer<'_, '_>, bytes: &[u8]) -> Canvas {
@@ -371,5 +371,59 @@ fn a_sized_line_set_single_beside_another_keeps_no_records() {
     assert!(
         !r.sized_records(five).is_empty(),
         "the control: the sized line keeps its own"
+    );
+}
+
+/// **A row the cell path wrote in the CPU path's copy is taken again by
+/// the next CPU frame** (`Renderer::convert`'s copy is kept across frames
+/// under the seal it was taken under, and every writer but the convert
+/// forgets that key): a DECDWL row drawn by a full CPU frame; the cell
+/// path's walk of the sized lines with a composition on that row, which
+/// blanks two of its cells in the copy -- the control that the walk took
+/// the row; then the cursor moved onto the row, nothing written, and an
+/// incremental CPU frame, which converts the cursor's row from the copy.
+/// Its pixels are a fresh renderer's full frame's. Named break: the key
+/// kept when the cell path writes the copy.
+#[test]
+fn a_row_the_cell_path_wrote_is_taken_again_by_the_next_cpu_frame() {
+    let data = faces();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[3;1H\x1b#6WIDE TEXT\x1b[1;1H");
+    let mut c = Canvas::for_renderer(&r);
+    paint(&mut r, &mut t, &mut c, Damage::Full);
+    let mut table = vec![Resolved::default(); t.styles().len()];
+    r.sync_styles(&t, &mut table, &mut StyleStamp::default());
+    let composition = Composition {
+        row: Row::from_index(2),
+        col: Col::at_index(0),
+        text: "ab".chars().map(Codepoint::from_char).collect(),
+        measure: Measure::default(),
+        hints: Vec::new(),
+        caret: Caret::Hidden,
+    };
+    let mut rows = Vec::new();
+    r.sized_lines(
+        &t,
+        (&t.viewport(), &table),
+        None,
+        Some(&composition),
+        &mut rows,
+    );
+    assert_eq!(
+        rows,
+        vec![Row::from_index(2)],
+        "the walk took the sized line"
+    );
+    feed(&mut t, b"\x1b[3;1H");
+    paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    let mut fresh = renderer(&faces);
+    let mut full = Canvas::for_renderer(&fresh);
+    paint(&mut fresh, &mut t, &mut full, Damage::Full);
+    assert!(
+        c.pixels == full.pixels,
+        "the row the cell path blanked is drawn from the terminal again"
     );
 }

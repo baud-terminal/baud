@@ -551,6 +551,9 @@ fn main() {
         scans: lined::Scan,
         widest: lined::Scan,
         idle_frames: baud_render::Tally,
+        /// Rows each frame's scan compared with what it kept
+        /// (`Lines::compared`), summed over the frames.
+        compared: baud_render::Tally,
         scan_time: Duration,
         reads: baud_render::Tally,
         /// Paths a `paths-exist` collection asked about, answered as there.
@@ -604,6 +607,7 @@ fn main() {
             scans: lined::Scan::default(),
             widest: lined::Scan::default(),
             idle_frames: baud_render::Tally::default(),
+            compared: baud_render::Tally::default(),
             scan_time: Duration::ZERO,
             reads: baud_render::Tally::default(),
             asked: baud_render::Tally::default(),
@@ -716,6 +720,8 @@ fn main() {
                             paths: &mut printed,
                         },
                     );
+                    rep.compared
+                        .add(baud_render::Tally::of(lines.compared().index()));
                     let frame = rep.frames;
                     if matches!(links, Links::Paths | Links::PathsExist)
                         && printed.owed() == paths::Owed::Yes
@@ -780,6 +786,10 @@ fn main() {
                     }
                 }
             }
+            // The seal a driver takes once a frame, after the scan and before
+            // the build: the next frame's scan compares only the rows
+            // written since.
+            let _ = t.seal_writes();
             let f = r.render(&mut t, &mut target, damage);
             rep.times.push(f0.elapsed());
             rep.allocs.push(allocations() - a0);
@@ -1401,6 +1411,7 @@ fn main() {
         scans,
         widest,
         idle_frames,
+        compared,
         scan_time,
         reads,
         asked,
@@ -1446,9 +1457,10 @@ fn main() {
     ) {
         let per = |n: usize| n as f64 / frames as f64;
         println!(
-            "  links scan {:.1} us/frame; rows {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
+            "  links scan {:.1} us/frame; rows {:.1} compared {:.1} cells {:.0} candidates {:.2} added {:.2} a frame; most in one frame rows {} cells {} candidates {}, on screen {}; {} frames read nothing; pointer reads {}",
             scan_time.as_secs_f64() * 1e6 / frames as f64,
             per(scans.rows),
+            compared.value() as f64 / frames as f64,
             per(scans.cells),
             per(scans.candidates),
             per(scans.spans),

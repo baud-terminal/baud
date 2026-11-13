@@ -2565,6 +2565,11 @@ impl App {
             self.owe_frame();
         }
         self.scan_lines();
+        // **This frame's writes, closed once and after the scan** (FS-C5):
+        // the scan keeps the seal it read under, and the cell path's build
+        // takes this one as an argument, its set's copy and sized lines
+        // keyed under it. The CPU path's `render_at` seals at its own top.
+        let seal = self.term.seal_writes();
         self.renderer.set_link(self.hover.look().cloned());
         self.renderer.set_link_hover(self.hover.over());
         // The hover text over DEC's line's words, read again on the line
@@ -2950,6 +2955,7 @@ impl App {
                 let built = baud_render::cell_frame::build(
                     &mut self.renderer,
                     &self.term,
+                    seal,
                     &inputs,
                     &mut baud_render::cell_frame::CellParts {
                         map: &mut cell.maps.live,

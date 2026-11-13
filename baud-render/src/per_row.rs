@@ -135,7 +135,11 @@ impl PerRow {
     /// by the difference.
     fn tally(&mut self, r: Row) {
         let (was, now) = (self.kinds[r.index()], Kinds::of(&self.rows[r.index()]));
-        crate::counters::add(crate::counters::Counter::InstancesTallied, now.instances);
+        crate::counters::add(
+            crate::counters::Counter::InstancesTallied,
+            crate::counters::Site::Totals,
+            now.instances,
+        );
         self.total = self.total.plus(now).less(was);
         self.kinds[r.index()] = now;
     }

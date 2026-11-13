@@ -12,14 +12,15 @@
 //! images), the GPU's buffers the slices here are lent from, which set is
 //! free to build into, and what it hands the GPU after.
 
-use crate::screens::{Built, Compare, Screens, SetIx};
+use crate::screens::{Built, Compare, Held, Screens, SetIx, Taking};
 use crate::{
     Candidate, Composition, GlyphMap, Highlight, Instance, Leaving, Lent, Overlay, Renderer,
     Resolved, Scene, StyleStamp, Tally, WalkKey,
 };
 use baud_core::Term;
 use baud_domain::{
-    CellFlags, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, RowExtent, RowRot, Rows,
+    CellFlags, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, RowExtent, RowRot,
+    Rows, Seal,
 };
 use baud_font::Px;
 
@@ -92,9 +93,16 @@ pub struct CellFrame {
 /// **Builds the cell frame** into the set `building` names, once the
 /// window is laid out; none, the layout done, when `building` names none.
 /// `used` is left holding each row's mark as the view read it.
+///
+/// **`seal` is the one the driver closed this frame's writes with**
+/// (`Term::seal_writes`), taken once a frame before the build: the set's
+/// copy and the sized lines' keys are recorded under it. A required
+/// argument, so no driver builds a frame without sealing first; `term` is
+/// shared, and the build itself seals nothing.
 pub fn build<P>(
     renderer: &mut Renderer<'_, '_>,
     term: &Term<'_>,
+    seal: Seal,
     inputs: &CellInputs<'_, P>,
     cell: &mut CellParts<'_, '_, '_>,
     used: &mut Vec<RowExtent>,
@@ -242,13 +250,24 @@ where
         .last_set()
         .and_then(|l| cell.lent.get(l.0))
         .map_or(&[][..], crate::Lent::rewrites);
+    // Which rows the layout drew in another order, the status line's
+    // after the window's, and whether it re-broke a display: rows whose
+    // drawn cells read more of the terminal than their stored ones.
+    let orders = renderer.bidi();
     let built = screens.take_lent(
         cell.copies_mem,
         at,
-        &view,
-        status.as_ref(),
-        term.stride(),
-        leaving,
+        &Taking {
+            term,
+            seal,
+            back,
+            view: &view,
+            status: status.as_ref(),
+            reordered: &|r| orders.reordered(r),
+            held: Held::of(orders),
+            stride: term.stride(),
+            leaving,
+        },
         undo,
     );
     // **A frozen row of the window drawn in its own renditions,
@@ -305,7 +324,7 @@ where
         (true, crate::Lend::Rows | crate::Lend::Short, _) => Built::New,
         (_, _, Built::Last) if lending == screens.lending => Built::Last,
         (_, _, Built::Last) => {
-            screens.built(Built::New, &view, status.as_ref());
+            screens.built(Built::New);
             Built::New
         }
         (_, _, Built::New) => Built::New,
@@ -422,7 +441,7 @@ where
         }
         None => 0,
     };
-    cell.exceptions.ensure(
+    cell.exceptions.ensure_framed(
         &Scene {
             term,
             view,
@@ -437,6 +456,7 @@ where
             pan: if sliding { pan } else { Px::of(0) },
             composition: composition.as_ref(),
         },
+        crate::renderer::Framed::of(back, seal),
         renderer,
         &mut cell.overlay_mem[set][..],
         cell.records,

@@ -238,13 +238,16 @@ struct VeilsDrawn {
 /// **The cell frame `r` builds into set `at`**, as the app's `present`
 /// builds it with no composition, prediction or slide, and the veils it
 /// draws: the records between the bell's tint and the splash, at the end
-/// of the frame's (`CellFrame::chrome`).
+/// of the frame's (`CellFrame::chrome`), the frame's writes sealed first
+/// (`Term::seal_writes`).
 fn cell_frame(
     r: &mut Renderer<'_, '_>,
-    t: &Term<'_>,
+    t: &mut Term<'_>,
     cell: &mut Cells<'_>,
     at: SetIx,
 ) -> VeilsDrawn {
+    let seal = t.seal_writes();
+    let t = &*t;
     let back = t.window_back();
     r.fit(t);
     r.set_images(t, back);
@@ -270,6 +273,7 @@ fn cell_frame(
     let frame = build(
         r,
         t,
+        seal,
         &inputs,
         &mut CellParts {
             map: &mut cell.map,
@@ -384,11 +388,11 @@ fn on_the_cell_path(
     let mut sets = (0..).map(|k| SetIx(k % SETS));
     let mut next = || sets.next().expect("a set");
     for _ in 0..=SETS {
-        cell_frame(&mut r, &t, &mut cells, next());
+        cell_frame(&mut r, &mut t, &mut cells, next());
     }
     let composed = r.veils_composed();
     assert!(composed.value() > 0, "{what}: the control, a veil composed");
-    let steady = cell_frame(&mut r, &t, &mut cells, next());
+    let steady = cell_frame(&mut r, &mut t, &mut cells, next());
     assert_eq!(
         r.veils_composed(),
         composed,
@@ -398,7 +402,7 @@ fn on_the_cell_path(
     if !written.is_empty() {
         feed(&mut t, written);
     }
-    let changed = cell_frame(&mut r, &t, &mut cells, next());
+    let changed = cell_frame(&mut r, &mut t, &mut cells, next());
     // The records first, so a veil kept stale fails here, at the staleness
     // control, before the count says why.
     let mut fresh = made();
@@ -406,7 +410,7 @@ fn on_the_cell_path(
     after(&mut fresh, &t);
     let mut fresh_backing = GlyphMap::backing();
     let mut fresh_cells = Cells::new(&mut fresh_backing, &t, rows);
-    let first = cell_frame(&mut fresh, &t, &mut fresh_cells, SetIx(0));
+    let first = cell_frame(&mut fresh, &mut t, &mut fresh_cells, SetIx(0));
     assert_eq!(
         changed, first,
         "{what}: the cell frame after the change draws a fresh renderer's veils"
@@ -417,7 +421,7 @@ fn on_the_cell_path(
         "{what}: the changed veil composed again"
     );
     let kept = r.veils_composed();
-    let again = cell_frame(&mut r, &t, &mut cells, next());
+    let again = cell_frame(&mut r, &mut t, &mut cells, next());
     assert_eq!(r.veils_composed(), kept, "{what}: the change composed once");
     assert_eq!(
         again, first,
