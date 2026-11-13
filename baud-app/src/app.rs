@@ -1992,14 +1992,18 @@ impl App {
 
     /// Whatever the core answered to the child, behind whatever it is
     /// already owed, as much as the kernel takes now; `Bytes` only when that
-    /// emptied the outbox. With nothing owed it makes no system call: the
-    /// pump runs this on every turn. A write that leaves bytes owed
+    /// emptied the outbox. With nothing owed it makes no system call and
+    /// reads no clock, returning first: the pump runs this on every turn, a
+    /// caret's tick included. A write that leaves bytes owed
     /// registers the master's room to write (`pty::OutboxWatch::write`),
     /// whose event wakes the window for the turn that writes the rest.
     ///
     /// The reply was copied out and cleared whether or not the write went,
     /// so a short write lost the rest; the outbox keeps it.
     fn flush_reply(&mut self, asked: Asked) -> Sent {
+        if self.term.reply().is_empty() && self.outbox.is_empty() {
+            return Sent::Nothing;
+        }
         let now = host_now();
         // AA: a reply the terminal queued on its own, at the flush that
         // sends it.
@@ -25680,5 +25684,34 @@ mod clock_tests {
                 concat!("self.app.tick", "_target = target;"),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod idle_turn_tests {
+    use super::link_pointer_tests::body;
+
+    /// **A flush with nothing owed returns before it reads the clock**
+    /// (`App::flush_reply`): the pump flushes on every turn, a caret's tick
+    /// included, and a turn with no reply and an empty outbox reads no
+    /// clock and makes no system call. AppKit-bound through the pty, so the
+    /// source is what can fail. Break: the clock read ahead of the return.
+    #[test]
+    fn a_flush_with_nothing_owed_reads_no_clock() {
+        const SRC: &str = include_str!("app.rs");
+        let flush = body(
+            SRC,
+            concat!("    fn flush_", "reply(&mut self, asked: Asked) -> Sent {"),
+        );
+        let nothing = flush
+            .find(concat!(
+                "if self.term.reply().is_empty() && self.outbox.is_empty() {\n",
+                "            return Sent::",
+                "Nothing;"
+            ))
+            .expect("nothing owed returns");
+        let clock = flush.find(concat!("host_", "now()")).expect("the clock");
+        assert!(nothing < clock, "the return before the clock");
+        assert_eq!(flush.matches(concat!("host_", "now()")).count(), 1);
     }
 }

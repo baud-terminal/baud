@@ -122,6 +122,31 @@ enum Input {
     Waits,
 }
 
+/// Whether a [`paced`] call with no read has anything to act on
+/// ([`Pace::idle`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Idle {
+    Yes,
+    No,
+}
+
+impl<T> Pace<T> {
+    /// **Whether a call with no read would act on nothing**: no read held,
+    /// no deadline -- a ReGIS delay's, a held DSR `?15`'s or a held
+    /// `p=alive`'s, the only way a printer or notice answer is owed across
+    /// calls -- no one-shot input waited on, and no reply the core queued
+    /// between calls, which [`paced`] hands on ahead of everything else. A
+    /// driver's answer to a held question comes while its deadline stands,
+    /// so the call that sends it is never skipped.
+    fn idle(&self, term: &Term<'_>) -> Idle {
+        let waits = self.until.is_some() || self.input == Input::Waits || !self.held.is_empty();
+        match waits || !term.reply().is_empty() {
+            true => Idle::No,
+            false => Idle::Yes,
+        }
+    }
+}
+
 /// What holds the reads while [`Pace`] has a deadline.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Why {
@@ -402,6 +427,12 @@ impl Fed {
 /// ([`Part`]), a held read's when its bytes go on, so the driver files the
 /// rows this call wrote under the reads that wrote them, none under a read
 /// still held, and a folder report's verdict with the part that fed it.
+///
+/// **And nothing but the re-cuts' clearing, with no read on an idle pace**
+/// ([`Pace::idle`]): the macOS pump calls this on every turn, a caret's
+/// tick included, and the waits' checks, the reply's hand-on and the log's
+/// follow would each act on nothing. A log the writer failed, or a `?46`
+/// the core left, is followed at the next read, before any of its bytes.
 #[allow(clippy::too_many_arguments)]
 pub fn paced<'r, T: Part>(
     term: &mut Term<'_>,
@@ -413,7 +444,13 @@ pub fn paced<'r, T: Part>(
     log: &mut impl crate::hostlog::Tee,
     took: &mut Vec<T>,
 ) -> Fed {
+    // The re-cuts first, so a window resize's between calls is not read
+    // again after this one, idle or not.
     pace.recuts.clear();
+    let mut reads = reads.into_iter().peekable();
+    if reads.peek().is_none() && pace.idle(term) == Idle::Yes {
+        return Fed::Nothing;
+    }
     printer_wait(term, pace, now);
     notice_wait(term, pace, now);
     owed(term, &mut sink);
@@ -1672,6 +1709,156 @@ mod tests {
         );
         assert_eq!((fed, pace.cut), (Fed::Some, DelaysCut(1)));
         assert_eq!(pace.deadline(), None);
+    }
+
+    /// **A call with no read on an idle pace does nothing but clear the
+    /// re-cuts**: the macOS pump makes one on every turn, a caret's tick
+    /// included, and the log is not followed on it, while a window resize's
+    /// re-cut made between calls is still cleared, as every call clears it.
+    /// The control: a read is followed before it and after it. Break: the
+    /// gate after the log's follow (`follows` is 1), or the gate ahead of
+    /// the re-cuts' clearing (the resize's is still told).
+    #[test]
+    fn a_call_with_no_read_on_an_idle_pace_does_nothing() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_logging(baud_core::Logging::On);
+        let mut pace = Pace::new();
+        let mut log = Parts::default();
+        let smaller = WinSize {
+            ws_row: WS.ws_row - 1,
+            ws_col: WS.ws_col,
+        };
+        let _ = pace.recuts.resize(&mut t, &smaller);
+        assert!(
+            pace.recuts.last().is_some(),
+            "a window resize between calls"
+        );
+        let now = Instant::now();
+        let fed = paced(&mut t, &mut pace, now, [], |_| {}, |_| {}, &mut log);
+        assert_eq!((fed, log.follows.len()), (Fed::Nothing, 0), "an idle call");
+        assert!(
+            pace.recuts.last().is_none(),
+            "its re-cut cleared all the same"
+        );
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            now,
+            [&b"x"[..]],
+            |_| {},
+            |_| {},
+            &mut log,
+        );
+        assert_eq!(
+            (fed, log.follows.len()),
+            (Fed::Some, 2),
+            "the control: a read, followed before and after"
+        );
+    }
+
+    /// **The pace is idle only with nothing held, waited on or owed**
+    /// ([`Pace::idle`]): a reply the core queued between calls, a ReGIS
+    /// delay, a one-shot input and a held DSR `?15` each make the call with
+    /// no read act, and each, once the call that ends it has run, leaves the
+    /// pace idle again. A reply owed goes out on a call with no read.
+    /// Break: the idle test ignoring the deadline (a delay's held reads
+    /// would wait for a read to carry them) or the reply (it would wait for
+    /// the next flush instead of going ahead of everything).
+    #[test]
+    fn the_pace_is_idle_only_with_nothing_held_waited_on_or_owed() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut pace: Pace = Pace::new();
+        assert_eq!(pace.idle(&t), Idle::Yes, "a fresh pace");
+        // A reply queued between calls: owed, and handed on by a call
+        // with no read.
+        t.write_at(BytePos::ZERO, b"\x1b[5n");
+        t.feed(BytePos::ZERO, ReadLen::from_index(4));
+        assert_eq!(pace.idle(&t), Idle::No, "a reply owed");
+        let mut out = Vec::new();
+        let now = Instant::now();
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [],
+            |b| out.extend_from_slice(b),
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(out, b"\x1b[0n", "the reply, on a call with no read");
+        assert_eq!(pace.idle(&t), Idle::Yes, "and idle after it");
+        // A ReGIS delay, until its deadline's call feeds what it held.
+        t.set_regis_hold(baud_core::RegisHold::On);
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [&b"\x1bPpS(T60)\x1b\\AB"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(pace.idle(&t), Idle::No, "a delay holds a read");
+        let fed = paced(
+            &mut t,
+            &mut pace,
+            now + Duration::from_secs(1),
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!((fed, row0(&t).as_str()), (Fed::Some, "AB"));
+        assert_eq!(pace.idle(&t), Idle::Yes, "the delay over");
+        // A one-shot input, with no deadline.
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [&b"\x1bPpR(P(I))\x1b\\"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(pace.deadline(), None);
+        assert_eq!(pace.idle(&t), Idle::No, "an input waited on");
+        t.regis_input_abandon();
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(pace.idle(&t), Idle::Yes, "the input over");
+        // A held DSR `?15`, the driver's answer owed.
+        t.set_printer_hold(baud_core::PrinterHold::On);
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [&b"\x1b[?15n"[..]],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert!(pace.waits_for_printer());
+        assert_eq!(pace.idle(&t), Idle::No, "a printer answer owed");
+        t.set_printer(baud_core::PrinterPort::Ready);
+        paced(
+            &mut t,
+            &mut pace,
+            now,
+            [],
+            |_| {},
+            |_| {},
+            &mut crate::hostlog::NoLog,
+        );
+        assert_eq!(pace.idle(&t), Idle::Yes, "the answer sent");
     }
 
     /// **A key behind answers that nearly fill the buffer is kept.** The
