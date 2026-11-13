@@ -1984,8 +1984,9 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
         // only "when the window that moved didn’t also change size"
         // (`[[source: apple-nswindow-didmovenotification]]`), so the frame's
         // origin alone is set, which keeps the size, and the row ends if it
-        // did not; the notification itself is posted below, as for the
-        // others, the window never shown.
+        // did not. Nothing is posted for it below (`window_facts::rig_posts`):
+        // what the row hears is AppKit's own notice of this move, the window
+        // never shown.
         RigWindow::Moved => {
             let w = window.ns_window();
             let was = w.frame();
@@ -2517,7 +2518,7 @@ fn run_frames(rig: probe_call::FrameRig) -> std::process::ExitCode {
                     .map(|(k, n)| format!("{}:{}", k.name(), n.0))
                     .collect();
                 println!(
-                    "counted allocs={} appkit={} posted={posted} woke={} harness_allocs={} harness_appkit={} setup_allocs={} setup_seams={} kinds={}",
+                    "counted allocs={} appkit={} posted={posted} woke={} offered_allocs={} offered_appkit={} setup_allocs={} setup_seams={} kinds={}",
                     woke_counts.0.since(offered_counts.0).0,
                     appkit(offered_counts, woke_counts),
                     probe::wakes().since(woke_before),

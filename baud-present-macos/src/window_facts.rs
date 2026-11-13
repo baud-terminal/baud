@@ -180,11 +180,44 @@ impl Drop for WindowWatch {
     }
 }
 
+/// **What the frame rig posts for each [`Notice`]**: AppKit's constant
+/// and its poster, from a table of the rig's own, never through
+/// [`Notice::name`] or [`Notice::poster`], the mapping the rig's rows
+/// test: a wrong name in that mapping leaves the rig's post unheard and
+/// its row red.
+///
+/// Nothing for [`Notice::Moved`]: the rig moves the window by its origin
+/// alone, and the move AppKit posts for that is the one heard
+/// (`[[source: apple-nswindow-didmovenotification]]`).
+#[cfg(any(test, feature = "effect-probe"))]
+fn rig_posts(notice: Notice) -> Option<(&'static NSNotificationName, Poster)> {
+    // SAFETY: framework constants, valid strings for the process's life.
+    let posted = unsafe {
+        match notice {
+            Notice::Moved => return None,
+            Notice::Resized => (NSWindowDidResizeNotification, Poster::Window),
+            Notice::ChangedScreen => (NSWindowDidChangeScreenNotification, Poster::Window),
+            Notice::ChangedBacking => (
+                NSWindowDidChangeBackingPropertiesNotification,
+                Poster::Window,
+            ),
+            Notice::Miniaturized => (NSWindowDidMiniaturizeNotification, Poster::Window),
+            Notice::Deminiaturized => (NSWindowDidDeminiaturizeNotification, Poster::Window),
+            Notice::ScreenParameters => (
+                NSApplicationDidChangeScreenParametersNotification,
+                Poster::Application,
+            ),
+        }
+    };
+    Some(posted)
+}
+
 /// **The frame rig's window told one of its facts changed**
 /// (`rig_call::RigWindow`): the notification posted as AppKit posts it,
-/// with the window as its object, or the shared application for the
-/// displays' change. The window is never shown, and nothing it reports is
-/// changed by the post; the rig moves it first for [`Notice::Moved`].
+/// named by `rig_posts`, with the window as its object, or the shared
+/// application for the displays' change. The window is never shown, and
+/// nothing it reports is changed by the post; the rig moves it first for
+/// [`Notice::Moved`].
 #[cfg(feature = "effect-probe")]
 pub fn rig_post(window: &NSWindow, notice: Notice) {
     use macos_liquid_glass::objc2::MainThreadMarker;
@@ -193,17 +226,18 @@ pub fn rig_post(window: &NSWindow, notice: Notice) {
     fn object(o: &NSObject) -> &AnyObject {
         o
     }
+    let Some((name, poster)) = rig_posts(notice) else {
+        return;
+    };
     let app = MainThreadMarker::new().map(NSApplication::sharedApplication);
-    let object = match (notice.poster(), app.as_deref()) {
+    let object = match (poster, app.as_deref()) {
         (Poster::Window, _) => Some(object(window)),
         (Poster::Application, Some(a)) => Some(object(a)),
         (Poster::Application, None) => None,
     };
     // SAFETY: a framework constant posted with its object, on the main
     // thread, where its observers expect it.
-    unsafe {
-        NSNotificationCenter::defaultCenter().postNotificationName_object(notice.name(), object)
-    };
+    unsafe { NSNotificationCenter::defaultCenter().postNotificationName_object(name, object) };
 }
 
 #[cfg(test)]
@@ -258,5 +292,64 @@ mod tests {
         assert!(body.contains(concat!("match n.", "poster()")), "{body}");
         assert!(!body.contains(concat!(".fil", "ter(")), "{body}");
         assert!(!body.contains(concat!(".ski", "p(")), "{body}");
+    }
+
+    /// **The rig posts AppKit's names from its own table**: each name
+    /// `rig_posts` gives is the one AppKit spells for that notice, posted
+    /// by the poster its page names, and `rig_post` names nothing through
+    /// [`Notice::name`] or [`Notice::poster`]. The move posts
+    /// nothing: AppKit's own post of it is heard. Perturbations:
+    /// the table's resize named as the move, and the spelling check fails;
+    /// `rig_post` posting `notice.name()`, and the source check fails.
+    #[test]
+    fn the_rig_posts_names_of_its_own() {
+        let spelled = [
+            (Notice::Moved, None),
+            (
+                Notice::Resized,
+                Some(("NSWindowDidResizeNotification", Poster::Window)),
+            ),
+            (
+                Notice::ChangedScreen,
+                Some(("NSWindowDidChangeScreenNotification", Poster::Window)),
+            ),
+            (
+                Notice::ChangedBacking,
+                Some((
+                    "NSWindowDidChangeBackingPropertiesNotification",
+                    Poster::Window,
+                )),
+            ),
+            (
+                Notice::Miniaturized,
+                Some(("NSWindowDidMiniaturizeNotification", Poster::Window)),
+            ),
+            (
+                Notice::Deminiaturized,
+                Some(("NSWindowDidDeminiaturizeNotification", Poster::Window)),
+            ),
+            (
+                Notice::ScreenParameters,
+                Some((
+                    "NSApplicationDidChangeScreenParametersNotification",
+                    Poster::Application,
+                )),
+            ),
+        ];
+        assert_eq!(spelled.map(|(n, _)| n), Notice::ALL);
+        for (notice, spelling) in spelled {
+            let posted = rig_posts(notice).map(|(name, by)| (name.to_string(), by));
+            let spelled = spelling.map(|(s, by)| (s.to_owned(), by));
+            assert_eq!(posted, spelled, "{notice:?}");
+        }
+        let src = include_str!("window_facts.rs");
+        let body = src
+            .split_once(concat!("pub fn rig_", "post(window: &NSWindow"))
+            .and_then(|(_, rest)| rest.split_once("\n}\n"))
+            .map(|(b, _)| b)
+            .expect("rig_post");
+        assert!(body.contains(concat!("rig_", "posts(notice)")), "{body}");
+        assert!(!body.contains(concat!(".na", "me()")), "{body}");
+        assert!(!body.contains(concat!(".pos", "ter()")), "{body}");
     }
 }

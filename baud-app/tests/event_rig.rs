@@ -1989,8 +1989,8 @@ impl SentBy {
 /// `heap::allocations`, counted inside a responder method or a turn) and
 /// what it sent to AppKit through the counted seams with the display
 /// link door's sends (`baud_present_macos::sends`), over the bare wakes
-/// posted at quiet; the same over the ticks offered before them, the
-/// rig's own phase; and the allocations and the seams' sends alone from
+/// posted at quiet; the same over the turns of the ticks offered at
+/// quiet before them; and the allocations and the seams' sends alone from
 /// the launch to quiet, which show both counts live: the door's sends,
 /// counted outside the scope, are not in that total.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -2000,8 +2000,11 @@ struct Counted {
     /// The bare wakes posted, and those delivered.
     posted: u64,
     woke: u64,
-    harness_allocs: u64,
-    harness_appkit: u64,
+    /// The same over the turns of the ticks offered at quiet before the
+    /// wakes, which allocate and send nothing even counted: they say
+    /// nothing of what the scope leaves out.
+    offered_allocs: u64,
+    offered_appkit: u64,
     setup_allocs: u64,
     setup_seams: u64,
     /// The seams' sends over the wakes, by kind, or `-`.
@@ -2020,8 +2023,8 @@ impl Counted {
             appkit: count("appkit")?,
             posted: count("posted")?,
             woke: count("woke")?,
-            harness_allocs: count("harness_allocs")?,
-            harness_appkit: count("harness_appkit")?,
+            offered_allocs: count("offered_allocs")?,
+            offered_appkit: count("offered_appkit")?,
             setup_allocs: count("setup_allocs")?,
             setup_seams: count("setup_seams")?,
             kinds: field("kinds")?.to_owned(),
@@ -2029,9 +2032,9 @@ impl Counted {
     }
 
     /// **A still screen's turns cost nothing**: every bare wake posted and
-    /// delivered, none of them allocating or sending; the rig's own phase
-    /// counted at none, so the scope leaves the harness out; and both
-    /// counts moved before quiet, so neither is dead.
+    /// delivered, none of them allocating or sending; the turns of the
+    /// ticks offered before them at none too; and both counts moved before
+    /// quiet, so neither is dead.
     fn still(&self) -> bool {
         let wakes = u64::from(QUIET_WAKES);
         self.posted == wakes
@@ -2039,8 +2042,8 @@ impl Counted {
             && self.allocs == 0
             && self.appkit == 0
             && self.kinds == "-"
-            && self.harness_allocs == 0
-            && self.harness_appkit == 0
+            && self.offered_allocs == 0
+            && self.offered_appkit == 0
             && self.setup_allocs > 0
             && self.setup_seams > 0
     }
@@ -2764,8 +2767,8 @@ const FRAME_SITES: [FrameSite; 53] = [
     // (`RigEnd::QuietCounted`): then bare wakes posted at quiet, each a turn
     // of the pump with nothing owed, and quiet reached again; across them
     // baud's work on the main thread allocates nothing and sends AppKit
-    // nothing, the rig's own phase is outside both counts, and both counts
-    // moved before quiet (`Counted::still`). The driver's sources hold the
+    // nothing, the turns of the ticks offered before them count none
+    // either, and both counts moved before quiet (`Counted::still`). The driver's sources hold the
     // other half: every send on a turn is a counted seam or on turn_doors'
     // cold table.
     FrameSite {
@@ -4626,18 +4629,20 @@ fn the_same_path_printed_again_within_a_second_is_drawn_on_its_d() {
 
 /// **The counted line reads whole, and a still screen is read from all of
 /// it** ([`Counted::still`]): the line as the rig prints it holds; a wake
-/// that allocated, a send over the wakes, a wake not delivered, the
-/// harness counted, or a count that never moved before quiet each fails.
+/// that allocated, a send over the wakes, a wake not delivered, an
+/// offered tick's turn that allocated or sent, or a count that never moved
+/// before quiet each fails.
 #[test]
 fn a_counted_line_is_read_whole() {
-    let still = "counted allocs=0 appkit=0 posted=8 woke=8 harness_allocs=0 harness_appkit=0 setup_allocs=900 setup_seams=12 kinds=-";
+    let still = "counted allocs=0 appkit=0 posted=8 woke=8 offered_allocs=0 offered_appkit=0 setup_allocs=900 setup_seams=12 kinds=-";
     assert!(Counted::parse(still).is_some_and(|c| c.still()), "{still}");
     for (from, to) in [
         ("allocs=0", "allocs=8"),
         ("appkit=0", "appkit=8"),
         ("kinds=-", "kinds=title:8"),
         ("woke=8", "woke=7"),
-        ("harness_allocs=0", "harness_allocs=1"),
+        ("offered_allocs=0", "offered_allocs=1"),
+        ("offered_appkit=0", "offered_appkit=1"),
         ("setup_allocs=900", "setup_allocs=0"),
         ("setup_seams=12", "setup_seams=0"),
     ] {
