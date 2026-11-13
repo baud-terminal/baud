@@ -58,8 +58,8 @@ use core::ops::Range;
 
 use baud_core::{Screen, Term};
 use baud_domain::{
-    Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, PackedCell, Row, RowStyles, Rows,
-    StyleWord, Wrap,
+    Attrs, ClusterEpoch, Col, LineRendition, LinkEpoch, LinkId, PackedCell, Row, RowGens,
+    RowStyles, Rows, Seal, StyleWord, WindowAt, Wrap,
 };
 use baud_render::{AbsLine, LinkLine, Point, Scrolled, row_of, row_styles_of};
 
@@ -527,6 +527,28 @@ enum Read {
     Again,
 }
 
+/// **What the kept copy (`cells`, `wraps`, `sizes`) was taken under**: the
+/// seal the scan that took it read the terminal at, and the physical rows
+/// its window showed, moved with the copy by each shift since. A row of
+/// the copy is kept with no compare only under both ([`Lines::unchanged`]).
+#[derive(Clone, Copy, Debug, Default)]
+enum Copied {
+    /// Nothing to trust: every row is compared.
+    #[default]
+    Nothing,
+    /// `term.sealed()` at the scan that took the copy, and the window it
+    /// was taken over.
+    Under { seal: Seal, at: WindowAt },
+}
+
+/// **Whether a kept row holds what its physical row held at the seal**: a
+/// row a shift opened or blanked holds nothing it was copied from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    Copy,
+    Open,
+}
+
 /// **The lines on the window, and the window as the last scan saw it.**
 #[derive(Debug, Default)]
 pub struct Lines {
@@ -588,6 +610,11 @@ pub struct Lines {
     /// window's, and those below it a look back went by
     /// ([`Lines::compared`]).
     compared: Compared,
+    /// What the kept copy was taken under, and whether each of its rows
+    /// holds what it was copied from: a row of the window no store has
+    /// touched since is kept with no compare.
+    copied: Copied,
+    held: Vec<Held>,
 }
 
 /// **Rows a scan compared with what it kept** ([`Lines::compared`]): a
@@ -646,6 +673,21 @@ impl Lines {
         self.epochs = None;
     }
 
+    /// **Whether window row `r` still holds what the copy kept**, with no
+    /// compare: the copy taken over these physical rows exactly, the row
+    /// not opened by a shift since, and no store to it after the seal the
+    /// copy was taken under. The one way a row skips the compare.
+    fn unchanged(&self, gens: &RowGens<'_>, r: Row) -> bool {
+        match self.copied {
+            Copied::Nothing => false,
+            Copied::Under { seal, at } => {
+                at == gens.window()
+                    && self.held.get(r.index()) == Some(&Held::Copy)
+                    && !gens.after(r, &seal)
+            }
+        }
+    }
+
     /// **The last scan's rows moved `shift` rows**, to where the lines they
     /// showed are now: the cells, wraps, sizes and how each met the next, and
     /// the lines and struck runs on them; the rows left open hold nothing a row can equal but a
@@ -657,6 +699,13 @@ impl Lines {
             Shift::Down(k) => (k.min(rows), false),
         };
         let keep = rows - k;
+        // The physical rows the copy is of move with it.
+        if let Copied::Under { at, .. } = &mut self.copied {
+            at.top = match up {
+                true => at.top.advance(k, at.ring),
+                false => at.top.retreat(k, at.ring),
+            };
+        }
         // The slots on the rows leaving the window are shown on fewer rows
         // now: each is judged again on the rows it keeps.
         let leaving = match up {
@@ -701,6 +750,8 @@ impl Lines {
             self.wraps.copy_within(k.., 0);
             self.sizes.copy_within(k.., 0);
             self.below.copy_within(k.., 0);
+            self.held.copy_within(k.., 0);
+            self.held[keep..].fill(Held::Open);
             self.cells[keep * cols..].fill(PackedCell::EMPTY);
             self.wraps[keep..].fill(Wrap::Ended);
             self.sizes[keep..].fill(LineRendition::Single);
@@ -710,6 +761,8 @@ impl Lines {
             self.wraps.copy_within(..keep, k);
             self.sizes.copy_within(..keep, k);
             self.below.copy_within(..keep, k);
+            self.held.copy_within(..keep, k);
+            self.held[..k].fill(Held::Open);
             self.cells[..k * cols].fill(PackedCell::EMPTY);
             self.wraps[..k].fill(Wrap::Ended);
             self.sizes[..k].fill(LineRendition::Single);
@@ -717,6 +770,7 @@ impl Lines {
         }
         if ran_on && keep > 0 {
             self.cells[..cols].fill(PackedCell::EMPTY);
+            self.held[0] = Held::Open;
         }
         self.keep_waits(|r| {
             match up {
@@ -856,6 +910,9 @@ impl Lines {
             self.again.resize(rows, Read::Kept);
             self.below.clear();
             self.below.resize(rows, Below::Apart);
+            self.held.clear();
+            self.held.resize(rows, Held::Open);
+            self.copied = Copied::Nothing;
             self.head = None;
             self.past = None;
             self.past_cells.clear();
@@ -909,18 +966,25 @@ impl Lines {
         // line starts, with no change to its cells: a wrap gone leaves it a
         // line of its own, whose old line must go.
         let mut wrap_moved = false;
+        // A row no store has touched since the copy was taken is kept with
+        // no compare of its cells; its wrap and size are read still.
+        let gens = term.row_gens(back);
         for y in 0..rows {
             let r = Row::from_index(y);
             let row = view.row(r);
             let n = row.len().min(cols);
+            let clean = !all && self.unchanged(&gens, r);
             let kept = &mut self.cells[y * cols..y * cols + n];
             let (wrap, size) = (view.wrapped(r), view.rendition(r));
-            let compare = !all && !wrap_moved;
+            let compare = !all && !wrap_moved && !clean;
             if compare {
                 self.compared.one();
             }
-            let same =
-                compare && kept == &row[..n] && self.wraps[y] == wrap && self.sizes[y] == size;
+            let same = !all
+                && !wrap_moved
+                && (clean || kept == &row[..n])
+                && self.wraps[y] == wrap
+                && self.sizes[y] == size;
             wrap_moved = self.wraps[y] != wrap;
             self.again[y] = match same {
                 true => Read::Kept,
@@ -937,6 +1001,14 @@ impl Lines {
                 any = true;
             }
         }
+        // Every row of the copy is what its physical row holds now: a store
+        // between the last seal and this scan reads as after this seal
+        // too, and is compared again next frame.
+        self.copied = Copied::Under {
+            seal: term.sealed(),
+            at: gens.window(),
+        };
+        self.held.fill(Held::Copy);
         // A row running on into the next is asked again whether it joins,
         // with no change to either: the program that wrote it may have been
         // named since, and a remote row never joins a local one.
@@ -3559,8 +3631,10 @@ mod tests {
 
     /// **A row below a looked-back window written over reads the bottom
     /// row again, with no row of the window written**: the rows below are
-    /// outside the window's generations. Named break: end the scan when no
-    /// row of the window was written since the seal -- `/p13`'s line stays.
+    /// outside the window's generations. Named break: end the scan when the
+    /// window did not move and no row of the window is after the seal, read
+    /// from the window's generations alone with nothing below or above it
+    /// consulted -- `/p13`'s line stays.
     #[test]
     fn a_row_below_the_window_written_with_the_window_unwritten() {
         let mut owned = Owned::with_history(
@@ -3596,8 +3670,10 @@ mod tests {
 
     /// **A trim of the history where the top row's line began reads the
     /// top row again, with no row of the window written**: `trimmed_above`
-    /// under seals. Named break: end the scan when no row of the window was
-    /// written since the seal -- the half link stays.
+    /// under seals. Named break: end the scan when the window did not move
+    /// and no row of the window is after the seal, read from the window's
+    /// generations alone with nothing below or above it consulted -- the
+    /// half link stays.
     #[test]
     fn a_trim_above_the_window_with_the_window_unwritten() {
         let parts = [FIRST, SECOND];
@@ -3633,10 +3709,20 @@ mod tests {
     /// nothing finds**: `kept_lines_are_what_a_fresh_scan_finds`'s steps with
     /// a seal after every scan, as the drivers seal, and switches of screen
     /// (`?47`, which leaves the alternate screen as it was, and `?1049`)
-    /// and a resize to the same size among them. Named breaks: `shift`
-    /// leaving the rows it empties trusted; `ran_on`'s row left trusted;
-    /// trusting a row by its generation alone, not the window it was kept
-    /// over.
+    /// and a resize to the same size among them. The scan's count moves as
+    /// the app moves it (`keep::Counts`, not [`fed`]): the primary's by what
+    /// its window retired, the alternate screen's to its own number for its
+    /// top line while it is up, so the alternate screen's own scrolling
+    /// reaches the scan as a shift on that one screen. A switch moves the
+    /// count too; the window the copy was kept over names the screen, so
+    /// after a switch every row is compared whatever the shift. Controls:
+    /// each seed looks back on the primary, and scrolls the alternate
+    /// screen under its own count, at least once. Named breaks: `shift`
+    /// leaving the rows it empties trusted, through the shifts on one
+    /// screen (a look back on the primary, the alternate screen's own
+    /// scrolling); `ran_on`'s row left trusted; trusting a row by its
+    /// generation alone, not the window it was kept over, which a switch
+    /// of screens reaches.
     #[test]
     fn kept_lines_are_what_a_fresh_scan_finds_under_seals() {
         for seed in [1u64, 7, 42, 2026] {
@@ -3653,9 +3739,14 @@ mod tests {
                 baud_domain::Depth::of(8),
             );
             let mut t = Term::new(owned.storage(), &WS);
-            let mut at = at();
+            let mut counts = crate::keep::Counts::new(&t);
+            let mut at = counts.primary();
             let (mut l, mut u) = (Lines::default(), Uris::default());
+            // Steps that shifted the window on one screen: a look back on
+            // the primary, and the alternate screen's count moved.
+            let (mut looked, mut alternate) = (0, 0);
             for step in 0..1000 {
+                let (was_at, was_back, was_screen) = (at, t.window_back(), t.screen());
                 let n = next(1000);
                 let bytes = match next(10) {
                     0 | 1 => format!("\r\nsee https://s{n}.example/ ok"),
@@ -3688,7 +3779,14 @@ mod tests {
                         _ => format!("\r\nmailto:m{n}@x.example"),
                     },
                 };
-                fed(&mut t, &mut at, bytes.as_bytes());
+                feed(&mut t, bytes.as_bytes());
+                let rec = t.take_record();
+                at = counts.numbered(&t, Some(&rec)).scrolled();
+                match (was_screen, t.screen()) {
+                    (Screen::Normal, Screen::Normal) if t.window_back() > was_back => looked += 1,
+                    (Screen::Alternate, Screen::Alternate) if at != was_at => alternate += 1,
+                    _ => {}
+                }
                 let _ = sealed_scan(&mut l, &mut t, at, &mut u);
                 assert_eq!(
                     kept(&l),
@@ -3696,6 +3794,44 @@ mod tests {
                     "seed {seed}, step {step}: {bytes:?}"
                 );
             }
+            assert!(looked > 0, "the control, seed {seed}: a look back");
+            assert!(
+                alternate > 0,
+                "the control, seed {seed}: the alternate screen scrolled under its count"
+            );
         }
+    }
+
+    /// **A caret frame compares no row**: 200 by 50, a link on every row at
+    /// its own column, settled under seals; a frame that moves only the
+    /// cursor reads nothing and compares no row with the copy, where the
+    /// scan before the write generation compared all 50. Control: one cell
+    /// written mid-screen compares that row alone, and the lines are a
+    /// scan from nothing's. Named break: the generation ignored -- every row
+    /// compared.
+    #[test]
+    fn a_caret_frame_compares_no_row() {
+        const BIG: WinSize = WinSize {
+            ws_col: 200,
+            ws_row: 50,
+        };
+        let mut owned = Owned::new(&BIG);
+        let mut t = Term::new(owned.storage(), &BIG);
+        let at = at();
+        let screen: Vec<String> = (0..50)
+            .map(|n| format!("{}see https://c{n}.example/ ok", " ".repeat(n)))
+            .collect();
+        feed(&mut t, screen.join("\r\n").as_bytes());
+        let (mut l, mut u) = (Lines::default(), Uris::default());
+        let _ = settle(&mut l, &mut t, at, &mut u);
+        assert_eq!(runs(&l).len(), 50, "the control: a link a row");
+        feed(&mut t, b"\x1b[3;3H");
+        let (s, _) = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(s, Scan::default(), "nothing read");
+        assert_eq!(l.compared(), Rows::ZERO, "no row compared");
+        feed(&mut t, b"\x1b[25;100Hx");
+        let _ = sealed_scan(&mut l, &mut t, at, &mut u);
+        assert_eq!(l.compared(), Rows::of_count(1), "the row written alone");
+        assert_eq!(kept(&l), fresh(&t, at));
     }
 }
