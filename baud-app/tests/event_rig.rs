@@ -2310,7 +2310,8 @@ enum Settles {
     /// nothing was asked about and no link line is at rest.
     DarkOnD,
     /// **What a read lit goes dark with no tick polling for it**: RD not
-    /// lit at the end, and at least one frame of the act drawn.
+    /// lit at the end, at least one frame of the act drawn, and the link
+    /// paused at the end: the lights, once dark, ask for no tick.
     Darkened,
     /// **A job come to the front lights OH with no tick polling for it**:
     /// OH lit at the end.
@@ -2449,7 +2450,9 @@ impl Settles {
                 c.by.is_some_and(|by| by.ended >= 1 && c.asked == 0 && c.marked == 0)
             }
             Settles::OffHook => c.lit.iter().any(|l| l == "OH"),
-            Settles::Darkened => !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1,
+            Settles::Darkened => {
+                !c.lit.iter().any(|l| l == "RD") && c.drawn >= 1 && c.link == LinkSeen::Pause
+            }
             Settles::Greeted => c.delivered == 0 && c.greeted == 1,
             Settles::GreetedFirst => c.first == 1,
             Settles::AliveAtBound => c.delivered == 0 && c.alive == AliveSeen::Bound,
@@ -2588,6 +2591,14 @@ const NO_SPLASH: &str = "[cursor]\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n
 /// default, and its flips would run the link, a tick that polls what
 /// these rows hear.
 const STEADY: &str = "[cursor]\nblink = false\ntrail = \"off\"\n[launch]\nsplash = \"off\"\n";
+
+/// **[`STEADY`], the activity lights off**: a typed line lights SD and
+/// every read lights RD, and the step that darkens them runs only on a
+/// tick, so a shown light asks for one (`Deadline::Lights`). A row whose
+/// witness that nothing asked for a tick is the link paused at its end
+/// takes the lights' deadline out with this.
+const STEADY_DARK: &str = "[window]\nactivity_lights = \"off\"\n[cursor]\nblink = false\n\
+                           trail = \"off\"\n[launch]\nsplash = \"off\"\n";
 
 /// A screen of text and the clear that signs it.
 const STILL: &str = r"printf 'baud\033]52;c;!\007'";
@@ -3276,7 +3287,12 @@ const FRAME_SITES: [FrameSite; 44] = [
     // (`Deadline::Lights`), so RD goes dark and the link pauses again.
     // Before, the lights stepped only on a tick something else owed, and
     // RD stayed lit once the act's frame was drawn. The run is a second
-    // and a half, against a hold and a dwell of 200 ms each.
+    // and a half, against a hold and a dwell of 200 ms each. The row runs
+    // with the lights shown and its ticks offered, and proves both halves:
+    // the lights clear, RD dark, and then the link pauses, so lights that
+    // have cleared ask for no tick. Red with the lights' deadline kept
+    // asking once nothing is left to step: RD still goes dark, and the
+    // link never pauses.
     FrameSite {
         name: SiteName("what a read lit goes dark with no tick polling for it"),
         setup: STILL,
@@ -3372,7 +3388,13 @@ const FRAME_SITES: [FrameSite; 44] = [
     // shell the `C` that names the command here (`Fact::Here`,
     // `Paths::written_here`) lifts it. The kept arm, with no poll left to
     // run its link since FS-A5's landing, is held to the row as the lifted
-    // one is.
+    // one is. The activity lights are off ([`STEADY_DARK`]): the act's
+    // typed line and reads light SD and RD, the step that darkens them runs
+    // only on a tick, and so a shown light asks for the tick the row's last
+    // conjunct, the link paused at its end, says nothing asked for. A path
+    // printed while the activity lights show is not covered by this row.
+    // That the lights, shown, clear and then let the link pause is "what a
+    // read lit goes dark with no tick polling for it"'s.
     FrameSite {
         name: SiteName("output's printed paths are asked about with no tick"),
         setup: STILL,
@@ -3381,7 +3403,7 @@ const FRAME_SITES: [FrameSite; 44] = [
         ticks: RigFrameTicks::UntilAsked,
         window: RigWindow::Released,
         env: &[("BAUD_GPU", "cpu")],
-        config: STEADY,
+        config: STEADY_DARK,
         focus: RigFocus::Believed,
         attempts: Iterations(0),
         expect: Settles::Filed("/usr/bin"),
@@ -3394,7 +3416,9 @@ const FRAME_SITES: [FrameSite; 44] = [
     // come to it. The run waits for it and ends on the path's batch, so the
     // row holds however late the path comes. Red with the run's end put
     // back to two seconds of passes: the path is never fed before it ends
-    // and its batch never asked.
+    // and its batch never asked. The activity lights are off here too
+    // ([`STEADY_DARK`]), so a path printed late while the activity lights
+    // show is not covered by this row either.
     FrameSite {
         name: SiteName("output's printed paths released late are asked about with no tick"),
         setup: STILL,
@@ -3403,7 +3427,7 @@ const FRAME_SITES: [FrameSite; 44] = [
         ticks: RigFrameTicks::UntilAsked,
         window: RigWindow::ReleasedLate,
         env: &[("BAUD_GPU", "cpu")],
-        config: STEADY,
+        config: STEADY_DARK,
         focus: RigFocus::Believed,
         attempts: Iterations(0),
         expect: Settles::Filed("/usr/bin"),
