@@ -24,7 +24,7 @@
 use crate::cell::PackedCell;
 use crate::grid::RowRot;
 use crate::quantity::{Cols, Rows};
-use crate::store::{LineRendition, RowExtent};
+use crate::store::LineRendition;
 
 /// How a stored line ended: at a newline, or by the writer wrapping onto the
 /// next row. The fact a reflow needs and the cells do not carry; it rides in
@@ -62,7 +62,7 @@ impl Back {
 /// physical row `rot - 1 - n`, modulo the ring.
 pub struct Scrollback<'a> {
     cells: &'a [PackedCell],
-    used: &'a [RowExtent],
+    used: crate::RowMarks<'a>,
     stride: usize,
     cols: Cols,
     ring: Rows,
@@ -90,7 +90,7 @@ pub(crate) fn blank_past_mark(row: &[PackedCell], mark: usize, width: usize) -> 
 impl<'a> Scrollback<'a> {
     pub fn new(
         cells: &'a [PackedCell],
-        used: &'a [RowExtent],
+        used: crate::RowMarks<'a>,
         stride: usize,
         cols: Cols,
         ring: Rows,

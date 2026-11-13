@@ -24,7 +24,7 @@ use baud_core::*;
 use baud_domain::{
     Back, ByteLen, BytePos, CacheGeometry, ClusterSlot, ColorWord, Content, Depth, FreezeCounts,
     FrozenBook, FrozenBudget, FrozenBuf, FrozenGen, ImageSlot, PackedCell, PastEdge, PlacementId,
-    PlacementSlot, Reach, ReadLen, Row, RowExtent, Rows, StyleId, StyleWord,
+    PlacementSlot, Reach, ReadLen, Row, Rows, StyleId, StyleWord,
 };
 
 /// Every buffer a `Storage` borrows, lent by hand, at a chosen table size and
@@ -32,8 +32,7 @@ use baud_domain::{
 struct Lent {
     arena: Vec<u8>,
     vp: Vec<PackedCell>,
-    used: Vec<RowExtent>,
-    row_gens: Vec<RowGen>,
+    used: Vec<RowMeta>,
     past: Vec<PastEdge>,
     cells3: Vec<PackedCell>,
     tmpl: Vec<Option<StyleWord>>,
@@ -43,8 +42,7 @@ struct Lent {
     tabs: Vec<bool>,
     reply: Vec<u8>,
     alt: Vec<PackedCell>,
-    alt_used: Vec<RowExtent>,
-    alt_gens: Vec<RowGen>,
+    alt_used: Vec<RowMeta>,
     clusters: Vec<ClusterSlot>,
     pending: Vec<u8>,
     title: Vec<u8>,
@@ -65,7 +63,7 @@ struct Lent {
     colours: Box<KittyColours>,
     kitty_scratch: Vec<u8>,
     status: Vec<PackedCell>,
-    status_used: Vec<RowExtent>,
+    status_used: Vec<RowMeta>,
     words: Vec<StyleWord>,
     gens: Vec<FrozenGen>,
     tags: Vec<Option<baud_domain::RowFrozen>>,
@@ -97,8 +95,7 @@ impl Lent {
         Lent {
             arena: vec![0; ARENA],
             vp: vec![PackedCell::EMPTY; ring],
-            used: vec![RowExtent::ZERO; ring_rows.index()],
-            row_gens: vec![RowGen::ZERO; ring_rows.index()],
+            used: vec![RowMeta::ZERO; ring_rows.index()],
             past: vec![PastEdge::Clear; ring_rows.index()],
             cells3: Vec::new(),
             tmpl: vec![None; slots],
@@ -108,8 +105,7 @@ impl Lent {
             tabs: vec![false; MAX_COLS],
             reply: vec![0; REPLY],
             alt: vec![PackedCell::EMPTY; span],
-            alt_used: vec![RowExtent::ZERO; rows.index()],
-            alt_gens: vec![RowGen::ZERO; rows.index()],
+            alt_used: vec![RowMeta::ZERO; rows.index()],
             clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
             pending: vec![0; OSC_MAX],
             title: vec![0; OSC_MAX],
@@ -130,7 +126,7 @@ impl Lent {
             colours: Box::new(KittyColours::NEW),
             kitty_scratch: Vec::new(),
             status: vec![PackedCell::EMPTY; stride.index()],
-            status_used: vec![RowExtent::ZERO; 1],
+            status_used: vec![RowMeta::ZERO; 1],
             words: vec![StyleWord::DEFAULT; budget.words],
             gens: vec![FrozenGen::EMPTY; budget.gens.max(1)],
             tags: vec![None; ring_rows.index()],
@@ -149,7 +145,6 @@ impl Lent {
             self.depth,
             &mut self.vp,
             &mut self.used,
-            &mut self.row_gens,
             &mut self.past,
             &mut self.cells3,
             StyleTable {
@@ -162,7 +157,6 @@ impl Lent {
             &mut self.reply,
             &mut self.alt,
             &mut self.alt_used,
-            &mut self.alt_gens,
             &mut self.clusters,
             StrBuf::new(
                 &mut self.pending,

@@ -320,8 +320,8 @@ fn a_read_that_writes_only_a_mark_has_written() {
 
 /// **A switch of screens inside one read moves the row written on each**:
 /// the read writes row 0 of the primary, switches (`?47`, which clears
-/// nothing) and writes row 0 of the alternate. The row a borrow stamped
-/// last is the borrow's own surface's, and rides the swap with it.
+/// nothing) and writes row 0 of the alternate. Each surface's rows carry
+/// their own generations, which ride the swap with the surface.
 #[test]
 fn a_switch_of_screens_inside_one_read_moves_the_row_on_each() {
     support::with_term(&ws(10, 20), |t| {
@@ -341,8 +341,8 @@ fn a_switch_of_screens_inside_one_read_moves_the_row_on_each() {
 
 /// **A screen switch and back, inside one read, moves the row written on
 /// each**: `a` on the primary, `?1049h`, `b` on the alternate at the same
-/// cell, `?1049l`, `c` on the primary. The row each surface's borrow stamped
-/// last is that surface's own, and rides both swaps with it.
+/// cell, `?1049l`, `c` on the primary. Each surface's rows carry their own
+/// generations, which ride both swaps with the surface.
 #[test]
 fn a_screen_switch_inside_one_read_moves_both_rows() {
     support::with_term(&ws(10, 20), |t| {

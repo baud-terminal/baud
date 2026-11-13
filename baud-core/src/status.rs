@@ -102,12 +102,12 @@ pub struct StatusBuf<'b> {
     /// store (`Storage::with_status_line`) is the only place a source
     /// check finds them used.
     pub(crate) lent_cells: &'b mut [PackedCell],
-    pub(crate) lent_used: &'b mut [RowExtent],
+    pub(crate) lent_used: &'b mut [RowMeta],
 }
 
 impl<'b> StatusBuf<'b> {
     /// The row, for [`crate::Storage::with_status_line`].
-    pub fn new(cells: &'b mut [PackedCell], used: &'b mut [RowExtent]) -> StatusBuf<'b> {
+    pub fn new(cells: &'b mut [PackedCell], used: &'b mut [RowMeta]) -> StatusBuf<'b> {
         StatusBuf {
             lent_cells: cells,
             lent_used: used,
@@ -979,7 +979,7 @@ impl Term<'_> {
             .store
             .surfaces
             .used(Which::Status)
-            .first()
+            .get(0)
             .map_or(LineRendition::Single, |u| u.rendition());
         let right = Col::at_index(cols.index().saturating_sub(1));
         let p = &mut self.store.strs.status.park;

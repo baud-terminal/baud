@@ -6,8 +6,9 @@
 //! and costs a read of both, every frame, whether anything was written or
 //! not. The core knows which rows it wrote: every store to a cell or a mark
 //! goes through here, and each one records the current [`WriteGen`] in its
-//! row's [`RowGen`]; the surface's last write takes it when the borrow that
-//! wrote ends ([`Stamped`]'s `Drop`). A reader keeps the [`Seal`] its copy
+//! row's [`RowGen`], held beside the row's mark in one [`RowMeta`]; the
+//! surface's last write takes it when the borrow that wrote ends
+//! ([`Stamped`]'s `Drop`). A reader keeps the [`Seal`] its copy
 //! was built under and asks [`RowGens::after`] per row, or
 //! [`SurfaceStore::wrote_since`] once.
 //!
@@ -18,8 +19,11 @@
 //! its mark. `baud-core/tests/one_store.rs` holds both crates' source to it.
 //!
 //! **The stamp is unconditional.** It never asks whether the cell or the mark
-//! changed: a stamp too many is a row redrawn, one too few is a row left
-//! stale, and only the first is safe.
+//! changed, nor whether the row was stamped a moment ago: a stamp too many is
+//! a row redrawn, one too few is a row left stale, and only the first is
+//! safe. A writer stores its row's mark on every call, so the generation is
+//! one more store into the entry it dirties anyway, with no compare and no
+//! branch.
 
 use crate::*;
 use core::ops::{Deref, DerefMut, Range};
@@ -75,8 +79,100 @@ impl WriteGen {
 pub struct RowGen(u32);
 
 impl RowGen {
-    /// What a caller allocating a surface's generations fills them with.
+    /// The generation of a row no store has written.
     pub const ZERO: RowGen = RowGen(0);
+}
+
+/// **A physical row's mark and its generation, one entry.** Every writer
+/// stores its row's mark ([`RowExtent`]) on every call, so the stamp is one
+/// more store into the 16 bytes that store dirties already: no line of its
+/// own, and no index, bounds check or slice to load beside the mark's.
+///
+/// **Sixteen bytes, aligned to sixteen**, so four entries fill a 64-byte
+/// line and none crosses one. `RowExtent` is eight bytes aligned to two,
+/// so the natural `{RowExtent, RowGen}` is twelve aligned to four, and over
+/// sixteen entries one splits its mark across two lines and another puts
+/// its generation in the line after its mark's: one in eight would stamp
+/// outside the line the writer dirties.
+///
+/// ```compile_fail,E0616
+/// let _ = baud_domain::RowMeta::ZERO.row_gen;
+/// ```
+/// ```compile_fail,E0616
+/// let _ = baud_domain::RowMeta::ZERO.used;
+/// ```
+/// ```
+/// let _ = baud_domain::RowMeta::ZERO;
+/// ```
+#[derive(Clone, Copy, Debug)]
+#[repr(C, align(16))]
+pub struct RowMeta {
+    used: RowExtent,
+    row_gen: RowGen,
+}
+
+const _: () = assert!(
+    core::mem::size_of::<RowMeta>() == 16 && core::mem::align_of::<RowMeta>() == 16,
+    "a row's generation shares its mark's 16-byte entry, four to a line"
+);
+
+impl RowMeta {
+    /// What a caller allocating a surface's rows fills them with: no mark,
+    /// and a generation no seal reads as written after it.
+    pub const ZERO: RowMeta = RowMeta {
+        used: RowExtent::ZERO,
+        row_gen: RowGen::ZERO,
+    };
+}
+
+/// **Row `p` stamped, and its mark handed back**: the only store to a row's
+/// generation but [`Stamped::stamp_all`]'s and the seal's wrap. The
+/// generation and the mark share one index, one bounds check and one
+/// 16-byte entry ([`RowMeta`]); every mint in this file calls it before it
+/// hands out a token, whether or not the token's holder stores anything.
+#[inline(always)]
+fn stamp(meta: &mut [RowMeta], p: usize, now: WriteGen) -> &mut RowExtent {
+    let m = &mut meta[p];
+    m.row_gen = RowGen(now.0);
+    &mut m.used
+}
+
+/// **A surface's marks, read**: one a physical row, each [`RowExtent`] read
+/// out of the entry that also holds the row's generation. Built only here.
+#[derive(Clone, Copy)]
+pub struct RowMarks<'a>(&'a [RowMeta]);
+
+impl<'a> RowMarks<'a> {
+    /// Physical rows.
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the surface has no row (a status line not lent).
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Row `p`'s mark, when the surface has that row.
+    #[inline(always)]
+    pub fn get(&self, p: usize) -> Option<RowExtent> {
+        self.0.get(p).map(|m| m.used)
+    }
+
+    /// Every row's mark, in physical order.
+    pub fn iter(&self) -> impl Iterator<Item = RowExtent> + 'a {
+        self.0.iter().map(|m| m.used)
+    }
+}
+
+impl core::ops::Index<usize> for RowMarks<'_> {
+    type Output = RowExtent;
+    #[inline(always)]
+    fn index(&self, p: usize) -> &RowExtent {
+        &self.0[p].used
+    }
 }
 
 /// **Which run of generations a seal belongs to**: drawn fresh for every
@@ -177,7 +273,7 @@ impl WindowAt {
 pub struct RowGens<'t> {
     at: WindowAt,
     epoch: SealEpoch,
-    gens: &'t [RowGen],
+    meta: &'t [RowMeta],
 }
 
 impl RowGens<'_> {
@@ -194,7 +290,7 @@ impl RowGens<'_> {
             return true;
         }
         let p = self.at.at(y).p.index();
-        self.gens.get(p).is_none_or(|g| g.0 > kept.closed.0)
+        self.meta.get(p).is_none_or(|m| m.row_gen.0 > kept.closed.0)
     }
 }
 
@@ -212,10 +308,10 @@ impl StatusGen {
     }
 }
 
-/// One surface's memory and its last write.
+/// One surface's memory, a mark and a generation a row, and its last write.
 struct Plane<'b> {
     cells: &'b mut [PackedCell],
-    used: &'b mut [RowExtent],
+    meta: &'b mut [RowMeta],
     last: WriteGen,
 }
 
@@ -231,11 +327,6 @@ pub struct SurfaceStore<'b> {
     prim: Plane<'b>,
     alt: Plane<'b>,
     status: Plane<'b>,
-    prim_gens: &'b mut [RowGen],
-    alt_gens: &'b mut [RowGen],
-    /// The status line has at most one row, so its generation is held here
-    /// by value and its lender passes none.
-    status_gens: [RowGen; 1],
     now: WriteGen,
     epoch: SealEpoch,
     /// The pitch every surface's rows are laid out at, narrow so a
@@ -244,43 +335,35 @@ pub struct SurfaceStore<'b> {
 }
 
 impl<'b> SurfaceStore<'b> {
-    /// The primary's ring and the alternate screen, each with a generation
-    /// a row; no status line until [`SurfaceStore::lend_status`].
+    /// The primary's ring and the alternate screen, each with a mark and a
+    /// generation a row ([`RowMeta`]); no status line until
+    /// [`SurfaceStore::lend_status`].
     ///
     /// # Panics
-    /// If a surface has fewer generations than rows, or the pitch does not
-    /// fit a `u32`.
+    /// If the pitch does not fit a `u32`.
     pub fn new(
         stride: Stride,
-        prim: (&'b mut [PackedCell], &'b mut [RowExtent], &'b mut [RowGen]),
-        alt: (&'b mut [PackedCell], &'b mut [RowExtent], &'b mut [RowGen]),
+        prim: (&'b mut [PackedCell], &'b mut [RowMeta]),
+        alt: (&'b mut [PackedCell], &'b mut [RowMeta]),
     ) -> SurfaceStore<'b> {
-        let (pc, pu, pg) = prim;
-        let (ac, au, ag) = alt;
-        assert!(
-            pg.len() >= pu.len() && ag.len() >= au.len(),
-            "a surface has fewer generations than rows"
-        );
-        let (np, na) = (pu.len(), au.len());
+        let (pc, pm) = prim;
+        let (ac, am) = alt;
         SurfaceStore {
             prim: Plane {
                 cells: pc,
-                used: pu,
+                meta: pm,
                 last: WriteGen(0),
             },
             alt: Plane {
                 cells: ac,
-                used: au,
+                meta: am,
                 last: WriteGen(0),
             },
             status: Plane {
                 cells: &mut [],
-                used: &mut [],
+                meta: &mut [],
                 last: WriteGen(0),
             },
-            prim_gens: &mut pg[..np],
-            alt_gens: &mut ag[..na],
-            status_gens: [RowGen::ZERO],
             now: WriteGen::FIRST,
             epoch: SealEpoch::fresh(),
             pitch: u32::try_from(stride.index()).expect("a pitch past u32"),
@@ -288,13 +371,13 @@ impl<'b> SurfaceStore<'b> {
     }
 
     /// The status line's row, lent: its cells at least the pitch and its
-    /// extent. One row at most is a surface's: an extent past the first is
-    /// not read.
-    pub fn lend_status(&mut self, cells: &'b mut [PackedCell], used: &'b mut [RowExtent]) {
-        let n = used.len().min(1);
+    /// mark and generation. One row at most is a surface's: an entry past
+    /// the first is not read.
+    pub fn lend_status(&mut self, cells: &'b mut [PackedCell], meta: &'b mut [RowMeta]) {
+        let n = meta.len().min(1);
         self.status = Plane {
             cells,
-            used: &mut used[..n],
+            meta: &mut meta[..n],
             last: WriteGen(0),
         };
     }
@@ -306,10 +389,9 @@ impl<'b> SurfaceStore<'b> {
     /// If `up` is [`Which::Status`]: the status line is never the screen up.
     pub fn split(&mut self, up: Which) -> (Stamped<'_>, Stamped<'_>, Stamped<'_>) {
         let (now, pitch) = (self.now, self.pitch);
-        let prim = Stamped::of(&mut self.prim, &mut *self.prim_gens, now, pitch);
-        let alt = Stamped::of(&mut self.alt, &mut *self.alt_gens, now, pitch);
-        let n = self.status.used.len();
-        let status = Stamped::of(&mut self.status, &mut self.status_gens[..n], now, pitch);
+        let prim = Stamped::of(&mut self.prim, now, pitch);
+        let alt = Stamped::of(&mut self.alt, now, pitch);
+        let status = Stamped::of(&mut self.status, now, pitch);
         match up {
             Which::Primary => (prim, alt, status),
             Which::Alternate => (alt, prim, status),
@@ -320,14 +402,12 @@ impl<'b> SurfaceStore<'b> {
     /// One surface, to write.
     pub fn stamped(&mut self, w: Which) -> Stamped<'_> {
         let (now, pitch) = (self.now, self.pitch);
-        match w {
-            Which::Primary => Stamped::of(&mut self.prim, &mut *self.prim_gens, now, pitch),
-            Which::Alternate => Stamped::of(&mut self.alt, &mut *self.alt_gens, now, pitch),
-            Which::Status => {
-                let n = self.status.used.len();
-                Stamped::of(&mut self.status, &mut self.status_gens[..n], now, pitch)
-            }
-        }
+        let plane = match w {
+            Which::Primary => &mut self.prim,
+            Which::Alternate => &mut self.alt,
+            Which::Status => &mut self.status,
+        };
+        Stamped::of(plane, now, pitch)
     }
 
     fn plane(&self, w: Which) -> &Plane<'b> {
@@ -338,27 +418,19 @@ impl<'b> SurfaceStore<'b> {
         }
     }
 
-    fn gens(&self, w: Which) -> &[RowGen] {
-        match w {
-            Which::Primary => self.prim_gens,
-            Which::Alternate => self.alt_gens,
-            Which::Status => &self.status_gens[..self.status.used.len()],
-        }
-    }
-
     /// A surface's cells, every row at the pitch.
     pub fn cells(&self, w: Which) -> &[PackedCell] {
         self.plane(w).cells
     }
 
     /// A surface's marks, one a physical row.
-    pub fn used(&self, w: Which) -> &[RowExtent] {
-        self.plane(w).used
+    pub fn used(&self, w: Which) -> RowMarks<'_> {
+        RowMarks(self.plane(w).meta)
     }
 
     /// A surface's physical rows: zero for a status line not lent.
     pub fn rows(&self, w: Which) -> Rows {
-        Rows::of_index(self.plane(w).used.len())
+        Rows::of_index(self.plane(w).meta.len())
     }
 
     /// The pitch.
@@ -394,12 +466,12 @@ impl<'b> SurfaceStore<'b> {
     /// they were written before it. O(ring), once in 2^32 seals.
     pub fn seal(&mut self) -> Seal {
         if self.now.0 == u32::MAX {
-            self.prim_gens.fill(RowGen::ZERO);
-            self.alt_gens.fill(RowGen::ZERO);
-            self.status_gens = [RowGen::ZERO];
-            self.prim.last = WriteGen(0);
-            self.alt.last = WriteGen(0);
-            self.status.last = WriteGen(0);
+            for plane in [&mut self.prim, &mut self.alt, &mut self.status] {
+                for m in plane.meta.iter_mut() {
+                    m.row_gen = RowGen::ZERO;
+                }
+                plane.last = WriteGen(0);
+            }
             self.now = WriteGen::FIRST;
             self.epoch = SealEpoch::fresh();
             return Seal {
@@ -443,19 +515,16 @@ impl<'b> SurfaceStore<'b> {
         RowGens {
             at,
             epoch: self.epoch,
-            gens: self.gens(at.screen),
+            meta: self.plane(at.screen).meta,
         }
     }
 
     /// The status line's generation, when a row is lent.
     pub fn status_gen(&self) -> Option<StatusGen> {
-        match self.status.used.is_empty() {
-            true => None,
-            false => Some(StatusGen {
-                row: self.status_gens[0],
-                epoch: self.epoch,
-            }),
-        }
+        self.status.meta.first().map(|m| StatusGen {
+            row: m.row_gen,
+            epoch: self.epoch,
+        })
     }
 
     /// **Every physical row of a surface**, live or not, with its cells at
@@ -465,11 +534,12 @@ impl<'b> SurfaceStore<'b> {
         w: Which,
         kept: &Seal,
     ) -> impl Iterator<Item = (RowAt, &[PackedCell], RowExtent, RowDirt)> + '_ {
-        let (plane, gens, s) = (self.plane(w), self.gens(w), self.pitch as usize);
+        let (plane, s) = (self.plane(w), self.pitch as usize);
         let foreign = kept.epoch != self.epoch;
         let closed = kept.closed.0;
-        (0..plane.used.len()).map(move |p| {
-            let dirt = match foreign || gens[p].0 > closed {
+        (0..plane.meta.len()).map(move |p| {
+            let m = plane.meta[p];
+            let dirt = match foreign || m.row_gen.0 > closed {
                 true => RowDirt::Written,
                 false => RowDirt::Clean,
             };
@@ -479,7 +549,7 @@ impl<'b> SurfaceStore<'b> {
                     p: RowRot(p),
                 },
                 &plane.cells[p * s..(p + 1) * s],
-                plane.used[p],
+                m.used,
                 dirt,
             )
         })
@@ -496,39 +566,32 @@ impl<'b> SurfaceStore<'b> {
 
 /// **One surface, borrowed to write.** Every method that hands out a way to
 /// store stamps the rows it hands out before it returns: the row's
-/// generation takes `now`. The surface's last write takes `now` once, when
-/// this is dropped, whether or not anything was written. Reads are free.
-/// Minted only by [`SurfaceStore`], so it never outlives a seal.
+/// generation takes `now`, every time, in the [`RowMeta`] that holds the
+/// row's mark. The surface's last write takes `now` once, when this is
+/// dropped, whether or not anything was written. Reads are free. Minted
+/// only by [`SurfaceStore`], so it never outlives a seal.
 ///
 /// ```compile_fail,E0616
 /// fn f(s: &mut baud_domain::Stamped<'_>) { let _ = &mut s.cells; }
 /// ```
+///
+/// **Forty-eight bytes**: the cells and the entries, two slices; the last
+/// write's pointer; `now` and the pitch, two `u32`s in one word. `Paint`
+/// holds three, through its `View` and its two `Surface`s.
 pub struct Stamped<'a> {
     cells: &'a mut [PackedCell],
-    used: &'a mut [RowExtent],
-    gens: &'a mut [RowGen],
+    meta: &'a mut [RowMeta],
     last: &'a mut WriteGen,
     /// By value: only a seal moves it, and a seal cannot run while this
     /// borrows the store.
     now: WriteGen,
     pitch: u32,
-    /// **The physical row this last stamped**, or [`NONE_STAMPED`]: a
-    /// store to the same row again skips the generation's store for one
-    /// compare. Sound because a row stamped through this borrow holds `now`
-    /// until a seal, no seal runs while this borrows the store, and the
-    /// generations are per physical row of this surface alone. Reset at
-    /// every mint, and carried with the surface: [`View::swap_surface`]
-    /// swaps the whole `Stamped`, so a row cached on one screen is never
-    /// read as stamped on the other.
-    ///
-    /// The CJK path writes one character a call, most of a row's
-    /// characters one after another on that row, and each call took the
-    /// generation's bounds check, its loads and its store.
-    stamped: usize,
 }
 
-/// What [`Stamped::stamped`] holds before the first stamp: no physical row.
-const NONE_STAMPED: usize = usize::MAX;
+const _: () = assert!(
+    core::mem::size_of::<Stamped<'static>>() == 48,
+    "a Stamped is two slices, a pointer and two u32s"
+);
 
 /// **The surface's last write, at the end of the borrow.** Every write
 /// through a [`Stamped`] happens while it lives, `now` cannot move while it
@@ -547,52 +610,14 @@ impl Drop for Stamped<'_> {
 }
 
 impl<'a> Stamped<'a> {
-    fn of(
-        plane: &'a mut Plane<'_>,
-        gens: &'a mut [RowGen],
-        now: WriteGen,
-        pitch: u32,
-    ) -> Stamped<'a> {
+    fn of(plane: &'a mut Plane<'_>, now: WriteGen, pitch: u32) -> Stamped<'a> {
         Stamped {
             cells: &mut *plane.cells,
-            used: &mut *plane.used,
-            gens,
+            meta: &mut *plane.meta,
             last: &mut plane.last,
             now,
             pitch,
-            stamped: NONE_STAMPED,
         }
-    }
-
-    /// **The stamp**, and the only one: row `p`'s generation takes `now`.
-    /// Unconditional on what the store changes; skipped only for the row
-    /// this borrow stamped last, which holds `now` already
-    /// ([`Stamped::stamped`]). The surface's last write is the `Drop`'s.
-    ///
-    /// A test and a cold block: [`Stamped::stamp_new`] is inlined behind
-    /// `core::hint::cold_path`, so a store to the row stamped last carries
-    /// one load, one compare and one branch, and no store, in every writer.
-    #[inline(always)]
-    fn stamp(&mut self, p: usize) {
-        if p != self.stamped {
-            core::hint::cold_path();
-            self.stamp_new(p);
-        }
-    }
-
-    /// **Row `p` stamped, a row this borrow has not stamped last**: the only
-    /// store to a row's generation but [`Stamped::stamp_all`]'s, and the only
-    /// writer of [`Stamped::stamped`] after the mint, which it sets after the
-    /// store. It stores no last write: that has one writer, the `Drop`.
-    ///
-    /// Inline in a block the hint lays out cold, not a call: out of line it
-    /// saved four more callee-saved register pairs in each run writer, hit
-    /// or miss, and a miss cost 6 to 20 instructions more a call
-    /// (put_glyph_fresh 52 against 45 to the mark, put_ascii_run 113 to 93).
-    #[inline(always)]
-    fn stamp_new(&mut self, p: usize) {
-        self.gens[p] = RowGen(self.now.0);
-        self.stamped = p;
     }
 
     #[inline(always)]
@@ -610,14 +635,14 @@ impl<'a> Stamped<'a> {
 
     /// Every mark, one a physical row.
     #[inline(always)]
-    pub fn used(&self) -> &[RowExtent] {
-        self.used
+    pub fn used(&self) -> RowMarks<'_> {
+        RowMarks(self.meta)
     }
 
     /// Physical rows.
     #[inline(always)]
     pub fn rows(&self) -> usize {
-        self.used.len()
+        self.meta.len()
     }
 
     /// The pitch.
@@ -636,7 +661,7 @@ impl<'a> Stamped<'a> {
     /// Row `p`'s mark.
     #[inline(always)]
     pub fn mark_at(&self, p: usize) -> RowExtent {
-        self.used[p]
+        self.meta[p].used
     }
 
     // ---- writes, each stamping what it hands out ----
@@ -647,11 +672,11 @@ impl<'a> Stamped<'a> {
     /// the surface's cells, and no row is cut.
     #[inline(always)]
     pub fn row_at(&mut self, p: usize) -> RowWrite<'_> {
-        self.stamp(p);
         let pitch = self.s();
+        let mark = stamp(self.meta, p, self.now);
         RowWrite {
             cells: &mut *self.cells,
-            mark: &mut self.used[p],
+            mark,
             base: p * pitch,
             pitch,
         }
@@ -661,19 +686,16 @@ impl<'a> Stamped<'a> {
     /// per-byte writer takes, once a call.
     #[inline(always)]
     pub fn row_and_mark(&mut self, p: usize) -> (RowMut<'_>, MarkMut<'_>) {
-        self.stamp(p);
         let s = self.s();
-        (
-            RowMut(&mut self.cells[p * s..(p + 1) * s]),
-            MarkMut(&mut self.used[p]),
-        )
+        let mark = stamp(self.meta, p, self.now);
+        (RowMut(&mut self.cells[p * s..(p + 1) * s]), MarkMut(mark))
     }
 
     /// Row `p`'s cells at the pitch.
     #[inline(always)]
     pub fn row_mut(&mut self, p: usize) -> RowMut<'_> {
-        self.stamp(p);
         let s = self.s();
+        stamp(self.meta, p, self.now);
         RowMut(&mut self.cells[p * s..(p + 1) * s])
     }
 
@@ -681,7 +703,7 @@ impl<'a> Stamped<'a> {
     /// callers, whose row may not be lent.
     pub fn get_row_mut(&mut self, p: usize) -> Option<RowMut<'_>> {
         let s = self.s();
-        if p >= self.used.len() || self.cells.len() < (p + 1) * s {
+        if p >= self.meta.len() || self.cells.len() < (p + 1) * s {
             return None;
         }
         Some(self.row_mut(p))
@@ -690,14 +712,14 @@ impl<'a> Stamped<'a> {
     /// Columns `a..b` of row `p`.
     #[inline(always)]
     pub fn span_mut(&mut self, p: usize, at: Range<usize>) -> RowMut<'_> {
-        self.stamp(p);
         let base = p * self.s();
+        stamp(self.meta, p, self.now);
         RowMut(&mut self.cells[base + at.start..base + at.end])
     }
 
     /// Columns `a..b` of row `p`, when the surface has that row.
     pub fn get_span_mut(&mut self, p: usize, at: Range<usize>) -> Option<RowMut<'_>> {
-        if p >= self.used.len() || at.end > self.s() || self.cells.len() < (p + 1) * self.s() {
+        if p >= self.meta.len() || at.end > self.s() || self.cells.len() < (p + 1) * self.s() {
             return None;
         }
         Some(self.span_mut(p, at))
@@ -706,38 +728,36 @@ impl<'a> Stamped<'a> {
     /// Column `x` of row `p`.
     #[inline(always)]
     pub fn cell_mut(&mut self, p: usize, x: usize) -> &mut PackedCell {
-        self.stamp(p);
         let i = p * self.s() + x;
+        stamp(self.meta, p, self.now);
         &mut self.cells[i]
     }
 
     /// Row `p`'s mark.
     #[inline(always)]
     pub fn mark_mut(&mut self, p: usize) -> MarkMut<'_> {
-        self.stamp(p);
-        MarkMut(&mut self.used[p])
+        MarkMut(stamp(self.meta, p, self.now))
     }
 
     /// Row `p`'s mark set to `e`.
     #[inline(always)]
     pub fn mark(&mut self, p: usize, e: RowExtent) {
-        self.stamp(p);
-        self.used[p] = e;
+        *stamp(self.meta, p, self.now) = e;
     }
 
     /// Row `p`'s mark through `f`.
     #[inline(always)]
     pub fn mark_with(&mut self, p: usize, f: impl FnOnce(RowExtent) -> RowExtent) {
-        self.stamp(p);
-        self.used[p] = f(self.used[p]);
+        let m = stamp(self.meta, p, self.now);
+        *m = f(*m);
     }
 
     /// Columns `at` of row `src` copied to the same columns of row `dst`,
     /// two different rows. Stamps `dst`.
     pub fn copy_row(&mut self, src: usize, dst: usize, at: Range<usize>) {
         assert_ne!(src, dst, "copy_row between two different rows");
-        self.stamp(dst);
         let s = self.s();
+        stamp(self.meta, dst, self.now);
         let (lo, hi) = (src.min(dst), src.max(dst));
         let (a, b) = self.cells.split_at_mut(hi * s);
         let (low, high) = (&mut a[lo * s..(lo + 1) * s], &mut b[..s]);
@@ -758,9 +778,9 @@ impl<'a> Stamped<'a> {
         dst: usize,
     ) -> (&[PackedCell], RowExtent, RowMut<'_>, MarkMut<'_>) {
         assert_ne!(src, dst, "from_into between two different rows");
-        self.stamp(dst);
         let s = self.s();
-        let from = self.used[src];
+        let from = self.meta[src].used;
+        let mark = stamp(self.meta, dst, self.now);
         let (lo, hi) = (src.min(dst), src.max(dst));
         let (a, b) = self.cells.split_at_mut(hi * s);
         let (low, high) = (&mut a[lo * s..(lo + 1) * s], &mut b[..s]);
@@ -768,14 +788,14 @@ impl<'a> Stamped<'a> {
             true => (&*low, high),
             false => (&*high, low),
         };
-        (read, from, RowMut(write), MarkMut(&mut self.used[dst]))
+        (read, from, RowMut(write), MarkMut(mark))
     }
 
     /// Columns `at` of row `src` moved to columns starting at `to` of row
     /// `dst`, rows that may be the same. Stamps `dst`.
     pub fn copy_within_rows(&mut self, src: usize, at: Range<usize>, dst: usize, to: usize) {
-        self.stamp(dst);
         let s = self.s();
+        stamp(self.meta, dst, self.now);
         self.cells
             .copy_within(src * s + at.start..src * s + at.end, dst * s + to);
     }
@@ -783,8 +803,8 @@ impl<'a> Stamped<'a> {
     /// Row `src`'s mark copied to row `dst`. Stamps `dst`.
     #[inline(always)]
     pub fn copy_mark(&mut self, src: usize, dst: usize) {
-        self.stamp(dst);
-        self.used[dst] = self.used[src];
+        let from = self.meta[src].used;
+        *stamp(self.meta, dst, self.now) = from;
     }
 
     /// **Every row, one token each for the cells and the marks**: a full
@@ -792,7 +812,7 @@ impl<'a> Stamped<'a> {
     /// O(rows), once.
     pub fn all_mut(&mut self) -> (RowMut<'_>, MarksMut<'_>) {
         self.stamp_all();
-        (RowMut(&mut *self.cells), MarksMut(&mut *self.used))
+        (RowMut(&mut *self.cells), MarksMut(&mut *self.meta))
     }
 
     /// Each row of the physical range `rows`, in turn, as its cells and its
@@ -812,7 +832,9 @@ impl<'a> Stamped<'a> {
     /// it moves rows by more paths than are worth naming one by one.
     pub fn stamp_all(&mut self) {
         let now = RowGen(self.now.0);
-        self.gens.fill(now);
+        for m in self.meta.iter_mut() {
+            m.row_gen = now;
+        }
     }
 }
 
@@ -828,9 +850,9 @@ impl<'a> Stamped<'a> {
 /// ```
 /// ```compile_fail,E0499
 /// use baud_domain::*;
-/// let (mut c, mut u, mut g) = ([PackedCell::EMPTY; 4], [RowExtent::ZERO; 1], [RowGen::ZERO; 1]);
-/// let (mut ac, mut au, mut ag) = ([PackedCell::EMPTY; 4], [RowExtent::ZERO; 1], [RowGen::ZERO; 1]);
-/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u, &mut g), (&mut ac, &mut au, &mut ag));
+/// let (mut c, mut u) = ([PackedCell::EMPTY; 4], [RowMeta::ZERO; 1]);
+/// let (mut ac, mut au) = ([PackedCell::EMPTY; 4], [RowMeta::ZERO; 1]);
+/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
 /// let mut prim = store.stamped(Which::Primary);
 /// let mut row = prim.row_mut(0);
 /// let _ = store.seal();
@@ -838,9 +860,9 @@ impl<'a> Stamped<'a> {
 /// ```
 /// ```
 /// use baud_domain::*;
-/// let (mut c, mut u, mut g) = ([PackedCell::EMPTY; 4], [RowExtent::ZERO; 1], [RowGen::ZERO; 1]);
-/// let (mut ac, mut au, mut ag) = ([PackedCell::EMPTY; 4], [RowExtent::ZERO; 1], [RowGen::ZERO; 1]);
-/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u, &mut g), (&mut ac, &mut au, &mut ag));
+/// let (mut c, mut u) = ([PackedCell::EMPTY; 4], [RowMeta::ZERO; 1]);
+/// let (mut ac, mut au) = ([PackedCell::EMPTY; 4], [RowMeta::ZERO; 1]);
+/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
 /// let kept = store.seal();
 /// {
 ///     let mut prim = store.stamped(Which::Primary);
@@ -887,9 +909,9 @@ impl DerefMut for RowMut<'_> {
 ///
 /// ```compile_fail,E0499
 /// use baud_domain::*;
-/// let (mut c, mut u, mut g) = ([PackedCell::EMPTY; 8], [RowExtent::ZERO; 2], [RowGen::ZERO; 2]);
-/// let (mut ac, mut au, mut ag) = ([PackedCell::EMPTY; 8], [RowExtent::ZERO; 2], [RowGen::ZERO; 2]);
-/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u, &mut g), (&mut ac, &mut au, &mut ag));
+/// let (mut c, mut u) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+/// let (mut ac, mut au) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
 /// let mut prim = store.stamped(Which::Primary);
 /// let mut row = prim.row_at(0);
 /// let _ = prim.row_mut(1);
@@ -903,9 +925,9 @@ impl DerefMut for RowMut<'_> {
 /// ```
 /// ```
 /// use baud_domain::*;
-/// let (mut c, mut u, mut g) = ([PackedCell::EMPTY; 8], [RowExtent::ZERO; 2], [RowGen::ZERO; 2]);
-/// let (mut ac, mut au, mut ag) = ([PackedCell::EMPTY; 8], [RowExtent::ZERO; 2], [RowGen::ZERO; 2]);
-/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u, &mut g), (&mut ac, &mut au, &mut ag));
+/// let (mut c, mut u) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+/// let (mut ac, mut au) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+/// let mut store = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
 /// let mut prim = store.stamped(Which::Primary);
 /// let mut row = prim.row_at(0);
 /// row.set(0, PackedCell::EMPTY);
@@ -964,23 +986,20 @@ impl DerefMut for MarkMut<'_> {
 }
 
 /// **Every mark of a surface, every row stamped** ([`Stamped::all_mut`]).
-/// Built only in this file.
+/// Built only in this file. It writes the marks and never the generations
+/// beside them, which the mint set.
 ///
 /// ```compile_fail,E0423
-/// fn f(e: &mut [baud_domain::RowExtent]) -> baud_domain::MarksMut<'_> { baud_domain::MarksMut(e) }
+/// fn f(e: &mut [baud_domain::RowMeta]) -> baud_domain::MarksMut<'_> { baud_domain::MarksMut(e) }
 /// ```
-pub struct MarksMut<'a>(&'a mut [RowExtent]);
+pub struct MarksMut<'a>(&'a mut [RowMeta]);
 
-impl Deref for MarksMut<'_> {
-    type Target = [RowExtent];
-    fn deref(&self) -> &[RowExtent] {
-        self.0
-    }
-}
-
-impl DerefMut for MarksMut<'_> {
-    fn deref_mut(&mut self) -> &mut [RowExtent] {
-        self.0
+impl MarksMut<'_> {
+    /// Every row's mark set to `e`.
+    pub fn fill(&mut self, e: RowExtent) {
+        for m in self.0.iter_mut() {
+            m.used = e;
+        }
     }
 }
 
@@ -993,22 +1012,10 @@ mod tests {
     /// fresh epoch; a seal kept from before reads every row as written.
     #[test]
     fn a_seal_at_the_last_generation_wraps_to_a_fresh_epoch() {
-        let (mut c, mut u, mut g) = (
-            [PackedCell::EMPTY; 8],
-            [RowExtent::ZERO; 2],
-            [RowGen::ZERO; 2],
-        );
-        let (mut ac, mut au, mut ag) = (
-            [PackedCell::EMPTY; 8],
-            [RowExtent::ZERO; 2],
-            [RowGen::ZERO; 2],
-        );
-        let (mut sc, mut su) = ([PackedCell::EMPTY; 4], [RowExtent::ZERO; 1]);
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let (mut c, mut u) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+        let (mut ac, mut au) = ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2]);
+        let (mut sc, mut su) = ([PackedCell::EMPTY; 4], [RowMeta::ZERO; 1]);
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         s.lend_status(&mut sc, &mut su);
         s.now = WriteGen(u32::MAX - 1);
         let pre = s.seal();
@@ -1018,11 +1025,9 @@ mod tests {
         let old = s.epoch;
         let new = s.seal();
         assert!(
-            s.prim_gens
+            [&s.prim, &s.alt, &s.status]
                 .iter()
-                .chain(s.alt_gens.iter())
-                .chain(&s.status_gens)
-                .all(|g| g.0 == 0)
+                .all(|p| p.meta.iter().all(|m| m.row_gen.0 == 0))
         );
         assert_eq!([s.prim.last, s.alt.last, s.status.last], [WriteGen(0); 3]);
         assert_eq!(s.now, WriteGen(1));
@@ -1045,14 +1050,10 @@ mod tests {
     }
 
     /// Two surfaces of four columns and two rows each, no status line.
-    type Mem = ([PackedCell; 8], [RowExtent; 2], [RowGen; 2]);
+    type Mem = ([PackedCell; 8], [RowMeta; 2]);
 
     fn mem() -> Mem {
-        (
-            [PackedCell::EMPTY; 8],
-            [RowExtent::ZERO; 2],
-            [RowGen::ZERO; 2],
-        )
+        ([PackedCell::EMPTY; 8], [RowMeta::ZERO; 2])
     }
 
     fn view(s: Stamped<'_>) -> View<'_> {
@@ -1070,12 +1071,8 @@ mod tests {
     /// last write is still the borrow's, at its `Drop`.
     #[test]
     fn a_borrow_that_only_marks_a_row_wrapped_has_written() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem(), mem());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let ((mut c, mut u), (mut ac, mut au)) = (mem(), mem());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let kept = s.seal();
         let before: [PackedCell; 8] = s.cells(Which::Primary).try_into().expect("8 cells");
         view(s.stamped(Which::Primary)).set_wrapped(Row::ZERO);
@@ -1084,17 +1081,14 @@ mod tests {
         assert!(s.wrote_since(&kept));
     }
 
-    /// **The row a borrow stamped last does not ride a swap**: a view
-    /// writes its row 0, takes the other surface (`?1049`, DECSASD) and
-    /// writes that surface's row 0, whose generation must move as well.
+    /// **A switch of surfaces inside one borrow moves the row written on
+    /// each**: a view writes its row 0, takes the other surface (`?1049`,
+    /// DECSASD) and writes that surface's row 0, whose generation must move
+    /// as well.
     #[test]
     fn the_row_a_borrow_stamped_last_does_not_ride_a_swap() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem(), mem());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let ((mut c, mut u), (mut ac, mut au)) = (mem(), mem());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let kept = s.seal();
         {
             let (live, away, _status) = s.split(Which::Primary);
@@ -1119,71 +1113,106 @@ mod tests {
     }
 
     /// Two surfaces of four columns and six rows each, no status line.
-    type Mem6 = ([PackedCell; 24], [RowExtent; 6], [RowGen; 6]);
+    type Mem6 = ([PackedCell; 24], [RowMeta; 6]);
 
     fn mem6() -> Mem6 {
-        (
-            [PackedCell::EMPTY; 24],
-            [RowExtent::ZERO; 6],
-            [RowGen::ZERO; 6],
-        )
+        ([PackedCell::EMPTY; 24], [RowMeta::ZERO; 6])
     }
 
-    fn gen_is(g: RowGen, w: WriteGen) -> bool {
-        g.0 == w.0
+    fn gen_is(m: RowMeta, w: WriteGen) -> bool {
+        m.row_gen.0 == w.0
     }
 
-    /// **A second store to the row stamped last does not stamp again**, and
-    /// a store to it after another row does. The generation is put back to
-    /// zero by hand between the two, so the test sees whether the second
-    /// mint stored, not only that the row reads written.
+    /// **A second store to a row stamps it again**: the stamp asks nothing,
+    /// not even whether the row holds `now` already. The generation is put
+    /// back to zero by hand between two stores to one row, so the test sees
+    /// that the second mint stored, not only that the row reads written.
     #[test]
-    fn a_second_store_to_the_row_does_not_stamp_again() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem6(), mem6());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+    fn a_second_store_to_the_row_stamps_again() {
+        let ((mut c, mut u), (mut ac, mut au)) = (mem6(), mem6());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let now = s.now;
         let mut st = s.stamped(Which::Primary);
         let x = PackedCell::glyph(Codepoint::from_char('x'), StyleId::DEFAULT, CellFlags::NONE);
         st.row_at(3).set(0, x);
-        assert!(gen_is(st.gens[3], now), "the first store stamps");
-        st.gens[3] = RowGen::ZERO;
+        assert!(gen_is(st.meta[3], now), "the first store stamps");
+        st.meta[3].row_gen = RowGen::ZERO;
         st.row_at(3).set(1, x);
-        assert!(gen_is(st.gens[3], WriteGen(0)), "the second does not");
-        st.row_at(4).set(0, x);
-        st.row_at(3).set(2, x);
-        assert!(gen_is(st.gens[3], now), "after another row it does");
-        assert!(gen_is(st.gens[4], now));
+        assert!(
+            gen_is(st.meta[3], now),
+            "the second store to the row stamps"
+        );
+        st.meta[3].row_gen = RowGen::ZERO;
+        let (_, mut m) = st.row_and_mark(3);
+        *m = m.ended();
+        assert!(gen_is(st.meta[3], now), "so does a run writer's");
+        st.meta[3].row_gen = RowGen::ZERO;
+        st.mark_with(3, |e| e);
+        assert!(gen_is(st.meta[3], now), "and a mark that does not move");
+        assert!(
+            gen_is(st.meta[4], WriteGen(0)),
+            "the control: a row not written"
+        );
     }
 
     /// **A fresh borrow stamps its first row**, whatever the borrow before
-    /// it stamped last, and so does one after a seal; row 0 too, so a mint
-    /// that started at row 0 rather than at none would show.
+    /// it stamped, and so does one after a seal; row 0 too.
     #[test]
     fn a_fresh_stamped_stamps_its_first_row() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem6(), mem6());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let ((mut c, mut u), (mut ac, mut au)) = (mem6(), mem6());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let x = PackedCell::glyph(Codepoint::from_char('x'), StyleId::DEFAULT, CellFlags::NONE);
         let now = s.now;
         s.stamped(Which::Primary).row_at(3).set(0, x);
-        s.prim_gens[3] = RowGen::ZERO;
+        s.prim.meta[3].row_gen = RowGen::ZERO;
         s.stamped(Which::Primary).row_at(3).set(1, x);
-        assert!(gen_is(s.prim_gens[3], now), "a second borrow stamps row 3");
+        assert!(gen_is(s.prim.meta[3], now), "a second borrow stamps row 3");
         s.stamped(Which::Primary).row_at(0).set(0, x);
-        assert!(gen_is(s.prim_gens[0], now), "a fresh borrow stamps row 0");
+        assert!(gen_is(s.prim.meta[0], now), "a fresh borrow stamps row 0");
         let _ = s.seal();
         let after = s.now;
         s.stamped(Which::Primary).row_at(3).set(2, x);
-        assert!(gen_is(s.prim_gens[3], after), "after a seal row 3 moves");
+        assert!(gen_is(s.prim.meta[3], after), "after a seal row 3 moves");
         s.stamped(Which::Primary).row_at(0).set(1, x);
-        assert!(gen_is(s.prim_gens[0], after), "after a seal row 0 moves");
+        assert!(gen_is(s.prim.meta[0], after), "after a seal row 0 moves");
+    }
+
+    /// **A row's generation lies in its mark's line, wherever the rows
+    /// start**: for every start the entry's alignment allows, over 256
+    /// entries (64 lines) no mark crosses a 64-byte line and no generation
+    /// lies outside its mark's. Sixteen bytes aligned to sixteen passes;
+    /// twelve aligned to four, the natural layout, fails both from every
+    /// start, one entry in eight. The place of each byte follows from the
+    /// entry's size, its alignment and its fields' offsets.
+    #[test]
+    fn a_row_meta_keeps_its_stamp_in_its_marks_line() {
+        use core::mem::offset_of;
+        let (size, align) = (
+            core::mem::size_of::<RowMeta>(),
+            core::mem::align_of::<RowMeta>(),
+        );
+        let line = |a: usize| a / 64;
+        for start in (0..64).step_by(align) {
+            for p in 0..256 {
+                let entry = start + p * size;
+                let mark = entry + offset_of!(RowMeta, used);
+                let mark_end = mark + core::mem::size_of::<RowExtent>() - 1;
+                let gen_end =
+                    entry + offset_of!(RowMeta, row_gen) + core::mem::size_of::<RowGen>() - 1;
+                assert_eq!(
+                    line(mark),
+                    line(mark_end),
+                    "from {start}, row {p}'s mark across two lines"
+                );
+                assert_eq!(
+                    line(mark),
+                    line(gen_end),
+                    "from {start}, row {p}'s generation outside its mark's line"
+                );
+            }
+        }
+        assert_eq!(size, 16, "a row's entry");
+        assert_eq!(align, 16, "its alignment");
     }
 
     /// **A view never spans more columns than the pitch**: a column past it
@@ -1191,12 +1220,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "a view wider than its pitch")]
     fn a_view_wider_than_its_pitch_is_refused() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem(), mem());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let ((mut c, mut u), (mut ac, mut au)) = (mem(), mem());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let _ = View::new(
             s.stamped(Which::Primary),
             Cols::of_index(5),
@@ -1210,12 +1235,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "a view wider than its pitch")]
     fn a_geometry_wider_than_the_pitch_is_refused() {
-        let ((mut c, mut u, mut g), (mut ac, mut au, mut ag)) = (mem(), mem());
-        let mut s = SurfaceStore::new(
-            Stride::of_cells(4),
-            (&mut c, &mut u, &mut g),
-            (&mut ac, &mut au, &mut ag),
-        );
+        let ((mut c, mut u), (mut ac, mut au)) = (mem(), mem());
+        let mut s = SurfaceStore::new(Stride::of_cells(4), (&mut c, &mut u), (&mut ac, &mut au));
         let mut v = view(s.stamped(Which::Primary));
         v.set_geometry(Cols::of_index(4), Rows::of_index(2));
         v.set_geometry(Cols::of_index(5), Rows::of_index(2));

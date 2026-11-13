@@ -724,8 +724,7 @@ pub struct Owned {
     depth: Depth,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
-    used: alloc::vec::Vec<RowExtent>,
-    gens: alloc::vec::Vec<RowGen>,
+    used: alloc::vec::Vec<RowMeta>,
     past: alloc::vec::Vec<PastEdge>,
     cells3: alloc::vec::Vec<PackedCell>,
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
@@ -741,10 +740,9 @@ pub struct Owned {
     tabs: alloc::vec::Vec<bool>,
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
-    alt_used: alloc::vec::Vec<RowExtent>,
-    alt_gens: alloc::vec::Vec<RowGen>,
+    alt_used: alloc::vec::Vec<RowMeta>,
     status: alloc::vec::Vec<PackedCell>,
-    status_used: alloc::vec::Vec<RowExtent>,
+    status_used: alloc::vec::Vec<RowMeta>,
     clusters: alloc::vec::Vec<ClusterSlot>,
     pending: alloc::vec::Vec<u8>,
     title: alloc::vec::Vec<u8>,
@@ -837,9 +835,9 @@ impl Owned {
             depth,
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
-            used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
-            // A write generation a row, beside the marks: 4 B a row of the ring.
-            gens: vec![RowGen::ZERO; rows.index() + depth.lines()],
+            // A row's mark and its write generation, one 16-byte entry a
+            // row of the ring.
+            used: vec![RowMeta::ZERO; rows.index() + depth.lines()],
             past: vec![PastEdge::Clear; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
             tmpl: vec![None; styles],
@@ -858,12 +856,11 @@ impl Owned {
             tabs: vec![false; MAX_COLS],
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
-            alt_used: vec![RowExtent::ZERO; rows.index()],
-            alt_gens: vec![RowGen::ZERO; rows.index()],
+            alt_used: vec![RowMeta::ZERO; rows.index()],
             // The status line's row, at the pitch: the widest the main
             // display can be.
             status: vec![PackedCell::EMPTY; stride.index()],
-            status_used: vec![RowExtent::ZERO; 1],
+            status_used: vec![RowMeta::ZERO; 1],
             clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
             pending: vec![0u8; OSC_MAX],
             title: vec![0u8; OSC_MAX],
@@ -1021,7 +1018,6 @@ impl Owned {
             self.depth,
             vp,
             &mut self.used,
-            &mut self.gens,
             &mut self.past,
             &mut self.cells3,
             StyleTable {
@@ -1034,7 +1030,6 @@ impl Owned {
             &mut self.reply,
             alt,
             &mut self.alt_used,
-            &mut self.alt_gens,
             &mut self.clusters,
             StrBuf {
                 pending: &mut self.pending,
@@ -1130,7 +1125,6 @@ impl Owned {
             self.depth,
             &mut self.vp,
             &mut self.used,
-            &mut self.gens,
             &mut self.past,
             &mut self.cells3,
             StyleTable {
@@ -1143,7 +1137,6 @@ impl Owned {
             &mut self.reply,
             &mut self.alt,
             &mut self.alt_used,
-            &mut self.alt_gens,
             &mut self.clusters,
             StrBuf {
                 pending: &mut self.pending,
@@ -1603,7 +1596,7 @@ impl<'b> Storage<'b> {
         // the status line is the store's third surface and written only
         // through it (`tests/one_store.rs` holds these two lines to that).
         let cells: &'b mut [PackedCell] = row.lent_cells;
-        let used: &'b mut [RowExtent] = row.lent_used;
+        let used: &'b mut [RowMeta] = row.lent_used;
         assert!(
             cells.is_empty() || cells.len() >= self.stride.index() && !used.is_empty(),
             "the status line is shorter than the pitch, or has no extent"
@@ -1622,16 +1615,14 @@ impl<'b> Storage<'b> {
         stride: Stride,
         depth: Depth,
         vp: &'b mut [PackedCell],
-        used: &'b mut [RowExtent],
-        gens: &'b mut [RowGen],
+        used: &'b mut [RowMeta],
         past: &'b mut [PastEdge],
         cells3: &'b mut [PackedCell],
         styles: StyleTable<'b>,
         tabs: &'b mut [bool],
         answers: &'b mut [u8],
         alt: &'b mut [PackedCell],
-        alt_used: &'b mut [RowExtent],
-        alt_gens: &'b mut [RowGen],
+        alt_used: &'b mut [RowMeta],
         clusters: &'b mut [ClusterSlot],
         strs: StrBuf<'b>,
         images: ImageStore<'b>,
@@ -1703,16 +1694,6 @@ impl<'b> Storage<'b> {
             alt_used.len() >= used.len() - depth.lines(),
             "the alternate screen's extents are one per row"
         );
-        // **A generation a row**, which every store to the row stamps: what
-        // a renderer reads to keep the rows nothing wrote.
-        assert!(
-            gens.len() == used.len(),
-            "the primary's generations are one per row of the ring"
-        );
-        assert!(
-            alt_gens.len() >= alt_used.len(),
-            "the alternate screen's generations are one per row"
-        );
         assert!(
             cells3.len() == CELLS3 || cells3.is_empty(),
             "the three-byte cell table is 1024 x 256 entries, or absent"
@@ -1745,7 +1726,7 @@ impl<'b> Storage<'b> {
             arena,
             stride,
             depth,
-            surfaces: SurfaceStore::new(stride, (vp, used, gens), (alt, alt_used, alt_gens)),
+            surfaces: SurfaceStore::new(stride, (vp, used), (alt, alt_used)),
             cells3,
             tmpl: styles.slots,
             style_log: StyleLog {

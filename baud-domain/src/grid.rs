@@ -192,6 +192,13 @@ pub struct View<'a> {
     rot: RowRot,
 }
 
+// A `View` is its [`Stamped`] (48 bytes) and four words: 80 bytes, at most
+// 16 more than the two slices and the stride it held before the store.
+const _: () = assert!(
+    core::mem::size_of::<View<'static>>() <= 88,
+    "a View past 88 bytes"
+);
+
 /// **Which physical rows of the primary hold anything past the live edge**,
 /// one [`PastEdge`] a row of the ring, and how many are [`PastEdge::Held`].
 ///
@@ -314,13 +321,13 @@ impl PastEdgeCheck {
 #[inline(always)]
 fn reach_of_row(
     cells: &[PackedCell],
-    used: &[RowExtent],
+    mark: RowExtent,
     s: usize,
     p: usize,
     w: usize,
     end: usize,
 ) -> usize {
-    let m = used[p].index().min(end);
+    let m = mark.index().min(end);
     let row = &cells[p * s + w.min(end)..p * s + end];
     let far = match row.iter().rposition(|c| *c != PackedCell::EMPTY) {
         Some(k) => w + k + 1,
@@ -342,7 +349,7 @@ fn reach_of_row(
 #[derive(Clone, Copy)]
 pub struct Viewport<'a> {
     cells: &'a [PackedCell],
-    used: &'a [RowExtent],
+    used: Extents<'a>,
     stride: Stride,
     cols: Cols,
     rows: Rows,
@@ -358,10 +365,61 @@ pub struct Viewport<'a> {
     looked_up: Option<(RowRot, Rows)>,
 }
 
+/// **Where a [`Viewport`]'s marks are read from**: a reader's own copy, one
+/// [`RowExtent`] a row, or a surface's entries in place, each a row's mark
+/// beside its generation ([`RowMarks`]). One match a mark read, and a mark is
+/// read once a row, never per cell.
+#[derive(Clone, Copy)]
+enum Extents<'a> {
+    Lent(&'a [RowExtent]),
+    Stored(RowMarks<'a>),
+}
+
+impl core::ops::Index<usize> for Extents<'_> {
+    type Output = RowExtent;
+    #[inline(always)]
+    fn index(&self, p: usize) -> &RowExtent {
+        match self {
+            Extents::Lent(u) => &u[p],
+            Extents::Stored(m) => &m[p],
+        }
+    }
+}
+
 impl<'a> Viewport<'a> {
+    /// A view over a reader's own cells and marks: a copy of the screen.
     pub fn new(
         cells: &'a [PackedCell],
         used: &'a [RowExtent],
+        stride: Stride,
+        cols: Cols,
+        rows: Rows,
+        ring: Rows,
+        rot: RowRot,
+    ) -> Viewport<'a> {
+        Viewport::over(cells, Extents::Lent(used), stride, cols, rows, ring, rot)
+    }
+
+    /// **A view over a surface where it is stored**: its cells, and its
+    /// marks read out of the entries that hold each row's generation too.
+    /// What `Term` builds its views on.
+    pub fn stored(
+        cells: &'a [PackedCell],
+        used: RowMarks<'a>,
+        stride: Stride,
+        cols: Cols,
+        rows: Rows,
+        ring: Rows,
+        rot: RowRot,
+    ) -> Viewport<'a> {
+        Viewport::over(cells, Extents::Stored(used), stride, cols, rows, ring, rot)
+    }
+
+    /// The view both constructors build, on either source of marks: no row
+    /// frozen, and every row looked up by this view's own rotation.
+    fn over(
+        cells: &'a [PackedCell],
+        used: Extents<'a>,
         stride: Stride,
         cols: Cols,
         rows: Rows,
@@ -456,7 +514,7 @@ impl<'a> Viewport<'a> {
         assert!(flags.len() >= self.ring.index(), "a flag a row of the ring");
         let (mut flagged, mut holding, mut far) = (0, 0, w);
         for (p, &kept_flag) in flags.iter().enumerate().take(self.ring.index()) {
-            let reach_p = reach_of_row(self.cells, self.used, s, p, w, s);
+            let reach_p = reach_of_row(self.cells, self.used[p], s, p, w, s);
             far = far.max(reach_p);
             let flag = match kept {
                 true => kept_flag,
@@ -1425,7 +1483,9 @@ impl<'a> View<'a> {
         let mut count = 0;
         for (p, f) in past.flags.iter_mut().enumerate().take(self.ring.index()) {
             let reach_p = match *f {
-                PastEdge::Held => reach_of_row(self.store.cells(), self.store.used(), s, p, w, end),
+                PastEdge::Held => {
+                    reach_of_row(self.store.cells(), self.store.mark_at(p), s, p, w, end)
+                }
                 PastEdge::Clear if w < was => match self.store.cells()[p * s + was - 1] {
                     c if c != PackedCell::EMPTY => was,
                     _ => self.store.used()[p].index().min(end).max(w),

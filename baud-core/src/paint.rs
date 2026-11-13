@@ -382,6 +382,18 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) sgr_hit: usize,
 }
 
+// **What a read carries, held to one line past what it carried before the
+// store**: 504 bytes then, 544 now (its `View`, 80, and its two `Surface`s,
+// 64 each, each hold a 48-byte `Stamped` where two slices were), against a
+// bar of 568. The per-byte loop carries `Paint`, and what it carries has
+// cost 1.5-4% here before (the doc of `Paint::new`). The diagnostic
+// counters are not a build that is timed.
+#[cfg(not(feature = "diag"))]
+const _: () = assert!(
+    core::mem::size_of::<Paint<'static, 'static>>() <= 568,
+    "Paint past 504 bytes and a line"
+);
+
 impl<'a, 'b> Paint<'a, 'b> {
     /// **One destructure, one view.** `arena` and `vp` are different fields of
     /// the same `Storage`, so splitting the single `&mut` is what lets a run be

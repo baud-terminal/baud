@@ -936,7 +936,7 @@ fn the_indicator_after_a_resize_shows_the_cursor_it_left() {
 fn the_line_writes_the_row_the_embedder_lends() {
     let mut owned = Owned::new(&WS);
     let mut row = vec![PackedCell::EMPTY; owned.stride().index()];
-    let mut used = vec![RowExtent::ZERO; 1];
+    let mut used = vec![RowMeta::ZERO; 1];
     {
         let store = owned
             .storage()

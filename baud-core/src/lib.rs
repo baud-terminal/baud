@@ -119,7 +119,7 @@ pub use baud_domain::{
 // [`Term::row_gens`] and [`Term::status_gen`] hand a renderer, so it can
 // keep the rows nothing wrote since its copy.
 pub use baud_domain::{
-    RowAt, RowDirt, RowGen, RowGens, Seal, SealEpoch, StatusGen, Which, WindowAt, WriteGen,
+    RowAt, RowDirt, RowGen, RowGens, RowMeta, Seal, SealEpoch, StatusGen, Which, WindowAt, WriteGen,
 };
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument

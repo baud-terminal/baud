@@ -5,9 +5,10 @@
 //! (`Term::row_gens`, `Term::wrote_since`). That is sound only if *every*
 //! store to a surface's cells or marks moves its row's generation, so this
 //! check reads `baud-domain`'s source and `baud-core`'s and holds them to the
-//! one shape that guarantees it: a surface's cells, marks and generations are
-//! private to `baud-domain/src/grid/store.rs`, and the only mutable way in is a
-//! token that has already stamped (`Stamped`, `RowMut`, `MarkMut`).
+//! one shape that guarantees it: a surface's cells, and its rows' marks and
+//! generations (one `RowMeta` a row), are private to
+//! `baud-domain/src/grid/store.rs`, and the only mutable way in is a token
+//! that has already stamped (`Stamped`, `RowMut`, `MarkMut`).
 //!
 //! Keyed on **types and access paths**, not on verbs: a verb list misses the
 //! next spelling (`get_mut` then `*c =`, `first_mut`, `iter_mut`) and fires on
@@ -15,12 +16,13 @@
 //! surface's last write from being skipped, and a fourth on the stamp's own
 //! writers.
 //!
-//! * **Rule A, types.** The text `mut [PackedCell]`, `mut [RowExtent]` or
-//!   `mut [RowGen]` -- with any lifetime before `mut`, and with or without a
-//!   path before the name -- appears in code only at the entries of
-//!   [`ALLOWED`], each with its reason. In `grid/store.rs`, the home, it may
-//!   appear anywhere but in a `fn`'s return type: a method there that hands
-//!   out a bare slice would be a way in that skipped the stamp.
+//! * **Rule A, types.** The text `mut [PackedCell]`, `mut [RowExtent]`,
+//!   `mut [RowGen]` or `mut [RowMeta]` -- with any lifetime before `mut`,
+//!   and with or without a path before the name -- appears in code only at
+//!   the entries of [`ALLOWED`], each with its reason. In `grid/store.rs`,
+//!   the home, it may appear anywhere but in a `fn`'s return type: a method
+//!   there that hands out a bare slice would be a way in that skipped the
+//!   stamp.
 //! * **Rule B, access paths.** The spellings that reached a surface's raw
 //!   fields are gone: `ring_cells_mut` anywhere; in `baud-core`, the
 //!   `Storage`, `AltBuf`, `StatusBuf` and `Surface` fields by their old
@@ -37,16 +39,15 @@
 //!   `mem::forget` or `ManuallyDrop`, or imports `forget` from `mem`: a
 //!   type-keyed rule would have to follow every holder, and neither crate
 //!   has a use for either.
-//! * **Rule D, the stamp's own writers.** A one-character writer stores
-//!   through `RowWrite`, which skips the stamp when its row is the one the
-//!   borrow stamped last (`Stamped::stamped`), and checks a column against
-//!   the surface's cells, not the pitch. That is sound while the row stamped
-//!   last holds `now` and a view is never wider than the pitch, so in
-//!   `grid/store.rs` a row's generation, the row stamped last and a
-//!   surface's last write are written only by the fns that own them, the
-//!   token is built only where it is minted, and in the view's module its
-//!   width is written only in `set_geometry` and `View::new`, each after
-//!   its assert.
+//! * **Rule D, the stamp's own writers.** The stamp is one store into the
+//!   row's `RowMeta`, made by every mint before it hands out a token. So in
+//!   `grid/store.rs` a row's generation, a surface's entries and its last
+//!   write are written only by the fns that own them, and a token is built
+//!   only on or after its fn's stamp. A one-character writer stores through
+//!   `RowWrite`, which checks a column against the surface's cells, not the
+//!   pitch: sound while a view is never wider than the pitch, so `RowWrite`
+//!   is built only where it is minted, and in the view's module the width is
+//!   written only in `set_geometry` and `View::new`, each after its assert.
 //!
 //! Comments are not code: a doc that names a slice type is not a store, so
 //! each line is read up to its `//`. Every failure is printed with its file,
@@ -56,7 +57,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The slice element types a surface is made of.
-const SURFACE_TYPES: [&str; 3] = ["PackedCell", "RowExtent", "RowGen"];
+const SURFACE_TYPES: [&str; 4] = ["PackedCell", "RowExtent", "RowGen", "RowMeta"];
 
 /// **Rule A's allowlist**: `(file, the code's trimmed text, why)`. Each entry
 /// must match exactly one line, so a second spelling of an allowed line is a
@@ -94,12 +95,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "baud-core/src/storage.rs",
-        "used: &'b mut [RowExtent],",
-        "Storage::new's parameter",
-    ),
-    (
-        "baud-core/src/storage.rs",
-        "gens: &'b mut [RowGen],",
+        "used: &'b mut [RowMeta],",
         "Storage::new's parameter",
     ),
     (
@@ -109,12 +105,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "baud-core/src/storage.rs",
-        "alt_used: &'b mut [RowExtent],",
-        "Storage::new's parameter",
-    ),
-    (
-        "baud-core/src/storage.rs",
-        "alt_gens: &'b mut [RowGen],",
+        "alt_used: &'b mut [RowMeta],",
         "Storage::new's parameter",
     ),
     (
@@ -144,7 +135,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "baud-core/src/storage.rs",
-        "let used: &'b mut [RowExtent] = row.lent_used;",
+        "let used: &'b mut [RowMeta] = row.lent_used;",
         "Storage::with_status_line: the lent row's extent, its one move",
     ),
     (
@@ -154,12 +145,12 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "baud-core/src/status.rs",
-        "pub(crate) lent_used: &'b mut [RowExtent],",
+        "pub(crate) lent_used: &'b mut [RowMeta],",
         "StatusBuf: the lent row's extent",
     ),
     (
         "baud-core/src/status.rs",
-        "pub fn new(cells: &'b mut [PackedCell], used: &'b mut [RowExtent]) -> StatusBuf<'b> {",
+        "pub fn new(cells: &'b mut [PackedCell], used: &'b mut [RowMeta]) -> StatusBuf<'b> {",
         "StatusBuf::new: the carrier's constructor, its signature unchanged",
     ),
 ];
@@ -403,11 +394,9 @@ fn rule_a(lines: &[Line], seen: &mut [usize]) -> Vec<String> {
                 if t.contains('{') || t.ends_with(';') {
                     let head = s.split('{').next().unwrap_or(s);
                     // The tokens' own `DerefMut` is the way in, already
-                    // stamped: `RowMut` and `MarksMut` deref to their slice.
+                    // stamped: `RowMut` derefs to its slice.
                     let token = head.trim_start().starts_with("fn deref_mut(&mut self)")
-                        && [" for RowMut<", " for MarksMut<"]
-                            .iter()
-                            .any(|t| last_impl.contains(t));
+                        && last_impl.contains(" for RowMut<");
                     if !token
                         && head
                             .split_once("->")
@@ -584,29 +573,26 @@ fn rule_c(lines: &[Line]) -> Vec<String> {
 }
 
 /// **Rule D's writers**: `(field, the fns of [`HOME`] that may write it)`. A
-/// row's generation is stored by the stamp alone (`stamp_new`, and
-/// `stamp_all` for every row); the store's own slices of them only by a seal,
-/// and lent out by the two methods that mint a `Stamped`, each needing
-/// `&mut SurfaceStore`, which no live `Stamped` leaves to take. The row a
-/// borrow stamped last is set only by `stamp_new`, after the store, and at
-/// the mint ([`STAMPED_INIT_IN`]): a hit on it is sound only while that row
-/// holds `now`. A surface's last write has one writer, the `Stamped`'s
-/// `Drop`, beside the seal's wrap and the mint's borrow of it.
+/// row's generation is stored by the stamp alone (`stamp`, and `stamp_all`
+/// for every row), beside the seal's wrap. A surface's entries -- each row's
+/// mark beside its generation -- are written through a field path only where
+/// they are lent (`of`), swept (`seal`, `stamp_all`) or handed out whole
+/// after the stamp (`all_mut`): every other store reaches an entry through
+/// the mark `stamp` hands back. A surface's last write has one writer, the
+/// `Stamped`'s `Drop`, beside the seal's wrap and the mint's borrow of it.
 const D_WRITERS: &[(&str, &[&str])] = &[
-    ("gens", &["stamp_new", "stamp_all"]),
-    ("prim_gens", &["seal", "split", "stamped"]),
-    ("alt_gens", &["seal", "split", "stamped"]),
-    ("status_gens", &["seal", "split", "stamped"]),
-    ("stamped", &["stamp_new"]),
+    ("row_gen", &["stamp", "stamp_all", "seal"]),
+    ("meta", &["of", "seal", "stamp_all", "all_mut"]),
     ("last", &["drop", "seal", "of"]),
 ];
-
-/// The one fn whose struct literal may set the row stamped last.
-const STAMPED_INIT_IN: &str = "of";
 
 /// The token a one-character writer stores through, and the one fn that
 /// builds it.
 const TOKEN: (&str, &str) = ("RowWrite", "row_at");
+
+/// The tokens built by a call, `Name(..)`: each a way to store, minted only
+/// after the stamp.
+const CALL_TOKENS: [&str; 3] = ["RowMut", "MarkMut", "MarksMut"];
 
 /// The `View`'s module: `grid.rs` and its children, which see its private
 /// fields.
@@ -703,28 +689,6 @@ fn writes(code: &str, id: &str) -> bool {
     false
 }
 
-/// Whether `code` sets the field `id` in a struct literal: `id: ..`, the
-/// name standing alone, not a path (`id::`) or a field read (`.id`).
-fn inits(code: &str, id: &str) -> bool {
-    let b = code.as_bytes();
-    let mut from = 0;
-    while let Some(k) = code[from..].find(id) {
-        let at = from + k;
-        from = at + 1;
-        let end = at + id.len();
-        if (at > 0 && (is_ident(b[at - 1]) || b[at - 1] == b'.'))
-            || (end < b.len() && is_ident(b[end]))
-        {
-            continue;
-        }
-        let rest = code[end..].trim_start();
-        if rest.starts_with(':') && !rest.starts_with("::") {
-            return true;
-        }
-    }
-    false
-}
-
 /// Whether `code` builds `name` by a struct literal: `name {`, not a
 /// declaration or an `impl` (`name<'a> {`).
 fn builds(code: &str, name: &str) -> bool {
@@ -751,26 +715,54 @@ fn builds(code: &str, name: &str) -> bool {
     false
 }
 
+/// Whether `code` calls `name`: `name(`, the name bounded before. A tuple
+/// struct's constructor is such a call; its declaration (`Name<'a>(`) and
+/// a type (`Name<'_>`) are not.
+fn calls(code: &str, name: &str) -> bool {
+    let b = code.as_bytes();
+    let mut from = 0;
+    while let Some(k) = code[from..].find(name) {
+        let at = from + k;
+        from = at + 1;
+        let end = at + name.len();
+        if (at == 0 || !is_ident(b[at - 1])) && b.get(end) == Some(&b'(') {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether `code` stamps: a call of `stamp` or `stamp_all`, not the
+/// definition of `stamp`.
+fn calls_stamp(code: &str) -> bool {
+    (calls(code, "stamp") && !spells(code, "fn stamp")) || calls(code, "stamp_all")
+}
+
 /// **Rule D over `baud-domain`'s lines**: who may write a row's
-/// generation, the row a borrow stamped last, and a view's width.
+/// generation and a surface's entries, where a token may be built, and a
+/// view's width.
 ///
 /// * In [`HOME`], outside its tests, each field of [`D_WRITERS`] is written
-///   only inside its listed fns; `stamped: ..` in a struct literal only
-///   inside [`STAMPED_INIT_IN`]; in `stamp_new`, `stamped` only after the
-///   generation's store; the [`TOKEN`] built only in its minting fn.
+///   only inside its listed fns, and the [`TOKEN`] built only in its
+///   minting fn.
+/// * In [`HOME`], a fn that builds a token ([`CALL_TOKENS`], or the
+///   [`TOKEN`] by its literal) calls `stamp` or `stamp_all` on that line or
+///   an earlier one of the same fn: a way to store handed out before the
+///   stamp is a store the stamp may not cover. `RowWrite::mark` builds its
+///   mark from a `RowWrite`, already stamped, and is the one exception.
 /// * In the `View`'s module, a `cols` field is written only in
 ///   `set_geometry`, after an `assert!` in it, and a `View {` literal is
 ///   built only in a fn `new`, after an `assert!` in that fn: a column at
 ///   or past the pitch would store into the next row, which the token does
 ///   not check.
-/// * The control: the field `stamped`, the fns `stamp_new`, `row_at` and
+/// * The control: the field `row_gen`, the fns `stamp`, `row_at` and
 ///   `set_geometry` and the token's struct must each be found, so a rename
 ///   that took the rule's subject away fails it rather than passing it.
 fn rule_d(lines: &[Line]) -> Vec<String> {
     let mut bad = Vec::new();
     let (mut stack, mut file): (Vec<String>, &str) = (Vec::new(), "");
     let mut found = [false; 5];
-    let mut stored_in: Option<String> = None;
+    let mut stamped_in: Option<String> = None;
     let mut asserted_in: Option<String> = None;
     // A `fn` signature `rustfmt` laid out over several lines, until its `{`.
     let mut sig: Option<String> = None;
@@ -808,8 +800,8 @@ fn rule_d(lines: &[Line]) -> Vec<String> {
         let in_fn = |n: &str| f.as_deref() == Some(n);
         let at = || format!("{}:{}: {t}", l.file, l.no);
         if l.file == HOME {
-            found[0] |= f.is_none() && t.starts_with("stamped: usize");
-            found[1] |= spells(t, "fn stamp_new");
+            found[0] |= f.is_none() && t.starts_with("row_gen: RowGen");
+            found[1] |= spells(t, "fn stamp");
             found[2] |= spells(t, &format!("fn {}", TOKEN.1));
             found[4] |= spells(t, &format!("pub struct {}", TOKEN.0));
             for (id, fns) in D_WRITERS {
@@ -817,15 +809,23 @@ fn rule_d(lines: &[Line]) -> Vec<String> {
                     bad.push(format!("Rule D ({id} written in {f:?}): {}", at()));
                 }
             }
-            if f.is_some() && inits(t, "stamped") && !in_fn(STAMPED_INIT_IN) {
-                bad.push(format!("Rule D (stamped built in {f:?}): {}", at()));
+            if f.is_some() && calls_stamp(t) {
+                stamped_in = header.clone();
             }
-            if in_fn("stamp_new") {
-                if writes(t, "gens") {
-                    stored_in = header.clone();
-                }
-                if writes(t, "stamped") && (stored_in.is_none() || stored_in != header) {
-                    bad.push(format!("Rule D (stamped before the store): {}", at()));
+            let token = CALL_TOKENS
+                .iter()
+                .copied()
+                .find(|k| calls(t, k))
+                .or_else(|| builds(t, TOKEN.0).then_some(TOKEN.0));
+            let from_token = enclosing
+                .iter()
+                .any(|h| h.starts_with(&format!("impl {}", TOKEN.0)));
+            if let Some(k) = token {
+                if f.is_some() && !from_token && (stamped_in.is_none() || stamped_in != header) {
+                    bad.push(format!(
+                        "Rule D ({k} built before the stamp in {f:?}): {}",
+                        at()
+                    ));
                 }
             }
             if builds(t, TOKEN.0) && !in_fn(TOKEN.1) {
@@ -855,8 +855,8 @@ fn rule_d(lines: &[Line]) -> Vec<String> {
         }
     }
     let names = [
-        "the field `stamped`",
-        "fn stamp_new",
+        "the field `row_gen`",
+        "fn stamp",
         "fn row_at",
         "fn set_geometry",
         "struct RowWrite",
@@ -912,6 +912,7 @@ fn the_matchers_fire_on_what_they_name() {
     assert!(names_surface_slice("fn f(a: &mut [PackedCell])"));
     assert!(names_surface_slice("fn f(a: &'a mut [ RowExtent ])"));
     assert!(names_surface_slice("x: &mut [baud_domain::RowGen],"));
+    assert!(names_surface_slice("used: &'b mut [RowMeta],"));
     assert!(names_surface_slice(
         "type R<'a> = &'a mut [crate::PackedCell];"
     ));
@@ -1006,34 +1007,56 @@ fn the_matchers_fire_on_what_they_name() {
 }
 
 /// **Rule D's positive controls**: each writer it names, put in a fn that
-/// does not own it, is reported, on the line it is on; the listed fns' own
-/// writes are not, nor the stamp's test, which reads `stamped` and calls
-/// `stamp_new` behind its cold hint; and a file that lost the rule's
-/// subjects fails its control.
+/// does not own it, is reported, on the line it is on, and so is a token
+/// built before the stamp; the listed fns' own writes are not, nor a token
+/// built on or after its fn's stamp, nor `RowWrite`'s mark; and a file that
+/// lost the rule's subjects fails its control.
 #[test]
 fn rule_d_fires_on_what_it_names() {
-    assert!(writes("self.gens[p] = RowGen(self.now.0);", "gens"));
-    assert!(writes("self.gens.fill(now);", "gens"));
-    assert!(writes("let g = &mut self.gens;", "gens"));
-    assert!(writes("let g = &mut *self.gens;", "gens"));
-    assert!(writes("self.stamped = p;", "stamped"));
-    assert!(writes("self.stamped += 1;", "stamped"));
+    assert!(writes("m.row_gen = RowGen(now.0);", "row_gen"));
+    assert!(writes(
+        "self.meta[p].row_gen = RowGen(self.now.0);",
+        "row_gen"
+    ));
+    assert!(writes("self.meta[p] = RowMeta::ZERO;", "meta"));
+    assert!(writes(
+        "(RowMut(&mut *self.cells), MarksMut(&mut *self.meta))",
+        "meta"
+    ));
+    assert!(writes("for m in self.meta.iter_mut() {", "meta"));
     assert!(writes("*self.last = self.now;", "last"));
     assert!(writes("self.cols = cols;", "cols"));
-    assert!(!writes("if p != self.stamped {", "stamped"));
-    assert!(!writes("self.gens.get(p) == x", "gens"));
+    assert!(!writes(
+        "self.meta.get(p).is_none_or(|m| m.row_gen.0 > c)",
+        "row_gen"
+    ));
+    assert!(!writes("let mark = stamp(self.meta, p, self.now);", "meta"));
+    assert!(!writes("let from = self.meta[src].used;", "meta"));
     assert!(!writes("let cols = self.cols.index();", "cols"));
-    assert!(!writes("let gens = x;", "gens"));
-    assert!(!writes("self.prim_gens.fill(z);", "gens"));
+    assert!(!writes("let row_gen = x;", "row_gen"));
+    assert!(calls(
+        "(RowMut(&mut self.cells[a..b]), MarkMut(mark))",
+        "MarkMut"
+    ));
+    assert!(!calls(
+        "pub struct RowMut<'a>(&'a mut [PackedCell]);",
+        "RowMut"
+    ));
+    assert!(!calls("-> (RowMut<'_>, MarkMut<'_>)", "RowMut"));
+    assert!(!calls(
+        "pub struct MarksMut<'a>(&'a mut [RowMeta]);",
+        "MarkMut"
+    ));
+    assert!(calls_stamp("        *stamp(self.meta, p, self.now) = e;"));
+    assert!(calls_stamp("        self.stamp_all();"));
+    assert!(!calls_stamp(
+        "fn stamp(meta: &mut [RowMeta], p: usize, now: WriteGen) -> &mut RowExtent {"
+    ));
     assert!(builds("RowWrite { cells, mark, base, pitch }", "RowWrite"));
     assert!(!builds("pub struct RowWrite<'s> {", "RowWrite"));
     assert!(!builds("impl RowWrite<'_> {", "RowWrite"));
     assert!(builds("        View {", "View"));
     assert!(!builds("ViewRef {", "View"));
-    assert!(inits("Stamped { stamped: 0 }", "stamped"));
-    assert!(inits("    stamped: NONE_STAMPED,", "stamped"));
-    assert!(!inits("if p != self.stamped {", "stamped"));
-    assert!(!inits("stamped::X", "stamped"));
     assert!(
         enclosing_fn(&["fn of( plane: P, ) -> Stamped<'a> {".into()])
             .is_some_and(|(n, _)| n == "of")
@@ -1051,44 +1074,51 @@ fn rule_d_fires_on_what_it_names() {
     let mut home = lines(
         HOME,
         &[
-            "pub struct Stamped<'a> {",
-            "    stamped: usize,",
+            "pub struct RowMeta {",
+            "    row_gen: RowGen,",
             "}",
             "pub struct RowWrite<'s> {",
             "}",
+            "fn stamp(meta: &mut [RowMeta], p: usize, now: WriteGen) -> &mut RowExtent {",
+            "    let m = &mut meta[p];",
+            "    m.row_gen = RowGen(now.0);",
+            "    &mut m.used",
+            "}",
             "impl<'a> Stamped<'a> {",
-            "    fn of() -> Stamped<'a> {",
-            "        Stamped { stamped: NONE_STAMPED }",
-            "    }",
-            "    fn stamp_new(&mut self, p: Row) {",
-            "        self.gens[p] = RowGen(self.now.0);",
-            "        self.stamped = p;",
-            "    }",
             "    pub fn row_at(&mut self, p: Row) -> RowWrite<'_> {",
+            "        let mark = stamp(self.meta, p, self.now);",
             "        RowWrite { cells, mark, base, pitch }",
             "    }",
             "    pub fn row_and_mark(&mut self, p: Row) {",
-            "        self.stamped = p;",
-            "        self.stamp(p);",
+            "        (RowMut(&mut self.cells[a..b]), MarkMut(&mut self.meta[p].used))",
             "    }",
             "    pub fn mark_with(&mut self, p: Row) {",
-            "        self.gens[p] = RowGen(self.now.0);",
+            "        self.meta[p].row_gen = RowGen(self.now.0);",
             "        *self.last = self.now;",
             "    }",
             "    pub fn row_mut(&mut self, p: Row) {",
             "        let w = RowWrite { cells, mark, base: 0, pitch };",
-            "        let s = Stamped { stamped: 0 };",
             "    }",
-            "    #[inline(always)]",
-            "    fn stamp(&mut self, p: Row) {",
-            "        if p != self.stamped {",
-            "            core::hint::cold_path();",
-            "            self.stamp_new(p);",
+            "    pub fn mark_mut(&mut self, p: Row) -> MarkMut<'_> {",
+            "        MarkMut(stamp(self.meta, p, self.now))",
+            "    }",
+            "    pub fn all_mut(&mut self) {",
+            "        self.stamp_all();",
+            "        (RowMut(&mut *self.cells), MarksMut(&mut *self.meta))",
+            "    }",
+            "    pub fn stamp_all(&mut self) {",
+            "        for m in self.meta.iter_mut() {",
+            "            m.row_gen = now;",
             "        }",
             "    }",
             "}",
+            "impl RowWrite<'_> {",
+            "    pub fn mark(&mut self) -> MarkMut<'_> {",
+            "        MarkMut(&mut *self.mark)",
+            "    }",
+            "}",
             "mod tests {",
-            "    fn t() { st.gens[3] = RowGen::ZERO; }",
+            "    fn t() { st.meta[3].row_gen = RowGen::ZERO; }",
             "}",
         ],
     );
@@ -1124,66 +1154,71 @@ fn rule_d_fires_on_what_it_names() {
         .iter()
         .map(|b| b.split(": ").next().unwrap_or("").to_string())
         .collect();
+    let has = |what: &str, line: &str| bad.iter().any(|b| b.contains(what) && b.contains(line));
     assert!(
-        bad.iter().any(
-            |b| b.contains("(stamped written in Some(\"row_and_mark\"))") && b.contains(":18:")
+        has(
+            "(RowMut built before the stamp in Some(\"row_and_mark\"))",
+            "store.rs:17:"
         ),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(gens written in Some(\"mark_with\"))") && b.contains(":22:")),
+        has("(meta written in Some(\"row_and_mark\"))", "store.rs:17:"),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(last written in Some(\"mark_with\"))") && b.contains(":23:")),
+        has("(row_gen written in Some(\"mark_with\"))", "store.rs:20:"),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(RowWrite built in Some(\"row_mut\"))") && b.contains(":26:")),
+        has("(last written in Some(\"mark_with\"))", "store.rs:21:"),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(stamped built in Some(\"row_mut\"))") && b.contains(":27:")),
+        has("(RowWrite built in Some(\"row_mut\"))", "store.rs:24:"),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(cols before the assert)") && b.contains("grid.rs:10:")),
+        has(
+            "(RowWrite built before the stamp in Some(\"row_mut\"))",
+            "store.rs:24:"
+        ),
+        "{bad:#?}"
+    );
+    assert!(has("(cols before the assert)", "grid.rs:10:"), "{bad:#?}");
+    assert!(
+        has("(cols written in Some(\"widen\"))", "grid.rs:14:"),
         "{bad:#?}"
     );
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(cols written in Some(\"widen\"))") && b.contains("grid.rs:14:")),
-        "{bad:#?}"
-    );
-    assert!(
-        bad.iter()
-            .any(|b| b.contains("(View built before the assert)") && b.contains("grid.rs:19:")),
+        has("(View built before the assert)", "grid.rs:19:"),
         "{bad:#?}"
     );
     assert_eq!(
         bad.len(),
-        8,
-        "the listed writers' own writes are not reported: {at:#?}"
+        9,
+        "the listed writers' own writes, the tokens built after their stamp and RowWrite's mark are not reported: {at:#?}"
     );
-    // In `stamp_new`, the row stamped last after the store.
-    let swapped = lines(
+    // A stamp in one fn does not cover a token built in the next.
+    let next = lines(
         HOME,
         &[
-            "    fn stamp_new(&mut self, p: Row) {",
-            "        self.stamped = p;",
-            "        self.gens[p] = RowGen(self.now.0);",
+            "impl<'a> Stamped<'a> {",
+            "    pub fn mark_mut(&mut self, p: Row) {",
+            "        let _ = stamp(self.meta, p, self.now);",
             "    }",
+            "    pub fn row_mut(&mut self, p: Row) {",
+            "        RowMut(&mut self.cells[a..b])",
+            "    }",
+            "}",
         ],
     );
-    let bad = rule_d(&swapped);
+    let bad = rule_d(&next);
     assert!(
-        bad.iter()
-            .any(|b| b.contains("(stamped before the store)") && b.contains(":2:")),
+        bad.iter().any(
+            |b| b.contains("(RowMut built before the stamp in Some(\"row_mut\"))")
+                && b.contains(":6:")
+        ),
         "{bad:#?}"
     );
     // The control: a file with none of the subjects fails, naming each.

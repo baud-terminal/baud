@@ -2783,7 +2783,7 @@ impl<'b> Term<'b> {
     /// The live surface: its cells, its marks, its ring and its rotation, by
     /// which screen is up. The primary is the whole ring, scrollback and all;
     /// the alternate is a ring of the screen's capacity.
-    fn surface(&self) -> (&[PackedCell], &[RowExtent], Rows, RowRot) {
+    fn surface(&self) -> (&[PackedCell], RowMarks<'_>, Rows, RowRot) {
         match self.cold.screen {
             Screen::Normal => (
                 self.store.surfaces.cells(Which::Primary),
@@ -4021,7 +4021,7 @@ impl<'b> Term<'b> {
     /// and takes [`Viewport::parts`] otherwise.
     pub fn viewport(&self) -> Viewport<'_> {
         let (cells, used, ring, rot) = self.surface();
-        let v = Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        let v = Viewport::stored(cells, used, self.stride, self.cols, self.rows, ring, rot);
         // **A view of the primary reads its rows through the generations**
         // (`crate::freeze`): a row behind the window that was frozen names
         // ids in its generation's words, which `Viewport::styles` gives a
@@ -4063,7 +4063,7 @@ impl<'b> Term<'b> {
                 Rows::ZERO,
             ),
         };
-        let v = Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot);
+        let v = Viewport::stored(cells, used, self.stride, self.cols, self.rows, ring, rot);
         (v, top, hist)
     }
 
@@ -4542,7 +4542,7 @@ impl<'b> Term<'b> {
             return;
         };
         let lin = |i| base.advance(i, ring);
-        let sized = |used: &[RowExtent], i| used[lin(i).index()].rendition().is_double();
+        let sized = |used: RowMarks<'_>, i| used[lin(i).index()].rendition().is_double();
         let mut g: Option<GenIdx> = None;
         let mut i = 0;
         while i < n {
@@ -4709,7 +4709,7 @@ impl<'b> Term<'b> {
             .store
             .surfaces
             .used(Which::Status)
-            .first()
+            .get(0)
             .map_or(LineRendition::Single, |u| u.rendition());
         let cursor = (st.active == ActiveDisplay::Status)
             .then(|| st.park_cursor(rendition, &self.cold, self.cols))
@@ -4733,7 +4733,7 @@ impl<'b> Term<'b> {
         let cells = self.store.surfaces.cells(Which::Status);
         let used = self.store.surfaces.used(Which::Status);
         (cells.len() >= self.cols.index() && !used.is_empty()).then(|| {
-            Viewport::new(
+            Viewport::stored(
                 cells,
                 used,
                 self.stride,
@@ -5578,7 +5578,7 @@ impl<'b> Term<'b> {
     /// every cell past the live edge of every row of the ring: for tests and
     /// debug builds, not a frame.
     pub fn past_edge_check(&self) -> PastEdgeCheck {
-        Viewport::new(
+        Viewport::stored(
             self.store.surfaces.cells(Which::Primary),
             self.store.surfaces.used(Which::Primary),
             self.stride,

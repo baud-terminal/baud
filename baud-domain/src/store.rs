@@ -77,10 +77,12 @@ pub struct RunRange {
 ///
 /// The word is a `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it
 /// fits, and with the path and the side margins a row wrapped at beside it
-/// ([`WrapMargins`]) an entry is 8 bytes, so at `MAX_ROWS` entries per
-/// buffer and two buffers the narrow form is 10 KB of working set against
-/// the 20 KB a `usize` word and its padding would take; a line of the
-/// history holds one too, 8 bytes beside its cells' 8 a column. That is the
+/// ([`WrapMargins`]) a mark is 8 bytes. Beside the row's write generation
+/// it fills a 16-byte [`crate::RowMeta`], so at `MAX_ROWS` rows per buffer
+/// and two buffers the entries are 20 KB of working set, where a `usize`
+/// word would make the mark 16 bytes, the entry 32 and the buffers 40 KB; a
+/// line of the history holds one too, 16 bytes beside its cells' 8 a
+/// column. That is the
 /// "thousands are stored" case, the one where narrowing earns its place, and it is read once per row operation rather than
 /// once per cell.
 ///
@@ -111,7 +113,7 @@ pub struct RowExtent {
 /// **Whether a row may hold a cell that names an `OSC 8` link**, for the
 /// link table's sweep, which reads only the rows that may
 /// (`baud-core`'s `links.rs`). In the byte the row's mark left as padding,
-/// so every move of a row carries it as it carries the mark, and the entry
+/// so every move of a row carries it as it carries the mark, and the mark
 /// stays eight bytes.
 ///
 /// **Too many is the safe direction**, as for the mark: a row marked
