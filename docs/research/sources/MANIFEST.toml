@@ -85,6 +85,7 @@
 #   SP  the shell prompt baud ships: starship's configuration schema, which assets/starship/baud.toml is checked against (baud-app/tests/starship_preset.rs)
 #   FM  the films' pieces: the licences of the photo and the fonts the demo's takes show (assets/demo/LICENSES.md)
 #   TB  the title bar's double-click: the Desktop & Dock setting and where it is read (baud-present-macos/src/container.rs)
+#   WF  the window's facts: the notifications that change its frame, screen, backing scale and minimized state, which XTWINOPS's reports answer from (baud-app/src/app.rs)
 #
 # Selection, resize and reflow, Sixel and images have no group of their own:
 # their sources are filed under C, and the images' also under J.
@@ -40393,4 +40394,127 @@ group  = "TB"
 # Not in the repository: no grant to redistribute it was found (Apple's
 # documentation). It was read as
 # apple-nswindowdelegate-windowwillusestandardframe.json, and the digest is of
+# that copy.
+
+# Group WF, the window's facts: the notifications that change a window's
+# frame, its screen, its backing scale and whether it is minimized, which
+# XTWINOPS's reports and XTQALLOWED answer from (baud-app/src/app.rs,
+# poll_window). The pages name the object each is posted with and whether it
+# carries a userInfo; none says whether a move or a resize posts during a
+# live drag or only at its end.
+
+[sources.apple-nswindow-didmovenotification]
+key    = "apple-nswindow-didmovenotification"
+title  = "NSWindow didMoveNotification -- 'A notification that the window object moved'; 'The system sends this notification when the window that moved didn’t also change size' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didmovenotification.json"
+file   = ""
+sha256 = "fd097aa9d0718a2abb3db846c0716da6ec20cf9be21a732b76138feffa8d6871"
+bytes  = 37838
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-didmovenotification.json, and the digest is of
+# that copy.
+# It says nothing about whether it posts during a live drag or only at the
+# drag's end.
+
+[sources.apple-nswindow-didresizenotification]
+key    = "apple-nswindow-didresizenotification"
+title  = "NSWindow didResizeNotification -- 'A notification that the window object size changed'; the object is the window, no userInfo (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didresizenotification.json"
+file   = ""
+sha256 = "4203ff6bb43aa1cc27a63c44c8344aa66f44fb1393a9fbf98ec3f769428fb4d4"
+bytes  = 37444
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-didresizenotification.json, and the digest is of
+# that copy.
+# It says nothing about whether it posts during a live resize or only at its
+# end.
+
+[sources.apple-nswindow-didchangescreennotification]
+key    = "apple-nswindow-didchangescreennotification"
+title  = "NSWindow didChangeScreenNotification -- 'A notification that a portion of the window object’s frame moved onto or off of a screen' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didchangescreennotification.json"
+file   = ""
+sha256 = "dd863309bb1cd15b85e57e0500fc7058e5a811002e9447b9e6f4705aa2845195"
+bytes  = 37564
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-didchangescreennotification.json, and the digest is of
+# that copy.
+
+[sources.apple-nswindow-didchangebackingpropertiesnotification]
+key    = "apple-nswindow-didchangebackingpropertiesnotification"
+title  = "NSWindow didChangeBackingPropertiesNotification -- 'A notification that the window object backing properties changed'; its userInfo has backing scale and color space information; macOS 10.7 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didchangebackingpropertiesnotification.json"
+file   = ""
+sha256 = "4f5a509dfd43835eaf2819fc586c1fb3433079b2d4660cb7a38e6454f8f805c5"
+bytes  = 39119
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-didchangebackingpropertiesnotification.json, and the digest is of
+# that copy.
+
+[sources.apple-nswindow-didminiaturizenotification]
+key    = "apple-nswindow-didminiaturizenotification"
+title  = "NSWindow didMiniaturizeNotification -- 'A notification that the window object minimized' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/didminiaturizenotification.json"
+file   = ""
+sha256 = "b9f314e2d0af269d01e45f0e9beb3b0c3837f18e6857ac798cf40f9691c9a799"
+bytes  = 37515
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-didminiaturizenotification.json, and the digest is of
+# that copy.
+
+[sources.apple-nswindow-diddeminiaturizenotification]
+key    = "apple-nswindow-diddeminiaturizenotification"
+title  = "NSWindow didDeminiaturizeNotification -- 'A notification that the window is no longer minimized' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/diddeminiaturizenotification.json"
+file   = ""
+sha256 = "8ee4e6703a300d8c6cbf52d0bdb7aa709ed5690474710e3d4a888c5b2680757d"
+bytes  = 37541
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nswindow-diddeminiaturizenotification.json, and the digest is of
+# that copy.
+
+[sources.apple-nsapplication-didchangescreenparametersnotification]
+key    = "apple-nsapplication-didchangescreenparametersnotification"
+title  = "NSApplication didChangeScreenParametersNotification -- 'Posted when the configuration of the displays attached to the computer is changed', programmatically or in the Displays settings; the object is shared; posted on the main actor (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/didchangescreenparametersnotification.json"
+file   = ""
+sha256 = "51d6ba1888cdf2018bc2a0e8a912bfa6b45a09aeef0d53305abdbb7dd22535c5"
+bytes  = 41824
+status = "external"
+group  = "WF"
+# Not in the repository: no grant to redistribute it was found (Apple's
+# documentation). It was read as nsapplication-didchangescreenparametersnotification.json, and the digest is of
 # that copy.
