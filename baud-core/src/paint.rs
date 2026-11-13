@@ -228,7 +228,9 @@ pub(crate) struct Paint<'a, 'b> {
     /// **The surface not live of the main display's and the status line's**:
     /// the line's row while the main display is written, and the main
     /// display's while the line is (`status.rs`, `Paint::swap_display`).
-    pub(crate) status: Surface<'a>,
+    /// Written only through the indicator's key, which every write forgets
+    /// ([`crate::status::StatusSurface`]).
+    pub(crate) status: crate::status::StatusSurface<'a>,
     /// The primary ring's bookkeeping: how many rows behind the window are
     /// lines, how many after it were cut by a shorter window. One word.
     pub(crate) book: &'a mut crate::storage::Book<'b>,
@@ -464,7 +466,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             crate::term::Screen::Alternate => Which::Alternate,
         };
         let (live, away, line) = surfaces.split(up);
-        let status = Surface::new(line, Rows::of_count(1), RowRot::NONE);
+        let status =
+            crate::status::StatusSurface::new(Surface::new(line, Rows::of_count(1), RowRot::NONE));
         let (view, other) = match cold.screen {
             crate::term::Screen::Normal => (
                 View::new(live, cols, rows, ring, rot),

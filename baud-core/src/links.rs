@@ -95,7 +95,8 @@ impl Paint<'_, '_> {
         let mut live = LinkLive::new();
         let (s, cols) = (self.view.stride(), self.cols);
         let mut read = self.view.mark_links(&mut live).index();
-        for surface in [&mut self.other, &mut self.status] {
+        let plane = self.status.surface_mut(&mut self.strs.status.composed);
+        for surface in [&mut self.other, plane] {
             read += mark_linked_rows(surface.store_mut(), cols.index(), &mut live).index();
         }
         // The status line whole, wherever it is: one row.

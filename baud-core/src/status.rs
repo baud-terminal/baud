@@ -339,6 +339,98 @@ pub(crate) struct Status {
     /// kept across reads and types, as the printer port is, and redrawn
     /// at each read's end from here.
     pub(crate) lamps: Option<IndicatorLamps>,
+    /// **What the indicator line shows**, the fields of its last compose,
+    /// or nothing known: a compose of the fields it holds is skipped
+    /// ([`Shown`]).
+    pub(crate) composed: Shown,
+}
+
+/// **The fields the indicator line was last composed from**, or nothing
+/// known, the key a compose is skipped on: equal fields compose equal
+/// cells, so a read's end that moved nothing the line shows stores none of
+/// its cells and leaves its row's generation where it was, and a renderer
+/// keeping the line's last copy keeps it.
+///
+/// **The key is the fields alone, and every other writer of the line
+/// forgets it.** The row's generation cannot stand in for it: a store
+/// stamps the generation of the frame and only a seal moves it, so a
+/// compose and a later write before the next seal stamp the same one. The
+/// rendition is not in the key: it is assigned only where the line is
+/// blanked, which forgets ([`Paint::clear_status`]), and the line's cells
+/// keep its slot live. Nor is the width: it moves only in a resize, whose
+/// blank forgets ([`Term::status_resized`]). Every mutable way to the
+/// line's plane goes through [`StatusSurface::write`] or
+/// [`StatusSurface::surface_mut`], which forget first; the calls that
+/// reach the plane in `baud-domain`'s store are listed by
+/// `baud-core/tests/indicator_kept.rs`.
+#[derive(Clone, Copy)]
+pub(crate) struct Shown(Option<Indicators>);
+
+impl Shown {
+    /// Nothing known: the next compose draws.
+    pub(crate) const FORGOTTEN: Shown = Shown(None);
+
+    /// Whether the line shows `ind` already.
+    fn holds(&self, ind: &Indicators) -> bool {
+        self.0.as_ref() == Some(ind)
+    }
+
+    /// The line composed from `ind`.
+    fn set(&mut self, ind: Indicators) {
+        self.0 = Some(ind);
+    }
+
+    /// The line written by something other than the compose.
+    fn forget(&mut self) {
+        self.0 = None;
+    }
+}
+
+/// **The surface not live of the main display's and the status line's**,
+/// [`Paint::status`]: the line's row while the main display is written,
+/// and the main display's while the line is (`Paint::swap_display`). Read
+/// freely; written only through [`StatusSurface::write`] and
+/// [`StatusSurface::surface_mut`], which take the indicator's key and
+/// forget it first, so a writer of the line cannot leave a compose
+/// skipped over its cells. While the line is swapped in, this holds the
+/// main display, and the forgetting is the safe direction.
+pub(crate) struct StatusSurface<'a>(Surface<'a>);
+
+impl<'a> StatusSurface<'a> {
+    /// `s`, behind the key.
+    pub(crate) fn new(s: Surface<'a>) -> StatusSurface<'a> {
+        StatusSurface(s)
+    }
+
+    /// Its memory, to read.
+    pub(crate) fn store(&self) -> &Stamped<'a> {
+        self.0.store()
+    }
+
+    /// Its rotation.
+    pub(crate) fn rot(&self) -> RowRot {
+        self.0.rot()
+    }
+
+    /// Its ring's depth.
+    pub(crate) fn ring(&self) -> Rows {
+        self.0.ring()
+    }
+
+    /// Its memory, to write, the key forgotten.
+    pub(crate) fn write(&mut self, key: &mut Shown) -> &mut Stamped<'a> {
+        self.forgetting(key).store_mut()
+    }
+
+    /// The surface whole, to swap into the view, the key forgotten.
+    pub(crate) fn surface_mut(&mut self, key: &mut Shown) -> &mut Surface<'a> {
+        self.forgetting(key)
+    }
+
+    fn forgetting(&mut self, key: &mut Shown) -> &mut Surface<'a> {
+        key.forget();
+        &mut self.0
+    }
 }
 
 impl Status {
@@ -359,6 +451,7 @@ impl Status {
             park: Parked::fresh(cols),
             mark: None,
             lamps: None,
+            composed: Shown::FORGOTTEN,
         }
     }
 
@@ -396,7 +489,7 @@ impl Status {
 /// space between (070-14 §14.2.1.2, "The indicators shall be placed in
 /// fixed positions on the Indicator Status Line, and there shall be at
 /// least one space (SP, 2/0) character between indicators").
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Indicators {
     /// The active position, as `1(line,column)`: the page, baud's one,
     /// then the cursor.
@@ -678,6 +771,26 @@ pub(crate) fn compose(mut row: RowMut<'_>, cols: Cols, style: StyleId, ind: Indi
     }
 }
 
+/// **The indicator composed from `ind` on `line`, unless it shows `ind`
+/// already**: then nothing is stored and the row's generation stays.
+/// Otherwise the row is taken through the forgetting accessor, composed,
+/// and `ind` kept as what it shows.
+fn compose_indicator(
+    line: &mut StatusSurface<'_>,
+    key: &mut Shown,
+    cols: Cols,
+    style: StyleId,
+    ind: Indicators,
+) {
+    if key.holds(&ind) {
+        return;
+    }
+    if let Some(row) = line.write(key).get_row_mut(0) {
+        compose(row, cols, style, ind);
+    }
+    key.set(ind);
+}
+
 impl Paint<'_, '_> {
     /// Whether the live fields are the line's.
     pub(crate) fn on_status(&self) -> bool {
@@ -747,7 +860,8 @@ impl Paint<'_, '_> {
         core::mem::swap(&mut self.cold.alt_top, &mut p.alt_top);
         self.strs.status.park = p;
         self.strs.status.swapped = into;
-        self.view.swap_surface(&mut self.status);
+        self.view
+            .swap_surface(self.status.surface_mut(&mut self.strs.status.composed));
         self.row_changed_to(self.cy);
         // **What this display's home and limit do is taken again**: they
         // came back with it, and BDSM and DCSM, both displays', may have
@@ -847,7 +961,7 @@ impl Paint<'_, '_> {
     /// the main display is live.
     pub(crate) fn clear_status(&mut self) {
         let cols = self.cols;
-        let (mut cells, mut marks) = self.status.store_mut().all_mut();
+        let (mut cells, mut marks) = self.status.write(&mut self.strs.status.composed).all_mut();
         marks.fill(RowExtent::ZERO);
         cells.fill(PackedCell::EMPTY);
         self.strs.status.park = Parked::fresh(cols);
@@ -867,7 +981,8 @@ impl Paint<'_, '_> {
             return;
         }
         if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
-            let (mut cells, mut marks) = self.status.store_mut().all_mut();
+            let (mut cells, mut marks) =
+                self.status.write(&mut self.strs.status.composed).all_mut();
             marks.fill(RowExtent::ZERO);
             cells.fill(PackedCell::EMPTY);
         }
@@ -915,7 +1030,8 @@ impl Paint<'_, '_> {
         self.draw_indicator();
     }
 
-    /// The indicator drawn for this read's end, the main display live.
+    /// The indicator drawn for this read's end, the main display live,
+    /// unless the line shows its fields already ([`Shown`]).
     pub(crate) fn draw_indicator(&mut self) {
         if self.strs.status.kind != StatusType::Indicator {
             return;
@@ -947,13 +1063,30 @@ impl Paint<'_, '_> {
             printer: PrinterShown::of(&self.strs.print),
             lamps: self.strs.status.lamps,
         };
-        if let Some(row) = self.status.store_mut().get_row_mut(0) {
-            compose(row, self.cols, style, ind);
-        }
+        compose_indicator(
+            &mut self.status,
+            &mut self.strs.status.composed,
+            self.cols,
+            style,
+            ind,
+        );
     }
 }
 
 impl Term<'_> {
+    /// **The line's plane between reads, and its key**, apart: the one way
+    /// the host side reaches the line to write it, so its writes forget
+    /// the key as [`Paint::status`]'s do.
+    fn status_plane(&mut self) -> (StatusSurface<'_>, &mut Shown) {
+        let store = &mut self.store;
+        let line = Surface::new(
+            store.surfaces.stamped(Which::Status),
+            Rows::of_count(1),
+            RowRot::NONE,
+        );
+        (StatusSurface::new(line), &mut store.strs.status.composed)
+    }
+
     /// **The line after a resize**: the main display's width, the cells past
     /// the narrower of the two widths blanked, its margins at its edges and
     /// its cursor inside them, "If Column Mode (DECCOLM) is changed, the
@@ -967,14 +1100,11 @@ impl Term<'_> {
     pub(crate) fn status_resized(&mut self, old: Cols) {
         let cols = self.cols;
         let (lo, hi) = (old.index().min(cols.index()), old.index().max(cols.index()));
-        if let Some(mut span) = self
-            .store
-            .surfaces
-            .stamped(Which::Status)
-            .get_span_mut(0, lo..hi)
-        {
+        let (mut line, key) = self.status_plane();
+        if let Some(mut span) = line.write(key).get_span_mut(0, lo..hi) {
             span.fill(PackedCell::EMPTY);
         }
+        drop(line);
         let r = self
             .store
             .surfaces
@@ -1016,7 +1146,8 @@ impl Term<'_> {
     /// one: the locator moved or turned off by its report, the cursor
     /// clamped by a resize, the printer the embedder has. In the
     /// rendition a read interned for it; before any read drew it there is
-    /// none, and nothing to draw.
+    /// none, and nothing to draw. Not while the line shows its fields
+    /// already ([`Shown`]).
     pub(crate) fn redraw_indicator(&mut self) {
         let st = &self.store.strs.status;
         let (StatusType::Indicator, Some(style)) = (st.kind, st.mark) else {
@@ -1033,8 +1164,8 @@ impl Term<'_> {
             printer: PrinterShown::of(&self.store.strs.print),
             lamps: self.store.strs.status.lamps,
         };
-        if let Some(row) = self.store.surfaces.stamped(Which::Status).get_row_mut(0) {
-            compose(row, self.cols, style, ind);
-        }
+        let cols = self.cols;
+        let (mut line, key) = self.status_plane();
+        compose_indicator(&mut line, key, cols, style, ind);
     }
 }

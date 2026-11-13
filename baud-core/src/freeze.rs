@@ -240,8 +240,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         let (prim, alt): (&mut Stamped<'a>, &mut Stamped<'a>) = match screen {
             (false, Screen::Normal) => (self.view.store_mut(), self.other.store_mut()),
             (false, Screen::Alternate) => (self.other.store_mut(), self.view.store_mut()),
-            (true, Screen::Normal) => (self.status.store_mut(), self.other.store_mut()),
-            (true, Screen::Alternate) => (self.other.store_mut(), self.status.store_mut()),
+            (true, Screen::Normal) => (
+                self.status.write(&mut self.strs.status.composed),
+                self.other.store_mut(),
+            ),
+            (true, Screen::Alternate) => (
+                self.other.store_mut(),
+                self.status.write(&mut self.strs.status.composed),
+            ),
         };
         Some(Parts {
             prim,
@@ -428,7 +434,7 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.view.store_mut()
             }
             (true, Screen::Normal, Up::Primary) | (true, Screen::Alternate, Up::Alternate) => {
-                self.status.store_mut()
+                self.status.write(&mut self.strs.status.composed)
             }
             _ => self.other.store_mut(),
         };

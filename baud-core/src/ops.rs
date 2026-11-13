@@ -4167,7 +4167,10 @@ impl Paint<'_, '_> {
         // taken again when it is swapped in.
         if self.status.store().rows() > 0 {
             let cols = self.cols;
-            let mut u = self.status.store_mut().mark_mut(0);
+            let mut u = self
+                .status
+                .write(&mut self.strs.status.composed)
+                .mark_mut(0);
             self.strs
                 .status
                 .park
