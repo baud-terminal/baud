@@ -210,9 +210,37 @@ pub struct GpuFrame {
 struct Ring(usize);
 
 /// Shared memory a grid of cells lives in, from [`Gpu::grid`]: what the
-/// cell path binds -- in the app, a frame set's copy of the window -- and
-/// what the core may be lent its storage from.
+/// cell path binds -- in the app, a frame set's copy of the window.
 pub struct GridBuffer(Buffer);
+
+/// **Shared memory a surface the core writes lives in**, from
+/// [`Gpu::surface`]: the primary ring or the alternate screen, lent to the
+/// core through `Owned::storage_over` and held while it is. A type of its
+/// own, with no method, so it is never bound: the cell path binds a
+/// [`GridBuffer`] (`CellInput::grid`), the copy of the window a frame
+/// owns, and the GPU never reads memory the core writes while a frame is
+/// in flight.
+///
+/// A `GridBuffer` is what a frame's input names:
+///
+/// ```
+/// use baud_present_macos::{CellInput, GridBuffer};
+/// fn bind<'a>(input: CellInput<'a>, grid: &'a GridBuffer) -> CellInput<'a> {
+///     CellInput { grid, ..input }
+/// }
+/// ```
+///
+/// and a `SurfaceMemory` is not:
+///
+/// ```compile_fail,E0308
+/// use baud_present_macos::{CellInput, SurfaceMemory};
+/// fn bind<'a>(input: CellInput<'a>, grid: &'a SurfaceMemory) -> CellInput<'a> {
+///     CellInput { grid, ..input }
+/// }
+/// ```
+pub struct SurfaceMemory {
+    _held: Buffer,
+}
 
 /// Shared memory the resolved rendition table lives in.
 pub struct StylesBuffer(Buffer);
@@ -1669,11 +1697,9 @@ impl Gpu {
             .newBufferWithLength_options(bytes.0.max(1), MTLResourceOptions::StorageModeShared)
     }
 
-    /// Memory for a surface of `rows` rows at `stride` cells, in the GPU's
-    /// own reach: the buffer the cell path binds, and the slice to lend
-    /// the core through `Owned::storage_over` -- the primary ring at
-    /// `Owned::ring` rows, the alternate screen at `Owned::rows`. Every
-    /// cell starts empty.
+    /// Memory for a grid of `rows` rows at `stride` cells, in the GPU's
+    /// own reach: the buffer the cell path binds, and the slice its owner
+    /// writes -- a frame set's copy of the window. Every cell starts empty.
     pub fn grid(
         &self,
         rows: Rows,
@@ -1689,6 +1715,20 @@ impl Gpu {
         let cells = unsafe { lend::<PackedCell>(&buffer, Elems(n)) }?;
         cells.fill(PackedCell::EMPTY);
         Some((GridBuffer(buffer), cells))
+    }
+
+    /// **Memory for a surface the core writes**, `rows` rows at `stride`
+    /// cells, and the slice to lend it through `Owned::storage_over` --
+    /// the primary ring at `Owned::ring` rows, the alternate screen at
+    /// `Owned::rows`. Every cell starts empty. The memory is a
+    /// [`SurfaceMemory`], which no frame can bind.
+    pub fn surface(
+        &self,
+        rows: Rows,
+        stride: Stride,
+    ) -> Option<(SurfaceMemory, &'static mut [PackedCell])> {
+        let (grid, cells) = self.grid(rows, stride)?;
+        Some((SurfaceMemory { _held: grid.0 }, cells))
     }
 
     /// Memory for the rendition table resolved, one entry a slot of

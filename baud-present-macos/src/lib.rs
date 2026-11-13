@@ -77,7 +77,7 @@ pub use metal::{
     Allocated, Build, Came, Cause, CellInput, CommitId, Completion, Deadline, Done, Drawn,
     EffectBuild, EffectPipes, ErrorNumber, Fault, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame,
     GpuUse, GridBuffer, InARow, InFlight, Landed, Late, MapBuffer, Memory, Overdue, OverlayBuffer,
-    Refusal, StatusWord, StillBusy, StylesBuffer, Target, Waited,
+    Refusal, StatusWord, StillBusy, StylesBuffer, SurfaceMemory, Target, Waited,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};

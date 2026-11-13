@@ -45,7 +45,7 @@ use baud_present_macos::settings::{AnimatedImages, Flashing, Heard, Setting};
 use baud_present_macos::{
     Came, CellInput, Deadline, Drawn, FaultCode, Faults, Flying, GaveUp, Gpu, GpuFrame, GpuUse,
     GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer, Presented, Presenter, Refusal,
-    StylesBuffer, SurfaceSpace, Switched,
+    StylesBuffer, SurfaceMemory, SurfaceSpace, Switched,
     journal::{Reshape, Wheel},
     screens::Screens,
 };
@@ -547,8 +547,9 @@ fn honour(
 
 /// What the terminal's surfaces live in when its storage does not hold
 /// them: on the cell path, the two GPU buffers the primary ring and the
-/// alternate screen are lent from (`Owned::storage_over`).
-type Surfaces = Option<(GridBuffer, GridBuffer)>;
+/// alternate screen are lent from (`Owned::storage_over`), each a
+/// `SurfaceMemory`, which no frame can bind.
+type Surfaces = Option<(SurfaceMemory, SurfaceMemory)>;
 
 struct App {
     /// The terminal, with its storage, its kitty files reader and the GPU
@@ -1409,7 +1410,10 @@ impl App {
         let (mut wanted, gpu, term) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
                 let owned = provisioned(Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT));
-                match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
+                match (
+                    gpu.surface(owned.ring(), pitch),
+                    gpu.surface(owned.rows(), pitch),
+                ) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
                         let term = crate::lent::Screen::new(
                             owned,
