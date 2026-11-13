@@ -3514,6 +3514,76 @@ mod tests {
         assert_eq!(runs(&l), [(0, 4, 6)]);
     }
 
+    /// One CPU frame of `t`'s window onto `px`, the runs `l` keeps set on
+    /// `r` as the driver sets them, as `damage` says.
+    fn painted(
+        r: &mut baud_render::Renderer<'_, '_>,
+        t: &mut Term<'_>,
+        l: &Lines,
+        px: &mut Vec<u32>,
+        damage: baud_render::Damage,
+    ) {
+        r.set_link_lines(l.lines(), baud_render::LineStyle::Solid);
+        r.set_link_strikes(l.struck(), &[]);
+        r.fit(t);
+        let (w, h) = r.pixel_size();
+        let n = usize::try_from(w.value() * h.value()).unwrap();
+        if px.len() != n {
+            *px = vec![0; n];
+        }
+        let back = t.window_back();
+        let mut target = baud_render::Target::new(&mut px[..], w, w, h).unwrap();
+        let _ = r.render_at(t, back, &mut target, damage);
+    }
+
+    /// **C6-19: an answer with nothing written draws its line on the next
+    /// frame**, end to end: the reader's answer, `answered`, the scan, the
+    /// setters the driver calls with its runs, and the renderer's next
+    /// incremental CPU frame, which is a fresh renderer's full frame. The
+    /// Paths generation reaches the renderer only through the runs the
+    /// setters are handed. Named break: the renderer's lines copied with
+    /// the key's inputs unmoved.
+    #[test]
+    fn an_answer_with_nothing_written_draws_its_line_the_next_frame() {
+        use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Theme};
+        let faces = [baud_font::Face::parse(crate::embedded::REGULAR.bytes).unwrap()];
+        let made = || {
+            Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                Theme::dark(),
+                Blend::Native,
+                baud_domain::Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap()
+        };
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut at = at();
+        fed(&mut t, &mut at, b"see /p1 and /p2 ok\r\nplain");
+        let (mut l, mut a) = (Lines::default(), Answering::default());
+        let (mut r, mut px) = (made(), Vec::new());
+        for damage in [Damage::Full, Damage::Incremental, Damage::Incremental] {
+            let _ = l.scan(&t, at, &mut a);
+            painted(&mut r, &mut t, &l, &mut px, damage);
+        }
+        assert_eq!(l.lines(), &[] as &[LinkLine], "the control: none found");
+        let seal = t.sealed();
+        let mut before = Vec::new();
+        painted(&mut made(), &mut t, &l, &mut before, Damage::Full);
+        a.toggle("/p1");
+        l.answered();
+        let _ = l.scan(&t, at, &mut a);
+        assert_eq!(runs(&l), [(0, 4, 6)], "the control: the answer draws");
+        assert_eq!(written(&t, &seal), [] as [usize; 0], "no row written");
+        let mut fresh = Vec::new();
+        painted(&mut made(), &mut t, &l, &mut fresh, Damage::Full);
+        assert!(fresh != before, "the control: the line shows");
+        painted(&mut r, &mut t, &l, &mut px, Damage::Incremental);
+        assert!(px == fresh, "the next frame draws the answer");
+    }
+
     /// URIs, and one span of lines handed as refiled to the next scan.
     #[derive(Default)]
     struct Refiling {
