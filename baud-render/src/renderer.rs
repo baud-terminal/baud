@@ -5080,19 +5080,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// **The lines at rest for the next frames**: the scan's runs, whose
     /// solids [`Renderer::place_links`] builds once the frame's layout is
     /// known. Copied only when they changed, so a frame that changed nothing
-    /// allocates nothing.
+    /// allocates nothing. **A change of `style` repaints every row**, as
+    /// [`Renderer::set_theme`] does: the rows a line is on compare as
+    /// unchanged, since no cell and no run moved. A config read again, so
+    /// the whole frame.
     pub fn set_link_lines(&mut self, lines: &[LinkLine], style: LineStyle) {
         if self.link_lines != lines {
             self.link_lines.clear();
             self.link_lines.extend_from_slice(lines);
         }
-        self.line_style = style;
+        if self.line_style != style {
+            self.line_style = style;
+            self.known = Prev::Unknown;
+        }
     }
 
     /// **The colour the lines at rest take**: `[message]`'s box colour, or,
-    /// under `[link] hover = "line"`, the text's own.
+    /// under `[link] hover = "line"`, the text's own. **A change repaints
+    /// every row**, as a change of the lines' style does
+    /// ([`Renderer::set_link_lines`]).
     pub fn set_line_colour(&mut self, colour: LineColour) {
-        self.line_colour = colour;
+        if self.line_colour != colour {
+            self.line_colour = colour;
+            self.known = Prev::Unknown;
+        }
     }
 
     /// **The struck links for the next frames**: the scan's runs at rest,
@@ -5115,8 +5126,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// `[link] missing_color`, read at draw against the colours in force.
+    /// **A change repaints every row**, as a change of the lines' style
+    /// does ([`Renderer::set_link_lines`]): a struck cell lent no slot -- one
+    /// the selection covers -- keeps its id, so only its strike moves
+    /// colour, and its row compares as unchanged.
     pub fn set_link_missing(&mut self, paint: MissingPaint) {
-        self.missing_paint = paint;
+        if self.missing_paint != paint {
+            self.missing_paint = paint;
+            self.known = Prev::Unknown;
+        }
     }
 
     /// **The cells of each of a copy's first `rows` rows a struck link's
@@ -5599,8 +5617,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// **The colours a message is drawn in** ([`crate::message`]), which a
     /// field whose hints name [`crate::Hints::MESSAGE`] reads at draw.
+    /// **A change repaints every row**, as a change of the lines' style
+    /// does ([`Renderer::set_link_lines`]): the lines at rest are drawn in
+    /// the box's colour, and their rows compare as unchanged.
     pub fn set_message_colours(&mut self, colours: crate::message::MessageColours) {
-        self.message_colours = colours;
+        if self.message_colours != colours {
+            self.message_colours = colours;
+            self.known = Prev::Unknown;
+        }
     }
 
     /// **The selection drawn in the message pair for the next frames**, or
